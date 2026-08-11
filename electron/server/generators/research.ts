@@ -322,7 +322,7 @@ function renderResearchMarkdown(r: ResearchOutput): string {
     for (let i = 0; i < r.citations.length; i++) {
       const c = r.citations[i]!
       const url = canonicalHttpUrl(c.url)
-      const link = url ? `[${c.title}](${url})` : c.title
+      const link = url ? `[${escapeMarkdownLinkLabel(c.title)}](<${url}>)` : c.title
       // publisher / published_at are carried through only when the provider
       // actually supplied them — they are not reliable today.
       const attribution = [c.publisher, c.published_at].filter(Boolean).join(', ')
@@ -338,11 +338,15 @@ function renderResearchMarkdown(r: ResearchOutput): string {
     lines.push('')
     lines.push('These are pages the provider reported opening. They are not citations and do not back individual claims.')
     lines.push('')
-    for (const url of sourceUrls) lines.push(`- [${url}](${url})`)
+    for (const url of sourceUrls) lines.push(`- <${url}>`)
     lines.push('')
   }
 
   return lines.join('\n')
+}
+
+function escapeMarkdownLinkLabel(value: string): string {
+  return value.replace(/[\\[\]\(\)]/g, '\\$&')
 }
 
 /** The mode a sidecar was produced in. Absent mode + legacy provider both

@@ -723,11 +723,27 @@ describe('the research generator resets the triage', () => {
     const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
     const md = await fs.readFile(mdPath, 'utf-8')
     assert.match(md, /## Structured citations/)
-    assert.match(md, /\[Safe citation\]\(https:\/\/example\.invalid\/citation\)/)
+    assert.match(md, /\[Safe citation\]\(<https:\/\/example\.invalid\/citation>\)/)
     assert.match(md, /## Pages GenStudio reported retrieving/)
     assert.match(md, /https:\/\/example\.invalid\/opened/)
     assert.match(md, /not citations and do not back individual claims/i)
     assert.doesNotMatch(md, /javascript:|data:text\/html/)
+  })
+
+  test('research.md cannot turn canonical URLs or titles into injected Markdown links', async () => {
+    const epDir = await makeProject(true)
+    await runWebGenerator(
+      [{
+        title: 'Citation ](javascript:alert(1))',
+        url: 'https://example.invalid/](javascript:alert(1))',
+      }],
+      { source_urls: ['https://example.invalid/](javascript:alert(1))'] },
+    )
+
+    const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
+    const md = await fs.readFile(mdPath, 'utf-8')
+    assert.ok(md.includes('[Citation \\]\\(javascript:alert\\(1\\)\\)](<https://example.invalid/](javascript:alert(1))>)'))
+    assert.match(md, /- <https:\/\/example\.invalid\/\]\(javascript:alert\(1\)\)>/)
   })
 
   test('a web run without structured citations remains a successful web outcome', async () => {

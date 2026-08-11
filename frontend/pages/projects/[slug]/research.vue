@@ -457,7 +457,7 @@
 
         <!-- A web run that cited nothing is surfaced, not hidden. Without this
              the page would promise "cited its sources" over an empty space. -->
-        <p v-if="resultMode === 'web-search' && !result.citations?.length && !resultHasSourceUrls" class="research-nosources-note">
+        <p v-if="resultMode === 'web-search' && !structuredCitationCount && !resultHasSourceUrls" class="research-nosources-note">
           {{ WEB_SEARCH_NO_SOURCES_NOTICE }}
         </p>
 
@@ -991,7 +991,9 @@ const resultMode = computed<ResearchMode>(() => {
  *  nothing, or GenStudio could not ground what it named. Both keep the
  *  weaker, run-level wording rather than borrowing the stronger one. */
 const attributedClaimCount = computed(
-  () => (result.value?.claims || []).filter(c => c.citation_indices?.length).length,
+  () => (result.value?.claims || []).filter(c =>
+    c.citation_indices?.some(idx => !!safeCitationUrl(result.value?.citations?.[idx])),
+  ).length,
 )
 const resultSourceUrls = computed(() => {
   const urls: string[] = []
@@ -1033,7 +1035,7 @@ const resultHasSourceUrls = computed(() => resultSourceUrls.value.length > 0)
 const resultProvenanceNotice = computed(() => {
   if (resultMode.value !== 'web-search') return MODEL_KNOWLEDGE_NOTICE
   return webResearchNotice(
-    result.value?.citations?.length || 0,
+    structuredCitationCount.value,
     attributedClaimCount.value,
     result.value?.claims?.length || 0,
     resultWebRun.value,

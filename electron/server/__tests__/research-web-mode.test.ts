@@ -40,6 +40,7 @@ import {
   webResearchNotice,
 } from '../services/research/provenance.js'
 import { assembleOutput, buildResearchPrompt } from '../services/research/prompt.js'
+import { sanitizeResearchOutputUrls } from '../services/research/urls.js'
 import { parseGenStudioCitations } from '../lib/genstudio-client.js'
 import { resolveStepParams } from '../routes/pipeline.js'
 import { readSelectedResearchSources } from '../lib/research-sources.js'
@@ -368,6 +369,29 @@ describe('envelope citations', () => {
     )
     assert.deepEqual(output.citations.map(c => c.url), ['https://example.org/kept'])
     assert.deepEqual(output.claims[0]!.citation_indices, [0])
+  })
+
+  it('remaps claim citations after dropping unsafe and duplicate sidecar URLs', () => {
+    const output = sanitizeResearchOutputUrls({
+      schema_version: 1,
+      source_provider: GENSTUDIO_RESEARCH_PROVIDER,
+      generated_at: '2026-08-11T00:00:00.000Z',
+      topic: 'T',
+      claims: [
+        { id: 'all', text: 'All sources.', status: 'unreviewed', citation_indices: [0, 1, 2, 3] },
+        { id: 'duplicate', text: 'Duplicate source.', status: 'unreviewed', citation_indices: [2] },
+      ],
+      citations: [
+        { title: 'Unsafe', url: 'javascript:alert(1)' },
+        { title: 'First safe', url: 'https://example.org/a' },
+        { title: 'Duplicate safe', url: 'https://example.org/a' },
+        { title: 'Second safe', url: 'https://example.org/b' },
+      ],
+    })
+
+    assert.deepEqual(output.citations.map(c => c.url), ['https://example.org/a', 'https://example.org/b'])
+    assert.deepEqual(output.claims[0]!.citation_indices, [0, 1])
+    assert.deepEqual(output.claims[1]!.citation_indices, [0])
   })
 })
 

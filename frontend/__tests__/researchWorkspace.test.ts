@@ -148,6 +148,12 @@ describe('Research workspace flow', () => {
     assert.match(research, /v-if="safeCitationUrl\(c\)"/)
   })
 
+  test('derives web evidence state from safe citations, including legacy unsafe-only sidecars', () => {
+    assert.match(research, /citation_indices\?\.some\(idx => !!safeCitationUrl\(result\.value\?\.citations\?\.\[idx\]\)\)/)
+    assert.match(research, /webResearchNotice\(\s*structuredCitationCount\.value/)
+    assert.match(research, /!structuredCitationCount && !resultHasSourceUrls/)
+  })
+
   test('filters edited sidecar source URLs before rendering them as links', () => {
     assert.match(research, /const resultSourceUrls = computed/)
     assert.match(research, /new URL\(raw\.trim\(\)\)/)
