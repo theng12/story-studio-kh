@@ -639,6 +639,54 @@ describe('remote cancellation checkpoints', () => {
 })
 
 describe('terminal provider-evidence guards', () => {
+  test('provider success during a live executor waits for local output before auditing or releasing the lock', async () => {
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    await setApiKey('genstudio', 'live-success-key')
+    const project = await pm.createProject({ name: 'Live provider success boundary' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    let outputCreated = false
+    let audits = 0
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = async (input, init) => {
+      const requestPath = new URL(String(input)).pathname
+      if (requestPath.endsWith('/cancel')) return Response.json({ id: 'live-success-target', state: 'succeeded', cancelled: false })
+      assert.equal(init?.method || 'GET', 'GET')
+      return Response.json({ id: 'live-success-target', state: 'accepted', cancellable: true, cancelled: false })
+    }
+    jq.registerExecutor('audio', async () => {
+      await hold
+      outputCreated = true
+    })
+    registerJobCancellationAuditor('audio', async () => {
+      audits++
+      return outputCreated ? 'complete' : 'repair-required'
+    })
+    const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'LIVE_SUCCESS', title: 'live success', params: {} })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
+    await jq.recordGenStudioJob(job.job_id, { id: 'live-success-target', operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() })
+    try {
+      await jq.requestJobCancellation(project.slug, job.job_id)
+      const settledDeadline = Date.now() + 1_000
+      while (Date.now() < settledDeadline && jq.getJob(job.job_id)?.genstudio_jobs?.[0]?.state !== 'succeeded') await new Promise(resolve => setTimeout(resolve, 20))
+      assert.equal(jq.getJob(job.job_id)?.status, 'running')
+      assert.equal(jq.isDuplicate(project.slug, 'LIVE_SUCCESS', 'audio'), true)
+      assert.equal(audits, 0, 'the active executor has not checkpointed its output yet')
+
+      release()
+      const finalDeadline = Date.now() + 2_000
+      while (Date.now() < finalDeadline && jq.getJob(job.job_id)?.status === 'running') await new Promise(resolve => setTimeout(resolve, 20))
+      assert.equal(jq.getJob(job.job_id)?.status, 'done')
+      assert.equal(audits, 1)
+    } finally {
+      release()
+      globalThis.fetch = originalFetch
+      await setApiKey('genstudio', '')
+      registerJobCancellationAuditor('audio', async () => 'complete')
+    }
+  })
+
   test('a live remote-cancel request begins reconciliation before its executor returns', async () => {
     const { setApiKey } = await import('../services/app-secrets-store.js')
     await setApiKey('genstudio', 'live-cancel-key')

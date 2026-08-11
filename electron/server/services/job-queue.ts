@@ -470,39 +470,16 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     job.reconciliation_error = outcome.reason
     for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
 
-    if (outcome.kind === 'cancelled') {
-      job.status = 'cancelled'
-      job.error = null
-      job.finished_at = new Date().toISOString()
-      job.output_lines.push('GenStudio confirmed cancellation for every requested provider task.')
-    } else if (outcome.kind === 'failed') {
-      job.status = 'error'
-      const mixedSettlement = outcome.providerJobs.some(item => item.job.cancelled === true)
-        && outcome.providerJobs.some(item => item.job.state === 'succeeded')
-      job.error = mixedSettlement
-        ? 'Provider work settled with mixed completed and cancelled tasks. Repair missing output before Retry.'
-        : 'A GenStudio provider task failed after cancellation reconciliation. Provider evidence is retained.'
-      if (mixedSettlement) job.result = { ...(job.result || {}), provider_settled: 'mixed', repair_required: true }
-      job.finished_at = new Date().toISOString()
-      job.output_lines.push(job.error)
-    } else if (outcome.kind === 'succeeded') {
-      const auditor = getJobCancellationAuditor(job.type)
-      if (!auditor) {
-        job.output_lines.push('Provider work settled, but this job has no registered output auditor. Keeping its duplicate lock.')
-      } else if (await auditor(serializeJob(job)) === 'complete') {
-        await completeSuccessfulJob(job)
-        job.error = null
-        job.finished_at = new Date().toISOString()
-        job.output_lines.push('Provider work settled and required output was verified.')
-      } else {
-        job.status = 'error'
-        job.error = 'Provider output needs repair before this job can be marked complete. Retry repairs only missing output.'
-        job.result = { ...(job.result || {}), provider_settled: 'succeeded', repair_required: true }
-        job.finished_at = new Date().toISOString()
-        job.output_lines.push(job.error)
-      }
-    } else {
+    if (outcome.kind === 'pending') {
       job.output_lines.push('Story Studio is reconciling the provider cancellation; no new generation request was sent.')
+    } else if (!job.local_execution_complete) {
+      // A live generator can receive its provider success before it has
+      // downloaded/checkpointed the authoritative output. Persist that remote
+      // truth now, but leave the duplicate lock and audit for runJob's local
+      // boundary. Recovered jobs explicitly set this marker at load time.
+      job.output_lines.push('GenStudio settled provider work; waiting for the active local executor to finish saving output before verification.')
+    } else {
+      await finalizeSettledProviderJob(job.job_id)
     }
     await persistJob(job)
     emitUpdate(job)
