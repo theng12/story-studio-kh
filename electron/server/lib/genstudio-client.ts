@@ -184,6 +184,40 @@ export type GenStudioCancellationFields = {
   released_credits?: number
 }
 
+const GENSTUDIO_JOB_STATES = new Set<GenStudioJob['state']>([
+  'accepted', 'reserved', 'dispatched', 'running', 'validating', 'succeeded', 'failed', 'reconciling',
+])
+
+function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenStudioCancellationFields {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('GenStudio KH cancellation response was not an object')
+  }
+  const body = value as Record<string, unknown>
+  if (typeof body.id !== 'string' || !body.id.trim()) {
+    throw new Error('GenStudio KH cancellation response did not include a job id')
+  }
+  if (typeof body.state !== 'string' || !GENSTUDIO_JOB_STATES.has(body.state as GenStudioJob['state'])) {
+    throw new Error('GenStudio KH cancellation response did not include a valid state')
+  }
+  const optionalBoolean = (name: string): boolean | undefined => (
+    typeof body[name] === 'boolean' ? body[name] : undefined
+  )
+  const optionalText = (name: string): string | null | undefined => (
+    typeof body[name] === 'string' || body[name] === null ? body[name] as string | null : undefined
+  )
+  const released = body.released_credits
+  return {
+    id: body.id,
+    state: body.state as GenStudioJob['state'],
+    ...(optionalBoolean('cancellable') !== undefined ? { cancellable: optionalBoolean('cancellable') } : {}),
+    ...(optionalBoolean('cancelled') !== undefined ? { cancelled: optionalBoolean('cancelled') } : {}),
+    ...(optionalBoolean('cancellation_requested') !== undefined ? { cancellation_requested: optionalBoolean('cancellation_requested') } : {}),
+    ...(optionalText('cancellation_note') !== undefined ? { cancellation_note: optionalText('cancellation_note') } : {}),
+    ...(optionalText('failure_code') !== undefined ? { failure_code: optionalText('failure_code') } : {}),
+    ...(typeof released === 'number' && Number.isFinite(released) && released >= 0 ? { released_credits: released } : {}),
+  }
+}
+
 /** The only two GenStudio job states that can never change again. */
 export type GenStudioTerminalJobState = 'succeeded' | 'failed'
 
@@ -1660,7 +1694,7 @@ export async function requestGenStudioCancellation(
   request: GenStudioOperationContext = {},
   deadline: number,
 ): Promise<GenStudioJob & GenStudioCancellationFields> {
-  return requestJsonWithRetry(
+  const response = await requestJsonWithRetry(
     `${apiBase(baseUrl)}${GENSTUDIO_CANCELLATION_PATHS[operation](providerJobId)}`,
     { method: 'POST', headers: authorization(apiKey) },
     request,
@@ -1669,7 +1703,9 @@ export async function requestGenStudioCancellation(
     GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
     [409],
     true,
-  ) as Promise<GenStudioJob & GenStudioCancellationFields>
+    1,
+  )
+  return parseGenStudioCancellationResponse(response)
 }
 
 function cancellationRecordStatus(result: GenStudioCancellationFields): 'confirmed' | 'requested' | 'reconciling' {
@@ -1692,13 +1728,20 @@ async function submitQueuedRemoteCancellation(
 ): Promise<void> {
   const queue = await import('../services/job-queue.js')
   const storyJobId = queue.currentJobId()
-  if (!storyJobId || !queue.claimRemoteCancellation(storyJobId, operation, providerJobId)) return
+  if (!storyJobId) return
+  let claimed = false
+  try {
+    claimed = await queue.claimRemoteCancellation(storyJobId, operation, providerJobId)
+  } catch {
+    // The durable ownership marker did not land, so no provider POST is safe.
+    return
+  }
+  if (!claimed) return
 
   try {
     const result = await requestGenStudioCancellation(operation, baseUrl, apiKey, providerJobId, {}, deadline)
     await queue.recordRemoteCancellation(storyJobId, operation, providerJobId, {
       status: cancellationRecordStatus(result),
-      ...(Number.isFinite((result as any).http_status) ? { http_status: (result as any).http_status as number } : {}),
       state: result.state,
       ...(result.cancellable !== undefined ? { cancellable: result.cancellable } : {}),
       ...(result.cancelled !== undefined ? { cancelled: result.cancelled } : {}),
@@ -1794,6 +1837,17 @@ async function recordGenStudioEvidence(
     queue_state: queueStateForJob(job),
     updated_at: new Date().toISOString(),
   })
+  if (operation in GENSTUDIO_CANCELLATION_PATHS) {
+    await queue.reconcileRemoteCancellationFromProvider(storyJobId, operation as JobRemoteOperation, job.id, {
+      state: job.state,
+      ...(job.cancellable !== undefined ? { cancellable: job.cancellable } : {}),
+      ...(job.cancelled !== undefined ? { cancelled: job.cancelled } : {}),
+      ...(job.cancellation_requested !== undefined ? { cancellation_requested: job.cancellation_requested } : {}),
+      ...(job.cancellation_note !== undefined ? { cancellation_note: job.cancellation_note } : {}),
+      ...(job.failure_code !== undefined ? { failure_code: job.failure_code } : {}),
+      ...(job.released_credits !== undefined ? { released_credits: job.released_credits } : {}),
+    })
+  }
 }
 
 export function catalogHasVoice(voices: GenStudioVoice[], voiceId: unknown): boolean {
@@ -2457,9 +2511,11 @@ async function requestJsonWithRetry(
   noRetryStatuses: readonly number[] = [],
   /** A read-only recovery lookup must classify its first HTTP response exactly. */
   noRetryApiErrors = false,
+  /** Control requests whose outcome is ambiguous must never be resent. */
+  maxAttempts = NETWORK_RETRY_ATTEMPTS,
 ): Promise<any> {
   let lastError: unknown
-  for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     let retryAfterMs: number | null = null
     if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
     try {
@@ -2564,7 +2620,7 @@ async function requestJsonWithRetry(
         throw error
       }
     }
-    if (attempt < NETWORK_RETRY_ATTEMPTS) {
+    if (attempt < maxAttempts) {
       await retryDelay(attempt, request, deadline, retryAfterMs)
     }
   }

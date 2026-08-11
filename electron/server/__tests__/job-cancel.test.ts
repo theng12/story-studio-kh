@@ -257,6 +257,37 @@ describe('remote cancellation checkpoints', () => {
     assert.equal(jq.getJob(job.job_id)?.status, 'running')
   })
 
+  test('claims each remote target once and read-only terminal evidence releases a crashed submitting record', async () => {
+    const project = await pm.createProject({ name: 'ClaimOnceAndReconcile' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('audio', async () => await hold)
+    registerJobCancellationAuditor('audio', async () => 'complete')
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'audio', episode_id: 'CLAIM_ONCE', title: 'claim once', params: {},
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'claim-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      updated_at: new Date().toISOString(),
+    })
+    await jq.requestJobCancellation(project.slug, job.job_id)
+    const claims = await Promise.all([
+      jq.claimRemoteCancellation(job.job_id, 'voice.tts', 'claim-target'),
+      jq.claimRemoteCancellation(job.job_id, 'voice.tts', 'claim-target'),
+    ])
+    assert.deepEqual(claims.sort(), [false, true])
+    assert.equal(jq.getJob(job.job_id)?.remote_cancellations?.['voice.tts:claim-target']?.status, 'submitting')
+    await jq.reconcileRemoteCancellationFromProvider(job.job_id, 'voice.tts', 'claim-target', {
+      state: 'succeeded', released_credits: 0,
+    })
+    assert.equal(jq.getJob(job.job_id)?.remote_cancellations?.['voice.tts:claim-target']?.status, 'rejected')
+    release()
+  })
+
   test('coalesces cold persisted cancellation requests before the project load finishes', async () => {
     const project = await pm.createProject({ name: 'ColdCancellationLoad' })
     const jobId = 'cold-cancellation-job'

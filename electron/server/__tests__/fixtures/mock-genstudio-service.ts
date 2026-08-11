@@ -56,6 +56,8 @@ export interface MockGenStudioScenario {
   submitDelayMs?: number
   /** Test-only barrier: hold TTS submit responses until this many have entered. */
   waitForConcurrentTtsSubmissions?: number
+  /** Close exactly the first cancellation response after accepting the POST. */
+  dropFirstCancellationResponse?: boolean
 }
 
 export interface MockGenStudioRequest {
@@ -99,6 +101,7 @@ interface MockJob {
   credits: MockCreditSnapshot
   cancelled: boolean
   cancellationRequested: boolean
+  cancellationResponseDropped: boolean
 }
 
 interface MockTranscriptionQuote {
@@ -247,6 +250,7 @@ function normalizeScenario(
       && scenario.waitForConcurrentTtsSubmissions! > 0
         ? scenario.waitForConcurrentTtsSubmissions!
         : 0,
+    dropFirstCancellationResponse: scenario.dropFirstCancellationResponse === true,
   }
 }
 
@@ -471,6 +475,7 @@ export class MockGenStudioService {
       },
       cancelled: false,
       cancellationRequested: false,
+      cancellationResponseDropped: false,
     }
     this.jobs.set(id, job)
     this.jobByIdempotency.set(identity, id)
@@ -669,6 +674,11 @@ export class MockGenStudioService {
               return
             }
             job.cancellationRequested = true
+            if (job.scenario.dropFirstCancellationResponse && !job.cancellationResponseDropped) {
+              job.cancellationResponseDropped = true
+              response.socket?.destroy()
+              return
+            }
             json(response, 202, this.responseBody(job))
             return
           }
@@ -679,6 +689,11 @@ export class MockGenStudioService {
           job.cancelled = true
           job.credits.final = 0
           job.credits.returned = job.credits.reserved
+          if (job.scenario.dropFirstCancellationResponse && !job.cancellationResponseDropped) {
+            job.cancellationResponseDropped = true
+            response.socket?.destroy()
+            return
+          }
           json(response, 200, this.responseBody(job))
           return
         }

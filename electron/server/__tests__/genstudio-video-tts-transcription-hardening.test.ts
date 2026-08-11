@@ -211,6 +211,126 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       assert.equal(service.requests.filter(request => request.path === `/v1/jobs/${providerJob.id}/cancel`).length, 1)
     })
 
+    await suite.test('a lost cancellation response makes one control POST and no retry', async () => {
+      service.reset()
+      service.queueScenario('tts', {
+        states: ['accepted', 'running', 'succeeded'],
+        dropFirstCancellationResponse: true,
+      })
+      const submitted = await fetch(`${service.baseUrl}/v1/audio/jobs`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+          'Idempotency-Key': 'cancel-transport-tts-001',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model_id: 'mock-tts-model', voice_id: 'mock-voice', text: 'cancel me', speed: 1 }),
+      })
+      const providerJob = await submitted.json() as { id: string }
+      await assert.rejects(
+        client.requestGenStudioCancellation(
+          'voice.tts', service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, providerJob.id, {}, Date.now() + 10_000,
+        ),
+      )
+      assert.equal(service.requests.filter(request => request.path === `/v1/jobs/${providerJob.id}/cancel`).length, 1)
+      assert.equal(service.providerSubmissionCount('tts'), 1)
+    })
+
+    await suite.test('uses only the four published cancellation routes and leaves video nonterminal', async () => {
+      service.reset()
+      const cases: Array<{
+        operation: 'voice.tts' | 'image.generation' | 'audio.transcription' | 'video.generation'
+        submitPath: string
+        cancelPath: (id: string) => string
+        body: Record<string, unknown>
+      }> = [
+        { operation: 'voice.tts', submitPath: '/v1/audio/jobs', cancelPath: id => `/v1/jobs/${id}/cancel`, body: { model_id: 'mock-tts-model', voice_id: 'mock-voice', text: 'cancel', speed: 1 } },
+        { operation: 'image.generation', submitPath: '/v1/images/generations', cancelPath: id => `/v1/images/${id}/cancel`, body: { model_id: 'mock-image-v1', prompt: 'cancel', aspect_ratio: '16:9' } },
+        { operation: 'audio.transcription', submitPath: '/v1/audio/transcriptions', cancelPath: id => `/v1/transcriptions/${id}/cancel`, body: { model_id: 'mock-whisper-v1' } },
+        { operation: 'video.generation', submitPath: '/v1/videos/generations', cancelPath: id => `/v1/videos/${id}/cancel`, body: { model_id: 'mock-video-v1', prompt: 'cancel', duration_seconds: 5, resolution: '720p' } },
+      ]
+      service.queueScenario('tts', { states: ['accepted', 'succeeded'] })
+      service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+      service.queueScenario('transcription', { states: ['accepted', 'succeeded'] })
+      service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'] })
+      for (const entry of cases) {
+        const submitted = await fetch(`${service.baseUrl}${entry.submitPath}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+            'Idempotency-Key': `cancel-route-${entry.operation}-001`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(entry.body),
+        })
+        const providerJob = await submitted.json() as { id: string }
+        const result = await client.requestGenStudioCancellation(
+          entry.operation, service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, providerJob.id, {}, Date.now() + 10_000,
+        )
+        assert.equal(service.requests.filter(request => request.path === entry.cancelPath(providerJob.id)).length, 1)
+        if (entry.operation === 'video.generation') {
+          assert.equal(result.cancellation_requested, true)
+          assert.notEqual(result.cancelled, true)
+        } else assert.equal(result.cancelled, true)
+      }
+    })
+
+    await suite.test('a pre-execution 409 is preserved for reconciliation', async () => {
+      service.reset()
+      service.queueScenario('image', { states: ['accepted', 'running', 'succeeded'] })
+      const submitted = await fetch(`${service.baseUrl}/v1/images/generations`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+          'Idempotency-Key': 'cancel-409-image-001',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ model_id: 'mock-image-v1', prompt: 'race', aspect_ratio: '16:9' }),
+      })
+      const providerJob = await submitted.json() as { id: string }
+      await fetch(`${service.baseUrl}/v1/images/${providerJob.id}`, { headers: { Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}` } })
+      await assert.rejects(
+        client.requestGenStudioCancellation(
+          'image.generation', service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, providerJob.id, {}, Date.now() + 10_000,
+        ),
+        (error: unknown) => error instanceof client.GenStudioApiError && error.status === 409,
+      )
+      assert.equal(service.requests.filter(request => request.path === `/v1/images/${providerJob.id}/cancel`).length, 1)
+    })
+
+    await suite.test('refuses malformed cancellation payloads instead of inventing fields', async () => {
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async () => Response.json({ id: 'malformed-cancel', state: 42 }, { status: 200 })
+      try {
+        await assert.rejects(
+          client.requestGenStudioCancellation(
+            'voice.tts', service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, 'malformed-cancel', {}, Date.now() + 10_000,
+          ),
+          /valid state/,
+        )
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
+    await suite.test('keeps zero or absent released credits literal and drops invalid optional fields', async () => {
+      const originalFetch = globalThis.fetch
+      globalThis.fetch = async () => Response.json({
+        id: 'zero-release-cancel', state: 'accepted', released_credits: 0,
+        cancellable: 'not-a-boolean', cancellation_note: 5,
+      }, { status: 200 })
+      try {
+        const result = await client.requestGenStudioCancellation(
+          'voice.tts', service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, 'zero-release-cancel', {}, Date.now() + 10_000,
+        )
+        assert.equal(result.released_credits, 0)
+        assert.equal(result.cancellable, undefined)
+        assert.equal(result.cancellation_note, undefined)
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+
     // ── TTS ──────────────────────────────────────────────────────────────────
 
     await suite.test('TTS polls accepted → running → succeeded and surfaces released_credits', async () => {

@@ -110,11 +110,11 @@ function queuedCancellationKey(operation: JobRemoteOperation, providerJobId: str
  * receives true owns the one network POST; every other poller only observes
  * the durable evidence it leaves behind.
  */
-export function claimRemoteCancellation(
+export async function claimRemoteCancellation(
   storyJobId: string,
   operation: JobRemoteOperation,
   providerJobId: string,
-): boolean {
+): Promise<boolean> {
   const job = jobs.get(storyJobId)
   const key = queuedCancellationKey(operation, providerJobId)
   const record = job?.remote_cancellations?.[key]
@@ -124,7 +124,16 @@ export function claimRemoteCancellation(
   // Claiming is the ownership boundary. Persist it before the provider call
   // can be retried by another in-process poller; a restart reconciles records
   // left in submitting state instead of issuing a second blind POST.
-  void persistJob(job).catch(() => {})
+  try {
+    await persistJob(job)
+  } catch (error) {
+    // A control POST without a durable claim can be repeated after a crash.
+    // Restore the queued intent so the poller can safely retry persistence;
+    // it must not send the provider request on this turn.
+    record.status = 'queued'
+    record.updated_at = new Date().toISOString()
+    throw error
+  }
   emitUpdate(job)
   return true
 }
@@ -153,6 +162,43 @@ export async function recordRemoteCancellation(
   }
   await persistJob(job)
   emitUpdate(job)
+}
+
+/**
+ * A process may crash after persisting `submitting` and before the control
+ * socket returns.  A later read-only status poll is the only safe way to
+ * release that lock: do not resend the cancellation POST.
+ */
+export async function reconcileRemoteCancellationFromProvider(
+  storyJobId: string,
+  operation: JobRemoteOperation,
+  providerJobId: string,
+  evidence: {
+    state: string
+    cancelled?: boolean | null
+    cancellable?: boolean | null
+    cancellation_requested?: boolean | null
+    cancellation_note?: string | null
+    failure_code?: string | null
+    released_credits?: number | null
+  },
+): Promise<void> {
+  const job = jobs.get(storyJobId)
+  const key = queuedCancellationKey(operation, providerJobId)
+  const previous = job?.remote_cancellations?.[key]
+  if (!job || !previous) return
+  const settled = evidence.cancelled === true || evidence.state === 'succeeded' || evidence.state === 'failed'
+  if (!settled) return
+  await recordRemoteCancellation(storyJobId, operation, providerJobId, {
+    status: evidence.cancelled === true ? 'confirmed' : 'rejected',
+    state: evidence.state,
+    ...(evidence.cancellable !== undefined && evidence.cancellable !== null ? { cancellable: evidence.cancellable } : {}),
+    ...(evidence.cancelled !== undefined && evidence.cancelled !== null ? { cancelled: evidence.cancelled } : {}),
+    ...(evidence.cancellation_requested !== undefined && evidence.cancellation_requested !== null ? { cancellation_requested: evidence.cancellation_requested } : {}),
+    ...(evidence.cancellation_note !== undefined ? { cancellation_note: evidence.cancellation_note } : {}),
+    ...(evidence.failure_code !== undefined ? { failure_code: evidence.failure_code } : {}),
+    ...(Number.isFinite(evidence.released_credits) ? { released_credits: evidence.released_credits as number } : {}),
+  })
 }
 
 function killChildrenFor(jobId: string): void {
