@@ -41,6 +41,7 @@ _trash/
 .DS_Store
 *.log
 .claude/
+.worktrees/
 .vscode/
 .idea/
 
