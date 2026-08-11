@@ -245,6 +245,7 @@ const jobs = new Map<string, Job>()
 const cancelled = new Set<string>()
 const pauseRequested = new Set<string>()
 const loadedProjects = new Set<string>()
+const loadingProjects = new Map<string, Promise<void>>()
 
 // Durable Story-side queue hold. When set, pump() will not dequeue the next
 // job. The Jobs workspace controls it explicitly; provider jobs already
@@ -515,9 +516,7 @@ export async function checkpointJobState(job: Job): Promise<void> {
 
 // ── Lazy load persisted jobs on first access ────────────────────────────────
 
-async function loadPersistedJobs(projectSlug: string): Promise<void> {
-  if (loadedProjects.has(projectSlug)) return
-  loadedProjects.add(projectSlug)
+async function readPersistedJobs(projectSlug: string): Promise<void> {
   const p = jobsPath(projectSlug)
   const resumedTypes = new Set<JobType>()
   try {
@@ -595,6 +594,23 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
     }
     for (const type of resumedTypes) pump(type)
   } catch { /* ignore corrupt file */ }
+}
+
+async function loadPersistedJobs(projectSlug: string): Promise<void> {
+  if (loadedProjects.has(projectSlug)) return
+  const existing = loadingProjects.get(projectSlug)
+  if (existing) return existing
+
+  const loading = readPersistedJobs(projectSlug)
+  loadingProjects.set(projectSlug, loading)
+  try {
+    await loading
+    // Corrupt/missing history is still a settled load: preserve the old
+    // one-attempt semantics while every concurrent caller shares this result.
+    loadedProjects.add(projectSlug)
+  } finally {
+    loadingProjects.delete(projectSlug)
+  }
 }
 
 /**

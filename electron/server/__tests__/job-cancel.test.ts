@@ -42,6 +42,14 @@ before(async () => {
 
 after(async () => { await cleanup() })
 
+async function waitForTerminal(jobId: string): Promise<void> {
+  const deadline = Date.now() + 2_000
+  while (Date.now() < deadline && !['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')) {
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  assert.ok(['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || ''), `job ${jobId} did not settle`)
+}
+
 describe('requestJobCancellation()', () => {
   test('sends SIGTERM to children registered via trackChild', async () => {
     const proj = await pm.createProject({ name: 'CancelChild' })
@@ -228,16 +236,59 @@ describe('remote cancellation checkpoints', () => {
       id: 'tts-target-1', operation: 'voice.tts', state: 'accepted', cancellable: true,
       updated_at: new Date().toISOString(),
     })
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'tts-target-2', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      updated_at: new Date().toISOString(),
+    })
 
-    const first = await jq.requestJobCancellation(proj.slug, job.job_id)
-    const second = await jq.requestJobCancellation(proj.slug, job.job_id)
-    const key = 'voice.tts:tts-target-1'
+    const [first, second] = await Promise.all([
+      jq.requestJobCancellation(proj.slug, job.job_id),
+      jq.requestJobCancellation(proj.slug, job.job_id),
+    ])
+    const keys = ['voice.tts:tts-target-1', 'voice.tts:tts-target-2']
     assert.equal(first.status, 'running')
     assert.equal(first.finished_at, null)
-    assert.equal(first.remote_cancellations?.[key]?.status, 'queued')
-    assert.deepEqual(Object.keys(second.remote_cancellations || {}), [key])
+    assert.deepEqual(Object.keys(first.remote_cancellations || {}).sort(), keys)
+    assert.deepEqual(Object.keys(second.remote_cancellations || {}).sort(), keys)
+    assert.ok(keys.every(key => first.remote_cancellations?.[key]?.status === 'queued'))
 
     release()
+    await waitForTerminal(job.job_id)
+  })
+
+  test('coalesces cold persisted cancellation requests before the project load finishes', async () => {
+    const project = await pm.createProject({ name: 'ColdCancellationLoad' })
+    const jobId = 'cold-cancellation-job'
+    const key = 'voice.tts:cold-tts-target'
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [{
+      job_id: jobId,
+      project_slug: project.slug,
+      type: 'audio',
+      episode_id: 'COLD_CANCEL',
+      title: 'cold',
+      status: 'paused',
+      created_at: new Date().toISOString(),
+      started_at: null,
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {},
+      remote_cancellations: {
+        [key]: {
+          status: 'requested', operation: 'voice.tts', provider_job_id: 'cold-tts-target',
+          requested_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        },
+      },
+    }] }, null, 2))
+
+    const settled = await Promise.allSettled([
+      jq.requestJobCancellation(project.slug, jobId),
+      jq.requestJobCancellation(project.slug, jobId),
+    ])
+    assert.ok(settled.every(result => result.status === 'fulfilled'), JSON.stringify(settled))
+    const persisted = JSON.parse(await fs.readFile(jobsFile, 'utf8')).jobs[0]
+    assert.deepEqual(Object.keys(persisted.remote_cancellations), [key])
   })
 })
 
@@ -265,9 +316,18 @@ describe('job route controls', () => {
       assert.equal(wrongCancel.status, 404)
       assert.equal(jq.getJob(job.job_id)?.status, 'queued')
 
+      const wrongDelete = await request(app).delete(`/api/projects/${wrongProject.slug}/jobs/${job.job_id}`)
+      assert.equal(wrongDelete.status, 404)
+      assert.equal(jq.getJob(job.job_id)?.status, 'queued')
+
       const cancel = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
       assert.equal(cancel.status, 200)
       assert.equal(cancel.body.job.status, 'cancelled')
+
+      const terminalCancel = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
+      assert.equal(terminalCancel.status, 409)
+      assert.equal(terminalCancel.body.control.action, 'clear-history')
+      assert.equal(typeof terminalCancel.body.detail, 'string')
 
       const remove = await request(app).delete(`/api/projects/${project.slug}/jobs/${job.job_id}`)
       assert.equal(remove.status, 200)
@@ -275,6 +335,58 @@ describe('job route controls', () => {
       assert.equal(await fs.readFile(output, 'utf8'), 'generated output stays')
     } finally {
       await jq.setQueuePaused(false)
+    }
+  })
+
+  test('universal routes use the same POST-cancel and terminal-DELETE semantics', async () => {
+    const app = express()
+    app.use(express.json())
+    app.use('/api', jobsRouter)
+    const project = await pm.createProject({ name: 'UniversalCancellationParity' })
+    await jq.setQueuePaused(true)
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'script-only', episode_id: 'UNIVERSAL_DELETE', title: 'universal', params: {},
+    })
+    try {
+      const cancel = await request(app).post(`/api/jobs/all/${job.job_id}/cancel`)
+      assert.equal(cancel.status, 200)
+      assert.equal(cancel.body.job.status, 'cancelled')
+      const remove = await request(app).delete(`/api/jobs/all/${job.job_id}`)
+      assert.equal(remove.status, 200)
+      assert.equal(jq.getJob(job.job_id), null)
+    } finally {
+      await jq.setQueuePaused(false)
+    }
+  })
+
+  test('refuses remote work that GenStudio no longer marks cancellable', async () => {
+    const app = express()
+    app.use(express.json())
+    app.use('/api', jobsRouter)
+    const project = await pm.createProject({ name: 'RemoteCancellationTooLate' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('audio', async () => await hold)
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'audio', episode_id: 'REMOTE_TOO_LATE', title: 'remote', params: {},
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'already-started', operation: 'voice.tts', state: 'running', cancellable: false,
+      updated_at: new Date().toISOString(),
+    })
+    try {
+      const response = await request(app).post(`/api/projects/${project.slug}/jobs/${job.job_id}/cancel`)
+      assert.equal(response.status, 409)
+      assert.equal(response.body.code, 'PROVIDER_WORK_ALREADY_STARTED')
+      assert.equal(response.body.control.action, 'pause-submissions')
+      assert.equal(typeof response.body.detail, 'string')
+    } finally {
+      release()
+      await waitForTerminal(job.job_id)
     }
   })
 })
