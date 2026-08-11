@@ -770,6 +770,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         { path: '/v1/transcription/models', scope: 'audio:transcribe', label: 'transcription catalog', expected: 200 },
         { path: '/v1/image/models', scope: 'images:generate', label: 'image catalog', expected: 200 },
         { path: '/v1/videos/models', scope: 'videos:generate', label: 'video catalog', expected: 200 },
+        { path: '/v1/music/models', scope: 'music:generate', label: 'music catalog', expected: 200 },
         { path: '/v1/jobs/story-studio-key-probe', scope: 'tts:generate', label: 'TTS job access', expected: 404 },
         { path: '/v1/chat/responses/story-studio-key-probe', scope: 'chat:generate', label: 'LLM job access', expected: 404 },
         { path: '/v1/images/story-studio-key-probe', scope: 'images:generate', label: 'image job access', expected: 404 },
@@ -848,7 +849,7 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         reachable: true,
         usage_available: usageAvailable,
         warning: usageAvailable ? null : 'Generation scopes work, but GenStudio did not accept this key for usage:read. Balance and exact settlement history remain unavailable; Story Studio will not calculate them locally.',
-        message: 'Key works for GenStudio catalogs and TTS, transcription, image, LLM, and video job access.',
+        message: 'Key works for GenStudio catalogs and TTS, transcription, image, LLM, music, and video job access.',
       })
     }
   } catch (e: any) {

@@ -27,7 +27,8 @@
         <p>
           Required scopes: <code>models:read</code>, <code>voices:read</code>, <code>voices:use</code>,
           <code>tts:generate</code>, <code>audio:transcribe</code>, <code>images:generate</code>,
-          <code>chat:generate</code>, <code>videos:generate</code>, and <code>usage:read</code>.
+          <code>chat:generate</code>, <code>videos:generate</code>, <code>music:generate</code>,
+          and <code>usage:read</code>.
         </p>
       </div>
 

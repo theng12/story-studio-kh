@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.821 — 2026-08-11
+
+- **Music catalogue access is now verified before production starts** — Settings names the
+  required `music:generate` scope, and the read-only key test checks the music catalogue directly
+  so a missing scope is reported before Sound Design or another music workflow needs it.
+
 ## v1.0.820 — 2026-08-11
 
 - **Interrupted language work now recovers without replacement charges** — outline, chapter,

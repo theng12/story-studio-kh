@@ -7,6 +7,10 @@ const settingsSource = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/settings.vue', import.meta.url)),
   'utf8',
 )
+const thisMacSettingsSource = readFileSync(
+  fileURLToPath(new URL('../components/ThisMacSettings.vue', import.meta.url)),
+  'utf8',
+)
 
 describe('Settings workspace navigation', () => {
   test('every Settings surface uses the shared modern panel shell', () => {
@@ -91,6 +95,7 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /activeTab === 'models'/)
     assert.doesNotMatch(settingsSource, /id: 'models'/)
     assert.match(settingsSource, /if \(h === '#models'\)[\s\S]*?activeTab\.value = 'app'/)
+    assert.match(thisMacSettingsSource, /music:generate/)
   })
 
   test('Storage separates active destinations from optional maintenance and keeps retired migration out', () => {

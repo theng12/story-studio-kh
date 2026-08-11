@@ -261,7 +261,7 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
     .expect(200)
 
   assert.equal(response.body.valid, true)
-  assert.match(response.body.message, /catalogs and TTS, transcription, image, LLM, and video job access/)
+  assert.match(response.body.message, /catalogs and TTS, transcription, image, LLM, music, and video job access/)
   assert.equal(response.body.usage_available, false)
   assert.match(response.body.warning, /usage:read/)
   assert.deepEqual(visited, [
@@ -271,6 +271,7 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
     'http://127.0.0.1:8000/v1/transcription/models',
     'http://127.0.0.1:8000/v1/image/models',
     'http://127.0.0.1:8000/v1/videos/models',
+    'http://127.0.0.1:8000/v1/music/models',
     'http://127.0.0.1:8000/v1/jobs/story-studio-key-probe',
     'http://127.0.0.1:8000/v1/chat/responses/story-studio-key-probe',
     'http://127.0.0.1:8000/v1/images/story-studio-key-probe',
@@ -279,6 +280,27 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
     'http://127.0.0.1:8000/v1/voices?model_id=tts-probe',
     'http://127.0.0.1:8000/v1/account/overview',
   ])
+})
+
+test('GenStudio key test names music:generate when the music catalog is not authorized', async () => {
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    if (url.endsWith('/v1/music/models')) {
+      return Response.json({ detail: 'authentication required' }, { status: 401 })
+    }
+    if (url.includes('story-studio-key-probe')) return new Response(null, { status: 404 })
+    if (url.endsWith('/v1/tts/models')) return Response.json([])
+    return Response.json([])
+  }
+
+  const response = await request(app)
+    .post('/api/app-settings/api-keys/genstudio/test')
+    .send({ apiKey: 'gsk_missing_music_scope' })
+    .expect(200)
+
+  assert.equal(response.body.valid, false)
+  assert.equal(response.body.reachable, true)
+  assert.match(response.body.message, /music:generate/)
 })
 
 test('GenStudio key test names the first missing scope without submitting work', async () => {
