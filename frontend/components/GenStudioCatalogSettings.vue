@@ -86,9 +86,9 @@
             <li v-for="item in group.items" :key="`${group.label}-${item.id}`">
               <span>
                 <strong>{{ item.name }}</strong>
-                <small>{{ item.id }}</small>
+                <small>{{ item.providerName ? `${item.id} · ${item.providerName}` : item.id }}</small>
               </span>
-              <em :class="{ available: item.available }">{{ item.available ? 'Available' : 'Unavailable' }}</em>
+              <em :class="`status-${item.statusTone}`">{{ item.statusLabel }}</em>
             </li>
           </ul>
         </section>
@@ -130,7 +130,7 @@ const {
 // /app-settings/genstudio/transcription-models list on its own freshness
 // clock (see useGenStudioTranscription.ts for the shared cache instance).
 const transcriptionCatalog = useGenStudioTranscriptionCatalog()
-// No dedicated shared composable owns the chat-model/voice catalogs today;
+// No dedicated shared composable owns the chat-model/music catalogs today;
 // these two stay component-local but run on the exact same fresh/ceiling
 // policy as everything else via the shared cache factory.
 const chatModelsCache = createGenStudioCatalogCache<CatalogEntry[]>({
@@ -140,19 +140,11 @@ const chatModelsCache = createGenStudioCatalogCache<CatalogEntry[]>({
     return Array.isArray(response.models) ? response.models : []
   },
 })
-// GenStudio scopes its voice catalogue to a model (ADR-0016) and refuses an
-// unscoped list, so this diagnostic reads the voices of the account's first
-// published voice model rather than asking for a list that cannot be answered.
-// With no published voice model there is nothing to scope by, so the row shows
-// empty instead of an error — a skipped diagnostic, not a manufactured one.
-const voicesCache = createGenStudioCatalogCache<CatalogEntry[]>({
+const musicModelsCache = createGenStudioCatalogCache<CatalogEntry[]>({
   empty: [],
   fetcher: async () => {
-    const modelId = voiceModels.value.find(model => !!model?.id)?.id
-    if (!modelId) return []
-    const query = `?model_id=${encodeURIComponent(modelId)}`
-    const response = await get<{ voices: CatalogEntry[] }>(`/app-settings/genstudio/voices${query}`, { cache: 'no-store' })
-    return Array.isArray(response.voices) ? response.voices : []
+    const response = await get<{ models: CatalogEntry[] }>('/app-settings/genstudio/music-models', { cache: 'no-store' })
+    return Array.isArray(response.models) ? response.models : []
   },
 })
 
@@ -161,14 +153,19 @@ interface CatalogEntry {
   display_name?: string
   name?: string
   voice_name?: string
+  provider_name?: string
   available?: boolean
   generation_enabled?: boolean
+  coming_soon?: boolean
 }
 
 interface CatalogDiagnostic {
   id: string
   name: string
   available: boolean
+  providerName?: string
+  statusLabel: 'Available' | 'Unavailable' | 'Coming soon'
+  statusTone: 'available' | 'unavailable' | 'coming-soon'
 }
 
 const accountConfigured = ref(false)
@@ -177,31 +174,38 @@ const loading = ref(false)
 const requestErrors = ref<string[]>([])
 const lastRefreshedAt = ref<Date | null>(null)
 function isAvailable(entry: CatalogEntry): boolean {
-  return entry.available !== false && entry.generation_enabled !== false
+  return entry.available !== false && entry.generation_enabled !== false && entry.coming_soon !== true
 }
 
 const summaries = computed(() => [
   { label: 'LLM', total: chatModelsCache.data.value.length, available: chatModelsCache.data.value.filter(isAvailable).length, ...freshnessOf(chatModelsCache) },
   { label: 'Images', total: imageModels.value.length, available: imageModels.value.filter(isAvailable).length, lastFetchedAt: imageLastFetchedAt.value, isStale: imageIsStale.value, isExpired: imageIsExpired.value },
   { label: 'TTS models', total: voiceModels.value.length, available: voiceModels.value.filter(isAvailable).length, lastFetchedAt: mediaLastFetchedAt.value, isStale: mediaIsStale.value, isExpired: mediaIsExpired.value },
-  { label: 'Voices', total: voicesCache.data.value.length, available: voicesCache.data.value.filter(isAvailable).length, ...freshnessOf(voicesCache) },
+  { label: 'Music models', total: musicModelsCache.data.value.length, available: musicModelsCache.data.value.filter(isAvailable).length, ...freshnessOf(musicModelsCache) },
   { label: 'Transcription', total: transcriptionCatalog.data.value.length, available: transcriptionCatalog.data.value.filter(isAvailable).length, ...freshnessOf(transcriptionCatalog) },
   { label: 'Video', total: videoModels.value.length, available: videoModels.value.filter(isAvailable).length, lastFetchedAt: mediaLastFetchedAt.value, isStale: mediaIsStale.value, isExpired: mediaIsExpired.value },
 ])
 
 function diagnosticRows(entries: readonly CatalogEntry[]): CatalogDiagnostic[] {
-  return entries.map(entry => ({
-    id: entry.id,
-    name: entry.display_name || entry.voice_name || entry.name || entry.id,
-    available: isAvailable(entry),
-  }))
+  return entries.map(entry => {
+    const comingSoon = entry.coming_soon === true
+    const available = isAvailable(entry)
+    return {
+      id: entry.id,
+      name: entry.display_name || entry.voice_name || entry.name || entry.id,
+      available,
+      providerName: entry.provider_name,
+      statusLabel: comingSoon ? 'Coming soon' : available ? 'Available' : 'Unavailable',
+      statusTone: comingSoon ? 'coming-soon' : available ? 'available' : 'unavailable',
+    }
+  })
 }
 
 const catalogGroups = computed(() => [
   { label: 'Language models', items: diagnosticRows(chatModelsCache.data.value) },
   { label: 'Image models', items: diagnosticRows(imageModels.value) },
   { label: 'TTS models', items: diagnosticRows(voiceModels.value) },
-  { label: 'Voices', items: diagnosticRows(voicesCache.data.value) },
+  { label: 'Music models', items: diagnosticRows(musicModelsCache.data.value) },
   { label: 'Transcription models', items: diagnosticRows(transcriptionCatalog.data.value) },
   { label: 'Video models', items: diagnosticRows(videoModels.value) },
 ])
@@ -211,7 +215,7 @@ const combinedErrors = computed(() => Array.from(new Set([
   imageError.value,
   mediaError.value,
   chatModelsCache.error.value,
-  voicesCache.error.value,
+  musicModelsCache.error.value,
   transcriptionCatalog.error.value,
 ].filter(Boolean))))
 
@@ -232,7 +236,7 @@ const freshnessEntries = computed(() => [
   { label: 'Language models', ...freshnessOf(chatModelsCache) },
   { label: 'Image models', lastFetchedAt: imageLastFetchedAt.value, isStale: imageIsStale.value, isExpired: imageIsExpired.value },
   { label: 'TTS & Video models', lastFetchedAt: mediaLastFetchedAt.value, isStale: mediaIsStale.value, isExpired: mediaIsExpired.value },
-  { label: 'Voices', ...freshnessOf(voicesCache) },
+  { label: 'Music models', ...freshnessOf(musicModelsCache) },
   { label: 'Transcription models', ...freshnessOf(transcriptionCatalog) },
 ])
 
@@ -299,7 +303,7 @@ async function refresh(): Promise<void> {
     await Promise.all([
       chatModelsCache.refresh(true),
       transcriptionCatalog.refresh(true),
-      voicesCache.refresh(true),
+      musicModelsCache.refresh(true),
       refreshImages(true),
       refreshMedia(true),
     ])
@@ -353,7 +357,8 @@ onMounted(() => { void refresh() })
 .catalog-detail-grid li strong, .catalog-detail-grid li small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-detail-grid li small { color: var(--text-muted); font-size: var(--font-xs); }
 .catalog-detail-grid li em { flex: 0 0 auto; color: var(--text-muted); font-size: var(--font-xs); font-style: normal; }
-.catalog-detail-grid li em.available { color: var(--success); }
+.catalog-detail-grid li em.status-available { color: var(--success); }
+.catalog-detail-grid li em.status-coming-soon { color: var(--warning); }
 .catalog-footer { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-top: 14px; }
 .catalog-footer p { max-width: 780px; margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }
 .catalog-footer > div { display: flex; flex: 0 0 auto; gap: 8px; }

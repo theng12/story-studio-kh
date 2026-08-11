@@ -33,6 +33,7 @@ const {
   invalidateGenStudioCatalogFreshness,
   listChatModelsSnapshot,
   listImageModelsSnapshot,
+  listMusicModelsSnapshot,
   listModelCapabilitiesSnapshot,
   listTranscriptionModelsSnapshot,
   listVideoModelsSnapshot,
@@ -47,6 +48,15 @@ const CATALOGUE_PAYLOAD: Record<string, unknown> = {
   '/v1/voices': [{ id: 'voice-v1', display_name: 'Voice V1', generation_enabled: true }],
   '/v1/chat/models': [{ id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false }],
   '/v1/image/models': [{ id: 'image-v1', display_name: 'Image V1', available: true, qualification_only: false }],
+  '/v1/music/models': [{
+    id: 'music-v1', display_name: 'Music V1', description: 'Music', coming_soon: false,
+    credits_per_request: 0, minimum_credits: 0, price_version: 'music-price-v1',
+    standard_credits: null, sale_credits: null, sale_ends_at: null, sale_disclaimer: null,
+    supports_instrumental: true, supports_vocals: true, requires_lyrics: false,
+    max_prompt_characters: 2_000, max_prompt_without_lyrics_characters: null,
+    min_prompt_characters: 1, max_lyrics_characters: 5_000, min_lyrics_characters: 1,
+    max_title_characters: 256, outputs_per_request: 1,
+  }],
   '/v1/videos/models': [{ id: 'video-v1', display_name: 'Video V1', available: true, modes: ['image-to-video'] }],
   '/v1/transcription/models': [{ id: 'stt-v1', display_name: 'STT V1', available: true, qualification_only: false }],
 }
@@ -62,6 +72,7 @@ const CATALOGUES: Catalogue[] = [
   { kind: 'voices', endpoint: '/v1/voices', load: listVoicesSnapshot },
   { kind: 'chat', endpoint: '/v1/chat/models', load: listChatModelsSnapshot },
   { kind: 'image', endpoint: '/v1/image/models', load: listImageModelsSnapshot },
+  { kind: 'music', endpoint: '/v1/music/models', load: listMusicModelsSnapshot },
   { kind: 'video', endpoint: '/v1/videos/models', load: listVideoModelsSnapshot },
   { kind: 'transcription', endpoint: '/v1/transcription/models', load: listTranscriptionModelsSnapshot },
 ]

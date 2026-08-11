@@ -20,10 +20,10 @@ describe('GenStudio catalog diagnostics', () => {
     assert.doesNotMatch(source, /Save (?:catalog|pricing|model)/i)
   })
 
-  test('loads every live catalog while keeping partial failures visible', () => {
+  test('loads music diagnostics instead of the retired voice list while keeping partial failures visible', () => {
     for (const endpoint of [
       'chat-models',
-      'voices',
+      'music-models',
       'transcription-models',
     ]) {
       assert.match(source, new RegExp(endpoint))
@@ -32,5 +32,12 @@ describe('GenStudio catalog diagnostics', () => {
     assert.match(source, /useGenStudioMediaModels\(\)/)
     assert.match(source, /Promise\.allSettled/)
     assert.match(source, /combinedErrors/)
+    assert.match(source, /Music models/)
+    assert.match(source, /provider_name/)
+    assert.match(source, /Coming soon/)
+    assert.match(source, /status-coming-soon/)
+    assert.match(source, /item\.statusLabel/)
+    assert.doesNotMatch(source, /app-settings\/genstudio\/voices/)
+    assert.doesNotMatch(source, /label: 'Voices'/)
   })
 })

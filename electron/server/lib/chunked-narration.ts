@@ -851,7 +851,17 @@ export async function expandChapters(
   // Pending = outline slots whose docx isn't on disk, optionally
   // intersected with the caller's selection.
   let pending = sidecar.outline.filter(e => !verifiedDone.has(e.n))
-  if (opts.chaptersToExpand?.length) {
+  const recoveryChapters = job.genstudio_chat_recovery === true
+    && job.genstudio_chat_recovery_purpose === 'narrative-repair'
+    ? job.genstudio_chat_recovery_chapters
+    : undefined
+  if (recoveryChapters?.length) {
+    const wanted = new Set(recoveryChapters)
+    pending = sidecar.outline.filter(entry => wanted.has(entry.n))
+    if (pending.length !== wanted.size || !job.genstudio_chat_recovery_key) {
+      throw new Error('Saved GenStudio repair identity no longer matches the original chapter slots. No replacement provider work was submitted.')
+    }
+  } else if (opts.chaptersToExpand?.length) {
     const want = new Set(opts.chaptersToExpand)
     pending = pending.filter(e => want.has(e.n))
   }
@@ -1079,7 +1089,22 @@ async function buildOutline(
   // chapters × ~80 words ≈ 11k tokens, and the compact-outline threshold
   // above keeps very large outlines inside whatever the selected product
   // publishes rather than a hardcoded cap.
-  const ctx = { slug: job.project_slug, jobId: job.job_id, signal: params.signal }
+  const ctx = {
+    slug: job.project_slug,
+    jobId: job.job_id,
+    signal: params.signal,
+    ...(job.genstudio_chat_recovery === true && job.genstudio_chat_recovery_purpose === 'outline'
+      && job.genstudio_chat_recovery_key
+      ? {
+          recoverByIdempotencyKey: true,
+          idempotencyKey: job.genstudio_chat_recovery_key,
+          allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
+        }
+      : {}),
+    requestIdentity: job.genstudio_chat_retry_scope
+      ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
+      : undefined,
+  }
   const arr = await withModelFallback(job, params, model => callForJsonArray(
     model, params.systemPrompt, prompt, params.apiKeys, ctx,
     outlineOutputContract(params.totalChapters),
@@ -1280,6 +1305,39 @@ async function expandNarrativeSequential(
       requestIdentity: job.genstudio_chat_retry_scope
         ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
         : undefined,
+      recoverByIdempotencyKey: job.genstudio_chat_recovery === true
+        && job.genstudio_chat_recovery_purpose !== 'narrative-repair',
+      allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
+    }
+    const recoveryChapters = job.genstudio_chat_recovery === true
+      && job.genstudio_chat_recovery_purpose === 'narrative-repair'
+      ? job.genstudio_chat_recovery_chapters
+      : undefined
+    if (recoveryChapters?.length) {
+      const repairBatch = batch.filter(entry => recoveryChapters.includes(entry.n))
+      if (repairBatch.length !== recoveryChapters.length || !job.genstudio_chat_recovery_key) {
+        throw new Error('Saved GenStudio repair identity no longer matches the pending chapter slots. No replacement provider work was submitted.')
+      }
+      const repairPrompt = narrativeRepairPrompt(
+        params, outline, repairBatch, await narrativeTransitionWindow(params, repairBatch[0]!.n), useTOC,
+      )
+      const recoveredRepairText = await withModelFallback(job, params, model => callAiWithRetry(
+        model, params.systemPrompt, repairPrompt, params.apiKeys, true, {
+          ...ctx,
+          recoverByIdempotencyKey: true,
+          idempotencyKey: job.genstudio_chat_recovery_key,
+          allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
+        },
+      ))
+      const repaired = await parseAndWriteBatch(params, repairBatch, recoveredRepairText)
+      runningSidecar = markDone(runningSidecar, repaired)
+      await writeSidecar(params.scriptDir, runningSidecar)
+      const stillMissing = repairBatch.filter(entry => !repaired.includes(entry.n)).map(entry => entry.n)
+      if (stillMissing.length) {
+        throw new Error(`Recovered GenStudio repair did not contain chapters ${stillMissing.join(', ')}. No replacement provider work was submitted.`)
+      }
+      job.output_lines.push(`[chunked]   → recovered repair wrote ${repaired.length} chapter(s) (${repaired.join(', ')})`)
+      continue
     }
     let wrote: number[] = []
     let incomplete: GenStudioChatIncompleteError | null = null
@@ -1317,17 +1375,18 @@ async function expandNarrativeSequential(
       `[chunked]   → repairing chapters ${repairBatch.map(entry => entry.n).join(', ')} ` +
       `(one bounded ${incomplete ? 'replacement' : 'missing-chapter'} pass)…`,
     )
+    const effectiveRepairBatch = repairBatch
     const repairPrompt = narrativeRepairPrompt(
       params,
       outline,
-      repairBatch,
-      await narrativeTransitionWindow(params, repairBatch[0]!.n),
+      effectiveRepairBatch,
+      await narrativeTransitionWindow(params, effectiveRepairBatch[0]!.n),
       useTOC,
     )
     const repairText = await withModelFallback(job, params, model => callAiWithRetry(
       model, params.systemPrompt, repairPrompt, params.apiKeys, true, ctx,
     ))
-    const repaired = await parseAndWriteBatch(params, repairBatch, repairText)
+    const repaired = await parseAndWriteBatch(params, effectiveRepairBatch, repairText)
     const allWrote = [...new Set([...wrote, ...repaired])].sort((a, b) => a - b)
     runningSidecar = markDone(runningSidecar, repaired)
     await writeSidecar(params.scriptDir, runningSidecar)
@@ -1493,6 +1552,8 @@ async function expandListicleParallel(
           requestIdentity: job.genstudio_chat_retry_scope
             ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
             : undefined,
+          recoverByIdempotencyKey: job.genstudio_chat_recovery === true,
+          allowedRecoveryKeys: job.genstudio_chat_recovery_keys,
         }
         const text = await withModelFallback(job, params, model =>
           callAiWithRetry(model, params.systemPrompt, prompt, params.apiKeys, true, ctx))
@@ -1870,7 +1931,14 @@ function computeParamsHash(p: ChunkedNarrationParams): string {
 async function callForJsonArray(
   model: string, system: string, user: string,
   apiKeys: { anthropic_api_key?: string; openai_api_key?: string; kie_api_key?: string },
-  ctx: { signal?: AbortSignal; slug?: string; jobId?: string },
+  ctx: {
+    signal?: AbortSignal
+    slug?: string
+    jobId?: string
+    recoverByIdempotencyKey?: boolean
+    idempotencyKey?: string
+    allowedRecoveryKeys?: string[]
+  },
   outputContract: TextOutputContract,
   retries = 2,
 ): Promise<any[]> {

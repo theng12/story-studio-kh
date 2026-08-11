@@ -660,6 +660,111 @@ async function waitForTerminalJob(jobId: string): Promise<void> {
 }
 
 describe('manual GenStudio chat retries', () => {
+  test('an unresolved outline retry carries its recorded key to read-only recovery', async () => {
+    const proj = await pm.createProject({ name: 'JQ Outline Exact Replay Key' })
+    jq.registerExecutor('outline_only', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'pending:outline-recorded-key',
+        operation: 'chat.response',
+        state: 'submitting',
+        updated_at: new Date().toISOString(),
+        request: {
+          method: 'POST', path: '/v1/chat/responses', idempotency_key: 'outline-recorded-key',
+          messages: [{ role: 'user', text: 'Plan the chapter structure. Recover this exact outline.', length: 59, truncated: false }],
+          captured_at: new Date().toISOString(),
+        },
+      })
+      throw new Error('outline submit outcome was lost')
+    })
+    const failed = jq.enqueue({
+      project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'outline', params: { model: 'writer-alpha' },
+    })
+    await waitForTerminalJob(failed.job_id)
+
+    jq.registerExecutor('outline_only', async () => {})
+    const retry = jq.retryTerminalJob(proj.slug, failed.job_id)
+
+    assert.equal(retry.genstudio_chat_recovery, true)
+    assert.equal(retry.genstudio_chat_recovery_key, 'outline-recorded-key')
+    assert.equal(retry.genstudio_chat_recovery_purpose, 'outline')
+    assert.deepEqual(retry.genstudio_chat_recovery_keys, ['outline-recorded-key'])
+    await waitForTerminalJob(retry.job_id)
+  })
+
+  test('a terminal outline retry gets a fresh identity even if a sibling chapter retry is unresolved', async () => {
+    const proj = await pm.createProject({ name: 'JQ Outline Terminal Retry Scope' })
+    jq.registerExecutor('outline_only', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'job-outline-terminal', operation: 'chat.response', state: 'failed', updated_at: new Date().toISOString(),
+      })
+      throw new Error('outline terminal failure')
+    })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'pending:chapter-unresolved', operation: 'chat.response', state: 'submitting', updated_at: new Date().toISOString(),
+        request: {
+          method: 'POST', path: '/v1/chat/responses', idempotency_key: 'chapter-unresolved',
+          messages: [{ role: 'user', text: 'Write 1 chapter. SLOTS TO WRITE NOW:\n  Chapter 1: Existing', length: 61, truncated: false }],
+          captured_at: new Date().toISOString(),
+        },
+      })
+      throw new Error('chapter submit outcome was lost')
+    })
+    const unresolvedChapter = jq.enqueue({
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+    })
+    await waitForTerminalJob(unresolvedChapter.job_id)
+    const failedOutline = jq.enqueue({
+      project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'outline', params: { model: 'writer-alpha' },
+    })
+    await waitForTerminalJob(failedOutline.job_id)
+
+    jq.registerExecutor('outline_only', async () => {})
+    const retry = jq.retryTerminalJob(proj.slug, failedOutline.job_id)
+
+    assert.equal(retry.genstudio_chat_recovery, undefined)
+    assert.equal(retry.genstudio_chat_retry_scope, `terminal:job-outline-terminal:${failedOutline.job_id}`)
+    assert.equal(jq.getJob(unresolvedChapter.job_id)?.status, 'error')
+    await waitForTerminalJob(retry.job_id)
+  })
+
+  test('an unresolved narrative repair retry carries its exact recorded slots and key', async () => {
+    const proj = await pm.createProject({ name: 'JQ Narrative Repair Exact Replay' })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'pending:repair-recorded-key',
+        operation: 'chat.response',
+        state: 'submitting',
+        updated_at: new Date().toISOString(),
+        request: {
+          method: 'POST', path: '/v1/chat/responses', idempotency_key: 'repair-recorded-key',
+          messages: [{
+            role: 'user',
+            text: 'RECOVERY INSTRUCTION: This is one bounded repair pass.\nSLOTS TO WRITE NOW:\n  Chapter 2: Second\n  Chapter 3: Third\nOUTPUT ONLY the requested chapter blocks.',
+            length: 149,
+            truncated: false,
+          }],
+          captured_at: new Date().toISOString(),
+        },
+      })
+      throw new Error('repair submit outcome was lost')
+    })
+    const failed = jq.enqueue({
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+    })
+    await waitForTerminalJob(failed.job_id)
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const retry = jq.retryTerminalJob(proj.slug, failed.job_id)
+
+    assert.equal(retry.genstudio_chat_recovery, true)
+    assert.equal(retry.genstudio_chat_recovery_key, 'repair-recorded-key')
+    assert.equal(retry.genstudio_chat_recovery_purpose, 'narrative-repair')
+    assert.deepEqual(retry.genstudio_chat_recovery_chapters, [2, 3])
+    assert.deepEqual(retry.genstudio_chat_recovery_keys, ['repair-recorded-key'])
+    await waitForTerminalJob(retry.job_id)
+  })
+
   test('a failed chat alongside a running chat retains the original identity', async () => {
     const proj = await pm.createProject({ name: 'JQ Mixed Terminal And Running Chat' })
     jq.registerExecutor('expand_chapters', async job => {
@@ -680,6 +785,7 @@ describe('manual GenStudio chat retries', () => {
     jq.registerExecutor('expand_chapters', async () => {})
     const retry = jq.retryTerminalJob(proj.slug, failed.job_id)
     assert.equal(retry.genstudio_chat_retry_scope, undefined)
+    assert.equal(retry.genstudio_chat_recovery, true)
     await waitForTerminalJob(retry.job_id)
   })
 

@@ -23,6 +23,7 @@ import {
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   GENSTUDIO_LONG_JOB_TIMEOUT_MS,
   listImageModels,
+  listMusicModels,
   listChatModels,
   listModelCapabilities,
   listTtsModels,
@@ -442,6 +443,66 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
   } finally {
     globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio music catalog preserves only published provider details', async () => {
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async (input, init) => {
+      assert.equal(String(input), 'http://127.0.0.1:8000/v1/music/models')
+      assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer scoped-key')
+      return Response.json([
+        {
+          id: 'music-local-v1', display_name: 'Local Music', provider_name: 'Studio Hub',
+          description: 'Local instrumental generation', coming_soon: false,
+          credits_per_request: 0, minimum_credits: 0, price_version: 'music-price-v1',
+          standard_credits: null, sale_credits: null, sale_ends_at: null, sale_disclaimer: null,
+          supports_instrumental: true, supports_vocals: false, requires_lyrics: true,
+          max_prompt_characters: 2_000, max_prompt_without_lyrics_characters: 1_200,
+          min_prompt_characters: 1, max_lyrics_characters: 5_000, min_lyrics_characters: 1,
+          max_title_characters: 256, outputs_per_request: 2,
+        },
+        {
+          id: 'music-unannounced-v1', display_name: 'Unannounced Music', description: '',
+          coming_soon: true, credits_per_request: 50, minimum_credits: 10, price_version: 'music-price-v2',
+          standard_credits: 60, sale_credits: 50, sale_ends_at: '2026-09-01T00:00:00Z', sale_disclaimer: 'Launch sale',
+          supports_instrumental: true, supports_vocals: true, requires_lyrics: false,
+          max_prompt_characters: 2_000, max_prompt_without_lyrics_characters: null,
+          min_prompt_characters: 1, max_lyrics_characters: 5_000, min_lyrics_characters: 1,
+          max_title_characters: 256, outputs_per_request: null,
+        },
+        { id: 'music-status-unknown-v1', display_name: 'Music Without Published Status', description: 'Invalid' },
+      ])
+    }
+
+    const models = await listMusicModels('scoped-key')
+    assert.deepEqual(models, [
+      {
+        id: 'music-local-v1', display_name: 'Local Music', provider_name: 'Studio Hub',
+        description: 'Local instrumental generation', coming_soon: false,
+        credits_per_request: 0, minimum_credits: 0, price_version: 'music-price-v1',
+        standard_credits: null, sale_credits: null, sale_ends_at: null, sale_disclaimer: null,
+        supports_instrumental: true, supports_vocals: false, requires_lyrics: true,
+        max_prompt_characters: 2_000, max_prompt_without_lyrics_characters: 1_200,
+        min_prompt_characters: 1, max_lyrics_characters: 5_000, min_lyrics_characters: 1,
+        max_title_characters: 256, outputs_per_request: 2,
+      },
+      {
+        id: 'music-unannounced-v1', display_name: 'Unannounced Music', provider_name: undefined,
+        description: '', coming_soon: true,
+        credits_per_request: 50, minimum_credits: 10, price_version: 'music-price-v2',
+        standard_credits: 60, sale_credits: 50, sale_ends_at: '2026-09-01T00:00:00Z', sale_disclaimer: 'Launch sale',
+        supports_instrumental: true, supports_vocals: true, requires_lyrics: false,
+        max_prompt_characters: 2_000, max_prompt_without_lyrics_characters: null,
+        min_prompt_characters: 1, max_lyrics_characters: 5_000, min_lyrics_characters: 1,
+        max_title_characters: 256, outputs_per_request: null,
+      },
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+    clearGenStudioCatalogCache()
   }
 })
 

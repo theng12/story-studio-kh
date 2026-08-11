@@ -547,6 +547,8 @@ export interface JobEnqueuedResponse {
   params: Record<string, any>
   /** Server-issued replacement identity for an explicit terminal chat Retry. */
   genstudio_chat_retry_scope?: string
+  /** A pending chat Retry may only reconcile its existing provider request. */
+  genstudio_chat_recovery?: true
   queue_position?: number
   /**
    * Which provider accounts served this job. Keyed by providerId. The

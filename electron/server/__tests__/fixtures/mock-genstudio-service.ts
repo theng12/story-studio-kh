@@ -629,6 +629,20 @@ export class MockGenStudioService {
       }
 
       if (method === 'GET' && this.handleCatalog(url.pathname, response)) return
+      const chatLookup = method === 'GET'
+        ? url.pathname.match(/^\/v1\/chat\/responses\/by-idempotency-key\/([^/]+)$/)
+        : null
+      if (chatLookup) {
+        const idempotencyKey = decodeURIComponent(chatLookup[1]!)
+        const jobId = this.jobByIdempotency.get(`chat:${idempotencyKey}`)
+        const job = jobId ? this.jobs.get(jobId) : null
+        if (!job || job.operation !== 'chat') {
+          json(response, 404, { detail: 'chat request not found' })
+          return
+        }
+        json(response, 200, this.responseBody(job))
+        return
+      }
       if (method === 'POST') {
         if (url.pathname === '/v1/chat/completions') {
           if (idempotencyKey.length < 8) {

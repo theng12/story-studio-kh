@@ -830,6 +830,33 @@ export interface GenStudioTtsModel {
   controls: GenStudioTtsControl[]
 }
 
+/** `GET /v1/music/models` — an account-visible music product published by GenStudio. */
+export interface GenStudioMusicModel {
+  id: string
+  display_name: string
+  /** Display only; absent means GenStudio published no provider. */
+  provider_name?: string
+  description: string
+  coming_soon: boolean
+  credits_per_request: number
+  minimum_credits: number
+  price_version: string
+  standard_credits: number | null
+  sale_credits: number | null
+  sale_ends_at: string | null
+  sale_disclaimer: string | null
+  supports_instrumental: boolean
+  supports_vocals: boolean
+  requires_lyrics: boolean
+  max_prompt_characters: number
+  max_prompt_without_lyrics_characters: number | null
+  min_prompt_characters: number
+  max_lyrics_characters: number
+  min_lyrics_characters: number
+  max_title_characters: number
+  outputs_per_request: number | null
+}
+
 /**
  * `TTSQuoteResponse` — GenStudio's own figure for one exact script.
  *
@@ -1261,6 +1288,13 @@ export interface GenStudioChatRequest extends GenStudioOperationContext {
   outputBudget?: OutputBudget
   requestIdentity?: string
   idempotencyKey?: string
+  /**
+   * Read an existing durable request by its saved idempotency key. This is
+   * recovery only: a missing or unreachable lookup never falls through to POST.
+   */
+  recoverByIdempotencyKey?: boolean
+  /** Server-recorded pending keys allowed to use read-only recovery. */
+  allowedRecoveryKeys?: string[]
   onJobAccepted?: (jobId: string, idempotencyKey: string) => void | Promise<void>
   onState?: (state: GenStudioJob['state'], jobId: string) => void | Promise<void>
   /** A private GenStudio-owned image asset for a vision-capable chat model. */
@@ -2339,6 +2373,10 @@ async function requestJsonWithRetry(
    *  wrong for a POST that executes a model inline — see
    *  GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS. */
   operationTimeoutMs: number = GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+  /** Statuses that a durable caller must reconcile read-only, not re-POST. */
+  noRetryStatuses: readonly number[] = [],
+  /** A read-only recovery lookup must classify its first HTTP response exactly. */
+  noRetryApiErrors = false,
 ): Promise<any> {
   let lastError: unknown
   for (let attempt = 1; attempt <= NETWORK_RETRY_ATTEMPTS; attempt++) {
@@ -2394,7 +2432,11 @@ async function requestJsonWithRetry(
           await request.onQueueState?.('waiting_credits')
           throw error
         }
-        if (!retryableStatus(response.status)) {
+        if (noRetryApiErrors || !retryableStatus(response.status)) {
+          await request.onQueueState?.('failed')
+          throw error
+        }
+        if (noRetryStatuses.includes(response.status)) {
           await request.onQueueState?.('failed')
           throw error
         }
@@ -2433,7 +2475,9 @@ async function requestJsonWithRetry(
       if (
         error instanceof GenStudioApiError
         && (
-          isGenStudioReleaseGenerationUnavailable(error.status, error.detail)
+          noRetryStatuses.includes(error.status)
+          || noRetryApiErrors
+          || isGenStudioReleaseGenerationUnavailable(error.status, error.detail)
           || !retryableStatus(error.status)
         )
       ) {
@@ -2454,11 +2498,12 @@ async function submitJsonWithAdmission(
   request: GenStudioOperationContext,
   deadline: number,
   operationTimeoutMs: number = GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+  noRetryStatuses: readonly number[] = [],
 ): Promise<any> {
   return withGenStudioAdmission(
     apiKey,
     request,
-    () => requestJsonWithRetry(url, init, request, deadline, apiKey, operationTimeoutMs),
+    () => requestJsonWithRetry(url, init, request, deadline, apiKey, operationTimeoutMs, noRetryStatuses),
   )
 }
 
@@ -2474,9 +2519,10 @@ async function submitJsonWithAdmission(
  * still running". Re-POSTing the SAME Idempotency-Key cannot start a second
  * job: GenStudio resolves the key against the existing job record and either
  * refuses again (still running) or, once the job reaches SUCCEEDED, RETURNS
- * THAT JOB'S STORED OUTPUT. Replaying the key is therefore not a resubmission,
- * it is the only reattachment path the API offers — the 429 carries no job id,
- * and no endpoint looks a job up by idempotency key.
+ * THAT JOB'S STORED OUTPUT. During this live `request_in_progress` case the
+ * replay is the reattachment path because the 429 carries no job id. For a
+ * persisted lost response, GenStudio 0.93.1's read-only GET-by-idempotency-key
+ * endpoint is used before Story Studio can consider any new work.
  *
  * Bounded by the caller's deadline, paced by GenStudio's own `Retry-After` when
  * it sends one, and cancellable throughout.
@@ -2492,7 +2538,7 @@ async function submitLanguageJson(
   for (;;) {
     try {
       return await submitJsonWithAdmission(
-        apiKey, url, init, request, deadline, GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS,
+        apiKey, url, init, request, deadline, GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS, [502, 504],
       )
     } catch (error) {
       if (!isGenStudioRequestInProgress(error)) throw error
@@ -2537,6 +2583,7 @@ export type GenStudioCatalogKind =
   | 'tts-models'
   | 'chat'
   | 'image'
+  | 'music'
   | 'video'
   | 'transcription'
 
@@ -2565,6 +2612,7 @@ const CATALOG_LABEL: Record<GenStudioCatalogKind, string> = {
   'tts-models': 'voice model',
   chat: 'language product',
   image: 'image model',
+  music: 'music model',
   video: 'video model',
   transcription: 'transcription model',
 }
@@ -2836,6 +2884,67 @@ export async function listTtsModelsSnapshot(
 
 export async function listTtsModels(apiKey: string): Promise<GenStudioTtsModel[]> {
   return (await listTtsModelsSnapshot(apiKey)).value
+}
+
+/** Fetch the account-visible music catalog without deriving availability or provider identity. */
+export async function listMusicModelsSnapshot(
+  apiKey: string,
+): Promise<GenStudioCatalogSnapshot<GenStudioMusicModel[]>> {
+  const baseUrl = await getGenStudioUrl()
+  return cachedCatalogSnapshot('music', catalogCacheKey('music', baseUrl, apiKey), async () => {
+    const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/music/models`, apiKey)
+    if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid music model catalog')
+    return payload.flatMap((value: any): GenStudioMusicModel[] => {
+      const id = typeof value?.id === 'string' ? value.id.trim() : ''
+      const displayName = typeof value?.display_name === 'string' ? value.display_name.trim() : ''
+      const hasDescription = typeof value?.description === 'string'
+      const description = hasDescription ? value.description.trim() : ''
+      const isNullableInteger = (field: unknown): field is number | null => field === null || Number.isInteger(field)
+      const isNullableText = (field: unknown): field is string | null => field === null || typeof field === 'string'
+      if (
+        !id || !displayName || !hasDescription || typeof value?.coming_soon !== 'boolean'
+        || !Number.isInteger(value?.credits_per_request) || !Number.isInteger(value?.minimum_credits)
+        || typeof value?.price_version !== 'string'
+        || !isNullableInteger(value?.standard_credits) || !isNullableInteger(value?.sale_credits)
+        || !isNullableText(value?.sale_ends_at) || !isNullableText(value?.sale_disclaimer)
+        || typeof value?.supports_instrumental !== 'boolean' || typeof value?.supports_vocals !== 'boolean'
+        || typeof value?.requires_lyrics !== 'boolean'
+        || !Number.isInteger(value?.max_prompt_characters)
+        || !isNullableInteger(value?.max_prompt_without_lyrics_characters)
+        || !Number.isInteger(value?.min_prompt_characters) || !Number.isInteger(value?.max_lyrics_characters)
+        || !Number.isInteger(value?.min_lyrics_characters) || !Number.isInteger(value?.max_title_characters)
+        || !isNullableInteger(value?.outputs_per_request)
+      ) return []
+      return [{
+        id,
+        display_name: displayName,
+        provider_name: optionalText(value?.provider_name),
+        description,
+        coming_soon: value.coming_soon,
+        credits_per_request: value.credits_per_request,
+        minimum_credits: value.minimum_credits,
+        price_version: value.price_version.trim(),
+        standard_credits: value.standard_credits,
+        sale_credits: value.sale_credits,
+        sale_ends_at: value.sale_ends_at,
+        sale_disclaimer: value.sale_disclaimer,
+        supports_instrumental: value.supports_instrumental,
+        supports_vocals: value.supports_vocals,
+        requires_lyrics: value.requires_lyrics,
+        max_prompt_characters: value.max_prompt_characters,
+        max_prompt_without_lyrics_characters: value.max_prompt_without_lyrics_characters,
+        min_prompt_characters: value.min_prompt_characters,
+        max_lyrics_characters: value.max_lyrics_characters,
+        min_lyrics_characters: value.min_lyrics_characters,
+        max_title_characters: value.max_title_characters,
+        outputs_per_request: value.outputs_per_request,
+      }]
+    })
+  })
+}
+
+export async function listMusicModels(apiKey: string): Promise<GenStudioMusicModel[]> {
+  return (await listMusicModelsSnapshot(apiKey)).value
 }
 
 /**
@@ -4257,6 +4366,73 @@ function chatJobEvidence(job: GenStudioChatJob): GenStudioJob {
   }
 }
 
+export class GenStudioChatRecoveryUnresolvedError extends Error {
+  readonly idempotencyKey: string
+
+  constructor(idempotencyKey: string, cause?: unknown) {
+    super(
+      `GenStudio KH could not find the earlier language submission for idempotency key ${idempotencyKey}. `
+      + 'Story Studio kept its existing request identity and did not submit fresh work. Check GenStudio, then Retry.',
+      cause === undefined ? undefined : { cause },
+    )
+    this.name = 'GenStudioChatRecoveryUnresolvedError'
+    this.idempotencyKey = idempotencyKey
+  }
+}
+
+// A missing record or an ambiguous gateway failure is not enough evidence to
+// submit replacement work. Every other HTTP status is actionable GenStudio
+// feedback and must remain visible to the caller.
+const UNRESOLVED_CHAT_RECOVERY_LOOKUP_STATUSES = [404, 502, 504]
+
+/**
+ * Reclaim a durable chat request whose POST response was lost. This endpoint
+ * is account-scoped and read-only; missing or unreachable evidence is never
+ * permission to make another provider submission.
+ */
+async function recoverChatByIdempotencyKey(
+  apiKey: string,
+  idempotencyKey: string,
+  request: GenStudioChatRequest,
+  prepared: PreparedChatSubmission,
+  requestPreview: GenStudioRequestPreview,
+): Promise<GenStudioChatResult> {
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  let initial: GenStudioChatJob
+  try {
+    initial = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/chat/responses/by-idempotency-key/${encodeURIComponent(idempotencyKey)}`,
+      { headers: authorization(apiKey) },
+      request,
+      deadline,
+      apiKey,
+      GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+      [],
+      true,
+    ) as GenStudioChatJob
+  } catch (error) {
+    if (request.isCancelled?.() || request.signal?.aborted) throw error
+    if (
+      error instanceof GenStudioApiError
+      && !UNRESOLVED_CHAT_RECOVERY_LOOKUP_STATUSES.includes(error.status)
+    ) throw error
+    throw new GenStudioChatRecoveryUnresolvedError(idempotencyKey, error)
+  }
+  await recordGenStudioEvidence('chat.response', chatJobEvidence(initial), requestPreview)
+  await reportQueueState(request, chatJobEvidence(initial))
+  await request.onJobAccepted?.(initial.id, idempotencyKey)
+  await request.onState?.(initial.state, initial.id)
+  if (initial.state === 'failed') {
+    await genStudioAdmission.notifyTerminal(apiKey)
+    throw new GenStudioChatTerminalFailureError(initial)
+  }
+  const completed = initial.state === 'succeeded'
+    ? initial
+    : await waitForChatJob(baseUrl, apiKey, initial, request, deadline)
+  return finishChatJob(apiKey, request, prepared, completed)
+}
+
 /**
  * Poll one accepted language job to a terminal state.
  *
@@ -4413,34 +4589,59 @@ async function callChatViaResponses(
     messages: prepared.messages,
     fields: chatPreviewFields(request, prepared),
   })
-  const submitted = await submitLanguageJson(
-    apiKey,
-    `${apiBase(baseUrl)}/v1/chat/responses`,
-    {
-      method: 'POST',
-      headers: {
-        ...authorization(apiKey),
-        'Content-Type': 'application/json',
-        // Required by the route (8..128 characters). Computed once, above, and
-        // reused verbatim by every network retry of this submission.
-        'Idempotency-Key': prepared.idempotencyKey,
+  if (request.recoverByIdempotencyKey) {
+    if (request.allowedRecoveryKeys?.length && !request.allowedRecoveryKeys.includes(prepared.idempotencyKey)) {
+      throw new GenStudioChatRecoveryUnresolvedError(prepared.idempotencyKey)
+    }
+    return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview)
+  }
+  let submitted: GenStudioChatJob
+  try {
+    submitted = await submitLanguageJson(
+      apiKey,
+      `${apiBase(baseUrl)}/v1/chat/responses`,
+      {
+        method: 'POST',
+        headers: {
+          ...authorization(apiKey),
+          'Content-Type': 'application/json',
+          // Required by the route (8..128 characters). Computed once, above, and
+          // reused verbatim by every network retry of this submission.
+          'Idempotency-Key': prepared.idempotencyKey,
+        },
+        body: JSON.stringify({
+          // `ChatResponseRequest` field names — NOT the OpenAI-compatible ones.
+          model_id: prepared.modelId,
+          input: prepared.messages,
+          response_format: prepared.responseFormat,
+          // Only the sampling fields this product publishes. Never `top_p`.
+          ...prepared.samplingFields,
+          max_output_tokens: prepared.maxOutputTokens,
+          // Present only for a deliberate web-search request. `web_search` is
+          // available on this route too, so web research is durable as well.
+          ...(request.webSearch ? { web_search: request.webSearch } : {}),
+        }),
       },
-      body: JSON.stringify({
-        // `ChatResponseRequest` field names — NOT the OpenAI-compatible ones.
-        model_id: prepared.modelId,
-        input: prepared.messages,
-        response_format: prepared.responseFormat,
-        // Only the sampling fields this product publishes. Never `top_p`.
-        ...prepared.samplingFields,
-        max_output_tokens: prepared.maxOutputTokens,
-        // Present only for a deliberate web-search request. `web_search` is
-        // available on this route too, so web research is durable as well.
-        ...(request.webSearch ? { web_search: request.webSearch } : {}),
-      }),
-    },
-    request,
-    deadline,
-  ) as GenStudioChatJob
+      request,
+      deadline,
+    ) as GenStudioChatJob
+  } catch (error) {
+    if (request.isCancelled?.() || request.signal?.aborted) throw error
+    // A coded uncertain submission is a terminal safety result, not an
+    // unlabelled gateway failure. GenStudio explicitly stopped rather than
+    // risk a second provider charge, so no lookup or replacement may follow.
+    if (isGenStudioSubmissionUncertain(error)) throw error
+    // Only GenStudio's documented ambiguous submission outcomes (502/504),
+    // plus a transport error with no HTTP response, can be reconciled through
+    // the read-only lookup. Auth, credit, validation, rate, release-disabled
+    // 503, and other explicit API failures remain directly actionable.
+    if (
+      error instanceof GenStudioApiError
+      && error.status !== 502
+      && error.status !== 504
+    ) throw error
+    return recoverChatByIdempotencyKey(apiKey, prepared.idempotencyKey, request, prepared, requestPreview)
+  }
   await recordGenStudioEvidence('chat.response', chatJobEvidence(submitted), requestPreview)
   await reportQueueState(request, chatJobEvidence(submitted))
   await request.onJobAccepted?.(submitted.id, prepared.idempotencyKey)

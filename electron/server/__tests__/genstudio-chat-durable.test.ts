@@ -19,7 +19,9 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   callChatWithGenStudio,
+  GenStudioApiError,
   GenStudioChatIncompleteError,
+  GenStudioChatRecoveryUnresolvedError,
   GenStudioChatTerminalFailureError,
   isGenStudioSubmissionUncertain,
 } from '../lib/genstudio-client.js'
@@ -235,6 +237,271 @@ test('SUBMISSION_UNCERTAIN is never auto-resubmitted and says to check the accou
   }
   assert.equal(posts, 1, 'an uncertain outcome must never produce a second submission')
   assert.equal(polls, 1, 'and must not be re-polled after it settles')
+})
+
+test('an uncertain historical chat submission is reconciled by idempotency key without a new POST', async () => {
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  const states: string[] = []
+  const accepted: string[] = []
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog())
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      if ((init?.method || 'GET').toUpperCase() === 'POST') {
+        posts += 1
+        throw new Error('a reconciliation must never submit another provider request')
+      }
+      assert.equal(
+        new URL(url).pathname,
+        '/v1/chat/responses/by-idempotency-key/historical-uncertain-key',
+      )
+      return Response.json(job({
+        id: 'job_historical_uncertain',
+        state: 'failed',
+        failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+        credit_cost: 0,
+        remaining_credits: 900,
+      }))
+    }
+    const error = await callChatWithGenStudio('durable-reconcile-key', {
+      ...baseRequest,
+      idempotencyKey: 'historical-uncertain-key',
+      recoverByIdempotencyKey: true,
+      onJobAccepted: id => { accepted.push(id) },
+      onState: (state, id) => { states.push(`${state}:${id}`) },
+    }).then(() => null, (reason: unknown) => reason)
+    assert.ok(error instanceof GenStudioChatTerminalFailureError)
+    assert.equal(error.failureCode, 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(posts, 0, 'historical reconciliation must never create a second charge')
+  assert.deepEqual(accepted, ['job_historical_uncertain'])
+  assert.deepEqual(states, ['failed:job_historical_uncertain'])
+})
+
+test('an ambiguous 502 submission is reconciled by idempotency key without a replacement POST', async () => {
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  let lookups = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog())
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      if ((init?.method || 'GET').toUpperCase() === 'POST') {
+        posts += 1
+        return Response.json({ detail: 'submission outcome uncertain' }, { status: 502 })
+      }
+      lookups += 1
+      assert.equal(
+        new URL(url).pathname,
+        '/v1/chat/responses/by-idempotency-key/ambiguous-502-key',
+      )
+      return Response.json(job({
+        id: 'job_reconciled_after_502',
+        state: 'failed',
+        failure_code: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+        credit_cost: 0,
+        remaining_credits: 900,
+      }))
+    }
+    const error = await callChatWithGenStudio('durable-ambiguous-502-key', {
+      ...baseRequest,
+      idempotencyKey: 'ambiguous-502-key',
+    }).then(() => null, (reason: unknown) => reason)
+    assert.ok(error instanceof GenStudioChatTerminalFailureError)
+    assert.equal(error.failureCode, 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(posts, 1, 'the ambiguous original submission is never retried by POST')
+  assert.equal(lookups, 1, 'the durable key is reconciled with one read-only lookup')
+})
+
+test('an unknown historical idempotency key stays locked and never creates fresh work', async () => {
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog())
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      if ((init?.method || 'GET').toUpperCase() === 'POST') {
+        posts += 1
+        throw new Error('unknown recovery must not fall through to POST')
+      }
+      assert.equal(
+        new URL(url).pathname,
+        '/v1/chat/responses/by-idempotency-key/missing-historical-key',
+      )
+      return Response.json({ detail: 'Not found' }, { status: 404 })
+    }
+    await assert.rejects(
+      callChatWithGenStudio('durable-reconcile-key', {
+        ...baseRequest,
+        idempotencyKey: 'missing-historical-key',
+        recoverByIdempotencyKey: true,
+      }),
+      /could not find the earlier language submission/i,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(posts, 0, 'unknown recovery must preserve its identity instead of submitting anew')
+})
+
+test('a transport failure during recovery stays unresolved and never creates fresh work', async () => {
+  const originalFetch = globalThis.fetch
+  let posts = 0
+  let lookups = 0
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog())
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      if ((init?.method || 'GET').toUpperCase() === 'POST') {
+        posts++
+        throw new Error('recovery must not replace a transport-uncertain request')
+      }
+      lookups++
+      throw new TypeError('network connection was reset')
+    }
+    const error = await callChatWithGenStudio('durable-transport-recovery-key', {
+      ...baseRequest,
+      idempotencyKey: 'transport-uncertain-key',
+      recoverByIdempotencyKey: true,
+    }).then(() => null, (reason: unknown) => reason)
+    assert.ok(error instanceof GenStudioChatRecoveryUnresolvedError)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.equal(posts, 0)
+  assert.equal(lookups, 4, 'transport lookup is retried but never converted into a replacement POST')
+})
+
+for (const [status, detail] of [
+  [400, 'Request is invalid'],
+  [401, 'API key is invalid'],
+  [402, 'Insufficient credits'],
+  [403, 'Missing chat:generate scope'],
+  [405, 'Method is not allowed'],
+  [409, 'Request conflicts with the current state'],
+  [422, 'model_id is invalid'],
+  [429, 'Account capacity is full'],
+  [500, 'Language provider failed'],
+  [503, 'Language product is temporarily unavailable'],
+] as const) {
+  test(`a definitive ${status} recovery lookup stays actionable instead of becoming unresolved`, async () => {
+    const originalFetch = globalThis.fetch
+    let posts = 0
+    let lookups = 0
+    try {
+      globalThis.fetch = async (input, init) => {
+        const url = String(input)
+        if (url.endsWith('/v1/chat/models')) return Response.json(catalog())
+        if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+        if ((init?.method || 'GET').toUpperCase() === 'POST') {
+          posts++
+          throw new Error('recovery must never create replacement work')
+        }
+        lookups++
+        return Response.json({ detail }, { status, headers: { 'Retry-After': '0' } })
+      }
+      const error = await callChatWithGenStudio('durable-actionable-recovery-key', {
+        ...baseRequest,
+        idempotencyKey: `actionable-recovery-${status}`,
+        recoverByIdempotencyKey: true,
+      }).then(() => null, (reason: unknown) => reason)
+      assert.ok(error instanceof GenStudioApiError)
+      assert.equal(error.status, status)
+      assert.equal(error instanceof GenStudioChatRecoveryUnresolvedError, false)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    assert.equal(posts, 0)
+    assert.equal(lookups, 1, 'a definitive recovery response is not retried or resubmitted')
+  })
+}
+
+test('a definitive credit refusal stays actionable and does not probe by idempotency key', async () => {
+  const originalFetch = globalThis.fetch
+  const paths: string[] = []
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog())
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      paths.push(new URL(url).pathname)
+      assert.equal((init?.method || 'GET').toUpperCase(), 'POST')
+      return Response.json({ detail: 'Insufficient credits' }, { status: 402 })
+    }
+    await assert.rejects(
+      callChatWithGenStudio('durable-credit-key', {
+        ...baseRequest,
+        idempotencyKey: 'definitive-credit-refusal',
+      }),
+      /Insufficient credits/i,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.ok(paths.length >= 1)
+  assert.ok(paths.every(path => path === '/v1/chat/responses'))
+})
+
+test('a release-disabled response stays actionable and does not probe by idempotency key', async () => {
+  const originalFetch = globalThis.fetch
+  const paths: string[] = []
+  try {
+    globalThis.fetch = async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog())
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      paths.push(new URL(url).pathname)
+      assert.equal((init?.method || 'GET').toUpperCase(), 'POST')
+      return Response.json({ detail: 'Language generation is unavailable during this release' }, { status: 503 })
+    }
+    await assert.rejects(
+      callChatWithGenStudio('durable-release-key', {
+        ...baseRequest,
+        idempotencyKey: 'release-disabled-refusal',
+      }),
+      /unavailable during this release/i,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+  assert.ok(paths.length >= 1)
+  assert.ok(paths.every(path => path === '/v1/chat/responses'))
+})
+
+test('cancelling a recovery lookup remains cancelled instead of becoming unresolved', async () => {
+  const originalFetch = globalThis.fetch
+  let cancelled = false
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) return Response.json(catalog())
+      if (url.endsWith('/v1/account/overview')) return Response.json(accountOverview())
+      assert.match(new URL(url).pathname, /\/by-idempotency-key\/cancelled-recovery-key$/)
+      cancelled = true
+      throw new Error('Cancelled by user')
+    }
+    await assert.rejects(
+      callChatWithGenStudio('durable-cancelled-recovery-key', {
+        ...baseRequest,
+        idempotencyKey: 'cancelled-recovery-key',
+        recoverByIdempotencyKey: true,
+        isCancelled: () => cancelled,
+      }),
+      /Cancelled by user/,
+    )
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })
 
 test('a non-stop finish_reason rejects instead of returning partial text', async () => {

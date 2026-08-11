@@ -50,6 +50,11 @@ export interface CallAiContext {
   temperature?: number
   /** Stable logical request identity for durable provider submissions. */
   requestIdentity?: string
+  /** Reconcile a saved GenStudio chat idempotency key without a new submission. */
+  recoverByIdempotencyKey?: boolean
+  /** Server-owned durable key for a proven recovery; never client input. */
+  idempotencyKey?: string
+  allowedRecoveryKeys?: string[]
   /** Receives provider finish reason and token usage without changing callAi's return type. */
   onDiagnostics?: (diagnostics: TextGenerationDiagnostics) => void
   /**
@@ -112,6 +117,9 @@ export async function callAi(
     // Keep the fallback stable across Story job retries instead of including
     // the transient local queue id.
     requestIdentity: ctx.requestIdentity || ctx.slug || undefined,
+    recoverByIdempotencyKey: ctx.recoverByIdempotencyKey === true,
+    idempotencyKey: ctx.idempotencyKey,
+    allowedRecoveryKeys: ctx.allowedRecoveryKeys,
     onDiagnostics: ctx.onDiagnostics,
     images: ctx.images,
   })

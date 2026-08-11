@@ -24,6 +24,7 @@ import os from 'os'
 import {
   generateNarrativeChunked,
   generateListicleChunked,
+  expandChapters,
   inspectChunkedScriptCompletion,
   sidecarPath,
   writeImportedOutline,
@@ -39,7 +40,14 @@ import type { TextProvider, TextGenerationRequest } from '../providers/types.js'
 // matching `kind`. Outline calls are detected by "Plan the chapter
 // structure" / "Plan a listicle"; expansion calls by "Write N chapter(s)".
 
-interface FakeCall { kind: 'outline' | 'expansion'; userMessage: string; requestIdentity?: string }
+interface FakeCall {
+  kind: 'outline' | 'expansion'
+  userMessage: string
+  requestIdentity?: string
+  recoverByIdempotencyKey?: boolean
+  idempotencyKey?: string
+  allowedRecoveryKeys?: string[]
+}
 
 let fakeCalls: FakeCall[] = []
 let fakeOutlineResponse: string = '[]'
@@ -62,10 +70,18 @@ const fakeProvider: TextProvider = {
     if (fakeCalls.length >= fakeAbortAfterNCalls) throw new Error('Cancelled by user')
     const isOutline = /Plan the chapter structure|Plan a listicle/.test(req.userMessage)
     if (isOutline) {
-      fakeCalls.push({ kind: 'outline', userMessage: req.userMessage, requestIdentity: req.requestIdentity })
+      fakeCalls.push({
+        kind: 'outline', userMessage: req.userMessage, requestIdentity: req.requestIdentity,
+        recoverByIdempotencyKey: req.recoverByIdempotencyKey,
+        idempotencyKey: req.idempotencyKey, allowedRecoveryKeys: req.allowedRecoveryKeys,
+      })
       return fakeOutlineResponse
     }
-    fakeCalls.push({ kind: 'expansion', userMessage: req.userMessage, requestIdentity: req.requestIdentity })
+    fakeCalls.push({
+      kind: 'expansion', userMessage: req.userMessage, requestIdentity: req.requestIdentity,
+      recoverByIdempotencyKey: req.recoverByIdempotencyKey,
+      idempotencyKey: req.idempotencyKey, allowedRecoveryKeys: req.allowedRecoveryKeys,
+    })
     if (fakeIncompleteExpansion) {
       const incomplete = fakeIncompleteExpansion
       fakeIncompleteExpansion = null
@@ -198,6 +214,57 @@ describe('generateNarrativeChunked — end-to-end with fake provider', () => {
       'test-slug:manual-retry:terminal:job-old:story-old',
       'a deliberate replacement must not replay the terminal provider key',
     )
+  })
+
+  test('a queue-stamped exact replay reaches the text provider as recovery-only', async () => {
+    const scriptDir = await freshDir()
+    fakeOutlineResponse = buildOutlineJson(3, 'narrative')
+    fakeExpansionFor = buildExpansionFor
+    const job = makeJob(scriptDir)
+    job.genstudio_chat_recovery = true
+
+    await generateNarrativeChunked(job, {
+      episode_id: 'EP0002', title: 'Recovery-only Episode', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'system', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    assert.equal(
+      fakeCalls.find(call => call.kind === 'expansion')?.recoverByIdempotencyKey,
+      true,
+      'an unresolved exact replay must reach the provider as a read-only recovery',
+    )
+  })
+
+  test('a recovered narrative repair rewrites its original slots even when one partial chapter is already on disk', async () => {
+    const scriptDir = await freshDir()
+    const episodeId = 'EPREPAIR-RECOVERY'
+    await writeImportedOutline(scriptDir, episodeId, [
+      { title: 'Chapter 1' }, { title: 'Chapter 2' }, { title: 'Chapter 3' },
+    ])
+    await fs.writeFile(
+      path.join(scriptDir, `${episodeId}_Chapter_01.md`),
+      '## Chapter 01: Chapter 1\n\nPartial first chapter from the incomplete original response.\n',
+    )
+    fakeExpansionFor = buildExpansionFor
+    const job = makeJob(scriptDir)
+    job.genstudio_chat_recovery = true
+    job.genstudio_chat_recovery_key = 'repair-historic-key'
+    job.genstudio_chat_recovery_purpose = 'narrative-repair'
+    job.genstudio_chat_recovery_chapters = [1, 2, 3]
+    job.genstudio_chat_recovery_keys = ['repair-historic-key']
+
+    await expandChapters(job, {
+      episode_id: episodeId, title: 'Recovered repair', totalChapters: 3, wordsPerChapter: 500,
+      format: makeFormat('narrative'), systemPrompt: 'system', scriptDir, model: FAKE_MODEL, apiKeys: {},
+    })
+
+    assert.equal(fakeCalls.length, 1, 'recovery makes one exact repair call, not a normal replacement batch')
+    assert.equal(fakeCalls[0]?.recoverByIdempotencyKey, true)
+    assert.equal(fakeCalls[0]?.idempotencyKey, 'repair-historic-key')
+    assert.deepEqual(fakeCalls[0]?.allowedRecoveryKeys, ['repair-historic-key'])
+    for (const chapter of [1, 2, 3]) {
+      assert.equal(existsSync(path.join(scriptDir, `${episodeId}_Chapter_${String(chapter).padStart(2, '0')}.md`)), true)
+    }
   })
 
   test('outline + 4 batches × 3 chapters lands all 12 chapters on disk', async () => {

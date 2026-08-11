@@ -25,6 +25,7 @@ import {
   listModelCapabilities as listGenStudioCapabilities,
   listChatModels as listGenStudioChatModels,
   listImageModels as listGenStudioImageModels,
+  listMusicModels as listGenStudioMusicModels,
   listTranscriptionModels as listGenStudioTranscriptionModels,
   listVideoModels as listGenStudioVideoModels,
   listVoices as listGenStudioVoices,
@@ -551,6 +552,16 @@ router.get('/app-settings/genstudio/image-models', async (_req, res) => {
       e,
       'Could not load GenStudio KH image models. Ensure the saved key includes images:generate.',
     ))
+  }
+})
+
+router.get('/app-settings/genstudio/music-models', async (_req, res) => {
+  try {
+    const apiKey = await requireGenStudioKey(res)
+    if (!apiKey) return
+    res.json({ models: await listGenStudioMusicModels(apiKey) })
+  } catch (e: any) {
+    res.status(502).json(humanizeBackendError(e, 'Could not load GenStudio KH music models'))
   }
 })
 

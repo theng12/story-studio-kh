@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.820 — 2026-08-11
+
+- **Interrupted language work now recovers without replacement charges** — outline, chapter,
+  listicle, and narrative-repair retries use their recorded GenStudio idempotency keys to look up
+  the original durable job. Missing or ambiguous history remains safely blocked, while confirmed
+  terminal failures can start one deliberate replacement request.
+
+- **Settings now reports the live GenStudio music catalogue** — the retired standalone voice
+  diagnostic has been replaced by Music models, including published provider details and clear
+  coming-soon status. The existing TTS model diagnostics remain unchanged.
+
 ## v1.0.819 — 2026-08-11
 
 - **Interrupted chapter expansions can always be reconciled safely** — when several earlier

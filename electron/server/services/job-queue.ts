@@ -1222,6 +1222,13 @@ export function enqueue(opts: {
   params?: Record<string, any>
   /** Server-only replacement scope for a terminal GenStudio chat retry. */
   genstudio_chat_retry_scope?: string
+  /** Server-only exact replay marker for unresolved GenStudio chat evidence. */
+  genstudio_chat_recovery?: true
+  /** Server-extracted recovery fields. These are deliberately outside params. */
+  genstudio_chat_recovery_key?: string
+  genstudio_chat_recovery_purpose?: 'outline' | 'narrative-repair'
+  genstudio_chat_recovery_chapters?: number[]
+  genstudio_chat_recovery_keys?: string[]
   /** Narrow the duplicate check to jobs whose params satisfy this predicate.
    *  When omitted, dedupe is per (project, episode, type) — the historical
    *  behaviour. chapter-only passes a predicate that compares
@@ -1265,6 +1272,11 @@ export function enqueue(opts: {
     output_lines: [],
     params: opts.params || {},
     ...(opts.genstudio_chat_retry_scope ? { genstudio_chat_retry_scope: opts.genstudio_chat_retry_scope } : {}),
+    ...(opts.genstudio_chat_recovery ? { genstudio_chat_recovery: true as const } : {}),
+    ...(opts.genstudio_chat_recovery_key ? { genstudio_chat_recovery_key: opts.genstudio_chat_recovery_key } : {}),
+    ...(opts.genstudio_chat_recovery_purpose ? { genstudio_chat_recovery_purpose: opts.genstudio_chat_recovery_purpose } : {}),
+    ...(opts.genstudio_chat_recovery_chapters?.length ? { genstudio_chat_recovery_chapters: opts.genstudio_chat_recovery_chapters } : {}),
+    ...(opts.genstudio_chat_recovery_keys?.length ? { genstudio_chat_recovery_keys: opts.genstudio_chat_recovery_keys } : {}),
   }
 
   jobs.set(jobId, job)
@@ -1315,6 +1327,11 @@ export function getJob(jobId: string): Job | null {
  * job has been accepted, then removes it from history.
  */
 type ChapterChatRetryMode = 'exact-replay' | 'fresh-replacement'
+type ChatRecoveryDescriptor = {
+  key: string
+  purpose: 'outline' | 'narrative-repair'
+  chapters?: number[]
+}
 
 function chatEntries(job: Job): NonNullable<Job['genstudio_jobs']> {
   return (job.genstudio_jobs || []).filter(entry => entry.operation === 'chat.response')
@@ -1351,6 +1368,31 @@ function terminalChatRetryScope(job: Job): string | undefined {
   return terminalFailure ? `terminal:${terminalFailure.id}:${job.job_id}` : undefined
 }
 
+/**
+ * A pending key is usable only when its retained, untruncated server preview
+ * proves the exact workflow call that made it. Never infer an order from
+ * concurrent chat entries: an ambiguous recovery must stay blocked.
+ */
+function provenPendingChatRecovery(job: Job): ChatRecoveryDescriptor | null {
+  const candidates = chatEntries(job).flatMap<ChatRecoveryDescriptor>(entry => {
+    if (!entry.id.startsWith('pending:') || entry.state !== 'submitting') return []
+    const key = entry.request?.idempotency_key?.trim()
+    const user = entry.request?.messages?.find(message => message.role === 'user')
+    if (!key || !user || user.truncated) return []
+    if (/^Plan (the chapter structure|a listicle \/ explainer episode)\./.test(user.text)) {
+      return [{ key, purpose: 'outline' as const }]
+    }
+    if (!user.text.includes('RECOVERY INSTRUCTION: This is one bounded repair pass.')) return []
+    const slots = user.text.match(/SLOTS TO WRITE NOW:\n([\s\S]*?)\n(?:OUTPUT|Return)/)
+    const chapters = slots
+      ? [...slots[1].matchAll(/^\s*Chapter (\d+):/gm)].map(match => Number(match[1]))
+      : []
+    if (!chapters.length || chapters.some(chapter => !Number.isInteger(chapter) || chapter < 1)) return []
+    return [{ key, purpose: 'narrative-repair' as const, chapters }]
+  })
+  return candidates.length === 1 ? candidates[0]! : null
+}
+
 export function hasUnresolvedTerminalChapterExpansion(projectSlug: string, episodeId: string): boolean {
   return Array.from(jobs.values()).some(job =>
     job.project_slug === projectSlug
@@ -1378,10 +1420,12 @@ export function retryTerminalJob(
     )
   }
 
-  const chapterRetryMode = original.type === 'expand_chapters'
+  const chatBackedRetry = original.type === 'expand_chapters' || original.type === 'outline_only'
+  const chapterRetryMode = chatBackedRetry
     ? chapterChatRetryMode(original)
     : undefined
-  const anotherUnresolvedExpansionExists = chapterRetryMode === 'fresh-replacement'
+  const anotherUnresolvedExpansionExists = original.type === 'expand_chapters'
+    && chapterRetryMode === 'fresh-replacement'
     && Array.from(jobs.values()).some(job =>
       job.job_id !== original.job_id
       && job.project_slug === original.project_slug
@@ -1405,6 +1449,25 @@ export function retryTerminalJob(
   const genstudio_chat_retry_scope = chapterRetryMode === 'fresh-replacement'
     ? terminalChatRetryScope(original)
     : undefined
+  const recovery = chapterRetryMode === 'exact-replay'
+    ? provenPendingChatRecovery(original)
+    : null
+  const pendingKeys = [...new Set(chatEntries(original)
+    .filter(entry => !isResolvedChatEntry(entry))
+    .map(entry => entry.request?.idempotency_key?.trim())
+    .filter((key): key is string => !!key))]
+  const unresolvedChatCount = chatEntries(original).filter(entry => !isResolvedChatEntry(entry)).length
+  if (
+    chapterRetryMode === 'exact-replay'
+    && !recovery
+    && unresolvedChatCount > 1
+    && pendingKeys.length !== unresolvedChatCount
+  ) {
+    throw Object.assign(
+      new Error('Unresolved GenStudio chat evidence does not prove one recoverable request identity. No provider work was submitted.'),
+      { status: 409, expose: true },
+    )
+  }
 
   const retried = enqueue({
     project_slug: original.project_slug,
@@ -1413,6 +1476,13 @@ export function retryTerminalJob(
     title: original.title,
     params: structuredClone(replacementParams || original.params || {}),
     ...(genstudio_chat_retry_scope ? { genstudio_chat_retry_scope } : {}),
+    ...(chapterRetryMode === 'exact-replay' ? { genstudio_chat_recovery: true as const } : {}),
+    ...(recovery ? {
+      genstudio_chat_recovery_key: recovery.key,
+      genstudio_chat_recovery_purpose: recovery.purpose,
+      ...(recovery.chapters ? { genstudio_chat_recovery_chapters: recovery.chapters } : {}),
+      ...(pendingKeys.length ? { genstudio_chat_recovery_keys: pendingKeys } : {}),
+    } : pendingKeys.length ? { genstudio_chat_recovery_keys: pendingKeys } : {}),
   })
 
   jobs.delete(jobId)

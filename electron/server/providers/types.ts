@@ -199,6 +199,11 @@ export interface TextGenerationRequest {
   temperature?: number
   /** Stable Story-side identity used by durable boundaries for idempotent submission. */
   requestIdentity?: string
+  /** Reconcile a saved durable request instead of creating a replacement. */
+  recoverByIdempotencyKey?: boolean
+  /** Server-owned durable key used only by read-only chat recovery. */
+  idempotencyKey?: string
+  allowedRecoveryKeys?: string[]
   /** Provider response details used to explain truncation and token consumption. */
   onDiagnostics?: (diagnostics: TextGenerationDiagnostics) => void
   /** Abort signal passed through to the SDK — streaming providers tear down

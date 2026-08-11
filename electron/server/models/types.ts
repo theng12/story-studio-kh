@@ -2236,6 +2236,19 @@ export interface Job {
    * generator POST cannot mint it.
    */
   genstudio_chat_retry_scope?: string
+  /**
+   * Server-issued marker for a Retry that must only reclaim an earlier
+   * idempotency key. It never permits a new provider submission.
+   */
+  genstudio_chat_recovery?: true
+  /** Server-extracted pending key; never accepted from a request body. */
+  genstudio_chat_recovery_key?: string
+  /** The proven workflow call that owns the saved pending key. */
+  genstudio_chat_recovery_purpose?: 'outline' | 'narrative-repair'
+  /** Narrative repair slots proven by the stored request preview. */
+  genstudio_chat_recovery_chapters?: number[]
+  /** Proven pending keys; normal/listicle calls may recover only by exact membership. */
+  genstudio_chat_recovery_keys?: string[]
   queue_position?: number
   /**
    * Which account served each provider the job called. Keyed by canonical
