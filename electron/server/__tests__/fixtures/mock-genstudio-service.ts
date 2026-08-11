@@ -52,6 +52,8 @@ export interface MockGenStudioScenario {
   envelope?: Record<string, unknown>
   artifactExpired?: boolean
   dropFirstSubmitResponse?: boolean
+  /** Keeps a submitted job in flight long enough for fan-out tests to observe. */
+  submitDelayMs?: number
 }
 
 export interface MockGenStudioRequest {
@@ -226,6 +228,9 @@ function normalizeScenario(
     envelope: scenario.envelope || {},
     artifactExpired: scenario.artifactExpired === true,
     dropFirstSubmitResponse: scenario.dropFirstSubmitResponse === true,
+    submitDelayMs: Number.isFinite(scenario.submitDelayMs) && scenario.submitDelayMs! > 0
+      ? scenario.submitDelayMs!
+      : 0,
   }
 }
 
@@ -254,6 +259,12 @@ export class MockGenStudioService {
   readonly requests: MockGenStudioRequest[] = []
   readonly submissions: MockGenStudioSubmission[] = []
   readonly server: Server
+  ttsModels: Array<Record<string, unknown>> = [{
+    id: 'mock-tts-v1', display_name: 'Mock TTS', provider_id: 'mock-provider', provider_name: 'GenStudio mock',
+    description: 'In-process TTS fixture.', credits_per_1000_characters: 1, minimum_credits: 1,
+    maximum_input_characters: 15_000, supports_speed: true, supports_voice_cloning: false,
+    preview_policy: '', generation_enabled: true, provider_submit_concurrency: null, controls: [],
+  }]
 
   private readonly keys = new Map<string, Set<MockGenStudioScope>>()
   private readonly queuedScenarios = new Map<MockGenStudioOperation, StoredScenario[]>()
@@ -268,6 +279,8 @@ export class MockGenStudioService {
     transcription: 0,
     video: 0,
   }
+  private activeTtsSubmissions = 0
+  private maxInFlightTtsSubmissions = 0
 
   baseUrl = ''
 
@@ -306,6 +319,8 @@ export class MockGenStudioService {
     for (const operation of Object.keys(this.sequence) as MockGenStudioOperation[]) {
       this.sequence[operation] = 0
     }
+    this.activeTtsSubmissions = 0
+    this.maxInFlightTtsSubmissions = 0
   }
 
   registerKey(key: string, scopes: Iterable<MockGenStudioScope>): void {
@@ -330,6 +345,10 @@ export class MockGenStudioService {
         .map(submission => submission.jobId),
     )
     return unique.size
+  }
+
+  maxInFlightTtsSubmissionCount(): number {
+    return this.maxInFlightTtsSubmissions
   }
 
   pollCount(jobId: string): number {
@@ -682,13 +701,24 @@ export class MockGenStudioService {
                 word_timestamps: multipartField(bodyText, 'word_timestamps'),
               }
             : parseJson(body)
-          const { job, replay } = this.createOrReplay(operation, idempotencyKey, parsedBody, bodyText)
-          if (job.scenario.dropFirstSubmitResponse && !job.responseDropped) {
-            job.responseDropped = true
-            response.socket?.destroy()
-            return
+          if (operation === 'tts') {
+            this.activeTtsSubmissions++
+            this.maxInFlightTtsSubmissions = Math.max(this.maxInFlightTtsSubmissions, this.activeTtsSubmissions)
           }
-          json(response, 202, this.responseBody(job, replay))
+          try {
+            const { job, replay } = this.createOrReplay(operation, idempotencyKey, parsedBody, bodyText)
+            if (job.scenario.dropFirstSubmitResponse && !job.responseDropped) {
+              job.responseDropped = true
+              response.socket?.destroy()
+              return
+            }
+            if (job.scenario.submitDelayMs) {
+              await new Promise(resolve => setTimeout(resolve, job.scenario.submitDelayMs))
+            }
+            json(response, 202, this.responseBody(job, replay))
+          } finally {
+            if (operation === 'tts') this.activeTtsSubmissions--
+          }
           return
         }
       }
@@ -776,6 +806,10 @@ export class MockGenStudioService {
         engine_id: 'mock-tts-v1', engine_name: 'Mock TTS', model_revision_id: 'mock-tts-r1',
         model_family: 'mock', voice_tier: 'standard', generation_enabled: true,
       }])
+      return true
+    }
+    if (pathname === '/v1/tts/models') {
+      json(response, 200, this.ttsModels)
       return true
     }
     if (pathname === '/v1/transcription/models') {
