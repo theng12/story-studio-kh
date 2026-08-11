@@ -37,9 +37,21 @@ import {
   readSubtitleTimelineIntegrity,
 } from '../services/scene-timeline-integrity.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
-import type { JobType, ScenePlan } from '../models/types.js'
+import type { JobType, SceneClipVariantSelection, ScenePlan } from '../models/types.js'
 
 export const router = Router()
+
+function requestedSceneClipVariant(body: Record<string, unknown>): SceneClipVariantSelection | undefined {
+  const hasDuration = body.duration_seconds !== undefined && body.duration_seconds !== null
+  const hasResolution = body.resolution !== undefined && body.resolution !== null
+  if (!hasDuration && !hasResolution) return undefined
+  const duration_seconds = Number(body.duration_seconds)
+  const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
+  if (!hasDuration || !hasResolution || !Number.isFinite(duration_seconds) || duration_seconds <= 0 || !resolution) {
+    throw new Error('duration_seconds and resolution must name one published motion variant')
+  }
+  return { duration_seconds, resolution }
+}
 
 function streamLocalMedia(
   req: express.Request,
@@ -446,9 +458,11 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!sceneId) return res.status(400).json({ detail: 'scene_id is required' })
   if (!model) return res.status(400).json({ detail: 'model is required' })
+  let requestedVariant: SceneClipVariantSelection | undefined
+  try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
 
   try {
-    const { modelId } = await requireSceneClipGenStudioModel(model)
+    const { modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
     if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
       return res.status(409).json({ detail: `Scene ${sceneId} clip already generating` })
     }
@@ -462,6 +476,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
         scene_id: sceneId,
         model: `genstudio-video:${modelId}`,
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        duration_seconds: variant.duration_seconds,
+        resolution: variant.resolution,
         auto_approve_clip: body.auto_approve_clip === true,
       },
     })
@@ -479,8 +495,10 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
+  let requestedVariant: SceneClipVariantSelection | undefined
+  try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
   try {
-    const { modelId } = await requireSceneClipGenStudioModel(model)
+    const { modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
     const job = jq.enqueue({
       project_slug: slug,
       type: 'scene_clips_batch' as JobType,
@@ -490,6 +508,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
         episode_id: episodeId,
         model: `genstudio-video:${modelId}`,
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        duration_seconds: variant.duration_seconds,
+        resolution: variant.resolution,
       },
     })
     res.status(201).json(job)
@@ -507,9 +527,11 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
   const body = req.body || {}
   const model = typeof body.model === 'string' ? body.model.trim() : ''
   if (!model) return res.status(400).json({ detail: 'model is required' })
+  let requestedVariant: SceneClipVariantSelection | undefined
+  try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
 
   try {
-    const { modelId } = await requireSceneClipGenStudioModel(model)
+    const { modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
@@ -551,6 +573,8 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
           scene_id: s.id,
           model: `genstudio-video:${modelId}`,
           aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+          duration_seconds: variant.duration_seconds,
+          resolution: variant.resolution,
         },
       })
       queued++

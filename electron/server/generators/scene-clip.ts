@@ -24,7 +24,7 @@ import { resolveSceneImageReadPath } from './scene-image.js'
 import { findSubfolder } from '../lib/folder-resolver.js'
 import { mediaEpisodeBaseForCode } from '../services/media-root.js'
 import * as jq from '../services/job-queue.js'
-import type { Job, ScenePlan } from '../models/types.js'
+import type { Job, SceneClipVariantSelection, ScenePlan } from '../models/types.js'
 import { auditSceneClipCompletion, checkpointSceneClip } from '../services/scene-media-checkpoint.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { createHash } from 'crypto'
@@ -35,6 +35,7 @@ import {
   buildGenStudioVideoIdempotencyKey,
   cheapestGenStudioVideoVariant,
   describeGenStudioVideoVariant,
+  findGenStudioVideoVariant,
   generateVideoWithGenStudio,
   GenStudioTerminalFailureError,
   listVideoModels as listGenStudioVideoModels,
@@ -94,6 +95,9 @@ interface SceneClipGenerateParams {
   model: string
   /** Output aspect ('16:9' default → landscape; '9:16' → portrait). */
   aspect_ratio?: string
+  /** Exact GenStudio-published pair saved when the job was queued. */
+  duration_seconds?: number
+  resolution?: string
   /** Unattended pipeline runs approve their generated clip automatically. */
   auto_approve_clip?: boolean
 }
@@ -152,16 +156,32 @@ export function resolveSceneClipCatalogModel(
 }
 
 /**
- * Resolve the selected model AND the variant its clip will be billed at.
- *
- * The variant is the model's CHEAPEST PUBLISHED one. Story Studio used to pin
- * `5s / 720p` here regardless of what the model published, which is the
- * hardcoded ladder AGENTS.md's first rule forbids — and it meant a model that
- * publishes neither 5s nor 720p was submitted with a combination it does not
- * support. A model publishing no variant at all has no price and no honest
- * default, so it fails loudly rather than falling back to a remembered number.
+ * Select a current catalogue row for a queued clip. A missing selection is an
+ * old job, so it uses today's cheapest published row; a present selection must
+ * remain an exact row or the job stops before its provider POST.
  */
-export async function requireSceneClipGenStudioModel(selectedModel: string): Promise<{
+export function selectSceneClipGenStudioVariant(
+  variants: readonly GenStudioVideoVariant[] | undefined,
+  requestedVariant?: Partial<SceneClipVariantSelection>,
+): GenStudioVideoVariant {
+  const cheapest = cheapestGenStudioVideoVariant(variants)
+  if (!cheapest) throw new Error('GenStudio publishes no priced duration/resolution variant for this model.')
+  if (!requestedVariant) return cheapest
+  const duration = requestedVariant.duration_seconds
+  const resolution = requestedVariant.resolution
+  if (typeof duration !== 'number' || !Number.isFinite(duration) || typeof resolution !== 'string' || !resolution.trim()) {
+    throw new Error('A queued motion clip variant must include both duration_seconds and resolution.')
+  }
+  const exact = findGenStudioVideoVariant(variants, duration, resolution)
+  if (exact) return exact
+  throw new Error(`GenStudio does not publish a ${duration}s at ${resolution.trim()} option for this model.`)
+}
+
+/** Resolve the selected model and its exact current published variant. */
+export async function requireSceneClipGenStudioModel(
+  selectedModel: string,
+  requestedVariant?: Partial<SceneClipVariantSelection>,
+): Promise<{
   apiKey: string
   modelId: string
   variant: GenStudioVideoVariant
@@ -185,14 +205,14 @@ export async function requireSceneClipGenStudioModel(selectedModel: string): Pro
     )
   }
   const resolved = catalog.find(model => model.id === modelId)!
-  const variant = cheapestGenStudioVideoVariant(resolved.variants)
-  if (!variant) {
+  if (!requestedVariant && !cheapestGenStudioVideoVariant(resolved.variants)) {
     throw new Error(
       `GenStudio publishes no priced duration/resolution variant for "${resolved.display_name}", `
       + 'so Story Studio cannot tell what a clip from it would cost or how long it would be. '
       + 'Choose a different GenStudio image-to-video model.',
     )
   }
+  const variant = selectSceneClipGenStudioVariant(resolved.variants, requestedVariant)
   return { apiKey, modelId, variant }
 }
 
@@ -222,16 +242,19 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
 
   // Re-check the live catalog at execution time. A queued historical job may
   // outlive a route/catalog refresh, but it must never revive a direct route.
-  const { apiKey, modelId, variant } = await requireSceneClipGenStudioModel(model)
+  const requestedVariant = params.duration_seconds === undefined && params.resolution === undefined
+    ? undefined
+    : { duration_seconds: params.duration_seconds, resolution: params.resolution }
+  const { apiKey, modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
 
   const aspectRatio = (params.aspect_ratio === '9:16' || params.aspect_ratio === 'portrait') ? 'portrait' : 'landscape'
 
   job.output_lines.push(`Scene ${scene.scene_index} (${scene_id}) — animate via GenStudio KH / ${modelId}`)
-  // The duration and resolution actually submitted are the model's cheapest
-  // published variant. Say so, with its price: an enforced limit the user was
-  // never told about is what turns a clear constraint into a mystery.
+  // The duration and resolution actually submitted are a current published
+  // row. Say so, with its price: an enforced limit the user was never told
+  // about is what turns a clear constraint into a mystery.
   job.output_lines.push(
-    `Variant: ${describeGenStudioVideoVariant(variant)} — GenStudio's cheapest published option for this model `
+    `Variant: ${describeGenStudioVideoVariant(variant)} — GenStudio's published option for this model `
     + `(${variant.credits_per_video} credits, minimum ${variant.minimum_credits}, price ${variant.price_version}).`,
   )
   job.output_lines.push(`Motion: ${scene.motion_prompt.slice(0, 200)}${scene.motion_prompt.length > 200 ? '…' : ''}`)
@@ -484,6 +507,8 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
         scene_id: scene.id,
         model,
         aspect_ratio: params.aspect_ratio || '16:9',
+        duration_seconds: params.duration_seconds,
+        resolution: params.resolution,
         auto_approve_clip: true,
       }
       await generateSceneClipJob(job)

@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
+import request from 'supertest'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
@@ -101,14 +102,17 @@ function withFirstStatusAssertion(
   return { restore: () => { globalThis.fetch = originalFetch }, wasObserved: () => observed }
 }
 
-function enableMockVideoCatalog(service: Awaited<ReturnType<typeof startMockGenStudioService>>): () => void {
+function enableMockVideoCatalog(
+  service: Awaited<ReturnType<typeof startMockGenStudioService>>,
+  variants?: Array<Record<string, unknown>>,
+): () => void {
   const originalFetch = globalThis.fetch
   globalThis.fetch = async (input, init) => {
     const response = await originalFetch(input, init)
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
     if (url.origin !== service.baseUrl || !['/v1/video/models', '/v1/videos/models'].includes(url.pathname)) return response
     const models = await response.json() as Array<Record<string, unknown>>
-    return new Response(JSON.stringify(models.map(model => ({ ...model, available: true }))), {
+    return new Response(JSON.stringify(models.map(model => ({ ...model, available: true, ...(variants ? { variants } : {}) }))), {
       status: response.status,
       headers: { 'Content-Type': 'application/json' },
     })
@@ -172,6 +176,44 @@ test('GenStudio video reports each accepted variant before its first status poll
     assert.ok(accepted.every(item => !item.polledBeforeCallback), 'accepted IDs must persist before polling')
   } finally {
     globalThis.fetch = originalFetch
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('the scene clip route persists the selected published variant on the queued job', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreVideoCatalog: (() => void) | undefined
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    restoreVideoCatalog = enableMockVideoCatalog(service, [
+      { duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
+      { duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
+    ])
+    const pm = await import('../services/project-manager.js')
+    const jq = await import('../services/job-queue.js')
+    const app = (await import('../app.js')).app
+    const project = await pm.createProject({ name: 'Persist selected scene clip variant' })
+
+    const response = await request(app)
+      .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clip`)
+      .send({
+        scene_id: 'scene-001', model: 'mock-video-v1', aspect_ratio: '16:9',
+        duration_seconds: 8, resolution: '1080p',
+      })
+      .expect(201)
+
+    assert.equal(response.body.params.duration_seconds, 8)
+    assert.equal(response.body.params.resolution, '1080p')
+    assert.equal(service.submissions.filter(entry => entry.operation === 'video').length, 0)
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const queued = jq.getJob(response.body.job_id)
+      if (queued && queued.status !== 'queued' && queued.status !== 'running') break
+      await new Promise(resolve => setTimeout(resolve, 10))
+    }
+  } finally {
+    restoreVideoCatalog?.()
     await service.close()
     await temp.cleanup()
   }
@@ -279,6 +321,40 @@ test('AI video writes the accepted variant checkpoint before its first video sta
       restoreVideoCatalog()
     }
     assert.ok(status.wasObserved(), 'AI video must poll the accepted task')
+  } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a scene clip with a removed selected variant fails before a GenStudio video POST', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    const restoreVideoCatalog = enableMockVideoCatalog(service)
+    const { generateSceneClipJob } = await import('../generators/scene-clip.js')
+    const { project, episodeId, paths } = await createEpisode('Scene clip stale variant')
+    const imagePath = path.join(paths.episode_dir, 'scene-source.png')
+    await fs.writeFile(imagePath, ONE_PIXEL_PNG)
+    await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+      scenes: [{
+        id: 'scene-001', scene_index: 1, image_path: imagePath,
+        motion_prompt: 'A slow drift across the archive shelves.',
+      }],
+    }))
+
+    service.reset()
+    await assert.rejects(
+      generateSceneClipJob(job(project.slug, episodeId, 'scene_clip_generate', {
+        scene_id: 'scene-001', model: 'mock-video-v1', aspect_ratio: '16:9',
+        duration_seconds: 8, resolution: '1080p',
+      })),
+      /does not publish a 8s at 1080p option/,
+    )
+    assert.equal(service.submissions.filter(entry => entry.operation === 'video').length, 0)
+    restoreVideoCatalog()
   } finally {
     await service.close()
     await temp.cleanup()

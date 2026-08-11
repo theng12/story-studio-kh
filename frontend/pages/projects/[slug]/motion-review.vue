@@ -88,6 +88,15 @@
               {{ selectedVideoModelAudioNotice }}
             </span>
           </label>
+          <label class="model-field variant-field">
+            <span>Clip variant</span>
+            <select v-model="videoVariantKey" class="select" :disabled="!selectedVideoVariants.length" aria-label="Published clip variant">
+              <option v-if="!selectedVideoVariants.length" value="">No published length or resolution</option>
+              <option v-for="variant in selectedVideoVariants" :key="variantKey(variant)" :value="variantKey(variant)">
+                {{ variant.duration_seconds }}s at {{ variant.resolution }} — {{ variant.credits_per_video }} credits (minimum {{ variant.minimum_credits }}, price {{ variant.price_version }})
+              </option>
+            </select>
+          </label>
           <button class="btn btn-sm btn-secondary" :disabled="savingAll || stats.with_clip === 0" @click="approveAllClips">
             Approve all fresh clips
           </button>
@@ -234,6 +243,7 @@ const savingId = ref<string | null>(null)
 const animatingId = ref<string | null>(null)
 const uploadingId = ref<string | null>(null)
 const videoModel = ref('')
+const videoVariantKey = ref('')
 const { videoModels: genStudioVideoModels, refresh: refreshGenStudioMediaModels } = useGenStudioMediaModels()
 const cacheBuster = ref(Date.now())
 const motionPresets = usePresets({
@@ -249,8 +259,8 @@ const motionPresets = usePresets({
 // on every render, so changing model re-derives it — never cached, never a
 // constant in this file. Returns null when GenStudio publishes no variant,
 // which is a real state the picker has to be able to say out loud.
-function cheapestVariant(model: { variants?: Array<{ duration_seconds: number, resolution: string, credits_per_video: number, minimum_credits: number }> }) {
-  const variants = Array.isArray(model.variants) ? model.variants : []
+type VideoVariant = { duration_seconds: number, resolution: string, credits_per_video: number, minimum_credits: number, price_version: string }
+function cheapestVariant(variants: readonly VideoVariant[]) {
   if (!variants.length) return null
   return [...variants].sort((a, b) => (
     a.credits_per_video - b.credits_per_video
@@ -258,6 +268,9 @@ function cheapestVariant(model: { variants?: Array<{ duration_seconds: number, r
     || a.duration_seconds - b.duration_seconds
     || a.resolution.localeCompare(b.resolution)
   ))[0]!
+}
+function variantKey(variant: Pick<VideoVariant, 'duration_seconds' | 'resolution'>): string {
+  return `${variant.duration_seconds}:${variant.resolution}`
 }
 
 /**
@@ -284,7 +297,7 @@ const i2vModels = computed(() => {
     // published mode; the restriction is applied here, at the picker.
     .filter(model => model.modes.includes('image-to-video'))
     .map((model) => {
-      const variant = cheapestVariant(model)
+      const variant = cheapestVariant(model.variants)
       // An enforced limit has to be visible at the point of choosing. This is
       // the length and resolution the clip WILL be, not an example.
       const noVariant = 'No published length or resolution'
@@ -328,6 +341,20 @@ const selectedVideoModelAudioNotice = computed(() => {
   const model = genStudioVideoModels.value.find(item => item.id === raw)
   return model?.generates_audio === true ? GENERATED_AUDIO_DISCLOSURE : ''
 })
+const selectedVideoModel = computed(() => {
+  const raw = videoModel.value.startsWith('genstudio-video:')
+    ? videoModel.value.slice('genstudio-video:'.length)
+    : videoModel.value
+  return genStudioVideoModels.value.find(item => item.id === raw) || null
+})
+const selectedVideoVariants = computed<VideoVariant[]>(() => selectedVideoModel.value?.variants || [])
+const selectedVideoVariant = computed(() => selectedVideoVariants.value.find(variant => variantKey(variant) === videoVariantKey.value) || null)
+watch(selectedVideoVariants, (variants) => {
+  if (!variants.length) { videoVariantKey.value = ''; return }
+  if (!variants.some(variant => variantKey(variant) === videoVariantKey.value)) {
+    videoVariantKey.value = variantKey(cheapestVariant(variants)!)
+  }
+}, { immediate: true })
 watch(i2vModels, (models) => {
   if (!models.length) return
   const raw = videoModel.value.startsWith('genstudio-video:') ? videoModel.value.slice('genstudio-video:'.length) : videoModel.value
@@ -338,7 +365,7 @@ watch(i2vModels, (models) => {
 }, { immediate: true })
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))
-const canGenerate = computed(() => !!episodeId.value && !!videoModel.value && scenes.value.some(scene =>
+const canGenerate = computed(() => !!episodeId.value && !!videoModel.value && !!selectedVideoVariant.value && scenes.value.some(scene =>
   !i2vModels.value.find(model => model.id === videoModel.value)?.disabled
     && scene.approved && scene.image_filename && scene.motion_prompt && (!scene.clip_exists || scene.clip_stale),
 ))
@@ -383,13 +410,15 @@ async function loadReview() {
 }
 
 async function generateOne(scene: MotionScene) {
-  if (!videoModel.value) return
+  if (!videoModel.value || !selectedVideoVariant.value) return
   animatingId.value = scene.id
   try {
     await post(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-clip`, {
       scene_id: scene.id,
       model: videoModel.value,
       aspect_ratio: '16:9',
+      duration_seconds: selectedVideoVariant.value.duration_seconds,
+      resolution: selectedVideoVariant.value.resolution,
     })
     success(`Scene ${scene.scene_index} clip queued.`)
   } catch (error: any) {
@@ -400,12 +429,14 @@ async function generateOne(scene: MotionScene) {
 }
 
 async function generateMissing() {
-  if (!videoModel.value) return
+  if (!videoModel.value || !selectedVideoVariant.value) return
   queuing.value = true
   try {
     const result = await post<{ queued: number; skipped: number }>(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing-clips`, {
       model: videoModel.value,
       aspect_ratio: '16:9',
+      duration_seconds: selectedVideoVariant.value.duration_seconds,
+      resolution: selectedVideoVariant.value.resolution,
     })
     success(`${result.queued || 0} image-to-video clips queued.`)
   } catch (error: any) {

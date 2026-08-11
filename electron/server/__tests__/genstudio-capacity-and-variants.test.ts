@@ -33,6 +33,7 @@ import {
   supportsGenStudioVideoMode,
   type GenStudioVideoVariant,
 } from '../lib/genstudio-client.js'
+import { selectSceneClipGenStudioVariant } from '../generators/scene-clip.js'
 
 // ── 1. Transcription is priced per second ───────────────────────────────
 
@@ -142,6 +143,29 @@ test('variant selection takes the cheapest published option and rejects unpublis
   // The old code would have silently substituted 5s/720p for each of these.
   assert.equal(findGenStudioVideoVariant(variants, 5, '720p'), null)
   assert.equal(findGenStudioVideoVariant(variants, 8, '4k'), null)
+})
+
+test('scene clips keep an exact published variant, reject a removed one, and use cheapest only for legacy jobs', () => {
+  const variants: GenStudioVideoVariant[] = [
+    { duration_seconds: 3, resolution: '480p', credits_per_video: 8, minimum_credits: 8, price_version: 'v1' },
+    { duration_seconds: 8, resolution: '1080p', credits_per_video: 40, minimum_credits: 40, price_version: 'v1' },
+  ]
+
+  assert.deepEqual(
+    selectSceneClipGenStudioVariant(variants, { duration_seconds: 8, resolution: '1080p' }),
+    variants[1],
+    'a queued selection keeps the exact published duration and resolution',
+  )
+  assert.deepEqual(
+    selectSceneClipGenStudioVariant(variants),
+    variants[0],
+    'only jobs created before variant fields existed receive the current cheapest published option',
+  )
+  assert.throws(
+    () => selectSceneClipGenStudioVariant(variants, { duration_seconds: 8, resolution: '4k' }),
+    /does not publish a 8s at 4k option/,
+    'a stale queued combination stops before any provider submission',
+  )
 })
 
 test('neither the catalogue nor the selectors infer anything from a model name', () => {
