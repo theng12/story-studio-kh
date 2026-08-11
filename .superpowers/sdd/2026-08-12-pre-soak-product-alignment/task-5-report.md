@@ -31,3 +31,9 @@ No generation, dependency, live-provider, or paid call was made.
 - `npx tsc -p electron/tsconfig.json --noEmit` — passed.
 - `npm --prefix frontend run typecheck` — passed.
 - `git diff --check` — passed.
+
+## Follow-up: format-contract documentation
+
+- Replaced stale format-contract prose and frontend comments with the live `timestamp-driven` / `continuity-chain` / `narrated-scenes` union.
+- Documented B-Roll and Image Pool as preserved independent route, asset, preset, and assembly workflows rather than `Format.visualSource` values.
+- Scoped grep found no retired `visualSource` assignments in the corrected docs/comments; `npm --prefix frontend run typecheck` and `git diff --check` passed.

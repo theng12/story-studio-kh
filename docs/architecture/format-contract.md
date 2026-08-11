@@ -53,10 +53,10 @@ Defined in `electron/server/models/types.ts`. Every format JSON declares these f
 | `schemaVersion` | 1 | yes | Increment if breaking changes happen |
 | `idea` | `IdeaFormat` | yes | Idea generation config — see below |
 | `script` | `ScriptFormat` | yes | Narration generation config — see below |
-| `imagePrompts` | `ImagePromptFormat` | yes | Scene image generation config (still required for broll formats even though unused — defaults are inert) |
+| `imagePrompts` | `ImagePromptFormat` | yes | Scene image-generation config for the active scene workflows |
 | `metadata` | `MetadataFormat` | yes | YouTube metadata config |
 | `productionStandardsAddendum` | string | optional | Format-specific style guidelines appended to the project's production standards |
-| `visualSource` | `'scene-images' \| 'broll'` | optional (default `scene-images`) | **THE PIPELINE GATE.** Determines whether video assembly uses generated stills (scene-images) or stock footage (broll) |
+| `visualSource` | `'timestamp-driven' \| 'continuity-chain' \| 'narrated-scenes'` | optional | **THE FORMAT PIPELINE GATE.** Selects one active narration-timed scene workflow. B-Roll and Image Pool remain independent route and asset workflows, not format values. |
 
 ### Nested `idea` (IdeaFormat)
 
@@ -162,7 +162,7 @@ When a field doesn't seem to be doing anything, find it in this table to know wh
 
 | Field | Read by |
 |---|---|
-| `visualSource` | `frontend/layouts/dashboard.vue` (sidebar gating), `frontend/pages/projects/[slug]/video-assembly.vue` (wrong-pipeline banner), `frontend/pages/projects/[slug]/video.vue` (same), `frontend/pages/projects/[slug]/broll.vue` (mount condition) |
+| `visualSource` | `frontend/layouts/dashboard.vue` (sidebar gating), `frontend/pages/projects/[slug]/video-assembly.vue` (wrong-pipeline banner), `frontend/pages/projects/[slug]/video.vue` (same). The B-Roll and Image Pool routes use their own workflow state. |
 | `idea.systemPrompt` | `electron/server/generators/episode.ts` (idea step) |
 | `idea.vocabPools` | Same |
 | `idea.titleShapeRules` | Same |
@@ -212,19 +212,14 @@ When a field doesn't seem to be doing anything, find it in this table to know wh
 ## Adding a new format: checklist
 
 1. **Create the JSON** at `electron/server/formats/<id>.json`
-2. **Set `visualSource`** explicitly (don't rely on default). Decide whether this format uses generated images or stock footage
-3. **Fill in all required fields** (idea, script, imagePrompts even for broll, metadata). Use an existing format as a starting template
+2. **Set `visualSource`** explicitly to `timestamp-driven`, `continuity-chain`, or `narrated-scenes`
+3. **Fill in all required fields** (idea, script, imagePrompts, metadata). Use an existing format as a starting template
 4. **Decide chapter count + pacing arc** — `defaultChapterCount × perChapterWords` should produce a script that, at ~150 WPM TTS, lands in your target video length
 5. **Test the idea step** — does the LLM produce coherent titles/loglines with your format's prompts? Iterate on `idea.systemPrompt` and `vocabPools`
 6. **Test the script step** — does pacing arc produce the expected length? Adjust `perChapterWords`
-7. **If `visualSource: 'broll'`**:
-   - Test the broll page works (selection + assemble)
-   - You don't need to test image-prompts or scene-images — they won't run
-8. **If `visualSource: 'scene-images'`**:
-   - Test image-prompts produce coherent scenes
-   - Test the video-assembly page renders correctly
-9. **Audit format-aware code** (see [pipeline-audit.md](../history/pipeline-audit.md)) — does any code path need a new branch for this format?
-10. **Document in this file's quick-reference table** (top of doc)
+7. **Test the selected scene workflow** — image prompts, Scene Plan, Scene Review, and Video Assembly must match the chosen live source
+8. **Audit format-aware code** (see [pipeline-audit.md](../history/pipeline-audit.md)) — does any code path need a new branch for this format?
+9. **Document in this file's quick-reference table** (top of doc)
 
 ---
 
@@ -264,8 +259,8 @@ An episode that has a `scene_plan.json` (Scene Plan page) gets **plan-exact orde
 
 ## Common pitfalls
 
-- **Forgetting to set `visualSource`** — defaults to `scene-images`. If your format is meant for stock footage, you MUST set `'broll'` explicitly, otherwise the user lands on the wrong pages
+- **Using an unknown `visualSource`** — only `timestamp-driven`, `continuity-chain`, and `narrated-scenes` are live format values; the effective-format boundary falls back to `continuity-chain` with sentence timing
 - **Treating niches as alternatives to formats** — niches are OVERLAYS. Every project has BOTH a format AND a niche
 - **Hardcoding paths to `sleep-story`** — `DEFAULT_FORMAT_ID = 'sleep-story'` exists as a fallback in `format-loader.ts` but should never appear in user-facing code paths. If you see it, the resolution chain broke
 - **Modifying built-in JSON in user library** — built-in formats/niches live in `electron/server/{formats,niches}/`. User-custom formats go into `{PROJECTS_ROOT}/.formats/` (forked copies). Don't write to the bundle path
-- **Niche overriding pipeline choice** — niches CAN override script structure, metadata templates, etc. but they CANNOT change `visualSource`. That's format-level by design
+- **Niche overriding pipeline choice** — niches CAN override script structure and metadata templates, but they CANNOT change `visualSource`. B-Roll and Image Pool remain separate operational workflows rather than format choices

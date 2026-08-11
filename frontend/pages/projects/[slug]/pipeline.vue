@@ -540,10 +540,9 @@ const { config, refreshConfig } = useProject()
 // Video Assembly at the end.
 // External (non-batchable) nodes are display-only: they document the real
 // chain order but are never enqueued by Run Batch.
-// v1.0.280+ — the unified `scenes` format reports visualSource 'scene-images'
-// and selects its pacing via `sceneAlignment` ('sentence' → audio-paced flow).
-// normalizeVisualSource() collapses both onto the existing VS vocabulary so
-// every isX flag below stays unchanged.
+// The effective format returns only the active visual-source vocabulary:
+// timestamp-driven, continuity-chain, or narrated-scenes. Any unknown saved
+// value normalizes to the Continuity flow before these flags consume it.
 type VS = VisualSource
 const visualSource = ref<VS>('narrated-scenes')
 async function loadVisualSource(): Promise<void> {

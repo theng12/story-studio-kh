@@ -40,14 +40,14 @@ A personal-use desktop content-production pipeline for a single operator (`theng
 
 ## The two big pipelines
 
-The format JSON declares `visualSource: 'scene-images' | 'broll'`. This single field gates which pipeline runs. **This is THE most important architectural fact in the app.**
+The format JSON declares one live `visualSource`: `timestamp-driven`, `continuity-chain`, or `narrated-scenes`. This field gates the active narration-timed scene workflow. B-Roll and Image Pool remain available as independent route, asset, preset, and assembly workflows; they are not format values.
 
-### Pipeline A: Scene-images (sleep-story, adventure, documentary, listicle, bound-explainer, kids-fairytale, comedy, educational, true-crime)
+### Pipeline A: Active narration-timed scene workflows
 
 ```
 ideas (titles+loglines+themes)
   → script (intro + chapters)
-  → image-prompts (one per scene)     ← format declares scenes per chapter
+  → image-prompts (one per scene)
   → images (AI-generated stills via Fal/Stability/etc.)
   → audio (TTS narration per chapter via ElevenLabs / GenAIPro)
   → audio-merge (chapters → single track + music + bg)
@@ -60,7 +60,7 @@ ideas (titles+loglines+themes)
 
 Frontend: `/projects/:slug/{ideas,scripts,image-prompts,images,audio,audio-merge,video-assembly,metadata,upload}`
 
-### Pipeline B: B-Roll narration (broll-narration format used by prayer, devotional, preaching, mindfulness, motivation, philosophy)
+### Pipeline B: B-Roll and Image Pool workflows (independent of Format)
 
 ```
 ideas
@@ -77,7 +77,7 @@ ideas
 
 Frontend: `/projects/:slug/{ideas,scripts,audio,audio-merge,broll,metadata,upload}`
 
-**No image-prompts, no images, no scene-based video assembly.** The `broll.vue` page does BOTH selection AND final video output in one place.
+The `broll.vue` route preserves pool selection and final assembly independently of the active format scene workflow.
 
 ---
 
@@ -86,12 +86,12 @@ Frontend: `/projects/:slug/{ideas,scripts,audio,audio-merge,broll,metadata,uploa
 This is the second-most-important fact. Niches don't run their own pipeline — they OVERRIDE / EXTEND format behaviour at runtime via `applyNicheToFormat()` in `electron/server/services/format-loader.ts`.
 
 ```
-Format JSON (e.g. broll-narration.json)
+Format JSON (e.g. continuity-chain.json)
   ├─ idea: { systemPrompt, vocab pools, title shape rules }
   ├─ script: { defaultChapterCount, pacingArc, narratorStyles, ... }
   ├─ imagePrompts: { visualStyle, sceneCount, characterReferenceMode }
   ├─ metadata: { titleRules, tagRules, descriptionTemplate }
-  ├─ visualSource: 'scene-images' | 'broll'
+  ├─ visualSource: 'timestamp-driven' | 'continuity-chain' | 'narrated-scenes'
   └─ productionStandardsAddendum
          │
          │  applyNicheToFormat(format, niche)
@@ -99,7 +99,7 @@ Format JSON (e.g. broll-narration.json)
          ▼
 Niche JSON (e.g. prayer.json)
   ├─ vocabulary (mood/theme/genre/keyword pools → merged into format vocab)
-  ├─ visualStyleSheet (appended to image prompts — irrelevant for broll)
+  ├─ visualStyleSheet (appended when the active workflow uses image prompts)
   ├─ scriptContext (injected into script generator system prompt)
   ├─ audienceHint, titleShapeRules, themeShapeRules
   ├─ scriptStructure (chapter overrides, e.g. devotionals = 3 chapters)
@@ -108,7 +108,7 @@ Niche JSON (e.g. prayer.json)
   └─ referenceImages (style packs)
 ```
 
-**Niches never override `visualSource`.** Pipeline choice is format-level, niches plug into whichever pipeline the format already declares.
+**Niches never override `visualSource`.** The active narration-timed scene workflow is format-level; B-Roll and Image Pool stay independent operational routes.
 
 ---
 

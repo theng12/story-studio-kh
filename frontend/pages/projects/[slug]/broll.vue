@@ -1,8 +1,7 @@
 <!--
-  Per-project B-Roll picker — only relevant for projects whose format
-  declares visualSource: 'broll' (prayer / devotional / narration-over-
-  stock formats). Mounted at /projects/:slug/broll, accessible via the
-  format-aware sidebar entry. v1.0.89+.
+  Per-project B-Roll picker — an independent route for pool-backed media,
+  mounted at /projects/:slug/broll. B-Roll remains an active asset, preset,
+  and assembly workflow; it is not a Format visualSource value. v1.0.89+.
 
   Surfaces:
    1. Pool subscription — which app-level B-Roll pool this project uses
