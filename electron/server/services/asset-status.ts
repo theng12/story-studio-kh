@@ -672,7 +672,7 @@ export interface EpisodeStatus {
   // audio (i.e. were ready FOR subtitles) were wrongly hidden from pending.
   // Optional like research/scene_plan — NOT folded into all_done.
   subtitles: boolean
-  // v1.0.362 — stock-footage (broll) format: a B-Roll selection has been picked
+  // v1.0.362 — independent B-Roll workflow: a selection has been picked
   // for this episode (broll-selection.json at the episode_dir root, written by
   // the /broll/pick route). Drives the B-Roll page's "pending" filter (was
   // wrongly keyed to `video`, which is AI clips — broll has none). Only the
@@ -974,7 +974,7 @@ export async function computeEpisodeStatus(
       // been saved (continuity.json at the episode_dir root). Same by-code
       // resolution as scene_plan so a renamed-folder episode still resolves.
       status.character_sheet = await fileHasContent(path.join(byCode.episode_dir, 'continuity.json'))
-      // v1.0.362 — broll selection picked for this episode (stock-footage flow).
+      // v1.0.362 — B-Roll workflow selection picked for this episode.
       try {
         const selection = JSON.parse(await fs.readFile(path.join(byCode.episode_dir, 'broll-selection.json'), 'utf-8'))
         status.broll_picked = Array.isArray(selection?.selection) && selection.selection.length > 0

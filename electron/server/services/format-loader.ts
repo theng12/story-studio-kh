@@ -12,7 +12,7 @@
  *     (DeepPartial<Format>), applied with a deep merge on top of the base.
  *
  * Lookup:
- *   loadFormat('sleep-story') → built-in
+ *   loadFormat('continuity-chain') → built-in Continuity Engine
  *   loadFormat('my-custom')   → user library
  *   getEffectiveFormat(slug)  → reads project.format_id, loads base, applies
  *                                project.format_overrides, returns merged result
