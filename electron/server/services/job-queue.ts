@@ -246,6 +246,11 @@ const cancelled = new Set<string>()
 const pauseRequested = new Set<string>()
 const loadedProjects = new Set<string>()
 const loadingProjects = new Map<string, Promise<void>>()
+const PENDING_REMOTE_CANCELLATION_STATUSES = new Set(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
+
+function hasPendingRemoteCancellation(job: Pick<Job, 'remote_cancellations'>): boolean {
+  return Object.values(job.remote_cancellations || {}).some(record => PENDING_REMOTE_CANCELLATION_STATUSES.has(record.status))
+}
 
 // Durable Story-side queue hold. When set, pump() will not dequeue the next
 // job. The Jobs workspace controls it explicitly; provider jobs already
@@ -869,7 +874,9 @@ async function runJob(type: JobType, job: Job): Promise<void> {
         delete job.auto_retry.next_retry_at
         job.auto_retry.exhausted = false
       }
-      if (cancelled.has(job.job_id)) {
+      if (hasPendingRemoteCancellation(job)) {
+        job.output_lines.push('Provider cancellation remains pending. Story Studio will reconcile the final result before marking this job complete.')
+      } else if (cancelled.has(job.job_id)) {
         // Job was cancelled while running — don't override status
         // (a local stop may have already set status from another call context)
         job.status = 'cancelled'
@@ -948,7 +955,9 @@ async function runJob(type: JobType, job: Job): Promise<void> {
       }
     }
 
-    job.finished_at = job.status === 'paused' ? null : new Date().toISOString()
+    job.finished_at = job.status === 'paused' || hasPendingRemoteCancellation(job)
+      ? null
+      : new Date().toISOString()
     jobs.set(job.job_id, job)
     await persistJob(job)
     emitUpdate(job)
