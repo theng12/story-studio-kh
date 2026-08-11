@@ -459,6 +459,21 @@
           {{ WEB_SEARCH_NO_SOURCES_NOTICE }}
         </p>
 
+        <div v-if="resultMode === 'web-search' && resultHasSourceUrls" class="research-sources-panel research-retrieved-pages">
+          <div class="research-sources-head">
+            <div>
+              <span class="research-panel-kicker">Run-level evidence</span>
+              <h3>Pages GenStudio reported retrieving</h3>
+              <p>These are pages the provider reported opening. They are not citations and do not back individual claims.</p>
+            </div>
+          </div>
+          <ul>
+            <li v-for="url in result.web_run?.source_urls" :key="url">
+              <a :href="url" target="_blank" rel="noopener noreferrer">{{ url }}</a>
+            </li>
+          </ul>
+        </div>
+
         <div v-if="result.citations?.length" class="research-sources-panel">
           <div class="research-sources-head">
             <div>
@@ -1691,6 +1706,8 @@ watch(
 .research-sources { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .research-sources li { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); }
 .research-sources li.src-excluded { opacity: 0.46; }
+.research-retrieved-pages ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.research-retrieved-pages li { padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-primary); overflow-wrap: anywhere; }
 .research-source-toggle { display: grid; place-items: center; position: relative; width: 30px; height: 30px; border-radius: 6px; color: var(--text-muted); background: var(--bg-secondary); font-size: var(--font-xs); font-weight: 800; cursor: pointer; }
 .research-source-toggle input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .research-source-toggle:has(input:checked) { color: var(--accent); outline: 1px solid var(--accent); }

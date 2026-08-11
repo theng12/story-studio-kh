@@ -132,6 +132,13 @@ describe('Research workspace flow', () => {
     assert.match(research, /resultHasSourceUrls/)
   })
 
+  test('renders provider-reported pages as run-level evidence, never claim citations', () => {
+    assert.match(research, /research-retrieved-pages/)
+    assert.match(research, /v-for="url in result\.web_run\?\.source_urls"/)
+    assert.match(research, /not citations/)
+    assert.match(research, /do not back individual claims/)
+  })
+
   // ── "Search the web" mode ──────────────────────────────────────────────
   test('offers both research modes with customer-facing names', () => {
     assert.match(research, /Model knowledge only/)
