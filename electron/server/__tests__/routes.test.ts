@@ -92,6 +92,24 @@ describe('Project routes', () => {
     assert.equal(res.body.episode_prefix, 'RT')
   })
 
+  test('GET and PUT redact a legacy Research policy without rewriting it', async () => {
+    const projectPath = path.join(tempDir, 'projects', projectSlug, 'project.json')
+    const legacy = JSON.parse(await fs.readFile(projectPath, 'utf8'))
+    legacy.research_required = true
+    await fs.writeFile(projectPath, JSON.stringify(legacy, null, 2))
+
+    const get = await request(app).get(`/api/projects/${projectSlug}`)
+    assert.equal(get.status, 200)
+    assert.equal(Object.hasOwn(get.body, 'research_required'), false)
+
+    const put = await request(app).put(`/api/projects/${projectSlug}`).send({ name: 'Legacy Route Test' })
+    assert.equal(put.status, 200)
+    assert.equal(Object.hasOwn(put.body, 'research_required'), false)
+
+    const after = JSON.parse(await fs.readFile(projectPath, 'utf8'))
+    assert.equal(after.research_required, true, 'API redaction must not rewrite saved project data')
+  })
+
   test('GET /api/projects/ghost returns 404', async () => {
     const res = await request(app).get('/api/projects/nonexistent-slug')
     assert.equal(res.status, 404)

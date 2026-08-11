@@ -3,7 +3,7 @@
  * (services/asset-status.ts) — the Part 1 changes.
  *
  * Coverage:
- *   - marked_done short-circuits to all-true (no file detection performed)
+ *   - marked_done preserves independent Research and optional-stage detection
  *   - status_overrides win over file detection (force ✓ AND force ✗)
  *   - clearing overrides reverts to detected status
  *   - episodes WITHOUT overrides keep today's behavior (back-compat)
@@ -69,15 +69,17 @@ describe('computeEpisodeStatus override semantics', () => {
     cacheMod.episodeStatusCache.clear()
   })
 
-  test('baseline: empty episode (no assets, no overrides) → everything false', async () => {
+  test('baseline: disabled optional stages are complete while artifact stages remain false', async () => {
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(status.script, false)
     assert.equal(status.audio, false)
     assert.equal(status.video, false)
     assert.equal(status.video_assembly, false)
+    assert.equal(status.contextual_cues, true)
+    assert.equal(status.sound_design, true)
   })
 
-  test('marked_done: short-circuits to ALL true (file detection bypassed)', async () => {
+  test('marked_done: completes manual production work without fabricating independent evidence', async () => {
     await im.markEpisodeDone(SLUG, CODE, true)
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
     assert.equal(status.script, true)
@@ -91,6 +93,19 @@ describe('computeEpisodeStatus override semantics', () => {
     assert.equal(status.merged_audio, true)
     assert.equal(status.video, true)
     assert.equal(status.video_assembly, true)
+    assert.equal(status.research, false, 'manual completion cannot fabricate research evidence')
+    assert.equal(status.research_reviewed, false)
+    assert.equal(status.research_has_usable_claims, false)
+  })
+
+  test('marked_done preserves enabled optional-stage validation', async () => {
+    await fs.writeFile(path.join(pm.projectsRoot(), SLUG, 'config.json'), JSON.stringify({
+      contextual_cues: { enabled: true }, sound_design: { enabled: true },
+    }))
+    await im.markEpisodeDone(SLUG, CODE, true)
+    const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
+    assert.equal(status.contextual_cues, false, 'enabled Contextual Cues still need their timeline')
+    assert.equal(status.sound_design, false, 'enabled Sound Design still needs its timeline')
   })
 
   test('marked_done false: reverts to file-detected status', async () => {
@@ -140,12 +155,14 @@ describe('computeEpisodeStatus override semantics', () => {
     assert.equal(status.audio, false, 'no audio files → reverts to false after clear')
   })
 
-  test('back-compat: episodes without override fields behave exactly as before', async () => {
+  test('episodes without overrides retain raw status except disabled optional stages', async () => {
     // Don't touch overrides at all → status equals raw file detection.
     const status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
-    // Empty episode: every field false.
-    for (const v of Object.values(status)) {
-      assert.equal(v, false, 'every field is false on a no-asset episode with no overrides')
+    assert.equal(status.contextual_cues, true)
+    assert.equal(status.sound_design, true)
+    for (const [key, value] of Object.entries(status)) {
+      if (key === 'contextual_cues' || key === 'sound_design') continue
+      assert.equal(value, false, `${key} stays false on a no-asset episode with no overrides`)
     }
   })
 })

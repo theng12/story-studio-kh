@@ -491,20 +491,14 @@ function statusSuffix(ep: any): string {
     return ''
   }
   if (props.filterField === 'research') {
-    // v1.0.760 — "generated" and "done" are different states now. Research
-    // whose claims still need a Verified / Ignore decision stays in the pending
-    // list, so the label has to say WHY it is still there or the user reads it
-    // as "never ran". v1.0.761 — that state is the per-claim triage itself.
+    if (s.research_generated) {
+      if (s.research_reviewed && !s.research_has_usable_claims) return ' ⚠ all claims ignored'
+      if (!s.research_reviewed) return ' ⚠ claims need review'
+    }
     if (s.research) {
       return (ep.status as any)?.research_reviewed_by === 'pipeline-auto'
         ? ' ✓ auto-accepted'
         : ' ✓ researched'
-    }
-    if (s.research_generated) {
-      // Reviewed but nothing kept is a different problem from "unreviewed",
-      // and sending the user to review claims they already read would be wrong.
-      if (s.research_reviewed && !s.research_has_usable_claims) return ' ⚠ all claims ignored'
-      return ' ⚠ claims need review'
     }
     return ''
   }

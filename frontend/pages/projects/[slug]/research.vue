@@ -915,11 +915,11 @@ const reviewProgress = computed(() => {
   if (!total) return 0
   return Math.round(((total - unreviewedCount.value) / total) * 100)
 })
-// Reviewed = nothing left pending (and there IS something). Complete also
-// needs a kept claim: "I ignored all of them" is a real editorial outcome, but
-// it leaves the script with no evidence, which is what the gate exists to stop.
+// Reviewed = nothing left pending (and there IS something). An all-ignored
+// outcome completes the quality review even though it leaves no claim to pass
+// to Script Generator.
 const reviewed = computed(() => claimCount.value > 0 && unreviewedCount.value === 0)
-const reviewComplete = computed(() => reviewed.value && acceptedCount.value > 0)
+const reviewComplete = computed(() => reviewed.value)
 const reviewRecord = computed<ResearchReviewRecord | null>(() => result.value?.review || null)
 const completedByPipeline = computed(() => reviewRecord.value?.completed_by === 'pipeline-auto')
 /** Which story the banner tells. Derived — never a stored flag. */

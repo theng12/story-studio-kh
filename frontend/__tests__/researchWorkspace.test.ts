@@ -7,6 +7,10 @@ const research = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/research.vue', import.meta.url)),
   'utf8',
 )
+const episodeSelector = readFileSync(
+  fileURLToPath(new URL('../components/EpisodeSelector.vue', import.meta.url)),
+  'utf8',
+)
 const provenance = readFileSync(
   fileURLToPath(new URL('../../electron/server/services/research/provenance.ts', import.meta.url)),
   'utf8',
@@ -84,7 +88,7 @@ describe('Research workspace flow', () => {
 
   test('derives the review state from the claim decisions and says what it means', () => {
     assert.match(research, /const reviewed = computed/)
-    assert.match(research, /const reviewComplete = computed/)
+    assert.match(research, /const reviewComplete = computed\(\(\) => reviewed\.value\)/)
     assert.match(research, /reviewState/)
     // The all-ignored outcome gets its own, distinct message rather than
     // reading as "still pending" or silently counting as complete.
@@ -93,6 +97,14 @@ describe('Research workspace flow', () => {
     // Machine completion stays visibly distinct from a person's review.
     assert.match(research, /completedByPipeline/)
     assert.match(research, /No human read them/)
+  })
+
+  test('shows unreviewed and all-ignored research before the generic evidence label', () => {
+    const triage = episodeSelector.indexOf('if (s.research_generated)')
+    const evidence = episodeSelector.indexOf('if (s.research)')
+    assert.ok(triage >= 0 && triage < evidence, 'triage labels must win over the generic researched label')
+    assert.match(episodeSelector, /⚠ all claims ignored/)
+    assert.match(episodeSelector, /⚠ claims need review/)
   })
 
   test('is honest about where the claims came from, per mode', () => {

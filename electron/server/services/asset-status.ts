@@ -1226,7 +1226,7 @@ export async function computeEpisodeStatus(
     const CODE = code.toUpperCase()
     const idea = ideasList.find(i => (i.episode_code || '').toUpperCase() === CODE)
     if (idea?.marked_done === true) {
-      return allDoneStatus(status._scene_images)
+      return allDoneStatus(status)
     }
     if (idea?.status_overrides) {
       // Overrides only carry the boolean asset-presence flags — the
@@ -1248,17 +1248,16 @@ export async function computeEpisodeStatus(
 }
 
 /**
- * Phase 1 helper — returns an EpisodeStatus with every field set to true.
+ * Phase 1 helper — marks the manually completed production assets true while
+ * preserving independent evidence and optional-stage status from detection.
  *
- * Marking an episode done by hand is itself the human decision, so the review
- * flags read true with no `research_reviewed_by` — no automatic run completed
- * anything.
+ * Marking an episode done is not evidence that Research was generated or that
+ * an enabled optional stage has a valid resolved artifact.
  */
-function allDoneStatus(sceneImages?: EpisodeStatus['_scene_images']): EpisodeStatus {
+function allDoneStatus(detected: EpisodeStatus): EpisodeStatus {
   const status: EpisodeStatus = {
-    research: true,
-    research_generated: true, research_reviewed: true, research_has_usable_claims: true,
-    scene_plan: true, contextual_cues: true, sound_design: true, scene_review: true, motion_review: true,
+    ...detected,
+    scene_plan: true, scene_review: true, motion_review: true,
     character_sheet: true,
     script: true, introduction: true,
     scene_prompts: true, thumb_prompts: true,
@@ -1270,6 +1269,5 @@ function allDoneStatus(sceneImages?: EpisodeStatus['_scene_images']): EpisodeSta
     video: true,
     video_assembly: true,
   }
-  if (sceneImages) status._scene_images = sceneImages
   return status
 }
