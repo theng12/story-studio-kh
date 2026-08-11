@@ -2113,6 +2113,59 @@ export const JOB_TYPES = [
 export type JobType = typeof JOB_TYPES[number]
 export type JobStatus = 'queued' | 'running' | 'paused' | 'done' | 'error' | 'cancelled'
 
+export type JobControlAction =
+  | 'cancel-before-submit'
+  | 'stop-local'
+  | 'request-remote-cancel'
+  | 'pause-submissions'
+  | 'return-later'
+  | 'clear-history'
+  | 'none'
+
+export type JobControlCode =
+  | 'READY'
+  | 'PROVIDER_WORK_ALREADY_STARTED'
+  | 'CANCELLATION_STATUS_UNKNOWN'
+  | 'REMOTE_CANCELLATION_NOT_SUPPORTED'
+  | 'JOB_NOT_AT_SAFE_LOCAL_STOP'
+
+export type JobRemoteOperation =
+  | 'voice.tts'
+  | 'audio.transcription'
+  | 'image.generation'
+  | 'video.generation'
+
+export interface JobControl {
+  action: JobControlAction
+  enabled: boolean
+  label: string
+  reason: string
+  code: JobControlCode
+  financial_effect: 'no-provider-request' | 'local-only' | 'remote-result-required' | 'provider-work-may-settle' | 'history-only' | 'none'
+  targets?: Array<{ operation: JobRemoteOperation; provider_job_id: string }>
+}
+
+export interface JobControlCapabilities {
+  remoteCancellationAudited: boolean
+}
+
+/** Per-provider-task cancellation evidence, keyed by `${operation}:${provider_job_id}`. */
+export interface JobRemoteCancellation {
+  status: 'queued' | 'submitting' | 'requested' | 'reconciling' | 'confirmed' | 'rejected' | 'unknown'
+  operation: JobRemoteOperation
+  provider_job_id: string
+  requested_at: string
+  updated_at: string
+  http_status?: number
+  state?: string
+  cancellable?: boolean
+  cancelled?: boolean
+  cancellation_requested?: boolean
+  cancellation_note?: string | null
+  failure_code?: string | null
+  released_credits?: number
+}
+
 /**
  * Snapshot of an account as it was at resolution time. Labels are captured
  * up-front so later renames don't retroactively change what the job card shows.
@@ -2230,6 +2283,8 @@ export interface Job {
   speed_bps?: number          // rolling 5-second average
   eta_seconds?: number        // undefined when bytes_total unknown
   params: Record<string, any>
+  /** Derived at the server boundary for each snapshot; never trusted from a client. */
+  control?: JobControl
   /**
    * Server-issued replacement identity for an explicit Retry of a known
    * terminal GenStudio language job. Kept outside request params so a normal
@@ -2274,6 +2329,11 @@ export interface Job {
     returned_credits?: number
     price_version?: string | null
     failure_code?: string | null
+    cancellable?: boolean | null
+    cancelled?: boolean | null
+    cancellation_requested?: boolean | null
+    cancellation_note?: string | null
+    released_credits?: number | null
     routing_status_code?: string | null
     location?: string
     queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'
@@ -2287,6 +2347,8 @@ export interface Job {
      */
     request?: GenStudioRequestPreview
   }>
+  /** Persisted cancellation state belongs to an exact GenStudio target, not a whole Story job. */
+  remote_cancellations?: Record<string, JobRemoteCancellation>
   /**
    * Directory containing the job's primary output. Set by each generator
    * once it knows where its files landed (audio dir, image dir, video

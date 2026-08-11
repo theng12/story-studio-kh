@@ -57,6 +57,22 @@ const ALWAYS_LOCAL_TYPES = new Set<JobType>([
   'broll_assemble',
 ])
 
+/**
+ * Retrying local work and stopping it safely are separate claims. These four
+ * executors are the only ones whose child-process/cooperative-stop behaviour
+ * has been proven; a local model name alone never permits a Stop control.
+ */
+const SAFE_LOCAL_STOP_TYPES = new Set<JobType>([
+  'video_assembly',
+  'audio_merge',
+  'broll_normalize',
+  'broll_assemble',
+])
+
+export function isProvenLocalStopCapableJob(job: Pick<Job, 'type' | 'params'>): boolean {
+  return SAFE_LOCAL_STOP_TYPES.has(job.type)
+}
+
 const TEXT_MODEL_TYPES = new Set<JobType>([
   'script-only',
   'introduction-only',
