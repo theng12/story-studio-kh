@@ -3265,6 +3265,12 @@ export type ResearchSourceProvider = 'llm-only' | 'genstudio-web'
  */
 export type ResearchMode = 'model-knowledge' | 'web-search'
 
+/** How strongly GenStudio could tie a web-research response to retrieved pages. */
+export type ResearchEvidenceLevel =
+  | 'attributed_claim_citations'
+  | 'claim_citations'
+  | 'source_urls_only'
+
 /**
  * Domain allow/block lists forwarded to GenStudio's `web_search` block.
  * Only meaningful when the selected product advertises
@@ -3283,6 +3289,11 @@ export interface ResearchWebSearchSettings {
  * is surfaced as "not reported", never as zero and never as an estimate.
  */
 export interface ResearchWebRunReport {
+  /** Pages the provider reported retrieving. These are run-level evidence,
+   * not citations: they prove a page was opened but attribute no claim. */
+  source_urls?: string[]
+  /** GenStudio's published strength of the returned research evidence. */
+  research_evidence_level?: ResearchEvidenceLevel
   /** Envelope `web_searches_executed` — searches the provider actually ran. */
   web_searches_executed?: number
   /**

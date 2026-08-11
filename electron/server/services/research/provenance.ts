@@ -57,6 +57,18 @@ export const WEB_SEARCH_MODE_BLURB =
 export const WEB_SEARCH_NO_SOURCES_NOTICE =
   'Research ran, but GenStudio did not publish structured citations or source URLs for this run.'
 
+/** Web research can prove it opened pages without attributing a claim to one.
+ * This is weaker than citations but is real run-level evidence, never a
+ * no-source outcome. */
+export const WEB_SEARCH_SOURCE_URLS_NOTICE =
+  'Searched the web and recorded the pages GenStudio reported retrieving for this run. '
+  + 'They show pages opened, not sources for individual claims.'
+
+/** Whether a persisted run has provider-reported retrieved pages. */
+export function hasResearchSourceUrls(run: ResearchWebRunReport | undefined | null): boolean {
+  return Array.isArray(run?.source_urls) && run.source_urls.some(url => typeof url === 'string' && !!url.trim())
+}
+
 /**
  * Web-search notice when GenStudio grounded at least one claim to a source.
  *
@@ -76,9 +88,14 @@ export function webSearchAttributedNotice(attributed: number, total: number): st
 /** Per-claim marker in web mode when a claim was not linked to any source. */
 export const WEB_SEARCH_CLAIM_UNCITED_NOTE = 'No source cited for this claim'
 
-export function researchModeNotice(mode: ResearchMode, citationCount = 0): string {
+export function researchModeNotice(
+  mode: ResearchMode,
+  citationCount = 0,
+  run?: ResearchWebRunReport | null,
+): string {
   if (mode !== 'web-search') return MODEL_KNOWLEDGE_NOTICE
-  return citationCount > 0 ? WEB_SEARCH_NOTICE : WEB_SEARCH_NO_SOURCES_NOTICE
+  if (citationCount > 0) return WEB_SEARCH_NOTICE
+  return hasResearchSourceUrls(run) ? WEB_SEARCH_SOURCE_URLS_NOTICE : WEB_SEARCH_NO_SOURCES_NOTICE
 }
 
 /**
@@ -93,8 +110,11 @@ export function webResearchNotice(
   citationCount: number,
   attributedClaims: number,
   totalClaims: number,
+  run?: ResearchWebRunReport | null,
 ): string {
-  if (citationCount <= 0) return WEB_SEARCH_NO_SOURCES_NOTICE
+  if (citationCount <= 0) return hasResearchSourceUrls(run)
+    ? WEB_SEARCH_SOURCE_URLS_NOTICE
+    : WEB_SEARCH_NO_SOURCES_NOTICE
   if (attributedClaims <= 0 || totalClaims <= 0) return WEB_SEARCH_NOTICE
   return webSearchAttributedNotice(attributedClaims, totalClaims)
 }

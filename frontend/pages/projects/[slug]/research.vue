@@ -455,7 +455,7 @@
 
         <!-- A web run that cited nothing is surfaced, not hidden. Without this
              the page would promise "cited its sources" over an empty space. -->
-        <p v-if="resultMode === 'web-search' && !result.citations?.length" class="research-nosources-note">
+        <p v-if="resultMode === 'web-search' && !result.citations?.length && !resultHasSourceUrls" class="research-nosources-note">
           {{ WEB_SEARCH_NO_SOURCES_NOTICE }}
         </p>
 
@@ -533,6 +533,16 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import {
+  hasResearchSourceUrls,
+  MODEL_KNOWLEDGE_CLAIM_NOTE,
+  MODEL_KNOWLEDGE_NOTICE,
+  researchRanAt,
+  WEB_SEARCH_CLAIM_UNCITED_NOTE,
+  WEB_SEARCH_MODE_BLURB,
+  WEB_SEARCH_NO_SOURCES_NOTICE,
+  webResearchNotice,
+} from '../../../../electron/server/services/research/provenance'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Research')
@@ -581,26 +591,6 @@ async function loadSources(): Promise<void> {
     sourcesLoading.value = false
   }
 }
-
-// ── Provenance wording ──────────────────────────────────────────────────
-// Mirrors electron/server/services/research/provenance.ts. The two modes make
-// different promises and must never borrow each other's words: model-knowledge
-// output cites nothing, web output cites the RUN and not each claim.
-const MODEL_KNOWLEDGE_NOTICE =
-  'Based on the model’s own knowledge. Reliable on well-established facts, but it can’t cite live sources — '
-  + 'worth checking anything specific or recent before you rely on it.'
-const MODEL_KNOWLEDGE_CLAIM_NOTE = 'From model knowledge — no source cited'
-const WEB_SEARCH_CLAIM_UNCITED_NOTE = 'No source cited for this claim'
-const WEB_SEARCH_NOTICE =
-  'Searched the web and cited its sources below. Sources are listed for the whole run — individual claims '
-  + 'aren’t linked to specific sources yet.'
-const WEB_SEARCH_NO_SOURCES_NOTICE =
-  'Research ran, but GenStudio did not publish structured citations or source URLs for this run.'
-// Shown before a run exists, so it describes the mechanism and not an outcome:
-// whether a claim ends up linked depends on what the model can point at.
-const WEB_SEARCH_MODE_BLURB =
-  'Searches the web and cites what it read. Where the model can point a claim at a page it opened, '
-  + 'that link is checked against what was really retrieved and shown on the claim.'
 
 type ResearchMode = 'model-knowledge' | 'web-search'
 
@@ -851,6 +841,8 @@ interface ResearchReviewRecord {
  *  The two `@deprecated` names are what v1.0.764 guessed; sidecars written by
  *  that release still carry them, so they are still read and never written. */
 interface ResearchWebRunReport {
+  source_urls?: string[]
+  research_evidence_level?: 'attributed_claim_citations' | 'claim_citations' | 'source_urls_only'
   web_searches_executed?: number
   /** The web-search ADD-ON cost, not the run's total charge. */
   web_search_credit_cost?: number
@@ -985,25 +977,22 @@ const resultMode = computed<ResearchMode>(() => {
 const attributedClaimCount = computed(
   () => (result.value?.claims || []).filter(c => c.citation_indices?.length).length,
 )
+const resultHasSourceUrls = computed(() => hasResearchSourceUrls(result.value?.web_run))
 const resultProvenanceNotice = computed(() => {
   if (resultMode.value !== 'web-search') return MODEL_KNOWLEDGE_NOTICE
-  if (!(result.value?.citations?.length || 0)) return WEB_SEARCH_NO_SOURCES_NOTICE
-  const attributed = attributedClaimCount.value
-  const total = result.value?.claims?.length || 0
-  if (!attributed || !total) return WEB_SEARCH_NOTICE
-  const unattributed = Math.max(0, total - attributed)
-  return `Searched the web and cited its sources below. ${attributed} of ${total} claims `
-    + 'link to the specific sources that back them'
-    + (unattributed > 0
-      ? `; the other ${unattributed} carry no citation and are worth checking yourself.`
-      : '.')
+  return webResearchNotice(
+    result.value?.citations?.length || 0,
+    attributedClaimCount.value,
+    result.value?.claims?.length || 0,
+    result.value?.web_run,
+  )
 })
 /** Run-level recency. There is no per-source retrieval timestamp on purpose —
  *  GenStudio does not fetch the pages, so one would be falsely precise.
  *  GenStudio's `research_ran_at` is preferred when the envelope supplied it;
  *  `generated_at` (when this app wrote the sidecar) is the fallback. */
 const resultRanOnLabel = computed(() => {
-  const at = result.value?.web_run?.research_ran_at || result.value?.generated_at
+  const at = researchRanAt(result.value?.web_run, result.value?.generated_at)
   if (!at) return ''
   const d = new Date(at)
   return Number.isNaN(d.getTime()) ? at : d.toLocaleString()

@@ -34,6 +34,7 @@ import {
   WEB_SEARCH_MODE_BLURB,
   WEB_SEARCH_NO_SOURCES_NOTICE,
   WEB_SEARCH_NOTICE,
+  WEB_SEARCH_SOURCE_URLS_NOTICE,
   researchModeLabel,
   researchModeNotice,
   webResearchNotice,
@@ -615,6 +616,15 @@ describe('research — per-claim source attribution', () => {
     // weaker sentence rather than borrowing the stronger one.
     assert.equal(webResearchNotice(4, 0, 8), WEB_SEARCH_NOTICE)
     assert.equal(webResearchNotice(0, 0, 8), WEB_SEARCH_NO_SOURCES_NOTICE)
+  })
+
+  it('recognizes provider-reported source URLs without promoting them into citations', () => {
+    const run = {
+      source_urls: ['https://example.org/opened-page'],
+      research_evidence_level: 'source_urls_only' as const,
+    }
+    assert.equal(webResearchNotice(0, 0, 8, run), WEB_SEARCH_SOURCE_URLS_NOTICE)
+    assert.notEqual(webResearchNotice(0, 0, 8, run), WEB_SEARCH_NO_SOURCES_NOTICE)
   })
 
   it('states how many claims carry no citation once some are attributed', () => {

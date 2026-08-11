@@ -7,6 +7,10 @@ const research = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/research.vue', import.meta.url)),
   'utf8',
 )
+const provenance = readFileSync(
+  fileURLToPath(new URL('../../electron/server/services/research/provenance.ts', import.meta.url)),
+  'utf8',
+)
 
 describe('Research workspace flow', () => {
   test('uses a compact brief, gather, and review workflow', () => {
@@ -106,13 +110,26 @@ describe('Research workspace flow', () => {
     assert.match(research, /resultProvenanceNotice/)
     // Softened model-knowledge copy. The old wording read as if the output
     // were worthless, and it is simply wrong for a web run.
-    assert.match(research, /Reliable on well-established facts/)
-    assert.match(research, /From model knowledge — no source cited/)
+    assert.match(research, /MODEL_KNOWLEDGE_NOTICE/)
+    assert.match(research, /MODEL_KNOWLEDGE_CLAIM_NOTE/)
+    assert.match(provenance, /Reliable on well-established facts/)
+    assert.match(provenance, /From model knowledge — no source cited/)
     assert.doesNotMatch(research, /no live web access/)
     assert.doesNotMatch(research, /nothing backs this claim but the model/)
     // Web copy never borrows the model-knowledge framing.
-    assert.match(research, /Searched the web and cited its sources below/)
-    assert.match(research, /aren’t linked to specific sources yet/)
+    assert.match(research, /webResearchNotice/)
+    assert.match(provenance, /Searched the web and cited its sources below/)
+    assert.match(provenance, /aren’t linked to specific sources yet/)
+  })
+
+  test('does not report a source-URL-only web run as having no sources', () => {
+    // GenStudio can prove that it opened pages for a JSON-shaped answer without
+    // publishing claim citations. The sidecar fields must drive the notice so
+    // that valid run-level evidence is not discarded as a no-source run.
+    assert.match(research, /source_urls/)
+    assert.match(research, /research_evidence_level/)
+    assert.match(research, /webResearchNotice\(/)
+    assert.match(research, /resultHasSourceUrls/)
   })
 
   // ── "Search the web" mode ──────────────────────────────────────────────
@@ -199,7 +216,8 @@ describe('Research workspace flow', () => {
     // A successful web run may return no structured citations. Surface the
     // missing published evidence without relabelling the run as model knowledge.
     assert.match(research, /research-nosources-note/)
-    assert.match(research, /GenStudio did not publish structured citations or source URLs/)
+    assert.match(research, /WEB_SEARCH_NO_SOURCES_NOTICE/)
+    assert.match(provenance, /GenStudio did not publish structured citations or source URLs/)
     assert.doesNotMatch(research, /Treat these claims as model knowledge/)
   })
 

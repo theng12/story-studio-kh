@@ -168,6 +168,8 @@ test('the durable job and the completion envelope report a web run identically',
     research_ran_at: RESEARCH_RAN_AT,
     citations: [{ id: 'src-1', url: 'https://example.invalid/a', title: 'A' }],
     citation_claims: [{ claim_id: 'c1', citation_ids: ['src-1'] }],
+    source_urls: ['https://example.invalid/a', 'https://example.invalid/opened-only'],
+    research_evidence_level: 'source_urls_only',
   }
   const durable = await webCall(envelope, 'responses')
   const synchronous = await webCall(envelope, 'completions')
@@ -177,6 +179,8 @@ test('the durable job and the completion envelope report a web run identically',
   assert.equal(durable.webSearch.searchCreditCost, 30)
   assert.equal(durable.webSearch.researchRanAt, RESEARCH_RAN_AT)
   assert.deepEqual(durable.webSearch.citationClaims, [{ claim_id: 'c1', citation_ids: ['src-1'] }])
+  assert.deepEqual(durable.webSearch.sourceUrls, envelope.source_urls)
+  assert.equal(durable.webSearch.researchEvidenceLevel, 'source_urls_only')
 })
 
 test('the retired GUESSED names are no longer read off the wire', async () => {

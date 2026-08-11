@@ -112,6 +112,12 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
     // evidence envelope as OpenAIChatCompletionResponse did), not the names
     // v1.0.764 guessed.
     const webRun: ResearchWebRunReport = {
+      ...(result.webSearch.sourceUrls.length
+        ? { source_urls: result.webSearch.sourceUrls }
+        : {}),
+      ...(result.webSearch.researchEvidenceLevel !== null
+        ? { research_evidence_level: result.webSearch.researchEvidenceLevel }
+        : {}),
       ...(result.webSearch.searchesExecuted !== null
         ? { web_searches_executed: result.webSearch.searchesExecuted }
         : {}),

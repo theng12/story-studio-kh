@@ -139,7 +139,7 @@ export async function runResearchJob(job: Job): Promise<void> {
     const attributed = persisted.claims.filter(c => c.citation_indices?.length).length
     const uncitedWeb = persisted.claims.length - attributed
     if (!persisted.citations.length) {
-      job.output_lines.push(researchModeNotice(mode, persisted.citations.length))
+      job.output_lines.push(researchModeNotice(mode, persisted.citations.length, persisted.web_run))
     } else if (attributed > 0) {
       // Only claims GenStudio actually grounded are counted here. A claim it
       // could not ground is reported as uncited, never covered by the run's
@@ -217,7 +217,7 @@ function renderResearchMarkdown(r: ResearchOutput): string {
   // Provenance, per mode. Model-knowledge output was never checked for the
   // user; web output cites the run, not each claim. Neither may borrow the
   // other's wording.
-  lines.push(`*${researchModeNotice(mode, r.citations.length)}*`)
+  lines.push(`*${researchModeNotice(mode, r.citations.length, r.web_run)}*`)
   lines.push('')
   if (mode === 'web-search' && r.web_run) {
     lines.push(`*${webRunUsageSentence(r.web_run)}*`)
@@ -300,11 +300,18 @@ function renderResearchMarkdown(r: ResearchOutput): string {
   lines.push('## Sources')
   lines.push('')
   if (!r.citations.length) {
+    const sourceUrls = r.web_run?.source_urls || []
     lines.push(mode === 'web-search'
-      ? `None. ${researchModeNotice(mode, r.citations.length)}`
+      ? sourceUrls.length
+        ? 'No structured citations were published. Provider-reported pages retrieved for this run:'
+        : `None. ${researchModeNotice(mode, r.citations.length, r.web_run)}`
       : 'None. This run used the model’s own knowledge, which cannot cite live sources — it is deliberately '
         + 'not allowed to invent URLs. Find sources yourself for anything specific or recent.')
     lines.push('')
+    if (mode === 'web-search' && sourceUrls.length) {
+      for (const url of sourceUrls) lines.push(`- ${url}`)
+      lines.push('')
+    }
   } else {
     if (mode === 'web-search') {
       const attributed = r.claims.filter(c => c.citation_indices?.length).length

@@ -43,6 +43,7 @@ import {
   type GenStudioRequestPreview,
   type GenStudioRequestPreviewInput,
 } from './genstudio-request-preview.js'
+import type { ResearchEvidenceLevel } from '../models/types.js'
 
 /**
  * Job-poll cadence — ONE schedule shared by all five wait loops.
@@ -3683,6 +3684,10 @@ interface GenStudioResearchEnvelope {
   /** Claim-to-source linkage. In the contract, but providers do not populate
    *  it yet, so it is parsed and carried without any per-claim display. */
   citation_claims?: unknown
+  /** Pages the provider reported retrieving. Never promoted into citations. */
+  source_urls?: unknown
+  /** The published strength of the returned research evidence. */
+  research_evidence_level?: unknown
 }
 
 interface GenStudioChatCompletion extends GenStudioResearchEnvelope {
@@ -3739,6 +3744,10 @@ export function parseGenStudioCitations(value: unknown): GenStudioCitation[] {
  * reported" rather than showing a number nobody was charged.
  */
 export interface GenStudioWebSearchUsage {
+  /** Provider-reported retrieved pages. These do not attribute answer text. */
+  sourceUrls: string[]
+  /** Evidence strength GenStudio published, or null when no research ran. */
+  researchEvidenceLevel: ResearchEvidenceLevel | null
   /** Envelope `web_searches_executed`. */
   searchesExecuted: number | null
   /** Envelope `web_search_credit_cost` — the web-search ADD-ON cost only. */
@@ -3789,6 +3798,16 @@ function readWebSearchUsage(envelope: GenStudioResearchEnvelope): GenStudioWebSe
   const executed = envelope.web_searches_executed
   const cost = envelope.web_search_credit_cost
   return {
+    sourceUrls: Array.isArray(envelope.source_urls)
+      ? [...new Set(envelope.source_urls
+        .filter((url): url is string => typeof url === 'string' && !!url.trim())
+        .map(url => url.trim()))]
+      : [],
+    researchEvidenceLevel: envelope.research_evidence_level === 'attributed_claim_citations'
+      || envelope.research_evidence_level === 'claim_citations'
+      || envelope.research_evidence_level === 'source_urls_only'
+      ? envelope.research_evidence_level
+      : null,
     searchesExecuted: Number.isInteger(executed) && (executed as number) >= 0
       ? executed as number
       : null,
@@ -3803,6 +3822,8 @@ function readWebSearchUsage(envelope: GenStudioResearchEnvelope): GenStudioWebSe
 /** The "nothing reported" usage record, for a request that never asked.
  *  Frozen: it is handed to every non-web result, so it must not be mutable. */
 export const EMPTY_WEB_SEARCH_USAGE: GenStudioWebSearchUsage = Object.freeze({
+  sourceUrls: Object.freeze([] as string[]) as string[],
+  researchEvidenceLevel: null,
   searchesExecuted: null,
   searchCreditCost: null,
   researchRanAt: null,
