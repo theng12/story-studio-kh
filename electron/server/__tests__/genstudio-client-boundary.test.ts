@@ -57,7 +57,7 @@ test('TTS models carry only a positive published provider submit concurrency hin
   try {
     globalThis.fetch = async (input) => {
       assert.match(String(input), /\/v1\/tts\/models$/)
-      return Response.json([4, null, 0, 2.5, '6'].map((provider_submit_concurrency, index) => ({
+      return Response.json([4, null, undefined, 0, 2.5, '6'].map((provider_submit_concurrency, index) => ({
         id: `tts-${index}`,
         display_name: `TTS ${index}`,
         provider_id: `provider-${index}`,
@@ -70,12 +70,12 @@ test('TTS models carry only a positive published provider submit concurrency hin
         supports_voice_cloning: false,
         preview_policy: '',
         generation_enabled: true,
-        provider_submit_concurrency,
+        ...(provider_submit_concurrency === undefined ? {} : { provider_submit_concurrency }),
         controls: [],
       })))
     }
     const models = await listTtsModels('task3-tts-concurrency-parser')
-    assert.deepEqual(models.map(model => (model as any).provider_submit_concurrency), [4, null, null, null, null])
+    assert.deepEqual(models.map(model => (model as any).provider_submit_concurrency), [4, null, null, null, null, null])
   } finally {
     globalThis.fetch = originalFetch
     clearGenStudioCatalogCache()

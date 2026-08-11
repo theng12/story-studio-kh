@@ -33,6 +33,13 @@ describe('GenStudio speech dispatch follows the selected model publication', () 
     assert.equal(resolveGenStudioTtsFanout(500, 70, noEnv), GENSTUDIO_LOCAL_ADMISSION_MAX)
   })
 
+  test('switching selected models immediately changes TTS worker fanout', () => {
+    const modelA = { provider_submit_concurrency: 2 }
+    const modelB = { provider_submit_concurrency: 6 }
+    assert.equal(resolveGenStudioTtsFanout(10, modelA.provider_submit_concurrency, noEnv), 2)
+    assert.equal(resolveGenStudioTtsFanout(10, modelB.provider_submit_concurrency, noEnv), 6)
+  })
+
   test('unknown or invalid published hints serialize rather than assuming unlimited capacity', () => {
     assert.equal(resolveGenStudioTtsFanout(10, undefined, noEnv), 1)
     assert.equal(resolveGenStudioTtsFanout(10, null, noEnv), 1)
@@ -54,6 +61,12 @@ describe('GenStudio speech dispatch follows the selected model publication', () 
     // Junk is ignored rather than silently disabling the pacing.
     for (const value of ['0', '-3', 'lots', '']) {
       assert.equal(resolveGenStudioTtsFanout(10, 2, { [GENSTUDIO_TTS_CONCURRENCY_ENV]: value }), 2)
+    }
+  })
+
+  test('a fractional operator override falls through to the selected model hint', () => {
+    for (const value of ['2.5', '50.9']) {
+      assert.equal(resolveGenStudioTtsFanout(100, 7, { [GENSTUDIO_TTS_CONCURRENCY_ENV]: value }), 7)
     }
   })
 })

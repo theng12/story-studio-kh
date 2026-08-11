@@ -38,13 +38,13 @@ export function resolveGenStudioTtsFanout(
   env: NodeJS.ProcessEnv = process.env,
 ): number {
   const items = Math.max(1, Math.floor(Number(itemCount)) || 1)
-  const override = Math.floor(Number(env[GENSTUDIO_TTS_CONCURRENCY_ENV]))
+  const override = Number(env[GENSTUDIO_TTS_CONCURRENCY_ENV])
   const publishedHint = typeof providerSubmitConcurrency === 'number'
     && Number.isInteger(providerSubmitConcurrency)
     && providerSubmitConcurrency > 0
     ? providerSubmitConcurrency
     : GENSTUDIO_TTS_DEFAULT_DISPATCH_LIMIT
-  const limit = Number.isFinite(override) && override > 0
+  const limit = Number.isInteger(override) && override > 0
     ? Math.min(override, GENSTUDIO_LOCAL_ADMISSION_MAX)
     : Math.min(publishedHint, GENSTUDIO_LOCAL_ADMISSION_MAX)
   return Math.max(1, Math.min(items, limit))
