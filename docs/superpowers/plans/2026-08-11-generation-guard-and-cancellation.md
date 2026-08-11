@@ -558,7 +558,7 @@ git commit -m "feat: explain safe generation controls"
 - Consumes all prior tasks.
 - Produces Story Studio KH `1.0.822`, a clean release commit, pushed branch/main according to the accepted release workflow, and an unsigned test DMG.
 
-- [ ] **Step 1: Add the release metadata**
+- [x] **Step 1: Add the release metadata**
 
 Set both package versions to `1.0.822`. Add newest-first:
 
@@ -570,7 +570,7 @@ Set both package versions to `1.0.822`. Add newest-first:
 - Added visible explanations for duplicate, prerequisite, reconciliation, post-dispatch, and missing-only generation guards.
 ```
 
-- [ ] **Step 2: Run release metadata gates**
+- [x] **Step 2: Run release metadata gates**
 
 ```bash
 npm run check:changelog
@@ -578,7 +578,7 @@ npm run check:release
 git diff --check
 ```
 
-- [ ] **Step 3: Run the full verification suite**
+- [x] **Step 3: Run the full verification suite**
 
 ```bash
 npm run verify
@@ -588,7 +588,7 @@ npm --prefix frontend audit --omit=dev
 
 Expected: verification exits 0; lint may report the repository's existing warning count but must report zero errors; both production audits report zero vulnerabilities.
 
-- [ ] **Step 4: Build and verify the unsigned soak artifact**
+- [x] **Step 4: Build and verify the unsigned soak artifact**
 
 ```bash
 npm run dist:smoke

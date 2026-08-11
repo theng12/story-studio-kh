@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.822
+
+- Made job controls financially truthful: cancellation, local stopping, provider cancellation requests, reconciliation, and history removal are now distinct actions.
+- Preserved provider cancellation outcomes and resumed pending reconciliation safely after restarts without duplicate generation.
+- Added visible explanations for duplicate, prerequisite, reconciliation, post-dispatch, and missing-only generation guards.
+
 ## v1.0.821 — 2026-08-11
 
 - **Music catalogue access is now verified before production starts** — Settings names the
