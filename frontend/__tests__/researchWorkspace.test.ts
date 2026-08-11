@@ -154,6 +154,12 @@ describe('Research workspace flow', () => {
     assert.match(research, /!structuredCitationCount && !resultHasSourceUrls/)
   })
 
+  test('treats unsafe-only per-claim citation indices as uncited', () => {
+    assert.match(research, /function hasSafeCitation/)
+    assert.match(research, /v-if="hasSafeCitation\(claim\)"/)
+    assert.match(research, /citation_indices\?\.some\(idx => !!safeCitationUrl\(result\.value\?\.citations\?\.\[idx\]\)\)/)
+  })
+
   test('filters edited sidecar source URLs before rendering them as links', () => {
     assert.match(research, /const resultSourceUrls = computed/)
     assert.match(research, /new URL\(raw\.trim\(\)\)/)

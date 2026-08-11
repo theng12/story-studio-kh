@@ -746,6 +746,27 @@ describe('the research generator resets the triage', () => {
     assert.match(md, /- <https:\/\/example\.invalid\/\]\(javascript:alert\(1\)\)>/)
   })
 
+  test('research.md renders citation metadata as plain text and normalizes a non-string title', async () => {
+    const epDir = await makeProject(true)
+    await runWebGenerator([
+      {
+        title: '<a href="javascript:alert(1)">Title</a>',
+        url: 'https://example.invalid/html',
+        publisher: '<img src=x onerror=alert(1)>',
+        snippet: '<script>alert(1)</script> [link](javascript:alert(1))',
+      },
+      { title: 123 as unknown as string, url: 'https://example.invalid/fallback-title' },
+    ])
+
+    const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
+    const md = await fs.readFile(mdPath, 'utf-8')
+    assert.match(md, /&lt;a href=/)
+    assert.match(md, /&lt;img src=x/)
+    assert.match(md, /&lt;script&gt;/)
+    assert.match(md, /\[https:\/\/example\.invalid\/fallback-title\]\(<https:\/\/example\.invalid\/fallback-title>\)/)
+    assert.doesNotMatch(md, /<a href=|<img |<script>|\[link\]\(javascript:/)
+  })
+
   test('a web run without structured citations remains a successful web outcome', async () => {
     const epDir = await makeProject(true)
     const job = await runWebGenerator([], {

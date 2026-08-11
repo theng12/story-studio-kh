@@ -34,9 +34,13 @@ function sanitizeResearchCitationsWithIndices(citations: readonly ResearchCitati
       return
     }
     indexMap.set(index, sanitized.length)
-    sanitized.push({ ...citation, title: citation.title || url, url })
+    sanitized.push({ ...citation, title: normalizedCitationTitle(citation.title, url), url })
   })
   return { citations: sanitized, indexMap }
+}
+
+function normalizedCitationTitle(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback
 }
 
 export function sanitizeResearchCitations(citations: readonly ResearchCitation[]): ResearchCitation[] {

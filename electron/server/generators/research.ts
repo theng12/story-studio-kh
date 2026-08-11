@@ -322,12 +322,13 @@ function renderResearchMarkdown(r: ResearchOutput): string {
     for (let i = 0; i < r.citations.length; i++) {
       const c = r.citations[i]!
       const url = canonicalHttpUrl(c.url)
-      const link = url ? `[${escapeMarkdownLinkLabel(c.title)}](<${url}>)` : c.title
+      const link = url ? `[${escapeMarkdownPlainText(c.title)}](<${url}>)` : escapeMarkdownPlainText(c.title)
       // publisher / published_at are carried through only when the provider
       // actually supplied them — they are not reliable today.
-      const attribution = [c.publisher, c.published_at].filter(Boolean).join(', ')
+      const attribution = [c.publisher, c.published_at].map(escapeMarkdownPlainText).filter(Boolean).join(', ')
       lines.push(`${i + 1}. ${link}${attribution ? ` — ${attribution}` : ''}`)
-      if (c.snippet) lines.push(`   > ${c.snippet}`)
+      const snippet = escapeMarkdownPlainText(c.snippet)
+      if (snippet) lines.push(`   > ${snippet}`)
     }
     lines.push('')
   }
@@ -345,8 +346,13 @@ function renderResearchMarkdown(r: ResearchOutput): string {
   return lines.join('\n')
 }
 
-function escapeMarkdownLinkLabel(value: string): string {
-  return value.replace(/[\\[\]\(\)]/g, '\\$&')
+function escapeMarkdownPlainText(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  return value.trim().replace(/[\r\n]+/g, ' ')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/[\\[\]\(\)`*_]/g, '\\$&')
 }
 
 /** The mode a sidecar was produced in. Absent mode + legacy provider both

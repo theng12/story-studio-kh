@@ -394,7 +394,7 @@
                 </span>
               </div>
               <div v-if="claim.note" class="research-claim-note">{{ claim.note }}</div>
-              <div v-if="claim.citation_indices?.length" class="research-claim-refs">
+              <div v-if="hasSafeCitation(claim)" class="research-claim-refs">
                 <span>Evidence</span>
                 <template v-for="idx in claim.citation_indices" :key="idx">
                   <a
@@ -1023,6 +1023,9 @@ function safeCitationUrl(citation: ResearchCitation | undefined): string {
   } catch {
     return ''
   }
+}
+function hasSafeCitation(claim: ResearchClaim): boolean {
+  return !!claim.citation_indices?.some(idx => !!safeCitationUrl(result.value?.citations?.[idx]))
 }
 const structuredCitationCount = computed(() =>
   (result.value?.citations || []).filter(c => !!safeCitationUrl(c)).length,
