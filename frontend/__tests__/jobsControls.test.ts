@@ -11,6 +11,10 @@ const remote = readFileSync(
   fileURLToPath(new URL('../pages/remote.vue', import.meta.url)),
   'utf8',
 )
+const contracts = readFileSync(
+  fileURLToPath(new URL('../../electron/server/contracts/index.ts', import.meta.url)),
+  'utf8',
+)
 
 test('Jobs renders only the server-provided job control and dispatches its exact action', () => {
   assert.match(jobs, /job\.control/)
@@ -30,6 +34,15 @@ test('Jobs keeps a requested cancellation active and explains reconciliation', (
   assert.match(jobs, /job\.control\.label/)
   assert.match(jobs, /Story Studio is reconciling/)
   assert.match(jobs, /files or billing records/i)
+})
+
+test('Jobs contracts carry all six remote operations and published cancellation settlement without invented release copy', () => {
+  assert.match(contracts, /'chat\.response' \| 'music\.generation'/)
+  assert.match(contracts, /dispatch_state\?: 'pre_dispatch' \| 'dispatched'/)
+  assert.match(contracts, /remote_cancellations\?: Record<string, JobRemoteCancellationResponse>/)
+  assert.match(jobs, /const released = remote\.released_credits[\s\S]*?accountJob\?\.released_credits/)
+  assert.doesNotMatch(jobs, /reservation released/i)
+  assert.doesNotMatch(jobs, /post-dispatch Video|Video best effort/i)
 })
 
 test('Jobs retries Motion work through the durable queue without reposting legacy params', () => {

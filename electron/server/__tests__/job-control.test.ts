@@ -43,12 +43,13 @@ describe('server-owned job controls', () => {
       { name: 'paused', input: { status: 'paused' }, action: 'cancel-before-submit', code: 'READY', reason: 'This job has not submitted provider work.' },
       { name: 'local video assembly', input: { type: 'video_assembly' }, action: 'stop-local', code: 'READY', reason: 'This local job has a proven cooperative or child-process stop path.' },
       { name: 'local audio merge', input: { type: 'audio_merge' }, action: 'stop-local', code: 'READY', reason: 'This local job has a proven cooperative or child-process stop path.' },
-      { name: 'accepted tts', input: { genstudio_jobs: [evidence('voice.tts', 'accepted', { cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
-      { name: 'reserved image', input: { genstudio_jobs: [evidence('image.generation', 'reserved', { cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
-      { name: 'accepted transcription', input: { genstudio_jobs: [evidence('audio.transcription', 'accepted', { cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
-      { name: 'running video', input: { genstudio_jobs: [evidence('video.generation', 'running')] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
-      { name: 'running chat', input: { genstudio_jobs: [evidence('chat.response', 'running')] }, audited: true, action: 'return-later', code: 'REMOTE_CANCELLATION_NOT_SUPPORTED', reason: 'chat.response chat.response-task does not publish a cancellation endpoint. Provider work may still settle.' },
-      { name: 'started image', input: { genstudio_jobs: [evidence('image.generation', 'running', { cancellable: false })] }, audited: true, action: 'pause-submissions', code: 'PROVIDER_WORK_ALREADY_STARTED', reason: 'image.generation image.generation-task already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.' },
+      { name: 'pre-dispatch tts', input: { genstudio_jobs: [evidence('voice.tts', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
+      { name: 'pre-dispatch image', input: { genstudio_jobs: [evidence('image.generation', 'reserved', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
+      { name: 'pre-dispatch transcription', input: { genstudio_jobs: [evidence('audio.transcription', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
+      { name: 'dispatched video', input: { genstudio_jobs: [evidence('video.generation', 'running', { dispatch_state: 'dispatched', cancellable: true })] }, audited: true, action: 'pause-submissions', code: 'PROVIDER_WORK_ALREADY_STARTED', reason: 'video.generation video.generation-task already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.' },
+      { name: 'pre-dispatch chat', input: { genstudio_jobs: [evidence('chat.response', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
+      { name: 'pre-dispatch music', input: { genstudio_jobs: [evidence('music.generation', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true })] }, audited: true, action: 'request-remote-cancel', code: 'READY', reason: 'Story Studio will ask GenStudio to cancel the eligible provider task; GenStudio determines whether credits are released.' },
+      { name: 'started image', input: { genstudio_jobs: [evidence('image.generation', 'running', { dispatch_state: 'dispatched', cancellable: false })] }, audited: true, action: 'pause-submissions', code: 'PROVIDER_WORK_ALREADY_STARTED', reason: 'image.generation image.generation-task already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.' },
       { name: 'submitting image', input: { genstudio_jobs: [evidence('image.generation', 'submitting')] }, audited: true, action: 'return-later', code: 'CANCELLATION_STATUS_UNKNOWN', reason: 'Story Studio cannot yet prove whether every provider request was accepted. It will reconcile before any new submission.' },
       {
         name: 'cancellation already requested',
@@ -81,8 +82,8 @@ describe('server-owned job controls', () => {
   test('returns only cancellable provider targets and names work that will continue settling', () => {
     const control = classifyJobControl(job({
       genstudio_jobs: [
-        evidence('image.generation', 'accepted', { cancellable: true, id: 'can-cancel' }),
-        evidence('image.generation', 'running', { cancellable: false, id: 'already-started' }),
+        evidence('image.generation', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true, id: 'can-cancel' }),
+        evidence('image.generation', 'running', { dispatch_state: 'dispatched', cancellable: false, id: 'already-started' }),
       ],
     }), { remoteCancellationAudited: true })
 
@@ -116,7 +117,7 @@ describe('server-owned job controls', () => {
 
   test('does not promise pause submissions for image batches without cooperative item boundaries', () => {
     const control = classifyJobControl(job({
-      genstudio_jobs: [evidence('image.generation', 'running', { cancellable: false })],
+      genstudio_jobs: [evidence('image.generation', 'running', { dispatch_state: 'dispatched', cancellable: false })],
     }), { remoteCancellationAudited: true })
 
     assert.equal(control.action, 'pause-submissions')
@@ -127,30 +128,31 @@ describe('server-owned job controls', () => {
   test('keeps Pause submissions enabled only for an executor with a proven cooperative boundary', () => {
     const control = classifyJobControl(job({
       type: 'audio',
-      genstudio_jobs: [evidence('voice.tts', 'running', { cancellable: false })],
+      genstudio_jobs: [evidence('voice.tts', 'running', { dispatch_state: 'dispatched', cancellable: false })],
     }), { remoteCancellationAudited: true })
 
     assert.equal(control.action, 'pause-submissions')
     assert.equal(control.enabled, true)
   })
 
-  test('keeps known unsupported provider work settling while requesting eligible video cancellation', () => {
+  test('cancels only pre-dispatch siblings and never promises a refund', () => {
     const control = classifyJobControl(job({
       genstudio_jobs: [
-        evidence('video.generation', 'running', { id: 'video-can-cancel' }),
-        evidence('chat.response', 'running', { id: 'chat-keeps-running' }),
+        evidence('chat.response', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true, id: 'chat-can-cancel' }),
+        evidence('music.generation', 'running', { dispatch_state: 'dispatched', cancellable: true, id: 'music-keeps-running' }),
       ],
     }), { remoteCancellationAudited: true })
 
     assert.equal(control.action, 'request-remote-cancel')
-    assert.deepEqual(control.targets, [{ operation: 'video.generation', provider_job_id: 'video-can-cancel' }])
-    assert.match(control.reason, /chat.response chat-keeps-running already started and will continue settling/i)
+    assert.deepEqual(control.targets, [{ operation: 'chat.response', provider_job_id: 'chat-can-cancel' }])
+    assert.match(control.reason, /music.generation music-keeps-running already started and will continue settling/i)
+    assert.doesNotMatch(control.reason, /refund/i)
   })
 
   test('never exposes post-dispatch TTS or image cancellation even when stale evidence claims cancellable', () => {
     for (const entry of [
-      evidence('voice.tts', 'running', { cancellable: true }),
-      evidence('image.generation', 'dispatched', { cancellable: true }),
+      evidence('voice.tts', 'running', { dispatch_state: 'dispatched', cancellable: true }),
+      evidence('image.generation', 'dispatched', { dispatch_state: 'dispatched', cancellable: true }),
     ]) {
       const control = classifyJobControl(job({ genstudio_jobs: [entry] }), { remoteCancellationAudited: true })
       assert.equal(control.action, 'pause-submissions', entry.operation)
@@ -158,9 +160,29 @@ describe('server-owned job controls', () => {
     }
   })
 
+  test('fails closed for every operation unless GenStudio explicitly says pre-dispatch and cancellable', () => {
+    const operations: Evidence['operation'][] = [
+      'voice.tts', 'audio.transcription', 'image.generation',
+      'video.generation', 'chat.response', 'music.generation',
+    ]
+    for (const operation of operations) {
+      for (const extra of [
+        { cancellable: true },
+        { dispatch_state: 'pre_dispatch' as const, cancellable: false },
+        { dispatch_state: 'unknown' as never, cancellable: true },
+      ]) {
+        const control = classifyJobControl(job({
+          genstudio_jobs: [evidence(operation, 'accepted', extra)],
+        }), { remoteCancellationAudited: true })
+        assert.notEqual(control.action, 'request-remote-cancel', `${operation} ${JSON.stringify(extra)}`)
+        assert.equal(control.targets, undefined, `${operation} ${JSON.stringify(extra)}`)
+      }
+    }
+  })
+
   test('fails closed when remote cancellation is not audited or provider state is ambiguous', () => {
     const accepted = job({
-      genstudio_jobs: [evidence('voice.tts', 'accepted', { cancellable: true })],
+      genstudio_jobs: [evidence('voice.tts', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true })],
     })
     assert.equal(
       classifyJobControl(accepted, { remoteCancellationAudited: false }).action,
@@ -169,7 +191,7 @@ describe('server-owned job controls', () => {
 
     const mixed = classifyJobControl(job({
       genstudio_jobs: [
-        evidence('image.generation', 'accepted', { cancellable: true, id: 'known' }),
+        evidence('image.generation', 'accepted', { dispatch_state: 'pre_dispatch', cancellable: true, id: 'known' }),
         evidence('image.generation', 'submitting', { id: 'unknown' }),
       ],
     }), { remoteCancellationAudited: true })

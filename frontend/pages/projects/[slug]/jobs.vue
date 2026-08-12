@@ -450,7 +450,6 @@
               <template v-if="genStudioChargedCredits(remote) > 0"> · charged {{ genStudioChargedCredits(remote) }}</template>
               <template v-else-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
               <template v-else-if="genStudioHeldCredits(remote) > 0"> · on hold {{ genStudioHeldCredits(remote) }} credits</template>
-              <template v-else-if="genStudioReservationReleased(remote)"> · reservation released</template>
             </span>
           </div>
           <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
@@ -687,7 +686,6 @@
                 <template v-if="genStudioChargedCredits(remote) > 0"> · charged {{ genStudioChargedCredits(remote) }}</template>
                 <template v-else-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
                 <template v-else-if="genStudioHeldCredits(remote) > 0"> · on hold {{ genStudioHeldCredits(remote) }} credits</template>
-                <template v-else-if="genStudioReservationReleased(remote)"> · reservation released</template>
               </span>
             </div>
             <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
@@ -974,12 +972,12 @@ function genStudioSettled(
   remote: NonNullable<RJob['genstudio_jobs']>[number],
 ): GenStudioSettlement {
   const accountJob = genStudioSettlement.value[remote.id]
-  const released = accountJob?.released_credits
-    ?? remote.released_credits
+  const released = remote.released_credits
     ?? remote.returned_credits
+    ?? accountJob?.released_credits
   return {
-    reserved_credits: accountJob?.reserved_credits ?? remote.reserved_credits,
-    settled_credits: accountJob?.settled_credits ?? remote.settled_credits,
+    reserved_credits: remote.reserved_credits ?? accountJob?.reserved_credits,
+    settled_credits: remote.settled_credits ?? accountJob?.settled_credits,
     ...(released !== undefined ? { released_credits: released } : {}),
   }
 }
@@ -1010,11 +1008,6 @@ function genStudioHeldCredits(remote: NonNullable<RJob['genstudio_jobs']>[number
   if (genStudioChargedCredits(remote) > 0 || genStudioReturnedCredits(remote) > 0) return 0
   if (genStudioTerminalFailure(remote)) return 0
   return genStudioNumeric(genStudioSettled(remote).reserved_credits)
-}
-
-/** A failed job whose released amount GenStudio has not published. */
-function genStudioReservationReleased(remote: NonNullable<RJob['genstudio_jobs']>[number]): boolean {
-  return genStudioTerminalFailure(remote) && genStudioReturnedCredits(remote) === 0
 }
 
 /**

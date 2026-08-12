@@ -414,11 +414,14 @@ function mergeGenStudioReconciliationEvidence(
   provider: {
     id: string
     state: string
+    dispatch_state?: 'pre_dispatch' | 'dispatched'
     cancellable?: boolean | null
     cancelled?: boolean | null
     cancellation_requested?: boolean | null
     cancellation_note?: string | null
     failure_code?: string | null
+    reserved_credits?: number | null
+    settled_credits?: number | null
     released_credits?: number | null
   },
 ): void {
@@ -430,12 +433,15 @@ function mergeGenStudioReconciliationEvidence(
     ...prior,
     id: provider.id,
     state: provider.state,
+    ...(provider.dispatch_state !== undefined ? { dispatch_state: provider.dispatch_state } : {}),
     ...(provider.cancellable !== undefined ? { cancellable: provider.cancellable } : {}),
     ...(provider.cancelled !== undefined ? { cancelled: provider.cancelled } : {}),
     ...(provider.cancellation_requested !== undefined ? { cancellation_requested: provider.cancellation_requested } : {}),
     ...(provider.cancellation_note !== undefined ? { cancellation_note: provider.cancellation_note } : {}),
     ...(provider.failure_code !== undefined ? { failure_code: provider.failure_code } : {}),
-    ...(Number.isFinite(provider.released_credits) ? { released_credits: provider.released_credits } : {}),
+    ...(typeof provider.reserved_credits === 'number' && Number.isFinite(provider.reserved_credits) ? { reserved_credits: provider.reserved_credits } : {}),
+    ...(typeof provider.settled_credits === 'number' && Number.isFinite(provider.settled_credits) ? { settled_credits: provider.settled_credits } : {}),
+    ...(typeof provider.released_credits === 'number' && Number.isFinite(provider.released_credits) ? { released_credits: provider.released_credits } : {}),
     updated_at: new Date().toISOString(),
   }
   job.genstudio_jobs = entries

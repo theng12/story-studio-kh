@@ -1,7 +1,7 @@
 import { getGenStudioUrl } from './app-settings.js'
 import {
   getGenStudioCancellationStatus,
-  getGenStudioChatStatus,
+  getGenStudioJobByIdempotencyKey,
   isSettledGenStudioJob,
   requestGenStudioCancellation,
   type GenStudioCancellationFields,
@@ -27,7 +27,7 @@ export type JobCancellationReconcileOutcome = ReconcileEvidence & (
 
 const PENDING = new Set<JobRemoteCancellation['status']>(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
 const REMOTE_OPERATIONS = new Set<JobRemoteCancellation['operation']>([
-  'voice.tts', 'audio.transcription', 'image.generation', 'video.generation',
+  'voice.tts', 'audio.transcription', 'image.generation', 'video.generation', 'chat.response', 'music.generation',
 ])
 
 function isRemoteOperation(value: string): value is JobRemoteCancellation['operation'] {
@@ -44,12 +44,15 @@ function asRecord(
     ...cleanPrior,
     status,
     state: provider.state,
+    ...(provider.dispatch_state !== undefined ? { dispatch_state: provider.dispatch_state } : {}),
     ...(provider.cancellable !== undefined ? { cancellable: provider.cancellable } : {}),
     ...(provider.cancelled !== undefined ? { cancelled: provider.cancelled } : {}),
     ...(provider.cancellation_requested !== undefined ? { cancellation_requested: provider.cancellation_requested } : {}),
     ...(provider.cancellation_note !== undefined ? { cancellation_note: provider.cancellation_note } : {}),
     ...(provider.failure_code !== undefined ? { failure_code: provider.failure_code } : {}),
-    ...(Number.isFinite(provider.released_credits) ? { released_credits: provider.released_credits } : {}),
+    ...(typeof provider.reserved_credits === 'number' && Number.isFinite(provider.reserved_credits) ? { reserved_credits: provider.reserved_credits } : {}),
+    ...(typeof provider.settled_credits === 'number' && Number.isFinite(provider.settled_credits) ? { settled_credits: provider.settled_credits } : {}),
+    ...(typeof provider.released_credits === 'number' && Number.isFinite(provider.released_credits) ? { released_credits: provider.released_credits } : {}),
     updated_at: new Date().toISOString(),
   }
 }
@@ -94,7 +97,7 @@ export async function reconcilePendingJobCancellation(
       // `submitting` is a crash-recovery ownership marker. A fresh GET proves
       // the provider is still pre-dispatch before we repeat the idempotent
       // control request. `unknown` deliberately never retries blindly.
-      if (record.status === 'submitting' && provider.cancellable === true && !isSettledGenStudioJob(provider)) {
+      if (record.status === 'submitting' && provider.dispatch_state === 'pre_dispatch' && provider.cancellable === true && !isSettledGenStudioJob(provider)) {
         provider = await requestGenStudioCancellation(
           record.operation, baseUrl, apiKey, record.provider_job_id, {}, deadline,
         )
@@ -119,19 +122,24 @@ export async function reconcilePendingJobCancellation(
   // before this job releases its duplicate lock or claims verified success.
   const observed = new Set(providerJobs.map(item => `${item.operation}:${item.evidence_id}`))
   for (const evidence of job.genstudio_jobs || []) {
-    if (!evidence.id) return { kind: 'pending', records, providerJobs, reason: 'Story Studio cannot reconcile provider evidence without a durable task identity.' }
-    const key = `${evidence.operation}:${evidence.id}`
+    const idempotencyKey = evidence.request?.idempotency_key
+    const pendingEvidence = !evidence.id || evidence.id.startsWith('pending:')
+    const evidenceId = evidence.id || (idempotencyKey ? `pending:${idempotencyKey}` : '')
+    if (pendingEvidence && !idempotencyKey) {
+      return { kind: 'pending', records, providerJobs, reason: 'Story Studio cannot reconcile provider evidence without a durable task identity or saved idempotency key.' }
+    }
+    const key = `${evidence.operation}:${evidenceId}`
     if (observed.has(key)) continue
     try {
       const provider = isRemoteOperation(evidence.operation)
-        ? await getGenStudioCancellationStatus(evidence.operation, baseUrl, apiKey, evidence.id, {}, deadline)
-        : evidence.operation === 'chat.response'
-          ? await getGenStudioChatStatus(baseUrl, apiKey, evidence.id, evidence.request?.idempotency_key, deadline)
-          : null
+        ? pendingEvidence
+          ? await getGenStudioJobByIdempotencyKey(evidence.operation, baseUrl, apiKey, idempotencyKey!, {}, deadline)
+          : await getGenStudioCancellationStatus(evidence.operation, baseUrl, apiKey, evidenceId, {}, deadline)
+        : null
       if (!provider) {
-        return { kind: 'pending', records, providerJobs, reason: `${evidence.operation} ${evidence.id} has no published read-only reconciliation path. Provider work may still settle.` }
+        return { kind: 'pending', records, providerJobs, reason: `${evidence.operation} ${evidenceId} has no published read-only reconciliation path. Provider work may still settle.` }
       }
-      providerJobs.push({ operation: evidence.operation, evidence_id: evidence.id, job: provider })
+      providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: provider })
       observed.add(key)
     } catch (error) {
       // The exact accepted target cannot be proven terminal. This includes an

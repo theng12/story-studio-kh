@@ -559,7 +559,7 @@ export class MockGenStudioService {
       failure_code: state === 'failed' ? job.scenario.failureCode : null,
       routing_status_code: job.scenario.routingStatusCode,
       idempotent_replay: replay,
-      ...(settled ? {
+      ...(settled && !job.scenario.omitReleasedCredits ? {
         reserved_credits: job.credits.reserved,
         settled_credits: job.credits.final,
         released_credits: job.credits.returned,

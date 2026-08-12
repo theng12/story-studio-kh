@@ -235,11 +235,11 @@ describe('remote cancellation checkpoints', () => {
     }
     assert.equal(jq.getJob(job.job_id)?.status, 'running')
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'tts-target-1', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      id: 'tts-target-1', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
       updated_at: new Date().toISOString(),
     })
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'tts-target-2', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      id: 'tts-target-2', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
       updated_at: new Date().toISOString(),
     })
 
@@ -273,7 +273,7 @@ describe('remote cancellation checkpoints', () => {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'claim-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      id: 'claim-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
       updated_at: new Date().toISOString(),
     })
     await jq.requestJobCancellation(project.slug, job.job_id)
@@ -304,7 +304,7 @@ describe('remote cancellation checkpoints', () => {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'settlement-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      id: 'settlement-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
       updated_at: new Date().toISOString(),
     })
     await jq.requestJobCancellation(project.slug, job.job_id)
@@ -348,11 +348,11 @@ describe('remote cancellation checkpoints', () => {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'eligible-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      id: 'eligible-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
       updated_at: new Date().toISOString(),
     })
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'already-running-sibling', operation: 'voice.tts', state: 'running', cancellable: false,
+      id: 'already-running-sibling', operation: 'voice.tts', state: 'running', dispatch_state: 'dispatched', cancellable: false,
       updated_at: new Date().toISOString(),
     })
     await jq.requestJobCancellation(project.slug, job.job_id)
@@ -395,7 +395,7 @@ describe('remote cancellation checkpoints', () => {
       const deadline = Date.now() + 2_000
       while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
       await jq.recordGenStudioJob(job.job_id, {
-        id: `${episode}-target`, operation: 'voice.tts', state: 'accepted', cancellable: true,
+        id: `${episode}-target`, operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
         updated_at: new Date().toISOString(),
       })
       await jq.requestJobCancellation(project.slug, job.job_id)
@@ -444,7 +444,7 @@ describe('remote cancellation checkpoints', () => {
     const deadline = Date.now() + 2_000
     while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
     for (const id of ['first', 'second']) {
-      await jq.recordGenStudioJob(job.job_id, { id, operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() })
+      await jq.recordGenStudioJob(job.job_id, { id, operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, updated_at: new Date().toISOString() })
     }
     await jq.requestJobCancellation(project.slug, job.job_id)
     release()
@@ -521,7 +521,7 @@ describe('remote cancellation checkpoints', () => {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'pending-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      id: 'pending-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
       updated_at: new Date().toISOString(),
     })
     await jq.requestJobCancellation(project.slug, job.job_id)
@@ -565,7 +565,7 @@ describe('remote cancellation checkpoints', () => {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'pending-failure-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      id: 'pending-failure-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
       updated_at: new Date().toISOString(),
     })
     await jq.requestJobCancellation(project.slug, job.job_id)
@@ -611,7 +611,7 @@ describe('remote cancellation checkpoints', () => {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'pending-pause-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      id: 'pending-pause-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true,
       updated_at: new Date().toISOString(),
     })
     await jq.requestJobCancellation(project.slug, job.job_id)
@@ -696,7 +696,7 @@ describe('terminal provider-evidence guards', () => {
       const requestPath = new URL(String(input)).pathname
       if (requestPath.endsWith('/cancel')) return Response.json({ id: 'live-success-target', state: 'succeeded', cancelled: false })
       assert.equal(init?.method || 'GET', 'GET')
-      return Response.json({ id: 'live-success-target', state: 'accepted', cancellable: true, cancelled: false })
+      return Response.json({ id: 'live-success-target', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, cancelled: false })
     }
     jq.registerExecutor('audio', async () => {
       await hold
@@ -709,7 +709,7 @@ describe('terminal provider-evidence guards', () => {
     const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'LIVE_SUCCESS', title: 'live success', params: {} })
     const deadline = Date.now() + 2_000
     while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
-    await jq.recordGenStudioJob(job.job_id, { id: 'live-success-target', operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() })
+    await jq.recordGenStudioJob(job.job_id, { id: 'live-success-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, updated_at: new Date().toISOString() })
     try {
       await jq.requestJobCancellation(project.slug, job.job_id)
       const settledDeadline = Date.now() + 1_000
@@ -743,13 +743,13 @@ describe('terminal provider-evidence guards', () => {
       const requestPath = new URL(String(input)).pathname
       requests.push(`${init?.method || 'GET'} ${requestPath}`)
       if (requestPath.endsWith('/cancel')) return Response.json({ id: 'live-cancel-target', state: 'running', cancellation_requested: true, cancelled: false })
-      return Response.json({ id: 'live-cancel-target', state: 'accepted', cancellable: true, cancelled: false })
+      return Response.json({ id: 'live-cancel-target', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, cancelled: false })
     }
     jq.registerExecutor('audio', async () => await hold)
     const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'LIVE_CANCEL', title: 'live', params: {} })
     const deadline = Date.now() + 2_000
     while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
-    await jq.recordGenStudioJob(job.job_id, { id: 'live-cancel-target', operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() })
+    await jq.recordGenStudioJob(job.job_id, { id: 'live-cancel-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, updated_at: new Date().toISOString() })
     try {
       await jq.requestJobCancellation(project.slug, job.job_id)
       const reconcileDeadline = Date.now() + 1_000
@@ -775,7 +775,7 @@ describe('terminal provider-evidence guards', () => {
     await fs.writeFile(jobsFile, JSON.stringify({ jobs: [{
       job_id: 'accepted-restart-cancel', project_slug: project.slug, type: 'audio', episode_id: 'EP0001', title: 'accepted',
       status: 'queued', created_at: new Date().toISOString(), started_at: null, finished_at: null, error: null, output_lines: [], params: {},
-      genstudio_jobs: [{ id: 'accepted-tts', operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() }],
+      genstudio_jobs: [{ id: 'accepted-tts', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, updated_at: new Date().toISOString() }],
     }] }))
     const { setApiKey } = await import('../services/app-secrets-store.js')
     const originalFetch = globalThis.fetch
@@ -783,7 +783,7 @@ describe('terminal provider-evidence guards', () => {
     globalThis.fetch = async (input, init) => {
       const requestPath = new URL(String(input)).pathname
       requests.push({ method: (init?.method || 'GET').toUpperCase(), path: requestPath })
-      if (requestPath === '/v1/jobs/accepted-tts') return Response.json({ id: 'accepted-tts', state: 'accepted', cancellable: true, cancelled: false })
+      if (requestPath === '/v1/jobs/accepted-tts') return Response.json({ id: 'accepted-tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, cancelled: false })
       if (requestPath === '/v1/jobs/accepted-tts/cancel') return Response.json({ id: 'accepted-tts', state: 'running', cancellation_requested: true, cancelled: false })
       return Response.json({ detail: 'unexpected request' }, { status: 500 })
     }
@@ -853,7 +853,7 @@ describe('terminal provider-evidence guards', () => {
       const queued = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: `EP_${scenario}`, title: scenario, params: {} })
       const deadline = Date.now() + 2_000
       while (Date.now() < deadline && jq.getJob(queued.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
-      await jq.recordGenStudioJob(queued.job_id, { id: 'live-target', operation: 'voice.tts', state: 'accepted', cancellable: true, updated_at: new Date().toISOString() })
+      await jq.recordGenStudioJob(queued.job_id, { id: 'live-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, updated_at: new Date().toISOString() })
       await jq.requestJobCancellation(project.slug, queued.job_id)
       if (scenario === 'pause') await jq.pauseJob(queued.job_id)
       await setApiKey('genstudio', 'live-reconcile-key')
@@ -955,7 +955,7 @@ describe('job route controls', () => {
       await new Promise(resolve => setTimeout(resolve, 20))
     }
     await jq.recordGenStudioJob(job.job_id, {
-      id: 'already-started', operation: 'voice.tts', state: 'running', cancellable: false,
+      id: 'already-started', operation: 'voice.tts', state: 'running', dispatch_state: 'dispatched', cancellable: false,
       updated_at: new Date().toISOString(),
     })
     try {

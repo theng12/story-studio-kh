@@ -130,7 +130,6 @@ describe('GenStudio released reservations are never shown as held', () => {
       'genStudioChargedCredits',
       'genStudioReturnedCredits',
       'genStudioHeldCredits',
-      'genStudioReservationReleased',
     ]
       .map(name => extractFunction(jobsSource, name))
       .map(text => text.replace(/NonNullable<RJob\['genstudio_jobs'\]>\[number\]/g, 'any'))
@@ -140,11 +139,10 @@ describe('GenStudio released reservations are never shown as held', () => {
         'const genStudioSettlement: { value: Record<string, GenStudioSettlement> } = { value: {} }',
       ].join('\n'),
       declarations,
-      ['genStudioTerminalFailure', 'genStudioHeldCredits', 'genStudioReservationReleased'],
+      ['genStudioTerminalFailure', 'genStudioHeldCredits'],
     )
     assert.equal(jobs.genStudioTerminalFailure(transientVoiceReference), false)
     assert.equal(jobs.genStudioHeldCredits(transientVoiceReference), 13)
-    assert.equal(jobs.genStudioReservationReleased(transientVoiceReference), false)
   })
 
   it('shows provider states in product English when Story has not assigned a local queue state', async () => {
@@ -297,7 +295,6 @@ describe('GenStudio released reservations are never shown as held', () => {
       'genStudioChargedCredits',
       'genStudioReturnedCredits',
       'genStudioHeldCredits',
-      'genStudioReservationReleased',
     ]
     const declarations = names
       .map(name => extractFunction(source, name))
@@ -315,7 +312,6 @@ describe('GenStudio released reservations are never shown as held', () => {
     )
 
     assert.equal(page.genStudioHeldCredits(FAILED_IMAGE_JOB), 0, 'the reported bug: 13 credits shown on hold')
-    assert.equal(page.genStudioReservationReleased(FAILED_IMAGE_JOB), true)
     assert.equal(page.genStudioChargedCredits(FAILED_IMAGE_JOB), 0)
 
     // No authoritative reservation ⇒ nothing is claimed to be on hold.
@@ -323,12 +319,10 @@ describe('GenStudio released reservations are never shown as held', () => {
     assert.equal(page.genStudioHeldCredits(running), 0)
     assert.equal(page.genStudioHeldCredits({ ...running, reserved_credits: 13 }), 13)
 
-    // The account-jobs snapshot is authoritative when present; direct Image and
-    // Video released credits are the fallback when no account entry exists.
+    // Account history fills in omitted direct fields without inventing a release.
     page.genStudioSettlement.value = { 'gs-image-1': { reserved_credits: 13, settled_credits: 0, released_credits: 13 } }
     assert.equal(page.genStudioReturnedCredits(FAILED_IMAGE_JOB), 13)
     assert.equal(page.genStudioHeldCredits(FAILED_IMAGE_JOB), 0)
-    assert.equal(page.genStudioReservationReleased(FAILED_IMAGE_JOB), false, 'a published amount replaces the generic label')
   })
 
   it('jobs page: provider-published Image and Video releases take priority without an account snapshot', async () => {
@@ -341,7 +335,6 @@ describe('GenStudio released reservations are never shown as held', () => {
       'genStudioChargedCredits',
       'genStudioReturnedCredits',
       'genStudioHeldCredits',
-      'genStudioReservationReleased',
     ]
     const declarations = names
       .map(name => extractFunction(source, name))
@@ -352,7 +345,7 @@ describe('GenStudio released reservations are never shown as held', () => {
         'const genStudioSettlement: { value: Record<string, GenStudioSettlement> } = { value: {} }',
       ].join('\n'),
       declarations,
-      ['genStudioReturnedCredits', 'genStudioHeldCredits', 'genStudioReservationReleased'],
+      ['genStudioReturnedCredits', 'genStudioHeldCredits'],
     )
 
     const cases = [
@@ -362,12 +355,10 @@ describe('GenStudio released reservations are never shown as held', () => {
     for (const remote of cases) {
       assert.equal(page.genStudioReturnedCredits({ ...remote, state: 'failed', queue_state: 'failed' }), remote.released_credits)
       assert.equal(page.genStudioHeldCredits({ ...remote, state: 'failed', queue_state: 'failed' }), 0)
-      assert.equal(page.genStudioReservationReleased({ ...remote, state: 'failed', queue_state: 'failed' }), false)
     }
 
     const omitted = { id: 'gs-image-no-release', operation: 'image.generation', state: 'failed', queue_state: 'failed' }
     assert.equal(page.genStudioReturnedCredits(omitted), 0)
-    assert.equal(page.genStudioReservationReleased(omitted), true)
   })
 
   it('settlement hint stops calling an unpublished quote a hold', () => {

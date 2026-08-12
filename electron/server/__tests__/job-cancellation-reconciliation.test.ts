@@ -58,7 +58,7 @@ test('reconciles only the existing provider task and sends cancellation only aft
     const url = new URL(String(input))
     requests.push({ method: (init?.method || 'GET').toUpperCase(), path: url.pathname })
     if (url.pathname === '/v1/jobs/provider-1' && (init?.method || 'GET') === 'GET') {
-      return Response.json({ id: 'provider-1', state: 'accepted', cancellable: true, cancelled: false })
+      return Response.json({ id: 'provider-1', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, cancelled: false })
     }
     if (url.pathname === '/v1/jobs/provider-1/cancel' && init?.method === 'POST') {
       return Response.json({ id: 'provider-1', state: 'accepted', cancellable: false, cancelled: true, released_credits: 4 })
@@ -90,6 +90,42 @@ test('unknown outcomes remain nonterminal and never send a blind cancellation re
     assert.equal(result.kind, 'pending')
     assert.deepEqual(requests, ['/v1/jobs/provider-1'])
     assert.equal(result.records['voice.tts:provider-1']?.status, 'reconciling')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('restart retries cancellation only for an explicitly pre-dispatch task', async () => {
+  const original = globalThis.fetch
+  const requests: Array<{ method: string; path: string }> = []
+  globalThis.fetch = async (input, init) => {
+    requests.push({ method: (init?.method || 'GET').toUpperCase(), path: new URL(String(input)).pathname })
+    return Response.json({ id: 'provider-1', state: 'running', dispatch_state: 'dispatched', cancellable: true, cancelled: false })
+  }
+  try {
+    const result = await reconcilePendingJobCancellation(job('submitting'), 'test-key')
+    assert.equal(result.kind, 'pending')
+    assert.deepEqual(requests, [{ method: 'GET', path: '/v1/jobs/provider-1' }])
+    assert.equal(result.records['voice.tts:provider-1']?.status, 'reconciling')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('a 409 cancellation remains locked and continues read-only reconciliation', async () => {
+  const original = globalThis.fetch
+  const requests: Array<{ method: string; path: string }> = []
+  globalThis.fetch = async (input, init) => {
+    const request = { method: (init?.method || 'GET').toUpperCase(), path: new URL(String(input)).pathname }
+    requests.push(request)
+    if (request.method === 'POST') return Response.json({ detail: 'already dispatched' }, { status: 409 })
+    return Response.json({ id: 'provider-1', state: 'running', dispatch_state: 'pre_dispatch', cancellable: true, cancelled: false })
+  }
+  try {
+    const result = await reconcilePendingJobCancellation(job('submitting'), 'test-key')
+    assert.equal(result.kind, 'pending')
+    assert.equal(requests.filter(request => request.method === 'POST').length, 1)
+    assert.equal(result.records['voice.tts:provider-1']?.status, 'unknown')
   } finally {
     globalThis.fetch = original
   }
@@ -176,7 +212,7 @@ test('does not terminalize a cancelled Video while an accepted Chat sibling is s
   }
 })
 
-test('keeps unsupported Music provider evidence nonterminal instead of skipping it', async () => {
+test('reconciles Music provider evidence through its read-only status endpoint', async () => {
   const original = globalThis.fetch
   const requests: string[] = []
   globalThis.fetch = async (input) => {
@@ -185,13 +221,16 @@ test('keeps unsupported Music provider evidence nonterminal instead of skipping 
     if (requestPath === '/v1/videos/video-cancelled') {
       return Response.json({ id: 'video-cancelled', state: 'failed', cancelled: true })
     }
+    if (requestPath === '/v1/music/jobs/music-running') {
+      return Response.json({ id: 'music-running', state: 'running', dispatch_state: 'dispatched', cancelled: false })
+    }
     return Response.json({ detail: 'unexpected request' }, { status: 500 })
   }
   try {
     const input = job('unknown')
     input.genstudio_jobs = [
       { id: 'video-cancelled', operation: 'video.generation', state: 'running', updated_at: new Date().toISOString() },
-      { id: 'music-running', operation: 'music.generation' as any, state: 'running', updated_at: new Date().toISOString() },
+      { id: 'music-running', operation: 'music.generation', state: 'running', updated_at: new Date().toISOString() },
     ]
     input.remote_cancellations = {
       'video.generation:video-cancelled': {
@@ -203,8 +242,69 @@ test('keeps unsupported Music provider evidence nonterminal instead of skipping 
     const result = await reconcilePendingJobCancellation(input, 'test-key')
 
     assert.equal(result.kind, 'pending')
-    assert.deepEqual(requests, ['/v1/videos/video-cancelled'])
-    assert.match(result.reason || '', /music\.generation music-running/i)
+    assert.deepEqual(requests, ['/v1/videos/video-cancelled', '/v1/music/jobs/music-running'])
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('reconciles pending Chat and Music evidence by the saved key without generation POSTs', async () => {
+  const original = globalThis.fetch
+  const requests: Array<{ method: string; path: string }> = []
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(String(input))
+    const method = (init?.method || 'GET').toUpperCase()
+    requests.push({ method, path: url.pathname })
+    const [, , kind] = url.pathname.split('/')
+    const id = kind === 'chat' ? 'chat-durable' : 'music-durable'
+    return Response.json({ id, state: 'running', dispatch_state: 'dispatched', cancellable: false })
+  }
+  try {
+    for (const [operation, path] of [
+      ['chat.response', '/v1/chat/responses/by-idempotency-key/chat-key'],
+      ['music.generation', '/v1/music/jobs/by-idempotency-key/music-key'],
+    ] as const) {
+      requests.length = 0
+      const input = job('unknown')
+      input.genstudio_jobs = [{
+        id: `pending:${operation === 'chat.response' ? 'chat-key' : 'music-key'}`,
+        operation,
+        state: 'submitting',
+        updated_at: new Date().toISOString(),
+        request: { method: 'POST', path: '/v1/test', captured_at: '2026-08-12T00:00:00.000Z', idempotency_key: operation === 'chat.response' ? 'chat-key' : 'music-key' },
+      }]
+      input.remote_cancellations = {}
+
+      const result = await reconcilePendingJobCancellation(input, 'test-key')
+
+      assert.equal(result.kind, 'pending')
+      assert.deepEqual(requests, [{ method: 'GET', path }])
+      assert.equal(result.providerJobs[0]?.job.id, operation === 'chat.response' ? 'chat-durable' : 'music-durable')
+    }
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('keeps missing-by-key provider evidence locked without a generation POST', async () => {
+  const original = globalThis.fetch
+  const requests: Array<{ method: string; path: string }> = []
+  globalThis.fetch = async (input, init) => {
+    requests.push({ method: (init?.method || 'GET').toUpperCase(), path: new URL(String(input)).pathname })
+    return Response.json({ detail: 'not found' }, { status: 404 })
+  }
+  try {
+    const input = job('unknown')
+    input.genstudio_jobs = [{
+      id: 'pending:music-key', operation: 'music.generation', state: 'submitting', updated_at: new Date().toISOString(),
+      request: { method: 'POST', path: '/v1/test', captured_at: '2026-08-12T00:00:00.000Z', idempotency_key: 'music-key' },
+    }]
+    input.remote_cancellations = {}
+
+    const result = await reconcilePendingJobCancellation(input, 'test-key')
+
+    assert.equal(result.kind, 'pending')
+    assert.deepEqual(requests, [{ method: 'GET', path: '/v1/music/jobs/by-idempotency-key/music-key' }])
   } finally {
     globalThis.fetch = original
   }
@@ -333,7 +433,7 @@ test('cold persisted cancellation reconciles outside a generation lane and retai
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input))
     calls.push({ method: (init?.method || 'GET').toUpperCase(), path: url.pathname })
-    if (url.pathname === '/v1/jobs/provider-1') return Response.json({ id: 'provider-1', state: 'accepted', cancellable: true, cancelled: false })
+    if (url.pathname === '/v1/jobs/provider-1') return Response.json({ id: 'provider-1', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, cancelled: false })
     if (url.pathname === '/v1/jobs/provider-1/cancel') return Response.json({ id: 'provider-1', state: 'accepted', cancellable: false, cancellation_requested: true, cancelled: false })
     return Response.json({ detail: 'generation POST must never be used by reconciliation' }, { status: 500 })
   }

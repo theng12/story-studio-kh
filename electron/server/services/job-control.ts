@@ -16,12 +16,12 @@ const REMOTE_OPERATIONS = new Set<JobRemoteOperation>([
   'audio.transcription',
   'image.generation',
   'video.generation',
+  'chat.response',
+  'music.generation',
 ])
 
 const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled'])
 const PENDING_CANCELLATION_STATES = new Set(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
-const PRE_DISPATCH_STATES = new Set(['accepted', 'reserved'])
-const VIDEO_POST_DISPATCH_STATES = new Set(['dispatched', 'running', 'validating', 'reconciling'])
 const PAUSABLE_SUBMISSION_TYPES = new Set<Job['type']>([
   // These executors check the cooperative pause marker between submissions.
   // Image batches currently do not, so advertising Pause there would let an
@@ -123,19 +123,15 @@ export function classifyJobControl(
       ambiguous.push(entry)
       continue
     }
-    if (entry.operation === 'video.generation' && VIDEO_POST_DISPATCH_STATES.has(entry.state)) {
+    if (entry.dispatch_state !== 'pre_dispatch' && entry.dispatch_state !== 'dispatched') {
+      ambiguous.push(entry)
+      continue
+    }
+    if (entry.dispatch_state === 'pre_dispatch' && entry.cancellable === true) {
       targets.push(target)
       continue
     }
-    if (PRE_DISPATCH_STATES.has(entry.state) && entry.cancellable === true) {
-      targets.push(target)
-      continue
-    }
-    if (entry.cancellable === false || VIDEO_POST_DISPATCH_STATES.has(entry.state)) {
-      continuing.push(entry)
-      continue
-    }
-    ambiguous.push(entry)
+    continuing.push(entry)
   }
 
   if (ambiguous.length) {
