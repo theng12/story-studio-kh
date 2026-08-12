@@ -103,7 +103,6 @@ interface MockJob {
   pollCount: number
   credits: MockCreditSnapshot
   cancelled: boolean
-  cancellationRequested: boolean
   cancellationResponseDropped: boolean
 }
 
@@ -483,7 +482,6 @@ export class MockGenStudioService {
         returned: 0,
       },
       cancelled: false,
-      cancellationRequested: false,
       cancellationResponseDropped: false,
     }
     this.jobs.set(id, job)
@@ -575,7 +573,7 @@ export class MockGenStudioService {
         output_text: state === 'succeeded' ? this.chatOutputText(job) : null,
         output_retained: state === 'succeeded',
         finish_reason: state === 'succeeded' ? job.scenario.finishReason : null,
-        cancellable: state === 'accepted' || state === 'reserved',
+        cancellable: !job.cancelled && (state === 'accepted' || state === 'reserved'),
         cancelled: job.cancelled,
         cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
       }
@@ -594,7 +592,7 @@ export class MockGenStudioService {
         steps: Number(job.body.steps) || 4,
         seed: job.body.seed ?? null,
         image_url: state === 'succeeded' ? `/v1/images/${job.id}/file` : null,
-        cancellable: state === 'accepted' || state === 'reserved',
+        cancellable: !job.cancelled && (state === 'accepted' || state === 'reserved'),
         cancelled: job.cancelled,
         cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
       }
@@ -602,7 +600,7 @@ export class MockGenStudioService {
     if (job.operation === 'music') {
       return {
         ...base,
-        cancellable: state === 'accepted' || state === 'reserved',
+        cancellable: !job.cancelled && (state === 'accepted' || state === 'reserved'),
         cancelled: job.cancelled,
         cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
       }
@@ -620,9 +618,9 @@ export class MockGenStudioService {
         duration_seconds: Number(job.body.duration_seconds) || 5,
         resolution: String(job.body.resolution || '720p'),
         price_version: 'mock-video-price-v1',
-        cancellation_requested: false,
-        ...(job.cancellationRequested ? { cancellation_requested: true } : {}),
+        cancellable: !job.cancelled && (state === 'accepted' || state === 'reserved'),
         cancelled: job.cancelled,
+        cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
         video_url: state === 'succeeded' ? `/v1/videos/${job.id}/file` : null,
       }
     }
@@ -631,7 +629,7 @@ export class MockGenStudioService {
         ...base,
         // TranscriptionJobResponse publishes released_credits.
         released_credits: state === 'succeeded' || state === 'failed' || job.cancelled ? job.credits.returned : null,
-        cancellable: state === 'accepted' || state === 'reserved',
+        cancellable: !job.cancelled && (state === 'accepted' || state === 'reserved'),
         cancelled: job.cancelled,
         cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
         filename: 'mock.wav',
@@ -649,7 +647,7 @@ export class MockGenStudioService {
       ...base,
       // ClientTTSJobResponse publishes released_credits.
       released_credits: state === 'succeeded' || state === 'failed' || job.cancelled ? job.credits.returned : null,
-      cancellable: state === 'accepted' || state === 'reserved',
+      cancellable: !job.cancelled && (state === 'accepted' || state === 'reserved'),
       cancelled: job.cancelled,
       cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
       voice_id: String(job.body.voice_id || 'mock-voice'),
@@ -683,17 +681,9 @@ export class MockGenStudioService {
       }
 
       if (method === 'GET' && this.handleCatalog(url.pathname, response)) return
-      const chatLookup = method === 'GET'
-        ? url.pathname.match(/^\/v1\/chat\/responses\/by-idempotency-key\/([^/]+)$/)
-        : null
-      if (chatLookup) {
-        const idempotencyKey = decodeURIComponent(chatLookup[1]!)
-        const jobId = this.jobByIdempotency.get(`chat:${idempotencyKey}`)
-        const job = jobId ? this.jobs.get(jobId) : null
-        if (!job || job.operation !== 'chat') {
-          json(response, 404, { detail: 'chat request not found' })
-          return
-        }
+      const byKeyJob = method === 'GET' ? this.lookupJobByIdempotencyKey(url.pathname) : null
+      if (byKeyJob) {
+        const job = byKeyJob
         json(response, 200, this.responseBody(job))
         return
       }
@@ -702,20 +692,6 @@ export class MockGenStudioService {
         if (cancellation) {
           const { job } = cancellation
           const state = this.state(job)
-          if (job.operation === 'video') {
-            if (state === 'succeeded' || state === 'failed') {
-              json(response, 200, this.responseBody(job))
-              return
-            }
-            job.cancellationRequested = true
-            if (job.scenario.dropFirstCancellationResponse && !job.cancellationResponseDropped) {
-              job.cancellationResponseDropped = true
-              response.socket?.destroy()
-              return
-            }
-            json(response, 202, this.responseBody(job))
-            return
-          }
           if (!['accepted', 'reserved'].includes(state) || job.cancelled) {
             json(response, 409, { detail: 'provider execution has already started', code: 'CANCELLATION_NOT_AVAILABLE' })
             return
@@ -1036,6 +1012,25 @@ export class MockGenStudioService {
       const match = pathname.match(pattern)
       if (!match) continue
       const job = this.jobs.get(decodeURIComponent(match[1]!))
+      return job?.operation === operation ? job : null
+    }
+    return null
+  }
+
+  private lookupJobByIdempotencyKey(pathname: string): MockJob | null {
+    const patterns: Array<[MockGenStudioOperation, RegExp]> = [
+      ['chat', /^\/v1\/chat\/responses\/by-idempotency-key\/([^/]+)$/],
+      ['image', /^\/v1\/images\/by-idempotency-key\/([^/]+)$/],
+      ['transcription', /^\/v1\/transcriptions\/by-idempotency-key\/([^/]+)$/],
+      ['tts', /^\/v1\/jobs\/by-idempotency-key\/([^/]+)$/],
+      ['video', /^\/v1\/videos\/by-idempotency-key\/([^/]+)$/],
+      ['music', /^\/v1\/music\/jobs\/by-idempotency-key\/([^/]+)$/],
+    ]
+    for (const [operation, pattern] of patterns) {
+      const match = pathname.match(pattern)
+      if (!match) continue
+      const jobId = this.jobByIdempotency.get(`${operation}:${decodeURIComponent(match[1]!)}`)
+      const job = jobId ? this.jobs.get(jobId) : null
       return job?.operation === operation ? job : null
     }
     return null

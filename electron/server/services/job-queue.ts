@@ -361,6 +361,9 @@ const loadedProjects = new Set<string>()
 const loadingProjects = new Map<string, Promise<void>>()
 const projectRemovalInProgress = new Set<string>()
 const PENDING_REMOTE_CANCELLATION_STATUSES = new Set(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
+const RECOVERABLE_GENSTUDIO_OPERATIONS = new Set([
+  'voice.tts', 'audio.transcription', 'image.generation', 'video.generation', 'chat.response', 'music.generation',
+])
 
 function hasPendingRemoteCancellation(job: Pick<Job, 'remote_cancellations'>): boolean {
   return Object.values(job.remote_cancellations || {}).some(record => PENDING_REMOTE_CANCELLATION_STATUSES.has(record.status))
@@ -396,15 +399,24 @@ function hasCancellationContext(job: Pick<Job, 'remote_cancellations'>): boolean
   return Object.keys(job.remote_cancellations || {}).length > 0
 }
 
+function hasRecoverableUnsettledGenStudioEvidence(job: Pick<Job, 'genstudio_jobs'>): boolean {
+  return (job.genstudio_jobs || []).some(entry => (
+    RECOVERABLE_GENSTUDIO_OPERATIONS.has(entry.operation)
+    && entry.cancelled !== true
+    && entry.state !== 'succeeded'
+    && entry.state !== 'failed'
+    && ((entry.id && !entry.id.startsWith('pending:')) || Boolean(entry.request?.idempotency_key))
+  ))
+}
+
 /** Continue control-plane polling until every accepted sibling is terminal. */
 function requiresCancellationReconciliation(job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>): boolean {
   // A restart can occur after the final provider status was persisted but
   // before Story recorded its own terminal state. One final read is required
   // to settle that durable evidence through the same cancellation/audit path.
-  return hasCancellationContext(job) && (
-    hasUnsettledProviderWork(job)
-    || (job.genstudio_jobs || []).length > 0
-  )
+  return hasCancellationContext(job)
+    ? hasUnsettledProviderWork(job) || (job.genstudio_jobs || []).length > 0
+    : hasRecoverableUnsettledGenStudioEvidence(job)
 }
 
 function mergeGenStudioReconciliationEvidence(
@@ -544,7 +556,7 @@ function scheduleCancellationReconciliation(jobId: string): void {
 async function finalizeSettledProviderJob(jobId: string): Promise<void> {
   const job = jobs.get(jobId)
   if (!job || job.status !== 'running' || !job.local_execution_complete) return
-  if (!hasCancellationContext(job) || hasUnsettledProviderWork(job)) return
+  if (!(job.genstudio_jobs || []).length || hasUnsettledProviderEvidence(job)) return
   if (providerFinalizing.has(jobId)) return
   providerFinalizing.add(jobId)
   try {
@@ -957,13 +969,12 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             }
           } else if (j.status === 'running') {
             if (requiresCancellationReconciliation(j)) {
-              // The provider request already has a durable identity and an
-              // explicit cancellation intent. Never convert it to an
+              // The provider request already has a durable identity. Never convert it to an
               // interrupted error or requeue it into a generation lane.
               j.local_execution_complete = true
               j.finished_at = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio cancellation request before allowing any retry.')
+              j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio request before allowing any retry.')
               reconciliationJobs.push(j.job_id)
               mutated = true
             } else {

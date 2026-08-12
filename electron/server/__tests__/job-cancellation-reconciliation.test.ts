@@ -322,31 +322,57 @@ test('cold by-key recovery adopts the durable ID, replaces submitting, and audit
   persisted.genstudio_jobs = [{
     id: '' as any, operation: 'chat.response', state: 'submitting', queue_state: 'submitting', updated_at: new Date().toISOString(),
     request: { method: 'POST', path: '/v1/chat/responses', captured_at: '2026-08-12T00:00:00.000Z', idempotency_key: 'chat-key' },
+  }, {
+    id: 'music-sibling', operation: 'music.generation', state: 'running', queue_state: 'running', updated_at: new Date().toISOString(),
   }]
-  persisted.remote_cancellations = {
-    'chat.response:already-terminal': {
-      status: 'confirmed', operation: 'chat.response', provider_job_id: 'already-terminal', cancelled: true,
-      requested_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-    },
-  }
+  persisted.remote_cancellations = {}
   await fs.writeFile(jobsFile, JSON.stringify({ jobs: [persisted] }))
-  registerJobCancellationAuditor('audio_merge', async () => 'complete')
+  let audits = 0
+  registerJobCancellationAuditor('audio_merge', async () => {
+    audits++
+    return 'complete'
+  })
 
   const original = globalThis.fetch
   const requests: Array<{ method: string; path: string }> = []
+  let releaseLookup!: () => void
+  const lookupReleased = new Promise<void>(resolve => { releaseLookup = resolve })
   globalThis.fetch = async (input, init) => {
-    requests.push({ method: (init?.method || 'GET').toUpperCase(), path: new URL(String(input)).pathname })
-    return Response.json({ id: 'chat-durable', state: 'succeeded', dispatch_state: 'dispatched', cancellable: false })
+    const request = { method: (init?.method || 'GET').toUpperCase(), path: new URL(String(input)).pathname }
+    requests.push(request)
+    if (request.path === '/v1/chat/responses/by-idempotency-key/chat-key') {
+      await lookupReleased
+      return Response.json({ id: 'chat-durable', state: 'succeeded', dispatch_state: 'dispatched', cancellable: false })
+    }
+    if (request.path === '/v1/music/jobs/music-sibling') {
+      return Response.json({ id: 'music-sibling', state: 'succeeded', dispatch_state: 'dispatched', cancellable: false })
+    }
+    return Response.json({ detail: 'generation and cancellation POSTs are forbidden during recovery' }, { status: 500 })
   }
   try {
     await jq.getJobs(project.slug)
+    await waitFor(() => requests.length === 1)
+    const locked = jq.getJob('cold-by-key-adoption')!
+    assert.equal(locked.status, 'running')
+    assert.equal(locked.finished_at, null)
+    assert.equal(jq.isDuplicate(project.slug, 'EP0001', 'audio_merge'), true)
+    assert.equal(jq.removeTerminalJob(project.slug, locked.job_id), false)
+    assert.equal(audits, 0)
+
+    releaseLookup()
     await waitFor(() => jq.getJob('cold-by-key-adoption')?.status === 'done')
     const recovered = jq.getJob('cold-by-key-adoption')!
-    assert.deepEqual(requests, [{ method: 'GET', path: '/v1/chat/responses/by-idempotency-key/chat-key' }])
+    assert.deepEqual(requests, [
+      { method: 'GET', path: '/v1/chat/responses/by-idempotency-key/chat-key' },
+      { method: 'GET', path: '/v1/music/jobs/music-sibling' },
+    ])
     assert.equal(recovered.genstudio_jobs?.[0]?.id, 'chat-durable')
     assert.equal(recovered.genstudio_jobs?.[0]?.queue_state, 'succeeded')
+    assert.equal(recovered.genstudio_jobs?.[1]?.queue_state, 'succeeded')
     assert.equal(recovered.local_execution_complete, true)
+    assert.equal(audits, 1)
   } finally {
+    releaseLookup()
     globalThis.fetch = original
   }
 })

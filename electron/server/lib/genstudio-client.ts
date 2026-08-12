@@ -254,6 +254,9 @@ export interface GenStudioSettledJobShape {
   id: string
   state?: unknown
   failure_code?: string | null
+  reserved_credits?: number | null
+  settled_credits?: number | null
+  released_credits?: number | null
   /** image / TTS / transcription jobs. */
   cancelled?: boolean | null
   cancellation_note?: string | null
@@ -263,6 +266,13 @@ export interface GenStudioSettledJobShape {
 
 function settledFailureCode(job: GenStudioSettledJobShape): string | null {
   return typeof job.failure_code === 'string' && job.failure_code ? job.failure_code : null
+}
+
+function releasedCreditSettlement(job: GenStudioSettledJobShape): string {
+  const released = job.released_credits
+  return typeof released === 'number' && Number.isFinite(released) && released >= 0
+    ? `GenStudio reports ${released} credits released.`
+    : 'Credit settlement is not yet published; check its GenStudio status.'
 }
 
 /**
@@ -298,9 +308,9 @@ export class GenStudioImageTerminalFailureError extends GenStudioTerminalFailure
       job,
       job.cancelled === true
         ? `GenStudio KH image job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-          + 'Its reservation was released; Retry submits a new job.'
+          + `${releasedCreditSettlement(job)} Retry submits a new job.`
         : `GenStudio KH image generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + 'The reservation was released and this job cannot be reopened; Retry submits a new job.',
+          + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job.`,
     )
     this.name = 'GenStudioImageTerminalFailureError'
   }
@@ -313,9 +323,9 @@ export class GenStudioVideoTerminalFailureError extends GenStudioTerminalFailure
       job,
       job.cancelled === true
         ? `GenStudio KH video job ${job.id} was cancelled. `
-          + 'Its reservation was released; Retry submits a new job. No legacy fallback was attempted.'
+          + `${releasedCreditSettlement(job)} Retry submits a new job. No legacy fallback was attempted.`
         : `GenStudio video generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + 'The reservation was released and this job cannot be reopened; Retry submits a new job. '
+          + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
           + 'No legacy fallback was attempted.',
     )
     this.name = 'GenStudioVideoTerminalFailureError'
@@ -329,9 +339,9 @@ export class GenStudioTtsTerminalFailureError extends GenStudioTerminalFailureEr
       job,
       job.cancelled === true
         ? `GenStudio KH TTS job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-          + 'Its reservation was released; Retry submits a new job. No fallback route was attempted.'
+          + `${releasedCreditSettlement(job)} Retry submits a new job. No fallback route was attempted.`
         : `GenStudio KH generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + 'No fallback route was attempted.',
+          + `${releasedCreditSettlement(job)} No fallback route was attempted.`,
     )
     this.name = 'GenStudioTtsTerminalFailureError'
   }
@@ -344,10 +354,10 @@ export class GenStudioTranscriptionTerminalFailureError extends GenStudioTermina
       job,
       job.cancelled === true
         ? `GenStudio KH transcription job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-          + 'Its reservation was released; Retry submits a new job. '
+          + `${releasedCreditSettlement(job)} Retry submits a new job. `
           + 'No fallback route was attempted.'
         : `GenStudio KH transcription failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-          + 'No fallback route was attempted.',
+          + `${releasedCreditSettlement(job)} No fallback route was attempted.`,
     )
     this.name = 'GenStudioTranscriptionTerminalFailureError'
   }
@@ -372,13 +382,13 @@ export class GenStudioChatTerminalFailureError extends GenStudioTerminalFailureE
     super(
       'chat',
       job,
-      describeGenStudioLanguageFailure(settledFailureCode(job))
+      `${describeGenStudioLanguageFailure(settledFailureCode(job))
         ?? (job.cancelled === true
           ? `GenStudio KH language job ${job.id} was cancelled${job.cancellation_note ? ` (${job.cancellation_note})` : ''}. `
-            + 'Its reservation was released; Retry submits a new job.'
+            + 'Retry submits a new job.'
           : `GenStudio KH language generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
-            + 'The reservation was released and this job cannot be reopened; Retry submits a new job. '
-            + 'No fallback route was attempted.'),
+            + 'This job cannot be reopened; Retry submits a new job. '
+            + 'No fallback route was attempted.')} ${releasedCreditSettlement(job)}`,
     )
     this.name = 'GenStudioChatTerminalFailureError'
   }
@@ -437,7 +447,7 @@ export class GenStudioImageArtifactUnavailableError extends GenStudioArtifactUna
       status,
       `GenStudio KH image download failed${status ? ` (HTTP ${status})` : ''}`
       + `${detail ? ` — ${detail}` : ''}: job ${jobId} no longer serves its artifact. `
-      + 'Retry submits a new job; the original reservation was already settled.',
+      + 'Retry submits a new job; check the original job in GenStudio for its settlement status.',
     )
     this.name = 'GenStudioImageArtifactUnavailableError'
   }
@@ -2348,8 +2358,7 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
   }
   if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED) {
     return 'The language provider behind this GenStudio KH product failed on every route GenStudio '
-      + 'tried. No fallback route was attempted, and the reservation was '
-      + 'released. Retry this step, or pick a different language product in Settings.'
+      + 'tried. No fallback route was attempted. Retry this step, or pick a different language product in Settings.'
   }
   return null
 }

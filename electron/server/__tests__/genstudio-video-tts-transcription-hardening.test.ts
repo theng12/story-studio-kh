@@ -263,20 +263,21 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       assert.equal(service.providerSubmissionCount('tts'), 1)
     })
 
-    await suite.test('uses all six published cancellation routes and leaves video nonterminal', async () => {
+    await suite.test('uses all six published by-key and pre-dispatch cancellation routes', async () => {
       service.reset()
       const cases: Array<{
         operation: 'voice.tts' | 'image.generation' | 'audio.transcription' | 'video.generation' | 'chat.response' | 'music.generation'
         submitPath: string
+        lookupPath: (key: string) => string
         cancelPath: (id: string) => string
         body: Record<string, unknown>
       }> = [
-        { operation: 'voice.tts', submitPath: '/v1/audio/jobs', cancelPath: id => `/v1/jobs/${id}/cancel`, body: { model_id: 'mock-tts-model', voice_id: 'mock-voice', text: 'cancel', speed: 1 } },
-        { operation: 'image.generation', submitPath: '/v1/images/generations', cancelPath: id => `/v1/images/${id}/cancel`, body: { model_id: 'mock-image-v1', prompt: 'cancel', aspect_ratio: '16:9' } },
-        { operation: 'audio.transcription', submitPath: '/v1/audio/transcriptions', cancelPath: id => `/v1/transcriptions/${id}/cancel`, body: { model_id: 'mock-whisper-v1' } },
-        { operation: 'video.generation', submitPath: '/v1/videos/generations', cancelPath: id => `/v1/videos/${id}/cancel`, body: { model_id: 'mock-video-v1', prompt: 'cancel', duration_seconds: 5, resolution: '720p' } },
-        { operation: 'chat.response', submitPath: '/v1/chat/responses', cancelPath: id => `/v1/chat/responses/${id}/cancel`, body: { model_id: 'mock-chat-v1', input: [] } },
-        { operation: 'music.generation', submitPath: '/v1/music/jobs', cancelPath: id => `/v1/music/jobs/${id}/cancel`, body: { model_id: 'mock-music-v1', prompt: 'cancel' } },
+        { operation: 'voice.tts', submitPath: '/v1/audio/jobs', lookupPath: key => `/v1/jobs/by-idempotency-key/${key}`, cancelPath: id => `/v1/jobs/${id}/cancel`, body: { model_id: 'mock-tts-model', voice_id: 'mock-voice', text: 'cancel', speed: 1 } },
+        { operation: 'image.generation', submitPath: '/v1/images/generations', lookupPath: key => `/v1/images/by-idempotency-key/${key}`, cancelPath: id => `/v1/images/${id}/cancel`, body: { model_id: 'mock-image-v1', prompt: 'cancel', aspect_ratio: '16:9' } },
+        { operation: 'audio.transcription', submitPath: '/v1/audio/transcriptions', lookupPath: key => `/v1/transcriptions/by-idempotency-key/${key}`, cancelPath: id => `/v1/transcriptions/${id}/cancel`, body: { model_id: 'mock-whisper-v1' } },
+        { operation: 'video.generation', submitPath: '/v1/videos/generations', lookupPath: key => `/v1/videos/by-idempotency-key/${key}`, cancelPath: id => `/v1/videos/${id}/cancel`, body: { model_id: 'mock-video-v1', prompt: 'cancel', duration_seconds: 5, resolution: '720p' } },
+        { operation: 'chat.response', submitPath: '/v1/chat/responses', lookupPath: key => `/v1/chat/responses/by-idempotency-key/${key}`, cancelPath: id => `/v1/chat/responses/${id}/cancel`, body: { model_id: 'mock-chat-v1', input: [] } },
+        { operation: 'music.generation', submitPath: '/v1/music/jobs', lookupPath: key => `/v1/music/jobs/by-idempotency-key/${key}`, cancelPath: id => `/v1/music/jobs/${id}/cancel`, body: { model_id: 'mock-music-v1', prompt: 'cancel' } },
       ]
       service.queueScenario('tts', { states: ['accepted', 'succeeded'] })
       service.queueScenario('image', { states: ['accepted', 'succeeded'] })
@@ -285,48 +286,61 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       service.queueScenario('chat', { states: ['accepted', 'succeeded'] })
       service.queueScenario('music', { states: ['accepted', 'succeeded'] })
       for (const entry of cases) {
+        const idempotencyKey = `cancel-route-${entry.operation}-001`
         const submitted = await fetch(`${service.baseUrl}${entry.submitPath}`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
-            'Idempotency-Key': `cancel-route-${entry.operation}-001`,
+            'Idempotency-Key': idempotencyKey,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify(entry.body),
         })
         const providerJob = await submitted.json() as { id: string }
+        const recovered = await client.getGenStudioJobByIdempotencyKey(
+          entry.operation, service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, idempotencyKey, {}, Date.now() + 10_000,
+        )
+        assert.equal(recovered.id, providerJob.id)
+        assert.equal(service.requests.filter(request => request.path === entry.lookupPath(idempotencyKey)).length, 1)
         const result = await client.requestGenStudioCancellation(
           entry.operation, service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, providerJob.id, {}, Date.now() + 10_000,
         )
         assert.equal(service.requests.filter(request => request.path === entry.cancelPath(providerJob.id)).length, 1)
-        if (entry.operation === 'video.generation') {
-          assert.equal(result.cancellation_requested, true)
-          assert.notEqual(result.cancelled, true)
-        } else assert.equal(result.cancelled, true)
+        assert.equal(result.cancelled, true)
       }
     })
 
-    await suite.test('a pre-execution 409 is preserved for reconciliation', async () => {
+    await suite.test('all six dispatched cancellation attempts return 409 for reconciliation', async () => {
       service.reset()
-      service.queueScenario('image', { states: ['accepted', 'running', 'succeeded'] })
-      const submitted = await fetch(`${service.baseUrl}/v1/images/generations`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
-          'Idempotency-Key': 'cancel-409-image-001',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ model_id: 'mock-image-v1', prompt: 'race', aspect_ratio: '16:9' }),
-      })
-      const providerJob = await submitted.json() as { id: string }
-      await fetch(`${service.baseUrl}/v1/images/${providerJob.id}`, { headers: { Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}` } })
-      await assert.rejects(
-        client.requestGenStudioCancellation(
-          'image.generation', service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, providerJob.id, {}, Date.now() + 10_000,
-        ),
-        (error: unknown) => error instanceof client.GenStudioApiError && error.status === 409,
-      )
-      assert.equal(service.requests.filter(request => request.path === `/v1/images/${providerJob.id}/cancel`).length, 1)
+      const cases = [
+        ['voice.tts', 'tts', '/v1/audio/jobs', '/v1/jobs', { model_id: 'mock-tts-model', voice_id: 'mock-voice', text: 'race', speed: 1 }],
+        ['image.generation', 'image', '/v1/images/generations', '/v1/images', { model_id: 'mock-image-v1', prompt: 'race', aspect_ratio: '16:9' }],
+        ['audio.transcription', 'transcription', '/v1/audio/transcriptions', '/v1/transcriptions', { model_id: 'mock-whisper-v1' }],
+        ['video.generation', 'video', '/v1/videos/generations', '/v1/videos', { model_id: 'mock-video-v1', prompt: 'race', duration_seconds: 5, resolution: '720p' }],
+        ['chat.response', 'chat', '/v1/chat/responses', '/v1/chat/responses', { model_id: 'mock-chat-v1', input: [] }],
+        ['music.generation', 'music', '/v1/music/jobs', '/v1/music/jobs', { model_id: 'mock-music-v1', prompt: 'race' }],
+      ] as const
+      for (const [operation, fixtureOperation, submitPath, resource, body] of cases) {
+        service.queueScenario(fixtureOperation, { states: ['accepted', 'running', 'succeeded'] })
+        const submitted = await fetch(`${service.baseUrl}${submitPath}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+            'Idempotency-Key': `cancel-409-${fixtureOperation}-001`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        })
+        const providerJob = await submitted.json() as { id: string }
+        await fetch(`${service.baseUrl}${resource}/${providerJob.id}`, { headers: { Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}` } })
+        await assert.rejects(
+          client.requestGenStudioCancellation(
+            operation, service.baseUrl, MOCK_GENSTUDIO_FULL_KEY, providerJob.id, {}, Date.now() + 10_000,
+          ),
+          (error: unknown) => error instanceof client.GenStudioApiError && error.status === 409,
+        )
+        assert.equal(service.requests.filter(request => request.path === `${resource}/${providerJob.id}/cancel`).length, 1)
+      }
     })
 
     await suite.test('refuses malformed cancellation payloads instead of inventing fields', async () => {
@@ -639,6 +653,28 @@ void test('terminal classification uses JobState only, and cancellation is a boo
   const cancelled = new client.GenStudioVideoTerminalFailureError({ id: 'v2', state: 'running', cancelled: true })
   assert.equal(cancelled.cancelled, true)
   assert.equal(cancelled.state, 'failed')
+})
+
+void test('terminal errors report only published release settlement and preserve zero', async () => {
+  const client = await import('../lib/genstudio-client.js')
+  const omitted = new client.GenStudioImageTerminalFailureError({
+    id: 'image-omitted', state: 'failed', reserved_credits: 9, settled_credits: 0,
+  })
+  assert.match(omitted.message, /settlement is not yet published/i)
+  assert.match(omitted.message, /check.*GenStudio status/i)
+  assert.doesNotMatch(omitted.message, /reservation was released|credits (?:were )?returned/i)
+
+  const zero = new client.GenStudioVideoTerminalFailureError({
+    id: 'video-zero', state: 'failed', released_credits: 0,
+  })
+  assert.match(zero.message, /0 credits released/i)
+  assert.doesNotMatch(zero.message, /settlement is not yet published/i)
+
+  const positive = new client.GenStudioChatTerminalFailureError({
+    id: 'chat-positive', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_FAILED', released_credits: 7,
+  })
+  assert.match(positive.message, /7 credits released/i)
+  assert.doesNotMatch(positive.message, /reservation was released|credits (?:were )?returned/i)
 })
 
 void test('a retry scope is fresh after a terminal failure, stable otherwise, and bounded', async () => {
