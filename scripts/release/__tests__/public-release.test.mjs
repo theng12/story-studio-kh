@@ -35,4 +35,12 @@ describe('public desktop release gate', () => {
     assert.match(verifySource, /Developer ID Application/)
     assert.match(verifySource, /stapler', 'validate'/)
   })
+
+  test('desktop packaging uses the lockfile-installed Electron runtime', () => {
+    for (const script of ['build-public-dmg.mjs', 'build-unsigned-dmg.mjs']) {
+      const source = fs.readFileSync(path.join(root, 'scripts/release', script), 'utf8')
+      assert.match(source, /config\.electronDist = electronDist/)
+      assert.match(source, /path\.join\(electronDist, 'Electron\.app'\)/)
+    }
+  })
 })

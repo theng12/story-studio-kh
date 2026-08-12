@@ -14,6 +14,7 @@ const { Arch, Platform, build } = require('electron-builder')
 const contract = JSON.parse(fs.readFileSync(path.join(root, 'release', 'desktop-release-contract.json'), 'utf8'))
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const baseConfig = JSON.parse(fs.readFileSync(path.join(root, 'electron-builder.json'), 'utf8'))
+const electronDist = path.join(root, 'node_modules', 'electron', 'dist')
 // The unsigned verification build is still a smoke candidate, but its DMG is
 // the artifact users need to pick up. Keep it in the normal dist handoff
 // folder instead of hiding it inside a release-smoke subdirectory.
@@ -45,6 +46,10 @@ process.env.CSC_IDENTITY_AUTO_DISCOVERY = 'false'
 
 const config = structuredClone(baseConfig)
 config.directories = { ...config.directories, output: outputDir }
+if (!fs.existsSync(path.join(electronDist, 'Electron.app'))) {
+  throw new Error(`Lockfile-installed Electron runtime is missing: ${electronDist}`)
+}
+config.electronDist = electronDist
 config.mac = {
   ...config.mac,
   identity: null,

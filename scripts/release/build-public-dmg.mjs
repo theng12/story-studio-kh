@@ -15,6 +15,7 @@ const { Arch, Platform, build } = require('electron-builder')
 const contract = JSON.parse(fs.readFileSync(path.join(root, 'release', 'desktop-release-contract.json'), 'utf8'))
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 const baseConfig = JSON.parse(fs.readFileSync(path.join(root, 'electron-builder.json'), 'utf8'))
+const electronDist = path.join(root, 'node_modules', 'electron', 'dist')
 const outputDir = path.join(root, 'dist')
 
 function run(command, args, { redactArgs = false } = {}) {
@@ -39,6 +40,10 @@ run('npm', ['run', 'check:release', '--', '--built', '--package-input'])
 
 const config = structuredClone(baseConfig)
 config.directories = { ...config.directories, output: outputDir }
+if (!fs.existsSync(path.join(electronDist, 'Electron.app'))) {
+  throw new Error(`Lockfile-installed Electron runtime is missing: ${electronDist}`)
+}
+config.electronDist = electronDist
 config.forceCodeSigning = true
 config.mac = { ...config.mac, notarize: true }
 
