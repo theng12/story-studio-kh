@@ -19,11 +19,11 @@ describe('GenStudio credit settlement language', () => {
     assert.doesNotMatch(source, /settledLabel/)
   })
 
-  it('explains provisional holds and points to final GenStudio settlement', () => {
+  it('shows only a published provisional hold and points to final GenStudio settlement', () => {
     const source = read('frontend/components/GenStudioCreditSettlementHint.vue')
 
-    assert.match(source, /Failed items are not charged a second time/)
-    assert.match(source, /returns unused credits/)
+    assert.match(source, /GenStudio has published a provisional reservation while this work settles/)
+    assert.doesNotMatch(source, /releases their reservation|returns unused credits|not charged a second time/)
     assert.match(source, /to="\/usage"/)
     assert.match(source, /Credits &amp; settlement/)
   })
