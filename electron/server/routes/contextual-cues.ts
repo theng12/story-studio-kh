@@ -10,6 +10,8 @@ import {
   normalizeContextualCueConfig,
   normalizeContextualCueProposalSettings,
   normalizeContextualCueTemplate,
+  readContextualCueProgress,
+  removeContextualCueProgress,
   readContextualCueTimeline,
   validateContextualCueTimeline,
   writeContextualCueTimeline,
@@ -43,9 +45,11 @@ router.get('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
     const { path, plan } = await loadPlan(req.params.slug, req.params.episodeId)
     const config = normalizeContextualCueConfig((await pm.getConfig(req.params.slug))?.contextual_cues)
     const timeline = await readContextualCueTimeline(path)
+    const proposal_progress = await readContextualCueProgress(path)
     res.json({
       config,
       timeline,
+      proposal_progress,
       // Once a project trusts auto_approve_cues, a cue the automatic pass held
       // back can never resolve itself (see assertContextualCueReadiness) —
       // so it should not read here as "you must resolve this before Video
@@ -103,6 +107,7 @@ router.put('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
     const issues = validateContextualCueTimeline(timeline, plan)
     if (issues.length) return res.status(422).json({ detail: 'Cue timeline is not safe to save.', issues })
     await writeContextualCueTimeline(path, timeline)
+    await removeContextualCueProgress(path)
     res.json({ timeline, validation: [] })
   } catch (error: any) {
     res.status(400).json({ detail: error?.message || 'Could not save contextual cues.' })

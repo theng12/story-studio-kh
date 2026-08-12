@@ -13,12 +13,14 @@
       <span v-if="settledCount" class="settled" :style="segmentStyle(settledCount)" :title="`${settledCount} settled`" />
       <span v-if="activeCount" class="active" :style="segmentStyle(activeCount)" :title="`${activeCount} active`" />
       <span v-if="queuedCount" class="queued" :style="segmentStyle(queuedCount)" :title="`${queuedCount} queued`" />
+      <span v-if="cancelledCount" class="cancelled" :style="segmentStyle(cancelledCount)" :title="`${cancelledCount} cancelled`" />
       <span v-if="failedCount" class="failed" :style="segmentStyle(failedCount)" :title="`${failedCount} failed`" />
     </div>
     <div class="gs-batch-statuses">
       <span v-if="settledCount" class="settled">{{ settledCount.toLocaleString() }} settled</span>
       <span v-if="activeCount" class="active">{{ activeCount.toLocaleString() }} active</span>
       <span v-if="queuedCount" class="queued">{{ queuedCount.toLocaleString() }} queued</span>
+      <span v-if="cancelledCount" class="cancelled">{{ cancelledCount.toLocaleString() }} cancelled</span>
       <span v-if="failedCount" class="failed">{{ failedCount.toLocaleString() }} failed</span>
     </div>
 
@@ -81,6 +83,7 @@ type RemoteJob = {
   settled_credits?: number
   released_credits?: number
   failure_code?: string | null
+  cancelled?: boolean | null
 }
 
 const props = defineProps<{ remoteJobs: readonly RemoteJob[] }>()
@@ -99,9 +102,10 @@ function effectiveState(remote: RemoteJob): string {
   return String(remote.queue_state || remote.state || '').toLowerCase()
 }
 
-function stateBucket(remote: RemoteJob): 'settled' | 'active' | 'queued' | 'failed' {
+function stateBucket(remote: RemoteJob): 'settled' | 'active' | 'queued' | 'cancelled' | 'failed' {
   const state = effectiveState(remote)
-  if (state === 'failed' || state === 'cancelled') return 'failed'
+  if (remote.cancelled === true || state === 'cancelled' || /_CANCELLED_BY_CUSTOMER$/.test(remote.failure_code || '')) return 'cancelled'
+  if (state === 'failed') return 'failed'
   if (/success|succeed|complete|done|settled/.test(state)) return 'settled'
   if (/queue|pending|wait|accept/.test(state)) return 'queued'
   return 'active'
@@ -136,6 +140,7 @@ function heldFor(remote: RemoteJob): number {
 const settledCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'settled').length)
 const activeCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'active').length)
 const queuedCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'queued').length)
+const cancelledCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'cancelled').length)
 const failedCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'failed').length)
 const chargedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + chargedFor(remote), 0))
 const heldCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + heldFor(remote), 0))
@@ -171,6 +176,7 @@ const QUEUE_LABELS: Record<string, string> = {
 }
 
 function displayState(remote: RemoteJob) {
+  if (stateBucket(remote) === 'cancelled') return 'Cancelled'
   const state = effectiveState(remote) || 'unknown'
   return QUEUE_LABELS[state] || state.replace(/_/g, ' ')
 }
@@ -202,12 +208,12 @@ watch([visibleJobs, pageCount], () => {
 .gs-batch-credit { color: var(--success, #3fb950); font-variant-numeric: tabular-nums; }
 .gs-batch-credit.muted { color: var(--text-muted); }.gs-batch-credit.held { color: var(--accent); }.gs-batch-credit.returned { color: var(--success, #3fb950); }
 .gs-batch-progress { display: flex; height: 6px; overflow: hidden; margin-top: 8px; border-radius: 999px; background: var(--bg-primary); }
-.gs-batch-progress span { min-width: 2px; }.gs-batch-progress .settled { background: var(--success, #3fb950); }.gs-batch-progress .active { background: var(--accent); }.gs-batch-progress .queued { background: #64748b; }.gs-batch-progress .failed { background: var(--danger, #f85149); }
-.gs-batch-statuses { margin-top: 6px; font-size: var(--font-xs); }.gs-batch-statuses .settled { color: var(--success, #3fb950); }.gs-batch-statuses .active { color: var(--accent); }.gs-batch-statuses .queued { color: var(--text-muted); }.gs-batch-statuses .failed { color: var(--danger, #f85149); }
+.gs-batch-progress span { min-width: 2px; }.gs-batch-progress .settled { background: var(--success, #3fb950); }.gs-batch-progress .active { background: var(--accent); }.gs-batch-progress .queued { background: #64748b; }.gs-batch-progress .cancelled { background: var(--text-muted); }.gs-batch-progress .failed { background: var(--danger, #f85149); }
+.gs-batch-statuses { margin-top: 6px; font-size: var(--font-xs); }.gs-batch-statuses .settled { color: var(--success, #3fb950); }.gs-batch-statuses .active { color: var(--accent); }.gs-batch-statuses .queued, .gs-batch-statuses .cancelled { color: var(--text-muted); }.gs-batch-statuses .failed { color: var(--danger, #f85149); }
 .gs-batch-actions { margin-top: 7px; }.link-btn { border: 0; padding: 0; color: var(--accent); background: transparent; font: inherit; cursor: pointer; }.link-btn:hover { text-decoration: underline; }
 .gs-batch-guidance { margin: 8px 0 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
 .gs-batch-ledger { margin-top: 8px; padding: 8px; border-radius: var(--radius-sm); background: var(--bg-primary); }.gs-batch-ledger-head { justify-content: space-between; color: var(--text-muted); font-size: var(--font-xs); }
-.gs-batch-items { max-height: 270px; margin: 7px 0 0; padding: 0; overflow: auto; list-style: none; }.gs-batch-items li { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, auto) minmax(90px, auto); gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--font-xs); }.gs-batch-items strong { font-weight: 600; text-transform: capitalize; }.gs-batch-diagnostic { display: block; margin-top: 2px; color: var(--text-muted); font-size: inherit; font-weight: 400; text-transform: none; }.state-settled { color: var(--success, #3fb950); }.state-active { color: var(--accent); }.state-queued { color: var(--text-muted); }.state-failed { color: var(--danger, #f85149); }
+.gs-batch-items { max-height: 270px; margin: 7px 0 0; padding: 0; overflow: auto; list-style: none; }.gs-batch-items li { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, auto) minmax(90px, auto); gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--font-xs); }.gs-batch-items strong { font-weight: 600; text-transform: capitalize; }.gs-batch-diagnostic { display: block; margin-top: 2px; color: var(--text-muted); font-size: inherit; font-weight: 400; text-transform: none; }.state-settled { color: var(--success, #3fb950); }.state-active { color: var(--accent); }.state-queued, .state-cancelled { color: var(--text-muted); }.state-failed { color: var(--danger, #f85149); }
 .gs-batch-pagination { justify-content: flex-end; margin-top: 8px; color: var(--text-muted); font-size: var(--font-xs); }
 @media (max-width: 620px) { .gs-batch-items li { grid-template-columns: 1fr auto; }.gs-batch-items li > :last-child { grid-column: 1 / -1; } }
 </style>

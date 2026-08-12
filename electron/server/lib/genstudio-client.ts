@@ -290,6 +290,9 @@ export class GenStudioTerminalFailureError extends Error {
   readonly jobId: string
   readonly failureCode: string | null
   readonly cancelled: boolean
+  readonly reservedCredits: number | null
+  readonly settledCredits: number | null
+  readonly releasedCredits: number | null
 
   constructor(modality: GenStudioModality, job: GenStudioSettledJobShape, message: string) {
     super(message)
@@ -298,6 +301,9 @@ export class GenStudioTerminalFailureError extends Error {
     this.jobId = job.id
     this.failureCode = settledFailureCode(job)
     this.cancelled = job.cancelled === true
+    this.reservedCredits = typeof job.reserved_credits === 'number' && Number.isFinite(job.reserved_credits) ? job.reserved_credits : null
+    this.settledCredits = typeof job.settled_credits === 'number' && Number.isFinite(job.settled_credits) ? job.settled_credits : null
+    this.releasedCredits = typeof job.released_credits === 'number' && Number.isFinite(job.released_credits) ? job.released_credits : null
   }
 }
 
@@ -2245,6 +2251,7 @@ function shouldReconnectAcceptedTask(
  */
 export const GENSTUDIO_LANGUAGE_FAILURE_CODES = {
   PROVIDER_FAILED: 'LANGUAGE_PROVIDER_FAILED',
+  PROVIDER_BACKPRESSURE: 'LANGUAGE_PROVIDER_BACKPRESSURE',
   SUBMISSION_UNCERTAIN: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
 } as const
 
@@ -2386,6 +2393,10 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
   if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_FAILED) {
     return 'The language provider behind this GenStudio KH product failed on every route GenStudio '
       + 'tried. No fallback route was attempted. Retry this step, or pick a different language product in Settings.'
+  }
+  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_BACKPRESSURE) {
+    return 'GenStudio KH could not admit this language request because its provider lane was under pressure. '
+      + 'The durable job reports the exact credit settlement; Story Studio retries only when that record proves nothing was charged and the full reservation was released.'
   }
   return null
 }

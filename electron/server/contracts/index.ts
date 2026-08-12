@@ -554,7 +554,8 @@ export interface JobEnqueuedResponse {
   title: string
   status: 'queued' | 'running' | 'paused' | 'done' | 'error' | 'cancelled'
   pause_requested?: boolean
-  pause_origin?: 'manual' | 'queue'
+  controls?: JobControlResponse[]
+  pause_origin?: 'manual' | 'queue' | 'stall'
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -664,6 +665,9 @@ export interface JobEnqueuedResponse {
     total: number
     completed: number
     failed: number
+    settling?: number
+    cancelled?: number
+    not_submitted?: number
     concurrency: number
     active: Array<{
       label: string

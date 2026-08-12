@@ -61,6 +61,30 @@ async function waitForPersistedCount(file: string, expected: number): Promise<an
 }
 
 describe('status-aware durable job retention', () => {
+  test('restart preserves an intentional scene-image pause and its episode-wide owner lock', async () => {
+    const project = await pm.createProject({ name: 'Restarted Paused Scene Images' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const paused = makeJob(project.slug, 777, 'paused', {
+      job_id: 'paused-scene-images',
+      type: 'continuity_render',
+      episode_id: 'EP-PAUSED',
+      pause_requested: true,
+      pause_origin: 'manual',
+      genstudio_jobs: [{
+        id: 'image-running', operation: 'image.generation', state: 'running', dispatch_state: 'dispatched', cancellable: false,
+        request: { method: 'POST', path: '/v1/images/generations', idempotency_key: 'story-paused-image', captured_at: '2026-08-12T00:00:00.000Z' },
+        updated_at: '2026-08-12T00:00:00.000Z',
+      }],
+    })
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [paused] }, null, 2))
+
+    const restored = (await jq.getJobs(project.slug)).find(job => job.job_id === paused.job_id)
+    assert.equal(restored?.status, 'paused')
+    assert.equal(restored?.pause_origin, 'manual')
+    assert.equal(jq.isDuplicate(project.slug, 'EP-PAUSED', 'continuity_render'), true)
+    assert.equal(jq.getActiveBulkSceneRenderJob(project.slug, 'EP-PAUSED')?.job_id, paused.job_id)
+  })
+
   test('more than 100 queued jobs persist without changing deduplication', async () => {
     const project = await pm.createProject({ name: 'Large Durable Queue' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')

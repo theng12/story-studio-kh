@@ -1,8 +1,10 @@
 import fs from 'fs/promises'
 import path from 'path'
+import { createHash } from 'node:crypto'
 import type {
   ContextualCue,
   ContextualCueAutoApprovalHold,
+  ContextualCueKind,
   ContextualCuePlacement,
   ContextualCueProposalSettings,
   ContextualCueProjectConfig,
@@ -14,6 +16,7 @@ import type {
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 
 export const CONTEXTUAL_CUES_FILENAME = 'contextual_cues.json'
+export const CONTEXTUAL_CUES_PROGRESS_FILENAME = 'contextual_cues.progress.json'
 export const DEFAULT_CONTEXTUAL_CUE_CONFIG: ContextualCueProjectConfig = {
   enabled: false,
   auto_approve_cues: false,
@@ -49,6 +52,116 @@ export function normalizeContextualCueProposalSettings(value: unknown): Contextu
 
 export function contextualCuePath(scenePlanPath: string): string {
   return path.join(path.dirname(scenePlanPath), CONTEXTUAL_CUES_FILENAME)
+}
+
+export interface ContextualCueProgressCandidate {
+  scene_id: string
+  title: string
+  subtitle?: string
+  kind?: ContextualCueKind
+  template?: ContextualCueTemplate
+  anchor_offset_sec?: number
+}
+
+export interface ContextualCueProgress {
+  schema_version: 1
+  fingerprint: string
+  source_scene_plan_generated_at: string
+  model: string
+  batch_size: number
+  total_scenes: number
+  total_batches: number
+  completed_batches: Array<{
+    index: number
+    scene_ids: string[]
+    candidates: ContextualCueProgressCandidate[]
+  }>
+  /** Latest proven terminal backpressure job per incomplete batch; seeds one fresh deterministic identity. */
+  retry_scopes?: Record<string, string>
+  /** Read-only preview from completed batches. Never accepted as final readiness. */
+  provisional_cues?: ContextualCue[]
+  updated_at: string
+}
+
+export function contextualCueProgressPath(scenePlanPath: string): string {
+  return path.join(path.dirname(scenePlanPath), CONTEXTUAL_CUES_PROGRESS_FILENAME)
+}
+
+/** Exact plan + proposal settings identity. A changed plan/model starts fresh. */
+export function contextualCueProgressFingerprint(
+  plan: Pick<ScenePlan, 'generated_at' | 'scenes'>,
+  settings: ContextualCueProposalSettings,
+): string {
+  const input = JSON.stringify({
+    generated_at: plan.generated_at,
+    scenes: plan.scenes.map(scene => ({
+      id: scene.id,
+      start_sec: scene.start_sec,
+      end_sec: scene.end_sec,
+      transcript_segment: scene.transcript_segment,
+    })),
+    model: settings.model,
+    density: settings.density,
+    placement: settings.placement,
+    auto_approve: settings.auto_approve,
+  })
+  return createHash('sha256').update(input).digest('hex')
+}
+
+function isContextualCueProgress(value: unknown): value is ContextualCueProgress {
+  if (!value || typeof value !== 'object') return false
+  const raw = value as Partial<ContextualCueProgress>
+  return raw.schema_version === 1
+    && typeof raw.fingerprint === 'string'
+    && typeof raw.source_scene_plan_generated_at === 'string'
+    && typeof raw.model === 'string'
+    && Number.isInteger(raw.batch_size) && Number(raw.batch_size) > 0
+    && Number.isInteger(raw.total_scenes) && Number(raw.total_scenes) >= 0
+    && Number.isInteger(raw.total_batches) && Number(raw.total_batches) >= 0
+    && Array.isArray(raw.completed_batches)
+    && raw.completed_batches.every(batch => Number.isInteger(batch?.index)
+      && Array.isArray(batch?.scene_ids)
+      && batch.scene_ids.every(id => typeof id === 'string')
+      && Array.isArray(batch?.candidates))
+    && (raw.provisional_cues === undefined || Array.isArray(raw.provisional_cues))
+    && (raw.retry_scopes === undefined || (raw.retry_scopes !== null && typeof raw.retry_scopes === 'object' && !Array.isArray(raw.retry_scopes)))
+    && typeof raw.updated_at === 'string'
+}
+
+export async function readContextualCueProgress(
+  scenePlanPath: string,
+  expectedFingerprint?: string,
+): Promise<ContextualCueProgress | null> {
+  try {
+    const raw = JSON.parse(await fs.readFile(contextualCueProgressPath(scenePlanPath), 'utf8'))
+    if (!isContextualCueProgress(raw)) return null
+    if (expectedFingerprint && raw.fingerprint !== expectedFingerprint) return null
+    return raw
+  } catch {
+    return null
+  }
+}
+
+export async function writeContextualCueProgress(scenePlanPath: string, progress: ContextualCueProgress): Promise<void> {
+  await writeJsonAtomic(contextualCueProgressPath(scenePlanPath), progress)
+}
+
+export async function removeContextualCueProgress(scenePlanPath: string): Promise<void> {
+  await fs.rm(contextualCueProgressPath(scenePlanPath), { force: true })
+}
+
+/** A fresh paid request is safe only when GenStudio proves the old one cost zero. */
+export function isReleasedContextualCueBackpressure(error: {
+  failureCode?: string | null
+  reservedCredits?: number | null
+  settledCredits?: number | null
+  releasedCredits?: number | null
+}): boolean {
+  return error.failureCode === 'LANGUAGE_PROVIDER_BACKPRESSURE'
+    && typeof error.reservedCredits === 'number'
+    && error.reservedCredits > 0
+    && error.settledCredits === 0
+    && error.releasedCredits === error.reservedCredits
 }
 
 export async function readContextualCueTimeline(scenePlanPath: string): Promise<ContextualCueTimeline | null> {

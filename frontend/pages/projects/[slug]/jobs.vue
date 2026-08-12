@@ -343,14 +343,15 @@
           </div>
           <div class="job-actions">
             <button
-              v-if="job.control && job.control.action !== 'none'"
+              v-for="control in jobControls(job)"
+              :key="control.action"
               class="btn btn-xs btn-secondary"
-              :class="{ 'job-control-primary': job.control.enabled }"
-              :disabled="!job.control.enabled || controlBusy.has(job.job_id)"
-              :title="job.control.reason"
-              @click="runJobControl(job)"
+              :class="{ 'job-control-primary': control.enabled && control.action === 'pause-submissions' }"
+              :disabled="!control.enabled || controlBusy.has(job.job_id)"
+              :title="control.reason"
+              @click="runJobControl(job, control)"
             >
-              {{ controlBusy.has(job.job_id) ? 'Working…' : job.control.label }}
+              {{ controlBusy.has(job.job_id) ? 'Working…' : control.label }}
             </button>
             <button
               v-if="job.status === 'paused'"
@@ -485,6 +486,15 @@
             <span v-if="job.item_progress.failed" class="job-items-failed">
               · {{ job.item_progress.failed }} failed
             </span>
+            <span v-if="job.item_progress.settling" class="job-items-note">
+              · {{ job.item_progress.settling }} settling
+            </span>
+            <span v-if="job.item_progress.cancelled" class="job-items-note">
+              · {{ job.item_progress.cancelled }} cancelled by customer
+            </span>
+            <span v-if="job.item_progress.not_submitted" class="job-items-note">
+              · {{ job.item_progress.not_submitted }} not submitted
+            </span>
             <span
               v-if="job.item_progress.concurrency === 1 && job.item_progress.total > 1"
               class="job-items-note"
@@ -574,10 +584,16 @@
             {{ job.error }}
           </div>
         </div>
-        <p v-if="job.control" class="job-control-reason" :class="`control-${job.control.action}`" role="status">
-          <template v-if="hasPendingCancellation(job)">Story Studio is reconciling the cancellation result. </template>
-          <template v-else-if="job.control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
-          {{ job.control.reason }}
+        <p
+          v-for="control in jobControls(job)"
+          :key="`reason-${control.action}`"
+          class="job-control-reason"
+          :class="`control-${control.action}`"
+          role="status"
+        >
+          <template v-if="hasPendingCancellation(job) && control.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
+          <template v-else-if="control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
+          {{ control.reason }}
         </p>
       </div>
       </div>
@@ -612,13 +628,14 @@
             </div>
             <div class="job-actions">
               <button
-                v-if="job.control && job.control.action !== 'none'"
+                v-for="control in jobControls(job)"
+                :key="control.action"
                 class="btn btn-xs btn-secondary"
-                :class="{ 'job-control-primary': job.control.enabled }"
-                :disabled="!job.control.enabled || controlBusy.has(job.job_id)"
-                :title="job.control.reason"
-                @click="runJobControl(job)"
-              >{{ controlBusy.has(job.job_id) ? 'Working…' : job.control.label }}</button>
+                :class="{ 'job-control-primary': control.enabled && control.action === 'clear-history' }"
+                :disabled="!control.enabled || controlBusy.has(job.job_id)"
+                :title="control.reason"
+                @click="runJobControl(job, control)"
+              >{{ controlBusy.has(job.job_id) ? 'Working…' : control.label }}</button>
               <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
               <button
                 v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
@@ -641,10 +658,16 @@
               </button>
             </div>
           </div>
-          <p v-if="job.control" class="job-control-reason" :class="`control-${job.control.action}`" role="status">
-            <template v-if="hasPendingCancellation(job)">Story Studio is reconciling the cancellation result. </template>
-            <template v-else-if="job.control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
-            {{ job.control.reason }}
+          <p
+            v-for="control in jobControls(job)"
+            :key="`reason-${control.action}`"
+            class="job-control-reason"
+            :class="`control-${control.action}`"
+            role="status"
+          >
+            <template v-if="hasPendingCancellation(job) && control.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
+            <template v-else-if="control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
+            {{ control.reason }}
           </p>
 
           <div class="job-meta">
@@ -1686,8 +1709,15 @@ function toggleExpand(jobId: string) {
 
 const controlBusy = ref(new Set<string>())
 
-async function runJobControl(job: RJob) {
-  const control = job.control
+type JobControl = NonNullable<RJob['control']>
+
+function jobControls(job: RJob): JobControl[] {
+  return (job.controls?.length ? job.controls : (job.control ? [job.control] : []))
+    .filter(control => control.action !== 'none')
+}
+
+async function runJobControl(job: RJob, requestedControl?: JobControl) {
+  const control = requestedControl || job.control
   if (!control?.enabled || controlBusy.value.has(job.job_id)) return
   controlBusy.value = new Set(controlBusy.value).add(job.job_id)
   try {

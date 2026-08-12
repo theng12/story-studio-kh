@@ -94,6 +94,10 @@
       <WorkspaceNotice v-if="loadError" tone="warning" title="Contextual Cues need a Scene Plan">
         {{ loadError }}
       </WorkspaceNotice>
+      <WorkspaceNotice v-else-if="proposalProgress" tone="info" title="Saved partial proposal">
+        {{ proposalProgress.completed_batches.length }} of {{ proposalProgress.total_batches }} batches are safely checkpointed.
+        {{ proposalProgress.total_scenes - completedProposalScenes }} scenes remain. Retry resumes only the missing batches; Video Assembly still treats this timeline as incomplete.
+      </WorkspaceNotice>
       <WorkspaceNotice v-else-if="timeline?.auto_approval_holds?.length" tone="warning" title="Held back from auto-approval">
         {{ timeline.auto_approval_holds.length }} cue{{ timeline.auto_approval_holds.length === 1 ? '' : 's' }} failed a structural check
         during the last automatic pass and stayed in review instead of being approved — see the reason marked on
@@ -143,6 +147,16 @@
           </div>
         </article>
       </section>
+      <section v-else-if="proposalProgress?.provisional_cues?.length" class="card cue-list" aria-label="Saved partial contextual cue preview">
+        <div class="cue-list-heading">
+          <div><span class="section-kicker">Saved partial proposal</span><h2>{{ proposalProgress.provisional_cues.length }} recoverable cue preview{{ proposalProgress.provisional_cues.length === 1 ? '' : 's' }}</h2></div>
+        </div>
+        <p class="text-muted">These completed batches are read-only until every batch finishes. They will not render in Video Assembly yet.</p>
+        <article v-for="cue in proposalProgress.provisional_cues" :key="cue.id" class="cue-row is-proposed">
+          <div class="cue-time">{{ time(cue.start_sec) }}–{{ time(cue.end_sec) }}</div>
+          <div class="cue-preview" :class="`preview-${cue.template}`"><strong>{{ cue.title }}</strong><small v-if="cue.subtitle">{{ cue.subtitle }}</small></div>
+        </article>
+      </section>
     </template>
   </div>
 </template>
@@ -162,6 +176,7 @@ type CueConfig = { enabled: boolean; auto_approve_cues: boolean }
 type CueProposalForm = { model: string; density: 'restrained' | 'standard' | 'editorial'; placement: 'top-left' | 'top-right'; auto_approve: boolean }
 type AutoApprovalHold = { cue_id: string; reasons: string[] }
 type Timeline = { schema_version: 1; generated_at: string; source_scene_plan_generated_at: string; cues: Cue[]; auto_approval_holds?: AutoApprovalHold[] }
+type ProposalProgress = { total_scenes: number; total_batches: number; completed_batches: Array<{ scene_ids: string[] }>; provisional_cues?: Cue[] }
 
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -173,6 +188,7 @@ const config = ref<CueConfig>({ enabled: false, auto_approve_cues: false })
 const form = ref<CueProposalForm>({ model: '', density: 'restrained', placement: 'top-right', auto_approve: false })
 useRememberedForm('contextual-cues', slug, form, { include: ['model', 'density', 'placement', 'auto_approve'], version: 1 })
 const timeline = ref<Timeline | null>(null)
+const proposalProgress = ref<ProposalProgress | null>(null)
 const validation = ref<Array<{ cue_id?: string; detail: string }>>([])
 const loadError = ref('')
 const proposing = ref(false)
@@ -182,6 +198,7 @@ const dirty = ref(false)
 const cueJobActive = computed(() => isJobActiveFor(episodeId.value, ['contextual_cues']))
 const proposedCount = computed(() => timeline.value?.cues.filter(cue => cue.status === 'proposed').length || 0)
 const approvedCount = computed(() => timeline.value?.cues.filter(cue => cue.status === 'approved').length || 0)
+const completedProposalScenes = computed(() => proposalProgress.value?.completed_batches.reduce((total, batch) => total + batch.scene_ids.length, 0) || 0)
 // v1.0.796 — "Approve cues automatically" (config.auto_approve_cues). A cue
 // the automatic pass declined stays 'proposed' with its reason recorded
 // here by id, so review can show exactly why next to that cue instead of
@@ -228,9 +245,9 @@ async function setAutoApproveCues(v: boolean): Promise<void> {
   }
 }
 async function loadTimeline(): Promise<void> {
-  timeline.value = null; validation.value = []; loadError.value = ''; dirty.value = false
+  timeline.value = null; proposalProgress.value = null; validation.value = []; loadError.value = ''; dirty.value = false
   if (!episodeId.value || !config.value.enabled) return
-  try { const data = await get<any>(`/projects/${slug.value}/contextual-cues/${episodeId.value}`); timeline.value = data.timeline; validation.value = data.validation || [] } catch (e: any) { loadError.value = e?.data?.detail || 'Could not load the episode cue timeline.' }
+  try { const data = await get<any>(`/projects/${slug.value}/contextual-cues/${episodeId.value}`); timeline.value = data.timeline; proposalProgress.value = data.proposal_progress || null; validation.value = data.validation || [] } catch (e: any) { loadError.value = e?.data?.detail || 'Could not load the episode cue timeline.' }
 }
 async function propose(): Promise<void> {
   if (!episodeId.value || !config.value.enabled || !form.value.model) return

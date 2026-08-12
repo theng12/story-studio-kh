@@ -169,6 +169,7 @@ describe('GenStudio released reservations are never shown as held', () => {
       [
         extractObject(ledgerSource, 'QUEUE_LABELS'),
         extractFunction(ledgerSource, 'effectiveState'),
+        extractFunction(ledgerSource, 'stateBucket'),
         extractFunction(ledgerSource, 'displayState'),
       ],
       ['displayState'],
@@ -209,6 +210,7 @@ describe('GenStudio released reservations are never shown as held', () => {
       [
         extractObject(ledgerSource, 'QUEUE_LABELS'),
         extractFunction(ledgerSource, 'effectiveState'),
+        extractFunction(ledgerSource, 'stateBucket'),
         extractFunction(ledgerSource, 'displayState'),
       ],
       ['displayState'],
@@ -226,6 +228,24 @@ describe('GenStudio released reservations are never shown as held', () => {
     assert.equal(preview.displayState(remote), 'Accepted')
     assert.equal(ledger.displayState(remote), 'Accepted')
     assert.equal(jobs.genStudioQueueLabel(remote), 'Accepted')
+  })
+
+  it('labels provider-confirmed customer cancellations as Cancelled rather than Failed', async () => {
+    const ledgerSource = read('frontend/components/GenStudioBatchLedger.vue')
+    const ledger = await loadLifted(
+      'type RemoteJob = any',
+      [
+        extractObject(ledgerSource, 'QUEUE_LABELS'),
+        extractFunction(ledgerSource, 'effectiveState'),
+        extractFunction(ledgerSource, 'stateBucket'),
+        extractFunction(ledgerSource, 'displayState'),
+      ],
+      ['displayState'],
+    )
+
+    assert.equal(ledger.displayState({ state: 'failed', cancelled: true }), 'Cancelled')
+    assert.equal(ledger.displayState({ state: 'failed', failure_code: 'IMAGE_CANCELLED_BY_CUSTOMER' }), 'Cancelled')
+    assert.equal(ledger.displayState({ state: 'failed', failure_code: 'IMAGE_PROVIDER_FAILED' }), 'Failed')
   })
 
   it('offers Reword guidance only for GenStudio\'s exact terminal image-refusal code', async () => {

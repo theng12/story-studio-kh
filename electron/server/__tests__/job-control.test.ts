@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import type { Job, JobControl, JobType } from '../models/types.js'
-import { classifyJobControl, isProvenLocalStopCapableJob } from '../services/job-control.js'
+import { classifyJobControl, classifyJobControls, isProvenLocalStopCapableJob } from '../services/job-control.js'
 import {
   getJobCancellationAuditor,
   hasJobCancellationAuditor,
@@ -115,8 +115,24 @@ describe('server-owned job controls', () => {
     assert.equal(control.enabled, false)
   })
 
-  test('does not promise pause submissions for image batches without cooperative item boundaries', () => {
+  test('exposes truthful Pause independently from pre-dispatch cancellation for scene image batches', () => {
+    const controls = classifyJobControls(job({
+      type: 'continuity_render',
+      genstudio_jobs: [
+        evidence('image.generation', 'accepted', { id: 'not-dispatched', dispatch_state: 'pre_dispatch', cancellable: true }),
+        evidence('image.generation', 'running', { id: 'already-started', dispatch_state: 'dispatched', cancellable: false }),
+      ],
+    }), { remoteCancellationAudited: true })
+
+    assert.deepEqual(controls.map(control => control.action), ['pause-submissions', 'request-remote-cancel'])
+    assert.equal(controls[0]?.enabled, true)
+    assert.deepEqual(controls[1]?.targets, [{ operation: 'image.generation', provider_job_id: 'not-dispatched' }])
+    assert.match(controls[0]?.reason || '', /already accepted work will finish/i)
+  })
+
+  test('keeps pause disabled for image jobs without a proven cooperative item boundary', () => {
     const control = classifyJobControl(job({
+      type: 'images',
       genstudio_jobs: [evidence('image.generation', 'running', { dispatch_state: 'dispatched', cancellable: false })],
     }), { remoteCancellationAudited: true })
 

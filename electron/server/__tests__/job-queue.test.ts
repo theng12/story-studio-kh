@@ -592,12 +592,12 @@ describe('cooperative pause and resume', () => {
     let runs = 0
     let release!: () => void
     const boundary = new Promise<void>(resolve => { release = resolve })
-    jq.registerExecutor('broll_autotag', async runningJob => {
+    jq.registerExecutor('audio', async runningJob => {
       if (runningJob.episode_id !== 'EP002') return
       runs++
       if (runs === 1) await boundary
     })
-    const job = jq.enqueue({ project_slug: proj.slug, type: 'broll_autotag', episode_id: 'EP002', title: 'running', params: {} })
+    const job = jq.enqueue({ project_slug: proj.slug, type: 'audio', episode_id: 'EP002', title: 'running', params: {} })
     const runningDeadline = Date.now() + 2_000
     while (Date.now() < runningDeadline && jq.getJob(job.job_id)?.status !== 'running') {
       await new Promise(resolve => setTimeout(resolve, 20))
@@ -628,7 +628,7 @@ describe('cooperative pause and resume', () => {
     let release!: () => void
     let globalRuns = 0
     const boundary = new Promise<void>(resolve => { release = resolve })
-    jq.registerExecutor('broll_autotag', async job => {
+    jq.registerExecutor('audio', async job => {
       if (job.episode_id === 'GLOBAL') {
         globalRuns++
         if (globalRuns === 1) await boundary
@@ -637,14 +637,14 @@ describe('cooperative pause and resume', () => {
     })
     const globallyHeld = jq.enqueue({
       project_slug: proj.slug,
-      type: 'broll_autotag',
+      type: 'audio',
       episode_id: 'GLOBAL',
       title: 'global',
       params: { provider: 'genstudio' },
     })
     const manuallyHeld = jq.enqueue({
       project_slug: proj.slug,
-      type: 'broll_autotag',
+      type: 'audio',
       episode_id: 'MANUAL',
       title: 'manual',
       params: {},

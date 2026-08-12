@@ -1,12 +1,22 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
+import path from 'node:path'
+import os from 'node:os'
 import {
   assertContextualCueReadiness,
   autoApproveEligibleCues,
+  contextualCueProgressFingerprint,
+  contextualCueProgressPath,
+  isReleasedContextualCueBackpressure,
   normalizeContextualCueConfig,
   normalizeContextualCueProposalSettings,
+  readContextualCueProgress,
+  removeContextualCueProgress,
   validateContextualCueTimeline,
+  writeContextualCueProgress,
 } from '../services/contextual-cues.js'
+import { GenStudioChatTerminalFailureError } from '../lib/genstudio-client.js'
 
 const plan = {
   generated_at: '2026-07-26T00:00:00.000Z',
@@ -26,6 +36,51 @@ function cue(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Contextual Cues contract', () => {
+  test('persists incomplete proposal batches separately from the final timeline and resumes exact matching work', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'contextual-cues-progress-'))
+    const planPath = path.join(dir, 'scene_plan.json')
+    const settings = { model: 'gemini-3.1-flash-lite', density: 'restrained', placement: 'top-right', auto_approve: false } as const
+    const fingerprint = contextualCueProgressFingerprint(plan as any, settings)
+    const progress = {
+      schema_version: 1 as const,
+      fingerprint,
+      source_scene_plan_generated_at: plan.generated_at,
+      model: settings.model,
+      batch_size: 50,
+      total_scenes: 100,
+      total_batches: 2,
+      completed_batches: [{ index: 0, scene_ids: ['scene-1'], candidates: [{ scene_id: 'scene-1', title: 'Berlin' }] }],
+      updated_at: '2026-08-12T00:00:00.000Z',
+    }
+    try {
+      await writeContextualCueProgress(planPath, progress)
+      assert.equal(path.basename(contextualCueProgressPath(planPath)), 'contextual_cues.progress.json')
+      assert.deepEqual(await readContextualCueProgress(planPath, fingerprint), progress)
+      assert.equal(await readContextualCueProgress(planPath, `${fingerprint}-different`), null)
+      await removeContextualCueProgress(planPath)
+      assert.equal(await readContextualCueProgress(planPath, fingerprint), null)
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('permits bounded replacement only for exact backpressure with proven full release', () => {
+    const released = new GenStudioChatTerminalFailureError({
+      id: 'job-backpressure', state: 'failed', failure_code: 'LANGUAGE_PROVIDER_BACKPRESSURE',
+      reserved_credits: 23, settled_credits: 0, released_credits: 23,
+    })
+    assert.equal(released.failureCode, 'LANGUAGE_PROVIDER_BACKPRESSURE')
+    assert.equal(released.reservedCredits, 23)
+    assert.equal(released.settledCredits, 0)
+    assert.equal(released.releasedCredits, 23)
+    assert.equal(isReleasedContextualCueBackpressure(released), true)
+    for (const failure of [
+      { failureCode: 'LANGUAGE_PROVIDER_BACKPRESSURE', reservedCredits: 23, settledCredits: 1, releasedCredits: 22 },
+      { failureCode: 'LANGUAGE_PROVIDER_BACKPRESSURE', reservedCredits: 23, settledCredits: 0 },
+      { failureCode: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN', reservedCredits: 23, settledCredits: 0, releasedCredits: 23 },
+    ]) assert.equal(isReleasedContextualCueBackpressure(failure), false)
+  })
+
   test('disabled projects normalize to a zero-impact safe default', () => {
     assert.deepEqual(normalizeContextualCueConfig(undefined), {
       enabled: false,

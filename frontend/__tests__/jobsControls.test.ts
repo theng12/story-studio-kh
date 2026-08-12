@@ -16,8 +16,10 @@ const contracts = readFileSync(
   'utf8',
 )
 
-test('Jobs renders only the server-provided job control and dispatches its exact action', () => {
+test('Jobs renders all server-provided job controls and dispatches each exact action', () => {
   assert.match(jobs, /job\.control/)
+  assert.match(jobs, /job\.controls/)
+  assert.match(jobs, /v-for="control in jobControls\(job\)"/)
   assert.match(jobs, /control\.reason/)
   assert.match(jobs, /control\.action === 'cancel-before-submit'/)
   assert.match(jobs, /control\.action === 'stop-local'/)
@@ -25,13 +27,30 @@ test('Jobs renders only the server-provided job control and dispatches its exact
   assert.match(jobs, /await post\(`\$\{jobQueuePath\(job\)\}\/cancel`, \{\}\)/)
   assert.match(jobs, /control\.action === 'clear-history'/)
   assert.match(jobs, /await del\(jobQueuePath\(job\)\)/)
-  assert.match(jobs, /:disabled="!job\.control\.enabled \|\| controlBusy\.has\(job\.job_id\)"/)
+  assert.match(jobs, /:disabled="!control\.enabled \|\| controlBusy\.has\(job\.job_id\)"/)
   assert.doesNotMatch(jobs, /COST_INCURRING_TYPES/)
   assert.doesNotMatch(jobs, /REMOTE_CANCELLABLE_TYPES/)
 })
 
+test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-submitted counts', () => {
+  assert.match(jobs, /item_progress\.settling/)
+  assert.match(jobs, /item_progress\.cancelled/)
+  assert.match(jobs, /item_progress\.not_submitted/)
+  assert.match(jobs, /cancelled by customer/i)
+})
+
+test('GenStudio batch ledger keeps customer cancellations neutral instead of failed', () => {
+  const ledger = readFileSync(
+    fileURLToPath(new URL('../components/GenStudioBatchLedger.vue', import.meta.url)),
+    'utf8',
+  )
+  assert.match(ledger, /cancelledCount/)
+  assert.match(ledger, /return 'cancelled'/)
+  assert.match(ledger, /class="cancelled"/)
+})
+
 test('Jobs keeps a requested cancellation active and explains reconciliation', () => {
-  assert.match(jobs, /job\.control\.label/)
+  assert.match(jobs, /control\.label/)
   assert.match(jobs, /Story Studio is reconciling/)
   assert.match(jobs, /files or billing records/i)
 })
@@ -77,8 +96,9 @@ test('Jobs makes temporary capacity best effort and directs upgrades to GenStudi
 })
 
 test('Remote uses the same server controls and bulk-manages only safe actions', () => {
-  assert.match(remote, /job\.control\.label/)
-  assert.match(remote, /job\.control\.reason/)
+  assert.match(remote, /control\.label/)
+  assert.match(remote, /control\.reason/)
+  assert.match(remote, /v-for="control in jobControls\(job\)"/)
   assert.match(remote, /bulkControlJobs/)
   assert.match(remote, /cancel-before-submit.*stop-local.*request-remote-cancel/s)
   assert.match(remote, /await post\(`\$\{jobQueuePath\(job\)\}\/cancel`, \{\}\)/)
@@ -90,7 +110,7 @@ test('Remote uses the same server controls and bulk-manages only safe actions', 
 
 test('Remote includes paused jobs and counts failed bulk requests as unchanged', () => {
   assert.match(remote, /j\.status === 'paused'/)
-  assert.match(remote, /const outcomes = await Promise\.all\(snapshot\.map\(job => runJobControl\(job\)\)\)/)
+  assert.match(remote, /const outcomes = await Promise\.all\(snapshot\.map\(job => runJobControl\(job, bulkControl\(job\)\)\)\)/)
   assert.match(remote, /const requested = outcomes\.filter\(Boolean\)\.length/)
   assert.match(remote, /const total = activeJobs\.value\.length/)
   assert.match(remote, /const unchanged = total - requested/)

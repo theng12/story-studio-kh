@@ -21,7 +21,7 @@ import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
 import { getAppSetting, setAppSetting } from './app-settings.js'
-import { classifyJobControl } from './job-control.js'
+import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
 import { getApiKey } from './app-secrets-store.js'
@@ -480,7 +480,7 @@ function mergeGenStudioReconciliationEvidence(
 async function reconcileCancellationJob(jobId: string): Promise<void> {
   if (cancellationReconciling.has(jobId)) return
   const job = jobs.get(jobId)
-  if (!job || job.status !== 'running' || !requiresCancellationReconciliation(job)) return
+  if (!job || (job.status !== 'running' && job.status !== 'paused') || !requiresCancellationReconciliation(job)) return
   cancellationReconciling.add(jobId)
   try {
     // Do not claim the one cancellation POST before credentials exist. A
@@ -508,7 +508,13 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
 
     if (outcome.kind === 'pending') {
-      job.output_lines.push('Story Studio is reconciling the provider cancellation; no new generation request was sent.')
+      const line = job.status === 'paused'
+        ? 'Paused. Story Studio is checking already accepted GenStudio work; no new generation request was sent.'
+        : 'Story Studio is reconciling the provider cancellation; no new generation request was sent.'
+      if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
+    } else if (job.status === 'paused') {
+      const line = 'Paused. All previously accepted GenStudio work has settled; Resume will verify files and submit only missing items.'
+      if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (!job.local_execution_complete) {
       // A live generator can receive its provider success before it has
       // downloaded/checkpointed the authoritative output. Persist that remote
@@ -524,7 +530,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     // Fail closed: keep status=running and duplicate lock. A later boot/load
     // or explicit status refresh can resume read-only reconciliation.
     const job = jobs.get(jobId)
-    if (job?.status === 'running') {
+    if (job?.status === 'running' || job?.status === 'paused') {
       const reason = redactSensitiveValue(`Cancellation reconciliation is waiting: ${error instanceof Error ? error.message : String(error)}`)
       if (reason !== job.reconciliation_error) job.output_lines.push(reason)
       job.reconciliation_error = reason
@@ -534,7 +540,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
   } finally {
     cancellationReconciling.delete(jobId)
     const latest = jobs.get(jobId)
-    if (latest?.status === 'running' && requiresCancellationReconciliation(latest)) {
+    if ((latest?.status === 'running' || latest?.status === 'paused') && requiresCancellationReconciliation(latest)) {
       const existing = cancellationReconcileTimers.get(jobId)
       if (!existing) {
         const timer = setTimeout(() => {
@@ -879,12 +885,16 @@ function safeJob(job: Job): Omit<Job, never> {
   // leak into jobs.json, SSE, exports, or support screenshots.
   const copy = redactSensitiveValue(structuredClone(job))
   delete copy.control
+  delete copy.controls
   return copy
 }
 
 /** Public job snapshots derive controls at the last possible moment. */
 function serializeJob(job: Job): Job {
   const copy = safeJob(job)
+  copy.controls = classifyJobControls(job, {
+    remoteCancellationAudited: hasJobCancellationAuditor(job.type),
+  })
   copy.control = classifyJobControl(job, {
     remoteCancellationAudited: hasJobCancellationAuditor(job.type),
   })
@@ -968,6 +978,17 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             mutated = true
             }
           } else if (j.status === 'running') {
+            if (j.pause_requested === true) {
+              j.status = 'paused'
+              j.local_execution_complete = true
+              j.finished_at = null
+              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+              j.output_lines.push('↻ Story Studio restarted — the requested submission pause remains in effect while accepted work is reconciled. Resume is still explicit.')
+              if (requiresCancellationReconciliation(j)) reconciliationJobs.push(j.job_id)
+              jobs.set(j.job_id, j)
+              try { await persistJob(j) } catch {}
+              continue
+            }
             const genStudioRecovery = j.params?.genstudio_recovery
             const genStudioAssets = genStudioRecovery?.version === 1
               && genStudioRecovery?.route === 'genstudio'
@@ -1008,11 +1029,10 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             mutated = true
           } else if (j.status === 'paused') {
             if (hasUnsettledProviderEvidence(j)) {
-              j.status = 'running'
               j.local_execution_complete = true
               j.finished_at = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push('↻ Story Studio restarted — durable provider evidence is still settling; this job remains locked for reconciliation.')
+              j.output_lines.push('↻ Story Studio restarted — this batch remains paused while already accepted provider work settles. Resume is still explicit.')
               if (requiresCancellationReconciliation(j)) reconciliationJobs.push(j.job_id)
             }
             j.pause_requested = false
@@ -1441,13 +1461,9 @@ export async function setQueuePaused(paused: boolean): Promise<void> {
     // The global hold prevents every queued item from being submitted. For
     // GenStudio-backed work already running, request a cooperative safe-point
     // pause: accepted items finish downloading, but workers claim no new item.
-    const pausable = [...jobs.values()].filter(job =>
-      job.status === 'running' && (
-        job.type === 'subtitles_transcribe'
-        || job.params?.provider === 'genstudio'
-        || String(job.params?.model || '').startsWith('genstudio-')
-      ),
-    )
+    const pausable = [...jobs.values()].filter(job => job.status === 'running' && classifyJobControls(job, {
+      remoteCancellationAudited: hasJobCancellationAuditor(job.type),
+    }).some(control => control.action === 'pause-submissions' && control.enabled))
     await Promise.all(pausable.map(job => pauseJob(job.job_id, 'queue')))
   }
   if (wasPaused && !paused) {
@@ -1470,7 +1486,7 @@ export function isQueuePaused(): boolean {
 
 /** Pause one job without cancelling provider work. Queued work is removed
  * before submit; running work observes the request at its next safe boundary. */
-export async function pauseJob(jobId: string, origin: 'manual' | 'queue' = 'manual'): Promise<Job | null> {
+export async function pauseJob(jobId: string, origin: 'manual' | 'queue' | 'stall' = 'manual'): Promise<Job | null> {
   const job = jobs.get(jobId)
   if (!job) return null
   if (job.status === 'queued') {
@@ -1482,6 +1498,10 @@ export async function pauseJob(jobId: string, origin: 'manual' | 'queue' = 'manu
     job.finished_at = null
     job.output_lines.push('Paused before submission. No provider work was started.')
   } else if (job.status === 'running') {
+    const canPause = classifyJobControls(job, {
+      remoteCancellationAudited: hasJobCancellationAuditor(job.type),
+    }).some(control => control.action === 'pause-submissions' && control.enabled)
+    if (!canPause) return null
     pauseRequested.add(jobId)
     job.pause_requested = true
     job.pause_origin = origin
@@ -1492,6 +1512,23 @@ export async function pauseJob(jobId: string, origin: 'manual' | 'queue' = 'manu
   await persistJob(job)
   emitUpdate(job)
   return serializeJob(job)
+}
+
+/** Provider-stall circuit breaker. It stops admission only; no provider cancel is sent. */
+export async function pauseJobForStall(jobId: string, reason: string): Promise<Job | null> {
+  const job = jobs.get(jobId)
+  if (!job || job.status !== 'running' || pauseRequested.has(jobId)) return job ? serializeJob(job) : null
+  const paused = await pauseJob(jobId, 'stall')
+  if (paused) {
+    const current = jobs.get(jobId)
+    if (current) {
+      current.output_lines.push(`Automatic submission hold: ${reason} Already accepted work is still being monitored; nothing was cancelled or retried.`)
+      await persistJob(current)
+      emitUpdate(current)
+      return serializeJob(current)
+    }
+  }
+  return paused
 }
 
 /** Resume the same durable job record. Executors audit disk/manifests first,
@@ -1551,7 +1588,7 @@ function isBulkSceneRender(job: Job): boolean {
 function findActiveBulkSceneRenderInternal(projectSlug: string, episodeId: string): Job | null {
   for (const job of jobs.values()) {
     if (job.project_slug !== projectSlug || job.episode_id !== episodeId) continue
-    if (job.status !== 'queued' && job.status !== 'running') continue
+    if (job.status !== 'queued' && job.status !== 'running' && job.status !== 'paused') continue
     if (isBulkSceneRender(job)) return job
   }
   return null
@@ -2079,6 +2116,16 @@ function controlFor(job: Job): JobControl {
   })
 }
 
+function cancellationControlFor(job: Job): JobControl {
+  return classifyJobControls(job, {
+    remoteCancellationAudited: hasJobCancellationAuditor(job.type),
+  }).find(control => (
+    control.action === 'cancel-before-submit'
+    || control.action === 'stop-local'
+    || control.action === 'request-remote-cancel'
+  )) || controlFor(job)
+}
+
 async function cancelQueuedBeforeSubmit(job: Job): Promise<Job> {
   cancelled.add(job.job_id)
   pauseRequested.delete(job.job_id)
@@ -2169,7 +2216,7 @@ export async function requestJobCancellation(projectSlug: string, jobId: string)
     record.status === 'queued' || record.status === 'submitting' || record.status === 'requested' || record.status === 'reconciling'
   ))) return serializeJob(job)
 
-  const control = controlFor(job)
+  const control = cancellationControlFor(job)
   if (!control.enabled) throw new JobControlError(control)
   if (control.action === 'cancel-before-submit') return cancelQueuedBeforeSubmit(job)
   if (control.action === 'stop-local') return stopLocalJob(job)

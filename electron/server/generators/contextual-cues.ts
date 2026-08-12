@@ -10,20 +10,27 @@ import { existsSync } from 'fs'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { getConfig } from '../services/project-manager.js'
-import { isCancelled } from '../services/job-queue.js'
+import { checkpointJobState, isCancelled } from '../services/job-queue.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import {
   autoApproveEligibleCues,
+  contextualCueProgressFingerprint,
+  isReleasedContextualCueBackpressure,
   normalizeContextualCueConfig,
+  readContextualCueProgress,
   readContextualCueTimeline,
+  removeContextualCueProgress,
   normalizeContextualCueProposalSettings,
   normalizeContextualCueTemplate,
   validateContextualCueTimeline,
+  writeContextualCueProgress,
   writeContextualCueTimeline,
+  type ContextualCueProgress,
 } from '../services/contextual-cues.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan } from '../models/types.js'
 import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
+import { GenStudioChatTerminalFailureError, genStudioAdmissionSnapshot } from '../lib/genstudio-client.js'
 
 interface CueCandidate {
   scene_id: string
@@ -38,6 +45,18 @@ function chunk<T>(items: T[], size: number): T[][] {
   const result: T[][] = []
   for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size))
   return result
+}
+
+const CONTEXTUAL_CUE_BATCH_SIZE = 50
+const CONTEXTUAL_CUE_BACKPRESSURE_RETRIES = 2
+const CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS = 15_000
+
+async function waitWhileActive(jobId: string, delayMs: number): Promise<void> {
+  const deadline = Date.now() + delayMs
+  while (Date.now() < deadline) {
+    if (isCancelled(jobId)) throw new Error('Cancelled by user')
+    await new Promise(resolve => setTimeout(resolve, Math.min(250, deadline - Date.now())))
+  }
 }
 
 function parseCandidates(raw: string): CueCandidate[] {
@@ -128,20 +147,96 @@ export async function generateContextualCues(job: Job): Promise<void> {
 
   const prior = await readContextualCueTimeline(planPath)
   const protectedCues = prior?.cues.filter(cue => cue.status !== 'proposed') || []
-  const batches = chunk(plan.scenes, 50)
-  const candidates: CueCandidate[] = []
-  job.output_lines.push(`Proposing contextual cues in ${batches.length} GenStudio batch(es); existing approved or disabled cues stay untouched.`)
+  const batches = chunk(plan.scenes, CONTEXTUAL_CUE_BATCH_SIZE)
+  const fingerprint = contextualCueProgressFingerprint(plan, settings)
+  const existingProgress = await readContextualCueProgress(planPath)
+  const saved = existingProgress?.fingerprint === fingerprint ? existingProgress : null
+  if (existingProgress && !saved) await removeContextualCueProgress(planPath)
+  const completed = new Map((saved?.completed_batches || []).map(batch => [batch.index, batch]))
+  const candidates: CueCandidate[] = [...completed.values()].flatMap(batch => batch.candidates as CueCandidate[])
+  const snapshot = genStudioAdmissionSnapshot()
+  const submissionSpacingMs = Math.ceil(60_000 / Math.max(1, snapshot.generation_submissions_per_minute))
+  let progress: ContextualCueProgress = saved || {
+    schema_version: 1,
+    fingerprint,
+    source_scene_plan_generated_at: plan.generated_at,
+    model,
+    batch_size: CONTEXTUAL_CUE_BATCH_SIZE,
+    total_scenes: plan.scenes.length,
+    total_batches: batches.length,
+    completed_batches: [],
+    updated_at: new Date().toISOString(),
+  }
+  let lastSubmissionAt = 0
+  job.item_progress = {
+    total: batches.length,
+    completed: completed.size,
+    failed: 0,
+    concurrency: 1,
+    active: [],
+  }
+  job.output_lines.push(
+    `Proposing contextual cues in ${batches.length} paced GenStudio batch(es); ${completed.size} saved batch(es) will be reused. Existing approved or disabled cues stay untouched.`,
+  )
   for (const [index, scenes] of batches.entries()) {
     if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
-    const raw = await callAi(
-      model,
-      'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.',
-      `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: scene.transcript_segment.slice(0, 420) })) )}`,
-      {}, false,
-      { slug: job.project_slug, jobId: `${job.job_id}:batch-${index + 1}`, requestIdentity: `${job.project_slug}:${episodeId}:contextual-cues:${index + 1}`, maxTokens: 3000, outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
-    )
-    candidates.push(...parseCandidates(raw))
-    job.progress = Math.round(((index + 1) / batches.length) * 80)
+    if (completed.has(index)) continue
+    const pacingDelay = Math.max(0, lastSubmissionAt + submissionSpacingMs - Date.now())
+    if (pacingDelay > 0) {
+      job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'waiting_retry', attempt: 1, max_attempts: CONTEXTUAL_CUE_BACKPRESSURE_RETRIES + 1, retry_at: new Date(Date.now() + pacingDelay).toISOString(), reason: 'pacing requests' }]
+      await waitWhileActive(job.job_id, pacingDelay)
+    }
+    let batchCandidates: CueCandidate[] | null = null
+    for (let attempt = 0; attempt <= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES; attempt++) {
+      job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'running', attempt: attempt + 1, max_attempts: CONTEXTUAL_CUE_BACKPRESSURE_RETRIES + 1 }]
+      try {
+        lastSubmissionAt = Date.now()
+        const raw = await callAi(
+          model,
+          'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.',
+          `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: scene.transcript_segment.slice(0, 420) })) )}`,
+          {}, false,
+          { slug: job.project_slug, jobId: job.job_id, requestIdentity: `${job.project_slug}:${episodeId}:contextual-cues:${fingerprint}:batch-${index}:scope-${progress.retry_scopes?.[String(index)] || 'initial'}`, outputBudget: 'standard', outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
+        )
+        batchCandidates = parseCandidates(raw)
+        break
+      } catch (error) {
+        const releasedBackpressure = error instanceof GenStudioChatTerminalFailureError
+          && isReleasedContextualCueBackpressure(error)
+        if (!releasedBackpressure) throw error
+        progress = {
+          ...progress,
+          retry_scopes: { ...(progress.retry_scopes || {}), [String(index)]: error.jobId },
+          updated_at: new Date().toISOString(),
+        }
+        await writeContextualCueProgress(planPath, progress)
+        if (attempt >= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES) throw error
+        job.output_lines.push(
+          `Batch ${index + 1} met confirmed provider backpressure. GenStudio settled 0 credits and released the full reservation; retrying only this batch after a bounded cooldown.`,
+        )
+        job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'waiting_retry', attempt: attempt + 1, max_attempts: CONTEXTUAL_CUE_BACKPRESSURE_RETRIES + 1, retry_at: new Date(Date.now() + CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS).toISOString(), reason: 'provider backpressure' }]
+        await waitWhileActive(job.job_id, CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS)
+      }
+    }
+    if (!batchCandidates) throw new Error(`Contextual cue batch ${index + 1} produced no result.`)
+    candidates.push(...batchCandidates)
+    const completedBatch = { index, scene_ids: scenes.map(scene => scene.id), candidates: batchCandidates }
+    completed.set(index, completedBatch)
+    progress = {
+      ...progress,
+      completed_batches: [...completed.values()].sort((a, b) => a.index - b.index),
+      provisional_cues: applySafePacing(
+        candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings.placement, new Date().toISOString())).filter((cue): cue is ContextualCue => !!cue),
+        settings.density,
+        plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0,
+      ),
+      updated_at: new Date().toISOString(),
+    }
+    await writeContextualCueProgress(planPath, progress)
+    job.item_progress.completed = completed.size
+    job.item_progress.active = []
+    job.progress = Math.round((completed.size / Math.max(1, batches.length)) * 80)
+    await checkpointJobState(job)
   }
   const now = new Date().toISOString()
   let proposed = applySafePacing(
@@ -184,6 +279,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const issues = validateContextualCueTimeline(timeline, plan).filter(issue => !issue.cue_id || !heldIds.has(issue.cue_id))
   if (issues.length) throw new Error(`Generated cues did not pass safe pacing validation: ${issues.slice(0, 3).map(issue => issue.detail).join('; ')}`)
   await writeContextualCueTimeline(planPath, timeline)
+  await removeContextualCueProgress(planPath)
   job.output_dir = paths.episode_dir
   job.progress = 100
   const approvedNow = proposed.filter(cue => cue.status === 'approved').length

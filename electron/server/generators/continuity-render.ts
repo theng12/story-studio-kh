@@ -228,6 +228,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         : 'resume (skip existing)'
 
   const failedSceneIds: string[] = []
+  const cancelledSceneIds = new Set<string>()
   const successfulSceneIds = new Set<string>()
 
   // Live status sidecar — written before each render, cleared when the job ends.
@@ -282,7 +283,29 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     )
 
     const inFlight = new Set<number>()
-    let done = 0
+    const syncItemProgress = () => {
+      const completed = usableRenderedIds.size
+      const settling = inFlight.size
+      const failed = failedSceneIds.length
+      const customerCancelled = cancelledSceneIds.size
+      job.progress = Math.round((completed / Math.max(1, scenes.length)) * 100)
+      job.item_progress = {
+        total: scenes.length,
+        completed,
+        failed,
+        settling,
+        cancelled: customerCancelled,
+        not_submitted: Math.max(0, scenes.length - completed - settling - failed - customerCancelled),
+        concurrency,
+        active: [...inFlight].sort((a, b) => a - b).map(sceneIndex => ({
+          label: `Scene ${sceneIndex}`,
+          key: `scene-${sceneIndex}`,
+          state: 'running' as const,
+          attempt: 1,
+          max_attempts: 1,
+        })),
+      }
+    }
     const pushStatus = () => writeStatus({
       active: true,
       mode: 'batch',
@@ -290,13 +313,23 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       model,
       total: scenes.length,
       to_render: toRender.length,
-      rendered_so_far: done,
+      rendered_so_far: usableRenderedIds.size,
       in_flight: [...inFlight].sort((a, b) => a - b),
       updated_at: new Date().toISOString(),
     })
 
     const taskManifest = await readManifest(outDir)
     const fallbackTargets = toRender.filter(scene => !successfulSceneIds.has(scene.id))
+    syncItemProgress()
+    let lastCompletedAt = Date.now()
+    let stallPauseRequested = false
+    const stallTimer = setInterval(() => {
+      if (stallPauseRequested || inFlight.size === 0 || jq.isPauseRequested(job.job_id)) return
+      if (Date.now() - lastCompletedAt < 10 * 60_000) return
+      stallPauseRequested = true
+      void jq.pauseJobForStall(job.job_id, 'No scene image completed for 10 minutes while provider work was active.')
+    }, 30_000)
+    stallTimer.unref()
     try {
       let idx = 0
       let active = 0
@@ -306,18 +339,19 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       // Resolve once all work is claimed (or the job is cancelled) AND every
       // worker has drained — so a cancelled run can't hang waiting on workers.
       const maybeFinish = () => {
-        if ((fatalError || idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) && active === 0) finishAll()
+        if ((fatalError || idx >= fallbackTargets.length || jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id)) && active === 0) finishAll()
       }
       const worker = async (): Promise<void> => {
         active++
         try {
         while (idx < fallbackTargets.length) {
-          if (jq.isCancelled(job.job_id) || fatalError) return
+          if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id) || fatalError) return
           const scene = fallbackTargets[idx++]!
           const outPath = path.join(outDir, `${scene.id}.png`)
           const sref = buildScenePromptContext(scene)
           const finalPrompt = composePrompt(scene.visual_prompt, sref.includeCharacter)
           inFlight.add(scene.scene_index)
+          syncItemProgress()
           await pushStatus()
           const filename = `${scene.id}.png`
           const providerId = imageProvider.meta.providerId || imageProvider.meta.id
@@ -409,6 +443,9 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                 operation: 'image',
                 last_state: 'prepared',
               })
+              // Pause is distinct from cancellation: recovery GETs above are
+              // allowed to finish, but no new paid POST may cross this point.
+              jq.throwIfPauseRequested(job.job_id)
               result = await imageProvider.generateImage({
                 prompt: finalPrompt,
                 apiKey,
@@ -464,11 +501,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             await saveGenStudioImage(result.urls[0]!, outPath)
             await persistImagePath(scene.id, outPath, scene.visual_prompt)
             successfulSceneIds.add(scene.id)
+            usableRenderedIds.add(scene.id)
+            lastCompletedAt = Date.now()
             job.output_lines.push(
               `Scene ${scene.scene_index}/${scenes.length} (${scene.id}) ✓` +
               `${recovery.kind === 'recovered' ? ` — recovered task ${recovery.taskId.slice(0, 12)}… (no charge)` : ''}`,
             )
           } catch (e: any) {
+            if (e instanceof jq.JobPausedError || jq.isPauseRequested(job.job_id)) return
             if (isGenStudioInsufficientCredits(e)) {
               fatalError = e
               return
@@ -492,15 +532,20 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                 job_id: e.jobId || acceptedTaskId,
                 state: 'failed',
               })
+              if (e.cancelled) cancelledSceneIds.add(scene.id)
             }
             // One failed scene does not block the rest of the durable batch.
-            failedSceneIds.push(scene.id)
-            job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)
+            if (!cancelledSceneIds.has(scene.id)) {
+              failedSceneIds.push(scene.id)
+              job.output_lines.push(`Scene ${scene.scene_index} failed: ${e?.message || e}`)
+            } else {
+              job.output_lines.push(`Scene ${scene.scene_index} cancelled by customer; GenStudio settlement is preserved and this is not counted as a provider failure.`)
+            }
           } finally {
             inFlight.delete(scene.scene_index)
-            done++
-            job.progress = Math.round((done / Math.max(1, toRender.length)) * 100)
+            syncItemProgress()
             await pushStatus()
+            await jq.checkpointJobState(job)
           }
         }
         } finally { active--; maybeFinish() }
@@ -511,7 +556,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       // submission rate, and queue headroom.
       const maxWorkers = concurrency
       const ensureWorkers = () => {
-        if (idx >= fallbackTargets.length || jq.isCancelled(job.job_id) || fatalError) return
+        if (idx >= fallbackTargets.length || jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id) || fatalError) return
         const want = Math.min(maxWorkers, fallbackTargets.length - idx + active)
         while (active < want) void worker()
       }
@@ -521,11 +566,12 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       await allWorkersDone
       if (fatalError) throw fatalError
     } finally {
+      clearInterval(stallTimer)
       await writeStatus({ active: false, updated_at: new Date().toISOString() })
     }
 
     job.output_dir = outDir
-    job.progress = 100
+    syncItemProgress()
     const mediaAudit = await auditSceneImageCompletion(planPath, toRender.map(scene => scene.id), [outDir])
     // One scene can reach this audit from three directions (media audit, the
     // per-scene failure list, and the "never succeeded" sweep). Key everything

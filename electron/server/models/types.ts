@@ -2158,6 +2158,12 @@ export interface JobItemProgress {
   completed: number
   /** Requests that gave up after their final attempt. */
   failed: number
+  /** Accepted provider work still settling or saving locally. */
+  settling?: number
+  /** Provider work GenStudio confirms was cancelled by the customer. */
+  cancelled?: number
+  /** Items in the episode scope that Story has not submitted. */
+  not_submitted?: number
   /**
    * How many items this run may have in flight at once. `1` is the visible
    * evidence that the run is feeding a metered provider one at a time, rather
@@ -2180,9 +2186,11 @@ export interface Job {
   pause_requested?: boolean
   /** Distinguishes a user-paused job from one paused by the global queue hold.
    * Global Resume may restart only `queue` jobs; `manual` jobs stay paused. */
-  pause_origin?: 'manual' | 'queue'
+  pause_origin?: 'manual' | 'queue' | 'stall'
   /** Executor reached a local boundary; remote cancellation settlement may now finalize this job. */
   local_execution_complete?: boolean
+  /** Every server-authoritative action currently available; `control` remains the primary compatibility view. */
+  controls?: JobControl[]
   created_at: string
   started_at: string | null
   finished_at: string | null

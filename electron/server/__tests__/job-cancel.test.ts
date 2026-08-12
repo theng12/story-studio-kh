@@ -680,6 +680,35 @@ describe('remote cancellation checkpoints', () => {
     }
     assert.equal(jq.getJob(job.job_id)?.status, 'paused')
   })
+
+  test('scene image Pause stops the next item without requesting provider cancellation', async () => {
+    const project = await pm.createProject({ name: 'SceneImageCooperativePause' })
+    let release!: () => void
+    let firstStarted!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    const started = new Promise<void>(resolve => { firstStarted = resolve })
+    let submitted = 0
+    jq.registerExecutor('continuity_render', async job => {
+      submitted++
+      firstStarted()
+      await hold
+      jq.throwIfPauseRequested(job.job_id)
+      submitted++
+    })
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'continuity_render', episode_id: 'PAUSE_IMAGES', title: 'pause images', params: {},
+    })
+    await started
+    const pausedRequest = await jq.pauseJob(job.job_id)
+    assert.equal(pausedRequest?.pause_requested, true)
+    assert.deepEqual(pausedRequest?.remote_cancellations || {}, {})
+    release()
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'paused') await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+    assert.equal(submitted, 1)
+    assert.equal(jq.isDuplicate(project.slug, 'PAUSE_IMAGES', 'continuity_render'), true)
+  })
 })
 
 describe('terminal provider-evidence guards', () => {
@@ -753,8 +782,9 @@ describe('terminal provider-evidence guards', () => {
     try {
       await jq.requestJobCancellation(project.slug, job.job_id)
       const reconcileDeadline = Date.now() + 1_000
-      while (Date.now() < reconcileDeadline && requests.length < 2) await new Promise(resolve => setTimeout(resolve, 20))
-      assert.deepEqual(requests, [
+      const ownRequests = () => requests.filter(entry => entry.includes('/live-cancel-target'))
+      while (Date.now() < reconcileDeadline && ownRequests().length < 2) await new Promise(resolve => setTimeout(resolve, 20))
+      assert.deepEqual(ownRequests(), [
         'GET /v1/jobs/live-cancel-target',
         'POST /v1/jobs/live-cancel-target/cancel',
       ])
@@ -796,8 +826,9 @@ describe('terminal provider-evidence guards', () => {
       assert.ok(controlled.remote_cancellations?.['voice.tts:accepted-tts'])
       assert.doesNotMatch(controlled.output_lines.join('\n'), /sent no provider request/i)
       const reconcileDeadline = Date.now() + 1_000
-      while (Date.now() < reconcileDeadline && requests.length < 2) await new Promise(resolve => setTimeout(resolve, 20))
-      assert.deepEqual(requests, [
+      const ownRequests = () => requests.filter(entry => entry.path.includes('/accepted-tts'))
+      while (Date.now() < reconcileDeadline && ownRequests().length < 2) await new Promise(resolve => setTimeout(resolve, 20))
+      assert.deepEqual(ownRequests(), [
         { method: 'GET', path: '/v1/jobs/accepted-tts' },
         { method: 'POST', path: '/v1/jobs/accepted-tts/cancel' },
       ])

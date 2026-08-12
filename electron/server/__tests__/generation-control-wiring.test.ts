@@ -25,6 +25,15 @@ function source(relativePath: string): string {
   return readFileSync(new URL(relativePath, import.meta.url), 'utf8')
 }
 
+test('continuity image workers stop claiming scenes at a cooperative pause boundary and report the episode denominator', () => {
+  const continuity = source('../generators/continuity-render.ts')
+  assert.match(continuity, /jq\.isPauseRequested\(job\.job_id\)/)
+  assert.match(continuity, /jq\.pauseJobForStall\(job\.job_id/)
+  assert.match(continuity, /total:\s*scenes\.length/)
+  assert.match(continuity, /not_submitted:/)
+  assert.match(continuity, /cancelled:/)
+})
+
 async function createEpisode(name: string) {
   const pm = await import('../services/project-manager.js')
   const ideas = await import('../services/idea-manager.js')

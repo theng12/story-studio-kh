@@ -26,7 +26,7 @@ const PAUSABLE_SUBMISSION_TYPES = new Set<Job['type']>([
   // These executors check the cooperative pause marker between submissions.
   // Image batches currently do not, so advertising Pause there would let an
   // in-flight batch continue submitting work after promising otherwise.
-  'audio', 'subtitles_transcribe',
+  'audio', 'subtitles_transcribe', 'continuity_render', 'scene_images_batch',
 ])
 
 function control(
@@ -66,7 +66,7 @@ function describes(entry: JobEvidence): string {
  * The single authority for active-job controls. It deliberately needs actual
  * GenStudio evidence before offering a provider cancellation request.
  */
-export function classifyJobControl(
+function classifyProviderJobControl(
   job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error'>,
   capabilities: JobControlCapabilities,
 ): JobControl {
@@ -159,4 +159,35 @@ export function classifyJobControl(
   }
 
   return control('return-later', false, 'Return later', 'Story Studio is waiting for authoritative provider settlement.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+}
+
+/**
+ * A batch may safely expose two independent controls at once: pausing future
+ * submissions and asking GenStudio to cancel exact pre-dispatch targets.
+ * Neither action is allowed to impersonate the other.
+ */
+export function classifyJobControls(
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error'>,
+  capabilities: JobControlCapabilities,
+): JobControl[] {
+  const provider = classifyProviderJobControl(job, capabilities)
+  const canPause = job.status === 'running' && PAUSABLE_SUBMISSION_TYPES.has(job.type)
+  if (!canPause) return [provider]
+  const pause = control(
+    'pause-submissions',
+    true,
+    'Pause new submissions',
+    'Story Studio will stop claiming new items. Already accepted work will finish settling and checkpointing.',
+    'READY',
+    'none',
+  )
+  return provider.action === 'pause-submissions' ? [pause] : [pause, provider]
+}
+
+/** Backwards-compatible primary control; public snapshots also include all controls. */
+export function classifyJobControl(
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error'>,
+  capabilities: JobControlCapabilities,
+): JobControl {
+  return classifyProviderJobControl(job, capabilities)
 }

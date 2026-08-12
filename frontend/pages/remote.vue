@@ -71,10 +71,15 @@
               <span v-if="job.status === 'error'" class="rm-err-tag">— failed</span>
             </p>
             <p class="rm-job-sub">{{ jobSubline(job) }}</p>
-            <p v-if="job.control" class="rm-job-control" :class="`control-${job.control.action}`">
-              <template v-if="hasPendingCancellation(job)">Story Studio is reconciling the cancellation result. </template>
-              <template v-else-if="job.control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
-              {{ job.control.reason }}
+            <p
+              v-for="control in jobControls(job)"
+              :key="`reason-${control.action}`"
+              class="rm-job-control"
+              :class="`control-${control.action}`"
+            >
+              <template v-if="hasPendingCancellation(job) && control.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
+              <template v-else-if="control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
+              {{ control.reason }}
             </p>
           </div>
           <button
@@ -84,13 +89,14 @@
             @click="retry(job)"
           >Retry</button>
           <button
-            v-if="job.control && job.control.action !== 'none'"
+            v-for="control in jobControls(job)"
+            :key="control.action"
             class="rm-job-btn rm-stop"
-            :disabled="!job.control.enabled || controlling.has(job.job_id)"
-            :aria-label="`${job.control.label} ${job.title || job.type}`"
-            :title="job.control.reason"
-            @click="runJobControl(job)"
-          >{{ controlling.has(job.job_id) ? 'Working…' : job.control.label }}</button>
+            :disabled="!control.enabled || controlling.has(job.job_id)"
+            :aria-label="`${control.label} ${job.title || job.type}`"
+            :title="control.reason"
+            @click="runJobControl(job, control)"
+          >{{ controlling.has(job.job_id) ? 'Working…' : control.label }}</button>
         </div>
       </section>
 
@@ -155,8 +161,16 @@ const activeJobs = computed<Job[]>(() =>
   (jobs.value as Job[]).filter(j => j.status === 'running' || j.status === 'queued' || j.status === 'paused' || j.status === 'error'),
 )
 const BULK_CONTROL_ACTIONS = new Set(['cancel-before-submit', 'stop-local', 'request-remote-cancel'])
+type JobControl = NonNullable<Job['control']>
+function jobControls(job: Job): JobControl[] {
+  return (job.controls?.length ? job.controls : (job.control ? [job.control] : []))
+    .filter(control => control.action !== 'none')
+}
+function bulkControl(job: Job): JobControl | undefined {
+  return jobControls(job).find(control => control.enabled && BULK_CONTROL_ACTIONS.has(control.action))
+}
 const bulkControlJobs = computed(() => activeJobs.value.filter(job =>
-  !!job.control?.enabled && BULK_CONTROL_ACTIONS.has(job.control.action),
+  !!bulkControl(job),
 ))
 const bulkSkippedCount = computed(() => activeJobs.value.length - bulkControlJobs.value.length)
 
@@ -280,8 +294,8 @@ function hasPendingCancellation(job: Job): boolean {
   )
 }
 
-async function runJobControl(job: Job): Promise<boolean> {
-  const control = job.control
+async function runJobControl(job: Job, requestedControl?: JobControl): Promise<boolean> {
+  const control = requestedControl || job.control
   if (!control?.enabled || controlling.value.has(job.job_id)) return false
   controlling.value = new Set(controlling.value).add(job.job_id)
   try {
@@ -310,7 +324,7 @@ async function requestEligibleControls() {
   const total = activeJobs.value.length
   stoppingAll.value = true
   try {
-    const outcomes = await Promise.all(snapshot.map(job => runJobControl(job)))
+    const outcomes = await Promise.all(snapshot.map(job => runJobControl(job, bulkControl(job))))
     const requested = outcomes.filter(Boolean).length
     const unchanged = total - requested
     success(`Requested safe action for ${requested} job${requested === 1 ? '' : 's'}; left ${unchanged} unchanged.`)
