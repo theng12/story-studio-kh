@@ -378,7 +378,7 @@ export async function generateAudio(job: Job): Promise<void> {
     const totalFixed = normalizeSectionsForTts(allSections)
     if (totalFixed) {
       job.output_lines.push(
-        `Normalized ${totalFixed} TTS-unfriendly mark(s) (em dashes, smart quotes, …) for natural delivery.`,
+        `Prepared ${totalFixed} TTS text item(s) (spoken numbers and punctuation) for natural delivery.`,
       )
     }
   }

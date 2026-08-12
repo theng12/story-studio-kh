@@ -24,6 +24,7 @@ import { existsSync } from 'fs'
 import { buildNarrationDocx } from './docx-builder.js'
 import { narrationDocxToMarkdown } from './docx-parser.js'
 import { matchChapterFile, resolveArtifact, resolveReadPath } from './episode-artifacts.js'
+import { normalizeSpokenNumbers } from './tts-text.js'
 
 export interface NarrationParts {
   intro?: { text: string }
@@ -32,6 +33,11 @@ export interface NarrationParts {
     title: string
     text: string
   }>
+}
+
+export interface WriteChapterFilesOptions {
+  /** False only for byte-preserving legacy materialisation. New saves default true. */
+  normalizeSpokenProse?: boolean
 }
 
 // ── Bulk LLM output → per-chapter parts ────────────────────────────────────
@@ -159,6 +165,7 @@ export async function writeChapterFiles(
   code: string,
   episodeTitle: string,
   parts: NarrationParts,
+  options: WriteChapterFilesOptions = {},
 ): Promise<void> {
   await fs.mkdir(scriptDir, { recursive: true })
 
@@ -168,7 +175,10 @@ export async function writeChapterFiles(
   // The unified narration docx still gets the full title block (see
   // assembleUnifiedNarration's buildNarrationDocx call below).
   for (const ch of parts.chapters) {
-    const md = `## Chapter ${ch.number.toString().padStart(2, '0')}: ${ch.title}\n\n${ch.text}\n`
+    const spokenText = options.normalizeSpokenProse === false
+      ? ch.text
+      : normalizeSpokenNumbers(ch.text).text
+    const md = `## Chapter ${ch.number.toString().padStart(2, '0')}: ${ch.title}\n\n${spokenText}\n`
     await buildNarrationDocx(
       md, code, episodeTitle, chapterFilePath(scriptDir, code, ch.number),
       { includeTitleBlock: false },
@@ -176,7 +186,10 @@ export async function writeChapterFiles(
   }
 
   if (parts.intro) {
-    const md = `# Introduction\n\n${parts.intro.text}\n`
+    const spokenText = options.normalizeSpokenProse === false
+      ? parts.intro.text
+      : normalizeSpokenNumbers(parts.intro.text).text
+    const md = `# Introduction\n\n${spokenText}\n`
     await buildNarrationDocx(
       md, code, episodeTitle, introductionFilePath(scriptDir, code),
       { includeTitleBlock: false },
@@ -324,7 +337,7 @@ export async function ensureChapterFilesMigrated(
 
   if (!parts.chapters.length && !parts.intro) return false
 
-  await writeChapterFiles(scriptDir, code, episodeTitle, parts)
+  await writeChapterFiles(scriptDir, code, episodeTitle, parts, { normalizeSpokenProse: false })
 
   // Always re-assemble: the unified narration on disk may have legacy
   // headings (e.g. `# {title} — Narration (5000+ words)`) or be missing

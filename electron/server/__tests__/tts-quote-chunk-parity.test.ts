@@ -76,6 +76,22 @@ test('the quoted requests are byte-for-byte the requests generation submits', ()
   }
 })
 
+test('legacy digit narration is converted before quote, split, and submission planning', () => {
+  const sections = [{
+    slug: 'ch01',
+    label: 'Chapter 01',
+    text: 'On January 18, 1871, 42 percent of the delegates agreed.',
+  }]
+  normalizeSectionsForTts(sections)
+  const requests = flattenTtsRequestPlan(planGenStudioTtsRequests(sections, PUBLISHED_MAX_CHARACTERS))
+  assert.equal(requests.length, 1)
+  assert.equal(
+    requests[0]!.text,
+    'On January eighteenth, eighteen seventy-one, forty-two percent of the delegates agreed.',
+  )
+  assert.equal(requests[0]!.characters, requests[0]!.text.length)
+})
+
 test('a narration long enough to split really is quoted as several requests', () => {
   const texts = quotedTexts('all', PUBLISHED_MAX_CHARACTERS)
   assert.ok(texts.length > 3, 'the fixture must actually split, or this proves nothing')

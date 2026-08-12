@@ -140,10 +140,10 @@ export interface PlannedTtsRequest {
 }
 
 /**
- * The pre-TTS punctuation cleanup, applied in place before any splitting.
+ * The pre-TTS spoken-text cleanup, applied in place before any splitting.
  *
  * Generation runs this before chunking, so the boundaries fall in the CLEANED
- * text. Quoting the raw text would move every boundary after the first change
+ * text (including spoken numbers). Quoting the raw text would move every boundary after the first change
  * and quote pieces nobody submits. Returns the number of marks rewritten,
  * which the generator reports in its job log.
  */

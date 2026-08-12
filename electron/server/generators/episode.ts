@@ -223,7 +223,8 @@ function systemPrompt(format: Format, productionStandards: string): string {
   const ttsWritingGuidance = `Write for the EAR — this script is read aloud by a text-to-speech voice:
 - Use ONLY simple, spoken punctuation: periods, commas, and question marks. Do NOT use em dashes or en dashes (—, –), semicolons, ellipses (…), parentheses, asterisks, or any markdown/special symbols — speech engines read them unnaturally. Use a comma or start a new sentence instead.
 - Favour natural, speakable sentences with varied length. Avoid long, clause-stacked or piled-up appositive phrasing (e.g. "the old light in his eyes, a sentinel, a friend") that sounds artificial when spoken aloud.
-- Spell things as they should be said (e.g. "Doctor" not "Dr.", "and" not "&").`
+- Spell things as they should be said (e.g. "Doctor" not "Dr.", "and" not "&").
+- Write ordinary numbers as words in the narration. Use conventional spoken years: 1871 is "eighteen seventy-one", 2001 is "two thousand one", and 2010 is "twenty ten". Write dates, quantities, percentages, and currency exactly as the voice should say them. Keep digits only when they are intentionally exact identifiers, URLs, citations, equations, model names, file names, addresses, or other technical literals. Required structural headings must retain their requested chapter or section numbers as digits.`
 
   const baseSystem = `${format.script.systemPromptRole}
 

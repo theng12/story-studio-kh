@@ -152,6 +152,38 @@ describe('splitNarrationIntoChapters', () => {
 })
 
 describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
+  test('stores spoken numbers in chapter prose without rewriting headings or technical identifiers', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpRoot, 'roundtrip-spoken-numbers-'))
+    const code = 'HMH0001'
+    const title = 'The 1871 Archive'
+    const parts = {
+      chapters: [{
+        number: 1,
+        title: '1871 and GPT-5.6',
+        text: 'On January 18, 1871, 42 percent used GPT-5.6. See https://example.com/1871.',
+      }],
+    }
+
+    await writeChapterFiles(dir, code, title, parts)
+    const chapterPath = chapterFilePath(dir, code, 1)
+    const first = await fs.readFile(chapterPath, 'utf8')
+    assert.match(first, /^## Chapter 01: 1871 and GPT-5\.6/m, 'heading is metadata and keeps exact digits')
+    assert.match(first, /January eighteenth, eighteen seventy-one/)
+    assert.match(first, /forty-two percent used GPT-5\.6/)
+    assert.match(first, /https:\/\/example\.com\/1871/)
+
+    await assembleUnifiedNarration(dir, code, title)
+    const unifiedPath = path.join(dir, `${code}_Script_Narration.md`)
+    const unifiedFirst = await fs.readFile(unifiedPath, 'utf8')
+    assert.match(unifiedFirst, /^The 1871 Archive$/m, 'episode title keeps its exact digits')
+    assert.match(unifiedFirst, /January eighteenth, eighteen seventy-one/)
+
+    await writeChapterFiles(dir, code, title, parts)
+    await assembleUnifiedNarration(dir, code, title)
+    assert.equal(await fs.readFile(chapterPath, 'utf8'), first, 'second write is byte-stable')
+    assert.equal(await fs.readFile(unifiedPath, 'utf8'), unifiedFirst, 'second assembly is byte-stable')
+  })
+
   test('chapters-only round-trip: parsed sections match the original section list', async () => {
     const dir = await fs.mkdtemp(path.join(tmpRoot, 'roundtrip-'))
     const code = 'TST0001'
@@ -252,6 +284,18 @@ describe('writeChapterFiles + assembleUnifiedNarration round-trip', () => {
 })
 
 describe('ensureChapterFilesMigrated', () => {
+  test('legacy materialisation preserves digit prose until the owner regenerates it', async () => {
+    const dir = await fs.mkdtemp(path.join(tmpRoot, 'migrate-preserve-digits-'))
+    const code = 'TST1871'
+    const title = 'Legacy 1871'
+    const unified = `# ${title} — Narration\n\n## Chapter 01: A Date\n\nOn January 18, 1871, it happened.`
+    await buildNarrationDocx(unified, code, title, path.join(dir, `${code}_Script_Narration.md`))
+
+    assert.equal(await ensureChapterFilesMigrated(dir, code, title), true)
+    const migrated = await fs.readFile(chapterFilePath(dir, code, 1), 'utf8')
+    assert.match(migrated, /January 18, 1871/, 'migration must not silently rewrite customer narration')
+  })
+
   test('materialises chapter files from a legacy unified-only narration', async () => {
     const dir = await fs.mkdtemp(path.join(tmpRoot, 'migrate-'))
     const code = 'TST0006'
