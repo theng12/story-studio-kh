@@ -968,16 +968,6 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             mutated = true
             }
           } else if (j.status === 'running') {
-            if (requiresCancellationReconciliation(j)) {
-              // The provider request already has a durable identity. Never convert it to an
-              // interrupted error or requeue it into a generation lane.
-              j.local_execution_complete = true
-              j.finished_at = null
-              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio request before allowing any retry.')
-              reconciliationJobs.push(j.job_id)
-              mutated = true
-            } else {
             const genStudioRecovery = j.params?.genstudio_recovery
             const genStudioAssets = genStudioRecovery?.version === 1
               && genStudioRecovery?.route === 'genstudio'
@@ -993,7 +983,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
                 && asset.idempotency_key.startsWith('story-')
                 && asset?.state !== 'failed'
               ))
-            if (recoverableGenStudio) {
+            if (recoverableGenStudio && !hasCancellationContext(j)) {
               j.status = 'queued'
               j.started_at = null
               j.finished_at = null
@@ -1002,13 +992,20 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               j.output_lines.push('↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
+            } else if (requiresCancellationReconciliation(j)) {
+              // The provider request already has a durable identity. Never convert it to an
+              // interrupted error or requeue it into a generation lane.
+              j.local_execution_complete = true
+              j.finished_at = null
+              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+              j.output_lines.push('↻ Story Studio restarted — reconciling the existing GenStudio request before allowing any retry.')
+              reconciliationJobs.push(j.job_id)
             } else {
               j.status = 'error'
               j.error = 'Interrupted by app restart'
               j.finished_at = j.finished_at || new Date().toISOString()
             }
             mutated = true
-            }
           } else if (j.status === 'paused') {
             if (hasUnsettledProviderEvidence(j)) {
               j.status = 'running'
