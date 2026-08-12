@@ -8,12 +8,63 @@ import {
 const capacity = (
   overrides: Partial<GenStudioAccountCapacity> = {},
 ): GenStudioAccountCapacity => ({
+  credit_balance: 250,
   paid_concurrency_limit: 3,
   paid_active_jobs: 0,
   paid_queued_jobs: 0,
   max_queued_jobs: 25,
   generation_submissions_per_minute: 30,
   ...overrides,
+})
+
+test('insufficient credits reject same-key waiters without touching another key', async () => {
+  const pool = new GenStudioAdmissionPool(async apiKey => capacity({
+    credit_balance: apiKey === 'low-key' ? 76 : 20_000,
+    paid_concurrency_limit: 1,
+  }))
+  const activeGate = deferred()
+  const active = pool.run('low-key', undefined, async () => activeGate.promise)
+  let sameKeySubmitted = false
+  let fullKeySubmitted = false
+  const sameKey = pool.run('low-key', undefined, async () => { sameKeySubmitted = true })
+  const fullKey = pool.run('full-key', undefined, async () => { fullKeySubmitted = true })
+
+  await new Promise(resolve => setImmediate(resolve))
+  pool.noteInsufficientCredits('low-key', new Error('insufficient credits'))
+
+  await assert.rejects(sameKey, /insufficient credits/)
+  assert.equal(sameKeySubmitted, false)
+  assert.equal(fullKeySubmitted, false)
+
+  activeGate.resolve()
+  await active
+  await fullKey
+  assert.equal(fullKeySubmitted, true)
+})
+
+test('held key stays blocked until an authoritative balance increase', async () => {
+  let balance = 76
+  let reads = 0
+  const pool = new GenStudioAdmissionPool(async () => {
+    reads += 1
+    return capacity({ credit_balance: balance })
+  }, 60_000, 10)
+  await pool.refreshNow('same-key')
+  pool.noteInsufficientCredits('same-key', new Error('add credits, then Retry'))
+
+  let unchangedSubmitted = false
+  await assert.rejects(
+    pool.run('same-key', undefined, async () => { unchangedSubmitted = true }),
+    /add credits, then Retry/,
+  )
+  assert.equal(unchangedSubmitted, false)
+
+  balance = 2_000
+  let replenishedSubmitted = false
+  await pool.run('same-key', undefined, async () => { replenishedSubmitted = true })
+
+  assert.equal(replenishedSubmitted, true)
+  assert.ok(reads >= 3, 'held admission performs a fresh authoritative balance read')
 })
 
 const deferred = () => {

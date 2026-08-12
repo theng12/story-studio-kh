@@ -1712,6 +1712,7 @@ const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<Ge
   const burstCeiling = positiveInteger(overview.burst_concurrency_ceiling)
   const tierStanding = parseServiceTierStanding(overview.service_tier)
   return {
+    credit_balance: overview.credit_balance,
     paid_concurrency_limit: overview.paid_concurrency_limit,
     paid_active_jobs: overview.paid_active_jobs,
     paid_queued_jobs: overview.paid_queued_jobs,
@@ -2525,6 +2526,10 @@ export class GenStudioApiError extends Error {
   }
 }
 
+export function isGenStudioInsufficientCredits(error: unknown): error is GenStudioApiError {
+  return error instanceof GenStudioApiError && error.status === 402
+}
+
 export function isGenStudioReleaseGenerationUnavailable(
   status: number,
   detail: string,
@@ -2740,6 +2745,7 @@ async function requestJsonWithRetry(
         }
         if (apiKey) genStudioAdmission.noteSubmissionReachable()
         if (response.status === 402) {
+          if (apiKey) genStudioAdmission.noteInsufficientCredits(apiKey, error)
           await request.onQueueState?.('waiting_credits')
           throw error
         }

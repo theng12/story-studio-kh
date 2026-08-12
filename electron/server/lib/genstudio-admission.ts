@@ -18,6 +18,7 @@ export interface GenStudioServiceTierStanding {
 }
 
 export interface GenStudioAccountCapacity {
+  credit_balance?: number
   paid_concurrency_limit: number
   paid_active_jobs: number
   paid_queued_jobs: number
@@ -54,6 +55,11 @@ interface AdmissionWaiter {
   abort?: () => void
   onState?: (state: GenStudioAdmissionState) => void | Promise<void>
   state?: GenStudioAdmissionState
+}
+
+interface CreditHold {
+  error: Error
+  balance: number | null
 }
 
 const WINDOW_MS = 60_000
@@ -106,6 +112,11 @@ function validTierStanding(value: unknown): value is GenStudioServiceTierStandin
 
 function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCapacity {
   return {
+    ...(typeof value.credit_balance === 'number'
+      && Number.isInteger(value.credit_balance)
+      && value.credit_balance >= 0
+      ? { credit_balance: value.credit_balance }
+      : {}),
     paid_concurrency_limit: whole(value.paid_concurrency_limit, 1, 1),
     paid_active_jobs: whole(value.paid_active_jobs, 0),
     paid_queued_jobs: whole(value.paid_queued_jobs, 0),
@@ -135,6 +146,8 @@ export class GenStudioAdmissionPool {
   private holdUntil = 0
   private globalFailure: Error | null = null
   private globalFailureUntil = 0
+  private readonly creditBalances = new Map<string, number>()
+  private readonly creditHolds = new Map<string, CreditHold>()
   private readonly submissionTimes: number[] = []
   private readonly waiters: AdmissionWaiter[] = []
   private wakeTimer: ReturnType<typeof setTimeout> | null = null
@@ -175,6 +188,7 @@ export class GenStudioAdmissionPool {
   ): Promise<T> {
     if (signal?.aborted) throw new Error('Cancelled by user')
     await this.refresh(apiKey)
+    await this.requireCreditReady(apiKey)
     return new Promise<T>((resolve, reject) => {
       const waiter: AdmissionWaiter = {
         apiKey,
@@ -244,12 +258,51 @@ export class GenStudioAdmissionPool {
     this.drain()
   }
 
+  /** Reject every not-yet-submitted request for the account that returned 402. */
+  noteInsufficientCredits(apiKey: string, error: Error): void {
+    this.creditHolds.set(apiKey, {
+      error,
+      balance: this.creditBalances.get(apiKey) ?? null,
+    })
+    const blocked = this.waiters.filter(waiter => waiter.apiKey === apiKey)
+    for (const waiter of blocked) {
+      const index = this.waiters.indexOf(waiter)
+      if (index >= 0) this.waiters.splice(index, 1)
+      this.rejectWaiter(waiter, error)
+    }
+    this.scheduleWake()
+  }
+
+  private async requireCreditReady(apiKey: string): Promise<void> {
+    const hold = this.creditHolds.get(apiKey)
+    if (!hold) return
+    try {
+      const fresh = normalizeCapacity(await this.loadCapacity(apiKey))
+      const balance = fresh.credit_balance
+      if (balance !== undefined) this.creditBalances.set(apiKey, balance)
+      if (hold.balance !== null && balance !== undefined && balance > hold.balance) {
+        this.creditHolds.delete(apiKey)
+        this.capacity = fresh
+        this.limitSource = 'account-overview'
+        this.refreshedAt = Date.now()
+        this.refreshAfter = Date.now() + this.cacheMs
+        return
+      }
+    } catch {
+      // An unavailable balance cannot prove that the account was replenished.
+    }
+    throw hold.error
+  }
+
   private async refresh(apiKey: string): Promise<void> {
     if (Date.now() < this.refreshAfter) return
     if (this.refreshPromise) return this.refreshPromise
     this.refreshPromise = (async () => {
       try {
         this.capacity = normalizeCapacity(await this.loadCapacity(apiKey))
+        if (this.capacity.credit_balance !== undefined) {
+          this.creditBalances.set(apiKey, this.capacity.credit_balance)
+        }
         this.limitSource = 'account-overview'
         this.refreshedAt = Date.now()
         this.refreshAfter = Date.now() + this.cacheMs
