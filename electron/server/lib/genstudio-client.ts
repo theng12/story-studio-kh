@@ -2027,6 +2027,32 @@ async function recordGenStudioEvidence(
   }
 }
 
+interface GenStudioSubmissionEvidence {
+  operation: GenStudioOperation
+  preview: GenStudioRequestPreview
+}
+
+async function recordGenStudioCreditRefusal(
+  evidence: GenStudioSubmissionEvidence,
+  error: GenStudioApiError,
+): Promise<void> {
+  const queue = await import('../services/job-queue.js')
+  const storyJobId = queue.currentJobId()
+  const idempotencyKey = evidence.preview.idempotency_key
+  if (!storyJobId || !idempotencyKey) return
+  await queue.recordGenStudioJob(storyJobId, {
+    id: pendingGenStudioEntryId(idempotencyKey),
+    operation: evidence.operation,
+    state: 'failed',
+    dispatch_state: 'pre_dispatch',
+    model_id: evidence.preview.model_id,
+    queue_state: 'waiting_credits',
+    failure_code: error.code || null,
+    updated_at: new Date().toISOString(),
+    request: evidence.preview,
+  })
+}
+
 export function catalogHasVoice(voices: GenStudioVoice[], voiceId: unknown): boolean {
   if (typeof voiceId !== 'string' || !voiceId.trim()) return false
   return voices.some(voice => voice.id === voiceId.trim() && voice.generation_enabled !== false)
@@ -2816,12 +2842,20 @@ async function submitJsonWithAdmission(
   deadline: number,
   operationTimeoutMs: number = GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   noRetryStatuses: readonly number[] = [],
+  evidence?: GenStudioSubmissionEvidence,
 ): Promise<any> {
-  return withGenStudioAdmission(
-    apiKey,
-    request,
-    () => requestJsonWithRetry(url, init, request, deadline, apiKey, operationTimeoutMs, noRetryStatuses),
-  )
+  try {
+    return await withGenStudioAdmission(
+      apiKey,
+      request,
+      () => requestJsonWithRetry(url, init, request, deadline, apiKey, operationTimeoutMs, noRetryStatuses),
+    )
+  } catch (error) {
+    if (evidence && isGenStudioInsufficientCredits(error)) {
+      await recordGenStudioCreditRefusal(evidence, error)
+    }
+    throw error
+  }
 }
 
 /**
@@ -2850,12 +2884,13 @@ async function submitLanguageJson(
   init: RequestInit,
   request: GenStudioOperationContext,
   deadline: number,
+  evidence: GenStudioSubmissionEvidence,
 ): Promise<any> {
   const poller = createGenStudioJobPoller()
   for (;;) {
     try {
       return await submitJsonWithAdmission(
-        apiKey, url, init, request, deadline, GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS, [502, 504],
+        apiKey, url, init, request, deadline, GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS, [502, 504], evidence,
       )
     } catch (error) {
       if (!isGenStudioRequestInProgress(error)) throw error
@@ -3883,6 +3918,9 @@ async function generateVideoWithGenStudioAdmitted(
     },
     request,
     deadline,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [],
+    { operation: 'video.generation', preview: requestPreview },
   ) as GenStudioVideoJob
   await recordGenStudioEvidence('video.generation', submitted, requestPreview)
   await reportQueueState(request, submitted)
@@ -4941,6 +4979,7 @@ async function callChatViaResponses(
       },
       request,
       deadline,
+      { operation: 'chat.response', preview: requestPreview },
     ) as GenStudioChatJob
   } catch (error) {
     if (request.isCancelled?.() || request.signal?.aborted) throw error
@@ -5024,6 +5063,7 @@ async function callChatViaCompletions(
     },
     request,
     deadline,
+    { operation: 'chat.response', preview: requestPreview },
   ) as GenStudioChatCompletion
   // The exchange is over the moment the response lands: whatever the envelope
   // turns out to say, this account's in-flight slot is free. Release it before
@@ -5524,6 +5564,9 @@ async function generateImageWithGenStudioAdmitted(
     },
     request,
     deadline,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [],
+    { operation: 'image.generation', preview: requestPreview },
   ) as GenStudioImageJob
   await recordGenStudioEvidence('image.generation', submitted, requestPreview)
   await reportQueueState(request, submitted)
@@ -5784,6 +5827,9 @@ async function transcribeWithGenStudioAdmitted(
     },
     request,
     deadline,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [],
+    { operation: 'audio.transcription', preview: requestPreview },
   ).catch((error: unknown) => {
     if (error instanceof GenStudioApiError && isTerminalQuoteStatus(error.status)) {
       throw new GenStudioTranscriptionQuoteExpiredError(error.status, error.detail)
@@ -5804,6 +5850,9 @@ async function transcribeWithGenStudioAdmitted(
     },
     request,
     deadline,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [],
+    { operation: 'audio.transcription', preview: requestPreview },
   ).catch((error: unknown) => {
     if (error instanceof GenStudioApiError && isTerminalQuoteStatus(error.status)) {
       throw new GenStudioTranscriptionQuoteExpiredError(error.status, error.detail)
@@ -6020,6 +6069,9 @@ async function generateTtsToFileAdmitted(
     },
     request,
     deadline,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [],
+    { operation: 'voice.tts', preview: requestPreview },
   ) as GenStudioJob
   await recordGenStudioEvidence('voice.tts', submitted, requestPreview)
   await reportQueueState(request, submitted)

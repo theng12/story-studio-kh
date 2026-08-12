@@ -27,6 +27,7 @@ import {
   GENSTUDIO_REQUEST_PREVIEW_RETAINED,
 } from '../lib/genstudio-request-preview.js'
 import { registerSecretForRedaction } from '../lib/redact-secrets.js'
+import { callChatWithGenStudio, clearGenStudioCatalogCache } from '../lib/genstudio-client.js'
 
 /** Assembled at runtime so the literal never sits in the source tree. */
 const LIVE_KEY = ['gsk', 'live', '9f2c4a7b8d1e6350aa'].join('_')
@@ -332,5 +333,75 @@ describe('job-queue adopts the pre-submit preview', () => {
     assert.equal(entries[0]!.credit_cost, 3, 'later polls still merge normally')
     assert.equal(entries[0]!.request?.messages?.[0]?.text, 'Write about magnets.',
       'a poll without a preview must not erase the captured request')
+  })
+
+  test('a 402 makes the saved request a terminal pre-dispatch credit refusal', async () => {
+    const project = await pm.createProject({ name: 'GenStudio Credit Refusal' })
+    const originalFetch = globalThis.fetch
+    clearGenStudioCatalogCache()
+    let posts = 0
+    try {
+      globalThis.fetch = async (input, init) => {
+        const url = String(input)
+        if (url.endsWith('/v1/chat/models')) {
+          return Response.json([{
+            id: 'credit-writer', display_name: 'Credit Writer', available: true,
+            qualification_only: false, context_window_tokens: 65_536,
+            max_output_tokens: 8_192, controls: ['max_output_tokens'],
+            activation_blockers: [], structured_output_mode: 'json_object',
+            supports_structured_output: true,
+          }])
+        }
+        if (url.endsWith('/v1/account/overview')) {
+          return Response.json({
+            credit_balance: 76, paid_concurrency_limit: 1, paid_active_jobs: 0,
+            paid_queued_jobs: 0, max_queued_jobs: 25,
+            generation_submissions_per_minute: 30,
+          })
+        }
+        assert.equal((init?.method || 'GET').toUpperCase(), 'POST')
+        posts += 1
+        return Response.json({ detail: 'Insufficient credits' }, { status: 402 })
+      }
+      jq.registerExecutor('script-only', async job => {
+        await callChatWithGenStudio('credit-preview-key', {
+          modelId: 'credit-writer', system: '', userMessage: 'Write the episode.',
+          outputContract: { mode: 'json_object' },
+          idempotencyKey: 'story-chat-credit-preview',
+        })
+      })
+      const enqueued = jq.enqueue({
+        project_slug: project.slug,
+        type: 'script-only',
+        episode_id: 'EP0001',
+      })
+      const deadline = Date.now() + 3_000
+      while (Date.now() < deadline && jq.getJob(enqueued.job_id)?.status !== 'error') {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+
+      const job = jq.getJob(enqueued.job_id)
+      assert.equal(job?.status, 'error')
+      assert.equal(posts, 1, 'a credit refusal is never re-POSTed')
+      assert.equal(job?.genstudio_jobs?.length, 1)
+      assert.deepEqual(job?.genstudio_jobs?.[0], {
+        id: pendingGenStudioEntryId('story-chat-credit-preview'),
+        operation: 'chat.response',
+        state: 'failed',
+        dispatch_state: 'pre_dispatch',
+        model_id: 'credit-writer',
+        queue_state: 'waiting_credits',
+        failure_code: null,
+        updated_at: job?.genstudio_jobs?.[0]?.updated_at,
+        request: job?.genstudio_jobs?.[0]?.request,
+      })
+      assert.equal(job?.genstudio_jobs?.[0]?.request?.idempotency_key, 'story-chat-credit-preview')
+      assert.equal(job?.genstudio_jobs?.[0]?.reserved_credits, undefined)
+      assert.equal(job?.genstudio_jobs?.[0]?.settled_credits, undefined)
+      assert.equal(job?.genstudio_jobs?.[0]?.released_credits, undefined)
+    } finally {
+      globalThis.fetch = originalFetch
+      clearGenStudioCatalogCache()
+    }
   })
 })
