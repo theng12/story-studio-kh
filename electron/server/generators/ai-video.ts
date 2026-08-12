@@ -361,11 +361,18 @@ export async function generateAiVideo(job: Job): Promise<void> {
   }
 
   let cursor = 0
+  let creditFailure: unknown
   async function worker(): Promise<void> {
     while (cursor < prompts.length) {
-      if (isCancelled()) return
+      if (isCancelled() || creditFailure) return
       const i = cursor++
-      await processPrompt(i)
+      try {
+        await processPrompt(i)
+      } catch (error) {
+        if (!isGenStudioInsufficientCredits(error)) throw error
+        creditFailure ||= error
+        return
+      }
     }
   }
   await Promise.all(
@@ -374,6 +381,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
       () => worker(),
     ),
   )
+  if (creditFailure) throw creditFailure
 
   // Partial-failure semantics: throw so the queue stamps status='error'
   // instead of 'done'. Same contract as images/audio generators. The queue's

@@ -41,6 +41,8 @@ test('a batch generator stops claiming items after the first credit refusal', as
     await settings.setGenStudioUrl(service.baseUrl)
     await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
     clearGenStudioCatalogCache()
+    service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'], submitDelayMs: 150 })
+    service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'], submitDelayMs: 150 })
 
     let videoPosts = 0
     globalThis.fetch = async (input, init) => {
@@ -48,7 +50,7 @@ test('a batch generator stops claiming items after the first credit refusal', as
       const method = String(init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase()
       if (url.origin === service.baseUrl && url.pathname === '/v1/videos/generations' && method === 'POST') {
         videoPosts++
-        return Response.json({ detail: 'Insufficient credits' }, { status: 402 })
+        if (videoPosts === 1) return Response.json({ detail: 'Insufficient credits' }, { status: 402 })
       }
       const response = await originalFetch(input, init)
       if (url.origin !== service.baseUrl || !['/v1/video/models', '/v1/videos/models'].includes(url.pathname)) return response
@@ -84,6 +86,8 @@ test('a batch generator stops claiming items after the first credit refusal', as
     await assert.rejects(generateAiVideo(job), error => isGenStudioInsufficientCredits(error))
     assert.equal(videoPosts, 3, 'only the three already-admitted requests may reach GenStudio; the fourth stays local')
     assert.equal(job.output_lines.some((line: string) => line.includes('Failed:')), false)
+    const saved = await fs.readdir(paths.video_dir)
+    assert.equal(saved.filter(filename => filename.endsWith('.mp4')).length, 2, 'already accepted siblings must settle and save before the batch ends')
   } finally {
     globalThis.fetch = originalFetch
     await service.close()

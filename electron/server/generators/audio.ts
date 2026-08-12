@@ -948,12 +948,19 @@ export async function generateAudio(job: Job): Promise<void> {
   }
 
   let cursor = 0
+  let creditFailure: unknown
   async function worker(): Promise<void> {
     while (cursor < tasks.length) {
-      if (isCancelled()) return
+      if (isCancelled() || creditFailure) return
       if (jq.isPauseRequested(job.job_id)) return
       const i = cursor++
-      await processTask(tasks[i]!)
+      try {
+        await processTask(tasks[i]!)
+      } catch (error) {
+        if (!isGenStudioInsufficientCredits(error)) throw error
+        creditFailure ||= error
+        return
+      }
     }
   }
   try {
@@ -966,6 +973,7 @@ export async function generateAudio(job: Job): Promise<void> {
   } finally {
     clearInterval(cancelWatcher)
   }
+  if (creditFailure) throw creditFailure
   jq.throwIfPauseRequested(job.job_id)
 
   // Phase 6: post-pool concat for routed sections. Each concatPlans entry

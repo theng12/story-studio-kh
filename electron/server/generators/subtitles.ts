@@ -773,9 +773,10 @@ async function transcribePerChapter(
     // on cancel; any in-flight transcribe is aborted by the cancelWatcher's
     // shared AbortController. Sequential behaviour falls out naturally at N=1.
     let nextIdx = 0
+    let creditFailure: unknown
     const worker = async (): Promise<void> => {
       while (true) {
-        if (jq.isCancelled(job.job_id)) return
+        if (jq.isCancelled(job.job_id) || creditFailure) return
         if (jq.isPauseRequested(job.job_id)) return
         const i = nextIdx++
         if (i >= sections.length) return
@@ -783,7 +784,10 @@ async function transcribePerChapter(
         try {
           await transcribeSection(sec)
         } catch (e) {
-          if (isGenStudioInsufficientCredits(e)) throw e
+          if (isGenStudioInsufficientCredits(e)) {
+            creditFailure ||= e
+            return
+          }
           // Cancellation aborts the in-flight transcribe via the shared
           // AbortController — that's not a chapter failure, so bail quietly and
           // let the post-loop cancel check report it.
@@ -796,6 +800,7 @@ async function transcribePerChapter(
       }
     }
     await Promise.all(Array.from({ length: Math.min(concurrency, sections.length) }, () => worker()))
+    if (creditFailure) throw creditFailure
     if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
     jq.throwIfPauseRequested(job.job_id)
   } finally {

@@ -1529,9 +1529,10 @@ async function expandListicleParallel(
   let cursor = 0
   let completed = 0
   let aborted = false
+  let creditFailure: unknown
 
   async function worker(workerId: number): Promise<void> {
-    while (cursor < batches.length && !aborted) {
+    while (cursor < batches.length && !aborted && !creditFailure) {
       if (params.isCancelled?.()) { aborted = true; return }
       const idx = cursor++
       if (idx >= batches.length) return
@@ -1569,7 +1570,10 @@ async function expandListicleParallel(
           `[chunked]   [w${workerId}] batch ${idx + 1}/${batches.length} — chapters ${firstN}-${lastN}: wrote ${wrote.length} (${completed}/${batches.length} batches done)`,
         )
       } catch (e: any) {
-        if (isGenStudioInsufficientCredits(e)) throw e
+        if (isGenStudioInsufficientCredits(e)) {
+          creditFailure ||= e
+          return
+        }
         // One batch failure shouldn't kill the others — note it and let
         // the worker continue to the next batch. The unfinished chapters
         // stay missing on disk so a later resume picks them up.
@@ -1587,6 +1591,8 @@ async function expandListicleParallel(
   await Promise.all(
     Array.from({ length: Math.min(LISTICLE_CONCURRENCY, batches.length) }, (_, i) => worker(i + 1)),
   )
+
+  if (creditFailure) throw creditFailure
 
   if (aborted) {
     throw new Error('Cancelled by user')
