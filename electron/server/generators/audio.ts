@@ -514,7 +514,7 @@ export async function generateAudio(job: Job): Promise<void> {
       // Skip semantics for routed sections — only skip if the FINAL
       // section file already exists with content. Per-segment intermediates
       // are always regenerated (cheap to redo if a prior run was partial).
-      if (await fileExistsWithContent(savePath) && !req.force) {
+      if (await fileExistsWithContent(savePath)) {
         if (req.no_overwrite) {
           // Caller wants versioned outputs; the routed final file gets a v{N}
           // suffix instead of overwriting.
@@ -523,9 +523,11 @@ export async function generateAudio(job: Job): Promise<void> {
           // Concatenate into the versioned name instead.
           const versioned = savePath.replace('.mp3', `_v${v}.mp3`)
           enqueueRoutedSegments(section.label, plan, audioDir, code, section.slug, versioned)
-        } else {
+        } else if (!req.force) {
           job.output_lines.push(`  Skipping ${path.basename(savePath)} (exists)`)
           continue
+        } else {
+          enqueueRoutedSegments(section.label, plan, audioDir, code, section.slug, savePath)
         }
       } else {
         enqueueRoutedSegments(section.label, plan, audioDir, code, section.slug, savePath)
@@ -552,12 +554,12 @@ export async function generateAudio(job: Job): Promise<void> {
       }
       // Only skip on a non-empty existing file. A zero-byte leftover from a
       // prior failure must be regenerated, not treated as a cache hit.
-      if (await fileExistsWithContent(chunkPath) && !req.force) {
+      if (await fileExistsWithContent(chunkPath)) {
         if (req.no_overwrite) {
           let v = 2
           while (existsSync(chunkPath.replace('.mp3', `_v${v}.mp3`))) v++
           chunkPath = chunkPath.replace('.mp3', `_v${v}.mp3`)
-        } else {
+        } else if (!req.force) {
           job.output_lines.push(`  Skipping ${path.basename(chunkPath)} (exists)`)
           continue
         }

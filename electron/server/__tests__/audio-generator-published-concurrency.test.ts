@@ -8,11 +8,12 @@ import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/m
 const temp = await useTempDataDir()
 process.env.STORY_STUDIO_DISABLE_LISTEN = '1'
 
-const { generateAudio } = await import('../generators/audio.js')
+const { generateAudio, resolveAudioDir } = await import('../generators/audio.js')
 const pm = await import('../services/project-manager.js')
 const { setApiKey } = await import('../services/app-secrets-store.js')
 const { setGenStudioUrl } = await import('../services/app-settings.js')
 const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+const { hashInput, recordTaskStrict } = await import('../services/task-manifest.js')
 
 function ttsModel(id: string, providerSubmitConcurrency: number): Record<string, unknown> {
   return {
@@ -35,7 +36,7 @@ function ttsModel(id: string, providerSubmitConcurrency: number): Record<string,
   }
 }
 
-void test('audio generation fans out from the selected model\'s live published hint', async () => {
+void test('audio generation honors selected-model fanout and independent New version identity', async () => {
   const service = await startMockGenStudioService()
   const previousOverride = process.env.STORY_STUDIO_TTS_CONCURRENCY
   delete process.env.STORY_STUDIO_TTS_CONCURRENCY
@@ -92,6 +93,61 @@ void test('audio generation fans out from the selected model\'s live published h
 
     assert.equal(await generate('EP001', 'model-one', 1), 1)
     assert.equal(await generate('EP002', 'model-three', 3), 3)
+
+    service.reset()
+    service.ttsModels = [ttsModel('model-versioned', 3)]
+    clearGenStudioCatalogCache()
+    service.queueScenario('tts', {})
+
+    const episodeId = 'EP003'
+    const narrationDir = path.join(outputRoot!, `${episodeId} - Script`)
+    const narrationPath = path.join(narrationDir, `${episodeId}_Script_Narration.md`)
+    await fs.mkdir(narrationDir, { recursive: true })
+    await fs.writeFile(narrationPath, [
+      '# Narration',
+      '## Chapter 1: One', 'No digits here.',
+    ].join('\n\n'))
+
+    const audioDir = await resolveAudioDir(project.slug, narrationPath, episodeId)
+    await fs.mkdir(audioDir, { recursive: true })
+    const originalPath = path.join(audioDir, `${episodeId}_Chapter_01.mp3`)
+    await fs.writeFile(originalPath, 'old audio')
+    await recordTaskStrict(audioDir, path.basename(originalPath), {
+      provider: 'genstudio',
+      task_id: 'job-from-retired-account',
+      submitted_at: new Date().toISOString(),
+      input_hash: hashInput('No digits here.'),
+      idempotency_key: 'story-old-task',
+      operation: 'tts',
+      last_state: 'succeeded',
+    })
+
+    const versionedJob: any = {
+      job_id: 'audio-versioned-EP003',
+      project_slug: project.slug,
+      type: 'audio',
+      episode_id: episodeId,
+      title: 'New version test',
+      status: 'running',
+      created_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {
+        episode_id: episodeId,
+        model: 'model-versioned',
+        voice: 'mock-voice',
+        sections: 'all',
+        speed: 1,
+        force: true,
+        no_overwrite: true,
+      },
+    }
+    await generateAudio(versionedJob)
+    assert.equal(await fs.readFile(originalPath, 'utf8'), 'old audio')
+    assert.ok((await fs.stat(path.join(audioDir, `${episodeId}_Chapter_01_v2.mp3`))).size > 0)
+    assert.equal(service.providerSubmissionCount('tts'), 1)
   } finally {
     clearGenStudioCatalogCache()
     if (previousOverride === undefined) delete process.env.STORY_STUDIO_TTS_CONCURRENCY
