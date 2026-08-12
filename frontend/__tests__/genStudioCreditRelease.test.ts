@@ -79,9 +79,9 @@ describe('GenStudio released reservations are never shown as held', () => {
     const source = read('frontend/components/GenStudioBatchLedger.vue')
     const ledger = await loadLifted(
       'type RemoteJob = any',
-      ['numeric', 'effectiveState', 'stateBucket', 'chargedFor', 'returnedFor', 'isReleased', 'heldFor']
+      ['numeric', 'effectiveState', 'stateBucket', 'chargedFor', 'returnedFor', 'heldFor']
         .map(name => extractFunction(source, name)),
-      ['stateBucket', 'isReleased', 'heldFor'],
+      ['stateBucket', 'heldFor'],
     )
     const transientVoiceReference = {
       id: 'gs-voice-reference-1',
@@ -92,7 +92,6 @@ describe('GenStudio released reservations are never shown as held', () => {
     }
 
     assert.equal(ledger.stateBucket(transientVoiceReference), 'active')
-    assert.equal(ledger.isReleased(transientVoiceReference), false)
     assert.equal(ledger.heldFor(transientVoiceReference), 13)
 
     const hintSource = read('frontend/components/GenStudioCreditSettlementHint.vue')
@@ -252,18 +251,18 @@ describe('GenStudio released reservations are never shown as held', () => {
     }), false, 'a diagnostic code does not override a non-terminal state')
   })
 
-  it('batch ledger: a terminal failed image job reads as released, not on hold', async () => {
+  it('settlement sinks keep omitted facts unknown and preserve published zeroes', async () => {
     const source = read('frontend/components/GenStudioBatchLedger.vue')
     const ledger = await loadLifted(
       'type RemoteJob = any',
-      ['numeric', 'effectiveState', 'stateBucket', 'chargedFor', 'returnedFor', 'isReleased', 'heldFor']
+      ['numeric', 'effectiveState', 'stateBucket', 'chargedFor', 'returnedFor', 'heldFor']
         .map(name => extractFunction(source, name)),
-      ['chargedFor', 'returnedFor', 'isReleased', 'heldFor'],
+      ['chargedFor', 'returnedFor', 'heldFor'],
     )
 
-    assert.equal(ledger.heldFor(FAILED_IMAGE_JOB), 0, 'a failed job holds nothing')
-    assert.equal(ledger.chargedFor(FAILED_IMAGE_JOB), 0, 'a failed job is not charged')
-    assert.equal(ledger.isReleased(FAILED_IMAGE_JOB), true)
+    assert.equal(ledger.heldFor(FAILED_IMAGE_JOB), 0, 'an omitted reservation is unknown')
+    assert.equal(ledger.chargedFor({ state: 'succeeded', credit_cost: 13 }), 0, 'a quote is not a settled charge')
+    assert.doesNotMatch(source, /function isReleased\(/, 'a terminal state is not published release evidence')
 
     // An in-flight job with no published reservation is unknown, not held.
     assert.equal(ledger.heldFor({ ...FAILED_IMAGE_JOB, state: 'running', queue_state: 'running', failure_code: null }), 0)
@@ -274,15 +273,14 @@ describe('GenStudio released reservations are never shown as held', () => {
     )
     // Authoritative released credits from the account snapshot are surfaced.
     assert.equal(ledger.returnedFor({ ...FAILED_IMAGE_JOB, released_credits: 13 }), 13)
-    assert.equal(ledger.returnedFor({ ...FAILED_IMAGE_JOB, returned_credits: 11 }), 11)
+    assert.equal(ledger.returnedFor({ ...FAILED_IMAGE_JOB, returned_credits: 11 }), 0, 'legacy local fields are not settlement evidence')
   })
 
-  it('batch ledger template offers a released state instead of a fabricated hold', () => {
+  it('batch ledger renders only published settlement amounts', () => {
     const source = read('frontend/components/GenStudioBatchLedger.vue')
 
-    assert.match(source, /reservation.{0,3}released|reservations.{0,3}released/i)
-    // The credit_cost fallback is what invented the hold — it must stay gone.
-    assert.doesNotMatch(source, /held > 0 \? held : numeric\(remote\.credit_cost\)/)
+    assert.doesNotMatch(source, /reservation.{0,3}released|reservations.{0,3}released/i)
+    assert.doesNotMatch(extractFunction(source, 'chargedFor'), /credit_cost/)
   })
 
   it('jobs page: held credits require a published reservation', async () => {
@@ -312,7 +310,7 @@ describe('GenStudio released reservations are never shown as held', () => {
     )
 
     assert.equal(page.genStudioHeldCredits(FAILED_IMAGE_JOB), 0, 'the reported bug: 13 credits shown on hold')
-    assert.equal(page.genStudioChargedCredits(FAILED_IMAGE_JOB), 0)
+    assert.equal(page.genStudioChargedCredits({ ...FAILED_IMAGE_JOB, state: 'succeeded', queue_state: 'succeeded' }), 0)
 
     // No authoritative reservation ⇒ nothing is claimed to be on hold.
     const running = { id: 'gs-image-2', state: 'running', queue_state: 'running', credit_cost: 13 }
@@ -361,11 +359,10 @@ describe('GenStudio released reservations are never shown as held', () => {
     assert.equal(page.genStudioReturnedCredits(omitted), 0)
   })
 
-  it('settlement hint stops calling an unpublished quote a hold', () => {
+  it('settlement hint makes no release claim without a published amount', () => {
     const source = read('frontend/components/GenStudioCreditSettlementHint.vue')
 
-    assert.doesNotMatch(source, /numeric\(remote\.credit_cost\) > 0/)
-    assert.match(source, /releases their reservation/)
-    assert.match(source, /Failed items are not charged a second time/)
+    const messageSource = source.slice(source.indexOf('const message'))
+    assert.doesNotMatch(messageSource, /releases their reservation|returns unused credits|not charged a second time/)
   })
 })

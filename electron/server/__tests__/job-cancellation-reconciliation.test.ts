@@ -6,7 +6,7 @@ import sharp from 'sharp'
 import { useTempDataDir } from './_helpers.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
 import { reconcilePendingJobCancellation } from '../services/job-cancellation-reconciler.js'
-import { getJobCancellationAuditor } from '../services/job-cancellation-auditors.js'
+import { getJobCancellationAuditor, registerJobCancellationAuditor } from '../services/job-cancellation-auditors.js'
 import { registerAllExecutors } from '../boot/executors.js'
 import { createPool } from '../services/broll-pool-manager.js'
 import type { Job } from '../models/types.js'
@@ -305,6 +305,47 @@ test('keeps missing-by-key provider evidence locked without a generation POST', 
 
     assert.equal(result.kind, 'pending')
     assert.deepEqual(requests, [{ method: 'GET', path: '/v1/music/jobs/by-idempotency-key/music-key' }])
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('cold by-key recovery adopts the durable ID, replaces submitting, and audits after settlement', async () => {
+  const { setApiKey } = await import('../services/app-secrets-store.js')
+  await setApiKey('genstudio', 'reconcile-test-key')
+  const project = await pm.createProject({ name: 'Cold by-key adoption' })
+  const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+  const persisted = job('unknown')
+  persisted.project_slug = project.slug
+  persisted.job_id = 'cold-by-key-adoption'
+  persisted.type = 'audio_merge'
+  persisted.genstudio_jobs = [{
+    id: '' as any, operation: 'chat.response', state: 'submitting', queue_state: 'submitting', updated_at: new Date().toISOString(),
+    request: { method: 'POST', path: '/v1/chat/responses', captured_at: '2026-08-12T00:00:00.000Z', idempotency_key: 'chat-key' },
+  }]
+  persisted.remote_cancellations = {
+    'chat.response:already-terminal': {
+      status: 'confirmed', operation: 'chat.response', provider_job_id: 'already-terminal', cancelled: true,
+      requested_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    },
+  }
+  await fs.writeFile(jobsFile, JSON.stringify({ jobs: [persisted] }))
+  registerJobCancellationAuditor('audio_merge', async () => 'complete')
+
+  const original = globalThis.fetch
+  const requests: Array<{ method: string; path: string }> = []
+  globalThis.fetch = async (input, init) => {
+    requests.push({ method: (init?.method || 'GET').toUpperCase(), path: new URL(String(input)).pathname })
+    return Response.json({ id: 'chat-durable', state: 'succeeded', dispatch_state: 'dispatched', cancellable: false })
+  }
+  try {
+    await jq.getJobs(project.slug)
+    await waitFor(() => jq.getJob('cold-by-key-adoption')?.status === 'done')
+    const recovered = jq.getJob('cold-by-key-adoption')!
+    assert.deepEqual(requests, [{ method: 'GET', path: '/v1/chat/responses/by-idempotency-key/chat-key' }])
+    assert.equal(recovered.genstudio_jobs?.[0]?.id, 'chat-durable')
+    assert.equal(recovered.genstudio_jobs?.[0]?.queue_state, 'succeeded')
+    assert.equal(recovered.local_execution_complete, true)
   } finally {
     globalThis.fetch = original
   }

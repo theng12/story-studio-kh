@@ -11,11 +11,9 @@ import { computed } from 'vue'
 type RemoteJob = {
   state?: string
   queue_state?: string
-  credit_cost?: number
-  /** Published by GenStudio only. `credit_cost` is a quote, never a hold. */
+  /** Published by GenStudio only. */
   reserved_credits?: number
   settled_credits?: number
-  returned_credits?: number
   released_credits?: number
   failure_code?: string | null
 }
@@ -45,17 +43,9 @@ const heldCount = computed(() => props.remoteJobs.filter(remote => {
   const bucket = stateBucket(remote)
   return (bucket === 'active' || bucket === 'queued') && numeric(remote.reserved_credits) > 0
 }).length)
-const failedCount = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'failed').length)
-
 const message = computed(() => {
-  if (failedCount.value) {
-    return 'Failed items are not charged a second time — GenStudio releases their reservation and returns unused credits.'
-      + (heldCount.value
-        ? ' Amounts still on hold stay provisional until it settles the remaining work.'
-        : '')
-  }
   if (!heldCount.value) return ''
-  return 'Amounts on hold are provisional while GenStudio completes this work. It settles the final charge and returns unused credits automatically.'
+  return 'GenStudio has published a provisional reservation while this work settles.'
 })
 </script>
 

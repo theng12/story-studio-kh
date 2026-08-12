@@ -426,13 +426,26 @@ function mergeGenStudioReconciliationEvidence(
   },
 ): void {
   const entries = [...(job.genstudio_jobs || [])]
-  const index = entries.findIndex(entry => entry.id === evidenceId && entry.operation === operation)
-  if (index < 0) return
+  const recoveryKey = evidenceId.startsWith('pending:') ? evidenceId.slice('pending:'.length) : undefined
+  const matches = entries.reduce<number[]>((indexes, entry, index) => {
+    if (entry.operation !== operation) return indexes
+    if (entry.id === evidenceId || (recoveryKey && (!entry.id || entry.id.startsWith('pending:')) && entry.request?.idempotency_key === recoveryKey)) {
+      indexes.push(index)
+    }
+    return indexes
+  }, [])
+  if (matches.length !== 1) return
+  const index = matches[0]!
   const prior = entries[index]!
   entries[index] = {
     ...prior,
     id: provider.id,
     state: provider.state,
+    queue_state: provider.state === 'succeeded' ? 'succeeded'
+      : provider.state === 'failed' ? 'failed'
+        : provider.state === 'accepted' || provider.state === 'reserved' ? 'accepted'
+          : provider.state === 'validating' || provider.state === 'reconciling' ? 'completing'
+            : 'running',
     ...(provider.dispatch_state !== undefined ? { dispatch_state: provider.dispatch_state } : {}),
     ...(provider.cancellable !== undefined ? { cancellable: provider.cancellable } : {}),
     ...(provider.cancelled !== undefined ? { cancelled: provider.cancelled } : {}),

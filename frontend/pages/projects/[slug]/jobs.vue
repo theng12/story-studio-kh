@@ -973,7 +973,6 @@ function genStudioSettled(
 ): GenStudioSettlement {
   const accountJob = genStudioSettlement.value[remote.id]
   const released = remote.released_credits
-    ?? remote.returned_credits
     ?? accountJob?.released_credits
   return {
     reserved_credits: remote.reserved_credits ?? accountJob?.reserved_credits,
@@ -988,11 +987,7 @@ function genStudioTerminalFailure(remote: NonNullable<RJob['genstudio_jobs']>[nu
 }
 
 function genStudioChargedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
-  const settled = genStudioNumeric(genStudioSettled(remote).settled_credits)
-  if (settled > 0) return settled
-  return /success|succeed|complete|done|settled/.test(genStudioCreditState(remote))
-    ? genStudioNumeric(remote.credit_cost)
-    : 0
+  return genStudioNumeric(genStudioSettled(remote).settled_credits)
 }
 
 function genStudioReturnedCredits(remote: NonNullable<RJob['genstudio_jobs']>[number]): number {
