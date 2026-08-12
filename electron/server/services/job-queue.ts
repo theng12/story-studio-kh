@@ -179,11 +179,14 @@ export async function reconcileRemoteCancellationFromProvider(
   providerJobId: string,
   evidence: {
     state: string
+    dispatch_state?: 'pre_dispatch' | 'dispatched'
     cancelled?: boolean | null
     cancellable?: boolean | null
     cancellation_requested?: boolean | null
     cancellation_note?: string | null
     failure_code?: string | null
+    reserved_credits?: number | null
+    settled_credits?: number | null
     released_credits?: number | null
   },
 ): Promise<void> {
@@ -196,12 +199,15 @@ export async function reconcileRemoteCancellationFromProvider(
   await recordRemoteCancellation(storyJobId, operation, providerJobId, {
     status: evidence.cancelled === true ? 'confirmed' : 'rejected',
     state: evidence.state,
+    ...(evidence.dispatch_state !== undefined ? { dispatch_state: evidence.dispatch_state } : {}),
     ...(evidence.cancellable !== undefined && evidence.cancellable !== null ? { cancellable: evidence.cancellable } : {}),
     ...(evidence.cancelled !== undefined && evidence.cancelled !== null ? { cancelled: evidence.cancelled } : {}),
     ...(evidence.cancellation_requested !== undefined && evidence.cancellation_requested !== null ? { cancellation_requested: evidence.cancellation_requested } : {}),
     ...(evidence.cancellation_note !== undefined ? { cancellation_note: evidence.cancellation_note } : {}),
     ...(evidence.failure_code !== undefined ? { failure_code: evidence.failure_code } : {}),
-    ...(Number.isFinite(evidence.released_credits) ? { released_credits: evidence.released_credits as number } : {}),
+    ...(typeof evidence.reserved_credits === 'number' && Number.isFinite(evidence.reserved_credits) && evidence.reserved_credits >= 0 ? { reserved_credits: evidence.reserved_credits } : {}),
+    ...(typeof evidence.settled_credits === 'number' && Number.isFinite(evidence.settled_credits) && evidence.settled_credits >= 0 ? { settled_credits: evidence.settled_credits } : {}),
+    ...(typeof evidence.released_credits === 'number' && Number.isFinite(evidence.released_credits) && evidence.released_credits >= 0 ? { released_credits: evidence.released_credits } : {}),
   })
 }
 

@@ -290,6 +290,50 @@ describe('remote cancellation checkpoints', () => {
     release()
   })
 
+  test('persists GenStudio dispatch and settlement evidence from a settled cancellation update', async () => {
+    const project = await pm.createProject({ name: 'CancellationSettlementEvidence' })
+    let release!: () => void
+    const hold = new Promise<void>(resolve => { release = resolve })
+    jq.registerExecutor('audio', async () => await hold)
+    registerJobCancellationAuditor('audio', async () => 'complete')
+    const job = jq.enqueue({
+      project_slug: project.slug, type: 'audio', episode_id: 'SETTLEMENT', title: 'settlement', params: {},
+    })
+    const deadline = Date.now() + 2_000
+    while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') {
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+    await jq.recordGenStudioJob(job.job_id, {
+      id: 'settlement-target', operation: 'voice.tts', state: 'accepted', cancellable: true,
+      updated_at: new Date().toISOString(),
+    })
+    await jq.requestJobCancellation(project.slug, job.job_id)
+    await jq.reconcileRemoteCancellationFromProvider(job.job_id, 'voice.tts', 'settlement-target', {
+      state: 'failed',
+      dispatch_state: 'pre_dispatch',
+      reserved_credits: 13,
+      settled_credits: 0,
+      released_credits: 13,
+      cancelled: true,
+    } as any)
+    const evidence = jq.getJob(job.job_id)?.remote_cancellations?.['voice.tts:settlement-target']
+    release()
+    assert.deepEqual(
+      {
+        dispatch_state: evidence?.dispatch_state,
+        reserved_credits: evidence?.reserved_credits,
+        settled_credits: evidence?.settled_credits,
+        released_credits: evidence?.released_credits,
+      },
+      {
+        dispatch_state: 'pre_dispatch',
+        reserved_credits: 13,
+        settled_credits: 0,
+        released_credits: 13,
+      },
+    )
+  })
+
   test('does not terminalize while an excluded accepted provider sibling still settles', async () => {
     const project = await pm.createProject({ name: 'AllProviderTargetsMustSettle' })
     let release!: () => void

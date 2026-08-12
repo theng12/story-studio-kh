@@ -2003,12 +2003,15 @@ async function recordGenStudioEvidence(
   if (operation in CONTROL_RESOURCES) {
     await queue.reconcileRemoteCancellationFromProvider(storyJobId, operation as JobRemoteOperation, job.id, {
       state: job.state,
+      ...(job.dispatch_state !== undefined ? { dispatch_state: job.dispatch_state } : {}),
       ...(job.cancellable !== undefined ? { cancellable: job.cancellable } : {}),
       ...(job.cancelled !== undefined ? { cancelled: job.cancelled } : {}),
       ...(job.cancellation_requested !== undefined ? { cancellation_requested: job.cancellation_requested } : {}),
       ...(job.cancellation_note !== undefined ? { cancellation_note: job.cancellation_note } : {}),
       ...(job.failure_code !== undefined ? { failure_code: job.failure_code } : {}),
-      ...(job.released_credits !== undefined ? { released_credits: job.released_credits } : {}),
+      ...(isValidSettlement(job.reserved_credits) ? { reserved_credits: job.reserved_credits } : {}),
+      ...(isValidSettlement(job.settled_credits) ? { settled_credits: job.settled_credits } : {}),
+      ...(isValidSettlement(job.released_credits) ? { released_credits: job.released_credits } : {}),
     })
   }
 }
