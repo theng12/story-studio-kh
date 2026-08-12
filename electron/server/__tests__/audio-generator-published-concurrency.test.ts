@@ -148,6 +148,25 @@ void test('audio generation honors selected-model fanout and independent New ver
     assert.equal(await fs.readFile(originalPath, 'utf8'), 'old audio')
     assert.ok((await fs.stat(path.join(audioDir, `${episodeId}_Chapter_01_v2.mp3`))).size > 0)
     assert.equal(service.providerSubmissionCount('tts'), 1)
+
+    service.reset()
+    service.ttsModels = [ttsModel('model-versioned', 3)]
+    clearGenStudioCatalogCache()
+    service.queueScenario('tts', {})
+
+    const regenerateJob: any = {
+      ...versionedJob,
+      job_id: 'audio-regenerate-EP003',
+      title: 'Regenerate test',
+      output_lines: [],
+      params: {
+        ...versionedJob.params,
+        no_overwrite: false,
+      },
+    }
+    await generateAudio(regenerateJob)
+    assert.notEqual(await fs.readFile(originalPath, 'utf8'), 'old audio')
+    assert.equal(service.providerSubmissionCount('tts'), 1)
   } finally {
     clearGenStudioCatalogCache()
     if (previousOverride === undefined) delete process.env.STORY_STUDIO_TTS_CONCURRENCY

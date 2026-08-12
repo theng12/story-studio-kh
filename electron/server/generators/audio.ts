@@ -835,14 +835,18 @@ export async function generateAudio(job: Job): Promise<void> {
       ? manifestEntry
       : null
     const terminalFailure = isTerminalGenStudioTaskFailure(reusableEntry)
-    // A manual Story Studio retry owns a new queue job. Give only a terminal
-    // external failure a fresh GenStudio identity; unfinished accepted work
-    // must retain its original key for safe recovery.
-    let submissionIdentity = terminalFailure
+    const explicitRegeneration = req.force === true
+    // Explicit Regenerate/New version work owns the current Story job's fresh
+    // identity and must never adopt a successful task from an older run.
+    // Ordinary retries retain unfinished accepted work; terminal provider
+    // failures receive a separate manual-retry identity.
+    let submissionIdentity = explicitRegeneration
+      ? `${requestIdentity}:regenerate:${job.job_id}`
+      : terminalFailure
       ? `${requestIdentity}:manual-retry:${job.job_id}`
       : requestIdentity
     // Only the first attempt may reclaim work a previous run left accepted.
-    let recoveryEntry = terminalFailure ? null : reusableEntry
+    let recoveryEntry = explicitRegeneration || terminalFailure ? null : reusableEntry
 
     activeTasks.set(chunkFilename, {
       label: task.sectionLabel,
