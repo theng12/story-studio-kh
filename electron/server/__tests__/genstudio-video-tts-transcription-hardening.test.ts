@@ -263,10 +263,10 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       assert.equal(service.providerSubmissionCount('tts'), 1)
     })
 
-    await suite.test('uses only the four published cancellation routes and leaves video nonterminal', async () => {
+    await suite.test('uses all six published cancellation routes and leaves video nonterminal', async () => {
       service.reset()
       const cases: Array<{
-        operation: 'voice.tts' | 'image.generation' | 'audio.transcription' | 'video.generation'
+        operation: 'voice.tts' | 'image.generation' | 'audio.transcription' | 'video.generation' | 'chat.response' | 'music.generation'
         submitPath: string
         cancelPath: (id: string) => string
         body: Record<string, unknown>
@@ -275,11 +275,15 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
         { operation: 'image.generation', submitPath: '/v1/images/generations', cancelPath: id => `/v1/images/${id}/cancel`, body: { model_id: 'mock-image-v1', prompt: 'cancel', aspect_ratio: '16:9' } },
         { operation: 'audio.transcription', submitPath: '/v1/audio/transcriptions', cancelPath: id => `/v1/transcriptions/${id}/cancel`, body: { model_id: 'mock-whisper-v1' } },
         { operation: 'video.generation', submitPath: '/v1/videos/generations', cancelPath: id => `/v1/videos/${id}/cancel`, body: { model_id: 'mock-video-v1', prompt: 'cancel', duration_seconds: 5, resolution: '720p' } },
+        { operation: 'chat.response', submitPath: '/v1/chat/responses', cancelPath: id => `/v1/chat/responses/${id}/cancel`, body: { model_id: 'mock-chat-v1', input: [] } },
+        { operation: 'music.generation', submitPath: '/v1/music/jobs', cancelPath: id => `/v1/music/jobs/${id}/cancel`, body: { model_id: 'mock-music-v1', prompt: 'cancel' } },
       ]
       service.queueScenario('tts', { states: ['accepted', 'succeeded'] })
       service.queueScenario('image', { states: ['accepted', 'succeeded'] })
       service.queueScenario('transcription', { states: ['accepted', 'succeeded'] })
       service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'] })
+      service.queueScenario('chat', { states: ['accepted', 'succeeded'] })
+      service.queueScenario('music', { states: ['accepted', 'succeeded'] })
       for (const entry of cases) {
         const submitted = await fetch(`${service.baseUrl}${entry.submitPath}`, {
           method: 'POST',

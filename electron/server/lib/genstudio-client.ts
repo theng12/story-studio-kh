@@ -146,6 +146,7 @@ interface GenStudioOperationContext {
 export interface GenStudioJob {
   id: string
   state: 'accepted' | 'reserved' | 'dispatched' | 'running' | 'validating' | 'succeeded' | 'failed' | 'reconciling'
+  dispatch_state?: 'pre_dispatch' | 'dispatched'
   failure_code?: string | null
   audio_url?: string | null
   model_id?: string
@@ -154,9 +155,8 @@ export interface GenStudioJob {
   remaining_credits?: number
   /**
    * Settlement values, exactly as GenStudio publishes them. `released_credits`
-   * ships on TTS, transcription, image, and video jobs; the full triad ships
-   * only on `GET /v1/account/jobs`. Chat and music jobs omit all three — Story
-   * Studio forwards whatever arrives and never derives a charge locally.
+   * Story Studio forwards whatever GenStudio publishes and never derives a
+   * charge locally.
    */
   reserved_credits?: number | null
   settled_credits?: number | null
@@ -175,20 +175,27 @@ export interface GenStudioJob {
   cancellation_note?: string | null
 }
 
-/** The cancellation fields GenStudio 0.93.1 actually publishes. */
+/** The cancellation fields GenStudio 0.97.1 actually publishes. */
 export type GenStudioCancellationFields = {
   state: string
+  dispatch_state?: 'pre_dispatch' | 'dispatched'
   cancellable?: boolean
   cancelled?: boolean
   cancellation_requested?: boolean
   cancellation_note?: string | null
   failure_code?: string | null
+  reserved_credits?: number
+  settled_credits?: number
   released_credits?: number
 }
 
 const GENSTUDIO_JOB_STATES = new Set<GenStudioJob['state']>([
   'accepted', 'reserved', 'dispatched', 'running', 'validating', 'succeeded', 'failed', 'reconciling',
 ])
+
+function isValidSettlement(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
 
 function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenStudioCancellationFields {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -207,16 +214,23 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
   const optionalText = (name: string): string | null | undefined => (
     typeof body[name] === 'string' || body[name] === null ? body[name] as string | null : undefined
   )
-  const released = body.released_credits
+  const optionalSettlement = (name: string): number | undefined => {
+    const field = body[name]
+    return isValidSettlement(field) ? field : undefined
+  }
+  const dispatchState = body.dispatch_state
   return {
     id: body.id,
     state: body.state as GenStudioJob['state'],
+    ...(dispatchState === 'pre_dispatch' || dispatchState === 'dispatched' ? { dispatch_state: dispatchState } : {}),
     ...(optionalBoolean('cancellable') !== undefined ? { cancellable: optionalBoolean('cancellable') } : {}),
     ...(optionalBoolean('cancelled') !== undefined ? { cancelled: optionalBoolean('cancelled') } : {}),
     ...(optionalBoolean('cancellation_requested') !== undefined ? { cancellation_requested: optionalBoolean('cancellation_requested') } : {}),
     ...(optionalText('cancellation_note') !== undefined ? { cancellation_note: optionalText('cancellation_note') } : {}),
     ...(optionalText('failure_code') !== undefined ? { failure_code: optionalText('failure_code') } : {}),
-    ...(typeof released === 'number' && Number.isFinite(released) && released >= 0 ? { released_credits: released } : {}),
+    ...(optionalSettlement('reserved_credits') !== undefined ? { reserved_credits: optionalSettlement('reserved_credits') } : {}),
+    ...(optionalSettlement('settled_credits') !== undefined ? { settled_credits: optionalSettlement('settled_credits') } : {}),
+    ...(optionalSettlement('released_credits') !== undefined ? { released_credits: optionalSettlement('released_credits') } : {}),
   }
 }
 
@@ -1739,18 +1753,17 @@ async function reportQueueState(
   await request.onQueueState?.(queueStateForJob(job), job.id)
 }
 
-const GENSTUDIO_CANCELLATION_PATHS: Record<JobRemoteOperation, (jobId: string) => string> = {
-  'voice.tts': jobId => `/v1/jobs/${encodeURIComponent(jobId)}/cancel`,
-  'image.generation': jobId => `/v1/images/${encodeURIComponent(jobId)}/cancel`,
-  'audio.transcription': jobId => `/v1/transcriptions/${encodeURIComponent(jobId)}/cancel`,
-  'video.generation': jobId => `/v1/videos/${encodeURIComponent(jobId)}/cancel`,
+const CONTROL_RESOURCES: Record<JobRemoteOperation, string> = {
+  'chat.response': '/v1/chat/responses',
+  'image.generation': '/v1/images',
+  'video.generation': '/v1/videos',
+  'voice.tts': '/v1/jobs',
+  'audio.transcription': '/v1/transcriptions',
+  'music.generation': '/v1/music/jobs',
 }
 
-const GENSTUDIO_STATUS_PATHS: Record<JobRemoteOperation, (jobId: string) => string> = {
-  'voice.tts': jobId => `/v1/jobs/${encodeURIComponent(jobId)}`,
-  'image.generation': jobId => `/v1/images/${encodeURIComponent(jobId)}`,
-  'audio.transcription': jobId => `/v1/transcriptions/${encodeURIComponent(jobId)}`,
-  'video.generation': jobId => `/v1/videos/${encodeURIComponent(jobId)}`,
+function controlJobPath(operation: JobRemoteOperation, jobId: string): string {
+  return `${CONTROL_RESOURCES[operation]}/${encodeURIComponent(jobId)}`
 }
 
 /**
@@ -1766,7 +1779,7 @@ export async function getGenStudioCancellationStatus(
   deadline: number,
 ): Promise<GenStudioJob & GenStudioCancellationFields> {
   const response = await requestJsonWithRetry(
-    `${apiBase(baseUrl)}${GENSTUDIO_STATUS_PATHS[operation](providerJobId)}`,
+    `${apiBase(baseUrl)}${controlJobPath(operation, providerJobId)}`,
     { headers: authorization(apiKey) },
     request,
     deadline,
@@ -1783,6 +1796,29 @@ export async function getGenStudioCancellationStatus(
   return parsed
 }
 
+/** Read an already-submitted provider task by its durable idempotency key. */
+export async function getGenStudioJobByIdempotencyKey(
+  operation: JobRemoteOperation,
+  baseUrl: string,
+  apiKey: string,
+  key: string,
+  request: GenStudioOperationContext = {},
+  deadline: number,
+): Promise<GenStudioJob & GenStudioCancellationFields> {
+  const response = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}${CONTROL_RESOURCES[operation]}/by-idempotency-key/${encodeURIComponent(key)}`,
+    { headers: authorization(apiKey) },
+    request,
+    deadline,
+    apiKey,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [],
+    true,
+    1,
+  )
+  return parseGenStudioCancellationResponse(response)
+}
+
 /** Read an already-submitted Chat response without creating or cancelling work. */
 export async function getGenStudioChatStatus(
   baseUrl: string,
@@ -1793,15 +1829,9 @@ export async function getGenStudioChatStatus(
 ): Promise<GenStudioJob & GenStudioCancellationFields> {
   const pending = providerJobId.startsWith('pending:')
   if (pending && !idempotencyKey) throw new Error('Chat provider evidence has no durable idempotency key to reconcile')
-  const suffix = pending
-    ? `/v1/chat/responses/by-idempotency-key/${encodeURIComponent(idempotencyKey!)}`
-    : `/v1/chat/responses/${encodeURIComponent(providerJobId)}`
-  const response = await requestJsonWithRetry(
-    `${apiBase(baseUrl)}${suffix}`,
-    { headers: authorization(apiKey) },
-    {}, deadline, apiKey, GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, [], true, 1,
-  )
-  const parsed = parseGenStudioCancellationResponse(response)
+  const parsed = pending
+    ? await getGenStudioJobByIdempotencyKey('chat.response', baseUrl, apiKey, idempotencyKey!, {}, deadline)
+    : await getGenStudioCancellationStatus('chat.response', baseUrl, apiKey, providerJobId, {}, deadline)
   if (!pending && parsed.id !== providerJobId) throw new Error('GenStudio KH Chat status response did not match the requested provider job')
   return parsed
 }
@@ -1820,7 +1850,7 @@ export async function requestGenStudioCancellation(
   deadline: number,
 ): Promise<GenStudioJob & GenStudioCancellationFields> {
   const response = await requestJsonWithRetry(
-    `${apiBase(baseUrl)}${GENSTUDIO_CANCELLATION_PATHS[operation](providerJobId)}`,
+    `${apiBase(baseUrl)}${controlJobPath(operation, providerJobId)}/cancel`,
     { method: 'POST', headers: authorization(apiKey) },
     request,
     deadline,
@@ -1872,12 +1902,15 @@ async function submitQueuedRemoteCancellation(
     await queue.recordRemoteCancellation(storyJobId, operation, providerJobId, {
       status: cancellationRecordStatus(result),
       state: result.state,
+      ...(result.dispatch_state !== undefined ? { dispatch_state: result.dispatch_state } : {}),
       ...(result.cancellable !== undefined ? { cancellable: result.cancellable } : {}),
       ...(result.cancelled !== undefined ? { cancelled: result.cancelled } : {}),
       ...(result.cancellation_requested !== undefined ? { cancellation_requested: result.cancellation_requested } : {}),
       ...(result.cancellation_note !== undefined ? { cancellation_note: result.cancellation_note } : {}),
       ...(result.failure_code !== undefined ? { failure_code: result.failure_code } : {}),
-      ...(Number.isFinite(result.released_credits) ? { released_credits: result.released_credits } : {}),
+      ...(isValidSettlement(result.reserved_credits) ? { reserved_credits: result.reserved_credits } : {}),
+      ...(isValidSettlement(result.settled_credits) ? { settled_credits: result.settled_credits } : {}),
+      ...(isValidSettlement(result.released_credits) ? { released_credits: result.released_credits } : {}),
     })
   } catch (error) {
     const status = error instanceof GenStudioApiError ? error.status : undefined
@@ -1942,6 +1975,7 @@ async function recordGenStudioEvidence(
     ...(request ? { request } : {}),
     operation,
     state: job.state,
+    ...(job.dispatch_state !== undefined ? { dispatch_state: job.dispatch_state } : {}),
     model_id: job.model_id || job.model_revision_id,
     credit_cost: Number.isFinite(job.credit_cost) ? job.credit_cost : undefined,
     remaining_credits: Number.isFinite(job.remaining_credits) ? job.remaining_credits : undefined,
@@ -1951,10 +1985,10 @@ async function recordGenStudioEvidence(
     //
     // This forwards every settlement field exactly when GenStudio published it;
     // it never derives one from a price or another field.
-    ...(Number.isFinite(job.reserved_credits) ? { reserved_credits: job.reserved_credits as number } : {}),
-    ...(Number.isFinite(job.settled_credits) ? { settled_credits: job.settled_credits as number } : {}),
-    ...(Number.isFinite(job.released_credits) ? { returned_credits: job.released_credits as number } : {}),
-    ...(Number.isFinite(job.released_credits) ? { released_credits: job.released_credits as number } : {}),
+    ...(isValidSettlement(job.reserved_credits) ? { reserved_credits: job.reserved_credits } : {}),
+    ...(isValidSettlement(job.settled_credits) ? { settled_credits: job.settled_credits } : {}),
+    ...(isValidSettlement(job.released_credits) ? { returned_credits: job.released_credits } : {}),
+    ...(isValidSettlement(job.released_credits) ? { released_credits: job.released_credits } : {}),
     price_version: job.price_version,
     failure_code: job.failure_code,
     ...(job.cancellable !== undefined ? { cancellable: job.cancellable } : {}),
@@ -1966,7 +2000,7 @@ async function recordGenStudioEvidence(
     queue_state: queueStateForJob(job),
     updated_at: new Date().toISOString(),
   })
-  if (operation in GENSTUDIO_CANCELLATION_PATHS) {
+  if (operation in CONTROL_RESOURCES) {
     await queue.reconcileRemoteCancellationFromProvider(storyJobId, operation as JobRemoteOperation, job.id, {
       state: job.state,
       ...(job.cancellable !== undefined ? { cancellable: job.cancellable } : {}),

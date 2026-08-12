@@ -7,7 +7,7 @@ import { once } from 'node:events'
 
 export const MOCK_GENSTUDIO_FULL_KEY = 'gsk_mock_story_full_scope'
 
-export type MockGenStudioOperation = 'chat' | 'image' | 'tts' | 'transcription' | 'video'
+export type MockGenStudioOperation = 'chat' | 'image' | 'tts' | 'transcription' | 'video' | 'music'
 
 export type MockGenStudioState =
   | 'accepted'
@@ -27,6 +27,7 @@ export type MockGenStudioScope =
   | 'images:generate'
   | 'chat:generate'
   | 'video:generate'
+  | 'music:generate'
   | 'usage:read'
 
 export interface MockCreditSnapshot {
@@ -128,6 +129,7 @@ const FULL_SCOPES: MockGenStudioScope[] = [
   'images:generate',
   'chat:generate',
   'video:generate',
+  'music:generate',
   'usage:read',
 ]
 
@@ -137,6 +139,7 @@ const OPERATION_NAME: Record<MockGenStudioOperation, string> = {
   tts: 'voice.tts',
   transcription: 'audio.transcription',
   video: 'video.generation',
+  music: 'music.generation',
 }
 
 const DEFAULT_CREDITS: Record<MockGenStudioOperation, number> = {
@@ -145,6 +148,7 @@ const DEFAULT_CREDITS: Record<MockGenStudioOperation, number> = {
   tts: 5,
   transcription: 7,
   video: 50,
+  music: 13,
 }
 
 /** Not a playable clip — just deterministic, non-empty bytes with an ftyp box. */
@@ -275,6 +279,7 @@ function requiredScope(pathname: string, method: string): MockGenStudioScope | n
   }
   if (pathname.startsWith('/v1/audio/jobs') || pathname.startsWith('/v1/jobs')) return 'tts:generate'
   if (pathname.startsWith('/v1/videos')) return 'video:generate'
+  if (pathname.startsWith('/v1/music/jobs')) return 'music:generate'
   return method === 'POST' ? null : null
 }
 
@@ -301,6 +306,7 @@ export class MockGenStudioService {
     tts: 0,
     transcription: 0,
     video: 0,
+    music: 0,
   }
   private activeTtsSubmissions = 0
   private maxInFlightTtsSubmissions = 0
@@ -492,6 +498,7 @@ export class MockGenStudioService {
     if (operation === 'image') return 'mock-image-v1'
     if (operation === 'transcription') return 'mock-whisper-v1'
     if (operation === 'video') return 'mock-video-v1'
+    if (operation === 'music') return 'mock-music-v1'
     return 'mock-tts-v1'
   }
 
@@ -539,9 +546,11 @@ export class MockGenStudioService {
 
   private responseBody(job: MockJob, replay = false): Record<string, unknown> {
     const state = this.state(job)
+    const settled = state === 'succeeded' || state === 'failed' || job.cancelled
     const base = {
       id: job.id,
       state,
+      dispatch_state: state === 'accepted' || state === 'reserved' ? 'pre_dispatch' : 'dispatched',
       operation: OPERATION_NAME[job.operation],
       dispatch_mode: 'asynchronous',
       model_id: job.modelId,
@@ -550,6 +559,11 @@ export class MockGenStudioService {
       failure_code: state === 'failed' ? job.scenario.failureCode : null,
       routing_status_code: job.scenario.routingStatusCode,
       idempotent_replay: replay,
+      ...(settled ? {
+        reserved_credits: job.credits.reserved,
+        settled_credits: job.credits.final,
+        released_credits: job.credits.returned,
+      } : {}),
     }
 
     if (job.operation === 'chat') {
@@ -561,6 +575,9 @@ export class MockGenStudioService {
         output_text: state === 'succeeded' ? this.chatOutputText(job) : null,
         output_retained: state === 'succeeded',
         finish_reason: state === 'succeeded' ? job.scenario.finishReason : null,
+        cancellable: state === 'accepted' || state === 'reserved',
+        cancelled: job.cancelled,
+        cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
       }
     }
     if (job.operation === 'image') {
@@ -577,6 +594,14 @@ export class MockGenStudioService {
         steps: Number(job.body.steps) || 4,
         seed: job.body.seed ?? null,
         image_url: state === 'succeeded' ? `/v1/images/${job.id}/file` : null,
+        cancellable: state === 'accepted' || state === 'reserved',
+        cancelled: job.cancelled,
+        cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
+      }
+    }
+    if (job.operation === 'music') {
+      return {
+        ...base,
         cancellable: state === 'accepted' || state === 'reserved',
         cancelled: job.cancelled,
         cancellation_note: job.cancelled ? 'Cancelled before provider execution.' : null,
@@ -994,6 +1019,7 @@ export class MockGenStudioService {
     if (pathname === '/v1/audio/jobs') return 'tts'
     if (pathname === '/v1/audio/transcriptions') return 'transcription'
     if (pathname === '/v1/videos/generations') return 'video'
+    if (pathname === '/v1/music/jobs') return 'music'
     return null
   }
 
@@ -1004,6 +1030,7 @@ export class MockGenStudioService {
       ['transcription', /^\/v1\/transcriptions\/([^/]+)$/],
       ['tts', /^\/v1\/jobs\/([^/]+)$/],
       ['video', /^\/v1\/videos\/([^/]+)$/],
+      ['music', /^\/v1\/music\/jobs\/([^/]+)$/],
     ]
     for (const [operation, pattern] of patterns) {
       const match = pathname.match(pattern)
@@ -1020,6 +1047,8 @@ export class MockGenStudioService {
       ['image', /^\/v1\/images\/([^/]+)\/cancel$/],
       ['transcription', /^\/v1\/transcriptions\/([^/]+)\/cancel$/],
       ['video', /^\/v1\/videos\/([^/]+)\/cancel$/],
+      ['chat', /^\/v1\/chat\/responses\/([^/]+)\/cancel$/],
+      ['music', /^\/v1\/music\/jobs\/([^/]+)\/cancel$/],
     ]
     for (const [operation, pattern] of patterns) {
       const match = pathname.match(pattern)

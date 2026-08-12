@@ -2069,6 +2069,8 @@ export type JobRemoteOperation =
   | 'audio.transcription'
   | 'image.generation'
   | 'video.generation'
+  | 'chat.response'
+  | 'music.generation'
 
 export interface JobControl {
   action: JobControlAction
@@ -2093,11 +2095,14 @@ export interface JobRemoteCancellation {
   updated_at: string
   http_status?: number
   state?: string
+  dispatch_state?: 'pre_dispatch' | 'dispatched'
   cancellable?: boolean
   cancelled?: boolean
   cancellation_requested?: boolean
   cancellation_note?: string | null
   failure_code?: string | null
+  reserved_credits?: number
+  settled_credits?: number
   released_credits?: number
   /** Redacted local explanation when Story cannot yet read provider status. */
   reconciliation_error?: string
@@ -2260,6 +2265,7 @@ export interface Job {
     id: string
     operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'music.generation' | 'video.generation'
     state: string
+    dispatch_state?: 'pre_dispatch' | 'dispatched'
     model_id?: string
     credit_cost?: number
     remaining_credits?: number

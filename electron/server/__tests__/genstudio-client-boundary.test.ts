@@ -18,6 +18,8 @@ import {
   downloadVoicePreview,
   generateTtsToFile,
   generateImageWithGenStudio,
+  getGenStudioCancellationStatus,
+  getGenStudioJobByIdempotencyKey,
   getGenStudioAccountOverview,
   GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS,
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
@@ -37,6 +39,7 @@ import {
   recoverImageWithGenStudio,
   recoverTranscriptionWithGenStudio,
   recoverTtsToFile,
+  requestGenStudioCancellation,
   splitGenStudioApiRequests,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
@@ -1477,4 +1480,99 @@ test('GenStudio catalog membership accepts only enabled live voice IDs', () => {
   assert.equal(catalogHasVoice(voices, ' voice_live '), true)
   assert.equal(catalogHasVoice(voices, 'voice_disabled'), false)
   assert.equal(catalogHasVoice(voices, 'voice_missing'), false)
+})
+
+test('GenStudio 0.97.1 control responses preserve published cancellation and settlement fields', async () => {
+  // This fixture pins the published remote contract. Removing any forwardable
+  // field from the boundary would hide cancellation or billing truth from a
+  // durable Story job.
+  const fixture = {
+    id: 'job_cancel_0971',
+    state: 'failed',
+    dispatch_state: 'pre_dispatch',
+    cancellable: false,
+    cancelled: true,
+    cancellation_note: 'Cancelled before dispatch',
+    reserved_credits: 13,
+    settled_credits: 0,
+    released_credits: 13,
+  }
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json(fixture)
+    const result = await getGenStudioCancellationStatus(
+      'voice.tts', 'http://genstudio.test', 'test-key', fixture.id, {}, Date.now() + 1_000,
+    )
+    assert.deepEqual(result, fixture)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio control parser excludes invalid optional dispatch and settlement fields', async () => {
+  // A malformed optional value must not become durable evidence. Replacing
+  // finite/non-negative validation with a truthiness check would fail here.
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json({
+      id: 'job_cancel_0971',
+      state: 'failed',
+      dispatch_state: 'started',
+      reserved_credits: -13,
+      settled_credits: '0',
+      released_credits: Number.NaN,
+    })
+    const result = await getGenStudioCancellationStatus(
+      'voice.tts', 'http://genstudio.test', 'test-key', 'job_cancel_0971', {}, Date.now() + 1_000,
+    )
+    assert.equal(result.dispatch_state, undefined)
+    assert.equal(result.reserved_credits, undefined)
+    assert.equal(result.settled_credits, undefined)
+    assert.equal(result.released_credits, undefined)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('all six GenStudio operations derive status, cancellation, and idempotency paths from their control resource', async () => {
+  const cases = [
+    ['chat.response', '/v1/chat/responses'],
+    ['image.generation', '/v1/images'],
+    ['video.generation', '/v1/videos'],
+    ['voice.tts', '/v1/jobs'],
+    ['audio.transcription', '/v1/transcriptions'],
+    ['music.generation', '/v1/music/jobs'],
+  ] as const
+  const requests: Array<{ method: string; path: string }> = []
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async (input, init) => {
+      const path = new URL(String(input)).pathname
+      requests.push({
+        method: (init?.method || 'GET').toUpperCase(),
+        path,
+      })
+      const parts = path.split('/')
+      const id = path.includes('/by-idempotency-key/')
+        ? 'job_cancel_0971'
+        : decodeURIComponent(parts.at(-1) === 'cancel' ? parts.at(-2)! : parts.at(-1)!)
+      return Response.json({ id, state: 'failed' })
+    }
+    for (const [operation, resource] of cases) {
+      const jobId = `${operation}/job`
+      const key = `${operation}/key`
+      await getGenStudioCancellationStatus(operation, 'http://genstudio.test', 'test-key', jobId, {}, Date.now() + 1_000)
+      await requestGenStudioCancellation(operation, 'http://genstudio.test', 'test-key', jobId, {}, Date.now() + 1_000)
+      await getGenStudioJobByIdempotencyKey(operation, 'http://genstudio.test', 'test-key', key, {}, Date.now() + 1_000)
+      const encodedJobId = encodeURIComponent(jobId)
+      const encodedKey = encodeURIComponent(key)
+      assert.deepEqual(requests.splice(-3), [
+        { method: 'GET', path: `${resource}/${encodedJobId}` },
+        { method: 'POST', path: `${resource}/${encodedJobId}/cancel` },
+        { method: 'GET', path: `${resource}/by-idempotency-key/${encodedKey}` },
+      ])
+    }
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })

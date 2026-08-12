@@ -520,24 +520,27 @@ export interface JobControlResponse {
   code: 'READY' | 'PROVIDER_WORK_ALREADY_STARTED' | 'CANCELLATION_STATUS_UNKNOWN' | 'REMOTE_CANCELLATION_NOT_SUPPORTED' | 'JOB_NOT_AT_SAFE_LOCAL_STOP'
   financial_effect: 'no-provider-request' | 'local-only' | 'remote-result-required' | 'provider-work-may-settle' | 'history-only' | 'none'
   targets?: Array<{
-    operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation'
+    operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation' | 'chat.response' | 'music.generation'
     provider_job_id: string
   }>
 }
 
 export interface JobRemoteCancellationResponse {
   status: 'queued' | 'submitting' | 'requested' | 'reconciling' | 'confirmed' | 'rejected' | 'unknown'
-  operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation'
+  operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation' | 'chat.response' | 'music.generation'
   provider_job_id: string
   requested_at: string
   updated_at: string
   http_status?: number
   state?: string
+  dispatch_state?: 'pre_dispatch' | 'dispatched'
   cancellable?: boolean
   cancelled?: boolean
   cancellation_requested?: boolean
   cancellation_note?: string | null
   failure_code?: string | null
+  reserved_credits?: number
+  settled_credits?: number
   released_credits?: number
   reconciliation_error?: string
 }
@@ -586,8 +589,9 @@ export interface JobEnqueuedResponse {
   accounts_used?: Record<string, { id: string; label: string }>
   genstudio_jobs?: Array<{
     id: string
-    operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'video.generation'
+    operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'chat.response' | 'music.generation' | 'video.generation'
     state: string
+    dispatch_state?: 'pre_dispatch' | 'dispatched'
     model_id?: string
     credit_cost?: number
     remaining_credits?: number
