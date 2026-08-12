@@ -382,6 +382,11 @@ export class GenStudioAdmissionPool {
       && !this.queueNearCapacity()
     ) {
       const waiter = this.waiters.shift()!
+      const creditHold = this.creditHolds.get(waiter.apiKey)
+      if (creditHold) {
+        this.rejectWaiter(waiter, creditHold.error)
+        continue
+      }
       if (waiter.signal?.aborted) {
         waiter.abort?.()
         continue

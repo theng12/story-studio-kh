@@ -21,6 +21,7 @@ import {
   GenStudioCatalogUnavailableError,
   GenStudioTerminalFailureError,
   GenStudioTranscriptionQuoteExpiredError,
+  isGenStudioInsufficientCredits,
   listTranscriptionModels,
   recoverTranscriptionWithGenStudio,
   transcribeWithGenStudio,
@@ -782,6 +783,7 @@ async function transcribePerChapter(
         try {
           await transcribeSection(sec)
         } catch (e) {
+          if (isGenStudioInsufficientCredits(e)) throw e
           // Cancellation aborts the in-flight transcribe via the shared
           // AbortController — that's not a chapter failure, so bail quietly and
           // let the post-loop cancel check report it.

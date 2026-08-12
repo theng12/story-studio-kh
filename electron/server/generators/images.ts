@@ -22,7 +22,7 @@ import {
   tryRecoverImageFromManifestEntry,
   type ImageRecoveryOutcome,
 } from '../lib/manifest-recovery.js'
-import { GenStudioImageTerminalFailureError, isGenStudioRouteExhausted } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits, isGenStudioRouteExhausted } from '../lib/genstudio-client.js'
 import { readManifest, type Manifest } from '../services/task-manifest.js'
 import { findReferencedCharacters } from '../lib/character-name-match.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
@@ -831,6 +831,7 @@ export async function generateImages(job: Job): Promise<void> {
           job.output_lines.push(`Scene ${scene.number}/${totalToProcess}: ${scene.title} — saved ${urls.length} variant(s)`)
           return
         } catch (e: any) {
+          if (isGenStudioInsufficientCredits(e)) throw e
           // Remember a settled provider failure so the next Retry mints a fresh
           // identity instead of replaying this dead job forever.
           if (e instanceof GenStudioImageTerminalFailureError && attempt) {
@@ -995,6 +996,7 @@ export async function generateImages(job: Job): Promise<void> {
           job.output_lines.push(`Thumbnail ${thumb.number}/${totalToProcess}: ${thumb.title} — saved ${urls.length} variant(s)`)
           return
         } catch (e: any) {
+          if (isGenStudioInsufficientCredits(e)) throw e
           if (e instanceof GenStudioImageTerminalFailureError && attempt) {
             await recordImageState(thumbDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
           }
@@ -1052,6 +1054,7 @@ export async function generateImages(job: Job): Promise<void> {
     let active = 0
     let launched = 0
     let settled = false
+    let fatalError: unknown
     // Stage independent Story assets promptly. The shared GenStudio admission
     // pool applies the account's live paid concurrency; GenStudio owns its
     // durable queue, rate limits, and provider execution.
@@ -1065,7 +1068,7 @@ export async function generateImages(job: Job): Promise<void> {
     let resolveAll!: () => void
     const allWorkersDone = new Promise<void>(resolve => { resolveAll = resolve })
     const maybeFinish = () => {
-      if (!settled && (isCancelled() || (cursor >= items.length && active === 0))) {
+      if (!settled && (isCancelled() || ((fatalError || cursor >= items.length) && active === 0))) {
         settled = true
         resolveAll()
       }
@@ -1073,9 +1076,14 @@ export async function generateImages(job: Job): Promise<void> {
 
     async function next(): Promise<void> {
       while (cursor < items.length) {
-        if (isCancelled()) return
+        if (isCancelled() || fatalError) return
         const i = cursor++
-        await worker(items[i]!)
+        try {
+          await worker(items[i]!)
+        } catch (error) {
+          fatalError = error
+          return
+        }
       }
     }
 
@@ -1090,7 +1098,7 @@ export async function generateImages(job: Job): Promise<void> {
     }
 
     const ensureWorkers = () => {
-      if (cursor >= items.length || isCancelled()) return
+      if (cursor >= items.length || isCancelled() || fatalError) return
       const want = Math.min(maxWorkers, items.length - cursor + active)
       while (active < want) spawnWorker()
     }
@@ -1099,6 +1107,7 @@ export async function generateImages(job: Job): Promise<void> {
     maybeFinish()
 
     await allWorkersDone
+    if (fatalError) throw fatalError
   }
 
   try {

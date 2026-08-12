@@ -14,6 +14,7 @@ import {
   buildGenStudioSubmission,
   generateTtsToFile as generateTtsGenStudio,
   GenStudioArtifactUnavailableError,
+  isGenStudioInsufficientCredits,
   isGenStudioRouteExhausted,
   recoverTtsToFile as recoverTtsGenStudio,
   listTtsModels as listGenStudioTtsModels,
@@ -345,6 +346,7 @@ export async function generateAudio(job: Job): Promise<void> {
           sectionsOut[s.slug] = await markupSectionText(markupModel, s.text, apiKeys, project_slug, exprDialect)
           generated++
         } catch (e: any) {
+          if (isGenStudioInsufficientCredits(e)) throw e
           job.output_lines.push(`  ⚠ auto-tag failed for ${s.label} (${e?.message || e}) — using plain text`)
         }
       })
@@ -862,6 +864,7 @@ export async function generateAudio(job: Job): Promise<void> {
           completedTasks++
           return
         } catch (e: any) {
+          if (isGenStudioInsufficientCredits(e)) throw e
           // A user cancel is NOT a chunk failure. Recording it in errors[]
           // makes the run end with a misleading "N section(s) failed: …
           // Cancelled by user". Skip it — the queue stamps the job 'cancelled'

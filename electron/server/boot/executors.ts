@@ -46,6 +46,7 @@ import { getAudioStatus } from '../services/audio-reconciler.js'
 import { getImageStatus, getVideoStatus } from '../services/asset-status.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { auditSceneClipCompletion, auditSceneImageCompletion } from '../services/scene-media-checkpoint.js'
+import { auditScenePromptCompletion } from '../services/scene-prompt-checkpoint.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { assertDecodableImage } from '../lib/image-validation.js'
 import fs from 'fs/promises'
@@ -71,6 +72,29 @@ async function auditSceneClips(job: any): Promise<'complete' | 'repair-required'
   if (!ids.length) return 'repair-required'
   const audit = await auditSceneClipCompletion(planPath, ids, job.output_dir || paths.video_assets_dir)
   return audit.completed === audit.expected ? 'complete' : 'repair-required'
+}
+
+export async function auditScenePlanOutput(job: any): Promise<'complete' | 'repair-required'> {
+  const paths = await resolveEpisodePathsByCode(job.project_slug, job.episode_id)
+  const planPath = await resolveScenePlanPath(job.project_slug, job.episode_id, paths.episode_dir)
+  const plan = JSON.parse(await fs.readFile(planPath, 'utf8'))
+  const params = job.params || {}
+  const stage: 'visual' | 'motion' = params.stage === 'motion' || params.regenerate_empty_motion_prompts
+    || params.regenerate_motion_prompt_scene_id
+    ? 'motion'
+    : 'visual'
+  const singleId = stage === 'motion'
+    ? params.regenerate_motion_prompt_scene_id
+    : params.regenerate_prompt_scene_id || params.replan_scene_id
+  const ids = singleId
+    ? [String(singleId)]
+    : (Array.isArray(plan?.scenes) ? plan.scenes : [])
+      .filter((scene: any) => stage === 'visual' || (!!scene?.visual_prompt?.trim() && scene?.motion_mode !== 'still'))
+      .map((scene: any) => String(scene?.id || ''))
+      .filter(Boolean)
+  if (!ids.length) return 'repair-required'
+  const audit = await auditScenePromptCompletion(planPath, ids, stage)
+  return audit.missing_ids.length === 0 ? 'complete' : 'repair-required'
 }
 
 /** Register only producer-specific completion proofs; no generic file guess. */
@@ -140,6 +164,7 @@ function registerCancellationAuditors(): void {
   for (const type of ['scene_clip_generate', 'scene_clips_batch'] as const) {
     registerJobCancellationAuditor(type, auditSceneClips)
   }
+  registerJobCancellationAuditor('scene_plan_run', auditScenePlanOutput)
   registerJobCancellationAuditor('video', async job => {
     const status = await getVideoStatus(job.project_slug, job.episode_id)
     return status.total > 0 && status.present === status.total ? 'complete' : 'repair-required'

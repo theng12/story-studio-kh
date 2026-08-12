@@ -33,7 +33,7 @@ import {
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
-import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 
@@ -300,18 +300,19 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     try {
       let idx = 0
       let active = 0
+      let fatalError: unknown
       let finishAll!: () => void
       const allWorkersDone = new Promise<void>((res) => { finishAll = res })
       // Resolve once all work is claimed (or the job is cancelled) AND every
       // worker has drained — so a cancelled run can't hang waiting on workers.
       const maybeFinish = () => {
-        if ((idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) && active === 0) finishAll()
+        if ((fatalError || idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) && active === 0) finishAll()
       }
       const worker = async (): Promise<void> => {
         active++
         try {
         while (idx < fallbackTargets.length) {
-          if (jq.isCancelled(job.job_id)) return
+          if (jq.isCancelled(job.job_id) || fatalError) return
           const scene = fallbackTargets[idx++]!
           const outPath = path.join(outDir, `${scene.id}.png`)
           const sref = buildScenePromptContext(scene)
@@ -468,6 +469,10 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
               `${recovery.kind === 'recovered' ? ` — recovered task ${recovery.taskId.slice(0, 12)}… (no charge)` : ''}`,
             )
           } catch (e: any) {
+            if (isGenStudioInsufficientCredits(e)) {
+              fatalError = e
+              return
+            }
             // Record a settled provider failure locally. Without this the next
             // Retry has no way to know the saved job can never succeed.
             if (e instanceof GenStudioImageTerminalFailureError) {
@@ -506,7 +511,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       // submission rate, and queue headroom.
       const maxWorkers = concurrency
       const ensureWorkers = () => {
-        if (idx >= fallbackTargets.length || jq.isCancelled(job.job_id)) return
+        if (idx >= fallbackTargets.length || jq.isCancelled(job.job_id) || fatalError) return
         const want = Math.min(maxWorkers, fallbackTargets.length - idx + active)
         while (active < want) void worker()
       }
@@ -514,6 +519,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       maybeFinish()  // nothing to render → resolve immediately
 
       await allWorkersDone
+      if (fatalError) throw fatalError
     } finally {
       await writeStatus({ active: false, updated_at: new Date().toISOString() })
     }

@@ -42,6 +42,34 @@ test('insufficient credits reject same-key waiters without touching another key'
   assert.equal(fullKeySubmitted, true)
 })
 
+test('a 402 cannot race another queued same-key request into dispatch', async () => {
+  const entered: Array<() => void> = []
+  const pool = new GenStudioAdmissionPool(async () => ({
+    credit_balance: 76,
+    paid_concurrency_limit: 1,
+    paid_active_jobs: 0,
+    paid_queued_jobs: 0,
+    max_queued_jobs: 100,
+    generation_submissions_per_minute: 120,
+  }))
+  let submissions = 0
+  const run = () => pool.run('low-key', undefined, async () => {
+    submissions++
+    await new Promise<void>(resolve => entered.push(resolve))
+  })
+  const first = run()
+  const second = run()
+  const third = run()
+  await new Promise(resolve => setImmediate(resolve))
+  pool.noteInsufficientCredits('low-key', new Error('insufficient credits'))
+  for (const resolve of entered) resolve()
+  await Promise.allSettled([first, second, third])
+
+  assert.equal(submissions, 1, 'only the already-dispatched request may settle')
+  await assert.rejects(run(), /insufficient credits/)
+  assert.equal(submissions, entered.length, 'no held request may enter work')
+})
+
 test('held key stays blocked until an authoritative balance increase', async () => {
   let balance = 76
   let reads = 0

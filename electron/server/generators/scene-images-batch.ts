@@ -21,7 +21,7 @@ import { auditSceneImageCompletion, checkpointSceneImage } from '../services/sce
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { hashInput, readManifest, recordTask, recordTaskStrict, type TaskManifestEntry } from '../services/task-manifest.js'
 import { resolveImageRetryScope, terminalImageManifestEntry } from '../lib/manifest-recovery.js'
-import { GenStudioImageTerminalFailureError } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 
 interface SceneImagesBatchParams {
@@ -192,6 +192,7 @@ export async function generateSceneImagesBatchJob(job: Job): Promise<void> {
       made++
       job.output_lines.push(`Scene ${scene.scene_index}/${plan.scenes.length} (${scene.id}) ✓`)
     } catch (e: any) {
+      if (isGenStudioInsufficientCredits(e)) throw e
       // Persist a settled failure so the next Retry mints a fresh identity
       // instead of replaying this dead GenStudio job.
       if (e instanceof GenStudioImageTerminalFailureError) {

@@ -32,6 +32,7 @@ import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-re
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
+import { isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import type { GenerateVideoRequest, Job } from '../models/types.js'
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
@@ -352,6 +353,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
         job.output_lines.push(`  Saved ${path.basename(savePath)}`)
       }
     } catch (e: any) {
+      if (isGenStudioInsufficientCredits(e)) throw e
       // Settled-pool semantics: one clip failure doesn't kill the batch.
       job.output_lines.push(`  Failed: ${e.message}`)
       errors.push(`${p.title || `Clip ${p.number}`}: ${e.message}`)

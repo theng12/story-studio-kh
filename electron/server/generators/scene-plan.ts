@@ -27,6 +27,7 @@ import type { TextGenerationDiagnostics } from '../providers/types.js'
 import { scenePromptPackOutputContract } from '../lib/story-output-contracts.js'
 import {
   listChatModels as listGenStudioChatModels,
+  isGenStudioInsufficientCredits,
   isGenStudioRequestInProgress,
   isGenStudioSubmissionUncertain,
   type GenStudioChatModel,
@@ -1023,6 +1024,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           persistPrompt,
         )
       } catch (error: any) {
+        if (isGenStudioInsufficientCredits(error)) throw error
         requestError = error?.message || String(error)
         requestUnresolved = isGenStudioRequestInProgress(error) || isGenStudioSubmissionUncertain(error)
       }

@@ -21,6 +21,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { callAi } from '../lib/ai-client.js'
+import { isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { promptDirectorOutputContract } from '../lib/story-output-contracts.js'
 import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -203,6 +204,7 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
         })
         parsed = parseDirectorJson(raw)
       } catch (e: any) {
+        if (isGenStudioInsufficientCredits(e)) throw e
         if (attempt >= MAX_ATTEMPTS) {
           job.output_lines.push(`⚠ Batch ${b + 1}/${totalBatches} failed (${e?.message || e}) — those scenes left unchanged.`)
         }

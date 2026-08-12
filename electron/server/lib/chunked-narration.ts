@@ -49,7 +49,7 @@ import path from 'path'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
 import { createHash } from 'crypto'
 import { callAi, callAiWithRetry, parseStructuredJson } from './ai-client.js'
-import { GenStudioChatIncompleteError, GenStudioChatProductUnavailableError } from './genstudio-client.js'
+import { GenStudioChatIncompleteError, GenStudioChatProductUnavailableError, isGenStudioInsufficientCredits } from './genstudio-client.js'
 import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
 import { outlineOutputContract } from './story-output-contracts.js'
 import type { TextOutputContract } from './json-output-contract.js'
@@ -1569,6 +1569,7 @@ async function expandListicleParallel(
           `[chunked]   [w${workerId}] batch ${idx + 1}/${batches.length} — chapters ${firstN}-${lastN}: wrote ${wrote.length} (${completed}/${batches.length} batches done)`,
         )
       } catch (e: any) {
+        if (isGenStudioInsufficientCredits(e)) throw e
         // One batch failure shouldn't kill the others — note it and let
         // the worker continue to the next batch. The unfinished chapters
         // stay missing on disk so a later resume picks them up.

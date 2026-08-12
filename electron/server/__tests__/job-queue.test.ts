@@ -756,6 +756,37 @@ describe('manual GenStudio chat retries', () => {
     await waitForTerminalJob(retry.job_id)
   })
 
+  test('a pre-dispatch credit refusal retries as fresh work instead of a dead by-key lookup', async () => {
+    const proj = await pm.createProject({ name: 'JQ Credit Refusal Retry' })
+    jq.registerExecutor('expand_chapters', async job => {
+      await jq.recordGenStudioJob(job.job_id, {
+        id: 'pending:credit-refused-key',
+        operation: 'chat.response',
+        state: 'failed',
+        dispatch_state: 'pre_dispatch',
+        queue_state: 'waiting_credits',
+        updated_at: new Date().toISOString(),
+        request: {
+          method: 'POST', path: '/v1/chat/responses', idempotency_key: 'credit-refused-key',
+          messages: [{ role: 'user', text: 'Write the next chapter batch.', length: 29, truncated: false }],
+          captured_at: new Date().toISOString(),
+        },
+      })
+      throw new Error('insufficient credits')
+    })
+    const failed = jq.enqueue({
+      project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
+    })
+    await waitForTerminalJob(failed.job_id)
+
+    jq.registerExecutor('expand_chapters', async () => {})
+    const retry = jq.retryTerminalJob(proj.slug, failed.job_id)
+
+    assert.equal(retry.genstudio_chat_recovery, undefined)
+    assert.equal(retry.genstudio_chat_retry_scope, `credit-refused:credit-refused-key:${failed.job_id}`)
+    await waitForTerminalJob(retry.job_id)
+  })
+
   test('an unresolved narrative repair retry carries its exact recorded slots and key', async () => {
     const proj = await pm.createProject({ name: 'JQ Narrative Repair Exact Replay' })
     jq.registerExecutor('expand_chapters', async job => {

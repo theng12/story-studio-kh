@@ -31,7 +31,7 @@ import {
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
-import { GenStudioImageTerminalFailureError, buildGenStudioImageIdempotencyKey } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, buildGenStudioImageIdempotencyKey, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
@@ -269,6 +269,7 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
         made++
         job.output_lines.push(`✓ ${successfulFiles.size}/${total} — "${item.prompt.slice(0, 60)}${item.prompt.length > 60 ? '…' : ''}"`)
       } catch (e: any) {
+        if (isGenStudioInsufficientCredits(e)) throw e
         if (e instanceof GenStudioImageTerminalFailureError && attemptScope) {
           await recordState(item.filename, {
             taskId: e.jobId || acceptedTaskId,

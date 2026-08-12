@@ -1826,21 +1826,27 @@ function chatEntries(job: Job): NonNullable<Job['genstudio_jobs']> {
   return (job.genstudio_jobs || []).filter(entry => entry.operation === 'chat.response')
 }
 
+function isPreDispatchCreditRefusal(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
+  return entry.state === 'failed'
+    && entry.dispatch_state === 'pre_dispatch'
+    && entry.queue_state === 'waiting_credits'
+}
+
 function isResolvedChatEntry(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
-  return typeof entry.id === 'string'
+  return isPreDispatchCreditRefusal(entry) || (typeof entry.id === 'string'
     && !!entry.id
     && !entry.id.startsWith('pending:')
-    && (entry.state === 'succeeded' || entry.state === 'failed')
+    && (entry.state === 'succeeded' || entry.state === 'failed'))
 }
 
 function chapterChatRetryMode(job: Job): ChapterChatRetryMode | undefined {
   const chats = chatEntries(job)
   if (chats.length === 0) return undefined
   const terminalFailure = chats.find(entry =>
-    entry.state === 'failed'
+    isPreDispatchCreditRefusal(entry) || (entry.state === 'failed'
     && typeof entry.id === 'string'
     && !!entry.id
-    && !entry.id.startsWith('pending:'),
+    && !entry.id.startsWith('pending:')),
   )
   // A Story retry may replace the provider key only after every chat batch is
   // resolved. Any pending preview or unknown/nonterminal state can still be
@@ -1853,6 +1859,11 @@ function chapterChatRetryMode(job: Job): ChapterChatRetryMode | undefined {
 
 function terminalChatRetryScope(job: Job): string | undefined {
   if (chapterChatRetryMode(job) !== 'fresh-replacement') return undefined
+  const creditRefusal = chatEntries(job).find(isPreDispatchCreditRefusal)
+  if (creditRefusal) {
+    const key = creditRefusal.request?.idempotency_key?.trim() || creditRefusal.id.replace(/^pending:/, '')
+    return `credit-refused:${key}:${job.job_id}`
+  }
   const terminalFailure = chatEntries(job).find(entry => entry.state === 'failed' && !entry.id.startsWith('pending:'))
   return terminalFailure ? `terminal:${terminalFailure.id}:${job.job_id}` : undefined
 }
