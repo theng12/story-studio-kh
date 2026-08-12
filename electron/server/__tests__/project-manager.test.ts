@@ -59,6 +59,17 @@ describe('createProject / listProjects / getProject', () => {
     assert.equal(createdStandards, blankStandards)
   })
 
+  test('blank projects start with neutral production guidance', async () => {
+    const p = await pm.createProject({ name: 'Neutral Channel' })
+    const standards = await fs.readFile(
+      path.join(tempDir, 'projects', p.slug, 'production_standards.txt'),
+      'utf8',
+    )
+
+    assert.doesNotMatch(standards, /sleep|meditation|relaxation listeners|warm welcome/i)
+    assert.match(standards, /channel-specific narration guidance/i)
+  })
+
   test('auto-increments slug on collision', async () => {
     await pm.createProject({ name: 'Test' })
     const p2 = await pm.createProject({ name: 'Test' })
