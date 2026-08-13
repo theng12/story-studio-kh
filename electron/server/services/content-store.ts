@@ -11,13 +11,14 @@ import {
 } from '../lib/genstudio-content-store.js'
 import { getApiKey } from './app-secrets-store.js'
 import {
-  beginPurchaseAttempt,
+  claimPurchaseAttempt,
   readContentStoreCommerceState,
   recordCompletedPurchase,
   recordPurchaseRefusal,
   recordPurchaseUncertain,
   recoverInterruptedContentPurchases,
   restoreQuotedAfterPurchaseScopeRefusal,
+  restoreQuotedAfterPurchaseNotSent,
   saveQuotedAttempt,
 } from '../content-store/commerce-state.js'
 import {
@@ -274,7 +275,9 @@ async function purchaseLeader(
   apiKey: string,
   accountId: string,
 ): Promise<PublicContentPurchaseAttempt> {
-  const submitting = await beginPurchaseAttempt(quoteId, accountId)
+  const claim = await claimPurchaseAttempt(quoteId, accountId)
+  if (claim.outcome !== 'claimed') return publicAttempt(claim.attempt)
+  const submitting = claim.attempt
   try {
     const purchase = await purchaseGenStudioContentProduct(apiKey, {
       quoteCanonicalJson: submitting.quote_canonical_json,
@@ -291,14 +294,24 @@ async function purchaseLeader(
       }
       if (error.status === 401) {
         await restoreQuotedAfterPurchaseScopeRefusal(quoteId)
+        throw error
       }
+      const detail = 'GenStudio returned a purchase response Story Studio could not safely classify. No replacement purchase was sent. Retry this exact purchase to replay its saved idempotency key.'
+      await recordPurchaseUncertain(quoteId, detail)
+      throw new ContentStoreLocalError(502, 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN', detail)
     }
     if (error instanceof GenStudioContentStoreTransportError && error.outcome === 'uncertain') {
       const detail = 'Story Studio did not receive GenStudio\'s answer. No replacement purchase was sent. Retry this exact purchase to replay its saved idempotency key.'
       await recordPurchaseUncertain(quoteId, detail)
       throw new ContentStoreLocalError(502, 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN', detail)
     }
-    throw error
+    if (error instanceof GenStudioContentStoreTransportError && error.outcome === 'not-sent') {
+      await restoreQuotedAfterPurchaseNotSent(quoteId)
+      throw new ContentStoreLocalError(502, 'CONTENT_PURCHASE_NOT_SENT', 'Story Studio could not send the purchase request. No credits were debited.')
+    }
+    const detail = 'Story Studio could not prove the Content Store purchase outcome. No replacement purchase was sent. Retry this exact purchase to replay its saved idempotency key.'
+    await recordPurchaseUncertain(quoteId, detail)
+    throw new ContentStoreLocalError(502, 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN', detail)
   }
 }
 

@@ -218,6 +218,62 @@ describe('Content Store commerce routes', () => {
     assert.equal((await readContentStoreCommerceState()).attempts[quoted.body.quote_id].idempotency_key, idempotencyKey)
   })
 
+  test('never leaves submitting after a synchronous not-sent purchase and preserves the key', async () => {
+    const { app: localApp } = await setup()
+    const quoted = await quote(localApp).expect(201)
+    const before = (await readContentStoreCommerceState()).attempts[quoted.body.quote_id]
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = ((input, init) => {
+      if (String(input).endsWith('/v1/content/purchases')) throw new Error('synchronous fetch refusal')
+      return originalFetch(input, init)
+    }) as typeof fetch
+    try {
+      await request(localApp)
+        .post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(502)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+    const after = (await readContentStoreCommerceState()).attempts[quoted.body.quote_id]
+    assert.equal(after.status, 'quoted')
+    assert.equal(after.idempotency_key, before.idempotency_key)
+  })
+
+  test('marks malformed and unknown purchase refusals uncertain instead of retaining submitting', async () => {
+    for (const outcome of [
+      { status: 503 as const, rawBody: '{not json' },
+      { status: 418 as any, body: { code: 'unexpected', detail: 'unknown response' } },
+    ]) {
+      const { app: localApp } = await setup()
+      const quoted = await quote(localApp).expect(201)
+      mock.queueContentPurchaseOutcome(outcome)
+      const response = await request(localApp)
+        .post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(502)
+      assert.equal(response.body.status, 'uncertain')
+      assert.equal((await readContentStoreCommerceState()).attempts[quoted.body.quote_id].status, 'uncertain')
+      await mock.close()
+      await cleanup?.()
+      cleanup = undefined
+    }
+  })
+
+  test('projects only bounded published refusal fields to the renderer', async () => {
+    const { app: localApp } = await setup()
+    const quoted = await quote(localApp).expect(201)
+    mock.queueContentPurchaseOutcome({
+      status: 401 as any,
+      body: {
+        detail: 'authentication required',
+        quote_signature: 'must-not-leak',
+        canonical_json: '{secret}',
+        path: '/Users/private',
+      },
+    })
+    const response = await request(localApp)
+      .post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(401)
+    assert.match(response.body.detail, /content:purchase/)
+    assert.doesNotMatch(JSON.stringify(response.body), /signature|canonical|\/Users/)
+  })
+
   for (const [status, code, fields] of [
     [402, 'insufficient_credits', { required_credits: 300, available_credits: 100, shortfall_credits: 200 }],
     [404, 'product_unavailable', {}],

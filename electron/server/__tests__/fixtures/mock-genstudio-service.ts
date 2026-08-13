@@ -33,10 +33,11 @@ export type MockGenStudioScope =
   | 'content:purchase'
 
 export interface MockContentPurchaseOutcome {
-  status?: 200 | 402 | 404 | 409 | 503
+  status?: 200 | 401 | 402 | 404 | 409 | 418 | 503
   body?: Record<string, unknown>
   dropResponse?: boolean
   delayMs?: number
+  rawBody?: string
 }
 
 export interface MockCreditSnapshot {
@@ -801,7 +802,9 @@ export class MockGenStudioService {
 
       const scope = requiredScope(url.pathname, method)
       if (scope && !this.authorize(request, scope)) {
-        json(response, scope.startsWith('content:') ? 401 : 403, { detail: `missing required scope: ${scope}` })
+        json(response, scope.startsWith('content:') ? 401 : 403, {
+          detail: scope.startsWith('content:') ? 'authentication required' : `missing required scope: ${scope}`,
+        })
         return
       }
 
@@ -840,6 +843,11 @@ export class MockGenStudioService {
           return
         }
         if (outcome?.status && outcome.status !== 200) {
+          if (outcome.rawBody !== undefined) {
+            response.writeHead(outcome.status, { 'Content-Type': 'application/json' })
+            response.end(outcome.rawBody)
+            return
+          }
           json(response, outcome.status, outcome.body || {})
           return
         }

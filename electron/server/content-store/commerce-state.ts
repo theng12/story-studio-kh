@@ -497,13 +497,18 @@ function replaceAttempt(state: ContentStoreCommerceState, next: CachedContentQuo
   return validated
 }
 
-export async function beginPurchaseAttempt(quoteId: string, accountId: string): Promise<CachedContentQuote> {
+export type ContentPurchaseClaim = {
+  outcome: 'claimed' | 'existing-submitting' | 'completed'
+  attempt: CachedContentQuote
+}
+
+export async function claimPurchaseAttempt(quoteId: string, accountId: string): Promise<ContentPurchaseClaim> {
   const owner = await currentSubmissionOwner()
   return mutateState(state => {
     const attempt = requireAttempt(state, quoteId)
     if (attempt.account_id !== accountId) throw new Error('Content Store purchase account does not match the saved quote account')
-    if (attempt.status === 'completed') throw new Error('Content Store purchase is already completed and immutable')
-    if (attempt.status === 'submitting') throw new Error('Content Store purchase is already submitting')
+    if (attempt.status === 'completed') return { outcome: 'completed', attempt }
+    if (attempt.status === 'submitting') return { outcome: 'existing-submitting', attempt }
     const { uncertain_detail: _uncertainDetail, ...retained } = attempt
     const next = replaceAttempt(state, {
       ...retained,
@@ -512,8 +517,15 @@ export async function beginPurchaseAttempt(quoteId: string, accountId: string): 
       updated_at: nowIso(),
     })
     pruneStateToBudgets(state, new Set([quoteId]))
-    return next
+    return { outcome: 'claimed', attempt: next }
   })
+}
+
+export async function beginPurchaseAttempt(quoteId: string, accountId: string): Promise<CachedContentQuote> {
+  const result = await claimPurchaseAttempt(quoteId, accountId)
+  if (result.outcome === 'completed') throw new Error('Content Store purchase is already completed and immutable')
+  if (result.outcome === 'existing-submitting') throw new Error('Content Store purchase is already submitting')
+  return result.attempt
 }
 
 export async function recordPurchaseUncertain(quoteId: string, detail: string): Promise<CachedContentQuote> {
@@ -546,6 +558,11 @@ export async function restoreQuotedAfterPurchaseScopeRefusal(quoteId: string): P
     pruneStateToBudgets(state, new Set([quoteId]))
     return next
   })
+}
+
+/** A synchronous fetch setup failure proves the purchase request was not sent. */
+export async function restoreQuotedAfterPurchaseNotSent(quoteId: string): Promise<CachedContentQuote> {
+  return restoreQuotedAfterPurchaseScopeRefusal(quoteId)
 }
 
 export async function recordPurchaseRefusal(

@@ -43,12 +43,20 @@ function quoteId(req: Request): string {
   return OPAQUE_ID.parse(firstParam(req.params.quoteId))
 }
 
-function upstreamFailure(res: Response, error: GenStudioContentStoreApiError): void {
-  res.status(error.status).json({
-    ...(error.code ? { code: error.code } : {}),
-    detail: error.detail,
-    ...error.refusal,
-  })
+function upstreamFailure(res: Response, error: GenStudioContentStoreApiError, requiredScope: 'content:read' | 'content:purchase'): void {
+  if (error.status === 401) {
+    res.status(401).json({
+      code: 'CONTENT_STORE_SCOPE_REQUIRED',
+      detail: `The active GenStudio key was not accepted for required ${requiredScope} access.`,
+    })
+    return
+  }
+  const credits = error.status === 402 ? {
+    required_credits: error.refusal.required_credits,
+    available_credits: error.refusal.available_credits,
+    shortfall_credits: error.refusal.shortfall_credits,
+  } : {}
+  res.status(error.status).json({ ...(error.code ? { code: error.code } : {}), detail: error.detail, ...credits })
 }
 
 function localFailure(res: Response, error: ContentStoreLocalError): void {
@@ -56,16 +64,25 @@ function localFailure(res: Response, error: ContentStoreLocalError): void {
     res.status(502).json({ code: error.code, detail: error.message, status: 'uncertain' })
     return
   }
+  if (error.code === 'CONTENT_PURCHASE_NOT_SENT') {
+    res.status(502).json({ code: error.code, detail: error.message, status: 'quoted' })
+    return
+  }
   res.status(error.status).json({ code: error.code, detail: error.message, ...(error.attempt ? { attempt: error.attempt } : {}) })
 }
 
-function handleFailure(res: Response, error: unknown, fallback: string): void {
+function handleFailure(
+  res: Response,
+  error: unknown,
+  fallback: string,
+  requiredScope: 'content:read' | 'content:purchase',
+): void {
   if (error instanceof ContentStoreUpstreamRefusal) {
     res.status(error.status).json({ ...error.refusal, status: error.attempt.status })
     return
   }
   if (error instanceof GenStudioContentStoreApiError) {
-    upstreamFailure(res, error)
+    upstreamFailure(res, error, requiredScope)
     return
   }
   if (error instanceof ContentStoreLocalError) {
@@ -85,7 +102,7 @@ router.get('/content-store', async (_req, res) => {
   try {
     res.json(await loadContentStoreOverview())
   } catch (error) {
-    handleFailure(res, error, 'Failed to load the Content Store.')
+    handleFailure(res, error, 'Failed to load the Content Store.', 'content:read')
   }
 })
 
@@ -94,7 +111,7 @@ router.post('/content-store/quotes', async (req, res) => {
     const input = QuoteBodySchema.parse(req.body)
     res.status(201).json(await createContentStoreQuote(input))
   } catch (error) {
-    handleFailure(res, error, 'Failed to request a Content Store quote.')
+    handleFailure(res, error, 'Failed to request a Content Store quote.', 'content:read')
   }
 })
 
@@ -105,7 +122,7 @@ router.post('/content-store/quotes/:quoteId/purchase', async (req, res) => {
     }
     res.json(await confirmContentStorePurchase(quoteId(req)))
   } catch (error) {
-    handleFailure(res, error, 'Failed to confirm the Content Store purchase.')
+    handleFailure(res, error, 'Failed to confirm the Content Store purchase.', 'content:purchase')
   }
 })
 

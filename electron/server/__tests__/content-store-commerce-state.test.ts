@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import {
   beginPurchaseAttempt,
+  claimPurchaseAttempt,
   getContentStoreStatePath,
   readContentStoreCommerceState,
   recordCompletedPurchase,
@@ -252,6 +253,15 @@ describe('Content Store commerce state', () => {
       assert.match(String((result as PromiseRejectedResult).reason), /already submitting/i)
     }
     assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
+  })
+
+  test('returns one claimed purchase and durable followers under a simultaneous claim race', async () => {
+    await isolate()
+    await saveQuotedAttempt(quote())
+    const claims = await Promise.all(Array.from({ length: 12 }, () => claimPurchaseAttempt('cq_test', 'acct_a')))
+    assert.equal(claims.filter(result => result.outcome === 'claimed').length, 1)
+    assert.equal(claims.filter(result => result.outcome === 'existing-submitting').length, 11)
+    assert.equal(new Set(claims.map(result => result.attempt.idempotency_key)).size, 1)
   })
 
   test('records bounded uncertainty and allows only an explicit caller to resubmit', async () => {
