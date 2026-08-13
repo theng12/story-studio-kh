@@ -19,8 +19,8 @@
 
 ## Tasks
 
-- [ ] Task 1 — exact GenStudio 0.21 client, canonical payload preservation, generic app-version resolver, and safe `content:read` scope probe
-- [ ] Task 1 independent contract/security review — GO with zero Critical/Important findings
+- [x] Task 1 — exact GenStudio 0.21 client, canonical payload preservation, generic app-version resolver, and safe `content:read` scope probe
+- [x] Task 1 independent contract/security review — GO with zero Critical/Important findings
 - [ ] Task 2 — atomic commerce state, stable idempotency, interrupted-submit recovery, exact refusal cache, and unverified receipt bytes
 - [ ] Task 2 independent concurrency/security review — GO with zero Critical/Important findings
 - [ ] Task 3 — active-account orchestration and local read/quote/purchase routes with exact status semantics and no installer/Job Queue dependency
@@ -52,3 +52,13 @@ Add one section per task with:
 - independent reviewer verdict and correction commits;
 - any deliberate deferral that remains inside the approved Phase 1 boundary.
 
+### Task 1
+
+- Implementation commits: `3002c862` (`feat: read GenStudio content store contract`) and `90becfb5` (`fix: bound content store refusal evidence`).
+- Initial RED: `STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 electron/server/__tests__/genstudio-content-store-client.test.ts` failed with `ERR_MODULE_NOT_FOUND` for `genstudio-content-store.js`.
+- Focused GREEN before independent review: 95/95 across the Content Store client, Content Pack installer, app-settings isolation, GenStudio boundary, and GenStudio route suites; Electron typecheck, lint `--quiet`, and `git diff --check` exited 0.
+- Independent review initially rejected one Critical and one Important: JavaScript number reserialization could diverge from Python signed canonical bytes, and response buffering/body failures were not bounded/classified safely.
+- Review corrections used focused RED then GREEN and landed in `af7f9705` (`fix: preserve signed store response bytes`): raw JSON number lexemes are retained, purchase bodies embed persisted canonical quote bytes without JavaScript reserialization, response streaming stops at 1 MiB, and successful purchase response read/parse failures become typed `uncertain` outcomes.
+- A second review found one Important: successful oversized or schema-invalid purchase responses still escaped as generic errors after a possible debit. Focused REDs were added, then `29c0e6ca` (`fix: mark unreadable purchase results uncertain`) mapped all successful post-submit body/decode/JSON/schema failures to typed `uncertain` while preserving non-OK refusal semantics.
+- Final independent scoped re-review: GO, zero Critical/Important findings. Reviewer independently verified the 200 oversized and schema-invalid outcomes and reran the 19/19 client suite.
+- Final focused evidence for Task 1: all 99 tests passed across the five named suites (19 client + 17 installer + 5 app-settings isolation + 37 GenStudio boundary + 21 route); Electron typecheck, lint `--quiet`, and `git diff --check` exited 0.
