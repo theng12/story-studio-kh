@@ -1,0 +1,146 @@
+import { z } from 'zod'
+
+const MAX_CANONICAL_BYTES = 1024 * 1024
+const MAX_DETAIL_BYTES = 2 * 1024
+const OPAQUE_TEXT = /^[^\u0000-\u001f\u007f]+$/
+
+function boundedUtf8(maxBytes: number, label: string, minimumLength = 0) {
+  return z.string().min(minimumLength).refine(
+    value => Buffer.byteLength(value, 'utf8') <= maxBytes,
+    `${label} exceeds ${maxBytes} UTF-8 bytes`,
+  )
+}
+
+const OpaqueIdSchema = z.string().min(1).max(256).regex(OPAQUE_TEXT)
+const SignatureSchema = z.string().min(1).max(16 * 1024).regex(OPAQUE_TEXT)
+const CanonicalJsonSchema = boundedUtf8(MAX_CANONICAL_BYTES, 'canonical JSON', 2)
+export const ContentStoreDetailSchema = boundedUtf8(MAX_DETAIL_BYTES, 'detail')
+const IsoDateTimeSchema = z.string().datetime({ offset: true })
+const CreditsSchema = z.number().int().nonnegative().safe()
+
+const InsufficientCreditsRefusalSchema = z.object({
+  status: z.literal(402),
+  code: z.literal('insufficient_credits'),
+  detail: ContentStoreDetailSchema,
+  required_credits: CreditsSchema,
+  available_credits: CreditsSchema,
+  shortfall_credits: CreditsSchema,
+}).strict().superRefine((value, context) => {
+  if (value.shortfall_credits !== Math.max(0, value.required_credits - value.available_credits)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'shortfall_credits does not match the published refusal figures' })
+  }
+})
+
+const ProductRefusalSchema = z.object({
+  status: z.literal(404),
+  code: z.enum(['product_unavailable', 'release_unavailable']),
+  detail: ContentStoreDetailSchema,
+}).strict()
+
+const ConflictRefusalSchema = z.object({
+  status: z.literal(409),
+  code: z.enum(['already_owned', 'quote_rejected']),
+  detail: ContentStoreDetailSchema,
+}).strict()
+
+const SigningRefusalSchema = z.object({
+  status: z.literal(503),
+  code: z.literal('signing_unavailable'),
+  detail: ContentStoreDetailSchema,
+}).strict()
+
+export const CachedContentRefusalSchema = z.union([
+  InsufficientCreditsRefusalSchema,
+  ProductRefusalSchema,
+  ConflictRefusalSchema,
+  SigningRefusalSchema,
+])
+
+export type CachedContentRefusal = z.infer<typeof CachedContentRefusalSchema>
+
+export const CachedContentReceiptSchema = z.object({
+  receipt_canonical_json: CanonicalJsonSchema,
+  receipt_signature: SignatureSchema,
+  key_id: OpaqueIdSchema,
+  verification: z.literal('unverified_phase1'),
+}).strict()
+
+export type CachedContentReceipt = z.infer<typeof CachedContentReceiptSchema>
+
+export const CachedContentPurchaseSchema = z.object({
+  purchase_id: OpaqueIdSchema,
+  account_id: OpaqueIdSchema,
+  credits_charged: CreditsSchema,
+  discount_credits: CreditsSchema,
+  balance_before: CreditsSchema,
+  balance_after: CreditsSchema,
+  entitlement_ids: z.array(OpaqueIdSchema).max(200),
+  entitlement_families: z.array(OpaqueIdSchema).min(1).max(200),
+  product_canonical_json: CanonicalJsonSchema,
+  release_canonical_json: CanonicalJsonSchema,
+  ledger_event_key: OpaqueIdSchema.nullable(),
+  receipt: CachedContentReceiptSchema,
+  replayed: z.boolean(),
+}).strict()
+
+export type CachedContentPurchase = z.infer<typeof CachedContentPurchaseSchema>
+
+export const ContentPurchaseAttemptStatusSchema = z.enum([
+  'quoted', 'submitting', 'uncertain', 'refused', 'completed',
+])
+
+export type ContentPurchaseAttemptStatus = z.infer<typeof ContentPurchaseAttemptStatusSchema>
+
+export const CachedContentQuoteSchema = z.object({
+  quote_id: OpaqueIdSchema,
+  account_id: OpaqueIdSchema,
+  product_id: OpaqueIdSchema,
+  release_id: OpaqueIdSchema,
+  entitlement_family: OpaqueIdSchema,
+  expires_at: IsoDateTimeSchema,
+  quote_canonical_json: CanonicalJsonSchema,
+  quote_signature: SignatureSchema,
+  key_id: OpaqueIdSchema,
+  idempotency_key: z.string().min(8).max(128).regex(/^story-content-[0-9a-f-]+$/),
+  base_credit_price: CreditsSchema,
+  discount_credits: CreditsSchema,
+  quoted_credits: CreditsSchema,
+  balance_before: CreditsSchema,
+  balance_after: CreditsSchema,
+  owned_components: z.array(OpaqueIdSchema).max(200),
+  sufficient_credits: z.boolean(),
+  insufficient_reason: z.literal('insufficient_credits').nullable(),
+  shortfall_credits: CreditsSchema,
+  status: ContentPurchaseAttemptStatusSchema,
+  created_at: IsoDateTimeSchema,
+  updated_at: IsoDateTimeSchema,
+  last_refusal: CachedContentRefusalSchema.optional(),
+  uncertain_detail: ContentStoreDetailSchema.optional(),
+  completed_purchase: CachedContentPurchaseSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if ((value.status === 'completed') !== (value.completed_purchase !== undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'completed status and completed_purchase must agree' })
+  }
+  if (value.status === 'refused' && !value.last_refusal) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'refused status requires last_refusal' })
+  }
+  if (value.status === 'uncertain' && !value.uncertain_detail) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'uncertain status requires uncertain_detail' })
+  }
+  if (value.sufficient_credits === (value.insufficient_reason !== null)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'quote sufficiency fields disagree' })
+  }
+})
+
+export type CachedContentQuote = z.infer<typeof CachedContentQuoteSchema>
+
+export const ContentStoreCommerceStateSchema = z.object({
+  schema_version: z.literal(1),
+  attempts: z.record(CachedContentQuoteSchema).refine(value => Object.keys(value).length <= 200, 'commerce state exceeds 200 quote records'),
+}).strict()
+
+export type ContentStoreCommerceState = z.infer<typeof ContentStoreCommerceStateSchema>
+
+export function emptyContentStoreCommerceState(): ContentStoreCommerceState {
+  return { schema_version: 1, attempts: {} }
+}

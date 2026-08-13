@@ -1,0 +1,413 @@
+import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { spawn } from 'node:child_process'
+import fs from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, describe, test } from 'node:test'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+
+import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
+import {
+  beginPurchaseAttempt,
+  __testForgetActiveContentPurchase,
+  getContentStoreStatePath,
+  readContentStoreCommerceState,
+  recordCompletedPurchase,
+  recordPurchaseRefusal,
+  recordPurchaseUncertain,
+  recoverInterruptedContentPurchases,
+  saveQuotedAttempt,
+} from '../content-store/commerce-state.js'
+import type { CachedContentRefusal } from '../content-store/types.js'
+import { parseContentStorePurchase, parseContentStoreQuote } from '../lib/genstudio-content-store.js'
+import { useTempDataDir } from './_helpers.js'
+
+const SIGNATURE = Buffer.alloc(64, 7).toString('base64')
+const HASH = 'a'.repeat(64)
+let cleanup: (() => Promise<void>) | undefined
+
+afterEach(async () => {
+  await cleanup?.()
+  cleanup = undefined
+})
+
+async function cleanupCurrent(): Promise<void> {
+  const current = cleanup
+  cleanup = undefined
+  await current?.()
+}
+
+async function isolate() {
+  const temp = await useTempDataDir()
+  cleanup = temp.cleanup
+  return { temp, paths: getContentPackRuntimePaths() }
+}
+
+function runWorker(workerPath: string, env: NodeJS.ProcessEnv): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--import', 'tsx', workerPath], { env, stdio: 'pipe' })
+    let stderr = ''
+    child.stderr.on('data', chunk => { stderr += chunk })
+    child.once('error', reject)
+    child.once('exit', code => code === 0 ? resolve() : reject(new Error(`commerce worker exited ${code}: ${stderr}`)))
+  })
+}
+
+function signedQuote(overrides: Record<string, unknown> = {}) {
+  return {
+    typ: 'genstudio.content.quote.v1', key_id: 'key-1', quote_id: 'cq_test', account_id: 'acct_a',
+    product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', release_id: 'crel_a',
+    release_version: '1.0.0', archive_sha256: HASH, base_credit_price: 400,
+    discount_credits: 100, quoted_credits: 300, owned_components: [],
+    issued_at: '2026-08-14T10:00:00Z', expires_at: '2099-08-14T10:15:00Z', ...overrides,
+  }
+}
+
+function quote(overrides: Record<string, unknown> = {}) {
+  const signed = signedQuote(overrides.quote && typeof overrides.quote === 'object'
+    ? overrides.quote as Record<string, unknown>
+    : {})
+  return parseContentStoreQuote({
+    quote: signed, quote_signature: SIGNATURE, quote_id: signed.quote_id, key_id: signed.key_id,
+    expires_at: signed.expires_at, account_id: signed.account_id, product_id: signed.product_id,
+    entitlement_family: signed.entitlement_family, release_id: signed.release_id,
+    base_credit_price: signed.base_credit_price, discount_credits: signed.discount_credits,
+    quoted_credits: signed.quoted_credits, balance_before: 5000, balance_after: 4700,
+    owned_components: signed.owned_components, sufficient_credits: true,
+    insufficient_reason: null, shortfall_credits: 0,
+    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => key !== 'quote')),
+  })
+}
+
+function release() {
+  return {
+    release_id: 'crel_a', pack_id: 'com.storystudio.test', version: '1.0.0', archive_sha256: HASH,
+    archive_bytes: 4096, min_story_version: '1.0.834', changelog: 'First release.',
+    component_summary: { count: 1 },
+  }
+}
+
+function purchase(overrides: Record<string, unknown> = {}) {
+  const receipt = {
+    typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a',
+    purchase_id: 'cpur_a', account_id: 'acct_a', entitlement_families: ['com.storystudio.test'],
+    product: { product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', title: 'Test Formula' },
+    release: release(), credits_charged: 300, issued_at: '2026-08-14T10:01:00Z',
+  }
+  return parseContentStorePurchase({
+    purchase_id: 'cpur_a', account_id: 'acct_a', credits_charged: 300, discount_credits: 100,
+    balance_before: 5000, balance_after: 4700, entitlement_ids: ['cent_a'],
+    entitlement_families: ['com.storystudio.test'], product: receipt.product, release: receipt.release,
+    ledger_event_key: 'content-purchase:cpur_a',
+    receipt: { receipt, receipt_signature: SIGNATURE, key_id: 'key-1' }, replayed: false,
+    ...overrides,
+  })
+}
+
+const refusals: CachedContentRefusal[] = [
+  {
+    status: 402, code: 'insufficient_credits', detail: 'Not enough content-spendable credits.',
+    required_credits: 300, available_credits: 50, shortfall_credits: 250,
+  },
+  { status: 404, code: 'product_unavailable', detail: 'Product unavailable.' },
+  { status: 404, code: 'release_unavailable', detail: 'Release unavailable.' },
+  { status: 409, code: 'already_owned', detail: 'Already owned.' },
+  { status: 409, code: 'quote_rejected', detail: 'Quote rejected.' },
+  { status: 503, code: 'signing_unavailable', detail: 'Signing unavailable.' },
+]
+
+describe('Content Store commerce state', () => {
+  test('persists one 0600 journal with a durable bounded idempotency key', async () => {
+    const { paths } = await isolate()
+    const saved = await saveQuotedAttempt(quote())
+    assert.equal(getContentStoreStatePath(), path.join(paths.root, 'commerce-state.json'))
+    assert.match(saved.idempotency_key, /^story-content-[0-9a-f-]+$/)
+    assert.ok(saved.idempotency_key.length >= 8 && saved.idempotency_key.length <= 128)
+    assert.equal((await fs.stat(getContentStoreStatePath())).mode & 0o777, 0o600)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.idempotency_key, saved.idempotency_key)
+  })
+
+  test('concurrent saves of one exact quote preserve the same key and canonical bytes', async () => {
+    await isolate()
+    const exact = quote()
+    const saved = await Promise.all(Array.from({ length: 12 }, () => saveQuotedAttempt(exact)))
+    assert.equal(new Set(saved.map(row => row.idempotency_key)).size, 1)
+    assert.equal(new Set(saved.map(row => row.quote_canonical_json)).size, 1)
+    assert.equal(Object.keys((await readContentStoreCommerceState()).attempts).length, 1)
+  })
+
+  test('refuses quote identity drift without changing the original evidence', async () => {
+    await isolate()
+    const original = await saveQuotedAttempt(quote())
+    await assert.rejects(saveQuotedAttempt(quote({ quote_signature: Buffer.alloc(64, 8).toString('base64') })), /identity drift/i)
+    await assert.rejects(saveQuotedAttempt(quote({ quote: { account_id: 'acct_other' } })), /identity drift/i)
+    await assert.rejects(saveQuotedAttempt(quote({ quote: { future_signed_fact: 'changed' } })), /identity drift/i)
+    assert.deepEqual((await readContentStoreCommerceState()).attempts.cq_test, original)
+  })
+
+  test('permits explicit quoted to submitting to refused to submitting to completed using one key', async () => {
+    await isolate()
+    const quoted = await saveQuotedAttempt(quote())
+    assert.equal((await beginPurchaseAttempt('cq_test', 'acct_a')).status, 'submitting')
+    const refused = await recordPurchaseRefusal('cq_test', refusals[0])
+    assert.equal(refused.status, 'refused')
+    const retry = await beginPurchaseAttempt('cq_test', 'acct_a')
+    assert.equal(retry.status, 'submitting')
+    assert.equal(retry.idempotency_key, quoted.idempotency_key)
+    const completed = await recordCompletedPurchase('cq_test', purchase())
+    assert.equal(completed.status, 'completed')
+    assert.equal(completed.idempotency_key, quoted.idempotency_key)
+    assert.equal(completed.last_refusal?.code, 'insufficient_credits')
+  })
+
+  test('retains every bounded published refusal shape without changing the key', async () => {
+    await isolate()
+    for (const [index, refusal] of refusals.entries()) {
+      const quoteId = `cq_${index}`
+      const saved = await saveQuotedAttempt(quote({ quote: { quote_id: quoteId } }))
+      await beginPurchaseAttempt(quoteId, 'acct_a')
+      const result = await recordPurchaseRefusal(quoteId, refusal)
+      assert.deepEqual(result.last_refusal, refusal)
+      assert.equal(result.idempotency_key, saved.idempotency_key)
+      assert.equal((await beginPurchaseAttempt(quoteId, 'acct_a')).idempotency_key, saved.idempotency_key)
+    }
+    await assert.rejects(
+      recordPurchaseRefusal('cq_0', { status: 503, code: 'quote_rejected', detail: 'wrong pairing' } as unknown as CachedContentRefusal),
+      /refusal|pair/i,
+    )
+    await assert.rejects(
+      recordPurchaseRefusal('cq_0', { status: 503, code: 'signing_unavailable', detail: 'x'.repeat(2049) }),
+      /detail|2048|too big/i,
+    )
+  })
+
+  test('explicit recovery marks prior submitting work uncertain and performs no network action', async () => {
+    await isolate()
+    await saveQuotedAttempt(quote())
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    assert.equal(await recoverInterruptedContentPurchases(), 0)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
+    __testForgetActiveContentPurchase('cq_test')
+    assert.equal(await recoverInterruptedContentPurchases(), 1)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'uncertain')
+    assert.equal(await recoverInterruptedContentPurchases(), 0)
+    assert.equal((await beginPurchaseAttempt('cq_test', 'acct_a')).status, 'submitting')
+  })
+
+  test('grants submitting ownership to exactly one concurrent caller', async () => {
+    await isolate()
+    await saveQuotedAttempt(quote())
+    const results = await Promise.allSettled(Array.from({ length: 12 }, () => beginPurchaseAttempt('cq_test', 'acct_a')))
+    assert.equal(results.filter(result => result.status === 'fulfilled').length, 1)
+    for (const result of results.filter(result => result.status === 'rejected')) {
+      assert.match(String((result as PromiseRejectedResult).reason), /already submitting/i)
+    }
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
+  })
+
+  test('records bounded uncertainty and allows only an explicit caller to resubmit', async () => {
+    await isolate()
+    await saveQuotedAttempt(quote())
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    const uncertain = await recordPurchaseUncertain('cq_test', 'No response was received.')
+    assert.equal(uncertain.status, 'uncertain')
+    await assert.rejects(recordPurchaseUncertain('cq_test', 'x'.repeat(2049)), /detail|2048|too big/i)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'uncertain')
+    assert.equal((await beginPurchaseAttempt('cq_test', 'acct_a')).status, 'submitting')
+  })
+
+  test('keeps completed purchase and exact unverified receipt immutable', async () => {
+    await isolate()
+    await saveQuotedAttempt(quote())
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    const first = await recordCompletedPurchase('cq_test', purchase())
+    assert.equal(first.completed_purchase?.receipt.verification, 'unverified_phase1')
+    assert.equal(first.completed_purchase?.receipt.receipt_canonical_json, purchase().receipt.signedReceipt.canonicalJson)
+    const replay = await recordCompletedPurchase('cq_test', purchase())
+    assert.deepEqual(replay, first)
+    await assert.rejects(recordCompletedPurchase('cq_test', purchase({ replayed: true })), /completed|immutable|identity drift/i)
+    await assert.rejects(beginPurchaseAttempt('cq_test', 'acct_a'), /completed/i)
+  })
+
+  test('checks account and entitlement identity before changing status', async () => {
+    await isolate()
+    await saveQuotedAttempt(quote())
+    await assert.rejects(beginPurchaseAttempt('cq_test', 'acct_other'), /account/i)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'quoted')
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    await assert.rejects(recordCompletedPurchase('cq_test', purchase({
+      account_id: 'acct_other',
+      receipt: {
+        receipt: {
+          typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a', purchase_id: 'cpur_a',
+          account_id: 'acct_other', entitlement_families: ['com.storystudio.test'],
+          product: { product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', title: 'Test Formula' },
+          release: release(), credits_charged: 300, issued_at: '2026-08-14T10:01:00Z',
+        },
+        receipt_signature: SIGNATURE, key_id: 'key-1',
+      },
+    })), /account/i)
+    await assert.rejects(recordCompletedPurchase('cq_test', purchase({
+      entitlement_families: ['com.storystudio.other'],
+      receipt: {
+        receipt: {
+          typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a', purchase_id: 'cpur_a',
+          account_id: 'acct_a', entitlement_families: ['com.storystudio.other'],
+          product: { product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', title: 'Test Formula' },
+          release: release(), credits_charged: 300, issued_at: '2026-08-14T10:01:00Z',
+        },
+        receipt_signature: SIGNATURE, key_id: 'key-1',
+      },
+    })), /entitlement/i)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
+  })
+
+  test('quarantines malformed and oversized journals using a safe direct child', async () => {
+    const { paths } = await isolate()
+    await fs.mkdir(paths.root, { recursive: true })
+    const invalid = '{"schema_version":1,"attempts":{},"api_key":"gsk_secret"}\n'
+    await fs.writeFile(getContentStoreStatePath(), invalid, { mode: 0o600 })
+    assert.deepEqual(await readContentStoreCommerceState(), { schema_version: 1, attempts: {} })
+    const hash = createHash('sha256').update(invalid).digest('hex')
+    assert.equal(
+      await fs.readFile(path.join(paths.quarantineRoot, `commerce-state-invalid-${hash}.json`), 'utf8'),
+      invalid,
+    )
+
+    await fs.writeFile(getContentStoreStatePath(), Buffer.alloc(16 * 1024 * 1024 + 1, 0x20), { mode: 0o600 })
+    assert.deepEqual(await readContentStoreCommerceState(), { schema_version: 1, attempts: {} })
+    assert.ok((await fs.readdir(paths.quarantineRoot)).some(name => name.startsWith('commerce-state-oversized-')))
+  })
+
+  test('serialises parallel mutations without losing distinct quote records', async () => {
+    await isolate()
+    await Promise.all(Array.from({ length: 40 }, (_, index) => saveQuotedAttempt(quote({ quote: { quote_id: `cq_parallel_${index}` } }))))
+    assert.equal(Object.keys((await readContentStoreCommerceState()).attempts).length, 40)
+  })
+
+  test('serialises quote saves across Node processes', async () => {
+    const { temp } = await isolate()
+    const workerPath = path.join(temp.dir, 'content-store-commerce-worker.mts')
+    const testDirectory = path.dirname(fileURLToPath(import.meta.url))
+    const stateModule = pathToFileURL(path.resolve(testDirectory, '../content-store/commerce-state.ts')).href
+    const parserModule = pathToFileURL(path.resolve(testDirectory, '../lib/genstudio-content-store.ts')).href
+    await fs.writeFile(workerPath, [
+      `import { saveQuotedAttempt } from ${JSON.stringify(stateModule)};`,
+      `import { parseContentStoreQuote } from ${JSON.stringify(parserModule)};`,
+      `const HASH=${JSON.stringify(HASH)}; const SIGNATURE=${JSON.stringify(SIGNATURE)};`,
+      'const id = process.env.CONTENT_STORE_WORKER_ID;',
+      "const quote_id = `cq_process_${id}`;",
+      "const quote={typ:'genstudio.content.quote.v1',key_id:'key-1',quote_id,account_id:'acct_a',product_id:'cprod_a',entitlement_family:'com.storystudio.test',release_id:'crel_a',release_version:'1.0.0',archive_sha256:HASH,base_credit_price:400,discount_credits:100,quoted_credits:300,owned_components:[],issued_at:'2026-08-14T10:00:00Z',expires_at:'2099-08-14T10:15:00Z'};",
+      "await saveQuotedAttempt(parseContentStoreQuote({quote,quote_signature:SIGNATURE,quote_id,key_id:'key-1',expires_at:quote.expires_at,account_id:'acct_a',product_id:'cprod_a',entitlement_family:'com.storystudio.test',release_id:'crel_a',base_credit_price:400,discount_credits:100,quoted_credits:300,balance_before:5000,balance_after:4700,owned_components:[],sufficient_credits:true,insufficient_reason:null,shortfall_credits:0}));",
+    ].join('\n'))
+    await Promise.all(Array.from({ length: 12 }, (_, index) => runWorker(workerPath, {
+      ...process.env,
+      STORY_STUDIO_DATA_DIR: temp.dir,
+      CONTENT_STORE_WORKER_ID: index < 6 ? 'same' : String(index),
+      STORY_STUDIO_DISABLE_LISTEN: '1',
+    })))
+    const attempts = (await readContentStoreCommerceState()).attempts
+    assert.equal(Object.keys(attempts).length, 7)
+    assert.equal(Object.values(attempts).filter(row => row.quote_id === 'cq_process_same').length, 1)
+  })
+
+  test('recovers a stale commerce lock only when its local PID is proven dead', async () => {
+    const { paths } = await isolate()
+    await fs.mkdir(paths.root, { recursive: true })
+    const lockPath = `${getContentStoreStatePath()}.lock`
+    await fs.writeFile(lockPath, JSON.stringify({
+      token: 'dead-owner',
+      pid: 999_999_999,
+      hostname: os.hostname(),
+      created_at_ms: Date.now() - 120_000,
+    }), { mode: 0o600 })
+    assert.equal((await saveQuotedAttempt(quote())).status, 'quoted')
+    await assert.rejects(fs.access(lockPath), { code: 'ENOENT' })
+  })
+
+  test('fails closed when a stale-lock recovery guard is a symlink', async () => {
+    const { temp, paths } = await isolate()
+    await fs.mkdir(paths.root, { recursive: true })
+    const lockPath = `${getContentStoreStatePath()}.lock`
+    await fs.writeFile(lockPath, JSON.stringify({
+      token: 'dead-owner', pid: 999_999_999, hostname: os.hostname(), created_at_ms: Date.now() - 120_000,
+    }), { mode: 0o600 })
+    const outside = path.join(temp.dir, 'outside-recovery-guard')
+    await fs.writeFile(outside, 'outside')
+    await fs.symlink(outside, `${lockPath}.recovery`)
+    await assert.rejects(saveQuotedAttempt(quote()), /lock.*unsafe|unsafe.*lock|symbolic/i)
+    assert.equal(await fs.readFile(outside, 'utf8'), 'outside')
+  })
+
+  test('fails closed for runtime-root, state, lock, and quarantine symlinks', async () => {
+    {
+      const { temp, paths } = await isolate()
+      const outside = path.join(temp.dir, 'outside-root')
+      await fs.mkdir(outside)
+      await fs.symlink(outside, paths.root)
+      await assert.rejects(saveQuotedAttempt(quote()), /root.*unsafe|unsafe.*root/i)
+      await cleanupCurrent()
+    }
+    {
+      const { temp, paths } = await isolate()
+      await fs.mkdir(paths.root, { recursive: true })
+      const outside = path.join(temp.dir, 'outside-state')
+      await fs.writeFile(outside, '{}')
+      await fs.symlink(outside, getContentStoreStatePath())
+      await assert.rejects(readContentStoreCommerceState(), /state.*unsafe|unsafe.*state|symbolic/i)
+      await cleanupCurrent()
+    }
+    {
+      const { temp, paths } = await isolate()
+      await fs.mkdir(paths.root, { recursive: true })
+      const outside = path.join(temp.dir, 'outside-lock')
+      await fs.writeFile(outside, '{}')
+      await fs.symlink(outside, `${getContentStoreStatePath()}.lock`)
+      await assert.rejects(saveQuotedAttempt(quote()), /lock.*unsafe|unsafe.*lock|symbolic/i)
+      await cleanupCurrent()
+    }
+    {
+      const { temp, paths } = await isolate()
+      await fs.mkdir(paths.root, { recursive: true })
+      const outside = path.join(temp.dir, 'outside-quarantine')
+      await fs.mkdir(outside)
+      await fs.symlink(outside, paths.quarantineRoot)
+      await fs.writeFile(getContentStoreStatePath(), '{"bad":true}', { mode: 0o600 })
+      await assert.rejects(readContentStoreCommerceState(), /quarantine.*unsafe|unsafe.*quarantine/i)
+      assert.deepEqual(await fs.readdir(outside), [])
+    }
+  })
+
+  test('strict schema rejects credential, fingerprint, path, and unknown fields', async () => {
+    await isolate()
+    const saved = await saveQuotedAttempt(quote())
+    const state = await readContentStoreCommerceState()
+    for (const field of ['api_key', 'masked_key', 'key_fingerprint', 'credential_hash', 'install_path']) {
+      await fs.writeFile(getContentStoreStatePath(), JSON.stringify({
+        ...state,
+        attempts: { cq_test: { ...saved, [field]: field === 'install_path' ? '/tmp/pack' : 'gsk_secret' } },
+      }), { mode: 0o600 })
+      assert.deepEqual(await readContentStoreCommerceState(), { schema_version: 1, attempts: {} })
+    }
+  })
+
+  test('prunes only safe old records and never drops submitting or uncertain evidence', async () => {
+    await isolate()
+    for (let index = 0; index < 200; index += 1) {
+      const quoteId = `cq_limit_${index}`
+      await saveQuotedAttempt(quote({ quote: { quote_id: quoteId, expires_at: '2020-01-01T00:00:00Z' } }))
+      if (index === 0) await beginPurchaseAttempt(quoteId, 'acct_a')
+      if (index === 1) {
+        await beginPurchaseAttempt(quoteId, 'acct_a')
+        await recordPurchaseUncertain(quoteId, 'Interrupted.')
+      }
+    }
+    await saveQuotedAttempt(quote({ quote: { quote_id: 'cq_new' } }))
+    const state = await readContentStoreCommerceState()
+    assert.equal(Object.keys(state.attempts).length, 200)
+    assert.equal(state.attempts.cq_limit_0.status, 'submitting')
+    assert.equal(state.attempts.cq_limit_1.status, 'uncertain')
+    assert.ok(state.attempts.cq_new)
+  })
+})
