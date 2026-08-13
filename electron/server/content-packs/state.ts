@@ -1,6 +1,9 @@
+import { execFile as execFileCallback } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
@@ -8,9 +11,9 @@ import { emptyContentPackState, ContentPackRuntimeStateSchema, type ContentPackR
 import { getContentPackRuntimePaths, installedVersionPath, type ContentPackRuntimePaths } from './runtime-paths.js'
 
 const STATE_MODE = 0o600
-const LOCK_MODE = 0o700
 const LOCK_WAIT_MS = 10_000
 const STALE_LOCK_MS = 60_000
+const execFile = promisify(execFileCallback)
 
 export { emptyContentPackState } from './runtime-types.js'
 
@@ -110,6 +113,32 @@ interface StateLockOwner {
   pid: number
   created_at_ms: number
   token: string
+  hostname: string
+  process_incarnation: string
+}
+
+interface StateLockIdentity {
+  hostname: string
+  pid: number
+  process_incarnation: string
+}
+
+export interface ContentPackStateLockRuntime {
+  now: () => number
+  sleep: (milliseconds: number) => Promise<void>
+  current: () => Promise<StateLockIdentity>
+  processIncarnation: (pid: number) => Promise<string | null>
+}
+
+export interface ContentPackStateLockTestOptions {
+  lockWaitMs?: number
+  staleLockMs?: number
+  runtime?: Partial<ContentPackStateLockRuntime>
+}
+
+export interface ContentPackStateLockHandle {
+  owner: StateLockOwner
+  release: () => Promise<void>
 }
 
 function stateLockPath(statePath: string): string {
@@ -120,76 +149,176 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function isProcessAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false
+async function processIncarnation(pid: number): Promise<string | null> {
+  if (!Number.isInteger(pid) || pid <= 0) return null
   try {
-    process.kill(pid, 0)
-    return true
+    if (process.platform === 'linux') {
+      const stat = await fs.readFile(`/proc/${pid}/stat`, 'utf8')
+      const afterCommand = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/)
+      const startTime = afterCommand[19]
+      if (!startTime) throw new Error('missing /proc start time')
+      return `linux:${startTime}`
+    }
+    if (process.platform === 'darwin') {
+      const { stdout } = await execFile('ps', ['-o', 'lstart=', '-p', String(pid)])
+      const value = stdout.trim()
+      return value || null
+    }
+    if (process.platform === 'win32') {
+      const { stdout } = await execFile('powershell', ['-NoProfile', '-Command', `(Get-Process -Id ${pid}).StartTime.ToUniversalTime().Ticks`])
+      const value = stdout.trim()
+      return value || null
+    }
+    throw new Error(`process incarnation is unsupported on ${process.platform}`)
   } catch (error: unknown) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM'
+    // An unavailable `/proc`, `ps`, or PowerShell is not evidence that a PID is
+    // dead. Probe the OS separately: only ESRCH permits stale-lock recovery.
+    try {
+      process.kill(pid, 0)
+    } catch (probeError: unknown) {
+      if ((probeError as NodeJS.ErrnoException).code === 'ESRCH') return null
+      throw new Error(`unable to inspect process incarnation for PID ${pid}`, { cause: error })
+    }
+    throw new Error(`unable to inspect process incarnation for PID ${pid}`, { cause: error })
   }
 }
 
-async function reclaimStaleStateLock(lockPath: string): Promise<boolean> {
-  let owner: StateLockOwner | undefined
-  let ageMs: number
+async function currentStateLockIdentity(): Promise<StateLockIdentity> {
+  const incarnation = await processIncarnation(process.pid)
+  if (!incarnation) throw new Error('unable to determine current process incarnation for Content Pack state lock')
+  return { hostname: os.hostname(), pid: process.pid, process_incarnation: incarnation }
+}
+
+function defaultStateLockRuntime(): ContentPackStateLockRuntime {
+  return { now: Date.now, sleep, current: currentStateLockIdentity, processIncarnation }
+}
+
+function parseStateLockOwner(raw: string): StateLockOwner {
   try {
-    const [ownerText, stat] = await Promise.all([
-      fs.readFile(path.join(lockPath, 'owner.json'), 'utf8').catch(() => ''),
-      fs.stat(lockPath),
-    ])
-    try {
-      const parsed = JSON.parse(ownerText) as Partial<StateLockOwner>
-      if (typeof parsed.pid === 'number' && typeof parsed.created_at_ms === 'number' && typeof parsed.token === 'string') {
-        owner = parsed as StateLockOwner
-      }
-    } catch {
-      // A half-written owner record is only reclaimable after the directory itself is stale.
+    const parsed = JSON.parse(raw) as Partial<StateLockOwner>
+    if (!Number.isInteger(parsed.pid) || !Number.isFinite(parsed.created_at_ms) || typeof parsed.token !== 'string' || !parsed.token
+      || typeof parsed.hostname !== 'string' || !parsed.hostname || typeof parsed.process_incarnation !== 'string' || !parsed.process_incarnation) {
+      throw new Error('invalid fields')
     }
-    ageMs = Date.now() - (owner?.created_at_ms ?? stat.mtimeMs)
-  } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
-    return false
+    return parsed as StateLockOwner
+  } catch (error) {
+    throw new Error('Content Pack state lock record is corrupt; manual recovery is required', { cause: error })
   }
-  if (ageMs < STALE_LOCK_MS || (owner && isProcessAlive(owner.pid))) return false
-  const tombstone = `${lockPath}.stale-${randomUUID()}`
+}
+
+async function readStateLockOwner(lockPath: string): Promise<StateLockOwner | null> {
   try {
-    await fs.rename(lockPath, tombstone)
-    await fs.rm(tombstone, { recursive: true, force: true })
+    return parseStateLockOwner(await fs.readFile(lockPath, 'utf8'))
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    if ((error as Error).message.startsWith('Content Pack state lock record is corrupt')) throw error
+    throw error
+  }
+}
+
+async function fsyncParent(directory: string): Promise<void> {
+  if (process.platform === 'win32') return
+  const handle = await fs.open(directory, 'r')
+  try {
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+}
+
+async function publishStateLock(lockPath: string, owner: StateLockOwner): Promise<boolean> {
+  const directory = path.dirname(lockPath)
+  const temporary = path.join(directory, `.${path.basename(lockPath)}.${owner.token}.tmp`)
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined
+  try {
+    handle = await fs.open(temporary, 'wx', STATE_MODE)
+    await handle.writeFile(`${JSON.stringify(owner)}\n`)
+    await handle.sync()
+  } finally {
+    await handle?.close().catch(() => {})
+  }
+  try {
+    await fs.link(temporary, lockPath)
+    await fsyncParent(directory).catch(() => {})
     return true
   } catch (error: unknown) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return true
-    return false
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false
+    throw error
+  } finally {
+    await fs.unlink(temporary).catch(() => {})
   }
+}
+
+async function reclaimStateLockIfProvenStale(
+  lockPath: string,
+  current: StateLockIdentity,
+  runtime: ContentPackStateLockRuntime,
+  staleLockMs: number,
+): Promise<boolean> {
+  const owner = await readStateLockOwner(lockPath)
+  if (!owner) return true
+  if (owner.hostname !== current.hostname) {
+    throw new Error(`Content Pack state lock belongs to foreign host ${owner.hostname}; manual recovery is required`)
+  }
+  if (runtime.now() - owner.created_at_ms < staleLockMs) return false
+  const observedIncarnation = await runtime.processIncarnation(owner.pid)
+  if (observedIncarnation === owner.process_incarnation) return false
+  // `null` proves the PID is absent. A different start fact proves a reused PID.
+  await fs.unlink(lockPath)
+  return true
+}
+
+async function acquireFilesystemStateLock(
+  paths: ContentPackRuntimePaths,
+  options: ContentPackStateLockTestOptions = {},
+): Promise<ContentPackStateLockHandle> {
+  const lockPath = stateLockPath(paths.statePath)
+  const defaultRuntime = defaultStateLockRuntime()
+  const runtime: ContentPackStateLockRuntime = { ...defaultRuntime, ...options.runtime }
+  const identity = await runtime.current()
+  const lockWaitMs = options.lockWaitMs ?? LOCK_WAIT_MS
+  const staleLockMs = options.staleLockMs ?? STALE_LOCK_MS
+  const deadline = runtime.now() + lockWaitMs
+  const owner: StateLockOwner = {
+    ...identity,
+    created_at_ms: runtime.now(),
+    token: randomUUID(),
+  }
+  assertWriteIsolatedInTests(paths.root, 'content-pack-state')
+  await fs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 })
+  while (true) {
+    if (await publishStateLock(lockPath, owner)) break
+    if (await reclaimStateLockIfProvenStale(lockPath, identity, runtime, staleLockMs)) continue
+    if (runtime.now() >= deadline) throw new Error('timed out waiting for Content Pack state lock')
+    await runtime.sleep(10 + Math.floor(Math.random() * 20))
+  }
+  return {
+    owner,
+    release: async () => {
+      const canonical = await readStateLockOwner(lockPath)
+      // If another actor has replaced the canonical path, never delete it.
+      if (!canonical || canonical.token !== owner.token || canonical.hostname !== owner.hostname || canonical.process_incarnation !== owner.process_incarnation) return
+      await fs.unlink(lockPath).catch(error => {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      })
+    },
+  }
+}
+
+/** Test-only seam for adversarial lock protocol tests; renderer code never imports this module. */
+export function __testAcquireContentPackStateLock(
+  paths: ContentPackRuntimePaths,
+  options?: ContentPackStateLockTestOptions,
+): Promise<ContentPackStateLockHandle> {
+  return acquireFilesystemStateLock(paths, options)
 }
 
 async function withFilesystemStateLock<T>(paths: ContentPackRuntimePaths, work: () => Promise<T>): Promise<T> {
-  const lockPath = stateLockPath(paths.statePath)
-  const deadline = Date.now() + LOCK_WAIT_MS
-  const owner: StateLockOwner = { pid: process.pid, created_at_ms: Date.now(), token: randomUUID() }
-  assertWriteIsolatedInTests(paths.root, 'content-pack-state')
-  await fs.mkdir(path.dirname(lockPath), { recursive: true, mode: LOCK_MODE })
-  while (true) {
-    try {
-      await fs.mkdir(lockPath, { mode: LOCK_MODE })
-      try {
-        await fs.writeFile(path.join(lockPath, 'owner.json'), `${JSON.stringify(owner)}\n`, { flag: 'wx', mode: STATE_MODE })
-      } catch (error) {
-        await fs.rm(lockPath, { recursive: true, force: true })
-        throw error
-      }
-      break
-    } catch (error: unknown) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      if (await reclaimStaleStateLock(lockPath)) continue
-      if (Date.now() >= deadline) throw new Error('timed out waiting for Content Pack state lock')
-      await sleep(10 + Math.floor(Math.random() * 20))
-    }
-  }
+  const lock = await acquireFilesystemStateLock(paths)
   try {
     return await work()
   } finally {
-    await fs.rm(lockPath, { recursive: true, force: true }).catch(() => {})
+    await lock.release()
   }
 }
 

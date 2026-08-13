@@ -9,12 +9,14 @@ import { pathToFileURL } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
 import {
   getContentPackRuntimePaths,
+  findContentPackSourceRoot,
   installedVersionPath,
   resolveContentPackRecoveryRoot,
   resolveVerifiedPackFile,
 } from '../content-packs/runtime-paths.js'
 import {
   emptyContentPackState,
+  __testAcquireContentPackStateLock,
   mutateContentPackState,
   readContentPackState,
 } from '../content-packs/state.js'
@@ -191,16 +193,86 @@ describe('Content Pack runtime state', () => {
   test('recovers a bounded stale cross-process lock owned by a dead process', async () => {
     const { paths } = await isolatedPaths()
     const lockPath = `${paths.statePath}.lock`
-    await fs.mkdir(lockPath, { recursive: true })
-    await fs.writeFile(path.join(lockPath, 'owner.json'), JSON.stringify({
+    const reference = await __testAcquireContentPackStateLock(paths)
+    await reference.release()
+    await fs.writeFile(lockPath, JSON.stringify({
+      ...reference.owner,
       pid: 999_999_999,
+      process_incarnation: 'dead-process',
       created_at_ms: Date.now() - 120_000,
-      token: 'dead-owner',
     }))
     await mutateContentPackState(state => {
       state.packs['com.storystudio.recovered-lock'] = { discovery_disabled: false, versions: {} }
     }, paths)
     assert.ok((await readContentPackState(paths)).packs['com.storystudio.recovered-lock'])
+  })
+
+  test('publishes a complete canonical lock record atomically with no ownerless window', async () => {
+    const { paths } = await isolatedPaths()
+    const lock = await __testAcquireContentPackStateLock(paths)
+    try {
+      const raw = JSON.parse(await fs.readFile(`${paths.statePath}.lock`, 'utf8'))
+      assert.equal(raw.token, lock.owner.token)
+      assert.equal(raw.hostname, lock.owner.hostname)
+      assert.equal(raw.process_incarnation, lock.owner.process_incarnation)
+    } finally {
+      await lock.release()
+    }
+    await assert.rejects(fs.access(`${paths.statePath}.lock`), { code: 'ENOENT' })
+  })
+
+  test('does not steal a sleeping, live old lock or delete a successor lock token', async () => {
+    const { paths } = await isolatedPaths()
+    const first = await __testAcquireContentPackStateLock(paths)
+    const lockPath = `${paths.statePath}.lock`
+    const liveOld = { ...first.owner, created_at_ms: Date.now() - 120_000 }
+    await fs.writeFile(lockPath, JSON.stringify(liveOld))
+    await assert.rejects(
+      __testAcquireContentPackStateLock(paths, { lockWaitMs: 25, staleLockMs: 1 }),
+      /timed out/i,
+    )
+    const successor = { ...liveOld, token: 'successor-token' }
+    await fs.writeFile(lockPath, JSON.stringify(successor))
+    await first.release()
+    assert.equal(JSON.parse(await fs.readFile(lockPath, 'utf8')).token, 'successor-token')
+    await fs.unlink(lockPath)
+  })
+
+  test('fails closed for foreign-host or corrupt lock records and reclaims a reused PID only when incarnation differs', async () => {
+    const { paths } = await isolatedPaths()
+    const lockPath = `${paths.statePath}.lock`
+    await fs.mkdir(paths.root, { recursive: true })
+    const current = (await __testAcquireContentPackStateLock(paths)).owner
+    await fs.unlink(lockPath)
+    const foreign = { ...current, hostname: 'another-host', created_at_ms: Date.now() - 120_000 }
+    await fs.writeFile(lockPath, JSON.stringify(foreign))
+    await assert.rejects(__testAcquireContentPackStateLock(paths, { lockWaitMs: 25, staleLockMs: 1 }), /foreign host|timed out/i)
+    await fs.unlink(lockPath)
+    await fs.writeFile(lockPath, '{not json')
+    await assert.rejects(__testAcquireContentPackStateLock(paths, { lockWaitMs: 25, staleLockMs: 1 }), /corrupt/i)
+    await fs.unlink(lockPath)
+    await fs.writeFile(lockPath, JSON.stringify({ ...current, process_incarnation: 'reused-pid', created_at_ms: Date.now() - 120_000 }))
+    const reclaimed = await __testAcquireContentPackStateLock(paths, { lockWaitMs: 100, staleLockMs: 1 })
+    await reclaimed.release()
+  })
+
+  test('uses injected process-incarnation facts to distinguish a reused PID from a live owner', async () => {
+    const { paths } = await isolatedPaths()
+    const runtime = {
+      now: () => 1_000_000,
+      sleep: async () => {},
+      current: async () => ({ hostname: 'test-host', pid: 42, process_incarnation: 'new-incarnation' }),
+      processIncarnation: async () => 'new-incarnation',
+    }
+    const initial = await __testAcquireContentPackStateLock(paths, { runtime })
+    await initial.release()
+    await fs.writeFile(`${paths.statePath}.lock`, JSON.stringify({
+      ...initial.owner,
+      process_incarnation: 'old-incarnation',
+      created_at_ms: 1,
+    }))
+    const reclaimed = await __testAcquireContentPackStateLock(paths, { runtime, staleLockMs: 1, lockWaitMs: 10 })
+    await reclaimed.release()
   })
 
   test('constructs only contained immutable version paths and verified files', async () => {
@@ -233,6 +305,17 @@ describe('Content Pack runtime state', () => {
     assert.equal(resolveContentPackRecoveryRoot({ packaged: true, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/Resources/content-packs')
     assert.equal(resolveFirstPartyContentPackKeyringPath({ packaged: false, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/source/electron/server/content-packs/first-party-keys.json')
     assert.equal(resolveFirstPartyContentPackKeyringPath({ packaged: true, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/Resources/content-packs/first-party-keys.json')
+  })
+
+  test('finds the source content-pack root from a compiled-development-like importer path', async () => {
+    const { temp } = await isolatedPaths()
+    const root = path.join(temp.dir, 'repo')
+    const source = path.join(root, 'electron', 'server', 'content-packs')
+    const compiledImporter = path.join(root, 'electron', 'dist', 'server', 'content-packs')
+    await fs.mkdir(source, { recursive: true })
+    await fs.mkdir(compiledImporter, { recursive: true })
+    await fs.writeFile(path.join(root, 'package.json'), '{}')
+    assert.equal(findContentPackSourceRoot(compiledImporter), source)
   })
 
   test('accepts only canonical Ed25519 public keys in the publisher namespace', () => {

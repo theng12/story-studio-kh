@@ -36,8 +36,21 @@ function assertSafeSegment(segment: string): void {
   }
 }
 
-function projectContentPackRoot(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'content-packs')
+/**
+ * Compiled development runs from `electron/dist/...`, while source runs from
+ * `electron/server/...`. Walk to the repository marker instead of assuming
+ * either layout; packaged Electron never calls this path.
+ */
+export function findContentPackSourceRoot(importerDir = path.dirname(fileURLToPath(import.meta.url))): string {
+  let cursor = path.resolve(importerDir)
+  for (let depth = 0; depth < 12; depth += 1) {
+    const sourceRoot = path.join(cursor, 'electron', 'server', 'content-packs')
+    if (fs.existsSync(path.join(cursor, 'package.json')) && fs.existsSync(sourceRoot)) return sourceRoot
+    const parent = path.dirname(cursor)
+    if (parent === cursor) break
+    cursor = parent
+  }
+  throw new Error(`unable to locate Story Studio Content Pack source root from ${importerDir}`)
 }
 
 function isPackagedApp(): boolean {
@@ -59,7 +72,7 @@ export interface ContentPackResourceRootOptions {
 /** Kept injectable so dev Electron can never accidentally select a stale resource bundle. */
 export function resolveContentPackRecoveryRoot(options: ContentPackResourceRootOptions = {}): string {
   const packaged = options.packaged ?? isPackagedApp()
-  const sourceContentPackRoot = options.sourceContentPackRoot ?? projectContentPackRoot()
+  const sourceContentPackRoot = options.sourceContentPackRoot ?? findContentPackSourceRoot()
   if (!packaged) return sourceContentPackRoot
   const resourcesPath = options.resourcesPath ?? process.resourcesPath
   if (!resourcesPath) throw new Error('packaged Content Pack recovery resources are unavailable')

@@ -2,13 +2,11 @@ import { createPublicKey } from 'node:crypto'
 import fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { z } from 'zod'
 
 import type { ContentPackVerificationPolicy } from './archive.js'
+import { findContentPackSourceRoot } from './runtime-paths.js'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(__dirname, '..', '..', '..')
 const require = createRequire(import.meta.url)
 const QualifiedIdSchema = z.string()
   .min(3)
@@ -89,7 +87,7 @@ export function createContentPackKeyring(entries: readonly ContentPackKeyringEnt
 /** Resolve the immutable resource path without accepting renderer or network input. */
 export function resolveFirstPartyContentPackKeyringPath(options: ContentPackKeyringPathOptions = {}): string {
   const packaged = options.packaged ?? isPackagedApp()
-  const sourceContentPackRoot = options.sourceContentPackRoot ?? path.join(ROOT, 'electron', 'server', 'content-packs')
+  const sourceContentPackRoot = options.sourceContentPackRoot ?? findContentPackSourceRoot()
   if (!packaged) return path.join(sourceContentPackRoot, 'first-party-keys.json')
   const resourcesPath = options.resourcesPath ?? process.resourcesPath
   if (!resourcesPath) throw new Error('packaged Content Pack key resource is unavailable')
