@@ -17,6 +17,12 @@
 - No activation state, project pinning, compatibility adapter, or migration of current built-ins.
 - No private publisher key in source, fixtures, packaged resources, logs, or test snapshots.
 - No executable content, arbitrary URLs, provider/model IDs, fonts, SVG, HTML, CSS, or scripts.
+- No Story-authored entitlement-receipt wire schema before GenStudio replies with
+  the authoritative signed receipt fields. The approved design requires receipt
+  support, but Story's First Rule forbids inventing the server contract. Receipt
+  parsing and offline entitlement caching therefore begin in the later commerce
+  integration plan after the GenStudio handoff is answered; paid Store UI stays
+  dormant until then.
 
 ## Task 1: Define the strict v1 contract
 
@@ -252,4 +258,3 @@ The next plan covers staged install, atomic state, quarantine, keyring, retentio
 **Step 4: Final verification**
 
 Run the full foundation command again and ensure the worktree is clean. Do not bump the app version or changelog until customer-visible runtime consumption ships.
-
