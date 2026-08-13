@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { generateKeyPairSync } from 'node:crypto'
+import { createHash, generateKeyPairSync } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, rename, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +12,10 @@ const REPOSITORY_ROOT = new URL('../../../..', import.meta.url)
 const BUILD = new URL('../build-pack.mjs', import.meta.url)
 const VALIDATE = new URL('../validate-pack.mjs', import.meta.url)
 const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==', 'base64')
+
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex')
+}
 
 function run(command, args, options = {}) {
   return spawnSync(process.execPath, [command.pathname, ...args], {
@@ -182,6 +186,65 @@ test('build-pack rejects an output that could overwrite its private key or sourc
   assert.notEqual(physicalSourceCollision.status, 0)
   assert.match(physicalSourceCollision.stderr, /output.*source/i)
   assert.deepEqual(await readFile(documentPath), documentBefore)
+})
+
+test('build-pack never replaces an existing output, including a file created immediately before finalization', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const source = await writeSource(fixture.root)
+  const output = join(fixture.root, 'immutable.sspack')
+  const sentinel = Buffer.from('do not replace this published artifact')
+
+  await writeFile(output, sentinel)
+  const existing = run(BUILD, [source, '--private-key', fixture.privateKeyPath, '--output', output])
+  assert.notEqual(existing.status, 0)
+  assert.match(existing.stderr, /output path already exists/i)
+  assert.deepEqual(await readFile(output), sentinel)
+
+  await rm(output)
+  const { buildContentPack } = await import('../lib.mjs')
+  await assert.rejects(
+    buildContentPack({
+      sourceDirectory: source,
+      privateKeyPath: fixture.privateKeyPath,
+      outputPath: output,
+      onBeforeOutputCommit: async () => writeFile(output, sentinel, { flag: 'wx' }),
+    }),
+    /output path already exists/i,
+  )
+  assert.deepEqual(await readFile(output), sentinel)
+})
+
+test('concurrent builders leave the first committed output intact', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const source = await writeSource(fixture.root)
+  const output = join(fixture.root, 'concurrent.sspack')
+  const { buildContentPack } = await import('../lib.mjs')
+  let allowFirstCommit
+  const firstReachedCommit = new Promise(resolve => { allowFirstCommit = resolve })
+  let releaseFirstCommit
+  const waitForSecond = new Promise(resolve => { releaseFirstCommit = resolve })
+
+  const first = buildContentPack({
+    sourceDirectory: source,
+    privateKeyPath: fixture.privateKeyPath,
+    outputPath: output,
+    onBeforeOutputCommit: async () => {
+      allowFirstCommit()
+      await waitForSecond
+    },
+  })
+  await firstReachedCommit
+  const second = await buildContentPack({
+    sourceDirectory: source,
+    privateKeyPath: fixture.privateKeyPath,
+    outputPath: output,
+  })
+  releaseFirstCommit()
+
+  await assert.rejects(first, /output path already exists/i)
+  assert.equal(sha256(await readFile(output)), second.sha256)
 })
 
 test('validate-pack rejects an archive path that aliases its public key before reading it as an archive', async (t) => {

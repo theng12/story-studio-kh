@@ -1,6 +1,6 @@
-import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, randomUUID, sign } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { link, lstat, mkdir, open, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 
 import JSZip from 'jszip'
@@ -324,15 +324,28 @@ async function deterministicArchive(manifestBytes, signatureBytes, files) {
 
 async function writeOutput(path, bytes) {
   const output = resolve(path)
-  await mkdir(dirname(output), { recursive: true })
-  const temporary = `${output}.tmp-${process.pid}`
-  await rm(temporary, { force: true })
-  await writeFile(temporary, bytes, { flag: 'wx' })
-  await rename(temporary, output)
-  return output
+  const outputDirectory = dirname(output)
+  await mkdir(outputDirectory, { recursive: true })
+  const temporary = resolve(outputDirectory, `.${basename(output)}.tmp-${process.pid}-${randomUUID()}`)
+  try {
+    await writeFile(temporary, bytes, { flag: 'wx', mode: 0o600 })
+    try {
+      // link(2) creates the final name only when it does not already exist. Unlike
+      // rename(2), it can never replace a previously published archive.
+      await link(temporary, output)
+    } catch (error) {
+      if (error?.code === 'EEXIST') {
+        fail('output path already exists; immutable published artifacts require a new version and output path')
+      }
+      throw error
+    }
+    return output
+  } finally {
+    await rm(temporary, { force: true })
+  }
 }
 
-export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath, onSourceEnumerated, onBeforeSourceRead }) {
+export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath, onSourceEnumerated, onBeforeSourceRead, onBeforeOutputCommit }) {
   if (!sourceDirectory || !privateKeyPath || !outputPath) fail('source directory, private key, and output path are required')
   const sourcePath = resolve(sourceDirectory)
   const privateKey = resolve(privateKeyPath)
@@ -348,6 +361,7 @@ export async function buildContentPack({ sourceDirectory, privateKeyPath, output
     publisherKeys: new Map([[source.manifest.key_id, { publisherId: source.manifest.publisher_id, publicKeyPem }]]),
   })
   await assertOutputSeparatedFromInputs(sourcePath, privateKey, output)
+  await onBeforeOutputCommit?.()
   const writtenOutput = await writeOutput(output, archiveBytes)
   return {
     output: writtenOutput,

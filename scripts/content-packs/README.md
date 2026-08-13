@@ -27,6 +27,8 @@ document IDs must fall within the stated publisher namespace; in-pack paths are 
 Published identity is immutable: a `(pack_id, exact version, archive SHA-256)` tuple is permanent.
 Any byte change—including a preview image, document, manifest field, or signature—requires a new
 exact pack version. Never rebuild and republish different bytes under an existing version.
+The build output path must not already exist: the publisher refuses to replace it, including if a
+second build races the final write. Choose a new versioned output path for every new artifact.
 
 ```json
 {
