@@ -6,6 +6,11 @@ import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runt
 import type { ContentPackVersionRef } from './runtime-types.js'
 import { readContentPackState } from './state.js'
 import type { ContentPackDocument, ContentPackItemKind } from './types.js'
+import {
+  listUserForks,
+  readUserFork,
+  type UserForkDocument,
+} from './user-forks.js'
 
 export type ContentCatalogSource = 'signed-installed' | 'signed-recovery' | 'legacy-builtin' | 'legacy-user-fork'
 
@@ -42,6 +47,26 @@ export interface ContentPackRegistryOptions {
   recoveryRoot?: string
   /** Test-only compatibility seam; production resolves the installed app version. */
   appVersion?: string
+}
+
+/** Resolve one explicit local user fork without exposing its storage path. */
+export async function resolveUserForkCatalogItem(
+  id: string,
+  kind: Exclude<ContentPackItemKind, 'visual-style'>,
+  options: Pick<ContentPackRegistryOptions, 'paths'> = {},
+): Promise<CatalogEntry<UserForkDocument> | null> {
+  const record = await readUserFork(id, { paths: options.paths })
+  if (!record || record.kind !== kind) return null
+  return { value: structuredClone(record.document), source: 'legacy-user-fork' }
+}
+
+/** List explicit local user forks after signed discovery and before raw legacy compatibility entries. */
+export async function listUserForkCatalogEntries(
+  kind: Exclude<ContentPackItemKind, 'visual-style'>,
+  options: Pick<ContentPackRegistryOptions, 'paths'> = {},
+): Promise<Array<CatalogEntry<UserForkDocument>>> {
+  return (await listUserForks(kind, { paths: options.paths }))
+    .map(record => ({ value: structuredClone(record.document), source: 'legacy-user-fork' as const }))
 }
 
 const QUALIFIED_ID = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/

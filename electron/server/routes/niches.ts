@@ -9,10 +9,9 @@
  *   PUT    /api/projects/:slug/niche      → set/unset { niche_id: string | null }
  *   GET    /api/projects/:slug/effective-niche → resolved niche after overrides
  *
- * Built-in niches are immutable (shipped with the app). User-custom niches
- * shadow built-ins with the same id at lookup time, so a custom file at
- * `${PROJECTS_ROOT}/.niches/plants.json` takes precedence over the bundled
- * plants.json. To "restore" a built-in, the user deletes their custom file.
+ * Built-in niches are immutable. Existing same-id files in `.niches` remain
+ * readable for compatibility, but editing one creates an explicit `user:`
+ * fork; neither the bundled source nor the legacy file is overwritten.
  */
 
 import { Router } from 'express'
@@ -21,12 +20,17 @@ import { existsSync } from 'fs'
 import * as nl from '../services/niche-loader.js'
 import * as tpl from '../services/topic-pack-loader.js'
 import * as pm from '../services/project-manager.js'
-import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { respondWithError } from '../lib/humanize-backend-error.js'
 import { NicheSchema, SetProjectNicheSchema, TopicPackSchema } from '../contracts/index.js'
 import type { Niche, TopicPack } from '../models/types.js'
 import { listVisualStyles } from '../services/visual-style-loader.js'
 import { updateProjectContentSelections } from '../content-packs/project-pins.js'
+import {
+  forkLegacyContentForEdit,
+  isUserForkId,
+  saveUserForkDocument,
+} from '../content-packs/user-forks.js'
 
 export const router = Router()
 
@@ -107,19 +111,22 @@ router.post('/topic-packs', async (req, res) => {
 
 router.put('/topic-packs/:id', async (req, res) => {
   try {
-    const parsed = TopicPackSchema.safeParse(req.body)
+    const requestedId = req.params.id
+    const validationBody = isUserForkId(requestedId) ? { ...req.body, id: 'user-fork' } : req.body
+    const parsed = TopicPackSchema.safeParse(validationBody)
     if (!parsed.success) {
       return res.status(400).json({ detail: parsed.error.issues.map(issue => issue.message).join('; ') })
     }
-    if (parsed.data.id !== req.params.id) {
+    if (!isUserForkId(requestedId) && parsed.data.id !== requestedId) {
       return res.status(400).json({ detail: 'id in path and body must match' })
     }
-    await tpl.ensureTopicPacksDir()
-    const pack: TopicPack = { ...parsed.data, builtin: false }
-    await withLock(tpl.topicPackFilePath(pack.id), async () => {
-      await writeJsonAtomic(tpl.topicPackFilePath(pack.id), pack)
-    })
-    tpl.invalidateTopicPackCache(pack.id)
+    const contentPackOptions = req.app.locals.contentPackOptions || {}
+    const projectSlug = typeof req.query.project_slug === 'string' ? req.query.project_slug : undefined
+    const forkId = isUserForkId(requestedId)
+      ? requestedId
+      : (await forkLegacyContentForEdit({ kind: 'topic-pack', legacyId: requestedId, projectSlug }, contentPackOptions)).fork_id
+    const pack: TopicPack = { ...parsed.data, id: forkId, builtin: false }
+    await saveUserForkDocument(forkId, pack, contentPackOptions)
     res.json(pack)
   } catch (e: any) {
     respondWithError(res, e, 'Failed to update Topic Pack')
@@ -217,33 +224,26 @@ router.post('/niches', async (req, res) => {
   }
 })
 
-// ── Update (user-custom only) ──────────────────────────────────────────────
+// ── Update (explicit user fork) ────────────────────────────────────────────
 
 router.put('/niches/:id', async (req, res) => {
   try {
-    const parsed = NicheSchema.safeParse(req.body)
+    const requestedId = req.params.id
+    const validationBody = isUserForkId(requestedId) ? { ...req.body, id: 'user-fork' } : req.body
+    const parsed = NicheSchema.safeParse(validationBody)
     if (!parsed.success) {
       return res.status(400).json({ detail: parsed.error.issues.map(i => i.message).join('; ') })
     }
-    const body = parsed.data as Niche
-    if (body.id !== req.params.id) {
+    if (!isUserForkId(requestedId) && parsed.data.id !== requestedId) {
       return res.status(400).json({ detail: 'id in path and body must match' })
     }
-    const filePath = nl.nicheFilePath(body.id)
-    // PUT can either:
-    //   1. Update an existing user-custom niche (file exists)
-    //   2. Create a user-custom override of a built-in (file doesn't exist yet)
-    // Case 2 is intentional — the niche browser's "Customize this built-in"
-    // action issues a PUT with the built-in's content + the user's edits.
-    const isOverride = !existsSync(filePath)
-    if (isOverride) {
-      await nl.ensureNichesDir()
-    }
-    const toWrite: Niche = { ...body, builtin: false }
-    await withLock(filePath, async () => {
-      await writeJsonAtomic(filePath, toWrite)
-    })
-    nl.invalidateNicheCache(body.id)
+    const contentPackOptions = req.app.locals.contentPackOptions || {}
+    const projectSlug = typeof req.query.project_slug === 'string' ? req.query.project_slug : undefined
+    const forkId = isUserForkId(requestedId)
+      ? requestedId
+      : (await forkLegacyContentForEdit({ kind: 'series-formula', legacyId: requestedId, projectSlug }, contentPackOptions)).fork_id
+    const toWrite: Niche = { ...parsed.data, id: forkId, builtin: false }
+    await saveUserForkDocument(forkId, toWrite, contentPackOptions)
     res.json(toWrite)
   } catch (e: any) {
     respondWithError(res, e, 'Failed to update niche')

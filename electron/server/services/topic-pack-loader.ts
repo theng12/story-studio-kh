@@ -16,7 +16,9 @@ import type { TopicPack } from '../models/types.js'
 import {
   isQualifiedContentPackId,
   listCatalogEntries,
+  listUserForkCatalogEntries,
   resolveCatalogItem,
+  resolveUserForkCatalogItem,
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
 import { registryOptionsForCurrentJob } from '../content-packs/project-pins.js'
@@ -92,32 +94,44 @@ async function readPack(filePath: string): Promise<TopicPack> {
 
 export async function loadTopicPack(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack | null> {
   if (!id) return null
+  const userFork = await resolveUserForkCatalogItem(id, 'topic-pack', registryOptions)
+  if (userFork) return userFork.value as TopicPack
   if (isQualifiedContentPackId(id)) {
     const effectiveOptions = await registryOptionsForCurrentJob(['topic-pack'], registryOptions)
     const signed = await resolveCatalogItem(id, undefined, effectiveOptions)
     if (signed?.value.kind === 'topic-pack') return contentPackDocumentToTopicPack(signed.value)
   }
+  return loadLegacyTopicPack(id).then(result => result?.document ?? null)
+}
+
+/** Explicit compatibility resolver used by non-destructive fork-on-edit. */
+export async function loadLegacyTopicPack(id: string): Promise<{ document: TopicPack; source: 'legacy-builtin' | 'legacy-user-fork' } | null> {
+  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(id)) return null
   const customPath = topicPackFilePath(id)
   if (existsSync(customPath)) {
     const stat = await fs.stat(customPath)
     const cached = userCache.get(customPath)
-    if (cached?.mtimeMs === stat.mtimeMs) return cached.pack
+    if (cached?.mtimeMs === stat.mtimeMs) return { document: cached.pack, source: 'legacy-user-fork' }
     const pack = await readPack(customPath)
     userCache.set(customPath, { mtimeMs: stat.mtimeMs, pack })
-    return pack
+    return { document: pack, source: 'legacy-user-fork' }
   }
-  if (builtinCache.has(id)) return builtinCache.get(id)!
+  if (builtinCache.has(id)) return { document: builtinCache.get(id)!, source: 'legacy-builtin' }
   const builtinPath = path.join(BUILTIN_TOPIC_PACKS_DIR, `${id}.json`)
   if (!existsSync(builtinPath)) return null
   const pack = await readPack(builtinPath)
   builtinCache.set(id, pack)
-  return pack
+  return { document: pack, source: 'legacy-builtin' }
 }
 
 export async function listTopicPacks(registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack[]> {
   const found = new Map<string, TopicPack>()
   for (const entry of await listCatalogEntries('topic-pack', registryOptions)) {
     if (entry.value.kind === 'topic-pack') found.set(entry.value.id, contentPackDocumentToTopicPack(entry.value))
+  }
+  for (const entry of await listUserForkCatalogEntries('topic-pack', registryOptions)) {
+    const pack = entry.value as TopicPack
+    if (!found.has(pack.id)) found.set(pack.id, pack)
   }
   if (existsSync(userDir())) {
     for (const name of await fs.readdir(userDir()).catch(() => [] as string[])) {

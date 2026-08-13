@@ -39,7 +39,9 @@ import * as topicPackLoader from './topic-pack-loader.js'
 import {
   isQualifiedContentPackId,
   listCatalogEntries,
+  listUserForkCatalogEntries,
   resolveCatalogItem,
+  resolveUserForkCatalogItem,
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
 import { contentPackDocumentToNiche } from '../content-packs/legacy-adapters.js'
@@ -231,26 +233,34 @@ function validateNicheShape(n: any, filePath: string): void {
  */
 export async function loadNiche(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<Niche | null> {
   if (!id) return null
+  const userFork = await resolveUserForkCatalogItem(id, 'series-formula', registryOptions)
+  if (userFork) return userFork.value as Niche
   if (isQualifiedContentPackId(id)) {
     const effectiveOptions = await registryOptionsForCurrentJob(['series-formula'], registryOptions)
     const signed = await resolveCatalogItem(id, undefined, effectiveOptions)
     if (signed?.value.kind === 'series-formula') return contentPackDocumentToNiche(signed.value)
   }
+  return loadLegacyNiche(id).then(result => result?.document ?? null)
+}
+
+/** Explicit compatibility resolver used by non-destructive fork-on-edit. */
+export async function loadLegacyNiche(id: string): Promise<{ document: Niche; source: 'legacy-builtin' | 'legacy-user-fork' } | null> {
+  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(id)) return null
   const userPath = path.join(userNichesDir(), `${id}.json`)
   if (existsSync(userPath)) {
     const st = await fs.stat(userPath)
     const cached = userCache.get(userPath)
-    if (cached && cached.mtimeMs === st.mtimeMs) return cached.niche
+    if (cached && cached.mtimeMs === st.mtimeMs) return { document: cached.niche, source: 'legacy-user-fork' }
     const n = await loadNicheFile(userPath)
     userCache.set(userPath, { mtimeMs: st.mtimeMs, niche: n })
-    return n
+    return { document: n, source: 'legacy-user-fork' }
   }
-  if (builtinCache.has(id)) return builtinCache.get(id)!
+  if (builtinCache.has(id)) return { document: builtinCache.get(id)!, source: 'legacy-builtin' }
   const builtinPath = path.join(BUILTIN_NICHES_DIR, `${id}.json`)
   if (!existsSync(builtinPath)) return null
   const n = await loadNicheFile(builtinPath)
   builtinCache.set(id, n)
-  return n
+  return { document: n, source: 'legacy-builtin' }
 }
 
 /**
@@ -263,6 +273,11 @@ export async function listNiches(registryOptions: ContentPackRegistryOptions = {
 
   for (const entry of await listCatalogEntries('series-formula', registryOptions)) {
     if (entry.value.kind === 'series-formula') seen.set(entry.value.id, contentPackDocumentToNiche(entry.value))
+  }
+
+  for (const entry of await listUserForkCatalogEntries('series-formula', registryOptions)) {
+    const niche = entry.value as Niche
+    if (!seen.has(niche.id)) seen.set(niche.id, niche)
   }
 
   const userDir = userNichesDir()

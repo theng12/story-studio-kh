@@ -33,7 +33,9 @@ import type { ThumbnailTemplate, ProjectMeta, Niche } from '../models/types.js'
 import {
   isQualifiedContentPackId,
   listCatalogEntries,
+  listUserForkCatalogEntries,
   resolveCatalogItem,
+  resolveUserForkCatalogItem,
   type CatalogEntry,
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
@@ -134,6 +136,8 @@ function signedTemplate(entry: CatalogEntry<ContentPackDocument>): ThumbnailTemp
 
 export async function loadTemplate(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<ThumbnailTemplate | null> {
   if (!id) return null
+  const userFork = await resolveUserForkCatalogItem(id, 'thumbnail-recipe', registryOptions)
+  if (userFork) return userFork.value as ThumbnailTemplate
   if (isQualifiedContentPackId(id)) {
     const effectiveOptions = await registryOptionsForCurrentJob(['thumbnail-recipe'], registryOptions)
     const signed = await resolveCatalogItem(id, undefined, effectiveOptions)
@@ -142,21 +146,27 @@ export async function loadTemplate(id: string, registryOptions: ContentPackRegis
       if (mapped) return mapped
     }
   }
+  return loadLegacyThumbnailTemplate(id).then(result => result?.document ?? null)
+}
+
+/** Explicit compatibility resolver used by non-destructive fork-on-edit. */
+export async function loadLegacyThumbnailTemplate(id: string): Promise<{ document: ThumbnailTemplate; source: 'legacy-builtin' | 'legacy-user-fork' } | null> {
+  if (!/^[a-z0-9][a-z0-9._-]{0,127}$/.test(id)) return null
   const userPath = path.join(userTemplatesDir(), `${id}.json`)
   if (existsSync(userPath)) {
     const st = await fs.stat(userPath)
     const cached = userCache.get(userPath)
-    if (cached && cached.mtimeMs === st.mtimeMs) return cached.template
+    if (cached && cached.mtimeMs === st.mtimeMs) return { document: cached.template, source: 'legacy-user-fork' }
     const t = await loadFile(userPath)
     userCache.set(userPath, { mtimeMs: st.mtimeMs, template: t })
-    return t
+    return { document: t, source: 'legacy-user-fork' }
   }
-  if (builtinCache.has(id)) return builtinCache.get(id)!
+  if (builtinCache.has(id)) return { document: builtinCache.get(id)!, source: 'legacy-builtin' }
   const builtinPath = path.join(BUILTIN_TEMPLATES_DIR, `${id}.json`)
   if (!existsSync(builtinPath)) return null
   const t = await loadFile(builtinPath)
   builtinCache.set(id, t)
-  return t
+  return { document: t, source: 'legacy-builtin' }
 }
 
 /**
@@ -169,6 +179,11 @@ export async function listTemplates(registryOptions: ContentPackRegistryOptions 
   for (const entry of await listCatalogEntries('thumbnail-recipe', registryOptions)) {
     const mapped = signedTemplate(entry)
     if (mapped) seen.set(mapped.id, mapped)
+  }
+
+  for (const entry of await listUserForkCatalogEntries('thumbnail-recipe', registryOptions)) {
+    const template = entry.value as ThumbnailTemplate
+    if (!seen.has(template.id)) seen.set(template.id, template)
   }
 
   const userDir = userTemplatesDir()
