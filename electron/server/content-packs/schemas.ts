@@ -5,13 +5,15 @@ export const CONTENT_PACK_FORMAT = 1 as const
 
 const MAX_TEXT = 12_000
 const MAX_LIST = 200
-const QUALIFIED_ID = /^(?:[a-z][a-z0-9-]*)(?:\.[a-z][a-z0-9-]*)+$/
+const QUALIFIED_ID = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/
 const EXACT_SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/
 const SHA256 = /^[a-f0-9]{64}$/
-const URL = /(?:https?:\/\/|www\.)/i
+const UNSAFE_REFERENCE = /(?:\b[a-z][a-z0-9+.-]*:\S+|(?:^|\s)\/\/\S+)/i
+const ROUTING_DIRECTIVE = /\b(?:provider(?:_id)?|model_id)\s*(?::|=)\s*[^\s]+/i
 
 const safeText = (max = MAX_TEXT) => z.string().min(1).max(max)
-  .refine(value => !URL.test(value), 'URLs are not permitted in content packs')
+  .refine(value => !UNSAFE_REFERENCE.test(value), 'URI references are not permitted in content packs')
+  .refine(value => !ROUTING_DIRECTIVE.test(value), 'provider or model routing directives are not permitted in content packs')
 
 const qualifiedId = z.string().min(3).max(160)
   .regex(QUALIFIED_ID, 'must be a lowercase qualified reverse-DNS identifier')
@@ -24,6 +26,56 @@ const inPackPath = z.string().min(1).max(240)
 
 const rasterAssetPath = inPackPath.refine(path => /^assets\/.+\.(?:png|jpe?g|webp)$/.test(path), 'must reference a relative PNG, JPEG, or WebP asset')
 const textList = (max: number = MAX_LIST) => z.array(safeText(1000)).min(1).max(max)
+const localSlug = z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/, 'must be a lowercase local slug')
+const boundedRange = (minimum: number, maximum: number) => z.tuple([
+  z.number().int().min(minimum).max(maximum),
+  z.number().int().min(minimum).max(maximum),
+]).refine(([lower, upper]) => lower <= upper, 'range lower bound must not exceed upper bound')
+const IdeaAxisSchema = z.object({
+  id: localSlug,
+  label: safeText(120),
+  values: textList(300),
+}).strict()
+const VocabularySchema = z.object({
+  mood: z.array(safeText(80)).max(50).optional(),
+  theme: z.array(safeText(80)).max(50).optional(),
+  genre: z.array(safeText(80)).max(50).optional(),
+  keyword: z.array(safeText(80)).max(100).optional(),
+}).strict()
+const MetadataProfileSchema = z.object({
+  id: localSlug,
+  label: safeText(120),
+  description: safeText(500),
+  description_section_ids: z.array(localSlug).min(1).max(20),
+  title_mode: z.enum(['use_idea_title', 'paraphrase']),
+  description_max_chars: z.number().int().min(200).max(5000),
+  title_max_length: z.number().int().min(20).max(200),
+  tag_count: z.number().int().min(1).max(50),
+}).strict()
+const EpisodeProfileSchema = z.object({
+  id: localSlug,
+  label: safeText(120),
+  description: safeText(1000),
+  idea_axis_value: safeText(160),
+  title_suffix: safeText(160).optional(),
+  forbidden_title_suffixes: z.array(safeText(160)).max(20).optional(),
+  narrator_style_id: localSlug.optional(),
+  title_policy: safeText(800).optional(),
+  thumbnail_policy: safeText(800).optional(),
+  metadata_policy: safeText(800).optional(),
+}).strict()
+const ProductionKitSchema = z.object({
+  id: localSlug,
+  label: safeText(120),
+  description: safeText(1000),
+  recommended_visual_style_id: qualifiedId.optional(),
+  episode_profiles: z.array(EpisodeProfileSchema).max(20).optional(),
+}).strict()
+const NarratorStyleSchema = z.object({
+  id: localSlug,
+  label: safeText(120),
+  description: safeText(1000),
+}).strict()
 
 export const ContentPackItemKindSchema = z.enum([
   'series-formula',
@@ -44,12 +96,60 @@ const SeriesFormulaDocumentSchema = z.object({
   ...baseDocument,
   channel_promise: safeText(2000),
   audience: safeText(1000),
+  formula_family: safeText(80).optional(),
+  tagline: safeText(200).optional(),
+  perspective_policy: safeText(1200).optional(),
+  narrative_quality_contract: z.object({
+    opening_policy: safeText(1200),
+    forbidden_patterns: textList(30),
+    required_habits: textList(30),
+    closing_policy: safeText(1200).optional(),
+  }).strict().optional(),
+  opening_profile: z.object({
+    id: localSlug,
+    label: safeText(120),
+    description: safeText(500),
+  }).strict().optional(),
+  metadata_profile: MetadataProfileSchema.optional(),
+  production_kit: ProductionKitSchema.optional(),
   narrative_rules: textList(60),
   title_rules: textList(60),
-  script_structure: textList(60),
+  script_structure: z.object({
+    default_chapter_count: z.number().int().min(1).max(100),
+    chapter_count_range: boundedRange(1, 100),
+    default_length_minutes: z.number().int().min(1).max(600),
+    length_minutes_range: boundedRange(1, 600),
+    duration_presets: z.array(z.number().int().min(1).max(600)).min(1).max(20),
+    default_words_per_minute: z.number().int().min(50).max(300),
+    chapters_independent: z.boolean(),
+    pacing_arc: textList(100),
+    additional_rules: textList(100),
+  }).strict(),
   compatible_topic_pack_ids: z.array(qualifiedId).max(MAX_LIST),
+  default_topic_pack_ids: z.array(qualifiedId).max(MAX_LIST).optional(),
   recommended_visual_style_ids: z.array(qualifiedId).max(MAX_LIST),
   recommended_thumbnail_recipe_ids: z.array(qualifiedId).max(MAX_LIST),
+  idea_axes: z.array(IdeaAxisSchema).max(20).optional(),
+  vocabulary: VocabularySchema.optional(),
+  audience_hint: safeText(1000).optional(),
+  idea_system_prompt_role: safeText(MAX_TEXT).optional(),
+  idea_guidance_text: safeText(MAX_TEXT).optional(),
+  script_context: safeText(MAX_TEXT).optional(),
+  script_system_prompt_role: safeText(MAX_TEXT).optional(),
+  script_closing_hint: safeText(MAX_TEXT).optional(),
+  narrator_styles: z.array(NarratorStyleSchema).max(30).optional(),
+  default_narrator_style_id: localSlug.optional(),
+  title_shape_rules: z.array(safeText(1000)).max(60).optional(),
+  title_length_range: boundedRange(1, 200).optional(),
+  logline_shape_rules: z.array(safeText(1000)).max(60).optional(),
+  logline_sentence_range: boundedRange(1, 20).optional(),
+  theme_shape_rules: z.array(safeText(1000)).max(60).optional(),
+  theme_count_range: boundedRange(1, 20).optional(),
+  structural_variety: z.enum(['free', 'vary-all', 'vary-subject-only']).optional(),
+  default_thumbnail_recipe_id: qualifiedId.optional(),
+  metadata_title_style_hint: safeText(1000).optional(),
+  metadata_title_hook_rules: z.array(safeText(1000)).max(60).optional(),
+  metadata_tags_hook_rules: z.array(safeText(1000)).max(60).optional(),
 }).strict()
 
 const TopicPackDocumentSchema = z.object({
@@ -64,6 +164,10 @@ const TopicPackDocumentSchema = z.object({
   exclusions: z.array(safeText(1000)).max(1000),
   max_siblings_per_subject: z.number().int().min(1).max(20),
   prompt_context: safeText(MAX_TEXT),
+  example_topics: z.array(safeText(1000)).max(200).optional(),
+  vocabulary: VocabularySchema.optional(),
+  youtube_tags_hint: z.array(safeText(80)).max(80).optional(),
+  tags: z.array(safeText(80)).max(80).optional(),
 }).strict()
 
 const VisualStyleDocumentSchema = z.object({
@@ -81,12 +185,20 @@ const ThumbnailRecipeDocumentSchema = z.object({
   kind: z.literal('thumbnail-recipe'),
   ...baseDocument,
   layout: z.enum(['hero', 'annotated-collage']),
+  category: safeText(80),
+  tags: textList(80),
+  aspect_ratio: z.enum(['16:9', '9:16', '1:1']),
+  title_mode: z.literal('ai'),
   composition_guidance: safeText(5000),
   required_elements: textList(60),
   avoid_elements: textList(60),
-  headline_mode: z.enum(['title', 'custom', 'none']),
-  headline_rules: textList(60),
-  text_style: safeText(1000),
+  headline_mode: z.enum(['episode-title', 'curiosity-hook']),
+  headline_guidance: safeText(2000),
+  default_text_style: safeText(1000),
+  default_font_style: safeText(1000),
+  default_text_position: z.enum(['top', 'center', 'bottom']),
+  headline_formats: textList(60),
+  visual_style_guidance: safeText(5000),
   preview_assets: z.array(rasterAssetPath).min(1).max(12),
   compatible_formula_ids: z.array(qualifiedId).max(MAX_LIST),
 }).strict()
@@ -100,12 +212,38 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
 ])
 
 /** A Channel Kit is a commercial bundle of documents, never a fifth document schema. */
+const ContentPackComponentReferenceSchema = z.object({
+  pack_id: qualifiedId,
+  version: exactSemver,
+  item_id: qualifiedId,
+  kind: ContentPackItemKindSchema,
+}).strict()
+
 export const ContentPackBundleSchema = z.object({
   id: qualifiedId,
   kind: z.literal('channel-kit'),
   name: safeText(160),
-  component_ids: z.array(qualifiedId).min(1).max(100),
-}).strict()
+  components: z.array(ContentPackComponentReferenceSchema).min(2).max(100),
+}).strict().superRefine((bundle, ctx) => {
+  const kinds = new Set(bundle.components.map(component => component.kind))
+  if (!kinds.has('series-formula')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['components'], message: 'Channel Kit requires exactly one Formula component' })
+  }
+  if (bundle.components.filter(component => component.kind === 'series-formula').length !== 1) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['components'], message: 'Channel Kit requires exactly one Formula component' })
+  }
+  if (!kinds.has('topic-pack')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['components'], message: 'Channel Kit requires at least one Topic Pack component' })
+  }
+  const seen = new Set<string>()
+  for (const [index, component] of bundle.components.entries()) {
+    const identity = `${component.pack_id}@${component.version}:${component.item_id}`
+    if (seen.has(identity)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['components', index], message: 'Channel Kit component references must be unique' })
+    }
+    seen.add(identity)
+  }
+})
 
 const ContentPackFileSchema = z.object({
   path: inPackPath,
@@ -143,6 +281,7 @@ export const ContentPackManifestSchema = z.object({
   version: exactSemver,
   min_app_version: exactSemver,
   lifecycle: z.enum(['active', 'retired', 'replaced']),
+  changelog: safeText(4000).optional(),
   entitlement: z.object({
     sku: qualifiedId,
     family: qualifiedId,
@@ -154,12 +293,43 @@ export const ContentPackManifestSchema = z.object({
   files: z.array(ContentPackFileSchema).min(1).max(256),
 }).strict().superRefine((manifest, ctx) => {
   const withinPublisher = (id: string) => id.startsWith(`${manifest.publisher_id}.`)
+  const assertUnique = (values: string[], path: Array<string | number>, label: string) => {
+    const seen = new Set<string>()
+    for (const [index, value] of values.entries()) {
+      if (seen.has(value)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, index], message: `${label} must be unique` })
+      seen.add(value)
+    }
+  }
   if (!withinPublisher(manifest.pack_id)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pack_id'], message: 'pack_id must be within the publisher namespace' })
   }
   if (!withinPublisher(manifest.key_id)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['key_id'], message: 'key_id must be within the publisher namespace' })
   }
+  if (!withinPublisher(manifest.entitlement.sku)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entitlement', 'sku'], message: 'entitlement SKU must be within the publisher namespace' })
+  }
+  if (!withinPublisher(manifest.entitlement.family)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entitlement', 'family'], message: 'entitlement family must be within the publisher namespace' })
+  }
+  if (manifest.lifecycle === 'replaced' && !manifest.successor_pack_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['successor_pack_id'], message: 'replaced packs require a successor pack ID' })
+  }
+  if (manifest.lifecycle !== 'replaced' && manifest.successor_pack_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['successor_pack_id'], message: 'only replaced packs may declare a successor pack ID' })
+  }
+  if (manifest.successor_pack_id) {
+    if (!withinPublisher(manifest.successor_pack_id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['successor_pack_id'], message: 'successor pack ID must be within the publisher namespace' })
+    }
+    if (manifest.successor_pack_id === manifest.pack_id) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['successor_pack_id'], message: 'successor pack ID must not reference the pack itself' })
+    }
+  }
+  assertUnique(manifest.items.map(item => item.id), ['items'], 'item IDs')
+  assertUnique(manifest.items.map(item => item.path), ['items'], 'item paths')
+  assertUnique(manifest.files.map(file => file.path), ['files'], 'file paths')
+  assertUnique(manifest.bundles.map(bundle => bundle.id), ['bundles'], 'bundle IDs')
   for (const [index, item] of manifest.items.entries()) {
     if (!withinPublisher(item.id)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items', index, 'id'], message: 'item ID must be within the publisher namespace' })
@@ -174,6 +344,14 @@ export const ContentPackManifestSchema = z.object({
   for (const [index, bundle] of manifest.bundles.entries()) {
     if (!withinPublisher(bundle.id)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', index, 'id'], message: 'bundle ID must be within the publisher namespace' })
+    }
+    for (const [componentIndex, component] of bundle.components.entries()) {
+      if (component.pack_id === manifest.pack_id && component.version === manifest.version) {
+        const declaration = manifest.items.find(item => item.id === component.item_id && item.kind === component.kind)
+        if (!declaration) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', index, 'components', componentIndex], message: 'same-pack component reference must name a declared document' })
+        }
+      }
     }
   }
 })

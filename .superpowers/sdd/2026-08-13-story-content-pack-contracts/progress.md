@@ -20,6 +20,10 @@
   - RED: `STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 electron/server/__tests__/content-pack-contract.test.ts` failed as expected with `ERR_MODULE_NOT_FOUND` for `content-packs/schemas.js`.
   - GREEN: same focused suite passed 9/9; `npm run typecheck:electron` passed; `git diff --check` passed.
   - Commit: `feat: define signed content pack contract`.
+  - Review follow-up: expanded Formula, Topic, and Thumbnail contracts to preserve the approved declarative HMH taxonomy; added optional manifest changelog; strengthened URI/routing-text rejection; made Channel Kits exact versioned component references; and made signed manifest identities deterministic.
+  - Review RED: expanded focused suite failed 10/14 tests before the follow-up schema implementation (missing rich Formula fields/changelog/Channel Kit semantics plus URI/routing and identity invariants).
+  - Review GREEN: focused suite passed 15/15; `npm run typecheck:electron` and `git diff --check` passed.
+  - Follow-up commit: `fix: harden content pack contract`.
 - [ ] Task 2 — archive integrity and Ed25519 verification
 - [ ] Task 3 — first-party publisher CLI
 - [ ] Task 4 — current-catalog migration golden
