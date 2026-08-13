@@ -317,7 +317,7 @@ async function mutateState<T>(
     const state = await readOrResetState()
     const result = await mutate(state)
     const validated = ContentStoreCommerceStateSchema.parse(state)
-    if (Buffer.byteLength(JSON.stringify(validated), 'utf8') > MAX_STATE_BYTES) {
+    if (encodedStateBytes(validated) > MAX_STATE_BYTES) {
       throw new Error(`Content Store commerce journal exceeds ${MAX_STATE_BYTES} bytes; no evidence was written`)
     }
     const { statePath } = runtimePaths()
@@ -444,7 +444,7 @@ function milliseconds(value: string): number {
 }
 
 function encodedStateBytes(state: ContentStoreCommerceState): number {
-  return Buffer.byteLength(JSON.stringify(state), 'utf8')
+  return Buffer.byteLength(`${JSON.stringify(state, null, 2)}\n`, 'utf8')
 }
 
 function pruneStateToBudgets(state: ContentStoreCommerceState, protectedQuoteIds: Set<string>): void {

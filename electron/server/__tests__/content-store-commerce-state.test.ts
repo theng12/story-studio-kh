@@ -493,6 +493,36 @@ describe('Content Store commerce state', () => {
     assert.equal((await fs.stat(paths.root)).isDirectory(), true)
   })
 
+  test('budgets the exact pretty-printed journal bytes used by the atomic writer', async () => {
+    await isolate()
+    await saveQuotedAttempt(quote())
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    const completed = await recordCompletedPurchase('cq_test', purchase())
+    const attempts: Record<string, typeof completed> = {}
+    for (let index = 0; index < 170; index += 1) {
+      const quoteId = `cq_boundary_${index}`
+      attempts[quoteId] = {
+        ...completed,
+        quote_id: quoteId,
+        idempotency_key: `story-content-00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        quote_canonical_json: JSON.stringify({ padding: 'x'.repeat(96_000) }),
+        completed_purchase: {
+          ...completed.completed_purchase!,
+          purchase_id: `cpur_boundary_${index}`,
+        },
+      }
+    }
+    const seeded = { schema_version: 1 as const, attempts }
+    assert.ok(Buffer.byteLength(JSON.stringify(seeded), 'utf8') < 16 * 1024 * 1024)
+    assert.ok(Buffer.byteLength(`${JSON.stringify(seeded, null, 2)}\n`, 'utf8') > 16 * 1024 * 1024)
+    await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(seeded)}\n`, { mode: 0o600 })
+
+    const saved = await saveQuotedAttempt(quote({ quote: { quote_id: 'cq_after_boundary' } }))
+    assert.equal(saved.quote_id, 'cq_after_boundary')
+    assert.ok((await fs.stat(getContentStoreStatePath())).size <= 16 * 1024 * 1024)
+    assert.ok((await readContentStoreCommerceState()).attempts.cq_after_boundary)
+  })
+
   test('quarantines a sparse oversized journal without reading it into a full memory buffer', async () => {
     const { paths } = await isolate()
     await fs.mkdir(paths.root, { recursive: true })
