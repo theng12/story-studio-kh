@@ -63,6 +63,7 @@
     { "from": "electron/server/niches",     "to": "niches" },
     { "from": "electron/server/topic-packs", "to": "topic-packs" },
     { "from": "electron/server/thumbnail-templates", "to": "thumbnail-templates" },
+    { "from": "electron/server/content-packs/recovery", "to": "content-packs/recovery" },
     { "from": "bundled/ffmpeg",             "to": "ffmpeg" },
     { "from": "bundled/LICENSE-FFMPEG.txt", "to": "LICENSE-FFMPEG.txt" },
     { "from": "CHANGELOG.md",               "to": "CHANGELOG.md" }

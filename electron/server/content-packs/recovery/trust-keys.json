@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "keys": [
+    {
+      "key_id": "com.storystudio.key.free-recovery-test",
+      "publisher_id": "com.storystudio",
+      "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAzzatqnj/GLnFGv3ELduoFd6mQFusMNtjnat+8L2ErHg=\n-----END PUBLIC KEY-----\n"
+    }
+  ]
+}

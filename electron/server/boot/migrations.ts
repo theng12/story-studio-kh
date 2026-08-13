@@ -50,6 +50,17 @@ export function runBootMigrations(): void {
     }
   })().catch(error => console.error('[boot-recovery] failed:', error?.message || error)))
 
+  tasks.push((async () => {
+    const { verifyContentPackRuntimeAtBoot } = await import('../content-packs/recovery.js')
+    const summary = await verifyContentPackRuntimeAtBoot()
+    if (summary.recovery_verified || summary.installed_verified || summary.rolled_back.length || summary.quarantined) {
+      console.log(
+        `[content-packs] recovery ${summary.recovery_verified}, installed ${summary.installed_verified}, ` +
+        `rolled back ${summary.rolled_back.length}, invalid ${summary.quarantined}`,
+      )
+    }
+  })().catch(error => console.error('[content-packs] boot verification failed:', error?.message || error)))
+
   const timeoutMs = 20_000
   const settle = new Promise<void>(resolve => {
     const timer = setTimeout(() => {

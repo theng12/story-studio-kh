@@ -361,10 +361,10 @@ describe('Content Pack runtime state', () => {
 
   test('uses source roots in dev Electron and packaged resources only for packaged app', () => {
     const sourceRoot = '/source/electron/server/content-packs'
-    assert.equal(resolveContentPackRecoveryRoot({ packaged: false, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), sourceRoot)
-    assert.equal(resolveContentPackRecoveryRoot({ packaged: true, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/Resources/content-packs')
-    assert.equal(resolveFirstPartyContentPackKeyringPath({ packaged: false, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/source/electron/server/content-packs/first-party-keys.json')
-    assert.equal(resolveFirstPartyContentPackKeyringPath({ packaged: true, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/Resources/content-packs/first-party-keys.json')
+    assert.equal(resolveContentPackRecoveryRoot({ packaged: false, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/source/electron/server/content-packs/recovery')
+    assert.equal(resolveContentPackRecoveryRoot({ packaged: true, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/Resources/content-packs/recovery')
+    assert.equal(resolveFirstPartyContentPackKeyringPath({ packaged: false, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/source/electron/server/content-packs/recovery/trust-keys.json')
+    assert.equal(resolveFirstPartyContentPackKeyringPath({ packaged: true, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/Resources/content-packs/recovery/trust-keys.json')
   })
 
   test('finds the source content-pack root from a compiled-development-like importer path', async () => {

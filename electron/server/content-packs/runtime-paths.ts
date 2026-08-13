@@ -73,10 +73,10 @@ export interface ContentPackResourceRootOptions {
 export function resolveContentPackRecoveryRoot(options: ContentPackResourceRootOptions = {}): string {
   const packaged = options.packaged ?? isPackagedApp()
   const sourceContentPackRoot = options.sourceContentPackRoot ?? findContentPackSourceRoot()
-  if (!packaged) return sourceContentPackRoot
+  if (!packaged) return path.join(sourceContentPackRoot, 'recovery')
   const resourcesPath = options.resourcesPath ?? process.resourcesPath
   if (!resourcesPath) throw new Error('packaged Content Pack recovery resources are unavailable')
-  return path.join(resourcesPath, 'content-packs')
+  return path.join(resourcesPath, 'content-packs', 'recovery')
 }
 
 /** Resolve only. Creating the runtime layout is an explicit write operation. */

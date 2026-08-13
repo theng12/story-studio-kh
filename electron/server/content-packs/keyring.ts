@@ -5,7 +5,7 @@ import path from 'node:path'
 import { z } from 'zod'
 
 import type { ContentPackVerificationPolicy } from './archive.js'
-import { findContentPackSourceRoot } from './runtime-paths.js'
+import { resolveContentPackRecoveryRoot } from './runtime-paths.js'
 
 const require = createRequire(import.meta.url)
 const QualifiedIdSchema = z.string()
@@ -86,12 +86,11 @@ export function createContentPackKeyring(entries: readonly ContentPackKeyringEnt
 
 /** Resolve the immutable resource path without accepting renderer or network input. */
 export function resolveFirstPartyContentPackKeyringPath(options: ContentPackKeyringPathOptions = {}): string {
-  const packaged = options.packaged ?? isPackagedApp()
-  const sourceContentPackRoot = options.sourceContentPackRoot ?? findContentPackSourceRoot()
-  if (!packaged) return path.join(sourceContentPackRoot, 'first-party-keys.json')
-  const resourcesPath = options.resourcesPath ?? process.resourcesPath
-  if (!resourcesPath) throw new Error('packaged Content Pack key resource is unavailable')
-  return path.join(resourcesPath, 'content-packs', 'first-party-keys.json')
+  return path.join(resolveContentPackRecoveryRoot({
+    packaged: options.packaged ?? isPackagedApp(),
+    resourcesPath: options.resourcesPath,
+    sourceContentPackRoot: options.sourceContentPackRoot,
+  }), 'trust-keys.json')
 }
 
 export function firstPartyContentPackKeyringPath(): string {

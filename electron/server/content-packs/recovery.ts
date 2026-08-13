@@ -1,0 +1,246 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
+
+import { verifyContentPackArchive, type ContentPackVerificationPolicy, type VerifiedContentPack } from './archive.js'
+import { verifyInstalledContentPackClosure, verifyInstalledContentPackVersion } from './installer.js'
+import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
+import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
+import type { ContentPackRuntimeState } from './runtime-types.js'
+import { withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
+
+const STAGING_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const TRANSACTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+export interface ContentPackRecoveryOptions {
+  paths?: ContentPackRuntimePaths
+  policy?: ContentPackVerificationPolicy
+  /** Injectable only for main-process tests and packaged-resource probing. */
+  recoveryRoot?: string
+  /** Test-only seam; production checks the actual Story Studio version. */
+  appVersion?: string
+  now?: () => number
+  /** Receives only operation identifiers and counts, never archive/document bytes. */
+  report?: (message: string) => void
+}
+
+export interface ContentPackBootVerificationSummary {
+  recovery_verified: number
+  installed_verified: number
+  rolled_back: Array<{ pack_id: string; from: string; to: string }>
+  /** Invalid local archive/version count; recovery resources are never modified. */
+  quarantined: number
+}
+
+function compareSemverDescending(left: string, right: string): number {
+  const leftParts = left.split('.').map(part => BigInt(part))
+  const rightParts = right.split('.').map(part => BigInt(part))
+  for (let index = 0; index < 3; index += 1) {
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] < rightParts[index] ? 1 : -1
+  }
+  return 0
+}
+
+async function resolvePolicy(options: ContentPackRecoveryOptions): Promise<ContentPackVerificationPolicy> {
+  return options.policy ?? getFirstPartyContentPackVerificationPolicy()
+}
+
+function report(options: ContentPackRecoveryOptions, message: string): void {
+  if (options.report) options.report(message)
+  else console.warn(`[content-packs] ${message}`)
+}
+
+async function assertSafeInstalledVersionPath(paths: ContentPackRuntimePaths, installPath: string): Promise<void> {
+  const root = path.resolve(paths.root)
+  const target = path.resolve(installPath)
+  const relative = path.relative(root, target)
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('Content Pack installed path is outside its runtime root')
+  }
+  let cursor = root
+  for (const segment of ['.', ...relative.split(path.sep)]) {
+    if (segment !== '.') cursor = path.join(cursor, segment)
+    const stat = await fs.lstat(cursor)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Content Pack installed path is unsafe: ${cursor}`)
+  }
+}
+
+async function assertSafeInstalledClosurePaths(
+  state: ContentPackRuntimeState,
+  packId: string,
+  version: string,
+  paths: ContentPackRuntimePaths,
+  visiting = new Set<string>(),
+): Promise<void> {
+  const key = `${packId}@${version}`
+  if (visiting.has(key)) throw new Error(`Content Pack dependency cycle detected at ${key}`)
+  const installed = state.packs[packId]?.versions[version]
+  if (!installed || installed.pending_removal) throw new Error(`Content Pack dependency is not retained: ${key}`)
+  visiting.add(key)
+  try {
+    await assertSafeInstalledVersionPath(paths, installed.install_path)
+    for (const dependency of installed.manifest.dependencies ?? []) {
+      await assertSafeInstalledClosurePaths(state, dependency.pack_id, dependency.version, paths, visiting)
+    }
+  } finally {
+    visiting.delete(key)
+  }
+}
+
+async function recoveryArchives(recoveryRoot: string): Promise<string[]> {
+  let entries: Awaited<ReturnType<typeof fs.readdir>>
+  try {
+    entries = await fs.readdir(recoveryRoot, { withFileTypes: true })
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+  const archives: string[] = []
+  for (const entry of entries) {
+    if (!entry.name.endsWith('.sspack')) continue
+    const candidate = path.join(recoveryRoot, entry.name)
+    const stat = await fs.lstat(candidate)
+    if (!stat.isFile() || stat.isSymbolicLink()) continue
+    archives.push(candidate)
+  }
+  return archives.sort((left, right) => path.basename(left).localeCompare(path.basename(right)))
+}
+
+async function scanRecoveryPacks(
+  recoveryRoot: string,
+  policy: ContentPackVerificationPolicy,
+  options: ContentPackRecoveryOptions,
+  ignoreFailures: boolean,
+): Promise<{ packs: VerifiedContentPack[]; invalid: number }> {
+  const packs: VerifiedContentPack[] = []
+  let invalid = 0
+  for (const archivePath of await recoveryArchives(recoveryRoot)) {
+    try {
+      packs.push(await verifyContentPackArchive(await fs.readFile(archivePath), policy))
+    } catch (error) {
+      if (!ignoreFailures) throw error
+      invalid += 1
+      report(options, `recovery archive ignored: ${path.basename(archivePath)}`)
+    }
+  }
+  return { packs, invalid }
+}
+
+/** Verify immutable bundled archives only; this never creates or mutates userData. */
+export async function listVerifiedRecoveryPacks(options: ContentPackRecoveryOptions = {}): Promise<VerifiedContentPack[]> {
+  const paths = options.paths ?? getContentPackRuntimePaths()
+  const policy = await resolvePolicy(options)
+  // A broken sibling archive must not make the immutable fallback catalog
+  // disappear. Report only its filename and return every healthy signed pack.
+  return (await scanRecoveryPacks(options.recoveryRoot ?? paths.recoveryRoot, policy, options, true)).packs
+}
+
+async function cleanupStaleStaging(
+  paths: ContentPackRuntimePaths,
+  now: number,
+  options: ContentPackRecoveryOptions,
+): Promise<number> {
+  try {
+    const root = await fs.lstat(paths.stagingRoot)
+    if (!root.isDirectory() || root.isSymbolicLink()) throw new Error(`Content Pack staging root is unsafe: ${paths.stagingRoot}`)
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+    throw error
+  }
+  let entries: Awaited<ReturnType<typeof fs.readdir>>
+  try {
+    entries = await fs.readdir(paths.stagingRoot, { withFileTypes: true })
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+    throw error
+  }
+  let removed = 0
+  for (const entry of entries) {
+    if (!TRANSACTION_ID.test(entry.name)) continue
+    const candidate = path.join(paths.stagingRoot, entry.name)
+    const stat = await fs.lstat(candidate)
+    if (!stat.isDirectory() || stat.isSymbolicLink() || now - stat.mtimeMs <= STAGING_MAX_AGE_MS) continue
+    await fs.rm(candidate, { recursive: true, force: false, maxRetries: 2 })
+    removed += 1
+  }
+  if (removed) report(options, `stale staging removed: ${removed}`)
+  return removed
+}
+
+async function verifyInstalledAndRecover(
+  state: ContentPackRuntimeState,
+  paths: ContentPackRuntimePaths,
+  policy: ContentPackVerificationPolicy,
+  options: ContentPackRecoveryOptions,
+): Promise<Pick<ContentPackBootVerificationSummary, 'installed_verified' | 'rolled_back' | 'quarantined'>> {
+  let installedVerified = 0
+  let invalid = 0
+  const rolledBack: ContentPackBootVerificationSummary['rolled_back'] = []
+  for (const [packId, pack] of Object.entries(state.packs).sort(([left], [right]) => left.localeCompare(right))) {
+    for (const [version, installed] of Object.entries(pack.versions).sort(([left], [right]) => compareSemverDescending(left, right))) {
+      if (installed.pending_removal) continue
+      try {
+        await assertSafeInstalledVersionPath(paths, installed.install_path)
+        await verifyInstalledContentPackVersion(installed, policy)
+        installedVerified += 1
+      } catch {
+        invalid += 1
+        report(options, `installed archive invalid: ${packId}@${version}`)
+      }
+    }
+    if (!pack.active_version) continue
+    const from = pack.active_version
+    try {
+      await assertSafeInstalledClosurePaths(state, packId, from, paths)
+      await verifyInstalledContentPackClosure(state, packId, from, policy, options.appVersion)
+      continue
+    } catch {
+      // A damaged active version is never re-downloaded at boot. Search only
+      // already-retained, verified versions and leave a no-fallback state intact.
+    }
+    let recovered = false
+    for (const candidate of Object.keys(pack.versions).filter(version => version !== from).sort(compareSemverDescending)) {
+      if (pack.versions[candidate].pending_removal) continue
+      try {
+        await assertSafeInstalledClosurePaths(state, packId, candidate, paths)
+        await verifyInstalledContentPackClosure(state, packId, candidate, policy, options.appVersion)
+      } catch {
+        continue
+      }
+      pack.active_version = candidate
+      rolledBack.push({ pack_id: packId, from, to: candidate })
+      report(options, `active version rolled back: ${packId}@${from} -> ${candidate}`)
+      recovered = true
+      break
+    }
+    if (!recovered) {
+      // Preserve immutable bytes for forensic inspection, but never leave a
+      // verified-bad version discoverable just because no rollback exists.
+      delete pack.active_version
+      report(options, `active version disabled: ${packId}@${from}`)
+    }
+  }
+  return { installed_verified: installedVerified, rolled_back: rolledBack, quarantined: invalid }
+}
+
+/**
+ * Main-process, local-only boot maintenance. It never fetches, reads secrets,
+ * or imports renderer/GenStudio code. Individual corrupt archives are retained
+ * as evidence and reported by ID while healthy local versions stay usable.
+ */
+export async function verifyContentPackRuntimeAtBoot(
+  options: ContentPackRecoveryOptions = {},
+): Promise<ContentPackBootVerificationSummary> {
+  const paths = options.paths ?? getContentPackRuntimePaths()
+  const policy = await resolvePolicy(options)
+  return withContentPackCoordinationLock(paths, async () => {
+    const recovery = await scanRecoveryPacks(options.recoveryRoot ?? paths.recoveryRoot, policy, options, true)
+    const summary = await withContentPackStateTransaction(async state => verifyInstalledAndRecover(state, paths, policy, options), paths)
+    await cleanupStaleStaging(paths, options.now?.() ?? Date.now(), options)
+    return {
+      recovery_verified: recovery.packs.length,
+      installed_verified: summary.installed_verified,
+      rolled_back: summary.rolled_back,
+      quarantined: recovery.invalid + summary.quarantined,
+    }
+  })
+}
