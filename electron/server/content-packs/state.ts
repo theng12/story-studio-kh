@@ -17,6 +17,22 @@ const execFile = promisify(execFileCallback)
 
 export { emptyContentPackState } from './runtime-types.js'
 
+/**
+ * State locks live below userData, so prove that root and the state parent are
+ * ordinary directories before creating a lock file. This is intentionally
+ * shared by every state transaction rather than left to individual callers.
+ */
+export async function prepareContentPackRuntimeRoot(paths: ContentPackRuntimePaths): Promise<void> {
+  assertWriteIsolatedInTests(paths.root, 'content-pack-state')
+  await fs.mkdir(paths.root, { recursive: true, mode: 0o700 })
+  const root = await fs.lstat(paths.root)
+  if (!root.isDirectory() || root.isSymbolicLink()) throw new Error(`Content Pack runtime root is unsafe: ${paths.root}`)
+  const stateParent = path.dirname(paths.statePath)
+  if (path.resolve(stateParent) !== path.resolve(paths.root)) throw new Error('Content Pack state path must live directly below its runtime root')
+  const parent = await fs.lstat(stateParent)
+  if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error(`Content Pack state parent is unsafe: ${stateParent}`)
+}
+
 type StateRead =
   | { kind: 'missing' }
   | { kind: 'valid'; state: ContentPackRuntimeState }
@@ -44,7 +60,7 @@ function invalidStatePath(paths: ContentPackRuntimePaths, bytes: Uint8Array): st
 }
 
 async function resetInvalidState(paths: ContentPackRuntimePaths, bytes: Uint8Array): Promise<ContentPackRuntimeState> {
-  assertWriteIsolatedInTests(paths.root, 'content-pack-state')
+  await prepareContentPackRuntimeRoot(paths)
   await fs.mkdir(paths.quarantineRoot, { recursive: true, mode: 0o700 })
   const quarantined = invalidStatePath(paths, bytes)
   await fs.writeFile(quarantined, bytes, { flag: 'wx', mode: STATE_MODE }).catch(error => {
@@ -361,8 +377,8 @@ async function acquireFilesystemStateLock(
     created_at_ms: runtime.now(),
     token: randomUUID(),
   }
-  assertWriteIsolatedInTests(paths.root, 'content-pack-state')
-  await fs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 })
+  await prepareContentPackRuntimeRoot(paths)
+  if (path.resolve(path.dirname(lockPath)) !== path.resolve(paths.root)) throw new Error('Content Pack state lock must live directly below its runtime root')
   while (true) {
     if (await publishStateLock(lockPath, owner)) break
     if (await reclaimStateLockIfProvenStale(lockPath, identity, runtime, staleLockMs, deadline, options.hooks)) continue

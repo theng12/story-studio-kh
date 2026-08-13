@@ -28,6 +28,7 @@ export interface ContentPackInstallerHooks {
   beforeVersionRename?: () => Promise<void>
   beforeActivationWrite?: () => Promise<void>
   beforeRequiredFsync?: () => Promise<void>
+  afterRequiredFsync?: (directories: readonly string[]) => Promise<void>
 }
 
 export interface ContentPackInstallOptions {
@@ -108,7 +109,7 @@ async function assertSafeDirectory(target: string): Promise<void> {
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`Content Pack write directory is unsafe: ${target}`)
 }
 
-async function ensureExclusiveDirectory(root: string, target: string): Promise<void> {
+async function ensureExclusiveDirectory(root: string, target: string, createdDirectories?: Set<string>): Promise<void> {
   assertWriteIsolatedInTests(root, 'content-pack-installer')
   const resolvedRoot = path.resolve(root)
   const resolvedTarget = path.resolve(target)
@@ -117,19 +118,23 @@ async function ensureExclusiveDirectory(root: string, target: string): Promise<v
   // Only the root may be recursively created. Descendants are created one at
   // a time and lstat-checked before the next segment, so mkdir never follows
   // an attacker-provided symlink into an outside tree.
-  try { await fs.mkdir(resolvedRoot, { recursive: true, mode: DIRECTORY_MODE }) } catch (error: unknown) {
+  let rootCreated = false
+  try { await fs.mkdir(resolvedRoot, { mode: DIRECTORY_MODE }); rootCreated = true } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
   }
   let cursor = resolvedRoot
   await assertSafeDirectory(cursor)
+  if (rootCreated) createdDirectories?.add(cursor)
   for (const segment of relative === '' ? [] : relative.split(path.sep)) {
     if (!segment || segment === '.' || segment === '..') throw new Error('Content Pack write path must be contained by its root')
     const next = path.join(cursor, segment)
-    try { await fs.mkdir(next, { mode: DIRECTORY_MODE }) } catch (error: unknown) {
+    let created = false
+    try { await fs.mkdir(next, { mode: DIRECTORY_MODE }); created = true } catch (error: unknown) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
     }
     cursor = next
     await assertSafeDirectory(cursor)
+    if (created) createdDirectories?.add(cursor)
   }
 }
 
@@ -143,9 +148,9 @@ async function existingSafeDirectory(target: string): Promise<boolean> {
   }
 }
 
-async function writeExclusiveFile(root: string, target: string, bytes: Uint8Array): Promise<void> {
+async function writeExclusiveFile(root: string, target: string, bytes: Uint8Array, createdDirectories?: Set<string>): Promise<void> {
   assertContained(root, target)
-  await ensureExclusiveDirectory(root, path.dirname(target))
+  await ensureExclusiveDirectory(root, path.dirname(target), createdDirectories)
   const flags = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0)
   const handle = await fs.open(target, flags, FILE_MODE)
   try {
@@ -179,6 +184,12 @@ async function fsyncParents(root: string, fromDirectory: string): Promise<void> 
     if (parent === cursor) throw new Error('Content Pack directory escaped its root during fsync')
     cursor = parent
   }
+}
+
+async function fsyncCreatedDirectories(createdDirectories: ReadonlySet<string>): Promise<string[]> {
+  const ordered = [...createdDirectories].sort((left, right) => right.split(path.sep).length - left.split(path.sep).length || right.localeCompare(left))
+  for (const directory of ordered) await fsyncDirectory(directory)
+  return ordered
 }
 
 async function removeTreeIfContained(root: string, candidate: string): Promise<void> {
@@ -290,17 +301,26 @@ async function materialiseVerifiedPack(
   installedRoot: string,
   finalPath: string,
   hooks?: ContentPackInstallerHooks,
+  policy?: ContentPackVerificationPolicy,
 ): Promise<void> {
   const versionRoot = path.join(stagingRoot, 'version')
-  await ensureExclusiveDirectory(stagingRoot, versionRoot)
-  await writeExclusiveFile(versionRoot, path.join(versionRoot, 'content', 'archive.sspack'), archiveBytes)
+  const createdDirectories = new Set<string>()
+  await ensureExclusiveDirectory(stagingRoot, versionRoot, createdDirectories)
+  await writeExclusiveFile(versionRoot, path.join(versionRoot, 'content', 'archive.sspack'), archiveBytes, createdDirectories)
   for (const [relativePath, bytes] of verified.files) {
-    await writeExclusiveFile(versionRoot, assertContained(versionRoot, path.join(versionRoot, ...relativePath.split('/'))), bytes)
+    await writeExclusiveFile(versionRoot, assertContained(versionRoot, path.join(versionRoot, ...relativePath.split('/'))), bytes, createdDirectories)
   }
   await hooks?.beforeRequiredFsync?.()
+  const syncedDirectories = await fsyncCreatedDirectories(createdDirectories)
   await fsyncParents(stagingRoot, versionRoot)
+  await hooks?.afterRequiredFsync?.(syncedDirectories)
   await ensureExclusiveDirectory(installedRoot, path.dirname(finalPath))
   if (await existingSafeDirectory(finalPath)) {
+    if (!policy) throw new Error('Content Pack verification policy is required to adopt an orphaned version')
+    const orphaned = await verifyInstalledVersion({ install_path: finalPath, archive_sha256: sha256(archiveBytes) }, policy)
+    if (canonicalJson(orphaned.manifest) !== canonicalJson(verified.manifest)) {
+      throw new Error(`Content Pack immutable orphan conflicts with candidate: ${finalPath}`)
+    }
     await fsyncParents(installedRoot, path.dirname(finalPath))
     return
   }
@@ -308,6 +328,14 @@ async function materialiseVerifiedPack(
   await ensureExclusiveDirectory(installedRoot, path.dirname(finalPath))
   await fs.rename(versionRoot, finalPath)
   await fsyncParents(installedRoot, path.dirname(finalPath))
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, nested]) => `${JSON.stringify(key)}:${canonicalJson(nested)}`).join(',')}}`
+  }
+  return JSON.stringify(value)
 }
 
 /**
@@ -351,12 +379,17 @@ export async function installContentPack(
         const verifiedExisting = await verifyInstalledVersion(existing, policy)
         if (verifiedExisting.manifest.pack_id !== packId || verifiedExisting.manifest.version !== version) throw new Error(`Content Pack immutable archive identity does not match state: ${packId}@${version}`)
         await verifiedManifestGraph(state, verified, policy)
+        // The retained signed archive is the authority. Repair a stale or
+        // forged cache only after proving it against the immutable archive.
+        if (canonicalJson(existing.manifest) !== canonicalJson(verifiedExisting.manifest)) {
+          existing.manifest = verifiedExisting.manifest
+        }
         return { pack_id: packId, version, archive_sha256: archiveSha, activated: state.packs[packId].active_version === version, retained_versions: retainedVersions(state, packId) }
       }
       await verifiedManifestGraph(state, verified, policy)
       const finalPath = installedVersionPath(paths, verified.manifest)
       await options.hooks?.beforeVersionRename?.()
-      await materialiseVerifiedPack(request.archiveBytes, verified, transactionRoot, paths.installedRoot, finalPath, options.hooks)
+      await materialiseVerifiedPack(request.archiveBytes, verified, transactionRoot, paths.installedRoot, finalPath, options.hooks, policy)
       await options.hooks?.beforeActivationWrite?.()
       const pack = state.packs[packId] ?? { discovery_disabled: false, versions: {} }
       pack.versions[version] = {

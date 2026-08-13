@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+import { watch } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
@@ -119,12 +120,17 @@ describe('Content Pack local installer', () => {
 
   test('does not trust a forged state manifest when re-verifying the installed dependency graph', async () => {
     const paths = await isolated()
-    await installContentPack(request(await buildArchive({ packId: 'com.storystudio.cycle-b' })), { paths, policy })
+    const cycleB = await buildArchive({ packId: 'com.storystudio.cycle-b' })
+    await installContentPack(request(cycleB), { paths, policy })
     await installContentPack(request(await buildArchive({ packId: 'com.storystudio.cycle-a', dependencies: [{ pack_id: 'com.storystudio.cycle-b', version: '1.0.0' }] })), { paths, policy })
     await mutateContentPackState(state => {
       state.packs['com.storystudio.cycle-b'].versions['1.0.0'].manifest.dependencies = [{ pack_id: 'com.storystudio.cycle-a', version: '1.0.0' }]
+      state.packs['com.storystudio.cycle-b'].versions['1.0.0'].manifest.lifecycle = 'retired'
     }, paths)
-    await assert.doesNotReject(installContentPack(request(await buildArchive({ packId: 'com.storystudio.unrelated' })), { paths, policy }))
+    await assert.doesNotReject(installContentPack(request(cycleB), { paths, policy }))
+    const repaired = (await readContentPackState(paths)).packs['com.storystudio.cycle-b'].versions['1.0.0'].manifest
+    assert.equal(repaired.lifecycle, 'active')
+    assert.deepEqual(repaired.dependencies, undefined)
   })
 
   test('keeps version identities immutable while allowing a byte-identical re-import', async () => {
@@ -191,6 +197,18 @@ describe('Content Pack local installer', () => {
     assert.equal((await readContentPackState(paths)).packs['com.storystudio.installer-test'].active_version, '1.0.1')
   })
 
+  test('adopts only a byte-identical orphan and never activates a different same-version candidate', async () => {
+    const paths = await isolated()
+    const first = await buildArchive()
+    await assert.rejects(installContentPack(request(first), {
+      paths, policy, hooks: { beforeActivationWrite: async () => { throw new Error('power cut after rename') } },
+    }), /power cut/)
+    const different = await buildArchive({ styleSuffix: ' A conflicting orphan candidate.' })
+    await assert.rejects(installContentPack(request(different), { paths, policy }), /archive hash|orphan conflicts/i)
+    assert.deepEqual(await readContentPackState(paths), { schema_version: 1, packs: {} })
+    await assert.doesNotReject(installContentPack(request(first), { paths, policy }))
+  })
+
   test('does not activate when mandatory directory durability fails, then permits the next clean install', async () => {
     const paths = await isolated()
     const archive = await buildArchive()
@@ -199,7 +217,14 @@ describe('Content Pack local installer', () => {
       hooks: { beforeRequiredFsync: async () => { throw new Error('fsync failed') } },
     }), /fsync failed/)
     assert.deepEqual(await readContentPackState(paths), { schema_version: 1, packs: {} })
-    await assert.doesNotReject(installContentPack(request(archive), { paths, policy }))
+    let synced: readonly string[] = []
+    await assert.doesNotReject(installContentPack(request(archive), {
+      paths, policy,
+      hooks: { afterRequiredFsync: async directories => { synced = directories } },
+    }))
+    assert.ok(synced.some(directory => directory.endsWith(`${path.sep}version${path.sep}content`)))
+    assert.ok(synced.some(directory => directory.endsWith(`${path.sep}version${path.sep}assets`)))
+    assert.ok(synced.some(directory => directory.endsWith(`${path.sep}version`)))
   })
 
   test('fails closed when a noncooperating process replaces the install root with a symlink before rename', async () => {
@@ -217,6 +242,23 @@ describe('Content Pack local installer', () => {
       },
     }), /unsafe/i)
     await assert.rejects(fs.stat(path.join(outside, PUBLISHER_ID)), { code: 'ENOENT' })
+  })
+
+  test('does not create a state lock outside userData when the runtime root is already a symlink', async () => {
+    const paths = await isolated()
+    const outside = path.join(path.dirname(paths.root), 'content-pack-lock-outside')
+    await fs.mkdir(outside)
+    const events: string[] = []
+    const watcher = watch(outside, (_event, filename) => { events.push(filename?.toString() ?? '') })
+    try {
+      await fs.symlink(outside, paths.root)
+      await assert.rejects(installContentPack(request(await buildArchive()), { paths, policy }), /runtime root is unsafe/i)
+      await new Promise(resolve => setTimeout(resolve, 25))
+      assert.equal(events.some(event => /state\.json\.lock|\.recovery/.test(event)), false)
+      await assert.rejects(fs.stat(path.join(outside, 'state.json.lock')), { code: 'ENOENT' })
+    } finally {
+      watcher.close()
+    }
   })
 
   test('serialises concurrent identical imports through state activation without a duplicate tree', async () => {
