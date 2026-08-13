@@ -10,6 +10,8 @@ export interface StoryStudioVersionResolutionOptions {
   electronVersion?: string
   /** Test-only source root containing package.json. */
   sourceRoot?: string
+  /** Test-only module directory used to exercise source and compiled layouts. */
+  moduleDirectory?: string
 }
 
 function exactVersion(value: unknown, source: string): string {
@@ -32,7 +34,7 @@ export async function resolveStoryStudioVersion(
     return exactVersion(version, 'Electron app metadata')
   }
 
-  const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
+  const moduleDirectory = options.moduleDirectory ?? path.dirname(fileURLToPath(import.meta.url))
   const sourceRoots = options.sourceRoot
     ? [path.resolve(options.sourceRoot)]
     : [

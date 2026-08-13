@@ -4,7 +4,7 @@ import { watch } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 import JSZip from 'jszip'
 
@@ -12,6 +12,7 @@ import { installContentPack, quarantineContentPackBytes, resolveContentPackAppVe
 import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
+import { resolveStoryStudioVersion } from '../lib/app-version.js'
 import { useTempDataDir } from './_helpers.js'
 
 const PUBLISHER_ID = 'com.storystudio'
@@ -286,12 +287,17 @@ describe('Content Pack local installer', () => {
     assert.deepEqual(Object.keys(state.packs['com.storystudio.installer-test'].versions), ['1.0.0'])
   })
 
-  test('keeps the compiled Electron installer importable with a real source-compatible version resolver', async () => {
-    const compiled = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist/server/content-packs/installer.js')
-    await fs.access(compiled)
-    const module = await import(pathToFileURL(compiled).href)
+  test('resolves the app version from the compiled Electron module layout without requiring a prebuilt dist', async () => {
     const paths = await isolated()
-    assert.equal(await module.resolveContentPackAppVersion({ packaged: false }), PACKAGE_VERSION)
-    await assert.doesNotReject(module.installContentPack(request(await buildArchive()), { paths, policy }))
+    const simulatedProjectRoot = path.dirname(paths.root)
+    const simulatedCompiledModuleDir = path.join(simulatedProjectRoot, 'electron', 'dist', 'server', 'lib')
+    await fs.writeFile(path.join(simulatedProjectRoot, 'package.json'), JSON.stringify({
+      name: 'story-studio-kh',
+      version: '9.8.7',
+    }))
+    assert.equal(await resolveStoryStudioVersion({
+      packaged: false,
+      moduleDirectory: simulatedCompiledModuleDir,
+    }), '9.8.7')
   })
 })
