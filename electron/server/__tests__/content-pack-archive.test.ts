@@ -412,6 +412,15 @@ describe('immutable content-pack archive verification', () => {
     await assert.rejects(verifyContentPackArchive(archive.archiveBytes, policy(archive.publicKeyPem)), /ZIP64|extra/i)
   })
 
+  test('rejects unclaimed bytes between the central directory and EOCD', async () => {
+    const archive = await buildArchive()
+    const bytes = Buffer.from(archive.archiveBytes)
+    const eocd = bytes.length - 22
+    const withHiddenGap = Buffer.concat([bytes.subarray(0, eocd), Buffer.from('HIDDEN', 'utf8'), bytes.subarray(eocd)])
+
+    await assert.rejects(verifyContentPackArchive(withHiddenGap, policy(archive.publicKeyPem)), /gap|central directory/i)
+  })
+
   test('requires every preview reference to resolve and rejects orphan declared assets', async () => {
     const missing = await buildArchive({ previewAssetPath: 'assets/missing.png' })
     await assert.rejects(verifyContentPackArchive(missing.archiveBytes, policy(missing.publicKeyPem)), /preview|asset|missing/i)

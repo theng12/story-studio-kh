@@ -45,7 +45,8 @@
   - Security-review follow-up: removed JSZip extraction entirely. The verifier now parses and cross-checks central and local ZIP records, rejects comments/extras/ZIP64/data descriptors/encryption/special entries, validates actual CRC and uncompressed size, and uses Node bounded raw deflate extraction before verifying any declared payload.
   - Security-review adversarial RED→GREEN: false-small-header deflate bomb, local-name swap, local encryption, DOS-host symlink mode, ZIP64 extra, missing/orphan preview assets, oversized dimensions, and multipage raster cases were added and now pass. Mutation proofs re-ran: disabling bounded inflate plus its post-limit check, local-path matching, or multipage rejection each made its corresponding regression fail; all three protections were restored.
   - Security-review verification: Task 1 + Task 2 focused tests pass 39/39; `npm run typecheck:electron` and `git diff --check` pass.
-  - Follow-up commit: pending.
+  - Follow-up commit: `54dd0df fix: harden content pack archive verification`.
+  - Final ZIP review follow-up: v1 now requires the central directory to end exactly at EOCD, rejecting any unclaimed gap/digital-signature record. RED observed with injected `HIDDEN` bytes; Task 1 + Task 2 focused tests now pass 40/40 with Electron typecheck and diff check green. Commit: `fix: reject content pack ZIP gaps`.
 - [ ] Task 3 — first-party publisher CLI
 - [ ] Task 4 — current-catalog migration golden
 - [ ] Task 5 — independent review and runtime-plan handoff

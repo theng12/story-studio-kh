@@ -152,6 +152,7 @@ function parseZipEntries(archiveBytes: Uint8Array, limits: ContentPackArchiveLim
   if (entryCount === 0xffff || centralBytes === 0xffffffff || centralOffset === 0xffffffff) fail('ZIP64 archives are not permitted')
   if (entryCount > limits.maxEntries) fail(`archive entry limit exceeded (${entryCount} > ${limits.maxEntries})`)
   if (centralOffset > eocd || centralBytes > eocd - centralOffset) fail('central directory lies outside the archive')
+  if (centralOffset + centralBytes !== eocd) fail('unclaimed gap follows the central directory')
 
   const entries: ZipEntry[] = []
   const seenPaths = new Set<string>()
