@@ -64,6 +64,19 @@ test('Jobs contracts carry all six remote operations and published cancellation 
   assert.doesNotMatch(jobs, /post-dispatch Video|Video best effort/i)
 })
 
+test('Jobs explains GenStudio 1.2 waits and retries from provider-published fields', () => {
+  for (const field of [
+    'retry_after_seconds', 'retry_at', 'last_provider_progress_at',
+    'stall_recovery_at', 'status_detail', 'failure_detail',
+  ]) assert.match(contracts, new RegExp(`${field}\\?`))
+  assert.match(jobs, /genStudioStatusDetail\(job\)/)
+  assert.match(jobs, /remote\.status_detail/)
+  assert.match(jobs, /remote\.failure_detail/)
+  assert.match(jobs, /remote\.retry_at/)
+  assert.match(jobs, /Retry in.*retry_after_seconds/)
+  assert.match(jobs, /remote\.stall_recovery_at/)
+})
+
 test('Jobs retries Motion work through the durable queue without reposting legacy params', () => {
   assert.match(
     jobs,

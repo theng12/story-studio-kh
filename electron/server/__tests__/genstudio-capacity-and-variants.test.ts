@@ -282,6 +282,12 @@ test('retry_after_seconds rides the same server-hint reader as every other hint'
   assert.equal(error.retryAfterSeconds, 45)
 })
 
+test('GenStudio 1.2 retry_at is honored when no relative retry delay is published', () => {
+  const now = Date.parse('2026-08-13T03:00:00Z')
+  assert.equal(readGenStudioPollHintMs({ retry_at: '2026-08-13T03:00:12Z' }, now), 12_000)
+  assert.equal(readGenStudioPollHintMs({ retry_at: 'not-a-date' }, now), null)
+})
+
 test('a request_in_progress 429 is never resubmitted and never reported as a failure', async () => {
   const originalFetch = globalThis.fetch
   let posts = 0

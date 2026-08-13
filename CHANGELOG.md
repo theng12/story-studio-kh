@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.832
+
+- Adopts GenStudio 1.2.0's published retry timing, provider progress, stall recovery, status, and failure details across durable jobs and the Jobs/Remote displays.
+- Honors GenStudio's absolute `retry_at` polling schedule instead of substituting a local retry guess.
+- Treats each chat model's published structured-item maximum as a safety ceiling for Contextual Cues while preserving checkpointed batch identity and the proven 50-scene Story policy when the limit remains unmeasured.
+
 ## v1.0.831
 
 - Makes unsigned and public desktop packaging use the exact Electron runtime already installed from the lockfile, avoiding a redundant network download that could fail after every source/build gate had passed.

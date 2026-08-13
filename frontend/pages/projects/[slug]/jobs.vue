@@ -455,6 +455,9 @@
           </div>
           <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
         </template>
+        <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
+          {{ genStudioStatusDetail(job) }}
+        </p>
 
         <!-- Row 3: Running progress / Summary -->
         <div v-if="job.status === 'running' && job.output_lines?.length" class="job-live-output">
@@ -713,6 +716,9 @@
             </div>
             <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
           </template>
+          <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
+            {{ genStudioStatusDetail(job) }}
+          </p>
 
           <div v-if="job.status === 'done' && job.output_lines?.length" class="job-summary">
             <span class="summary-icon">&#10003;</span>
@@ -970,6 +976,19 @@ function genStudioQueueLabel(
 ): string {
   const state = String(remote.queue_state || remote.state || 'unknown').toLowerCase()
   return GENSTUDIO_QUEUE_LABELS[state] || String(state).replace(/_/g, ' ')
+}
+
+function genStudioStatusDetail(job: RJob): string {
+  const remote = [...(job.genstudio_jobs || [])].reverse().find(item => item.status_detail || item.failure_detail)
+  if (!remote) return ''
+  const detail = remote.status_detail || remote.failure_detail || ''
+  if (remote.retry_at) return `${detail} Retry ${formatTime(remote.retry_at)}.`
+  if (remote.retry_after_seconds === 0) return `${detail} Retry is available now.`
+  if (typeof remote.retry_after_seconds === 'number' && remote.retry_after_seconds > 0) {
+    return `${detail} Retry in ${Math.ceil(remote.retry_after_seconds)} seconds.`
+  }
+  if (remote.stall_recovery_at) return `${detail} GenStudio will intervene ${formatTime(remote.stall_recovery_at)}.`
+  return detail
 }
 
 function genStudioNumeric(value: unknown): number {
@@ -2628,6 +2647,12 @@ async function clearFinished() {
 .job-items-failed { color: rgb(202, 138, 4); }
 .job-items-note { border-bottom: 1px dotted var(--border); cursor: help; }
 .job-items-active.waiting { color: rgb(202, 138, 4); }
+.genstudio-status-detail {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
 
 .progress-counter {
   font-size: var(--font-xs); font-family: 'SF Mono', Monaco, monospace;

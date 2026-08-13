@@ -11,6 +11,7 @@ import {
   isReleasedContextualCueBackpressure,
   normalizeContextualCueConfig,
   normalizeContextualCueProposalSettings,
+  resolveContextualCueBatchSize,
   readContextualCueProgress,
   removeContextualCueProgress,
   validateContextualCueTimeline,
@@ -36,6 +37,14 @@ function cue(overrides: Record<string, unknown> = {}) {
 }
 
 describe('Contextual Cues contract', () => {
+  test('uses the published structured-item cap only as a ceiling and preserves resumable batch identity', () => {
+    assert.equal(resolveContextualCueBatchSize(null), 50, 'unknown keeps the measured Story policy')
+    assert.equal(resolveContextualCueBatchSize(20), 20, 'a smaller published cap is enforced')
+    assert.equal(resolveContextualCueBatchSize(80), 50, 'a maximum is not a recommendation to grow the batch')
+    assert.equal(resolveContextualCueBatchSize(20, 40), 20, 'a newly lower live cap wins over stale saved work')
+    assert.equal(resolveContextualCueBatchSize(80, 40), 40, 'an interrupted run keeps its saved grouping when still legal')
+  })
+
   test('persists incomplete proposal batches separately from the final timeline and resumes exact matching work', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'contextual-cues-progress-'))
     const planPath = path.join(dir, 'scene_plan.json')

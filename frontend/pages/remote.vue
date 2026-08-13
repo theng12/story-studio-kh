@@ -175,6 +175,10 @@ const bulkControlJobs = computed(() => activeJobs.value.filter(job =>
 const bulkSkippedCount = computed(() => activeJobs.value.length - bulkControlJobs.value.length)
 
 function jobSubline(job: Job): string {
+  const providerDetail = [...(job.genstudio_jobs || [])].reverse()
+    .map(item => item.status_detail || item.failure_detail)
+    .find(Boolean)
+  if (providerDetail) return providerDetail
   if (job.status === 'error') return job.error || 'failed'
   if (job.status === 'queued') return 'queued'
   if (job.status === 'paused') return 'paused before provider submission'

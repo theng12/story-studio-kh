@@ -83,6 +83,22 @@ export interface ContextualCueProgress {
   updated_at: string
 }
 
+const DEFAULT_CONTEXTUAL_CUE_BATCH_SIZE = 50
+
+/** A published maximum is a ceiling, not a recommendation to grow a batch. */
+export function resolveContextualCueBatchSize(
+  publishedMaximum: unknown,
+  savedBatchSize?: unknown,
+): number {
+  const published = Number.isInteger(publishedMaximum) && Number(publishedMaximum) > 0
+    ? Number(publishedMaximum)
+    : null
+  const policySize = Number.isInteger(savedBatchSize) && Number(savedBatchSize) > 0
+    ? Number(savedBatchSize)
+    : DEFAULT_CONTEXTUAL_CUE_BATCH_SIZE
+  return published === null ? policySize : Math.min(policySize, published)
+}
+
 export function contextualCueProgressPath(scenePlanPath: string): string {
   return path.join(path.dirname(scenePlanPath), CONTEXTUAL_CUES_PROGRESS_FILENAME)
 }

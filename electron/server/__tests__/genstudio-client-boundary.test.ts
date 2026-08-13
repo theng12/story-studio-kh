@@ -416,6 +416,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
         return Response.json([{
           id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
           provider_name: 'Published LLM creator',
+          max_structured_items_per_request: 80,
           max_output_tokens: 65_536, controls: ['temperature'], activation_blockers: [],
           input_credits_per_million_tokens: 10_000,
           output_credits_per_million_tokens: 20_000, minimum_credits: 3, price_version: 'chat-price-v1',
@@ -440,6 +441,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.max_output_tokens, 65_536)
     assert.equal(chat[0]?.available, true)
     assert.equal(chat[0]?.provider_name, 'Published LLM creator')
+    assert.equal(chat[0]?.max_structured_items_per_request, 80)
     assert.equal(chat[0]?.input_credits_per_million_tokens, 10_000)
     assert.equal(chat[0]?.price_version, 'chat-price-v1')
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
@@ -1482,7 +1484,7 @@ test('GenStudio catalog membership accepts only enabled live voice IDs', () => {
   assert.equal(catalogHasVoice(voices, 'voice_missing'), false)
 })
 
-test('GenStudio 0.97.1 control responses preserve published cancellation and settlement fields', async () => {
+test('GenStudio 1.2 control responses preserve published cancellation, settlement, and waiting fields', async () => {
   // This fixture pins the published remote contract. Removing any forwardable
   // field from the boundary would hide cancellation or billing truth from a
   // durable Story job.
@@ -1496,6 +1498,12 @@ test('GenStudio 0.97.1 control responses preserve published cancellation and set
     reserved_credits: 13,
     settled_credits: 0,
     released_credits: 13,
+    retry_after_seconds: 42,
+    retry_at: '2026-08-13T03:00:00Z',
+    last_provider_progress_at: '2026-08-13T02:58:00Z',
+    stall_recovery_at: '2026-08-13T03:10:00Z',
+    status_detail: 'Waiting for fleet placement; window closes at 10:10.',
+    failure_detail: 'No eligible route accepted this request.',
   }
   const originalFetch = globalThis.fetch
   try {
@@ -1521,6 +1529,12 @@ test('GenStudio control parser excludes invalid optional dispatch and settlement
       reserved_credits: -13,
       settled_credits: '0',
       released_credits: Number.NaN,
+      retry_after_seconds: -1,
+      retry_at: 123,
+      last_provider_progress_at: {},
+      stall_recovery_at: false,
+      status_detail: '   ',
+      failure_detail: [],
     })
     const result = await getGenStudioCancellationStatus(
       'voice.tts', 'http://genstudio.test', 'test-key', 'job_cancel_0971', {}, Date.now() + 1_000,
@@ -1529,6 +1543,12 @@ test('GenStudio control parser excludes invalid optional dispatch and settlement
     assert.equal(result.reserved_credits, undefined)
     assert.equal(result.settled_credits, undefined)
     assert.equal(result.released_credits, undefined)
+    assert.equal(result.retry_after_seconds, undefined)
+    assert.equal(result.retry_at, undefined)
+    assert.equal(result.last_provider_progress_at, undefined)
+    assert.equal(result.stall_recovery_at, undefined)
+    assert.equal(result.status_detail, undefined)
+    assert.equal(result.failure_detail, undefined)
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -73,6 +73,7 @@ function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioC
     qualification_only: false,
     context_window_tokens: 128_000,
     max_output_tokens: 8_192,
+    max_structured_items_per_request: null,
     controls: [],
     activation_blockers: [],
     input_credits_per_million_tokens: 100,

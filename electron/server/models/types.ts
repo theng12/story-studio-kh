@@ -2288,6 +2288,12 @@ export interface Job {
     cancellation_note?: string | null
     released_credits?: number | null
     routing_status_code?: string | null
+    retry_after_seconds?: number | null
+    retry_at?: string | null
+    last_provider_progress_at?: string | null
+    stall_recovery_at?: string | null
+    status_detail?: string | null
+    failure_detail?: string | null
     location?: string
     queue_state?: 'waiting_local' | 'submitting' | 'accepted' | 'waiting_account_capacity'
       | 'running' | 'completing' | 'succeeded' | 'failed' | 'waiting_credits' | 'cancelled'

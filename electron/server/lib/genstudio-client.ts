@@ -162,6 +162,12 @@ export interface GenStudioJob {
   settled_credits?: number | null
   released_credits?: number | null
   routing_status_code?: string | null
+  retry_after_seconds?: number | null
+  retry_at?: string | null
+  last_provider_progress_at?: string | null
+  stall_recovery_at?: string | null
+  status_detail?: string | null
+  failure_detail?: string | null
   price_version?: string | null
   location?: string | null
   /**
@@ -187,6 +193,12 @@ export type GenStudioCancellationFields = {
   reserved_credits?: number
   settled_credits?: number
   released_credits?: number
+  retry_after_seconds?: number | null
+  retry_at?: string | null
+  last_provider_progress_at?: string | null
+  stall_recovery_at?: string | null
+  status_detail?: string | null
+  failure_detail?: string | null
 }
 
 const GENSTUDIO_JOB_STATES = new Set<GenStudioJob['state']>([
@@ -218,6 +230,15 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
     const field = body[name]
     return isValidSettlement(field) ? field : undefined
   }
+  const optionalNumberOrNull = (name: string): number | null | undefined => {
+    const field = body[name]
+    return field === null || isValidSettlement(field) ? field as number | null : undefined
+  }
+  const optionalNonEmptyTextOrNull = (name: string): string | null | undefined => {
+    const field = body[name]
+    if (field === null) return null
+    return typeof field === 'string' && field.trim() ? field : undefined
+  }
   const dispatchState = body.dispatch_state
   return {
     id: body.id,
@@ -231,6 +252,12 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
     ...(optionalSettlement('reserved_credits') !== undefined ? { reserved_credits: optionalSettlement('reserved_credits') } : {}),
     ...(optionalSettlement('settled_credits') !== undefined ? { settled_credits: optionalSettlement('settled_credits') } : {}),
     ...(optionalSettlement('released_credits') !== undefined ? { released_credits: optionalSettlement('released_credits') } : {}),
+    ...(optionalNumberOrNull('retry_after_seconds') !== undefined ? { retry_after_seconds: optionalNumberOrNull('retry_after_seconds') } : {}),
+    ...(optionalNonEmptyTextOrNull('retry_at') !== undefined ? { retry_at: optionalNonEmptyTextOrNull('retry_at') } : {}),
+    ...(optionalNonEmptyTextOrNull('last_provider_progress_at') !== undefined ? { last_provider_progress_at: optionalNonEmptyTextOrNull('last_provider_progress_at') } : {}),
+    ...(optionalNonEmptyTextOrNull('stall_recovery_at') !== undefined ? { stall_recovery_at: optionalNonEmptyTextOrNull('stall_recovery_at') } : {}),
+    ...(optionalNonEmptyTextOrNull('status_detail') !== undefined ? { status_detail: optionalNonEmptyTextOrNull('status_detail') } : {}),
+    ...(optionalNonEmptyTextOrNull('failure_detail') !== undefined ? { failure_detail: optionalNonEmptyTextOrNull('failure_detail') } : {}),
   }
 }
 
@@ -1047,6 +1074,8 @@ export interface GenStudioChatModel {
    * publishes no output ceiling is refused at submission time instead.
    */
   max_output_tokens: number
+  /** Published structured-item ceiling. Null means unmeasured, never unlimited. */
+  max_structured_items_per_request: number | null
   controls: string[]
   activation_blockers: string[]
   input_credits_per_million_tokens: number
@@ -1232,6 +1261,9 @@ interface GenStudioChatJob extends GenStudioResearchEnvelope {
   output_retained?: boolean | null
   finish_reason?: string | null
   failure_code?: string | null
+  failure_detail?: string | null
+  retry_after_seconds?: number | null
+  retry_at?: string | null
   routing_status_code?: string | null
   credit_cost?: number
   remaining_credits?: number
@@ -2013,6 +2045,12 @@ async function recordGenStudioEvidence(
     ...(job.cancellation_requested !== undefined ? { cancellation_requested: job.cancellation_requested } : {}),
     ...(job.cancellation_note !== undefined ? { cancellation_note: job.cancellation_note } : {}),
     routing_status_code: job.routing_status_code,
+    ...(job.retry_after_seconds === null || isValidSettlement(job.retry_after_seconds) ? { retry_after_seconds: job.retry_after_seconds } : {}),
+    ...(job.retry_at === null || (typeof job.retry_at === 'string' && job.retry_at.trim()) ? { retry_at: job.retry_at } : {}),
+    ...(job.last_provider_progress_at === null || (typeof job.last_provider_progress_at === 'string' && job.last_provider_progress_at.trim()) ? { last_provider_progress_at: job.last_provider_progress_at } : {}),
+    ...(job.stall_recovery_at === null || (typeof job.stall_recovery_at === 'string' && job.stall_recovery_at.trim()) ? { stall_recovery_at: job.stall_recovery_at } : {}),
+    ...(job.status_detail === null || (typeof job.status_detail === 'string' && job.status_detail.trim()) ? { status_detail: job.status_detail } : {}),
+    ...(job.failure_detail === null || (typeof job.failure_detail === 'string' && job.failure_detail.trim()) ? { failure_detail: job.failure_detail } : {}),
     location: job.location || undefined,
     queue_state: queueStateForJob(job),
     updated_at: new Date().toISOString(),
@@ -2597,12 +2635,9 @@ export function parseGenStudioRetryAfterMs(value: string | null, now = Date.now(
 /**
  * A GenStudio-supplied "ask me again in N" hint on a job payload, in ms.
  *
- * GenStudio does not publish a poll hint today (see
- * docs/genstudio-handoff/job-poll-hint-request.md — the ask is open). This
- * reads the shapes that ask proposes, plus the `Retry-After` header, which
- * `requestJsonWithRetry` folds onto the body as `retry_after` the same way it
- * already folds `location` and `http_status`. The moment GenStudio ships any
- * of them, Story Studio honours it with no further code change.
+ * GenStudio 1.2 publishes `retry_after_seconds` and `retry_at`. Older payload
+ * shapes and the `Retry-After` header remain readable so in-flight jobs from
+ * a rolling deployment keep the same safe polling behavior.
  *
  * Returns null for anything absent, malformed or negative — a bad hint must
  * never be able to turn into a busy-loop.
@@ -2619,6 +2654,11 @@ export function readGenStudioPollHintMs(payload: unknown, now = Date.now()): num
   const seconds = row.retry_after_seconds ?? row.poll_after_seconds ?? row.poll_after
   if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0) {
     return Math.ceil(seconds * 1_000)
+  }
+  const retryAt = row.retry_at
+  if (typeof retryAt === 'string') {
+    const timestamp = Date.parse(retryAt)
+    if (Number.isFinite(timestamp)) return Math.max(0, timestamp - now)
   }
   const header = row.retry_after ?? row.poll_after
   if (typeof header === 'string') return parseGenStudioRetryAfterMs(header, now)
@@ -3588,6 +3628,10 @@ export async function listChatModelsSnapshot(
     // a figure GenStudio had published for the product, and a chapter sized
     // against it comes back truncated after the customer has paid for it.
     max_output_tokens: readPublishedTokenLimit(value?.max_output_tokens, undefined),
+    max_structured_items_per_request: Number.isInteger(value?.max_structured_items_per_request)
+      && value.max_structured_items_per_request > 0
+      ? value.max_structured_items_per_request
+      : null,
     controls: Array.isArray(value?.controls) ? value.controls.filter((item: unknown) => typeof item === 'string') : [],
     activation_blockers: Array.isArray(value?.activation_blockers)
       ? value.activation_blockers.filter((item: unknown) => typeof item === 'string')
@@ -4725,6 +4769,9 @@ function chatJobEvidence(job: GenStudioChatJob): GenStudioJob {
     state: job.state,
     model_id: job.model_id,
     ...(job.failure_code ? { failure_code: job.failure_code } : {}),
+    ...(job.failure_detail ? { failure_detail: job.failure_detail } : {}),
+    ...(job.retry_after_seconds === null || isValidSettlement(job.retry_after_seconds) ? { retry_after_seconds: job.retry_after_seconds } : {}),
+    ...(job.retry_at === null || (typeof job.retry_at === 'string' && job.retry_at.trim()) ? { retry_at: job.retry_at } : {}),
     ...(job.routing_status_code ? { routing_status_code: job.routing_status_code } : {}),
     ...(Number.isFinite(job.credit_cost) ? { credit_cost: job.credit_cost } : {}),
     ...(Number.isFinite(job.remaining_credits) ? { remaining_credits: job.remaining_credits } : {}),

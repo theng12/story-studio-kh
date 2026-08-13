@@ -21,6 +21,7 @@ import {
   readContextualCueTimeline,
   removeContextualCueProgress,
   normalizeContextualCueProposalSettings,
+  resolveContextualCueBatchSize,
   normalizeContextualCueTemplate,
   validateContextualCueTimeline,
   writeContextualCueProgress,
@@ -30,7 +31,9 @@ import {
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan } from '../models/types.js'
 import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
-import { GenStudioChatTerminalFailureError, genStudioAdmissionSnapshot } from '../lib/genstudio-client.js'
+import { GenStudioChatTerminalFailureError, genStudioAdmissionSnapshot, listChatModels } from '../lib/genstudio-client.js'
+import { getApiKey } from '../services/app-secrets-store.js'
+import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 
 interface CueCandidate {
   scene_id: string
@@ -47,7 +50,6 @@ function chunk<T>(items: T[], size: number): T[][] {
   return result
 }
 
-const CONTEXTUAL_CUE_BATCH_SIZE = 50
 const CONTEXTUAL_CUE_BACKPRESSURE_RETRIES = 2
 const CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS = 15_000
 
@@ -145,13 +147,26 @@ export async function generateContextualCues(job: Job): Promise<void> {
   const model = settings.model
   if (!model) throw new Error('Choose a live GenStudio model in Contextual Cues before proposing cues.')
 
+  const apiKey = await getApiKey('genstudio').catch(() => '')
+  if (!apiKey) throw new Error('Contextual Cues needs a configured GenStudio API key.')
+  const modelId = resolveGenStudioModelId('chat', model)
+  const catalogModel = modelId ? (await listChatModels(apiKey)).find(candidate => candidate.id === modelId) : null
+  if (!catalogModel) throw new Error('The selected Contextual Cues model is no longer in the live GenStudio catalogue.')
+
   const prior = await readContextualCueTimeline(planPath)
   const protectedCues = prior?.cues.filter(cue => cue.status !== 'proposed') || []
-  const batches = chunk(plan.scenes, CONTEXTUAL_CUE_BATCH_SIZE)
   const fingerprint = contextualCueProgressFingerprint(plan, settings)
   const existingProgress = await readContextualCueProgress(planPath)
   const saved = existingProgress?.fingerprint === fingerprint ? existingProgress : null
   if (existingProgress && !saved) await removeContextualCueProgress(planPath)
+  const batchSize = resolveContextualCueBatchSize(catalogModel.max_structured_items_per_request, saved?.batch_size)
+  if (saved && saved.batch_size !== batchSize) {
+    throw new Error(
+      `GenStudio now publishes a ${batchSize}-item structured-output ceiling, below this saved run's ${saved.batch_size}-item batches. `
+      + 'The saved work was preserved; start a new proposal run to use the current limit.',
+    )
+  }
+  const batches = chunk(plan.scenes, batchSize)
   const completed = new Map((saved?.completed_batches || []).map(batch => [batch.index, batch]))
   const candidates: CueCandidate[] = [...completed.values()].flatMap(batch => batch.candidates as CueCandidate[])
   const snapshot = genStudioAdmissionSnapshot()
@@ -161,7 +176,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
     fingerprint,
     source_scene_plan_generated_at: plan.generated_at,
     model,
-    batch_size: CONTEXTUAL_CUE_BATCH_SIZE,
+    batch_size: batchSize,
     total_scenes: plan.scenes.length,
     total_batches: batches.length,
     completed_batches: [],

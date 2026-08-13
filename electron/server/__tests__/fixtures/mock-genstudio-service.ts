@@ -966,6 +966,7 @@ export class MockGenStudioService {
         id: 'mock-chat-v1', display_name: 'Mock Chat', description: 'In-process LLM fixture.',
         available: true, qualification_only: false,
         context_window_tokens: 128_000, max_output_tokens: 4_096,
+        max_structured_items_per_request: null,
         controls: ['temperature', 'top_p', 'max_output_tokens'], activation_blockers: [],
         supports_structured_output: true, structured_output_mode: 'request_json_schema',
       }])
