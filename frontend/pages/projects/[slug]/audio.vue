@@ -412,6 +412,7 @@
 <script setup lang="ts">
 import type { GenStudioTtsModel, GenStudioVoice, GenStudioNarrationQuote } from '~/composables/useGenStudioVoices'
 import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
+import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
 import {
   defaultTtsControlValues,
@@ -457,6 +458,7 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
       ...(model.supports_voice_cloning ? [{ label: 'Voice cloning', tone: 'info' as const }] : []),
       ...(model.generation_enabled ? [] : [{ label: 'Unavailable', tone: 'paid' as const }]),
     ],
+    costTier: model.cost_tier,
   }
 }))
 
@@ -530,16 +532,22 @@ useRememberedForm('audio', slug, form, {
 })
 /**
  * A remembered selection is a SELECTION, never a remembered capability. Once
- * the catalogue is in, drop a model GenStudio no longer publishes rather than
- * carrying it into a request that would fail.
+ * the catalogue is in, follow only an owner-published alias. Missing or
+ * unavailable named selections remain visible for deliberate replacement.
  */
 watch([ttsModels, () => form.model], () => {
   if (!ttsModels.value.length) return
-  if (form.model && ttsModels.value.some(model => model.id === form.model)) return
-  if (form.model) {
-    form.model = ''
+  // Audio intentionally opens with no model. For a named saved choice, keep
+  // the exact row or follow only an owner-published alias; a missing product
+  // remains named until the customer deliberately replaces it.
+  if (!form.model) return
+  const selected = selectLiveGenStudioModel(
+    form.model,
+    ttsModels.value.map(model => ({ ...model, available: model.generation_enabled })),
+  )
+  if (selected && selected.id !== form.model) {
+    form.model = selected.id
     form.voice = null
-    showInfo('That voice model is no longer in your GenStudio KH catalogue. Choose a current one.')
   }
 })
 

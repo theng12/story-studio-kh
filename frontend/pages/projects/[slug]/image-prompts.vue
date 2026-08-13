@@ -1009,6 +1009,8 @@ import {
   type PromptCharCapSetting,
 } from '~/utils/prompt-char-cap'
 import { readRememberedImageModelId } from '~/utils/project-image-model'
+import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
+import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
 definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -1167,7 +1169,7 @@ const customStyles = computed<StylePresetMeta[]>(
 )
 
 // ── Reference-image style extraction (pain-point #7) ─────────────────────
-interface VisionModelCap { id: string; available: boolean }
+interface VisionModelCap { id: string; available: boolean; cost_tier?: GenStudioCostTier }
 interface ThumbnailVisionModel {
   id: string
   display_name: string
@@ -1176,6 +1178,7 @@ interface ThumbnailVisionModel {
   accepted_image_mime_types: string[]
   max_image_bytes: number
   max_image_dimension: number
+  cost_tier?: GenStudioCostTier
 }
 interface ThumbnailReferenceAsset {
   id: string
@@ -1204,6 +1207,7 @@ const visionModelMenuOptions = computed(() => visionModels.value.map(model => ({
   disabled: !model.available,
   disabledReason: model.available ? undefined : 'This GenStudio model is currently unavailable.',
   badges: [{ label: 'Vision', tone: 'info' as const }],
+  costTier: model.cost_tier,
 })))
 const thumbnailVisionModels = ref<ThumbnailVisionModel[]>([])
 const thumbnailVisionModel = ref('')
@@ -1215,6 +1219,7 @@ const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.val
   group: 'GenStudio KH · Vision only',
   meta: `${model.max_input_images} image · ${model.supported_detail_levels.join(', ')} detail`,
   badges: [{ label: 'Vision', tone: 'info' as const }, { label: 'JSON', tone: 'neutral' as const }],
+  costTier: model.cost_tier,
 })))
 const selectedThumbnailVisionModel = computed(() => thumbnailVisionModels.value.find(model => model.id === thumbnailVisionModel.value) || null)
 
@@ -1992,15 +1997,8 @@ async function loadVisionCaps() {
       `/projects/${slug.value}/vision/caps`,
     )
     visionModels.value = data.models || []
-    // Keep the current live selection when possible; otherwise choose the
-    // first published GenStudio vision model or the server's suggested default.
-    const current = activeForm.value.model
-    if (visionModels.value.find(m => m.id === current && m.available)) {
-      visionModel.value = current
-    } else {
-      const firstAvailable = visionModels.value.find(m => m.available)
-      visionModel.value = firstAvailable?.id || data.default
-    }
+    const selected = selectLiveGenStudioModel(visionModel.value, visionModels.value)
+    if (selected) visionModel.value = selected.id
   } catch { /* tolerate — keep default */ }
 }
 
@@ -2010,9 +2008,11 @@ async function loadThumbnailVisionModels() {
   try {
     const data = await get<{ models: ThumbnailVisionModel[] }>(`/projects/${slug.value}/thumbnail-reference/vision-models`)
     thumbnailVisionModels.value = Array.isArray(data.models) ? data.models : []
-    if (!thumbnailVisionModels.value.some(model => model.id === thumbnailVisionModel.value)) {
-      thumbnailVisionModel.value = thumbnailVisionModels.value[0]?.id || ''
-    }
+    const selected = selectLiveGenStudioModel(
+      thumbnailVisionModel.value,
+      thumbnailVisionModels.value.map(model => ({ ...model, available: true })),
+    )
+    if (selected && selected.id !== thumbnailVisionModel.value) thumbnailVisionModel.value = selected.id
     if (!thumbnailVisionModels.value.length) {
       thumbnailVisionLoadError.value = 'GenStudio is connected, but it has not published a currently available vision model with image input and structured JSON output.'
     }

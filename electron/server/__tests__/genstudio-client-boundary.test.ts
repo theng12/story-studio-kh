@@ -74,12 +74,14 @@ test('TTS models carry only a positive published provider submit concurrency hin
         supports_voice_cloning: false,
         preview_policy: '',
         generation_enabled: true,
+        ...(index === 0 ? { cost_tier: 'economy' } : {}),
         ...(provider_submit_concurrency === undefined ? {} : { provider_submit_concurrency }),
         controls: [],
       })))
     }
     const models = await listTtsModels('task3-tts-concurrency-parser')
     assert.deepEqual(models.map(model => (model as any).provider_submit_concurrency), [4, null, null, null, null, null])
+    assert.equal(models[0]?.cost_tier, 'economy')
   } finally {
     globalThis.fetch = originalFetch
     clearGenStudioCatalogCache()
@@ -416,6 +418,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
         return Response.json([{
           id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
           provider_name: 'Published LLM creator',
+          cost_tier: 'economy',
           max_structured_items_per_request: 80,
           max_output_tokens: 65_536, controls: ['temperature'], activation_blockers: [],
           input_credits_per_million_tokens: 10_000,
@@ -425,6 +428,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
       if (url.endsWith('/v1/videos/models')) {
         return Response.json([{
           id: 'video-v1', display_name: 'Video V1', available: false,
+          cost_tier: 'premium',
           modes: ['image-to-video'], aspect_ratios: ['16:9'],
           variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-v1' }],
         }])
@@ -441,10 +445,12 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.max_output_tokens, 65_536)
     assert.equal(chat[0]?.available, true)
     assert.equal(chat[0]?.provider_name, 'Published LLM creator')
+    assert.equal(chat[0]?.cost_tier, 'economy')
     assert.equal(chat[0]?.max_structured_items_per_request, 80)
     assert.equal(chat[0]?.input_credits_per_million_tokens, 10_000)
     assert.equal(chat[0]?.price_version, 'chat-price-v1')
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
+    assert.equal(video[0]?.cost_tier, 'premium')
     assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
   } finally {
     globalThis.fetch = originalFetch
@@ -461,6 +467,7 @@ test('GenStudio music catalog preserves only published provider details', async 
       return Response.json([
         {
           id: 'music-local-v1', display_name: 'Local Music', provider_name: 'Studio Hub',
+          cost_tier: 'premium',
           description: 'Local instrumental generation', coming_soon: false,
           credits_per_request: 0, minimum_credits: 0, price_version: 'music-price-v1',
           standard_credits: null, sale_credits: null, sale_ends_at: null, sale_disclaimer: null,
@@ -486,6 +493,7 @@ test('GenStudio music catalog preserves only published provider details', async 
     assert.deepEqual(models, [
       {
         id: 'music-local-v1', display_name: 'Local Music', provider_name: 'Studio Hub',
+        cost_tier: 'premium',
         description: 'Local instrumental generation', coming_soon: false,
         credits_per_request: 0, minimum_credits: 0, price_version: 'music-price-v1',
         standard_credits: null, sale_credits: null, sale_ends_at: null, sale_disclaimer: null,
@@ -738,6 +746,7 @@ test('GenStudio image catalog carries every published capability and invents non
           id: 'genstudio-image-fast-v1',
           display_name: 'GenStudio Image Fast',
           provider_name: 'Published image creator',
+          cost_tier: 'balanced',
           aspect_ratios: ['16:9', '4:3'],
           default_aspect_ratio: '16:9',
           default_resolution: '1K',
@@ -762,11 +771,19 @@ test('GenStudio image catalog carries every published capability and invents non
             { resolution: '2K', aspect_ratio: '16:9', width: 2688, height: 1536, is_default: false },
             { resolution: '4K', aspect_ratio: '16:9', width: 0, height: 1536, is_default: false },
           ],
+        }, {
+          id: 'genstudio-image-invalid-tier-v1',
+          display_name: 'GenStudio Image Invalid Tier',
+          cost_tier: 'cheap',
+          aspect_ratios: ['16:9'],
+          default_aspect_ratio: '16:9',
         }])
     }
-    const [model] = await listImageModels('scoped-key')
+    const [model, malformedTierModel] = await listImageModels('scoped-key')
     assert.equal(model?.default_resolution, '1K')
     assert.equal(model?.provider_name, 'Published image creator')
+    assert.equal(model?.cost_tier, 'balanced')
+    assert.equal(model?.credits_per_image, 4)
     assert.equal(model?.availability_note, 'Fleet capacity is limited tonight.')
     assert.equal(model?.base_credits_per_image, 6)
     assert.equal(model?.promotion_name, 'Launch week')
@@ -799,6 +816,9 @@ test('GenStudio image catalog carries every published capability and invents non
     assert.equal((model as any)?.min_steps, undefined)
     assert.equal((model as any)?.max_steps, undefined)
     assert.equal((model as any)?.sizes, undefined)
+    assert.equal(malformedTierModel?.id, 'genstudio-image-invalid-tier-v1')
+    assert.equal(malformedTierModel?.cost_tier, undefined)
+    assert.equal(Object.hasOwn(malformedTierModel ?? {}, 'cost_tier'), false)
   } finally {
     globalThis.fetch = originalFetch
   }
@@ -864,6 +884,7 @@ test('GenStudio drops retired Relaxed fields from account and transcription resp
           available: true,
           available_workers: 3,
           qualification_only: false,
+          cost_tier: 'balanced',
           unlimited_relaxed: true,
         }])
       }
@@ -881,6 +902,7 @@ test('GenStudio drops retired Relaxed fields from account and transcription resp
     assert.equal((overview as unknown as Record<string, unknown>).relaxed_concurrency_limit, undefined)
     assert.equal((models[0] as unknown as Record<string, unknown> | undefined)?.unlimited_relaxed, undefined)
     assert.equal(models[0]?.provider, '')
+    assert.equal(models[0]?.cost_tier, 'balanced')
   } finally {
     globalThis.fetch = originalFetch
   }

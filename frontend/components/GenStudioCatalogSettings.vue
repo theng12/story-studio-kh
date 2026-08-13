@@ -87,6 +87,7 @@
               <span>
                 <strong>{{ item.name }}</strong>
                 <small>{{ item.providerName ? `${item.id} · ${item.providerName}` : item.id }}</small>
+                <small v-if="item.costTier">{{ tierLabel(item.costTier) }}</small>
               </span>
               <em :class="`status-${item.statusTone}`">{{ item.statusLabel }}</em>
             </li>
@@ -106,6 +107,7 @@
 <script setup lang="ts">
 import { createGenStudioCatalogCache, GENSTUDIO_CATALOG_FRESH_MS, GENSTUDIO_CATALOG_STALE_CEILING_MS } from '../composables/useGenStudioCatalogCache.js'
 import { useGenStudioTranscriptionCatalog } from '../composables/useGenStudioTranscription.js'
+import { costTierLabel, type GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 
 const { get } = useApi()
 const {
@@ -157,6 +159,7 @@ interface CatalogEntry {
   available?: boolean
   generation_enabled?: boolean
   coming_soon?: boolean
+  cost_tier?: GenStudioCostTier
 }
 
 interface CatalogDiagnostic {
@@ -166,6 +169,7 @@ interface CatalogDiagnostic {
   providerName?: string
   statusLabel: 'Available' | 'Unavailable' | 'Coming soon'
   statusTone: 'available' | 'unavailable' | 'coming-soon'
+  costTier?: GenStudioCostTier
 }
 
 const accountConfigured = ref(false)
@@ -197,6 +201,7 @@ function diagnosticRows(entries: readonly CatalogEntry[]): CatalogDiagnostic[] {
       providerName: entry.provider_name,
       statusLabel: comingSoon ? 'Coming soon' : available ? 'Available' : 'Unavailable',
       statusTone: comingSoon ? 'coming-soon' : available ? 'available' : 'unavailable',
+      costTier: entry.cost_tier,
     }
   })
 }
@@ -278,6 +283,10 @@ const connectionState = computed(() => {
   }
   return { label: 'Connected', detail: 'Live catalog data received', tone: 'success' }
 })
+
+function tierLabel(tier: GenStudioCostTier): string {
+  return `${costTierLabel(tier)} cost tier`
+}
 
 const lastRefreshLabel = computed(() =>
   lastRefreshedAt.value

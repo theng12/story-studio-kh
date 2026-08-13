@@ -17,6 +17,9 @@ const voiceLibraryBrowser = source('../components/VoiceLibraryBrowser.vue')
 const modelSelector = source('../components/ModelSelector.vue')
 const transcriptionCatalog = source('../composables/useGenStudioTranscription.ts')
 const imageCatalog = source('../composables/useGenStudioImageModels.ts')
+const mediaCatalog = source('../composables/useGenStudioMediaModels.ts')
+const voiceCatalog = source('../composables/useGenStudioVoices.ts')
+const catalogSettings = source('../components/GenStudioCatalogSettings.vue')
 const appSettings = source('../../electron/server/routes/app-settings.ts')
 
 const modelSurfaces = {
@@ -26,6 +29,7 @@ const modelSurfaces = {
   sceneReview: source('../pages/projects/[slug]/scene-review.vue'),
   broll: source('../pages/projects/[slug]/broll.vue'),
   imagePrompts: source('../pages/projects/[slug]/image-prompts.vue'),
+  research: source('../pages/projects/[slug]/research.vue'),
   characters: source('../pages/projects/[slug]/characters.vue'),
   channelCharacters: source('../pages/character-library.vue'),
   formatWizard: source('../components/FormatFromSampleWizard.vue'),
@@ -50,6 +54,28 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /option\.provider/)
     assert.match(modelMenu, /option\.disabledReason/)
     assert.match(modelMenu, /\{\{ catalogNotice \}\}/)
+  })
+
+  test('the shared model dialog owns accessible published-cost tier tabs', () => {
+    // Catches moving the tabs into a modality picker, where catalog policy would diverge.
+    assert.match(modelMenu, /role="tablist"/)
+    // Catches replacing real tab buttons with non-interactive labels.
+    assert.match(modelMenu, /role="tab"/)
+    // Catches assistive technology losing the active-tab state.
+    assert.match(modelMenu, /:aria-selected="tier\.id === activeTier"/)
+    // Catches removing the semantic connection between the selected tab and results.
+    assert.match(modelMenu, /:aria-controls="tierPanelId"/)
+    assert.match(modelMenu, /:role="tierMode \? 'tabpanel' : undefined"/)
+    assert.match(modelMenu, /:aria-labelledby="tierMode \? activeTierTabId : undefined"/)
+    // Catches a keyboard-only user being unable to move tiers without a pointer.
+    assert.match(modelMenu, /event\.key === 'ArrowRight'/)
+    assert.match(modelMenu, /event\.key === 'ArrowLeft'/)
+    assert.match(modelMenu, /event\.key === 'Home'/)
+    assert.match(modelMenu, /event\.key === 'End'/)
+    // Catches a visually compact tab regressing below the app's 44px target.
+    assert.match(modelMenu, /\.model-menu-tier-tab\s*{[^}]*min-height:\s*44px/)
+    // Catches an empty tier being described as a nonsensical empty search.
+    assert.match(modelMenu, /No \$\{tierLabel\(activeTier\.value\)\} models are currently available\./)
   })
 
   test('the image picker exposes catalog errors and heals stale saved selections silently', () => {
@@ -204,6 +230,26 @@ describe('shared model menus', () => {
     assert.doesNotMatch(modelSurfaces.sceneReview, /Rewrite LLM|<ModelSelector/)
     assert.match(modelSurfaces.imagePrompts, /title="Reference analysis model"/)
     assert.match(modelSurfaces.channelCharacters, /title="Character vision model"/)
+  })
+
+  test('every customer model menu maps GenStudio published cost tiers', () => {
+    assert.match(modelSelector, /costTier:\s*model\.cost_tier/)
+    assert.match(imagePicker, /costTier:\s*model\.cost_tier/)
+    assert.match(modelSurfaces.audio, /costTier:\s*model\.cost_tier/)
+    assert.match(modelSurfaces.motion, /costTier:\s*model\.cost_tier/)
+    assert.match(transcriptionCatalog, /costTier:\s*model\.cost_tier/)
+    assert.match(modelSurfaces.imagePrompts, /costTier:\s*model\.cost_tier/g)
+    assert.match(modelSurfaces.research || '', /costTier:\s*model\.cost_tier/)
+
+    for (const catalog of [imageCatalog, mediaCatalog, voiceCatalog, transcriptionCatalog]) {
+      assert.match(catalog, /cost_tier\?: GenStudioCostTier/)
+    }
+  })
+
+  test('Music preserves the published tier for diagnostics without inventing a picker', () => {
+    assert.match(catalogSettings, /cost_tier\?: GenStudioCostTier/)
+    assert.match(catalogSettings, /costTier:\s*entry\.cost_tier/)
+    assert.doesNotMatch(catalogSettings, /media-type="music"|Choose a music model/)
   })
 
   test('transcription keeps dispatch details internal and supports import instead of chapter timing synthesis', () => {

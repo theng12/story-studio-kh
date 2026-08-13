@@ -15,10 +15,12 @@ test('Audio Generator seeds no TTS model id of its own', () => {
   assert.doesNotMatch(source, /model:\s*'genstudio-tts-/)
 })
 
-test('a remembered model that GenStudio no longer publishes is dropped, not submitted', () => {
+test('a remembered named model is preserved unless GenStudio publishes an explicit alias', () => {
   const source = readFileSync(new URL('../pages/projects/[slug]/audio.vue', import.meta.url), 'utf8')
   assert.match(source, /watch\(\[ttsModels, \(\) => form\.model\]/)
-  assert.match(source, /no longer in your GenStudio KH catalogue/)
+  assert.match(source, /selectLiveGenStudioModel\(/)
+  assert.match(source, /if \(selected && selected\.id !== form\.model\)/)
+  assert.doesNotMatch(source, /no longer in your GenStudio KH catalogue/)
 })
 
 test('GenStudio TTS submission carries the voice, the text, the speed and published controls only', () => {

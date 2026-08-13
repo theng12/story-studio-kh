@@ -26,3 +26,9 @@ test('Motion Review saves and restores the selected exact variant with its prese
   assert.match(source, /resolution:\s*selectedVideoVariant\.value\?\.resolution/)
   assert.match(source, /videoVariantKey\.value = variantKey\(\{ duration_seconds: Number\(data\.duration_seconds\), resolution: data\.resolution\.trim\(\) \}\)/)
 })
+
+test('Motion Review never replaces a named missing model with the first available row', () => {
+  assert.match(source, /selectLiveImageToVideoModel\(raw, genStudioVideoModels\.value\)/)
+  assert.doesNotMatch(source, /exact \|\| mapped \|\| genStudioVideoModels\.value\.find/)
+  assert.doesNotMatch(source, /find\(model => model\.available && model\.modes\.includes\('image-to-video'\)\)/)
+})

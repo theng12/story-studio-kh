@@ -114,6 +114,7 @@ router.get('/models', async (_req, res) => {
       label: model.display_name,
       provider: 'genstudio',
       provider_name: model.provider_name || null,
+      cost_tier: model.cost_tier,
       available: model.available,
       disabled_reason: model.available
         ? null

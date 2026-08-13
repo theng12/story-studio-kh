@@ -46,54 +46,89 @@
         />
       </div>
 
+      <div
+        v-if="tierMode"
+        ref="tierTabsEl"
+        class="model-menu-tier-tabs"
+        role="tablist"
+        aria-label="Browse models by cost tier"
+      >
+        <button
+          v-for="tier in GENSTUDIO_COST_TIERS"
+          :id="tierTabId(tier.id)"
+          :key="tier.id"
+          type="button"
+          class="model-menu-tier-tab"
+          :class="{ active: tier.id === activeTier }"
+          role="tab"
+          :aria-selected="tier.id === activeTier"
+          :aria-controls="tierPanelId"
+          :tabindex="tier.id === activeTier ? 0 : -1"
+          :title="tier.description"
+          @click="setTier(tier.id)"
+          @keydown="onTierKeydown"
+        >{{ tier.label }}</button>
+      </div>
+
       <div v-if="catalogNotice" class="model-menu-catalog-notice">
         <span>{{ catalogNotice }}</span>
         <NuxtLink v-if="catalogNoticeHref" :to="catalogNoticeHref">Plan status →</NuxtLink>
       </div>
 
       <div
+        class="model-menu-results"
+        :id="tierMode ? tierPanelId : undefined"
+        :role="tierMode ? 'tabpanel' : undefined"
+        :aria-labelledby="tierMode ? activeTierTabId : undefined"
+      >
+        <div
         ref="listEl"
         class="model-menu-list"
         :class="`model-menu-list-${mediaType}`"
         role="listbox"
         :aria-label="ariaLabel"
         @keydown="onListKeydown"
-      >
-        <section v-for="group in groupedOptions" :key="group.label" class="model-menu-group" role="group" :aria-label="group.label">
-          <h4>{{ group.label }}</h4>
-          <button
-            v-for="option in group.items"
-            :key="option.id"
-            type="button"
-            class="model-menu-option"
-            :class="{ selected: option.id === modelValue, disabled: option.disabled }"
-            role="option"
-            :aria-selected="option.id === modelValue"
-            :aria-disabled="option.disabled || undefined"
-            :title="option.disabledReason || option.description || option.label"
-            @click="select(option)"
-          >
-            <span class="model-menu-option-copy">
-              <strong>{{ option.label }}</strong>
-              <small v-if="option.provider" class="model-menu-option-provider">{{ option.provider }}</small>
-              <span v-if="option.meta || option.description">{{ option.meta || option.description }}</span>
-              <small v-if="option.disabledReason">{{ option.disabledReason }}</small>
-            </span>
-            <span class="model-menu-option-side">
-              <span
-                v-for="badge in option.badges || []"
-                :key="`${option.id}-${badge.label}`"
-                class="model-menu-badge"
-                :data-tone="badge.tone || 'neutral'"
-                :title="badge.title || badge.label"
-              >{{ badge.label }}</span>
-              <span v-if="option.id === modelValue" class="model-menu-check" aria-label="Selected">✓</span>
-            </span>
-          </button>
-        </section>
+        >
+          <section v-for="group in groupedOptions" :key="group.label" class="model-menu-group" role="group" :aria-label="group.label">
+            <h4>{{ group.label }}</h4>
+            <button
+              v-for="option in group.items"
+              :key="option.id"
+              type="button"
+              class="model-menu-option"
+              :class="{ selected: option.id === modelValue, disabled: option.disabled }"
+              role="option"
+              :aria-selected="option.id === modelValue"
+              :aria-disabled="option.disabled || undefined"
+              :title="option.disabledReason || option.description || option.label"
+              @click="select(option)"
+            >
+              <span class="model-menu-option-copy">
+                <strong>{{ option.label }}</strong>
+                <small v-if="option.provider" class="model-menu-option-provider">{{ option.provider }}</small>
+                <span v-if="option.meta || option.description">{{ option.meta || option.description }}</span>
+                <small v-if="option.disabledReason">{{ option.disabledReason }}</small>
+              </span>
+              <span class="model-menu-option-side">
+                <span
+                  v-if="searching && option.costTier"
+                  class="model-menu-tier-badge"
+                >{{ tierLabel(option.costTier) }}</span>
+                <span
+                  v-for="badge in option.badges || []"
+                  :key="`${option.id}-${badge.label}`"
+                  class="model-menu-badge"
+                  :data-tone="badge.tone || 'neutral'"
+                  :title="badge.title || badge.label"
+                >{{ badge.label }}</span>
+                <span v-if="option.id === modelValue" class="model-menu-check" aria-label="Selected">✓</span>
+              </span>
+            </button>
+          </section>
 
-        <div v-if="!groupedOptions.length" class="model-menu-empty">
-          No models match “{{ query.trim() }}”.
+          <div v-if="!groupedOptions.length" class="model-menu-empty">
+            {{ emptyResultLabel }}
+          </div>
         </div>
       </div>
     </PickerDialog>
@@ -101,6 +136,16 @@
 </template>
 
 <script setup lang="ts">
+import {
+  GENSTUDIO_COST_TIERS,
+  costTierLabel,
+  isCompleteTierCatalog,
+  tierForKeyboard,
+  tierForOpening,
+  visibleTierOptions,
+  type GenStudioCostTier,
+} from '../utils/genstudio-cost-tier'
+
 interface ModelMenuBadge {
   label: string
   tone?: 'neutral' | 'local' | 'free' | 'paid' | 'warning' | 'info'
@@ -117,6 +162,7 @@ interface ModelMenuOption {
   disabled?: boolean
   disabledReason?: string
   badges?: ModelMenuBadge[]
+  costTier?: GenStudioCostTier
 }
 
 const props = withDefaults(defineProps<{
@@ -150,6 +196,8 @@ const expanded = ref(false)
 const query = ref('')
 const searchEl = ref<HTMLInputElement | null>(null)
 const listEl = ref<HTMLElement | null>(null)
+const tierTabsEl = ref<HTMLElement | null>(null)
+const activeTier = ref<GenStudioCostTier>('economy')
 
 const kindLabel = computed(() => ({
   llm: 'AI',
@@ -162,6 +210,16 @@ const selectedOption = computed(() => props.options.find(option => option.id ===
 const selectedAccessBadges = computed(() => (
   selectedOption.value?.badges?.filter(badge => badge.label.startsWith('∞')) || []
 ))
+const tierMode = computed(() => isCompleteTierCatalog(props.options))
+const searching = computed(() => query.value.trim().length > 0)
+const tierPanelId = 'model-menu-tier-results'
+const activeTierTabId = computed(() => tierTabId(activeTier.value))
+const emptyResultLabel = computed(() => {
+  if (tierMode.value && !searching.value) {
+    return `No ${tierLabel(activeTier.value)} models are currently available.`
+  }
+  return `No models match “${query.value.trim()}”.`
+})
 /**
  * The line under the selected model on the closed trigger.
  *
@@ -178,16 +236,22 @@ const selectedSummary = computed(() => {
   if (!option) return ''
   return [option.provider, option.meta].filter(Boolean).join(' · ')
 })
+function tierLabel(costTier: GenStudioCostTier): string {
+  return costTierLabel(costTier)
+}
+function tierTabId(costTier: GenStudioCostTier): string {
+  return `model-menu-tier-${costTier}`
+}
 const filteredOptions = computed(() => {
   const terms = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  if (!terms.length) return props.options
-  return props.options.filter((option) => {
-    const haystack = [option.label, option.id, option.group, option.provider, option.meta, option.description]
+  const matching = !terms.length ? props.options : props.options.filter((option) => {
+    const haystack = [option.label, option.id, option.group, option.provider, option.meta, option.description, option.costTier && tierLabel(option.costTier)]
       .filter(Boolean)
       .join(' ')
       .toLowerCase()
     return terms.every(term => haystack.includes(term))
   })
+  return visibleTierOptions(matching, activeTier.value, searching.value)
 })
 const selectableOptionCount = computed(() => filteredOptions.value.filter(option => !option.disabled).length)
 const groupedOptions = computed(() => {
@@ -207,6 +271,7 @@ async function toggle() {
     return
   }
   query.value = ''
+  activeTier.value = tierForOpening(props.modelValue, props.options)
   expanded.value = true
   // Two ticks: the shared focus trap moves focus to the dialog's first control
   // on the first tick, so the search field claims it on the one after.
@@ -223,6 +288,21 @@ function select(option: ModelMenuOption) {
   if (option.disabled) return
   emit('update:modelValue', option.id)
   close()
+}
+function setTier(tier: GenStudioCostTier) {
+  activeTier.value = tier
+}
+function moveTier(key: string) {
+  const tier = tierForKeyboard(activeTier.value, key)
+  if (!tier) return
+  setTier(tier)
+  tierTabsEl.value?.querySelector<HTMLButtonElement>(`#${tierTabId(tier)}`)?.focus()
+}
+function onTierKeydown(event: KeyboardEvent) {
+  if (event.key === 'ArrowRight') { event.preventDefault(); moveTier('ArrowRight') }
+  else if (event.key === 'ArrowLeft') { event.preventDefault(); moveTier('ArrowLeft') }
+  else if (event.key === 'Home') { event.preventDefault(); moveTier('Home') }
+  else if (event.key === 'End') { event.preventDefault(); moveTier('End') }
 }
 
 /**
@@ -311,6 +391,11 @@ function onListKeydown(event: KeyboardEvent) {
 
 .model-menu-search-wrap { flex: 0 0 auto; padding: 12px 14px 9px; }
 .model-menu-search { width: 100%; min-height: 38px; }
+.model-menu-tier-tabs { display: flex; flex: 0 0 auto; gap: 5px; margin: 0 14px 10px; padding: 4px; border-radius: 9px; background: var(--bg-tertiary); }
+.model-menu-tier-tab { flex: 1; min-width: 0; min-height: 44px; padding: 7px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-xs); font-weight: 700; cursor: pointer; }
+.model-menu-tier-tab:hover { color: var(--text-primary); }
+.model-menu-tier-tab.active { background: var(--bg-secondary); box-shadow: 0 1px 3px color-mix(in srgb, var(--text-primary) 16%, transparent); color: var(--text-primary); }
+.model-menu-tier-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .model-menu-catalog-notice {
   display: flex;
   flex: 0 0 auto;
@@ -327,6 +412,7 @@ function onListKeydown(event: KeyboardEvent) {
   line-height: 1.4;
 }
 .model-menu-catalog-notice a { flex: 0 0 auto; color: var(--accent); font-weight: 700; white-space: nowrap; }
+.model-menu-results { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 /* The only scroller in the dialog — the header and search stay put while a
    long catalogue moves under them. min-height:0 lets it shrink inside the
    flex column instead of pushing the dialog past its max-height. */
@@ -355,6 +441,7 @@ function onListKeydown(event: KeyboardEvent) {
   .model-menu-trigger-badge { display: none; }
   .model-menu-option-side .model-menu-badge:nth-child(n+2) { display: none; }
   .model-menu-search-wrap { padding-inline: 12px; }
+  .model-menu-tier-tabs { margin-inline: 12px; }
   .model-menu-catalog-notice { margin-inline: 12px; }
 }
 </style>

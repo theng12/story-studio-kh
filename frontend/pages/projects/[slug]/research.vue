@@ -531,6 +531,9 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
+import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
+import { resolveResearchModelForRun, type ResearchMode } from '~/utils/research-model-selection'
 import {
   MODEL_KNOWLEDGE_CLAIM_NOTE,
   MODEL_KNOWLEDGE_NOTICE,
@@ -589,15 +592,14 @@ async function loadSources(): Promise<void> {
   }
 }
 
-type ResearchMode = 'model-knowledge' | 'web-search'
-
 // Form state contains no provider selector. The backend always dispatches to
 // GenStudio; the user picks the MODE and the published GenStudio model.
 interface ResearchForm {
   topic: string
   specific_questions: string
   max_sources: number
-  // Empty means the GenStudio Research adapter's compatibility default.
+  // Required before a customer-triggered run; an empty picker never delegates
+  // a paid model decision to the backend.
   source_model: string
   /** Which route to run. Default = the unchanged model-knowledge path. */
   research_mode: ResearchMode
@@ -683,6 +685,7 @@ interface WebResearchModel {
   /** Published `returns_citations`. Optional so an older backend response
    *  still types; absent means unpublished, which states nothing. */
   returns_citations?: boolean
+  cost_tier?: GenStudioCostTier
 }
 const webModels = ref<WebResearchModel[]>([])
 const webModeAvailable = ref(false)
@@ -698,9 +701,11 @@ async function loadWebModels(): Promise<void> {
     webModels.value = Array.isArray(r.models) ? r.models : []
     webModeAvailable.value = r.available === true && webModels.value.length > 0
     webModeReason.value = r.reason || ''
-    if (!webModels.value.some(m => m.id === form.value.web_model)) {
-      form.value.web_model = webModels.value[0]?.id || ''
-    }
+    const selected = selectLiveGenStudioModel(
+      form.value.web_model,
+      webModels.value.map(model => ({ ...model, available: true })),
+    )
+    if (selected && selected.id !== form.value.web_model) form.value.web_model = selected.id
   } catch {
     // Never claim "nothing qualifies" from a failed request — that would be a
     // guess about GenStudio's inventory drawn from a local network problem.
@@ -720,7 +725,7 @@ watch(webModeAvailable, (available) => {
 })
 
 const selectedWebModel = computed<WebResearchModel | null>(() =>
-  webModels.value.find(m => m.id === form.value.web_model) || webModels.value[0] || null,
+  webModels.value.find(m => m.id === form.value.web_model) || null,
 )
 
 /**
@@ -752,6 +757,7 @@ const webModelMenuOptions = computed(() => webModels.value.map((model) => {
       ...(model.returns_citations ? [{ label: 'Cites sources', tone: 'info' as const }] : []),
       ...(model.supports_domain_filters ? [{ label: 'Domain filters', tone: 'neutral' as const }] : []),
     ],
+    costTier: model.cost_tier,
   }
 }))
 /** The depth control exists ONLY when the selected web model publishes an
@@ -785,16 +791,25 @@ const webCostNote = computed(() => {
     + 'here once the run finishes.'
 })
 
+const activeResearchMode = computed<ResearchMode>(() => webMode.value ? 'web-search' : 'model-knowledge')
+const modelReadiness = computed(() => resolveResearchModelForRun(
+  activeResearchMode.value,
+  form.value.source_model,
+  form.value.web_model,
+))
+
 const canRun = computed(() => {
   if (!episodeId.value) return false
   if (!form.value.topic.trim()) return false
   if (!genStudioSource.value?.configured) return false
+  if (!modelReadiness.value.model) return false
   return true
 })
 const runDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!form.value.topic.trim()) return 'Enter a topic'
   if (!genStudioSource.value?.configured) return 'GenStudio API not configured — App Settings → API Keys'
+  if (!modelReadiness.value.model) return modelReadiness.value.reason
   return ''
 })
 
@@ -1142,7 +1157,8 @@ async function loadExisting(): Promise<void> {
 }
 
 async function runResearch(): Promise<void> {
-  if (!canRun.value) return
+  const selectedModel = modelReadiness.value.model
+  if (!canRun.value || !selectedModel) return
   const ep = episodeId.value          // pin the episode this run belongs to
   researchingEpisode.value = ep
   try {
@@ -1153,8 +1169,8 @@ async function runResearch(): Promise<void> {
       topic: form.value.topic.trim(),
       specific_questions: form.value.specific_questions.trim() || undefined,
       max_sources: form.value.max_sources,
-      research_mode: webMode.value ? 'web-search' : 'model-knowledge',
-      model: (webMode.value ? form.value.web_model : form.value.source_model) || undefined,
+      research_mode: activeResearchMode.value,
+      model: selectedModel,
       ...(webMode.value
         ? {
             allowed_domains: form.value.allowed_domains,
