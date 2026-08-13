@@ -282,8 +282,14 @@ async function quarantineOversizedState(): Promise<ContentStoreCommerceState> {
   try {
     const stat = await handle.stat()
     if (!stat.isFile()) throw new Error(`Content Store oversized state is unsafe: ${statePath}`)
-    const stream = handle.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 })
-    for await (const chunk of stream) hash.update(chunk)
+    const buffer = Buffer.allocUnsafe(64 * 1024)
+    let position = 0
+    while (position < stat.size) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, position)
+      if (bytesRead === 0) throw new Error(`Content Store oversized state changed while quarantining: ${statePath}`)
+      hash.update(buffer.subarray(0, bytesRead))
+      position += bytesRead
+    }
   } finally {
     await handle.close()
   }
