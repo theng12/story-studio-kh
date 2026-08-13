@@ -108,6 +108,16 @@ describe('Content Pack runtime state', () => {
     await assert.rejects(fs.stat(paths.root), { code: 'ENOENT' })
   })
 
+  test('refuses to read a valid runtime state through a symlinked Content Pack root', async () => {
+    const { temp, paths } = await isolatedPaths()
+    const outside = path.join(temp.dir, 'outside-runtime-state')
+    await fs.mkdir(outside)
+    await fs.writeFile(path.join(outside, 'state.json'), JSON.stringify(emptyContentPackState()), { mode: 0o600 })
+    await fs.symlink(outside, paths.root)
+
+    await assert.rejects(readContentPackState(paths), /runtime root is unsafe/i)
+  })
+
   test('quarantines malformed or unknown state instead of trusting it', async () => {
     const { paths } = await isolatedPaths()
     await fs.mkdir(paths.root, { recursive: true })

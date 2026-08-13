@@ -17,6 +17,7 @@ import {
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
+import { readContentPackState } from '../content-packs/state.js'
 import type { ContentPackDocument } from '../content-packs/types.js'
 import { useTempDataDir } from './_helpers.js'
 import * as nicheLoader from '../services/niche-loader.js'
@@ -228,6 +229,22 @@ describe('verified Content Pack registry', () => {
     const second = await resolveCatalogItem(`${packId}.style`, undefined, options)
     assert.equal(second?.value.name, 'Style clone')
     assert.equal(await resolveCatalogItem('builtin-ms-paint-fantasy', undefined, options), null)
+  })
+
+  test('adapter routes never expose local Content Pack trust or install paths', async () => {
+    const { paths, options } = await isolated()
+    const packId = 'com.storystudio.registry-path-redaction'
+    const archive = await buildArchive(packId, '1.0.0', 'path redaction')
+    await installContentPack({ archiveBytes: archive, source: 'local-import' }, { paths, policy })
+    const state = await readContentPackState(paths)
+    await fs.writeFile(state.packs[packId].versions['1.0.0'].install_path + '/content/archive.sspack', 'tampered')
+    const app = express()
+    app.locals.contentPackOptions = options
+    app.use('/api', nichesRouter)
+
+    const response = await request(app).get('/api/visual-styles').expect(500)
+    assert.equal(response.body.detail, 'Failed to list visual styles')
+    assert.equal(JSON.stringify(response.body).includes(paths.root), false)
   })
 
   test('existing loaders prefer qualified signed entries while bare legacy IDs retain exact fallback behavior', async () => {

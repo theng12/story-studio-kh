@@ -227,6 +227,13 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
     return { detail: 'This FFmpeg build does not include libass — subtitles cannot be rendered.', hint: 'Install an FFmpeg build with libass enabled.' }
   }
 
+  // Content Pack trust/runtime failures intentionally carry absolute paths in
+  // the support log, but those paths are never renderer-facing API data.
+  // Missing-pack recovery is a separate exposed domain error handled below.
+  if (/^(?:Content Pack|Invalid content-pack archive:)/i.test(rawMessage)) {
+    return { detail: fallback || 'Local Content Pack verification failed.' }
+  }
+
   // ── Default: prefer the raw error message; fallback is for the
   //    truly-empty case (error with no .message). The previous order
   //    (fallback first) silently masked actionable detail like

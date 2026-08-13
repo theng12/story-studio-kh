@@ -40,6 +40,15 @@ type StateRead =
   | { kind: 'io-error'; error: unknown }
 
 async function readStateFile(paths: ContentPackRuntimePaths): Promise<StateRead> {
+  try {
+    const root = await fs.lstat(paths.root)
+    if (!root.isDirectory() || root.isSymbolicLink()) {
+      return { kind: 'io-error', error: new Error(`Content Pack runtime root is unsafe: ${paths.root}`) }
+    }
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' }
+    return { kind: 'io-error', error }
+  }
   let bytes: Uint8Array
   try {
     bytes = await fs.readFile(paths.statePath)
