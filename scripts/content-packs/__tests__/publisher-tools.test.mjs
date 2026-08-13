@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { generateKeyPairSync } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -156,4 +156,89 @@ test('validate-pack fails with an explicit incorrect publisher key identity', as
   ])
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /unknown publisher key/i)
+})
+
+test('build-pack rejects an output that could overwrite its private key or source tree before reading either', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const source = await writeSource(fixture.root, { document: { unexpected: true } })
+  const privateKeyBefore = await readFile(fixture.privateKeyPath)
+  const documentPath = join(source, 'content', 'visual-style.json')
+  const documentBefore = await readFile(documentPath)
+
+  const keyCollision = run(BUILD, [source, '--private-key', fixture.privateKeyPath, '--output', fixture.privateKeyPath])
+  assert.notEqual(keyCollision.status, 0)
+  assert.match(keyCollision.stderr, /output.*private key/i)
+  assert.deepEqual(await readFile(fixture.privateKeyPath), privateKeyBefore)
+
+  const sourceCollision = run(BUILD, [source, '--private-key', fixture.privateKeyPath, '--output', join(source, 'replacement.sspack')])
+  assert.notEqual(sourceCollision.status, 0)
+  assert.match(sourceCollision.stderr, /output.*source/i)
+  assert.deepEqual(await readFile(documentPath), documentBefore)
+
+  const sourceAlias = join(fixture.root, 'source-alias')
+  await symlink(source, sourceAlias)
+  const physicalSourceCollision = run(BUILD, [source, '--private-key', fixture.privateKeyPath, '--output', join(sourceAlias, 'replacement.sspack')])
+  assert.notEqual(physicalSourceCollision.status, 0)
+  assert.match(physicalSourceCollision.stderr, /output.*source/i)
+  assert.deepEqual(await readFile(documentPath), documentBefore)
+})
+
+test('validate-pack rejects an archive path that aliases its public key before reading it as an archive', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const before = await readFile(fixture.publicKeyPath)
+  const result = run(VALIDATE, [
+    fixture.publicKeyPath,
+    '--key-id', 'com.storystudio.key.test',
+    '--publisher-id', 'com.storystudio',
+    '--public-key', fixture.publicKeyPath,
+  ])
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /archive.*public key/i)
+  assert.deepEqual(await readFile(fixture.publicKeyPath), before)
+})
+
+async function buildWithSourceSwap(fixture, swap) {
+  const source = await writeSource(fixture.root)
+  const output = join(fixture.root, 'must-not-change.sspack')
+  await writeFile(output, 'preserve me', 'utf8')
+  const { buildContentPack } = await import('../lib.mjs')
+  await assert.rejects(
+    buildContentPack({
+      sourceDirectory: source,
+      privateKeyPath: fixture.privateKeyPath,
+      outputPath: output,
+      onSourceEnumerated: () => swap({ source, output }),
+    }),
+    /symlink|source (?:directory|file) changed|source file/i,
+  )
+  assert.equal(await readFile(output, 'utf8'), 'preserve me')
+}
+
+test('build-pack refuses a content-file symlink race and preserves the output', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const privateDocument = join(fixture.root, 'private-document.json')
+  await writeFile(privateDocument, JSON.stringify({ private: 'must never be signed' }))
+
+  await buildWithSourceSwap(fixture, async ({ source }) => {
+    const document = join(source, 'content', 'visual-style.json')
+    await rm(document)
+    await symlink(privateDocument, document)
+  })
+})
+
+test('build-pack refuses an ancestor-directory symlink race and preserves the output', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const privateDirectory = join(fixture.root, 'private-content')
+  await mkdir(privateDirectory)
+  await writeFile(join(privateDirectory, 'visual-style.json'), JSON.stringify({ private: 'must never be signed' }))
+
+  await buildWithSourceSwap(fixture, async ({ source }) => {
+    const content = join(source, 'content')
+    await rename(content, join(source, 'content-original'))
+    await symlink(privateDirectory, content)
+  })
 })

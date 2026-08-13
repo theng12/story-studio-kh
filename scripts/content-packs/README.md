@@ -21,8 +21,12 @@ WebP files. Symlinks, scripts, SVG, HTML, CSS, fonts, and extra files are reject
 
 `pack.json` contains the shared manifest metadata, but **must omit** the derived `items` and
 `files` arrays. The builder derives them from the files on disk, hashes every file, validates the
-complete manifest, and signs its canonical JSON bytes. The files and document IDs must fall
-within the stated publisher namespace.
+complete manifest, and signs its canonical JSON bytes. The pack, key, entitlement, bundle, and
+document IDs must fall within the stated publisher namespace; in-pack paths are not namespace IDs.
+
+Published identity is immutable: a `(pack_id, exact version, archive SHA-256)` tuple is permanent.
+Any byte change—including a preview image, document, manifest field, or signature—requires a new
+exact pack version. Never rebuild and republish different bytes under an existing version.
 
 ```json
 {

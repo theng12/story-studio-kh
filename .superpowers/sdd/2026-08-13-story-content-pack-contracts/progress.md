@@ -53,6 +53,11 @@
   - Implementation: `build-pack` accepts an explicit `--private-key` path or the deliberate `STORY_CONTENT_PACK_PRIVATE_KEY_PATH` path, derives items/file bindings from a source directory restricted to `pack.json`, `content/`, and `assets/`, canonicalizes the validated shared manifest, signs it, builds deterministic ZIP bytes, then calls the shared archive verifier before writing output. `validate-pack` requires the explicit key ID, publisher ID, and public-key path and emits only pack ID, version, and archive SHA-256.
   - Verification: Task 1 + Task 2 suites pass 40/40; publisher suite passes 7/7; `npm run typecheck` and `git diff --check` pass.
   - Review: no private key is loaded into output/reporting, no schema/signature/archive policy is duplicated, all validation reaches the shared TypeScript contract, and no runtime/catalog/generation/version/changelog file changed.
+  - No-go review follow-up: output paths are rejected before private-key or source-content reads when they equal the key or resolve inside/equal to the source tree, including a physical symlink alias. The validator likewise rejects an archive path resolving to its public-key file.
+  - Source snapshot hardening: source enumeration records stable directory/file identities; every source file is reopened with `O_NOFOLLOW`, identity-checked before and after its bounded read, and the complete source tree is rechecked before signing. A swap cannot produce or replace the requested output. Regressions deterministically replace a content file and an ancestor directory with symlinks to external private paths; both are refused with the output sentinel preserved.
+  - Documentation follow-up: the publisher guide now defines `(pack_id, exact version, archive SHA-256)` as immutable published identity and corrects namespace wording to IDs rather than paths.
+  - Review RED: expanded publisher suite failed 4/11 before the follow-up (key/source and public-key collisions plus file/ancestor symlink swaps).
+  - Review GREEN: contract/archive suites pass 40/40, publisher suite passes 11/11, `npm run typecheck`, and `git diff --check` pass.
 - [ ] Task 4 — current-catalog migration golden
 - [ ] Task 5 — independent review and runtime-plan handoff
 

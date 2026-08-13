@@ -1,6 +1,7 @@
 import { createHash, createPrivateKey, createPublicKey, sign } from 'node:crypto'
-import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, relative, resolve, sep } from 'node:path'
+import { constants } from 'node:fs'
+import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 
 import JSZip from 'jszip'
 import { register } from 'tsx/esm/api'
@@ -14,6 +15,8 @@ unregisterTsx()
 
 const FIXED_ARCHIVE_DATE = new Date('1980-01-01T00:00:00.000Z')
 const SOURCE_ROOT_ENTRIES = new Set(['pack.json', 'content', 'assets'])
+const MAX_SOURCE_JSON_BYTES = 1024 * 1024
+const MAX_SOURCE_RASTER_BYTES = 15 * 1024 * 1024
 
 function fail(message) {
   throw new Error(`Content Pack publisher error: ${message}`)
@@ -48,42 +51,97 @@ function mimeForPath(path) {
   return undefined
 }
 
-async function readJson(path, label) {
-  let text
-  try {
-    text = await readFile(path, 'utf8')
-  } catch (error) {
-    fail(`cannot read ${label}: ${error instanceof Error ? error.message : String(error)}`)
-  }
-  try {
-    return JSON.parse(text)
-  } catch (error) {
-    fail(`${label} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
-  }
-}
-
 function sourceRelative(root, path) {
   const value = relative(root, path).split(sep).join('/')
-  if (!value || value.startsWith('../') || value.includes('/../')) fail('source directory escaped while reading content')
+  if (value === '') return '.'
+  if (value.startsWith('../') || value.includes('/../')) fail('source directory escaped while reading content')
   return value
 }
 
-async function listFiles(root, directory) {
+function isSameOrInside(path, root) {
+  const remainder = relative(root, path)
+  return remainder === '' || (!remainder.startsWith(`..${sep}`) && remainder !== '..' && !isAbsolute(remainder))
+}
+
+async function physicalPathForPotentialOutput(path) {
+  const missing = []
+  let cursor = resolve(path)
+  while (true) {
+    try {
+      const physical = await realpath(cursor)
+      return resolve(physical, ...missing)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+      const parent = dirname(cursor)
+      if (parent === cursor) fail(`cannot resolve output path: ${path}`)
+      missing.unshift(basename(cursor))
+      cursor = parent
+    }
+  }
+}
+
+async function assertOutputSeparatedFromInputs(sourcePath, privateKeyPath, outputPath) {
+  if (outputPath === privateKeyPath) fail('output path must not overwrite the private key')
+  if (isSameOrInside(outputPath, sourcePath)) fail('output path must be outside the source directory')
+  const sourceStat = await lstat(sourcePath).catch(() => undefined)
+  if (!sourceStat || !sourceStat.isDirectory() || sourceStat.isSymbolicLink()) fail('source directory must be a real directory')
+  const [physicalSource, physicalPrivateKey, physicalOutput] = await Promise.all([
+    realpath(sourcePath),
+    realpath(privateKeyPath).catch(() => privateKeyPath),
+    physicalPathForPotentialOutput(outputPath),
+  ])
+  if (physicalOutput === physicalPrivateKey) fail('output path must not overwrite the private key')
+  if (isSameOrInside(physicalOutput, physicalSource)) fail('output path must be outside the source directory')
+}
+
+async function pathsResolveToSameFile(left, right) {
+  const [physicalLeft, physicalRight] = await Promise.all([realpath(left), realpath(right)])
+  return physicalLeft === physicalRight
+}
+
+function nodeIdentity(stat) {
+  return { dev: stat.dev, ino: stat.ino, size: stat.size, mode: stat.mode }
+}
+
+function sameNode(left, right) {
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mode === right.mode
+}
+
+async function recordSourceNode(root, path, kind, records) {
+  const stat = await lstat(path).catch(() => undefined)
+  if (!stat || stat.isSymbolicLink() || (kind === 'directory' ? !stat.isDirectory() : !stat.isFile())) {
+    fail(`source ${kind} changed or is not safe: ${sourceRelative(root, path)}`)
+  }
+  const record = { path, relativePath: sourceRelative(root, path), kind, identity: nodeIdentity(stat) }
+  records.push(record)
+  return record
+}
+
+async function assertSourceRecordIntact(record) {
+  const stat = await lstat(record.path).catch(() => undefined)
+  if (!stat || stat.isSymbolicLink() || (record.kind === 'directory' ? !stat.isDirectory() : !stat.isFile()) || !sameNode(record.identity, nodeIdentity(stat))) {
+    fail(`source ${record.kind} changed or is not safe: ${record.relativePath}`)
+  }
+}
+
+async function listFiles(root, directory, records) {
   const absolute = resolve(root, directory)
   const stat = await lstat(absolute).catch(() => undefined)
   if (!stat) return []
   if (!stat.isDirectory() || stat.isSymbolicLink()) fail(`${directory} must be a real directory when present`)
   const files = []
   async function walk(path) {
-    const entries = await readdir(path, { withFileTypes: true })
-    entries.sort((left, right) => comparePaths(left.name, right.name))
+    await recordSourceNode(root, path, 'directory', records)
+    const entries = await readdir(path)
+    entries.sort(comparePaths)
     for (const entry of entries) {
-      const child = resolve(path, entry.name)
-      if (entry.isSymbolicLink()) fail(`source symlink is not permitted: ${sourceRelative(root, child)}`)
-      if (entry.isDirectory()) {
+      const child = resolve(path, entry)
+      const stat = await lstat(child).catch(() => undefined)
+      if (!stat || stat.isSymbolicLink()) fail(`source symlink is not permitted: ${sourceRelative(root, child)}`)
+      if (stat.isDirectory()) {
         await walk(child)
-      } else if (entry.isFile()) {
-        files.push(sourceRelative(root, child))
+      } else if (stat.isFile()) {
+        files.push(await recordSourceNode(root, child, 'file', records))
       } else {
         fail(`source special file is not permitted: ${sourceRelative(root, child)}`)
       }
@@ -97,17 +155,58 @@ async function collectSourceFiles(sourceDirectory) {
   const root = resolve(sourceDirectory)
   const rootStat = await lstat(root).catch(() => undefined)
   if (!rootStat || !rootStat.isDirectory() || rootStat.isSymbolicLink()) fail('source directory must be a real directory')
-  const rootEntries = await readdir(root, { withFileTypes: true })
-  for (const entry of rootEntries) {
-    if (!SOURCE_ROOT_ENTRIES.has(entry.name)) fail(`source file is not declared by pack.json: ${entry.name}`)
-    if (entry.isSymbolicLink()) fail(`source symlink is not permitted: ${entry.name}`)
+  const records = []
+  await recordSourceNode(root, root, 'directory', records)
+  const rootEntries = await readdir(root)
+  rootEntries.sort(comparePaths)
+  let packJson
+  const files = []
+  for (const name of rootEntries) {
+    if (!SOURCE_ROOT_ENTRIES.has(name)) fail(`source file is not declared by pack.json: ${name}`)
+    const path = resolve(root, name)
+    const stat = await lstat(path).catch(() => undefined)
+    if (!stat || stat.isSymbolicLink()) fail(`source symlink is not permitted: ${name}`)
+    if (name === 'pack.json') {
+      packJson = await recordSourceNode(root, path, 'file', records)
+    } else if (stat.isDirectory()) {
+      files.push(...await listFiles(root, name, records))
+    } else {
+      fail(`source file is not declared by pack.json: ${name}`)
+    }
   }
-  const packJson = rootEntries.find(entry => entry.name === 'pack.json')
-  if (!packJson?.isFile()) fail('source directory requires a regular pack.json')
-  const files = [...await listFiles(root, 'assets'), ...await listFiles(root, 'content')].sort(comparePaths)
-  for (const file of files) if (!mimeForPath(file)) fail(`unsupported source file: ${file}`)
-  if (!files.some(file => file.startsWith('content/'))) fail('source directory requires at least one content JSON document')
-  return { root, files }
+  if (!packJson) fail('source directory requires a regular pack.json')
+  files.sort((left, right) => comparePaths(left.relativePath, right.relativePath))
+  for (const file of files) if (!mimeForPath(file.relativePath)) fail(`unsupported source file: ${file.relativePath}`)
+  if (!files.some(file => file.relativePath.startsWith('content/'))) fail('source directory requires at least one content JSON document')
+  return { root, packJson, files, records }
+}
+
+async function snapshotSourceFile(record) {
+  await assertSourceRecordIntact(record)
+  const limit = record.relativePath === 'pack.json' || record.relativePath.startsWith('content/') ? MAX_SOURCE_JSON_BYTES : MAX_SOURCE_RASTER_BYTES
+  if (record.identity.size > limit) fail(`source file exceeds its byte limit: ${record.relativePath}`)
+  if (!Number.isInteger(constants.O_NOFOLLOW)) fail('safe no-follow source reads are unavailable on this platform')
+  let handle
+  try {
+    handle = await open(record.path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    const before = await handle.stat()
+    if (!before.isFile() || !sameNode(record.identity, nodeIdentity(before))) fail(`source file changed or is not safe: ${record.relativePath}`)
+    const bytes = await handle.readFile()
+    const after = await handle.stat()
+    if (!sameNode(record.identity, nodeIdentity(after)) || bytes.byteLength !== after.size || bytes.byteLength > limit) {
+      fail(`source file changed or exceeds its byte limit: ${record.relativePath}`)
+    }
+    return bytes
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Content Pack publisher error:')) throw error
+    fail(`source file cannot be read safely: ${record.relativePath}`)
+  } finally {
+    await handle?.close()
+  }
+}
+
+async function assertSourceStable(source) {
+  for (const record of source.records) await assertSourceRecordIntact(record)
 }
 
 function parsePrivateKey(pem) {
@@ -127,24 +226,33 @@ function sourceManifestToArchiveManifest(sourceManifest, items, files) {
   }
 }
 
-async function loadSourceManifest(sourceDirectory) {
+async function loadSourceManifest(sourceDirectory, onSourceEnumerated) {
   const source = await collectSourceFiles(sourceDirectory)
-  const sourceManifest = await readJson(resolve(source.root, 'pack.json'), 'pack.json')
+  await onSourceEnumerated?.(source)
+  await assertSourceStable(source)
+  const sourceManifestBytes = await snapshotSourceFile(source.packJson)
+  let sourceManifest
+  try {
+    sourceManifest = JSON.parse(sourceManifestBytes.toString('utf8'))
+  } catch (error) {
+    fail(`pack.json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
+  }
   const contents = []
-  for (const path of source.files.filter(file => file.startsWith('content/'))) {
-    const bytes = await readFile(resolve(source.root, path))
+  for (const file of source.files.filter(file => file.relativePath.startsWith('content/'))) {
+    const bytes = await snapshotSourceFile(file)
     let document
     try {
       document = ContentPackDocumentSchema.parse(JSON.parse(bytes.toString('utf8')))
     } catch (error) {
-      fail(`content document does not match the shared contract (${path}: ${error instanceof Error ? error.message : String(error)})`)
+      fail(`content document does not match the shared contract (${file.relativePath}: ${error instanceof Error ? error.message : String(error)})`)
     }
-    contents.push({ path, bytes, document })
+    contents.push({ path: file.relativePath, bytes, document })
   }
   const otherFiles = []
-  for (const path of source.files.filter(file => file.startsWith('assets/'))) {
-    otherFiles.push({ path, bytes: await readFile(resolve(source.root, path)) })
+  for (const file of source.files.filter(file => file.relativePath.startsWith('assets/'))) {
+    otherFiles.push({ path: file.relativePath, bytes: await snapshotSourceFile(file) })
   }
+  await assertSourceStable(source)
   const allFiles = [...contents, ...otherFiles].sort((left, right) => comparePaths(left.path, right.path))
   const items = contents.map(({ path, document }) => ({
     id: document.id,
@@ -186,20 +294,25 @@ async function writeOutput(path, bytes) {
   return output
 }
 
-export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath }) {
+export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath, onSourceEnumerated }) {
   if (!sourceDirectory || !privateKeyPath || !outputPath) fail('source directory, private key, and output path are required')
-  const privateKey = parsePrivateKey(await readFile(resolve(privateKeyPath), 'utf8'))
-  const source = await loadSourceManifest(sourceDirectory)
+  const sourcePath = resolve(sourceDirectory)
+  const privateKey = resolve(privateKeyPath)
+  const output = resolve(outputPath)
+  await assertOutputSeparatedFromInputs(sourcePath, privateKey, output)
+  const privateKeyObject = parsePrivateKey(await readFile(privateKey, 'utf8'))
+  const source = await loadSourceManifest(sourcePath, onSourceEnumerated)
   const manifestBytes = Buffer.from(canonicalJson(source.manifest), 'utf8')
-  const signatureBytes = sign(null, manifestBytes, privateKey)
+  const signatureBytes = sign(null, manifestBytes, privateKeyObject)
   const archiveBytes = await deterministicArchive(manifestBytes, signatureBytes, source.files)
-  const publicKeyPem = createPublicKey(privateKey).export({ type: 'spki', format: 'pem' }).toString()
+  const publicKeyPem = createPublicKey(privateKeyObject).export({ type: 'spki', format: 'pem' }).toString()
   const verified = await verifyContentPackArchive(archiveBytes, {
     publisherKeys: new Map([[source.manifest.key_id, { publisherId: source.manifest.publisher_id, publicKeyPem }]]),
   })
-  const output = await writeOutput(outputPath, archiveBytes)
+  await assertOutputSeparatedFromInputs(sourcePath, privateKey, output)
+  const writtenOutput = await writeOutput(output, archiveBytes)
   return {
-    output,
+    output: writtenOutput,
     packId: verified.manifest.pack_id,
     version: verified.manifest.version,
     sha256: sha256(archiveBytes),
@@ -208,8 +321,11 @@ export async function buildContentPack({ sourceDirectory, privateKeyPath, output
 
 export async function validateContentPack({ archivePath, keyId, publisherId, publicKeyPath }) {
   if (!archivePath || !keyId || !publisherId || !publicKeyPath) fail('archive path, key ID, publisher ID, and public key path are required')
-  const archiveBytes = await readFile(resolve(archivePath))
-  const publicKeyPem = await readFile(resolve(publicKeyPath), 'utf8')
+  const archive = resolve(archivePath)
+  const publicKey = resolve(publicKeyPath)
+  if (archive === publicKey || await pathsResolveToSameFile(archive, publicKey)) fail('archive path must not be the public key path')
+  const archiveBytes = await readFile(archive)
+  const publicKeyPem = await readFile(publicKey, 'utf8')
   const verified = await verifyContentPackArchive(archiveBytes, {
     publisherKeys: new Map([[keyId, { publisherId, publicKeyPem }]]),
   })
