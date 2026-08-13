@@ -23,8 +23,8 @@
 - [x] Task 1 independent contract/security review — GO with zero Critical/Important findings
 - [x] Task 2 — atomic commerce state, stable idempotency, interrupted-submit recovery, exact refusal cache, and unverified receipt bytes
 - [x] Task 2 independent concurrency/security review — GO with zero Critical/Important findings
-- [ ] Task 3 — active-account orchestration and local read/quote/purchase routes with exact status semantics and no installer/Job Queue dependency
-- [ ] Task 3 independent financial/security review — GO with zero Critical/Important findings
+- [x] Task 3 — active-account orchestration and local read/quote/purchase routes with exact status semantics and no installer/Job Queue dependency
+- [x] Task 3 independent financial/security review — GO with zero Critical/Important findings
 - [ ] Task 4 — Content Store UI, explicit confirmation, navigation, Settings scope UX, Impeccable pass, and desktop/narrow visual QA
 - [ ] Task 4 independent UX/contract review — GO with zero Critical/Important findings
 - [ ] Task 5 — whole-range review, v1.0.835 release, full verification/audits, unsigned package, and packaged QA
@@ -73,3 +73,13 @@ Add one section per task with:
 - Re-review found one final Important: the budget measured compact JSON while `writeJsonAtomic` persists indented JSON. A near-boundary RED reproduced a compact-valid journal whose actual persisted bytes exceeded 16 MiB; `aaf329a5` now measures exactly ```${JSON.stringify(state, null, 2)}\n``` for both pruning and the pre-write guard.
 - Final independent review: GO, zero Critical/Important findings. Reviewer reran the 22/22 focused commerce-state suite and confirmed all original and follow-up findings closed.
 - Final Task 2 evidence: 46/46 passed across commerce state (22), Content Pack state (21), and atomic-store crash (3); Electron typecheck, lint `--quiet`, and `git diff --check` exited 0.
+
+### Task 3
+
+- Implementation and correction commits: `02b2e7be` (`feat: orchestrate GenStudio content purchases`), `af2d7af6` (`fix: settle every content purchase attempt`), and `1da16c04` (`fix: report exact content store scope boundary`).
+- Initial RED: `STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 electron/server/__tests__/content-store-routes.test.ts` failed with `ERR_MODULE_NOT_FOUND` for `routes/content-store.js`.
+- The implementation adds active-account overview/catalog orchestration, strict quote validation and evidence persistence, one durable purchase claim/POST, same-account key rotation, different-account refusal, exact known refusal settlement, uncertain replay, a renderer-safe DTO, bounded local routes, and a controlled GenStudio 0.21 commerce mock. It does not download, install, enqueue, or verify receipts.
+- Independent review initially found four Important issues: unclassified post-claim exits could retain `submitting`, a true claim race could return 500, raw refusal dictionaries could reach the renderer, and the mock's scope copy did not match live generic 401s. Focused REDs reproduced each; `af2d7af6` now settles every exit, atomically returns claim followers, whitelists refusal fields, and adds neutral route-specific scope guidance.
+- Re-review found one final Important: the purchase route's account preflight needs `content:read`, but generic route mapping labelled its 401 as `content:purchase`. A purchase-only key RED reproduced the false guidance; `1da16c04` preserves the exact call boundary, performs no claim/POST, and leaves the quote retryable.
+- Final independent review: GO, zero Critical/Important findings. Reviewer verified account-preflight `content:read` versus purchase-POST `content:purchase`, no claim/debit for the purchase-only key, and a retained `quoted` attempt.
+- Final Task 3 evidence: 81/81 passed across the route (22), client (19), commerce-state (23), local Content Pack route (10), and error-boundary (7) suites; Electron typecheck, lint `--quiet`, Electron build, and `git diff --check` exited 0.
