@@ -190,6 +190,8 @@ interface RawPackOptions {
   manifestLocalExtra?: Uint8Array
   manifestCentralExtra?: Uint8Array
   previewAssetPath?: string
+  assetLocalFlags?: number
+  assetCentralFlags?: number
 }
 
 function buildRawPack(options: RawPackOptions = {}) {
@@ -219,7 +221,12 @@ function buildRawPack(options: RawPackOptions = {}) {
       { path: 'manifest.json', compressedBytes: manifestBytes, expandedBytes: manifestBytes.byteLength, crc: crc32(manifestBytes), localExtra: options.manifestLocalExtra, centralExtra: options.manifestCentralExtra },
       { path: 'signature.ed25519', compressedBytes: signature, expandedBytes: signature.byteLength, crc: crc32(signature) },
       { path: 'content/visual-style.json', compressedBytes: visualStyleBytes, expandedBytes: visualStyleBytes.byteLength, crc: crc32(visualStyleBytes) },
-      { path: 'assets/preview.png', compressedBytes: assetPayload, expandedBytes: options.assetHeaderExpandedBytes ?? actualAssetBytes.byteLength, crc: crc32(actualAssetBytes), method: options.assetMethod ?? 0 },
+      {
+        path: 'assets/preview.png', compressedBytes: assetPayload,
+        expandedBytes: options.assetHeaderExpandedBytes ?? actualAssetBytes.byteLength,
+        crc: crc32(actualAssetBytes), method: options.assetMethod ?? 0,
+        localFlags: options.assetLocalFlags, centralFlags: options.assetCentralFlags,
+      },
     ]),
     publicKeyPem: keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
   }
@@ -391,6 +398,25 @@ describe('immutable content-pack archive verification', () => {
     const encryptedLocal = encryptedBytes.readUInt32LE(encryptedCentral + 42)
     encryptedBytes.writeUInt16LE(encryptedBytes.readUInt16LE(encryptedLocal + 6) | 1, encryptedLocal + 6)
     await assert.rejects(verifyContentPackArchive(encryptedBytes, policy(encrypted.publicKeyPem)), /encrypt/i)
+  })
+
+  test('admits only UTF-8 and the documented deflate option bits in both ZIP headers', async () => {
+    const allowedDeflate = buildRawPack({ assetMethod: 8, assetLocalFlags: 0x806, assetCentralFlags: 0x806 })
+    await assert.doesNotReject(verifyContentPackArchive(allowedDeflate.archiveBytes, policy(allowedDeflate.publicKeyPem)))
+
+    for (const [label, localFlags, centralFlags] of [
+      ['patched entries', 0x20, 0x20],
+      ['masked entries', 0x2000, 0x2000],
+      ['unsupported entries', 0x10, 0x10],
+      ['deflate option on stored entries', 0x2, 0x2],
+    ] as const) {
+      const archive = buildRawPack({ assetLocalFlags: localFlags, assetCentralFlags: centralFlags })
+      await assert.rejects(
+        verifyContentPackArchive(archive.archiveBytes, policy(archive.publicKeyPem)),
+        /ZIP.*flag|patched|masked|unsupported/i,
+        label,
+      )
+    }
   })
 
   test('rejects special Unix mode bits even when the ZIP host claims DOS', async () => {

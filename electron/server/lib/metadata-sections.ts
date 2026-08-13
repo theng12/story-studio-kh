@@ -15,6 +15,29 @@
 
 import type { Format } from '../models/types.js'
 
+/**
+ * App-owned metadata section IDs available to Formula content. Keep this beside
+ * the runtime section registry so packs can only select sections Story actually
+ * knows how to build and render.
+ */
+export const METADATA_SECTION_IDS = [
+  'hook',
+  'metadata',
+  'narrator',
+  'music',
+  'channels',
+  'videos',
+  'playlists',
+  'cta',
+  'support',
+  'sources',
+  'affiliate',
+  'ai-disclosure',
+  'hashtags',
+] as const
+
+export type MetadataSectionId = typeof METADATA_SECTION_IDS[number]
+
 export interface SectionContext {
   format?: Format | null
 }
@@ -221,3 +244,7 @@ const DEFS: MetadataSectionDef[] = [
 
 export const METADATA_SECTIONS: Record<string, MetadataSectionDef> = Object.fromEntries(DEFS.map(d => [d.id, d]))
 export const METADATA_SECTION_LIST: MetadataSectionDef[] = DEFS
+
+if (DEFS.length !== METADATA_SECTION_IDS.length || DEFS.some(section => !METADATA_SECTION_IDS.includes(section.id as MetadataSectionId))) {
+  throw new Error('Metadata section ID registry must match the runtime section registry')
+}

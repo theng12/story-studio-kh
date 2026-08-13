@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { MOTION_PROFILE_IDS } from '../services/motion-profiles.js'
 import { RECENCY_STRATEGY_IDS } from '../services/recency-strategies.js'
+import { METADATA_SECTION_IDS } from '../lib/metadata-sections.js'
 import type { ContentPackDocument, ContentPackItemKind, ContentPackManifest } from './types.js'
 
 export const CONTENT_PACK_FORMAT = 1 as const
@@ -24,7 +25,7 @@ const exactSemver = z.string().regex(EXACT_SEMVER, 'must be an exact semantic ve
 
 const inPackPath = z.string().min(1).max(240)
   .regex(/^(?:content|assets)\/[a-z0-9][a-z0-9._/-]*$/, 'must be a lowercase content/ or assets/ path')
-  .refine(path => !path.includes('\\') && !path.startsWith('/') && !path.split('/').includes('..'), 'must be a relative in-pack path')
+  .refine(path => !path.includes('\\') && !path.startsWith('/') && path.split('/').every(segment => segment !== '' && segment !== '.' && segment !== '..'), 'must be a relative in-pack path')
 
 const rasterAssetPath = inPackPath.refine(path => /^assets\/.+\.(?:png|jpe?g|webp)$/.test(path), 'must reference a relative PNG, JPEG, or WebP asset')
 const textList = (max: number = MAX_LIST) => z.array(safeText(1000)).min(1).max(max)
@@ -48,7 +49,7 @@ const MetadataProfileSchema = z.object({
   id: localSlug,
   label: safeText(120),
   description: safeText(500),
-  description_section_ids: z.array(localSlug).min(1).max(20),
+  description_section_ids: z.array(z.enum(METADATA_SECTION_IDS)).min(1).max(20),
   title_mode: z.enum(['use_idea_title', 'paraphrase']),
   description_max_chars: z.number().int().min(200).max(5000),
   title_max_length: z.number().int().min(20).max(200),
@@ -66,6 +67,7 @@ const EpisodeProfileSchema = z.object({
   thumbnail_policy: safeText(800).optional(),
   metadata_policy: safeText(800).optional(),
 }).strict()
+
 const ProductionKitSchema = z.object({
   id: localSlug,
   label: safeText(120),
@@ -243,7 +245,42 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
   TopicPackDocumentSchema,
   VisualStyleDocumentSchema,
   ThumbnailRecipeDocumentSchema,
-])
+]).superRefine((document, ctx) => {
+  if (document.kind !== 'series-formula') return
+  const { script_structure: structure } = document
+  const [minChapters, maxChapters] = structure.chapter_count_range
+  const [minLength, maxLength] = structure.length_minutes_range
+  if (structure.default_chapter_count < minChapters || structure.default_chapter_count > maxChapters) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['script_structure', 'default_chapter_count'], message: 'default chapter count must be within the chapter count range' })
+  }
+  if (structure.default_length_minutes < minLength || structure.default_length_minutes > maxLength) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['script_structure', 'default_length_minutes'], message: 'default length minutes must be within the length range' })
+  }
+  if (!structure.duration_presets.includes(structure.default_length_minutes) || structure.duration_presets.some(duration => duration < minLength || duration > maxLength)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['script_structure', 'duration_presets'], message: 'duration presets must include the default and remain within the length range' })
+  }
+  const compatibleTopicPacks = new Set(document.compatible_topic_pack_ids)
+  for (const [index, topicPackId] of (document.default_topic_pack_ids ?? []).entries()) {
+    if (!compatibleTopicPacks.has(topicPackId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['default_topic_pack_ids', index], message: 'default Topic Pack must be compatible with the Formula' })
+    }
+  }
+  const narratorStyleIds = new Set((document.narrator_styles ?? []).map(style => style.id))
+  if (document.default_narrator_style_id && !narratorStyleIds.has(document.default_narrator_style_id)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['default_narrator_style_id'], message: 'default narrator style must be declared by the Formula' })
+  }
+  for (const [index, profile] of (document.production_kit?.episode_profiles ?? []).entries()) {
+    if (profile.narrator_style_id && !narratorStyleIds.has(profile.narrator_style_id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['production_kit', 'episode_profiles', index, 'narrator_style_id'], message: 'episode profile narrator style must be declared by the Formula' })
+    }
+  }
+  if (document.default_thumbnail_recipe_id && !document.recommended_thumbnail_recipe_ids.includes(document.default_thumbnail_recipe_id)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['default_thumbnail_recipe_id'], message: 'default thumbnail recipe must be among the Formula recommendations' })
+  }
+  if (document.production_kit?.recommended_visual_style_id && !document.recommended_visual_style_ids.includes(document.production_kit.recommended_visual_style_id)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['production_kit', 'recommended_visual_style_id'], message: 'production kit visual style must be among the Formula recommendations' })
+  }
+})
 
 /** A Channel Kit is a commercial bundle of documents, never a fifth document schema. */
 const ContentPackComponentReferenceSchema = z.object({
@@ -369,7 +406,12 @@ export const ContentPackManifestSchema = z.object({
   assertUnique(manifest.items.map(item => item.path), ['items'], 'item paths')
   assertUnique(manifest.files.map(file => file.path), ['files'], 'file paths')
   assertUnique(manifest.bundles.map(bundle => bundle.id), ['bundles'], 'bundle IDs')
-  assertUnique((manifest.dependencies ?? []).map(dependency => `${dependency.pack_id}@${dependency.version}`), ['dependencies'], 'dependency pairs')
+  assertUnique((manifest.dependencies ?? []).map(dependency => dependency.pack_id), ['dependencies'], 'dependency pack IDs (one version per pack)')
+  for (const [index, dependency] of (manifest.dependencies ?? []).entries()) {
+    if (dependency.pack_id === manifest.pack_id) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dependencies', index, 'pack_id'], message: 'pack must not depend on itself' })
+    }
+  }
   for (const [index, item] of manifest.items.entries()) {
     if (!withinPublisher(item.id)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items', index, 'id'], message: 'item ID must be within the publisher namespace' })

@@ -9,6 +9,7 @@ import {
   parseContentPackDocument,
   parseContentPackManifest,
 } from '../content-packs/schemas.js'
+import { METADATA_SECTION_IDS } from '../lib/metadata-sections.js'
 
 const SHA256 = 'a'.repeat(64)
 
@@ -190,6 +191,61 @@ describe('Content Pack v1 contracts', () => {
     assert.equal(parsed.idea_axes?.[0]?.id, 'causal-mechanism')
   })
 
+  test('derives Formula metadata section IDs from the app-owned metadata registry', () => {
+    assert.ok(METADATA_SECTION_IDS.includes('hook'))
+    assert.ok(METADATA_SECTION_IDS.includes('sources'))
+    assert.throws(() => ContentPackDocumentSchema.parse({
+      ...documents['series-formula'],
+      metadata_profile: {
+        ...documents['series-formula'].metadata_profile,
+        description_section_ids: ['hook', 'pack-invented-section'],
+      },
+    }), /invalid_enum_value|Invalid enum value/i)
+  })
+
+  test('requires Formula defaults and declared internal references to be coherent', () => {
+    const invalidFormulas = [
+      {
+        ...documents['series-formula'],
+        script_structure: { ...documents['series-formula'].script_structure, default_chapter_count: 8 },
+      },
+      {
+        ...documents['series-formula'],
+        script_structure: { ...documents['series-formula'].script_structure, default_length_minutes: 46 },
+      },
+      {
+        ...documents['series-formula'],
+        script_structure: { ...documents['series-formula'].script_structure, duration_presets: [30, 60] },
+      },
+      {
+        ...documents['series-formula'],
+        default_topic_pack_ids: ['com.storystudio.topic.not-compatible'],
+      },
+      {
+        ...documents['series-formula'],
+        default_narrator_style_id: 'missing-narrator-style',
+      },
+      {
+        ...documents['series-formula'],
+        production_kit: {
+          ...documents['series-formula'].production_kit,
+          episode_profiles: [{ ...documents['series-formula'].production_kit.episode_profiles[0], narrator_style_id: 'missing-narrator-style' }],
+        },
+      },
+      {
+        ...documents['series-formula'],
+        default_thumbnail_recipe_id: 'com.storystudio.thumbnail.not-recommended',
+      },
+      {
+        ...documents['series-formula'],
+        production_kit: { ...documents['series-formula'].production_kit, recommended_visual_style_id: 'com.storystudio.style.not-recommended' },
+      },
+    ]
+    for (const formula of invalidFormulas) {
+      assert.throws(() => ContentPackDocumentSchema.parse(formula), /default|range|duration|topic|narrator|thumbnail|visual/i)
+    }
+  })
+
   test('accepts projections of Deep Time visual pacing and Prayer metadata-recency declarations', async () => {
     const [deepTime, prayer] = await Promise.all([
       readFile(new URL('../niches/deep-time-documentary.json', import.meta.url), 'utf8').then(JSON.parse),
@@ -329,6 +385,26 @@ describe('Content Pack v1 contracts', () => {
       ...manifest,
       items: [{ ...manifest.items[0], path: 'content/not-declared.json' }, ...manifest.items.slice(1)],
     }, /declared file/i)
+  })
+
+  test('rejects dependency ambiguity, self-dependencies, and unsafe manifest path segments', () => {
+    assertRejected({
+      ...manifest,
+      dependencies: [
+        { pack_id: 'com.storystudio.topic.historical-finance', version: '1.0.0' },
+        { pack_id: 'com.storystudio.topic.historical-finance', version: '2.0.0' },
+      ],
+    }, /dependency.*unique|dependency.*one version/i)
+    assertRejected({
+      ...manifest,
+      dependencies: [{ pack_id: manifest.pack_id, version: '1.2.3' }],
+    }, /self|itself/i)
+    for (const path of ['content/./formula.json', 'content//formula.json', 'assets/preview/../style.webp']) {
+      assertRejected({
+        ...manifest,
+        files: [{ ...manifest.files[0], path }, ...manifest.files.slice(1)],
+      }, /relative|path/i)
+    }
   })
 
   test('rejects unsupported MIME types and executable-looking file extensions', () => {

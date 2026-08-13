@@ -121,9 +121,14 @@ function rejectExtraFields(bytes: Uint8Array, label: string): void {
   }
 }
 
-function assertEntryFlags(flags: number, label: string): void {
+function assertEntryFlags(flags: number, method: number, label: string): void {
   if (flags & (0x1 | 0x40)) fail(`encrypted ZIP entry is not permitted (${label})`)
   if (flags & 0x8) fail(`ZIP data descriptors are not permitted (${label})`)
+  const supported = 0x800 | (method === 8 ? 0x6 : 0)
+  const unsupported = flags & ~supported
+  if (unsupported & 0x20) fail(`patched ZIP data is not permitted (${label})`)
+  if (unsupported & 0x2000) fail(`masked ZIP header values are not permitted (${label})`)
+  if (unsupported) fail(`unsupported ZIP general-purpose flag (${label})`)
 }
 
 function findEocd(view: DataView, archiveBytes: Uint8Array): number {
@@ -175,7 +180,7 @@ function parseZipEntries(archiveBytes: Uint8Array, limits: ContentPackArchiveLim
     if (end > eocd || localHeaderOffset >= centralOffset) fail('central directory entry points outside archive data')
     if (commentLength !== 0) fail('central directory comments are not permitted')
     if (diskStart !== 0 || compressedBytes === 0xffffffff || expandedBytes === 0xffffffff || localHeaderOffset === 0xffffffff) fail('ZIP64 or split ZIP entries are not permitted')
-    assertEntryFlags(flags, 'central directory')
+    assertEntryFlags(flags, method, 'central directory')
     if (method !== 0 && method !== 8) fail('unsupported ZIP compression method')
     const rawPath = archiveBytes.subarray(offset + 46, offset + 46 + pathLength)
     const path = decodePath(rawPath, Boolean(flags & 0x800))
@@ -205,7 +210,7 @@ function parseZipEntries(archiveBytes: Uint8Array, limits: ContentPackArchiveLim
     const dataOffset = local + 30 + pathLength + extraLength
     const dataEnd = dataOffset + compressedBytes
     if (dataOffset > centralOffset || dataEnd > centralOffset || !Number.isSafeInteger(dataEnd)) fail(`local header data lies outside archive: ${JSON.stringify(entry.path)}`)
-    assertEntryFlags(flags, 'local header')
+    assertEntryFlags(flags, method, 'local header')
     if (flags !== entry.flags || method !== entry.method || crc !== entry.crc || compressedBytes !== entry.compressedBytes || expandedBytes !== entry.expandedBytes) {
       fail(`local header does not match central directory: ${JSON.stringify(entry.path)}`)
     }
