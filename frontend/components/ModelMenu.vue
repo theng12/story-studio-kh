@@ -127,7 +127,7 @@
           </section>
 
           <div v-if="!groupedOptions.length" class="model-menu-empty">
-            No models match “{{ query.trim() }}”.
+            {{ emptyResultLabel }}
           </div>
         </div>
       </div>
@@ -214,6 +214,12 @@ const tierMode = computed(() => isCompleteTierCatalog(props.options))
 const searching = computed(() => query.value.trim().length > 0)
 const tierPanelId = 'model-menu-tier-results'
 const activeTierTabId = computed(() => tierTabId(activeTier.value))
+const emptyResultLabel = computed(() => {
+  if (tierMode.value && !searching.value) {
+    return `No ${tierLabel(activeTier.value)} models are currently available.`
+  }
+  return `No models match “${query.value.trim()}”.`
+})
 /**
  * The line under the selected model on the closed trigger.
  *
@@ -386,7 +392,7 @@ function onListKeydown(event: KeyboardEvent) {
 .model-menu-search-wrap { flex: 0 0 auto; padding: 12px 14px 9px; }
 .model-menu-search { width: 100%; min-height: 38px; }
 .model-menu-tier-tabs { display: flex; flex: 0 0 auto; gap: 5px; margin: 0 14px 10px; padding: 4px; border-radius: 9px; background: var(--bg-tertiary); }
-.model-menu-tier-tab { flex: 1; min-width: 0; padding: 7px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-xs); font-weight: 700; cursor: pointer; }
+.model-menu-tier-tab { flex: 1; min-width: 0; min-height: 44px; padding: 7px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-secondary); font: inherit; font-size: var(--font-xs); font-weight: 700; cursor: pointer; }
 .model-menu-tier-tab:hover { color: var(--text-primary); }
 .model-menu-tier-tab.active { background: var(--bg-secondary); box-shadow: 0 1px 3px color-mix(in srgb, var(--text-primary) 16%, transparent); color: var(--text-primary); }
 .model-menu-tier-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

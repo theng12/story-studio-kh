@@ -72,6 +72,10 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /event\.key === 'ArrowLeft'/)
     assert.match(modelMenu, /event\.key === 'Home'/)
     assert.match(modelMenu, /event\.key === 'End'/)
+    // Catches a visually compact tab regressing below the app's 44px target.
+    assert.match(modelMenu, /\.model-menu-tier-tab\s*{[^}]*min-height:\s*44px/)
+    // Catches an empty tier being described as a nonsensical empty search.
+    assert.match(modelMenu, /No \$\{tierLabel\(activeTier\.value\)\} models are currently available\./)
   })
 
   test('the image picker exposes catalog errors and heals stale saved selections silently', () => {
