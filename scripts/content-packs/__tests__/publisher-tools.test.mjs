@@ -129,6 +129,20 @@ test('build-pack accepts the deliberate private-key environment path and refuses
   assert.equal(built.status, 0, built.stderr)
 })
 
+test('build-pack refuses a secret-bearing content source and writes no archive', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const source = await writeSource(fixture.root, {
+    document: { style_bible: 'api_key = "sk-live-abc123456789"' },
+  })
+  const output = join(fixture.root, 'must-not-exist.sspack')
+
+  const result = run(BUILD, [source, '--private-key', fixture.privateKeyPath, '--output', output])
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /credential|private key|secret/i)
+  await assert.rejects(readFile(output), /ENOENT/)
+})
+
 for (const [name, setup, expected] of [
   ['wrong publisher namespace', { config: { pack_id: 'com.other.pack.test' } }, /publisher namespace/i],
   ['undeclared source file', { extras: [['unexpected.txt', 'not pack content']] }, /not declared by pack\.json/i],

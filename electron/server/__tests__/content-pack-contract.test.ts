@@ -109,7 +109,10 @@ const documents = {
     default_topic_pack_ids: ['com.storystudio.topic.historical-finance'],
     recommended_visual_style_ids: ['com.storystudio.style.archival-documentary'],
     recommended_thumbnail_recipe_ids: ['com.storystudio.thumbnail.archival-map'],
-    idea_axes: [{ id: 'causal-mechanism', label: 'Causal mechanism', values: ['state capacity', 'fiscal pressure'] }],
+    idea_axes: [
+      { id: 'episode-profile', label: 'Episode profile', values: ['default'] },
+      { id: 'causal-mechanism', label: 'Causal mechanism', values: ['state capacity', 'fiscal pressure'] },
+    ],
     vocabulary: { mood: ['measured'], theme: ['causation'], genre: ['history documentary'], keyword: ['history explained'] },
     audience_hint: 'Viewers seeking evidence-led explanations.',
     idea_system_prompt_role: 'Generate original historical-causality documentary ideas.',
@@ -188,7 +191,7 @@ describe('Content Pack v1 contracts', () => {
     assert.equal(parsed.script_structure.default_length_minutes, 36)
     assert.equal(parsed.narrative_quality_contract?.forbidden_patterns[0], 'Invented quotations')
     assert.equal(parsed.production_kit?.episode_profiles?.[0]?.narrator_style_id, 'historical-investigator')
-    assert.equal(parsed.idea_axes?.[0]?.id, 'causal-mechanism')
+    assert.equal(parsed.idea_axes?.[1]?.id, 'causal-mechanism')
   })
 
   test('derives Formula metadata section IDs from the app-owned metadata registry', () => {
@@ -244,6 +247,50 @@ describe('Content Pack v1 contracts', () => {
     for (const formula of invalidFormulas) {
       assert.throws(() => ContentPackDocumentSchema.parse(formula), /default|range|duration|topic|narrator|thumbnail|visual/i)
     }
+  })
+
+  test('requires Formula axes, narrator styles, and episode profiles to form one unambiguous profile map', () => {
+    const formula = documents['series-formula']
+    const profile = formula.production_kit.episode_profiles[0]
+    const episodeAxis = formula.idea_axes[0]
+    const causalAxis = formula.idea_axes[1]
+    const invalidFormulas = [
+      { ...formula, idea_axes: [episodeAxis, { ...episodeAxis, label: 'Duplicate episode profile' }, causalAxis] },
+      { ...formula, idea_axes: [{ ...episodeAxis, values: ['default', 'default'] }, causalAxis] },
+      { ...formula, narrator_styles: [formula.narrator_styles[0], { ...formula.narrator_styles[0], label: 'Duplicate narrator' }] },
+      {
+        ...formula,
+        production_kit: {
+          ...formula.production_kit,
+          episode_profiles: [profile, { ...profile, id: 'alternate', idea_axis_value: 'default' }],
+        },
+      },
+      {
+        ...formula,
+        production_kit: {
+          ...formula.production_kit,
+          episode_profiles: [profile, { ...profile, id: 'default', idea_axis_value: 'alternate' }],
+        },
+        idea_axes: [{ ...episodeAxis, values: ['default', 'alternate'] }, causalAxis],
+      },
+      { ...formula, idea_axes: [causalAxis] },
+      {
+        ...formula,
+        production_kit: {
+          ...formula.production_kit,
+          episode_profiles: [{ ...profile, idea_axis_value: 'not-declared' }],
+        },
+      },
+    ]
+    for (const invalid of invalidFormulas) {
+      assert.throws(() => ContentPackDocumentSchema.parse(invalid), /unique|episode-profile|episode profile|declared/i)
+    }
+
+    assert.equal(ContentPackDocumentSchema.parse({
+      ...formula,
+      idea_axes: [causalAxis],
+      production_kit: { ...formula.production_kit, episode_profiles: undefined },
+    }).kind, 'series-formula')
   })
 
   test('accepts projections of Deep Time visual pacing and Prayer metadata-recency declarations', async () => {
@@ -350,6 +397,29 @@ describe('Content Pack v1 contracts', () => {
         ...documents['visual-style'], style_bible: unsafeText,
       }), /URI|routing/i)
     }
+  })
+
+  test('rejects private-key blocks and credential or account assignments without banning ordinary prose', () => {
+    for (const unsafeText of [
+      '-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----',
+      '-----BEGIN RSA PRIVATE KEY-----\nnot-a-real-key\n-----END RSA PRIVATE KEY-----',
+      'api_key: "sk-live-abc123456789"',
+      'secret = "do-not-package-me"',
+      'token: "opaque-token-value"',
+      'access_token = "opaque-token-value"',
+      'bearer = "opaque-token-value"',
+      'account_id: "acct_123"',
+      'customer_id = "cus_123"',
+      'authorization: bearer sk-live-abc123456789',
+    ]) {
+      assert.throws(() => ContentPackDocumentSchema.parse({
+        ...documents['visual-style'], style_bible: unsafeText,
+      }), /credential|private key|secret/i)
+    }
+    assert.equal(ContentPackDocumentSchema.parse({
+      ...documents['visual-style'],
+      style_bible: 'A historian may discuss a customer ID policy, an account identifier, a secret ballot, or a token of respect without embedding credentials.',
+    }).kind, 'visual-style')
   })
 
   test('allows ordinary non-routing use of the word provider', () => {

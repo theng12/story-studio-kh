@@ -13,10 +13,17 @@ const EXACT_SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/
 const SHA256 = /^[a-f0-9]{64}$/
 const UNSAFE_REFERENCE = /(?:\b[a-z][a-z0-9+.-]*:\S+|(?:^|[\s(])\/\/\S+|\bwww\.\S+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?)/i
 const ROUTING_DIRECTIVE = /\b(?:provider_id|model_id|engine_id)\b|\bprovider\s*(?::|=)\s*[^\s]+|\bmodel\s*(?::|=)\s*[^\s]+|\b(?:use|select)\s+(?:an?\s+|the\s+)?provider\b|\broute\s+(?:via|through)\s+(?:an?\s+|the\s+)?provider\b/i
+const PRIVATE_KEY_PEM = /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/i
+// These reject values only when they use a credential/account field as an assignment,
+// so ordinary editorial prose about keys, tokens, accounts, or customers remains valid.
+const SENSITIVE_ASSIGNMENT = /(?:^|[\s,{;])(?:["']?(?:api(?:[_ -]?key)|secret|(?:access[_ -]?token)|token|bearer|account(?:[_ -]?id)|customer(?:[_ -]?id))["']?)\s*(?:[:=]\s*|is\s+)/i
+const AUTHORIZATION_BEARER_SECRET = /\bauthorization\s*:\s*bearer\s+(?:sk-[a-z0-9_-]{8,}|[a-z0-9._~+\/-]{16,})/i
 
 const safeText = (max = MAX_TEXT) => z.string().min(1).max(max)
   .refine(value => !UNSAFE_REFERENCE.test(value), 'URI references are not permitted in content packs')
   .refine(value => !ROUTING_DIRECTIVE.test(value), 'provider or model routing directives are not permitted in content packs')
+  .refine(value => !PRIVATE_KEY_PEM.test(value), 'private key PEM blocks are not permitted in content packs')
+  .refine(value => !SENSITIVE_ASSIGNMENT.test(value) && !AUTHORIZATION_BEARER_SECRET.test(value), 'credential, token, or account assignments are not permitted in content packs')
 
 const qualifiedId = z.string().min(3).max(160)
   .regex(QUALIFIED_ID, 'must be a lowercase qualified reverse-DNS identifier')
@@ -266,12 +273,41 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
     }
   }
   const narratorStyleIds = new Set((document.narrator_styles ?? []).map(style => style.id))
+  const assertUnique = (values: string[], path: Array<string | number>, label: string) => {
+    const seen = new Set<string>()
+    for (const [index, value] of values.entries()) {
+      if (seen.has(value)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, index], message: `${label} must be unique` })
+      seen.add(value)
+    }
+  }
+  const ideaAxes = document.idea_axes ?? []
+  assertUnique(ideaAxes.map(axis => axis.id), ['idea_axes'], 'idea axis IDs')
+  for (const [index, axis] of ideaAxes.entries()) {
+    assertUnique(axis.values, ['idea_axes', index, 'values'], 'idea axis values')
+  }
+  assertUnique((document.narrator_styles ?? []).map(style => style.id), ['narrator_styles'], 'narrator style IDs')
   if (document.default_narrator_style_id && !narratorStyleIds.has(document.default_narrator_style_id)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['default_narrator_style_id'], message: 'default narrator style must be declared by the Formula' })
   }
-  for (const [index, profile] of (document.production_kit?.episode_profiles ?? []).entries()) {
+  const episodeProfiles = document.production_kit?.episode_profiles ?? []
+  assertUnique(episodeProfiles.map(profile => profile.id), ['production_kit', 'episode_profiles'], 'episode profile IDs')
+  assertUnique(episodeProfiles.map(profile => profile.idea_axis_value), ['production_kit', 'episode_profiles'], 'episode profile idea axis values')
+  for (const [index, profile] of episodeProfiles.entries()) {
     if (profile.narrator_style_id && !narratorStyleIds.has(profile.narrator_style_id)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['production_kit', 'episode_profiles', index, 'narrator_style_id'], message: 'episode profile narrator style must be declared by the Formula' })
+    }
+  }
+  if (episodeProfiles.length > 0) {
+    const profileAxes = ideaAxes.filter(axis => axis.id === 'episode-profile')
+    if (profileAxes.length !== 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['idea_axes'], message: 'production episode profiles require exactly one episode-profile idea axis' })
+    } else {
+      const profileAxisValues = profileAxes[0].values
+      for (const [index, profile] of episodeProfiles.entries()) {
+        if (!profileAxisValues.includes(profile.idea_axis_value)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['production_kit', 'episode_profiles', index, 'idea_axis_value'], message: 'episode profile idea axis value must be declared exactly once by the episode-profile axis' })
+        }
+      }
     }
   }
   if (document.default_thumbnail_recipe_id && !document.recommended_thumbnail_recipe_ids.includes(document.default_thumbnail_recipe_id)) {

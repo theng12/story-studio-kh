@@ -77,6 +77,10 @@
   - Scope is deliberately Story-local: staged import, pinned public keyring, atomic state, quarantine, retention/rollback, locally verified recovery archives, registry/adapters, user forks, exact project pins, immutable job provenance, and contained asset serving.
   - Explicitly deferred: GenStudio catalog/checkout/entitlements/account identity and customer Store UI, pending the real published GenStudio commerce contract.
   - Plan self-review completed: all local-runtime design requirements map to a task; no implementation placeholders or contract-name inconsistencies found.
+  - Final foundation-review follow-up: `safeText` now rejects private-key PEM headers and only credential/account-shaped assignments (`api_key`, `secret`, `token`, `access_token`, `bearer`, `account_id`, and `customer_id`) while preserving ordinary editorial prose about people, policies, ballots, identifiers, or tokens. A dedicated publisher CLI regression proves a secret-bearing source fails before any `.sspack` output exists.
+  - Formula coherence follow-up: packs now require unique idea-axis IDs and values, narrator-style IDs, episode-profile IDs, and profile axis values. Whenever production episode profiles exist, exactly one `episode-profile` axis must exist and every profile value must be declared on it. Formulas without production profiles remain valid without that axis.
+  - Final review RED: the expanded contract suite failed 2/27 and publisher suite failed 1/16 before this follow-up, accepting duplicate Formula mappings and secret-bearing text/source content.
+  - Final review GREEN: full foundation backend suites pass 85/85; publisher CLI suite passes 16/16; `npm run typecheck` and `git diff --check` pass. Production-source secret grep is clean after excluding the schema's own protective detection pattern and test fixtures.
 
 ## External dependency
 
