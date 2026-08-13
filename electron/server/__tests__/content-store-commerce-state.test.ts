@@ -10,7 +10,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import {
   beginPurchaseAttempt,
-  __testForgetActiveContentPurchase,
   getContentStoreStatePath,
   readContentStoreCommerceState,
   recordCompletedPurchase,
@@ -52,6 +51,32 @@ function runWorker(workerPath: string, env: NodeJS.ProcessEnv): Promise<void> {
     child.once('error', reject)
     child.once('exit', code => code === 0 ? resolve() : reject(new Error(`commerce worker exited ${code}: ${stderr}`)))
   })
+}
+
+function startLiveSubmitWorker(workerPath: string, env: NodeJS.ProcessEnv): {
+  child: ReturnType<typeof spawn>
+  ready: Promise<void>
+  exited: Promise<void>
+} {
+  const child = spawn(process.execPath, ['--import', 'tsx', workerPath], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+  let stdout = ''
+  let stderr = ''
+  const ready = new Promise<void>((resolve, reject) => {
+    child.stdout.on('data', chunk => {
+      stdout += chunk
+      if (stdout.includes('READY\n')) resolve()
+    })
+    child.stderr.on('data', chunk => { stderr += chunk })
+    child.once('error', reject)
+    child.once('exit', code => {
+      if (!stdout.includes('READY\n')) reject(new Error(`submit worker exited ${code}: ${stderr}`))
+    })
+  })
+  const exited = new Promise<void>((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', code => code === 0 || child.killed ? resolve() : reject(new Error(`submit worker exited ${code}: ${stderr}`)))
+  })
+  return { child, ready, exited }
 }
 
 function signedQuote(overrides: Record<string, unknown> = {}) {
@@ -188,11 +213,34 @@ describe('Content Store commerce state', () => {
     await beginPurchaseAttempt('cq_test', 'acct_a')
     assert.equal(await recoverInterruptedContentPurchases(), 0)
     assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
-    __testForgetActiveContentPurchase('cq_test')
+  })
+
+  test('does not recover another live process submission but recovers it after that owner exits', async () => {
+    const { temp } = await isolate()
+    await saveQuotedAttempt(quote())
+    const workerPath = path.join(temp.dir, 'content-store-live-submit-worker.mts')
+    const testDirectory = path.dirname(fileURLToPath(import.meta.url))
+    const stateModule = pathToFileURL(path.resolve(testDirectory, '../content-store/commerce-state.ts')).href
+    await fs.writeFile(workerPath, [
+      `import { beginPurchaseAttempt } from ${JSON.stringify(stateModule)};`,
+      "await beginPurchaseAttempt('cq_test', 'acct_a');",
+      "process.stdout.write('READY\\n');",
+      'const timer = setInterval(() => {}, 1000);',
+      "process.once('SIGTERM', () => { clearInterval(timer); process.exit(0) });",
+    ].join('\n'))
+    const worker = startLiveSubmitWorker(workerPath, {
+      ...process.env, STORY_STUDIO_DATA_DIR: temp.dir, STORY_STUDIO_DISABLE_LISTEN: '1',
+    })
+    try {
+      await worker.ready
+      assert.equal(await recoverInterruptedContentPurchases(), 0)
+      assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
+    } finally {
+      worker.child.kill('SIGTERM')
+      await worker.exited
+    }
     assert.equal(await recoverInterruptedContentPurchases(), 1)
     assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'uncertain')
-    assert.equal(await recoverInterruptedContentPurchases(), 0)
-    assert.equal((await beginPurchaseAttempt('cq_test', 'acct_a')).status, 'submitting')
   })
 
   test('grants submitting ownership to exactly one concurrent caller', async () => {
@@ -409,5 +457,51 @@ describe('Content Store commerce state', () => {
     assert.equal(state.attempts.cq_limit_0.status, 'submitting')
     assert.equal(state.attempts.cq_limit_1.status, 'uncertain')
     assert.ok(state.attempts.cq_new)
+  })
+
+  test('prunes old completed evidence against the journal byte budget before refusing a new quote', async () => {
+    const { paths } = await isolate()
+    await saveQuotedAttempt(quote())
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    const completed = await recordCompletedPurchase('cq_test', purchase())
+    const padding = JSON.stringify({ padding: 'x'.repeat(820_000) })
+    const attempts = Object.fromEntries(Array.from({ length: 10 }, (_, index) => {
+      const quoteId = `cq_large_${index}`
+      return [quoteId, {
+        ...completed,
+        quote_id: quoteId,
+        idempotency_key: `story-content-00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+        quote_canonical_json: padding,
+        created_at: `2026-08-14T00:00:${String(index).padStart(2, '0')}.000Z`,
+        updated_at: `2026-08-14T00:00:${String(index).padStart(2, '0')}.000Z`,
+        completed_purchase: {
+          ...completed.completed_purchase!,
+          purchase_id: `cpur_large_${index}`,
+          receipt: { ...completed.completed_purchase!.receipt, receipt_canonical_json: padding },
+        },
+      }]
+    }))
+    await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify({ schema_version: 1, attempts })}\n`, { mode: 0o600 })
+    const before = (await fs.stat(getContentStoreStatePath())).size
+    assert.ok(before < 16 * 1024 * 1024, `fixture must begin below journal limit, got ${before}`)
+    const next = quote({ quote: { quote_id: 'cq_after_large', future_padding: ['y'.repeat(200_000), 'z'.repeat(200_000)] } })
+    await saveQuotedAttempt(next)
+    const state = await readContentStoreCommerceState()
+    assert.ok(state.attempts.cq_after_large)
+    assert.ok(Object.keys(state.attempts).length < 11, 'old completed evidence should be pruned to make safe byte headroom')
+    assert.ok((await fs.stat(getContentStoreStatePath())).size <= 16 * 1024 * 1024)
+    assert.equal((await fs.stat(paths.root)).isDirectory(), true)
+  })
+
+  test('quarantines a sparse oversized journal without reading it into a full memory buffer', async () => {
+    const { paths } = await isolate()
+    await fs.mkdir(paths.root, { recursive: true })
+    const handle = await fs.open(getContentStoreStatePath(), 'w', 0o600)
+    try { await handle.truncate(256 * 1024 * 1024) } finally { await handle.close() }
+    const before = process.memoryUsage().rss
+    assert.deepEqual(await readContentStoreCommerceState(), { schema_version: 1, attempts: {} })
+    const growth = process.memoryUsage().rss - before
+    assert.ok(growth < 64 * 1024 * 1024, `oversized quarantine allocated ${growth} bytes of RSS`)
+    assert.ok((await fs.readdir(paths.quarantineRoot)).some(name => name.startsWith('commerce-state-oversized-')))
   })
 })

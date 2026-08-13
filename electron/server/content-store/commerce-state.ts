@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { execFile as execFileCallback } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
@@ -25,7 +27,7 @@ const MAX_RECORDS = 200
 const LOCK_WAIT_MS = 10_000
 const LOCK_RETRY_MS = 20
 const STALE_LOCK_MS = 60_000
-const activeSubmissionClaims = new Set<string>()
+const execFile = promisify(execFileCallback)
 
 interface CommerceLockOwner {
   token: string
@@ -197,7 +199,8 @@ async function withCommerceLock<T>(work: () => Promise<T>): Promise<T> {
 type StateRead =
   | { kind: 'missing' }
   | { kind: 'valid'; state: ContentStoreCommerceState }
-  | { kind: 'invalid'; bytes: Uint8Array; oversized: boolean }
+  | { kind: 'invalid'; bytes: Uint8Array }
+  | { kind: 'oversized' }
   | { kind: 'io-error'; error: unknown }
 
 async function readStateFile(): Promise<StateRead> {
@@ -217,7 +220,7 @@ async function readStateFile(): Promise<StateRead> {
       return { kind: 'io-error', error: new Error(`Content Store state is unsafe: ${statePath}`) }
     }
     if (stat.size > MAX_STATE_BYTES) {
-      return { kind: 'invalid', bytes: await fs.readFile(statePath), oversized: true }
+      return { kind: 'oversized' }
     }
     const bytes = await fs.readFile(statePath)
     return {
@@ -227,7 +230,7 @@ async function readStateFile(): Promise<StateRead> {
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' }
     if (error instanceof SyntaxError || (error && typeof error === 'object' && (error as { name?: string }).name === 'ZodError')) {
-      try { return { kind: 'invalid', bytes: await fs.readFile(statePath), oversized: false } } catch (readError) {
+      try { return { kind: 'invalid', bytes: await fs.readFile(statePath) } } catch (readError) {
         return { kind: 'io-error', error: readError }
       }
     }
@@ -253,18 +256,41 @@ async function ensureSafeQuarantine(): Promise<string> {
   return paths.quarantineRoot
 }
 
-async function quarantineInvalidState(bytes: Uint8Array, oversized: boolean): Promise<ContentStoreCommerceState> {
+async function writeEmptyState(): Promise<ContentStoreCommerceState> {
+  const empty = emptyContentStoreCommerceState()
+  await writeJsonAtomic(getContentStoreStatePath(), empty, { mode: STATE_MODE })
+  return empty
+}
+
+async function quarantineInvalidState(bytes: Uint8Array): Promise<ContentStoreCommerceState> {
   const { statePath } = runtimePaths()
   const quarantineRoot = await ensureSafeQuarantine()
   const hash = createHash('sha256').update(bytes).digest('hex')
-  const target = path.join(quarantineRoot, `commerce-state-${oversized ? 'oversized' : 'invalid'}-${hash}.json`)
+  const target = path.join(quarantineRoot, `commerce-state-invalid-${hash}.json`)
   assertWriteIsolatedInTests(target, 'content-store-commerce-state')
   await fs.writeFile(target, bytes, { flag: 'wx', mode: STATE_MODE }).catch(error => {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
   })
-  const empty = emptyContentStoreCommerceState()
-  await writeJsonAtomic(statePath, empty, { mode: STATE_MODE })
-  return empty
+  return writeEmptyState()
+}
+
+async function quarantineOversizedState(): Promise<ContentStoreCommerceState> {
+  const { statePath } = runtimePaths()
+  const quarantineRoot = await ensureSafeQuarantine()
+  const handle = await fs.open(statePath, 'r')
+  const hash = createHash('sha256')
+  try {
+    const stat = await handle.stat()
+    if (!stat.isFile()) throw new Error(`Content Store oversized state is unsafe: ${statePath}`)
+    const stream = handle.createReadStream({ autoClose: false, highWaterMark: 64 * 1024 })
+    for await (const chunk of stream) hash.update(chunk)
+  } finally {
+    await handle.close()
+  }
+  const target = path.join(quarantineRoot, `commerce-state-oversized-${hash.digest('hex')}-${randomUUID()}.json`)
+  assertWriteIsolatedInTests(target, 'content-store-commerce-state')
+  await fs.rename(statePath, target)
+  return writeEmptyState()
 }
 
 async function readOrResetState(): Promise<ContentStoreCommerceState> {
@@ -272,7 +298,8 @@ async function readOrResetState(): Promise<ContentStoreCommerceState> {
   if (result.kind === 'valid') return result.state
   if (result.kind === 'missing') return emptyContentStoreCommerceState()
   if (result.kind === 'io-error') throw result.error
-  return quarantineInvalidState(result.bytes, result.oversized)
+  if (result.kind === 'oversized') return quarantineOversizedState()
+  return quarantineInvalidState(result.bytes)
 }
 
 export async function readContentStoreCommerceState(): Promise<ContentStoreCommerceState> {
@@ -285,7 +312,6 @@ export async function readContentStoreCommerceState(): Promise<ContentStoreComme
 
 async function mutateState<T>(
   mutate: (state: ContentStoreCommerceState) => T | Promise<T>,
-  afterPersist?: (result: T) => void,
 ): Promise<T> {
   return withCommerceLock(async () => {
     const state = await readOrResetState()
@@ -297,18 +323,66 @@ async function mutateState<T>(
     const { statePath } = runtimePaths()
     assertWriteIsolatedInTests(statePath, 'content-store-commerce-state')
     await writeJsonAtomic(statePath, validated, { mode: STATE_MODE })
-    afterPersist?.(result)
     return result
   })
 }
 
-function submissionClaimKey(quoteId: string): string {
-  return `${getContentStoreStatePath()}\u0000${quoteId}`
+interface SubmissionOwner {
+  hostname: string
+  pid: number
+  process_incarnation: string
+  claimed_at: string
+  token: string
 }
 
-/** Test-only restart seam: a new process starts with no in-memory claims. */
-export function __testForgetActiveContentPurchase(quoteId: string): void {
-  activeSubmissionClaims.delete(submissionClaimKey(quoteId))
+async function processIncarnation(pid: number): Promise<string | null> {
+  if (!Number.isInteger(pid) || pid <= 0) return null
+  try {
+    if (process.platform === 'linux') {
+      const stat = await fs.readFile(`/proc/${pid}/stat`, 'utf8')
+      const fields = stat.slice(stat.lastIndexOf(')') + 2).trim().split(/\s+/)
+      return fields[19] ? `linux:${fields[19]}` : null
+    }
+    if (process.platform === 'darwin') {
+      const { stdout } = await execFile('ps', ['-o', 'lstart=', '-p', String(pid)])
+      const value = stdout.trim()
+      return value ? `darwin:${value}` : null
+    }
+    if (process.platform === 'win32') {
+      const { stdout } = await execFile('powershell', ['-NoProfile', '-Command', `(Get-Process -Id ${pid}).StartTime.ToUniversalTime().Ticks`])
+      const value = stdout.trim()
+      return value ? `win32:${value}` : null
+    }
+  } catch (error: unknown) {
+    try {
+      process.kill(pid, 0)
+    } catch (probeError: unknown) {
+      if ((probeError as NodeJS.ErrnoException).code === 'ESRCH') return null
+      throw new Error(`Unable to inspect Content Store submission owner PID ${pid}`, { cause: error })
+    }
+    throw new Error(`Unable to inspect Content Store submission owner PID ${pid}`, { cause: error })
+  }
+  throw new Error(`Content Store submission owner inspection is unsupported on ${process.platform}`)
+}
+
+async function currentSubmissionOwner(): Promise<SubmissionOwner> {
+  const incarnation = await processIncarnation(process.pid)
+  if (!incarnation) throw new Error('Unable to determine current Content Store submission process identity')
+  return {
+    hostname: os.hostname(),
+    pid: process.pid,
+    process_incarnation: incarnation,
+    claimed_at: nowIso(),
+    token: randomUUID(),
+  }
+}
+
+async function submissionOwnerIsProvenDead(owner: SubmissionOwner): Promise<boolean> {
+  if (owner.hostname !== os.hostname()) {
+    throw new Error(`Content Store submission belongs to foreign host ${owner.hostname}; manual recovery is required`)
+  }
+  const observed = await processIncarnation(owner.pid)
+  return observed === null || observed !== owner.process_incarnation
 }
 
 function nowIso(): string {
@@ -369,9 +443,13 @@ function milliseconds(value: string): number {
   return Date.parse(value)
 }
 
-function pruneForNewAttempt(state: ContentStoreCommerceState): void {
-  if (Object.keys(state.attempts).length < MAX_RECORDS) return
+function encodedStateBytes(state: ContentStoreCommerceState): number {
+  return Buffer.byteLength(JSON.stringify(state), 'utf8')
+}
+
+function pruneStateToBudgets(state: ContentStoreCommerceState, protectedQuoteIds: Set<string>): void {
   const candidates = Object.values(state.attempts)
+    .filter(record => !protectedQuoteIds.has(record.quote_id))
     .filter(record => {
       if (record.status === 'completed') return true
       return (record.status === 'quoted' || record.status === 'refused') && milliseconds(record.expires_at) <= Date.now()
@@ -381,11 +459,12 @@ function pruneForNewAttempt(state: ContentStoreCommerceState): void {
       const rightGroup = right.status === 'completed' ? 1 : 0
       return leftGroup - rightGroup || milliseconds(left.updated_at) - milliseconds(right.updated_at)
     })
-  while (Object.keys(state.attempts).length >= MAX_RECORDS && candidates.length > 0) {
+  while ((Object.keys(state.attempts).length > MAX_RECORDS || encodedStateBytes(state) > MAX_STATE_BYTES)
+    && candidates.length > 0) {
     delete state.attempts[candidates.shift()!.quote_id]
   }
-  if (Object.keys(state.attempts).length >= MAX_RECORDS) {
-    throw new Error('Content Store commerce journal is full of in-flight evidence; no quote was saved')
+  if (Object.keys(state.attempts).length > MAX_RECORDS || encodedStateBytes(state) > MAX_STATE_BYTES) {
+    throw new Error('Content Store commerce journal is full of protected or in-flight evidence; no evidence was lost')
   }
 }
 
@@ -400,8 +479,8 @@ export async function saveQuotedAttempt(quote: GenStudioContentQuote): Promise<C
       }
       return existing
     }
-    pruneForNewAttempt(state)
     state.attempts[quote.quoteId] = candidate
+    pruneStateToBudgets(state, new Set([quote.quoteId]))
     return candidate
   })
 }
@@ -419,14 +498,22 @@ function replaceAttempt(state: ContentStoreCommerceState, next: CachedContentQuo
 }
 
 export async function beginPurchaseAttempt(quoteId: string, accountId: string): Promise<CachedContentQuote> {
+  const owner = await currentSubmissionOwner()
   return mutateState(state => {
     const attempt = requireAttempt(state, quoteId)
     if (attempt.account_id !== accountId) throw new Error('Content Store purchase account does not match the saved quote account')
     if (attempt.status === 'completed') throw new Error('Content Store purchase is already completed and immutable')
     if (attempt.status === 'submitting') throw new Error('Content Store purchase is already submitting')
     const { uncertain_detail: _uncertainDetail, ...retained } = attempt
-    return replaceAttempt(state, { ...retained, status: 'submitting', updated_at: nowIso() })
-  }, () => activeSubmissionClaims.add(submissionClaimKey(quoteId)))
+    const next = replaceAttempt(state, {
+      ...retained,
+      status: 'submitting',
+      submission_owner: owner,
+      updated_at: nowIso(),
+    })
+    pruneStateToBudgets(state, new Set([quoteId]))
+    return next
+  })
 }
 
 export async function recordPurchaseUncertain(quoteId: string, detail: string): Promise<CachedContentQuote> {
@@ -435,8 +522,11 @@ export async function recordPurchaseUncertain(quoteId: string, detail: string): 
     const attempt = requireAttempt(state, quoteId)
     if (attempt.status === 'completed') throw new Error('Content Store purchase is already completed and immutable')
     if (attempt.status !== 'submitting') throw new Error('Only a submitting Content Store purchase can become uncertain')
-    return replaceAttempt(state, { ...attempt, status: 'uncertain', uncertain_detail: boundedDetail, updated_at: nowIso() })
-  }, () => activeSubmissionClaims.delete(submissionClaimKey(quoteId)))
+    const { submission_owner: _submissionOwner, ...retained } = attempt
+    const next = replaceAttempt(state, { ...retained, status: 'uncertain', uncertain_detail: boundedDetail, updated_at: nowIso() })
+    pruneStateToBudgets(state, new Set([quoteId]))
+    return next
+  })
 }
 
 export async function recordPurchaseRefusal(
@@ -450,14 +540,16 @@ export async function recordPurchaseRefusal(
     const attempt = requireAttempt(state, quoteId)
     if (attempt.status === 'completed') throw new Error('Content Store purchase is already completed and immutable')
     if (attempt.status !== 'submitting') throw new Error('Only a submitting Content Store purchase can be refused')
-    const { uncertain_detail: _uncertainDetail, ...retained } = attempt
-    return replaceAttempt(state, {
+    const { uncertain_detail: _uncertainDetail, submission_owner: _submissionOwner, ...retained } = attempt
+    const next = replaceAttempt(state, {
       ...retained,
       status: 'refused',
       last_refusal: bounded,
       updated_at: nowIso(),
     })
-  }, () => activeSubmissionClaims.delete(submissionClaimKey(quoteId)))
+    pruneStateToBudgets(state, new Set([quoteId]))
+    return next
+  })
 }
 
 function cachedPurchase(purchase: GenStudioContentPurchase): CachedContentPurchase {
@@ -501,31 +593,35 @@ export async function recordCompletedPurchase(
     if (!purchase.entitlementFamilies.includes(attempt.entitlement_family)) {
       throw new Error('Completed Content Store purchase does not include the quoted entitlement family')
     }
-    const { uncertain_detail: _uncertainDetail, ...retained } = attempt
-    return replaceAttempt(state, {
+    const { uncertain_detail: _uncertainDetail, submission_owner: _submissionOwner, ...retained } = attempt
+    const next = replaceAttempt(state, {
       ...retained,
       status: 'completed',
       completed_purchase: completed,
       updated_at: nowIso(),
     })
-  }, () => activeSubmissionClaims.delete(submissionClaimKey(quoteId)))
+    pruneStateToBudgets(state, new Set([quoteId]))
+    return next
+  })
 }
 
 export async function recoverInterruptedContentPurchases(): Promise<number> {
-  return mutateState(state => {
+  return mutateState(async state => {
     let recovered = 0
     const updatedAt = nowIso()
     for (const [quoteId, attempt] of Object.entries(state.attempts)) {
       if (attempt.status !== 'submitting') continue
-      if (activeSubmissionClaims.has(submissionClaimKey(quoteId))) continue
+      if (!attempt.submission_owner || !await submissionOwnerIsProvenDead(attempt.submission_owner)) continue
+      const { submission_owner: _submissionOwner, ...retained } = attempt
       state.attempts[quoteId] = CachedContentQuoteSchema.parse({
-        ...attempt,
+        ...retained,
         status: 'uncertain',
         uncertain_detail: 'Story Studio restarted after purchase submission began. No replacement purchase was sent.',
         updated_at: updatedAt,
       })
       recovered += 1
     }
+    pruneStateToBudgets(state, new Set())
     return recovered
   })
 }

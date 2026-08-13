@@ -91,6 +91,14 @@ export const ContentPurchaseAttemptStatusSchema = z.enum([
 
 export type ContentPurchaseAttemptStatus = z.infer<typeof ContentPurchaseAttemptStatusSchema>
 
+export const ContentSubmissionOwnerSchema = z.object({
+  hostname: z.string().min(1).max(255).regex(OPAQUE_TEXT),
+  pid: z.number().int().positive().safe(),
+  process_incarnation: z.string().min(1).max(512).regex(OPAQUE_TEXT),
+  claimed_at: IsoDateTimeSchema,
+  token: z.string().uuid(),
+}).strict()
+
 export const CachedContentQuoteSchema = z.object({
   quote_id: OpaqueIdSchema,
   account_id: OpaqueIdSchema,
@@ -112,6 +120,7 @@ export const CachedContentQuoteSchema = z.object({
   insufficient_reason: z.literal('insufficient_credits').nullable(),
   shortfall_credits: CreditsSchema,
   status: ContentPurchaseAttemptStatusSchema,
+  submission_owner: ContentSubmissionOwnerSchema.optional(),
   created_at: IsoDateTimeSchema,
   updated_at: IsoDateTimeSchema,
   last_refusal: CachedContentRefusalSchema.optional(),
@@ -120,6 +129,9 @@ export const CachedContentQuoteSchema = z.object({
 }).strict().superRefine((value, context) => {
   if ((value.status === 'completed') !== (value.completed_purchase !== undefined)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'completed status and completed_purchase must agree' })
+  }
+  if ((value.status === 'submitting') !== (value.submission_owner !== undefined)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'submitting status and submission_owner must agree' })
   }
   if (value.status === 'refused' && !value.last_refusal) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'refused status requires last_refusal' })
@@ -137,7 +149,13 @@ export type CachedContentQuote = z.infer<typeof CachedContentQuoteSchema>
 export const ContentStoreCommerceStateSchema = z.object({
   schema_version: z.literal(1),
   attempts: z.record(CachedContentQuoteSchema).refine(value => Object.keys(value).length <= 200, 'commerce state exceeds 200 quote records'),
-}).strict()
+}).strict().superRefine((value, context) => {
+  for (const [key, attempt] of Object.entries(value.attempts)) {
+    if (key !== attempt.quote_id) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['attempts', key], message: 'attempt key must equal quote_id' })
+    }
+  }
+})
 
 export type ContentStoreCommerceState = z.infer<typeof ContentStoreCommerceStateSchema>
 
