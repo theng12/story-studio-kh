@@ -13,6 +13,13 @@ import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import * as pm from './project-manager.js'
 import type { TopicPack } from '../models/types.js'
+import {
+  isQualifiedContentPackId,
+  listCatalogEntries,
+  resolveCatalogItem,
+  type ContentPackRegistryOptions,
+} from '../content-packs/registry.js'
+import { contentPackDocumentToTopicPack } from '../content-packs/legacy-adapters.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -82,8 +89,12 @@ async function readPack(filePath: string): Promise<TopicPack> {
   return parsed
 }
 
-export async function loadTopicPack(id: string): Promise<TopicPack | null> {
+export async function loadTopicPack(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack | null> {
   if (!id) return null
+  if (isQualifiedContentPackId(id)) {
+    const signed = await resolveCatalogItem(id, undefined, registryOptions)
+    if (signed?.value.kind === 'topic-pack') return contentPackDocumentToTopicPack(signed.value)
+  }
   const customPath = topicPackFilePath(id)
   if (existsSync(customPath)) {
     const stat = await fs.stat(customPath)
@@ -101,14 +112,17 @@ export async function loadTopicPack(id: string): Promise<TopicPack | null> {
   return pack
 }
 
-export async function listTopicPacks(): Promise<TopicPack[]> {
+export async function listTopicPacks(registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack[]> {
   const found = new Map<string, TopicPack>()
+  for (const entry of await listCatalogEntries('topic-pack', registryOptions)) {
+    if (entry.value.kind === 'topic-pack') found.set(entry.value.id, contentPackDocumentToTopicPack(entry.value))
+  }
   if (existsSync(userDir())) {
     for (const name of await fs.readdir(userDir()).catch(() => [] as string[])) {
       if (!name.endsWith('.json')) continue
       try {
         const pack = await readPack(path.join(userDir(), name))
-        found.set(pack.id, pack)
+        if (!found.has(pack.id)) found.set(pack.id, pack)
       } catch (error: any) {
         console.warn(`[topic-pack-loader] skipping malformed user pack ${name}: ${error.message}`)
       }

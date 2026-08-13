@@ -152,7 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import { BUILT_IN_STYLES, type BuiltInStyle } from '~/composables/useBuiltInStyles'
+import { type BuiltInStyle, useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -170,10 +170,11 @@ const emit = defineEmits<{
 }>()
 
 const { post } = useApi()
+const { styles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
 const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
 const FAVORITES_KEY = 'story-studio:style-library:favorites'
 const RECENTS_KEY = 'story-studio:style-library:recents'
-const categories = Array.from(new Set(BUILT_IN_STYLES.map(style => style.category))).sort()
+const categories = computed(() => Array.from(new Set(styles.value.map(style => style.category))).sort())
 
 interface PreviewState {
   loading: boolean
@@ -199,21 +200,21 @@ const selectedImageModel = computed(() =>
 // rather than an invented '16:9' the customer would take for the model's own.
 const aspectOptions = computed<string[]>(() => selectedImageModel.value?.aspect_ratios?.filter(Boolean) || [])
 const hasBrokenBundledPreview = computed(() => Object.keys(bundledFailed.value).length > 0)
-const draftStyle = computed(() => BUILT_IN_STYLES.find(style => style.id === draftStyleId.value) || null)
+const draftStyle = computed(() => styles.value.find(style => style.id === draftStyleId.value) || null)
 const filters = computed(() => [
-  { id: 'all', label: 'All styles', count: BUILT_IN_STYLES.length },
-  { id: 'favorites', label: 'Favorites', count: favoriteIds.value.size },
-  { id: 'recent', label: 'Recent', count: recentIds.value.length },
-  ...categories.map(category => ({
+  { id: 'all', label: 'All styles', count: styles.value.length },
+  { id: 'favorites', label: 'Favorites', count: styles.value.filter(style => favoriteIds.value.has(style.id)).length },
+  { id: 'recent', label: 'Recent', count: styles.value.filter(style => recentIds.value.includes(style.id)).length },
+  ...categories.value.map(category => ({
     id: `category:${category}`,
     label: category,
-    count: BUILT_IN_STYLES.filter(style => style.category === category).length,
+    count: styles.value.filter(style => style.category === category).length,
   })),
 ])
 const activeFilterLabel = computed(() => filters.value.find(filter => filter.id === activeFilter.value)?.label || 'All styles')
 const filteredStyles = computed(() => {
   const terms = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  let styles = BUILT_IN_STYLES.filter((style) => {
+  let matchingStyles = styles.value.filter((style) => {
     if (activeFilter.value === 'favorites' && !favoriteIds.value.has(style.id)) return false
     if (activeFilter.value === 'recent' && !recentIds.value.includes(style.id)) return false
     if (activeFilter.value.startsWith('category:') && style.category !== activeFilter.value.slice(9)) return false
@@ -225,9 +226,9 @@ const filteredStyles = computed(() => {
   })
   if (activeFilter.value === 'recent') {
     const order = new Map(recentIds.value.map((id, index) => [id, index]))
-    styles = styles.sort((a, b) => (order.get(a.id) ?? 999) - (order.get(b.id) ?? 999))
+    matchingStyles = matchingStyles.sort((a, b) => (order.get(a.id) ?? 999) - (order.get(b.id) ?? 999))
   }
-  return styles
+  return matchingStyles
 })
 
 watch(() => props.visible, async (visible) => {
@@ -254,12 +255,15 @@ onMounted(() => {
   favoriteIds.value = new Set(readStoredIds(FAVORITES_KEY))
   recentIds.value = readStoredIds(RECENTS_KEY).slice(0, 8)
   void refreshGenStudioImageModels()
+  void refreshVisualStyles()
 })
 
 function readStoredIds(key: string): string[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(key) || '[]')
-    return Array.isArray(parsed) ? parsed.filter(id => BUILT_IN_STYLES.some(style => style.id === id)) : []
+    return Array.isArray(parsed)
+      ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : []
   } catch {
     return []
   }

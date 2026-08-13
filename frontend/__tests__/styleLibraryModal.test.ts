@@ -25,14 +25,22 @@ describe('scalable built-in style library', () => {
     assert.match(modal, /role="listbox"/)
   })
 
+  test('retains saved downloaded-style favorites while the reactive catalog is loading', () => {
+    assert.match(modal, /parsed\.filter\(\(id\): id is string => typeof id === 'string'/)
+    assert.doesNotMatch(modal, /parsed\.filter\(id => styles\.value\.some/)
+    assert.match(modal, /styles\.value\.filter\(style => favoriteIds\.value\.has\(style\.id\)\)\.length/)
+  })
+
   test('keeps the active style compact instead of rendering the full collection inline', () => {
     assert.match(picker, /style-picker-current/)
     assert.match(picker, /BuiltInStyleLibraryModal/)
+    assert.match(picker, /useVisualStyleCatalog/)
     assert.doesNotMatch(picker, /v-for="style in BUILT_IN_STYLES"/)
   })
 
   test('reuses the modal for built-in starters in project settings', () => {
     assert.match(projectLibrary, /BuiltInStyleLibraryModal/)
+    assert.match(projectLibrary, /useVisualStyleCatalog/)
     assert.match(projectLibrary, /Browse Style Library/)
     assert.doesNotMatch(projectLibrary, /v-for="style in BUILT_IN_STYLES"/)
   })
@@ -50,8 +58,8 @@ describe('scalable built-in style library', () => {
 
   test('keeps every project style surface on the shared built-in catalog', () => {
     assert.match(characterSheet, /<StylePicker/)
-    assert.match(imagePrompts, /import \{ BUILT_IN_STYLES \}/)
+    assert.match(imagePrompts, /useVisualStyleCatalog/)
     assert.match(imagePrompts, /<StylePicker/)
-    assert.match(settings, /import \{ BUILT_IN_STYLES \}/)
+    assert.match(settings, /useVisualStyleCatalog/)
   })
 })

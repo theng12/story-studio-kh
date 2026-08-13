@@ -26,6 +26,7 @@ import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { respondWithError } from '../lib/humanize-backend-error.js'
 import { NicheSchema, SetProjectNicheSchema, TopicPackSchema } from '../contracts/index.js'
 import type { Niche, ProjectMeta, TopicPack } from '../models/types.js'
+import { listVisualStyles } from '../services/visual-style-loader.js'
 
 export const router = Router()
 
@@ -64,6 +65,14 @@ router.get('/topic-packs', async (req, res) => {
     })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to list Topic Packs')
+  }
+})
+
+router.get('/visual-styles', async (_req, res) => {
+  try {
+    res.json({ visual_styles: await listVisualStyles() })
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to list visual styles')
   }
 })
 

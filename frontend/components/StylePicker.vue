@@ -6,7 +6,7 @@
           <label>Channel art style</label>
           <p>One selected look stays visible here. Open the library only when you want to browse or change it.</p>
         </div>
-        <span>{{ BUILT_IN_STYLES.length }} built-in looks</span>
+        <span>{{ styles.length }} available looks</span>
       </div>
 
       <div class="style-picker-current" :class="{ empty: !activeStyle && !activeStyleBible?.trim() }">
@@ -53,13 +53,13 @@
 </template>
 
 <script setup lang="ts">
-import { BUILT_IN_STYLES, type BuiltInStyle } from '~/composables/useBuiltInStyles'
+import { type BuiltInStyle, useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
 
 const props = defineProps<{
   slug: string
-  /** The active Style Bible lets the compact card identify the current built-in. */
+  /** The active Style Bible lets the compact card identify the current catalog style. */
   activeStyleBible?: string
-  /** Some focused workspaces only need the shipped style library. */
+  /** Some focused workspaces only need the shared style library. */
   showCustomStyles?: boolean
 }>()
 
@@ -69,10 +69,11 @@ const emit = defineEmits<{
 
 const libraryOpen = ref(false)
 const appliedStyleId = ref('')
+const { styles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
 const activeStyle = computed(() => {
   const bible = props.activeStyleBible?.trim()
-  if (bible) return BUILT_IN_STYLES.find(style => style.data.style_bible.trim() === bible) || null
-  return BUILT_IN_STYLES.find(style => style.id === appliedStyleId.value) || null
+  if (bible) return styles.value.find(style => style.data.style_bible.trim() === bible) || null
+  return styles.value.find(style => style.id === appliedStyleId.value) || null
 })
 const customStyleSummary = computed(() => {
   const text = props.activeStyleBible?.trim()
@@ -92,6 +93,10 @@ function applyCustomStyle(data: { style_bible: string; negative_prompt: string }
   appliedStyleId.value = ''
   emit('apply', data)
 }
+
+onMounted(() => {
+  void refreshVisualStyles()
+})
 </script>
 
 <style scoped>

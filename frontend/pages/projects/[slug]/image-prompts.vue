@@ -83,7 +83,7 @@
           <label>{{ formTab === 'thumbnails' ? 'Visual Style' : 'Art Style' }}</label>
           <select v-model="activeForm.style_preset" class="select" @change="onStyleChange">
             <optgroup v-if="formTab === 'thumbnails'" label="Shared Style Gallery">
-              <option v-for="style in BUILT_IN_STYLES" :key="style.id" :value="`shared:${style.id}`">
+              <option v-for="style in visualStyles" :key="style.id" :value="`shared:${style.id}`">
                 {{ style.name }}
               </option>
             </optgroup>
@@ -999,7 +999,7 @@
 </template>
 
 <script setup lang="ts">
-import { BUILT_IN_STYLES } from '~/composables/useBuiltInStyles'
+import { useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
 import {
   normalizePromptCharCapSetting,
   promptCharCapAboveModel,
@@ -1013,6 +1013,7 @@ definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put } = useApi()
+const { styles: visualStyles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
 const { success, info: showInfo, error: showError } = useToast()
 
 const generating = ref(false)
@@ -1619,7 +1620,10 @@ watch(selectedGenStudioImageModel, (model) => {
     activeForm.value.aspect_ratio = model.default_aspect_ratio || model.aspect_ratios[0]!
   }
 })
-onMounted(() => { void refreshGenStudioImageModels().catch(() => {}) })
+onMounted(() => {
+  void refreshGenStudioImageModels().catch(() => {})
+  void refreshVisualStyles()
+})
 
 // v1.0.304 — moved here from the `useCharacters` declaration above: watch()
 // evaluates its source getter during setup, so `() => activeForm.value.…` must
@@ -2249,7 +2253,7 @@ onMounted(() => { void loadPersistedReferencePath() })
 function onStyleChange() {
   if (activeForm.value.style_preset.startsWith('shared:')) {
     const id = activeForm.value.style_preset.slice('shared:'.length)
-    const style = BUILT_IN_STYLES.find(item => item.id === id)
+    const style = visualStyles.value.find(item => item.id === id)
     if (style) {
       activeForm.value.style_tag = style.data.style_bible
       showStyleEditor.value = true

@@ -39,6 +39,8 @@ export interface ContentPackVerificationPolicy {
 
 export interface VerifiedContentPack {
   manifest: ContentPackManifest
+  /** SHA-256 of the exact signed archive, used for immutable version pins. */
+  archiveSha256: string
   /** Exact bytes that were signed; never reserialized before verification. */
   manifestBytes: Uint8Array
   documents: ReadonlyMap<string, ContentPackDocument>
@@ -374,5 +376,5 @@ export async function verifyContentPackArchive(
     }
   }
   for (const path of declaredRasters) if (!referencedRasters.has(path)) fail(`orphan declared raster asset: ${JSON.stringify(path)}`)
-  return { manifest, manifestBytes, documents, files }
+  return { manifest, archiveSha256: sha256(archiveBytes), manifestBytes, documents, files }
 }

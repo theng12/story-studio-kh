@@ -36,6 +36,13 @@ import { createRequire } from 'module'
 import * as pm from './project-manager.js'
 import type { Niche, DeepPartial, ProjectMeta, TopicPack, IdeaAxis, NicheMetadataProfile } from '../models/types.js'
 import * as topicPackLoader from './topic-pack-loader.js'
+import {
+  isQualifiedContentPackId,
+  listCatalogEntries,
+  resolveCatalogItem,
+  type ContentPackRegistryOptions,
+} from '../content-packs/registry.js'
+import { contentPackDocumentToNiche } from '../content-packs/legacy-adapters.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -221,8 +228,12 @@ function validateNicheShape(n: any, filePath: string): void {
  * Load a niche by id. User-custom first (shadows built-ins by id), then
  * built-in library. Returns null if not found.
  */
-export async function loadNiche(id: string): Promise<Niche | null> {
+export async function loadNiche(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<Niche | null> {
   if (!id) return null
+  if (isQualifiedContentPackId(id)) {
+    const signed = await resolveCatalogItem(id, undefined, registryOptions)
+    if (signed?.value.kind === 'series-formula') return contentPackDocumentToNiche(signed.value)
+  }
   const userPath = path.join(userNichesDir(), `${id}.json`)
   if (existsSync(userPath)) {
     const st = await fs.stat(userPath)
@@ -245,8 +256,12 @@ export async function loadNiche(id: string): Promise<Niche | null> {
  * Malformed JSONs are skipped with a console warning rather than failing
  * the list — the user can fix the bad file without losing the others.
  */
-export async function listNiches(): Promise<Niche[]> {
+export async function listNiches(registryOptions: ContentPackRegistryOptions = {}): Promise<Niche[]> {
   const seen = new Map<string, Niche>()
+
+  for (const entry of await listCatalogEntries('series-formula', registryOptions)) {
+    if (entry.value.kind === 'series-formula') seen.set(entry.value.id, contentPackDocumentToNiche(entry.value))
+  }
 
   const userDir = userNichesDir()
   if (existsSync(userDir)) {
@@ -256,7 +271,7 @@ export async function listNiches(): Promise<Niche[]> {
       if (!name.endsWith('.json')) continue
       try {
         const n = await loadNicheFile(path.join(userDir, name))
-        seen.set(n.id, n)
+        if (!seen.has(n.id)) seen.set(n.id, n)
       } catch (e: any) {
         console.warn(`[niche-loader] skipping malformed user niche ${name}: ${e.message}`)
       }

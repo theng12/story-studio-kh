@@ -1848,7 +1848,7 @@
               <option v-for="s in savedStylePresets" :key="s.id" :value="s.id">{{ s.name }}</option>
             </optgroup>
             <optgroup label="Built-in styles">
-              <option v-for="s in BUILT_IN_STYLES" :key="s.id" :value="`builtin:${s.id}`">{{ s.name }}</option>
+              <option v-for="s in visualStyles" :key="s.id" :value="`builtin:${s.id}`">{{ s.name }}</option>
             </optgroup>
           </select>
         </div>
@@ -2167,10 +2167,9 @@
 // FileBrowserModal (server mode / remote tailnet browser). Not auto-imported
 // — it's a bare named export, not a useX composable.
 import { pickFolder as pickFolderShared } from '~/composables/usePathPicker'
-// Built-in art styles offered in the per-project Art Style selector below.
-// Bare named export (not a useX composable), so import it explicitly —
-// mirrors image-prompts.vue.
-import { BUILT_IN_STYLES } from '~/composables/useBuiltInStyles'
+// Reactive art-style catalog used by the per-project selector below; its
+// bundled recovery set remains available when the backend catalog is offline.
+import { useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
 import {
   VOICE_PROVIDER_OPTIONS,
   firstVoiceProviderIndex,
@@ -2184,6 +2183,8 @@ useAppTitle('Settings')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
+const { styles: visualStyles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
+onMounted(() => { void refreshVisualStyles() })
 const { ask } = useConfirm()
 const { project, config, refreshConfig, loadProject } = useProject()
 const { success, error: showError, info } = useToast()
@@ -2477,7 +2478,7 @@ const humanizeCatalogId = (value?: string) => (value || 'Not specified')
   .join(' ')
 const selectedProductionKitStyleName = computed(() => {
   const id = selectedProductionKit.value?.recommendedVisualStyleId
-  return BUILT_IN_STYLES.find(style => style.id === id)?.name || humanizeCatalogId(id)
+  return visualStyles.value.find(style => style.id === id)?.name || humanizeCatalogId(id)
 })
 const selectedProductionKitThumbnailName = computed(() =>
   humanizeCatalogId(selectedNicheProfile.value?.defaultThumbnailTemplateId))
@@ -4362,7 +4363,7 @@ watch(artStyleSelection, async (next, prev) => {
     let activeId = next
     if (next.startsWith('builtin:')) {
       const builtinId = next.slice('builtin:'.length)
-      const bs = BUILT_IN_STYLES.find(b => b.id === builtinId)
+      const bs = visualStyles.value.find(b => b.id === builtinId)
       if (!bs) throw new Error('Unknown built-in style')
       activeId = bs.id
       // Materialise the built-in into style_presets if it isn't there yet
@@ -4419,7 +4420,7 @@ async function applyFormulaVisualDefault(niche: any): Promise<boolean> {
     return true
   }
 
-  const builtin = BUILT_IN_STYLES.find(style => style.id === styleId)
+  const builtin = visualStyles.value.find(style => style.id === styleId)
   if (!builtin) return false
   const presets = Array.isArray((config.value as any)?.style_presets)
     ? [...(config.value as any).style_presets]

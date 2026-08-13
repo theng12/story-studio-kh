@@ -30,6 +30,15 @@ import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import * as pm from './project-manager.js'
 import type { ThumbnailTemplate, ProjectMeta, Niche } from '../models/types.js'
+import {
+  isQualifiedContentPackId,
+  listCatalogEntries,
+  resolveCatalogItem,
+  type CatalogEntry,
+  type ContentPackRegistryOptions,
+} from '../content-packs/registry.js'
+import { contentPackDocumentToThumbnailTemplate } from '../content-packs/legacy-adapters.js'
+import type { ContentPackDocument } from '../content-packs/types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -111,8 +120,26 @@ function validateShape(t: any, filePath: string): void {
  * Load a template by id. User-custom first, then built-in. Returns
  * null when not found.
  */
-export async function loadTemplate(id: string): Promise<ThumbnailTemplate | null> {
+function signedTemplate(entry: CatalogEntry<ContentPackDocument>): ThumbnailTemplate | null {
+  if (entry.value.kind !== 'thumbnail-recipe' || !entry.pack) return null
+  const previews = entry.value.preview_assets.flatMap(assetPath => {
+    const asset = entry.assets?.[assetPath]
+    return asset
+      ? [`/api/content-packs/${encodeURIComponent(entry.pack!.pack_id)}/${encodeURIComponent(entry.pack!.version)}/assets/${encodeURIComponent(asset.asset_id)}`]
+      : []
+  })
+  return contentPackDocumentToThumbnailTemplate(entry.value, previews)
+}
+
+export async function loadTemplate(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<ThumbnailTemplate | null> {
   if (!id) return null
+  if (isQualifiedContentPackId(id)) {
+    const signed = await resolveCatalogItem(id, undefined, registryOptions)
+    if (signed) {
+      const mapped = signedTemplate(signed)
+      if (mapped) return mapped
+    }
+  }
   const userPath = path.join(userTemplatesDir(), `${id}.json`)
   if (existsSync(userPath)) {
     const st = await fs.stat(userPath)
@@ -135,8 +162,12 @@ export async function loadTemplate(id: string): Promise<ThumbnailTemplate | null
  * name. Malformed JSONs are skipped with a console warning rather than
  * failing the list — one bad file shouldn't hide the whole library.
  */
-export async function listTemplates(): Promise<ThumbnailTemplate[]> {
+export async function listTemplates(registryOptions: ContentPackRegistryOptions = {}): Promise<ThumbnailTemplate[]> {
   const seen = new Map<string, ThumbnailTemplate>()
+  for (const entry of await listCatalogEntries('thumbnail-recipe', registryOptions)) {
+    const mapped = signedTemplate(entry)
+    if (mapped) seen.set(mapped.id, mapped)
+  }
 
   const userDir = userTemplatesDir()
   if (existsSync(userDir)) {
@@ -146,7 +177,7 @@ export async function listTemplates(): Promise<ThumbnailTemplate[]> {
       if (!name.endsWith('.json')) continue
       try {
         const t = await loadFile(path.join(userDir, name))
-        seen.set(t.id, t)
+        if (!seen.has(t.id)) seen.set(t.id, t)
       } catch (e: any) {
         console.warn(`[thumbnail-template-loader] skipping malformed user template ${name}: ${e.message}`)
       }

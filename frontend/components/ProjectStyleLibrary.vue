@@ -2,10 +2,10 @@
   <div class="psl">
     <div v-if="showBuiltInStarters" class="psl-builtins-launch card">
       <div>
-        <span class="psl-library-kicker">Built-in library</span>
-        <label>Start from a shipped style</label>
+        <span class="psl-library-kicker">Style library</span>
+        <label>Start from an available style</label>
         <p class="text-muted text-xs mt-1">
-          Browse {{ BUILT_IN_STYLES.length }} searchable looks in a focused library instead of expanding every card on this page.
+          Browse {{ styles.length }} searchable looks in a focused library instead of expanding every card on this page.
         </p>
       </div>
       <button type="button" class="btn btn-primary" @click="builtInLibraryOpen = true">Browse Style Library</button>
@@ -247,7 +247,7 @@
 </template>
 
 <script setup lang="ts">
-import { BUILT_IN_STYLES, type BuiltInStyle } from '~/composables/useBuiltInStyles'
+import { type BuiltInStyle, useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
 
 interface PresetEntry {
   id: string
@@ -295,6 +295,7 @@ const emit = defineEmits<{
 }>()
 
 const { get, post, put, del } = useApi()
+const { styles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
@@ -357,6 +358,7 @@ watch(() => props.projectSlug, () => {
 
 onMounted(() => {
   void refreshGenStudioImageModels()
+  void refreshVisualStyles()
   void loadPresets()
 })
 
@@ -600,7 +602,7 @@ function applyPreset(preset: PresetEntry): void {
 
 function loadBuiltInStyle(style: BuiltInStyle): void {
   editingPresetId.value = null
-  editorOriginLabel.value = `Loaded from built-in: ${style.name}`
+  editorOriginLabel.value = `Loaded from library: ${style.name}`
   draftName.value = style.name
   draftDescription.value = style.data.style_bible
   liveSamples.value = SAMPLE_VARIANTS.map(defaultSampleState)

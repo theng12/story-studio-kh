@@ -14,6 +14,9 @@
 // demonstrates the selected look without spending credits or relying on a
 // network connection.
 
+import { readonly, ref, shallowReadonly, shallowRef } from 'vue'
+import { useApi } from './useApi'
+
 export interface BuiltInStyle {
   id: string
   name: string
@@ -293,3 +296,80 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     preview_image: '/builtin-style-previews/anime-cel.webp',
   },
 ]
+
+const catalogStyles = shallowRef<BuiltInStyle[]>([...BUILT_IN_STYLES])
+const catalogLoading = ref(false)
+const catalogUsingFallback = ref(true)
+const catalogError = ref<string | null>(null)
+let refreshPromise: Promise<void> | null = null
+
+function isBuiltInStyle(value: unknown): value is BuiltInStyle {
+  if (!value || typeof value !== 'object') return false
+  const style = value as Partial<BuiltInStyle>
+  const data = style.data as Partial<BuiltInStyle['data']> | undefined
+  return typeof style.id === 'string' && !!style.id
+    && typeof style.name === 'string' && !!style.name
+    && style.builtin === true
+    && typeof style.blurb === 'string'
+    && (style.category === 'Digital' || style.category === 'Explainer' || style.category === 'Illustration' || style.category === 'Realistic')
+    && Array.isArray(style.tags) && style.tags.every(tag => typeof tag === 'string')
+    && typeof data?.style_bible === 'string'
+    && typeof data?.negative_prompt === 'string'
+    && typeof style.preview_image === 'string'
+    && /^\/api\/content-packs\/[a-z0-9.%_-]+\/[0-9.]+\/assets\/[a-f0-9]{64}$/.test(style.preview_image)
+}
+
+function mergeWithLegacyRecovery(published: readonly BuiltInStyle[]): BuiltInStyle[] {
+  const seen = new Set<string>()
+  const merged: BuiltInStyle[] = []
+  for (const style of [...published, ...BUILT_IN_STYLES]) {
+    if (seen.has(style.id)) continue
+    seen.add(style.id)
+    merged.push(style)
+  }
+  return merged
+}
+
+/**
+ * Reactive server-published catalog with the 17 shipped looks as immutable
+ * offline recovery. The renderer receives API URLs only, never pack paths.
+ */
+export function useVisualStyleCatalog() {
+  const { get } = useApi()
+  const refresh = (): Promise<void> => {
+    if (refreshPromise) return refreshPromise
+    catalogLoading.value = true
+    refreshPromise = (async () => {
+      try {
+        const response = await get<{ visual_styles?: unknown[] }>('/visual-styles', { cache: 'no-store' })
+        const published = (response.visual_styles ?? []).filter(isBuiltInStyle)
+        catalogStyles.value = mergeWithLegacyRecovery(published)
+        catalogUsingFallback.value = published.length === 0
+        catalogError.value = null
+      } catch (error: unknown) {
+        catalogStyles.value = [...BUILT_IN_STYLES]
+        catalogUsingFallback.value = true
+        catalogError.value = error instanceof Error ? error.message : 'Visual style catalog is unavailable.'
+      } finally {
+        catalogLoading.value = false
+        refreshPromise = null
+      }
+    })()
+    return refreshPromise
+  }
+  return {
+    styles: shallowReadonly(catalogStyles),
+    loading: readonly(catalogLoading),
+    usingFallback: readonly(catalogUsingFallback),
+    error: readonly(catalogError),
+    refresh,
+  }
+}
+
+export function _resetVisualStyleCatalogForTests(): void {
+  catalogStyles.value = [...BUILT_IN_STYLES]
+  catalogLoading.value = false
+  catalogUsingFallback.value = true
+  catalogError.value = null
+  refreshPromise = null
+}
