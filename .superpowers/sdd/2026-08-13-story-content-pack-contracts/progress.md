@@ -36,7 +36,12 @@
   - Registry RED: new registry suite failed before implementation because the resolver modules did not exist.
   - Registry GREEN: 53/53 relevant tests passed (registry, Content Pack contract, scene motion, and format loader); `npm run typecheck:electron` and `git diff --check` passed.
   - Registry follow-up commit: `feat: ground content pack behavior registries`.
-- [ ] Task 2 — archive integrity and Ed25519 verification
+- [x] Task 2 — archive integrity and Ed25519 verification
+  - RED: `STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 electron/server/__tests__/content-pack-archive.test.ts` failed as expected with `ERR_MODULE_NOT_FOUND` for `content-packs/archive.js`.
+  - GREEN: the archive suite passes 10/10, including exact raw-manifest Ed25519 signatures, hashes and byte counts, absent/undeclared entries, raw path/case/Unicode collision checks, symlink attributes, archive limits, and bad key/publisher/signature cases.
+  - Mutation proof: temporarily bypassing signature verification made the raw-manifest tamper test fail; temporarily bypassing canonical collision detection made the collision test fail. Both safeguards were restored immediately.
+  - Verification: Task 1 + Task 2 focused tests pass 32/32; `npm run typecheck:electron` and `git diff --check` pass.
+  - Commit: `feat: verify immutable content pack archives`.
 - [ ] Task 3 — first-party publisher CLI
 - [ ] Task 4 — current-catalog migration golden
 - [ ] Task 5 — independent review and runtime-plan handoff
