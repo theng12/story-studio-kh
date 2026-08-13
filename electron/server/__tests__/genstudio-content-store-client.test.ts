@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 
 import {
@@ -19,6 +20,7 @@ import { useTempDataDir } from './_helpers.js'
 
 const SIGNATURE = Buffer.alloc(64, 7).toString('base64')
 const HASH = 'a'.repeat(64)
+const PACKAGE_VERSION = JSON.parse(await fs.readFile(new URL('../../../package.json', import.meta.url), 'utf8')).version
 
 function release(overrides: Record<string, unknown> = {}) {
   return {
@@ -560,7 +562,7 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
   })
 
   test('resolves the current source version through the generic resolver', async () => {
-    assert.equal(await resolveStoryStudioVersion({ packaged: false }), '1.0.834')
+    assert.equal(await resolveStoryStudioVersion({ packaged: false }), PACKAGE_VERSION)
     assert.equal(await resolveStoryStudioVersion({ packaged: true, electronVersion: '8.2.1' }), '8.2.1')
   })
 })

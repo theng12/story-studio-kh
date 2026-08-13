@@ -16,6 +16,7 @@ import { useTempDataDir } from './_helpers.js'
 
 const PUBLISHER_ID = 'com.storystudio'
 const KEY_ID = 'com.storystudio.test-installer'
+const PACKAGE_VERSION = JSON.parse(await fs.readFile(new URL('../../../package.json', import.meta.url), 'utf8')).version
 const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==', 'base64')
 const keyPair = generateKeyPairSync('ed25519')
 const policy = createContentPackKeyring([{
@@ -167,7 +168,7 @@ describe('Content Pack local installer', () => {
 
   test('resolves the app version from the package in development and Electron metadata when packaged', async () => {
     const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../content-packs')
-    assert.equal(await resolveContentPackAppVersion({ packaged: false, sourceContentPackRoot: sourceRoot }), '1.0.834')
+    assert.equal(await resolveContentPackAppVersion({ packaged: false, sourceContentPackRoot: sourceRoot }), PACKAGE_VERSION)
     assert.equal(await resolveContentPackAppVersion({ packaged: true, electronVersion: '8.2.1' }), '8.2.1')
     await assert.rejects(resolveContentPackAppVersion({ packaged: true }), /packaged app version/i)
   })
@@ -290,7 +291,7 @@ describe('Content Pack local installer', () => {
     await fs.access(compiled)
     const module = await import(pathToFileURL(compiled).href)
     const paths = await isolated()
-    assert.equal(await module.resolveContentPackAppVersion({ packaged: false }), '1.0.834')
+    assert.equal(await module.resolveContentPackAppVersion({ packaged: false }), PACKAGE_VERSION)
     await assert.doesNotReject(module.installContentPack(request(await buildArchive()), { paths, policy }))
   })
 })

@@ -32,18 +32,27 @@ export async function resolveStoryStudioVersion(
     return exactVersion(version, 'Electron app metadata')
   }
 
-  const sourceRoot = options.sourceRoot
-    ? path.resolve(options.sourceRoot)
-    : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
-  const packagePath = path.join(sourceRoot, 'package.json')
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(await fs.readFile(packagePath, 'utf8'))
-  } catch (error) {
-    throw new Error(`Story Studio package metadata is invalid: ${packagePath}`, { cause: error })
+  const moduleDirectory = path.dirname(fileURLToPath(import.meta.url))
+  const sourceRoots = options.sourceRoot
+    ? [path.resolve(options.sourceRoot)]
+    : [
+        path.resolve(moduleDirectory, '..', '..', '..'),
+        path.resolve(moduleDirectory, '..', '..', '..', '..'),
+      ]
+  let lastError: unknown
+  for (const sourceRoot of sourceRoots) {
+    const packagePath = path.join(sourceRoot, 'package.json')
+    try {
+      const parsed: unknown = JSON.parse(await fs.readFile(packagePath, 'utf8'))
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error(`Story Studio package metadata is invalid: ${packagePath}`)
+      }
+      const metadata = parsed as Record<string, unknown>
+      if (metadata.name !== 'story-studio-kh') continue
+      return exactVersion(metadata.version, packagePath)
+    } catch (error) {
+      lastError = error
+    }
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error(`Story Studio package metadata is invalid: ${packagePath}`)
-  }
-  return exactVersion((parsed as Record<string, unknown>).version, packagePath)
+  throw new Error(`Story Studio package metadata is invalid: ${sourceRoots.map(root => path.join(root, 'package.json')).join(' or ')}`, { cause: lastError })
 }
