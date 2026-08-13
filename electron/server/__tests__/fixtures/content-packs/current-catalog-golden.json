@@ -19,38 +19,16 @@
         "historical-infrastructure-commodities-corporate-power",
         "economics-ancient-civilizations"
       ],
-      "idea_axes": [
-        {
-          "id": "causal-mechanism",
-          "label": "Causal mechanism",
-          "value_count": 11,
-          "values_sha256": "0ce4483638a6501eb2d81dff2c01e805c826d1e6d8f5525f0c7cd7a153f3ecd1"
-        },
-        {
-          "id": "popular-account-gap",
-          "label": "What the familiar account misses",
-          "value_count": 8,
-          "values_sha256": "347497d300437405d3b065e390ddc361df2a6ae1f92fdbe2d59bbbe086b514ed"
-        },
-        {
-          "id": "causal-stage",
-          "label": "Causal stage",
-          "value_count": 5,
-          "values_sha256": "d6a26b3db534bb7a11ed78a333af2309f39575cd0a559ed7e1b3dd6320629b48"
-        },
-        {
-          "id": "evidence-posture",
-          "label": "Evidence posture",
-          "value_count": 4,
-          "values_sha256": "2d4e9c41035f0ea60679fbc181b6415c2650a04680b94a96a759c854a8dac88b"
-        }
+      "active_topic_pack_ids": [
+        "historical-states-revolutions-collapse",
+        "historical-money-debt-financial-institutions",
+        "historical-empires-trade-extraction",
+        "historical-wars-treaties-world-order",
+        "historical-infrastructure-commodities-corporate-power"
       ],
-      "idea_system_prompt_role_sha256": "2a042ba2443b6511a433af56b2cab8632ccf3bd524d0f649017d53875875ffef",
-      "idea_guidance_text_sha256": "b65955e3be4cdc6422aaf5ab84aed01d03e03d0e36d0c1e018f9bf31f514ef3a",
-      "script_context_sha256": "cdd9c94f886b8c90ac2b2ffd7630cd2ada7e0be11e31036146989347fd15f3cb",
-      "script_system_prompt_role_sha256": "cf29f3a99258988e9ca0df09246b38505e7d88c84ca7a01b127810993234d886",
-      "script_closing_hint_sha256": "9efc51f8cd9af5fdb57ae2a91cc8b78b487e206d3d11c62dff7bd34d9cd26094",
-      "script_structure": {
+      "effective_prompt_fields_sha256": "fee87d1f2272e2fd69a006b2d0b5585ba68a8472da87301145eebf004fde7cce",
+      "ideation_profile_sha256": "b92a6fb5e1e727151f891283809559945dfda22632bf571b87188dea1d3c4ea3",
+      "script_shape": {
         "default_chapter_count": 9,
         "chapter_count_range": [
           9,
@@ -67,11 +45,19 @@
           45
         ],
         "default_words_per_minute": 140,
-        "chapters_independent": true,
-        "pacing_arc_sha256": "2dc08dcc656744e60f90391a2fcc5e8b1c001ab9f7e0e2226f40e07b76e26d30",
-        "additional_rules_sha256": "7172994011be94b02c1c75402adbf39fe3b86228e95de371391b4fb53adfa0e4"
+        "chapters_independent": true
       },
-      "recommended_visual_style_id": "builtin-archival-documentary-reconstruction",
+      "narration_profile_sha256": "3dccb6b01e74cc3b0ceca8780855406fc62a7fd1dfd3edc035d02da22e9b88c0",
+      "default_narrator_style_id": "historical-investigator",
+      "metadata_profile_sha256": "d0a8342d77e978c710a55c25dde2b3735671aa61208c103c2ac855430b1be96f",
+      "production_kit": {
+        "id": "hidden-mechanics-history-kit",
+        "label": "Hidden Mechanics History Production Kit",
+        "recommended_visual_style_id": "builtin-archival-documentary-reconstruction",
+        "episode_profile_ids": [],
+        "policies_sha256": "c07b68c6c9d0be51db7c759cf538b522920eeece316f30383c79afb3d88bdb5e"
+      },
+      "visual_profile_sha256": "d59a5c1863941547291f61d06bfe7db6932f0456e976bc693d6cc213b85a5df1",
       "default_thumbnail_template_id": "archival-map-investigation"
     },
     "default_topic_packs": [
@@ -83,14 +69,13 @@
         ],
         "subject_count": 25,
         "subjects_sha256": "42610e725daef30c7310b382b6836352f7ec86dd895aa2ae6e9cced27bdbad77",
-        "idea_axes": [
+        "idea_axis_ids": [
           {
             "id": "state-change",
-            "label": "State-change lens",
-            "value_count": 8,
-            "values_sha256": "905f51d0dda0906cd66a84fc239931ea0b25350f97d18e867c85cba2208777ec"
+            "label": "State-change lens"
           }
         ],
+        "idea_axes_sha256": "a47ec41c8df4472a9e5c9aa89cb3a1d445f9d18d4bb344247d0d0d5b8835ca4b",
         "prompt_context_sha256": "f01803ec6bb9e548d30afc824a1e67a28e59995984827a625a851ef0cbede0bf"
       },
       {
@@ -101,14 +86,13 @@
         ],
         "subject_count": 25,
         "subjects_sha256": "5ab143e43454997895eccf351db11c6567dd140bd05351371582f1b35659dd34",
-        "idea_axes": [
+        "idea_axis_ids": [
           {
             "id": "financial-mechanism",
-            "label": "Financial mechanism",
-            "value_count": 8,
-            "values_sha256": "06ba28b2742c33c813d6e216812554e788acb7fdb7819e0ffe55e429481c4546"
+            "label": "Financial mechanism"
           }
         ],
+        "idea_axes_sha256": "33c1d1f6e7bc95610314a9d4af2255394f7a0daccb48628bc20a1e8404986430",
         "prompt_context_sha256": "f89224595977bc912d9f2e6c7101824b77b81bf80ad9164567fd95c0e6783a24"
       },
       {
@@ -119,14 +103,13 @@
         ],
         "subject_count": 25,
         "subjects_sha256": "3c4ce551f4150a2e356af23b96f150e7558925afc873c78089219d292eb10d22",
-        "idea_axes": [
+        "idea_axis_ids": [
           {
             "id": "extraction-system",
-            "label": "Imperial and trade mechanism",
-            "value_count": 8,
-            "values_sha256": "b1fa2f56ace66be8bb3838e179e5ca3f4d3294c4e763f2ab2b268b3f2639bc17"
+            "label": "Imperial and trade mechanism"
           }
         ],
+        "idea_axes_sha256": "8df309aeee9fc7e9db88aba5bc7a3b51675e70ebf05930de9e674e1969e62581",
         "prompt_context_sha256": "7b4ce91c7a4b6d428f6b4413f94a602e58d33ab821a2f652f3b90a01bb702985"
       },
       {
@@ -137,14 +120,13 @@
         ],
         "subject_count": 25,
         "subjects_sha256": "8c6b83dc627ba26f7314bbe2c63d08567a136fbab4c709e738bf48662612aa59",
-        "idea_axes": [
+        "idea_axis_ids": [
           {
             "id": "world-order-lens",
-            "label": "War and diplomacy lens",
-            "value_count": 8,
-            "values_sha256": "5177d2d981e49a930d7d7710a84cb108a667648365de1f96dda692232af502c0"
+            "label": "War and diplomacy lens"
           }
         ],
+        "idea_axes_sha256": "103b79fba415ddb88b0e6818e57c0e03d9f04485b8f529e320d15df5833898f7",
         "prompt_context_sha256": "ce9eed2cec095acb5cbe16e5e4ca7b086b505762e6e1bc42574ba2942e35d346"
       },
       {
@@ -155,14 +137,13 @@
         ],
         "subject_count": 25,
         "subjects_sha256": "f3364b46c80a93f53763e8e090a2d8dcc0426e749ff9ee4ea4c926998a058bdb",
-        "idea_axes": [
+        "idea_axis_ids": [
           {
             "id": "material-system",
-            "label": "Material-system lens",
-            "value_count": 8,
-            "values_sha256": "503151293025a6cc076c6a0a24bf24b5d1d5ec60af8b7101c3ba44085a6e30f6"
+            "label": "Material-system lens"
           }
         ],
+        "idea_axes_sha256": "5b18c5c02f7d66bb8d8edbf855a60fb18f3d9eb70ffc851190b7dc07b3755a8b",
         "prompt_context_sha256": "32fbcbdcec1e65441e26fb0627c1375d87a22fa080d71d2f78c75e524105f1ad"
       }
     ],
@@ -199,44 +180,16 @@
         "deep-time-human-origins",
         "deep-time-speculative-earth"
       ],
-      "idea_axes": [
-        {
-          "id": "episode-profile",
-          "label": "Episode profile",
-          "value_count": 2,
-          "values_sha256": "7ce55683b5b5994b7dd79113af68c26582085d1c0a71cd4332bad2c9e5c6b74c"
-        },
-        {
-          "id": "time-scale",
-          "label": "Time scale",
-          "value_count": 7,
-          "values_sha256": "d296b4e194567345001ea900d8c0d09b9f63a3674eb0d198c75f0bacc1299917"
-        },
-        {
-          "id": "evidence-lens",
-          "label": "Evidence lens",
-          "value_count": 8,
-          "values_sha256": "72dbe568e08cd254aa2a2f5b21b8d4205549d864a05689504fb2ac432feb9272"
-        },
-        {
-          "id": "documentary-engine",
-          "label": "Documentary engine",
-          "value_count": 8,
-          "values_sha256": "77882786ae2e2c55135b0ef8bc92b3b3e3580649171c99fb57a6effca6382201"
-        },
-        {
-          "id": "viewer-payoff",
-          "label": "Viewer payoff",
-          "value_count": 7,
-          "values_sha256": "5de6fb5dfe1348104c91b19c56757826986016108db79b830535117fe3b5a905"
-        }
+      "active_topic_pack_ids": [
+        "deep-time-earth-systems",
+        "deep-time-prehistoric-life",
+        "deep-time-deep-ocean",
+        "deep-time-human-origins",
+        "deep-time-speculative-earth"
       ],
-      "idea_system_prompt_role_sha256": "b7b8755385871bbb4b2c6e2f41902312b60074eb501f24010671510be3c84b37",
-      "idea_guidance_text_sha256": "1c02c225e8189a7fab212d506854b0025ed7ff28f1cf1209f6a718661058a459",
-      "script_context_sha256": "6d20b9e52183cf172adf247f49122cd0b81d6652c65a2b382662a864ffab823e",
-      "script_system_prompt_role_sha256": "e6e12279b21bfe712aee284362323b88af138c70ead1ddae40602a1e7df9c8c5",
-      "script_closing_hint_sha256": "adae060ad3dac2cc402368698e0b26ca01dd7f977e4e2c182c1cf6dba215ae4d",
-      "script_structure": {
+      "effective_prompt_fields_sha256": "d5854f296d43be7b4a3e639f34b1bc98f87dc69955734cfa896c8548a9b97178",
+      "ideation_profile_sha256": "8e4864a12b7ba795c5863ecd7c49376c6995e278e77fa3d2e2d4ec71a4be6f2e",
+      "script_shape": {
         "default_chapter_count": 18,
         "chapter_count_range": [
           16,
@@ -253,13 +206,131 @@
           180
         ],
         "default_words_per_minute": 120,
-        "chapters_independent": true,
-        "pacing_arc_sha256": "0fb6b37ce723c6e1c6f4d65f52c03b2a1a9cb95780c65e9f7a813cb34930065d",
-        "additional_rules_sha256": "13bedb3761c6d01399706d1f6d71fb0e010328952a86629253c58068a7be6b78"
+        "chapters_independent": true
       },
-      "recommended_visual_style_id": "builtin-paleo-documentary-tableau",
+      "narration_profile_sha256": "9c7962f81fa74d1192e779ec73786d3c2450eb1f19a7b416b27207366272040a",
+      "default_narrator_style_id": "natural-history",
+      "metadata_profile_sha256": "43fd0980c66e2abbf0dcebfa7e82b8a3d8ce84c28941e154866b973e54baf654",
+      "production_kit": {
+        "id": "deep-time-documentary-kit",
+        "label": "Deep-Time Documentary Production Kit",
+        "recommended_visual_style_id": "builtin-paleo-documentary-tableau",
+        "episode_profile_ids": [
+          "deep-rest",
+          "immersive"
+        ],
+        "policies_sha256": "ae5f96f94151ffb47ece2628e0e221b564fbfaf4619370ced9eea9d80f0f103d"
+      },
+      "visual_profile_sha256": "41129dc6260ff96d7428f149b68ebc4cb279c5573ee13f32fb12a9b1564c3570",
       "default_thumbnail_template_id": "documentary-label-tableau"
-    }
+    },
+    "default_topic_packs": [
+      {
+        "id": "deep-time-earth-systems",
+        "name": "Earth Systems & Deep Change",
+        "compatible_formula_ids": [
+          "deep-time-documentary"
+        ],
+        "subject_count": 30,
+        "subjects_sha256": "0b33226ea7f2a8e52d1dc692c2a77e3d466d234a0b84bb70738cd9b4ee51ce6a",
+        "idea_axis_ids": [
+          {
+            "id": "earth-system",
+            "label": "Earth system"
+          },
+          {
+            "id": "change-mode",
+            "label": "Change mode"
+          }
+        ],
+        "idea_axes_sha256": "1ea84d98c61c6562615d2fedb3347309921a320ef19e43baab45597c98b7ea57",
+        "prompt_context_sha256": "b7d37f2c92f0042bfb85950e4fbcd1988bfbbca714da70848e9569a0d6fceb89"
+      },
+      {
+        "id": "deep-time-prehistoric-life",
+        "name": "Prehistoric Life & Extinction",
+        "compatible_formula_ids": [
+          "deep-time-documentary"
+        ],
+        "subject_count": 30,
+        "subjects_sha256": "a8c118d6f5f74e3daa68be14d029a5d661246423ee4201b119e5b27575db2730",
+        "idea_axis_ids": [
+          {
+            "id": "life-scale",
+            "label": "Life scale"
+          },
+          {
+            "id": "biological-pressure",
+            "label": "Biological pressure"
+          }
+        ],
+        "idea_axes_sha256": "4bdbb2933f2778191b34dbb51ebc853d85097695bdd59f6f503e9f6e24c355c7",
+        "prompt_context_sha256": "501a79d7fd0d156eeaf8309bce43405a567c79a01ee3f207a146cad90b2fae97"
+      },
+      {
+        "id": "deep-time-deep-ocean",
+        "name": "Ancient Oceans & Deep Sea",
+        "compatible_formula_ids": [
+          "deep-time-documentary"
+        ],
+        "subject_count": 30,
+        "subjects_sha256": "fa9ac36fe3861195e38e7d11e4bff08fcb0c1eaebb4ac631031908b8e79b62f7",
+        "idea_axis_ids": [
+          {
+            "id": "ocean-zone",
+            "label": "Ocean zone"
+          },
+          {
+            "id": "ocean-evidence",
+            "label": "Ocean evidence"
+          }
+        ],
+        "idea_axes_sha256": "d044464ac1b1295a9cdd737933bc88f31f406a8111ccdb8011400feaf66dfa7f",
+        "prompt_context_sha256": "05f8909c3b356b843d62e5240840d22aa694c2fa13e537ba94c9ed95e6b77a0a"
+      },
+      {
+        "id": "deep-time-human-origins",
+        "name": "Human Origins & Ancient Worlds",
+        "compatible_formula_ids": [
+          "deep-time-documentary"
+        ],
+        "subject_count": 30,
+        "subjects_sha256": "1d2c92a328e216a37943df24dcefe5bad71fb84049ea3f343565d7d2f6b9535b",
+        "idea_axis_ids": [
+          {
+            "id": "human-evidence",
+            "label": "Human evidence"
+          },
+          {
+            "id": "human-context",
+            "label": "Human context"
+          }
+        ],
+        "idea_axes_sha256": "e6207f2de909233af27a34cbdf5aaaddceb756fecd2858c5e281520e15f76d83",
+        "prompt_context_sha256": "574675a2c62cb8428599ce825ee62e0c016fd0390996e81ffecfafd1ed8230bc"
+      },
+      {
+        "id": "deep-time-speculative-earth",
+        "name": "Speculative Earth Scenarios",
+        "compatible_formula_ids": [
+          "deep-time-documentary"
+        ],
+        "subject_count": 30,
+        "subjects_sha256": "62a371300027212de02a3659c4dae0634fb2690ce8eae173b8655020174b74b7",
+        "idea_axis_ids": [
+          {
+            "id": "counterfactual-driver",
+            "label": "Counterfactual driver"
+          },
+          {
+            "id": "constraint-chain",
+            "label": "Constraint chain"
+          }
+        ],
+        "idea_axes_sha256": "e868aa1d7e12c65f17440ac5fd556d40fd7f2748657cbb2eaf1ce73033a13ce4",
+        "prompt_context_sha256": "49a4c45defe31aa1def04e9bc7836d85e1673c67e58f82c2c626ecd27d1f68ec"
+      }
+    ]
   },
   "user_override_precedence": {
     "formula_id": "hidden-mechanics-history",

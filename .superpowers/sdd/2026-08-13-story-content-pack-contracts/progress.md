@@ -67,6 +67,11 @@
   - GREEN: `content-pack-migration-golden.test.ts` passes 2/2 and Electron typecheck passes.
   - Mutation proof: changing the HMH Formula name in the fixture to `Hidden Mechanics of History — MUTATION` made the catalog assertion fail with the expected name diff; fixture restored immediately.
   - Foundation verification: contract/archive/migration/current-catalog suites pass 78/78; publisher CLI suite passes 13/13; `npm run typecheck` and `git diff --check` pass.
+  - No-go follow-up: the suite now calls `useTempDataDir()` before dynamically loading catalog services and resolves both representative Formulas through `getEffectiveNicheFor()` using synthetic `ProjectMeta` records. Golden facts therefore include the actual default Topic Pack composition, including the four effective prompt fields after Topic Pack injection, rather than a manually composed approximation.
+  - Expanded coverage: canonical profile fingerprints now cover title/logline/theme rules, examples, vocabulary, audience, narrator and narrative policy, metadata/tags, production-kit episode policies, script pacing/motion, visual style, and thumbnail profile. Stable IDs and scalar script defaults remain explicit; no volatile paths or timestamps are captured.
+  - User-shadow regression: a temporary same-ID Formula, Topic Pack, and thumbnail recipe under the isolated user directories each wins while present; after removal and cache invalidation, the built-in effective HMH baseline again equals the fixture. This proves the test is isolated from the owner's catalog overrides while preserving intentional user-shadow semantics.
+  - Topic-injection mutation proof: temporarily stripping the `ACTIVE TOPIC PACKS` suffix from the effective script context changed `effective_prompt_fields_sha256` (`fee87…` → `d565f…`) and made the HMH golden assertion fail; restored immediately.
+  - Follow-up GREEN: golden suite passes 3/3; full foundation suites pass 79/79; publisher CLI suite passes 13/13; `npm run typecheck` and `git diff --check` pass.
 - [ ] Task 5 — independent review and runtime-plan handoff
 
 ## External dependency
