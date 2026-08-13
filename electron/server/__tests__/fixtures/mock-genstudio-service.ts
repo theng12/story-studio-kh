@@ -29,6 +29,15 @@ export type MockGenStudioScope =
   | 'video:generate'
   | 'music:generate'
   | 'usage:read'
+  | 'content:read'
+  | 'content:purchase'
+
+export interface MockContentPurchaseOutcome {
+  status?: 200 | 402 | 404 | 409 | 503
+  body?: Record<string, unknown>
+  dropResponse?: boolean
+  delayMs?: number
+}
 
 export interface MockCreditSnapshot {
   quoted: number
@@ -130,6 +139,8 @@ const FULL_SCOPES: MockGenStudioScope[] = [
   'video:generate',
   'music:generate',
   'usage:read',
+  'content:read',
+  'content:purchase',
 ]
 
 const OPERATION_NAME: Record<MockGenStudioOperation, string> = {
@@ -261,6 +272,9 @@ function normalizeScenario(
 }
 
 function requiredScope(pathname: string, method: string): MockGenStudioScope | null {
+  if (pathname === '/v1/content/account' || pathname === '/v1/content/products'
+    || pathname === '/v1/content/quotes') return 'content:read'
+  if (pathname === '/v1/content/purchases') return 'content:purchase'
   if (pathname === '/v1/models' || pathname === '/v1/chat/models'
     || pathname === '/v1/video/models' || pathname === '/v1/videos/models') {
     return 'models:read'
@@ -294,6 +308,11 @@ export class MockGenStudioService {
   }]
 
   private readonly keys = new Map<string, Set<MockGenStudioScope>>()
+  private readonly contentAccounts = new Map<string, string>()
+  private readonly contentPurchases = new Map<string, Record<string, unknown>>()
+  private readonly queuedContentPurchaseOutcomes: MockContentPurchaseOutcome[] = []
+  contentProducts: Array<Record<string, unknown>> = []
+  contentPurchasePostCount = 0
   private readonly queuedScenarios = new Map<MockGenStudioOperation, StoredScenario[]>()
   private readonly jobs = new Map<string, MockJob>()
   private readonly jobByIdempotency = new Map<string, string>()
@@ -345,6 +364,10 @@ export class MockGenStudioService {
     this.jobByIdempotency.clear()
     this.transcriptionQuotes.clear()
     this.transcriptionQuoteByIdempotency.clear()
+    this.contentPurchases.clear()
+    this.queuedContentPurchaseOutcomes.length = 0
+    this.contentPurchasePostCount = 0
+    this.contentProducts = []
     for (const operation of Object.keys(this.sequence) as MockGenStudioOperation[]) {
       this.sequence[operation] = 0
     }
@@ -354,6 +377,19 @@ export class MockGenStudioService {
 
   registerKey(key: string, scopes: Iterable<MockGenStudioScope>): void {
     this.keys.set(key, new Set(scopes))
+  }
+
+  registerContentStoreKey(
+    key: string,
+    accountId: string,
+    scopes: Iterable<MockGenStudioScope> = ['content:read', 'content:purchase'],
+  ): void {
+    this.registerKey(key, scopes)
+    this.contentAccounts.set(key, accountId)
+  }
+
+  queueContentPurchaseOutcome(outcome: MockContentPurchaseOutcome): void {
+    this.queuedContentPurchaseOutcomes.push(outcome)
   }
 
   queueScenario(operation: MockGenStudioOperation, scenario: MockGenStudioScenario): void {
@@ -430,6 +466,95 @@ export class MockGenStudioService {
     const header = request.headers.authorization || ''
     const key = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : ''
     return this.keys.get(key)?.has(scope) === true
+  }
+
+  private bearerKey(request: IncomingMessage): string {
+    const header = request.headers.authorization || ''
+    return header.startsWith('Bearer ') ? header.slice('Bearer '.length) : ''
+  }
+
+  private contentAccountId(request: IncomingMessage): string {
+    return this.contentAccounts.get(this.bearerKey(request)) || 'acct_mock'
+  }
+
+  private contentAccountBody(request: IncomingMessage): Record<string, unknown> {
+    const accountId = this.contentAccountId(request)
+    return {
+      account_id: accountId,
+      content_account_id: `content-${accountId}`,
+      available_credits: 5_000,
+      content_spendable_credits: 4_000,
+      owned: [],
+    }
+  }
+
+  private contentQuoteBody(request: IncomingMessage, body: Buffer): Record<string, unknown> {
+    const input = parseJson(body)
+    const productId = String(input.product_id || '')
+    const product = this.contentProducts.find(entry => entry.product_id === productId)
+    if (!product) throw Object.assign(new Error('product unavailable'), { mockStatus: 404, mockCode: 'product_unavailable' })
+    const release = product.current_release as Record<string, unknown> | null
+    const releaseId = String(input.release_id || release?.release_id || '')
+    const account = this.contentAccountBody(request)
+    const quoteId = `cq_${productId}_${String(this.requests.length)}`
+    const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString()
+    const price = Number(product.credit_price || 0)
+    const signed = {
+      typ: 'genstudio.content.quote.v1', key_id: 'mock-content-key', quote_id: quoteId,
+      account_id: account.account_id, product_id: productId,
+      entitlement_family: product.entitlement_family, release_id: releaseId,
+      release_version: release?.version, archive_sha256: release?.archive_sha256,
+      base_credit_price: price, discount_credits: 0, quoted_credits: price,
+      owned_components: [], issued_at: new Date().toISOString(), expires_at: expiresAt,
+    }
+    return {
+      quote: signed,
+      quote_signature: Buffer.alloc(64, 7).toString('base64'),
+      quote_id: quoteId,
+      key_id: 'mock-content-key',
+      expires_at: expiresAt,
+      account_id: account.account_id,
+      product_id: productId,
+      entitlement_family: product.entitlement_family,
+      release_id: releaseId,
+      base_credit_price: price,
+      discount_credits: 0,
+      quoted_credits: price,
+      balance_before: account.content_spendable_credits,
+      balance_after: Number(account.content_spendable_credits) - price,
+      owned_components: [],
+      sufficient_credits: Number(account.content_spendable_credits) >= price,
+      insufficient_reason: Number(account.content_spendable_credits) >= price ? null : 'insufficient_credits',
+      shortfall_credits: Math.max(0, price - Number(account.content_spendable_credits)),
+    }
+  }
+
+  private contentPurchaseBody(request: IncomingMessage, body: Buffer, replayed: boolean): Record<string, unknown> {
+    const input = parseJson(body)
+    const quote = input.quote as Record<string, unknown>
+    const product = this.contentProducts.find(entry => entry.product_id === quote.product_id)!
+    const release = product.current_release as Record<string, unknown>
+    const accountId = this.contentAccountId(request)
+    const purchaseId = `cpur_${String(this.contentPurchases.size + 1)}`
+    const charged = Number(quote.quoted_credits || 0)
+    const receipt = {
+      typ: 'genstudio.content.receipt.v1', key_id: 'mock-content-key', receipt_id: `crc_${purchaseId}`,
+      purchase_id: purchaseId, account_id: accountId,
+      entitlement_families: [product.entitlement_family], product, release,
+      credits_charged: charged, issued_at: new Date().toISOString(),
+    }
+    return {
+      purchase_id: purchaseId, account_id: accountId, credits_charged: charged,
+      discount_credits: 0, balance_before: 4_000, balance_after: 4_000 - charged,
+      entitlement_ids: [`cent_${purchaseId}`], entitlement_families: [product.entitlement_family],
+      product, release, ledger_event_key: charged ? `content-purchase:${purchaseId}` : null,
+      receipt: {
+        receipt,
+        receipt_signature: Buffer.alloc(64, 9).toString('base64'),
+        key_id: 'mock-content-key',
+      },
+      replayed,
+    }
   }
 
   private nextScenario(operation: MockGenStudioOperation): StoredScenario {
@@ -676,7 +801,51 @@ export class MockGenStudioService {
 
       const scope = requiredScope(url.pathname, method)
       if (scope && !this.authorize(request, scope)) {
-        json(response, 403, { detail: `missing required scope: ${scope}` })
+        json(response, scope.startsWith('content:') ? 401 : 403, { detail: `missing required scope: ${scope}` })
+        return
+      }
+
+      if (method === 'GET' && url.pathname === '/v1/content/account') {
+        json(response, 200, this.contentAccountBody(request))
+        return
+      }
+      if (method === 'GET' && url.pathname === '/v1/content/products') {
+        json(response, 200, { products: this.contentProducts })
+        return
+      }
+      if (method === 'POST' && url.pathname === '/v1/content/quotes') {
+        try {
+          json(response, 200, this.contentQuoteBody(request, body))
+        } catch (error) {
+          const shaped = error as Error & { mockStatus?: number; mockCode?: string }
+          json(response, shaped.mockStatus || 500, { code: shaped.mockCode, detail: shaped.message })
+        }
+        return
+      }
+      if (method === 'POST' && url.pathname === '/v1/content/purchases') {
+        this.contentPurchasePostCount += 1
+        if (idempotencyKey.length < 8) {
+          json(response, 400, { detail: 'Idempotency-Key is required' })
+          return
+        }
+        const existing = this.contentPurchases.get(idempotencyKey)
+        if (existing) {
+          json(response, 200, { ...existing, replayed: true })
+          return
+        }
+        const outcome = this.queuedContentPurchaseOutcomes.shift()
+        if (outcome?.delayMs) await new Promise(resolve => setTimeout(resolve, outcome.delayMs))
+        if (outcome?.dropResponse) {
+          response.socket?.destroy()
+          return
+        }
+        if (outcome?.status && outcome.status !== 200) {
+          json(response, outcome.status, outcome.body || {})
+          return
+        }
+        const purchase = this.contentPurchaseBody(request, body, false)
+        this.contentPurchases.set(idempotencyKey, purchase)
+        json(response, 200, purchase)
         return
       }
 

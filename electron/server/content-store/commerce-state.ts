@@ -529,6 +529,25 @@ export async function recordPurchaseUncertain(quoteId: string, detail: string): 
   })
 }
 
+/** A returned 401 is emitted by GenStudio's scope guard before purchase logic runs. */
+export async function restoreQuotedAfterPurchaseScopeRefusal(quoteId: string): Promise<CachedContentQuote> {
+  return mutateState(state => {
+    const attempt = requireAttempt(state, quoteId)
+    if (attempt.status !== 'submitting') {
+      throw new Error('Only a submitting Content Store purchase can return to quoted after a scope refusal')
+    }
+    const {
+      submission_owner: _submissionOwner,
+      uncertain_detail: _uncertainDetail,
+      last_refusal: _lastRefusal,
+      ...retained
+    } = attempt
+    const next = replaceAttempt(state, { ...retained, status: 'quoted', updated_at: nowIso() })
+    pruneStateToBudgets(state, new Set([quoteId]))
+    return next
+  })
+}
+
 export async function recordPurchaseRefusal(
   quoteId: string,
   refusal: CachedContentRefusal,
