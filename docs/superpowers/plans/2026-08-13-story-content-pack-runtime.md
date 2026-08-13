@@ -415,6 +415,13 @@ git commit -m "feat: consume verified content pack catalog"
 
 **Consumes:** Task 5 registry and project CRUD/job enqueue boundaries.
 
+**Coordination rule:** Every project-pin mutation must acquire the shared
+`withContentPackCoordinationLock()` exported by the lifecycle runtime before it
+acquires the project-manager lock. Lifecycle deletion/pruning uses the same
+coordination lock before reading pins. The global order is therefore content
+pack coordination → content-pack state → project-manager; callers must never
+acquire these in reverse. This closes the check-pin/delete race across files.
+
 **Produces:**
 
 ```ts
