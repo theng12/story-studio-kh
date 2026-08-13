@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { useTempDataDir } from './_helpers.js'
 import {
@@ -195,8 +195,9 @@ describe('Content Pack runtime state', () => {
   test('serialises state mutations across 20 Node processes', async () => {
     const { temp } = await isolatedPaths()
     const workerPath = path.join(temp.dir, 'content-pack-state-worker.mts')
-    const stateModule = pathToFileURL(path.resolve('electron/server/content-packs/state.ts')).href
-    const pathsModule = pathToFileURL(path.resolve('electron/server/content-packs/runtime-paths.ts')).href
+    const testDirectory = path.dirname(fileURLToPath(import.meta.url))
+    const stateModule = pathToFileURL(path.resolve(testDirectory, '../content-packs/state.ts')).href
+    const pathsModule = pathToFileURL(path.resolve(testDirectory, '../content-packs/runtime-paths.ts')).href
     await fs.writeFile(workerPath, [
       `import { mutateContentPackState } from ${JSON.stringify(stateModule)};`,
       `import { getContentPackRuntimePaths } from ${JSON.stringify(pathsModule)};`,

@@ -232,6 +232,7 @@ const ThumbnailRecipeDocumentSchema = z.object({
   layout: z.enum(['hero', 'annotated-collage']),
   category: safeText(80),
   tags: textList(80),
+  // model-drift-allow: Content Pack recipe geometry, not a GenStudio model capability list.
   aspect_ratio: z.enum(['16:9', '9:16', '1:1']),
   title_mode: z.literal('ai'),
   composition_guidance: safeText(5000),

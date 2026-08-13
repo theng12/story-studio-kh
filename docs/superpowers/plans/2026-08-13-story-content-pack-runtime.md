@@ -591,15 +591,15 @@ git commit -m "feat: expose local content pack lifecycle"
 - Modify: `CHANGELOG.md`
 - Modify: `.superpowers/sdd/2026-08-13-story-content-pack-runtime/progress.md`
 
-- [ ] **Step 1: Review all runtime changes against the approved design**
+- [x] **Step 1: Review all runtime changes against the approved design**
 
 Check every archive/control boundary for: ZIP/path verification reuse, no network or GenStudio imports, missing/unknown keys, case/Unicode collision retention, app-version/dependency/cycle rejection, recovery with cache deleted, state interruption, `pending_removal`, disabled discovery, project pin immutability, job snapshot immutability, legacy user-fork behavior, and asset containment. Categorise findings Critical/Important/Minor; do not waive Critical or Important issues.
 
-- [ ] **Step 2: Fix every accepted finding via a new RED→GREEN regression**
+- [x] **Step 2: Fix every accepted finding via a new RED→GREEN regression**
 
 For each finding, add the smallest focused test in the responsible `content-pack-*.test.ts` file, run it red, fix only the responsible module, and record test evidence in the SDD ledger.
 
-- [ ] **Step 3: Run complete verification**
+- [x] **Step 3: Run complete verification**
 
 ```bash
 STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 electron/server/__tests__/content-pack-*.test.ts electron/server/__tests__/format-loader.test.ts electron/server/__tests__/thumbnail-recipe-catalog.test.ts electron/server/__tests__/formula-production-kit.test.ts electron/server/__tests__/niche-metadata-profile.test.ts
@@ -614,11 +614,11 @@ git diff --check
 
 Expected: all commands pass. If the production dependency audit reports any issue, report its exact command/result separately; do not describe it as clean without an actual clean result.
 
-- [ ] **Step 4: Update release metadata and visually inspect the enabled runtime**
+- [x] **Step 4: Update release metadata and visually inspect the enabled runtime**
 
 Increase the package and lockfile version together, add the newest-first matching changelog entry describing local signed pack import/recovery/pinning only, and re-run `npm run check:changelog`. Build the packaged app, launch it with a fresh `STORY_STUDIO_DATA_DIR`, and inspect narrow and standard screens for the adapted Formula, Topic, Thumbnail, and Style pickers. Confirm disabled copy, missing-pack requirements, rollback, and offline recovery are clear and keyboard reachable.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add package.json package-lock.json CHANGELOG.md .superpowers/sdd/2026-08-13-story-content-pack-runtime/progress.md

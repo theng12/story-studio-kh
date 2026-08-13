@@ -4,7 +4,7 @@ import { watch } from 'node:fs'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import JSZip from 'jszip'
 
@@ -166,8 +166,8 @@ describe('Content Pack local installer', () => {
   })
 
   test('resolves the app version from the package in development and Electron metadata when packaged', async () => {
-    const sourceRoot = path.resolve('electron/server/content-packs')
-    assert.equal(await resolveContentPackAppVersion({ packaged: false, sourceContentPackRoot: sourceRoot }), '1.0.832')
+    const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../content-packs')
+    assert.equal(await resolveContentPackAppVersion({ packaged: false, sourceContentPackRoot: sourceRoot }), '1.0.834')
     assert.equal(await resolveContentPackAppVersion({ packaged: true, electronVersion: '8.2.1' }), '8.2.1')
     await assert.rejects(resolveContentPackAppVersion({ packaged: true }), /packaged app version/i)
   })
@@ -286,11 +286,11 @@ describe('Content Pack local installer', () => {
   })
 
   test('keeps the compiled Electron installer importable with a real source-compatible version resolver', async () => {
-    const compiled = path.resolve('electron/dist/server/content-packs/installer.js')
+    const compiled = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist/server/content-packs/installer.js')
     await fs.access(compiled)
     const module = await import(pathToFileURL(compiled).href)
     const paths = await isolated()
-    assert.equal(await module.resolveContentPackAppVersion({ packaged: false }), '1.0.832')
+    assert.equal(await module.resolveContentPackAppVersion({ packaged: false }), '1.0.834')
     await assert.doesNotReject(module.installContentPack(request(await buildArchive()), { paths, policy }))
   })
 })
