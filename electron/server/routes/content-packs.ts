@@ -406,7 +406,11 @@ router.get('/content-packs/:packId/:version/assets/:assetId', async (req, res) =
     const policy = options.policy ?? await getFirstPartyContentPackVerificationPolicy()
     const installed = state.packs[packId]?.versions[version]
     let verified: VerifiedContentPack | undefined
-    if (installed && !installed.pending_removal) {
+    if (installed?.pending_removal) {
+      res.status(404).json({ detail: 'Verified Content Pack asset not found.' })
+      return
+    }
+    if (installed) {
       verified = await verifyInstalledContentPackClosure(state, packId, version, policy, options.appVersion)
     } else {
       verified = (await compatibleRecoveryPacks({ ...options, paths, policy }))

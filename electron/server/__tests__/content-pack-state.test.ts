@@ -121,6 +121,18 @@ describe('Content Pack runtime state', () => {
     assert.deepEqual(JSON.parse(await fs.readFile(paths.statePath, 'utf8')), emptyContentPackState())
   })
 
+  test('refuses to quarantine malformed state through a symlinked quarantine directory', async () => {
+    const { temp, paths } = await isolatedPaths()
+    const outside = path.join(temp.dir, 'outside-quarantine')
+    await fs.mkdir(paths.root, { recursive: true })
+    await fs.mkdir(outside)
+    await fs.symlink(outside, paths.quarantineRoot)
+    await fs.writeFile(paths.statePath, '{"schema_version":1,"packs":{},"surprise":true}\n', { mode: 0o600 })
+
+    await assert.rejects(readContentPackState(paths), /quarantine.*unsafe|unsafe.*quarantine/i)
+    assert.deepEqual(await fs.readdir(outside), [])
+  })
+
   test('propagates state I/O errors without replacing or quarantining readable bytes', async () => {
     const { paths } = await isolatedPaths()
     await fs.mkdir(paths.root, { recursive: true })

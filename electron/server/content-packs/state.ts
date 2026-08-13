@@ -61,7 +61,18 @@ function invalidStatePath(paths: ContentPackRuntimePaths, bytes: Uint8Array): st
 
 async function resetInvalidState(paths: ContentPackRuntimePaths, bytes: Uint8Array): Promise<ContentPackRuntimeState> {
   await prepareContentPackRuntimeRoot(paths)
-  await fs.mkdir(paths.quarantineRoot, { recursive: true, mode: 0o700 })
+  if (path.resolve(path.dirname(paths.quarantineRoot)) !== path.resolve(paths.root)) {
+    throw new Error('Content Pack quarantine must live directly below its runtime root')
+  }
+  try {
+    await fs.mkdir(paths.quarantineRoot, { mode: 0o700 })
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+  }
+  const quarantine = await fs.lstat(paths.quarantineRoot)
+  if (!quarantine.isDirectory() || quarantine.isSymbolicLink()) {
+    throw new Error(`Content Pack quarantine directory is unsafe: ${paths.quarantineRoot}`)
+  }
   const quarantined = invalidStatePath(paths, bytes)
   await fs.writeFile(quarantined, bytes, { flag: 'wx', mode: STATE_MODE }).catch(error => {
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error

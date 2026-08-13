@@ -82,7 +82,13 @@ function documents(packId: string, suffix: string): ContentPackDocument[] {
   ]
 }
 
-async function buildArchive(packId: string, version: string, suffix: string, lifecycle: 'active' | 'retired' = 'active'): Promise<Uint8Array> {
+async function buildArchive(
+  packId: string,
+  version: string,
+  suffix: string,
+  lifecycle: 'active' | 'retired' = 'active',
+  minAppVersion = '1.0.0',
+): Promise<Uint8Array> {
   const docs = documents(packId, suffix)
   const jsonFiles = docs.map((document, index) => ({
     path: `content/item-${index}.json`, bytes: Buffer.from(JSON.stringify(document)), document,
@@ -93,7 +99,7 @@ async function buildArchive(packId: string, version: string, suffix: string, lif
     { path: 'assets/recipe.png', sha256: sha256(PNG_1PX), bytes: PNG_1PX.byteLength, mime: 'image/png' },
   ]
   const manifest = Buffer.from(JSON.stringify({
-    pack_format: 1, pack_id: packId, publisher_id: PUBLISHER_ID, key_id: KEY_ID, version, min_app_version: '1.0.0', lifecycle,
+    pack_format: 1, pack_id: packId, publisher_id: PUBLISHER_ID, key_id: KEY_ID, version, min_app_version: minAppVersion, lifecycle,
     entitlement: { sku: `${packId}.sku`, family: `${packId}.family` }, bundles: [],
     items: jsonFiles.map(file => ({ id: file.document.id, kind: file.document.kind, schema_version: 1, path: file.path })), files,
   }))
@@ -168,6 +174,22 @@ describe('verified Content Pack registry', () => {
 
     assert.equal(entries[0]?.value.name, 'Style recovery pin')
     assert.equal(entries[0]?.source, 'signed-recovery')
+  })
+
+  test('never discovers or resolves a signed recovery pack requiring a newer app', async () => {
+    const { recoveryRoot, options } = await isolated()
+    const packId = 'com.storystudio.registry-future-recovery'
+    const archive = await buildArchive(packId, '1.0.0', 'future', 'active', '99.0.0')
+    await fs.writeFile(path.join(recoveryRoot, 'future.sspack'), archive)
+    const incompatibleOptions = { ...options, appVersion: '1.0.832' }
+
+    assert.equal((await listCatalogEntries('visual-style', incompatibleOptions))
+      .some(entry => entry.pack?.pack_id === packId), false)
+    assert.equal(await resolveCatalogItem(`${packId}.style`, {
+      pack_id: packId,
+      version: '1.0.0',
+      archive_sha256: sha256(archive),
+    }, incompatibleOptions), null)
   })
 
   test('hides disabled and retired packs from discovery but exact pins still resolve them', async () => {

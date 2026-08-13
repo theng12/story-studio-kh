@@ -12,7 +12,7 @@ import { installContentPack } from '../content-packs/installer.js'
 import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { listCatalogEntries } from '../content-packs/registry.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
-import { readContentPackState } from '../content-packs/state.js'
+import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
 import { router as contentPacksRouter } from '../routes/content-packs.js'
 import * as projectManager from '../services/project-manager.js'
 import { useTempDataDir } from './_helpers.js'
@@ -253,6 +253,24 @@ describe('local Content Pack management routes', () => {
       .expect(200)
     await request(app)
       .get(`/api/content-packs/com.storystudio.routes-too-new/1.0.0/assets/${sha256(PNG_1PX)}`)
+      .expect(404)
+  })
+
+  test('does not serve an installed version while its durable removal is pending', async () => {
+    const { app, paths, recoveryRoot, contentPackOptions } = await isolated()
+    const first = await buildArchive({ version: '1.0.0' })
+    await install(first, contentPackOptions)
+    await install(await buildArchive({ version: '1.1.0' }), contentPackOptions)
+    await fs.writeFile(path.join(recoveryRoot, 'same-version.sspack'), first)
+    await mutateContentPackState(state => {
+      state.packs[PACK_ID].versions['1.0.0'].pending_removal = {
+        operation_id: '11111111-1111-4111-8111-111111111111',
+        started_at: new Date().toISOString(),
+      }
+    }, paths)
+
+    await request(app)
+      .get(`/api/content-packs/${PACK_ID}/1.0.0/assets/${sha256(PNG_1PX)}`)
       .expect(404)
   })
 

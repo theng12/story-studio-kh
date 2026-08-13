@@ -63,3 +63,9 @@
 - `npm run typecheck:electron`, `npm run lint -- --quiet`, and `git diff --check` pass.
 - Local route smoke uses an isolated mounted Express runtime: signed raw import, catalog read, preview request, disable/discovery audit, exact asset recovery, re-enable, rollback, requirements, active-removal refusal, and inactive uninstall all passed without touching production data. `npm run build:electron` also passes.
 - Independent requirements/security review: GO with no Critical or Important findings after confirming every Task 8 boundary and the mounted adapter-option flow.
+
+## Task 9 review corrections
+
+- Important RED→GREEN: a version with durable `pending_removal` could fall through the asset route to a same-version bundled recovery archive. The new route regression first returned 200, then passed after pending removal became an explicit unavailable state. The complete route suite passes 10/10.
+- Important RED→GREEN: a valid signed recovery archive requiring a future Story Studio version remained available through registry discovery and exact-pin resolution. The new registry regression first exposed the future style, then passed after compatibility moved to the shared recovery scan boundary. Recovery and registry suites pass 18/18.
+- Important RED→GREEN: malformed-state quarantine followed a symlinked `quarantine` child and could write outside the runtime root. The new state regression first observed no rejection, then passed after quarantine creation became a direct-child, non-symlink directory check. The complete state suite passes 20/20.

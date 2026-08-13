@@ -2,7 +2,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 
 import { verifyContentPackArchive, type ContentPackVerificationPolicy, type VerifiedContentPack } from './archive.js'
-import { verifyInstalledContentPackClosure, verifyInstalledContentPackVersion } from './installer.js'
+import { assertContentPackAppCompatible, verifyInstalledContentPackClosure, verifyInstalledContentPackVersion } from './installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
 import type { ContentPackRuntimeState } from './runtime-types.js'
@@ -115,7 +115,9 @@ async function scanRecoveryPacks(
   let invalid = 0
   for (const archivePath of await recoveryArchives(recoveryRoot)) {
     try {
-      packs.push(await verifyContentPackArchive(await fs.readFile(archivePath), policy))
+      const verified = await verifyContentPackArchive(await fs.readFile(archivePath), policy)
+      await assertContentPackAppCompatible(verified.manifest.min_app_version, options.appVersion)
+      packs.push(verified)
     } catch (error) {
       if (!ignoreFailures) throw error
       invalid += 1
