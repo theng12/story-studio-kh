@@ -96,6 +96,10 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(settingsSource, /id: 'models'/)
     assert.match(settingsSource, /if \(h === '#models'\)[\s\S]*?activeTab\.value = 'app'/)
     assert.match(thisMacSettingsSource, /music:generate/)
+    assert.match(thisMacSettingsSource, /content:read/)
+    assert.match(thisMacSettingsSource, /content:purchase/)
+    assert.match(thisMacSettingsSource, /Read scope verified/)
+    assert.match(thisMacSettingsSource, /Purchase scope required · not safely testable without buying/)
   })
 
   test('Storage separates active destinations from optional maintenance and keeps retired migration out', () => {

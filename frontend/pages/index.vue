@@ -13,6 +13,7 @@
       </NuxtLink>
 
       <nav class="home-actions" aria-label="Application">
+        <NuxtLink to="/content-store" class="home-action">Content Store</NuxtLink>
         <NuxtLink to="/usage" class="home-action">Usage</NuxtLink>
         <button type="button" class="home-action" @click="appSettingsModal.open()">Settings</button>
       </nav>

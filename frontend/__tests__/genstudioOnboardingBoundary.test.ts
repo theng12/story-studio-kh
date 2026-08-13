@@ -27,4 +27,9 @@ describe('GenStudio-only project onboarding', () => {
   test('does not duplicate connectivity or credential APIs on the channel list', () => {
     assert.doesNotMatch(source, /app-settings\/api-keys|test-key|connectivity\/precheck/)
   })
+
+  test('links to the account-scoped Content Store instead of embedding commerce in onboarding', () => {
+    assert.match(source, /to="\/content-store"/)
+    assert.doesNotMatch(source, /content-store\/quotes|purchase/i)
+  })
 })

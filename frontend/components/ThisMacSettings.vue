@@ -28,7 +28,7 @@
           Required scopes: <code>models:read</code>, <code>voices:read</code>, <code>voices:use</code>,
           <code>tts:generate</code>, <code>audio:transcribe</code>, <code>images:generate</code>,
           <code>chat:generate</code>, <code>videos:generate</code>, <code>music:generate</code>,
-          and <code>usage:read</code>.
+          <code>usage:read</code>, <code>content:read</code>, and <code>content:purchase</code>.
         </p>
       </div>
 
@@ -49,6 +49,20 @@
         <p v-if="savedKey?.hasKey && !keyDraft" class="masked">Saved key: {{ savedKey.keyMasked || '••••' }}</p>
         <p v-else-if="!savedKey?.hasKey" class="masked">No key saved.</p>
         <p v-if="result" :class="['result', result.kind]">{{ result.message }}</p>
+        <dl v-if="result?.contentStore" class="scope-results" aria-label="Content Store scope test result">
+          <div>
+            <dt><code>content:read</code></dt>
+            <dd :data-state="result.contentStore.readScope">{{ result.contentStore.readScope === 'verified' ? 'Read scope verified' : 'Read scope not verified' }}</dd>
+          </div>
+          <div>
+            <dt><code>content:purchase</code></dt>
+            <dd>Purchase scope required · not safely testable without buying</dd>
+          </div>
+        </dl>
+        <p v-else class="scope-guidance">
+          Content Store key tests can verify <code>content:read</code>. The required <code>content:purchase</code>
+          scope is not safely testable without an explicit real purchase.
+        </p>
       </div>
     </section>
 
@@ -59,6 +73,7 @@
 <script setup lang="ts">
 type ThemeChoice = 'light' | 'dark' | 'system'
 interface ProviderRow { providerId: string; hasKey: boolean; keyMasked: string }
+interface ContentStoreProbe { read_scope: 'verified'; purchase_scope: 'required_unverified' }
 
 const { get, put, del, post } = useApi()
 const { ask } = useConfirm()
@@ -69,7 +84,11 @@ const defaultUrl = ref('')
 const keyDraft = ref('')
 const savedKey = ref<ProviderRow | null>(null)
 const busy = ref<'' | 'url' | 'save' | 'test' | 'remove'>('')
-const result = ref<{ kind: 'ok' | 'warn' | 'err'; message: string } | null>(null)
+const result = ref<{
+  kind: 'ok' | 'warn' | 'err'
+  message: string
+  contentStore?: { readScope: 'verified'; purchaseScope: 'required_unverified' }
+} | null>(null)
 
 async function load(): Promise<void> {
   const [settings, keys] = await Promise.all([
@@ -110,11 +129,26 @@ async function saveKey(): Promise<void> {
 async function testKey(): Promise<void> {
   busy.value = 'test'; result.value = null
   try {
-    const response = await post<{ valid: boolean; reachable: boolean; message?: string; warning?: string | null }>(
+    const response = await post<{
+      valid: boolean
+      reachable: boolean
+      message?: string
+      warning?: string | null
+      content_store?: ContentStoreProbe
+    }>(
       '/app-settings/api-keys/genstudio/test', keyDraft.value.trim() ? { apiKey: keyDraft.value.trim() } : {},
     )
     result.value = response.valid
-      ? { kind: response.warning ? 'warn' : 'ok', message: [response.message, response.warning].filter(Boolean).join(' ') }
+      ? {
+          kind: response.warning ? 'warn' : 'ok',
+          message: [response.message, response.warning].filter(Boolean).join(' '),
+          ...(response.content_store ? {
+            contentStore: {
+              readScope: response.content_store.read_scope,
+              purchaseScope: response.content_store.purchase_scope,
+            },
+          } : {}),
+        }
       : { kind: response.reachable ? 'warn' : 'err', message: response.message || 'GenStudio rejected the key.' }
   } catch (error: any) {
     result.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Scope test failed.' }
@@ -161,6 +195,12 @@ header p, .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px;
 .masked, .security-note { color: var(--text-muted); font-size: var(--font-xs); }
 .result { font-size: var(--font-xs); }
 .result.ok { color: var(--success); } .result.warn { color: var(--warning, #d97706); } .result.err { color: var(--danger); }
+.scope-results { display: grid; gap: 6px; margin-top: 5px; }
+.scope-results div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.scope-results dt, .scope-results dd { font-size: var(--font-xs); }
+.scope-results dd { color: var(--text-secondary); text-align: right; }
+.scope-results dd[data-state='verified'] { color: var(--success); }
+.scope-guidance { padding-top: 5px; }
 .security-note { margin: 0; }
 @container this-mac-settings (max-width: 760px) {
   .connection { grid-template-columns: 1fr; }
