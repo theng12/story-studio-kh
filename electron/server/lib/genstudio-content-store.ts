@@ -11,6 +11,7 @@ const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
 const PRODUCT_KINDS = new Set<GenStudioContentProductKind>([
   'series_formula', 'topic_pack', 'visual_style', 'thumbnail_recipe', 'niche_bundle',
 ])
+const numberSources = new WeakMap<object, Map<string, string>>()
 
 type JsonPrimitive = null | boolean | number | string
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
@@ -175,7 +176,21 @@ function plainObject(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
-function canonicalJson(value: unknown, state: { nodes: number }, depth: number): string {
+function parseJsonPreservingNumberSources(source: string): unknown {
+  return JSON.parse(source, function (this: object, key: string, value: unknown, context?: { source?: string }) {
+    if (typeof value === 'number' && typeof context?.source === 'string') {
+      let fields = numberSources.get(this)
+      if (!fields) {
+        fields = new Map()
+        numberSources.set(this, fields)
+      }
+      fields.set(key, context.source)
+    }
+    return value
+  })
+}
+
+function canonicalJson(value: unknown, state: { nodes: number }, depth: number, numericSource?: string): string {
   state.nodes += 1
   if (state.nodes > MAX_NODES) throw new Error(`Content Store JSON exceeds ${MAX_NODES} nodes`)
   if (depth > MAX_DEPTH) throw new Error(`Content Store JSON exceeds depth ${MAX_DEPTH}`)
@@ -186,13 +201,20 @@ function canonicalJson(value: unknown, state: { nodes: number }, depth: number):
   }
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) throw new Error('Content Store JSON number must be finite')
+    if (numericSource !== undefined) {
+      if (!/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(numericSource)
+        || !Object.is(Number(numericSource), value)) {
+        throw new Error('Content Store JSON number source is invalid')
+      }
+      return numericSource
+    }
     return JSON.stringify(value)
   }
   if (Array.isArray(value)) {
     const entries: string[] = []
     for (let index = 0; index < value.length; index += 1) {
       if (!(index in value)) throw new Error('Content Store JSON arrays must not be sparse')
-      entries.push(canonicalJson(value[index], state, depth + 1))
+      entries.push(canonicalJson(value[index], state, depth + 1, numberSources.get(value)?.get(String(index))))
     }
     return `[${entries.join(',')}]`
   }
@@ -202,7 +224,7 @@ function canonicalJson(value: unknown, state: { nodes: number }, depth: number):
   for (const key of keys) {
     if (DANGEROUS_KEYS.has(key)) throw new Error(`Content Store JSON contains dangerous key: ${key}`)
   }
-  return `{${keys.map(key => `${JSON.stringify(key)}:${canonicalJson(record[key], state, depth + 1)}`).join(',')}}`
+  return `{${keys.map(key => `${JSON.stringify(key)}:${canonicalJson(record[key], state, depth + 1, numberSources.get(record)?.get(key))}`).join(',')}}`
 }
 
 export function canonicalizeContentStoreObject(value: unknown): CanonicalJsonObject {
@@ -211,7 +233,7 @@ export function canonicalizeContentStoreObject(value: unknown): CanonicalJsonObj
   const bytes = Buffer.from(canonical, 'utf8')
   if (bytes.byteLength > MAX_CANONICAL_BYTES) throw new Error('Content Store canonical JSON payload exceeds 1 MiB')
   return {
-    value: JSON.parse(canonical) as Record<string, unknown>,
+    value: value as Record<string, unknown>,
     canonicalJson: canonical,
     canonicalBytes: new Uint8Array(bytes),
   }
@@ -475,11 +497,45 @@ interface RequestOptions<T> {
 function errorBody(textBody: string): Record<string, unknown> {
   if (Buffer.byteLength(textBody, 'utf8') > MAX_CANONICAL_BYTES) throw new Error('GenStudio Content Store error response exceeds 1 MiB')
   try {
-    const parsed = JSON.parse(textBody)
+    const parsed = parseJsonPreservingNumberSources(textBody)
     return canonicalizeContentStoreObject(parsed).value
   } catch {
     return { raw_response: textBody }
   }
+}
+
+class ContentStoreResponseTooLargeError extends Error {
+  constructor() {
+    super('GenStudio Content Store response exceeds 1 MiB')
+  }
+}
+
+async function readBoundedResponseBody(response: Response): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      length += value.byteLength
+      if (length > MAX_CANONICAL_BYTES) {
+        await reader.cancel().catch(() => {})
+        throw new ContentStoreResponseTooLargeError()
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
 }
 
 async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
@@ -513,7 +569,28 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
       error,
     )
   }
-  const responseText = await response.text()
+  let responseText: string
+  try {
+    responseText = await readBoundedResponseBody(response)
+  } catch (error) {
+    if (error instanceof ContentStoreResponseTooLargeError) throw error
+    if (options.purchase && response.ok) {
+      throw new GenStudioContentStoreTransportError(
+        'uncertain',
+        'The Content Store purchase response was interrupted; retry only with the same saved idempotency key.',
+        error,
+      )
+    }
+    if (!response.ok) {
+      throw new GenStudioContentStoreApiError(
+        response.status,
+        null,
+        `GenStudio Content Store returned HTTP ${response.status}, but its refusal body could not be read.`,
+        {},
+      )
+    }
+    throw error
+  }
   if (!response.ok) {
     const refusal = errorBody(responseText)
     const code = typeof refusal.code === 'string' ? refusal.code : null
@@ -524,8 +601,15 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
   }
   let parsed: unknown
   try {
-    parsed = JSON.parse(responseText)
+    parsed = parseJsonPreservingNumberSources(responseText)
   } catch (error) {
+    if (options.purchase) {
+      throw new GenStudioContentStoreTransportError(
+        'uncertain',
+        'The Content Store purchase returned an unreadable response; retry only with the same saved idempotency key.',
+        error,
+      )
+    }
     throw new Error('GenStudio Content Store returned invalid JSON', { cause: error })
   }
   return options.parse(parsed)
@@ -581,7 +665,7 @@ export async function purchaseGenStudioContentProduct(
   }
   if (typeof request.quoteSignature !== 'string' || request.quoteSignature.length === 0) throw new TypeError('quote signature is required')
   let quoteValue: unknown
-  try { quoteValue = JSON.parse(request.quoteCanonicalJson) } catch (error) {
+  try { quoteValue = parseJsonPreservingNumberSources(request.quoteCanonicalJson) } catch (error) {
     throw new TypeError('Saved Content Store quote JSON is invalid', { cause: error })
   }
   const canonicalQuote = canonicalizeContentStoreObject(quoteValue)
@@ -591,7 +675,7 @@ export async function purchaseGenStudioContentProduct(
   return requestOnce({
     method: 'POST', path: '/v1/content/purchases', apiKey, timeoutMs: 30_000,
     idempotencyKey: request.idempotencyKey,
-    body: JSON.stringify({ quote: JSON.parse(request.quoteCanonicalJson), quote_signature: request.quoteSignature }),
+    body: `{"quote":${request.quoteCanonicalJson},"quote_signature":${JSON.stringify(request.quoteSignature)}}`,
     purchase: true,
     parse: parseContentStorePurchase,
   })

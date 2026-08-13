@@ -300,6 +300,7 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
     assert.throws(() => parseContentStoreCatalog({ products: [product({ credit_price: 1.5 })] }), /credit_price/i)
     assert.throws(() => parseContentStoreCatalog({ products: 'not-an-array' }), /products/i)
   })
+
 })
 
 describe('GenStudio Content Store one-attempt HTTP client', () => {
@@ -357,6 +358,17 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
     assert.equal(attempts, 1)
   })
 
+  test('preserves Python numeric lexemes from signed response bytes', async () => {
+    const response = quote()
+    const raw = JSON.stringify(response).replace(
+      '"future_signed_fact":{"z":3,"a":1}',
+      '"future_signed_fact":{"integral_float":1.0,"negative_zero":-0.0,"small":1e-07,"large":1e+20}',
+    )
+    globalThis.fetch = async () => new Response(raw, { status: 200 })
+    const parsed = await quoteGenStudioContentProduct('gsk_test', { product_id: 'cprod_a', release_id: null })
+    assert.match(parsed.signedQuote.canonicalJson, /"future_signed_fact":\{"integral_float":1\.0,"large":1e\+20,"negative_zero":-0\.0,"small":1e-07\}/)
+  })
+
   test('reconstructs the purchase body only from canonical quote bytes and sends one idempotent attempt', async () => {
     let attempts = 0
     const canonical = canonicalizeContentStoreObject(signedQuote())
@@ -375,6 +387,25 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
     })
     assert.equal(parsed.purchaseId, 'cpur_a')
     assert.equal(attempts, 1)
+  })
+
+  test('sends signed quote numeric lexemes without a JavaScript reserialization', async () => {
+    const canonical = canonicalizeContentStoreObject(signedQuote()).canonicalJson.replace(
+      '"future_signed_fact":{"a":1,"z":3}',
+      '"future_signed_fact":{"integral_float":1.0,"large":1e+20,"negative_zero":-0.0,"small":1e-07}',
+    )
+    globalThis.fetch = async (_input, init) => {
+      assert.equal(
+        init?.body,
+        `{"quote":${canonical},"quote_signature":${JSON.stringify(SIGNATURE)}}`,
+      )
+      return Response.json(purchase())
+    }
+    await purchaseGenStudioContentProduct('gsk_test', {
+      quoteCanonicalJson: canonical,
+      quoteSignature: SIGNATURE,
+      idempotencyKey: 'store-attempt-123',
+    })
   })
 
   test('preserves exact 402/404/409/503 refusal facts without classifying a response as uncertain', async () => {
@@ -451,6 +482,50 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
         idempotencyKey: 'store-attempt-123',
       }),
       /response|large|limit/i,
+    )
+  })
+
+  test('stops reading an oversized streamed response and treats purchase body failure as uncertain', async () => {
+    let pulls = 0
+    globalThis.fetch = async () => new Response(new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1
+        controller.enqueue(new Uint8Array(128 * 1024))
+      },
+    }), { status: 503 })
+    await assert.rejects(
+      purchaseGenStudioContentProduct('gsk_test', {
+        quoteCanonicalJson: canonicalizeContentStoreObject(signedQuote()).canonicalJson,
+        quoteSignature: SIGNATURE,
+        idempotencyKey: 'store-attempt-123',
+      }),
+      /response|large|limit/i,
+    )
+    assert.ok(pulls <= 10, `bounded reader pulled ${pulls} chunks before stopping`)
+
+    globalThis.fetch = async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"purchase_id":'))
+        controller.error(new Error('connection reset during body'))
+      },
+    }), { status: 200 })
+    await assert.rejects(
+      purchaseGenStudioContentProduct('gsk_test', {
+        quoteCanonicalJson: canonicalizeContentStoreObject(signedQuote()).canonicalJson,
+        quoteSignature: SIGNATURE,
+        idempotencyKey: 'store-attempt-123',
+      }),
+      (error: unknown) => error instanceof GenStudioContentStoreTransportError && error.outcome === 'uncertain',
+    )
+
+    globalThis.fetch = async () => new Response('{"purchase_id":', { status: 200 })
+    await assert.rejects(
+      purchaseGenStudioContentProduct('gsk_test', {
+        quoteCanonicalJson: canonicalizeContentStoreObject(signedQuote()).canonicalJson,
+        quoteSignature: SIGNATURE,
+        idempotencyKey: 'store-attempt-123',
+      }),
+      (error: unknown) => error instanceof GenStudioContentStoreTransportError && error.outcome === 'uncertain',
     )
   })
 
