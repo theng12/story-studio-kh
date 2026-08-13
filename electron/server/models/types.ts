@@ -965,6 +965,8 @@ export interface Niche {
     visualPacingProfile?: ScriptFormat['visualPacingProfile']
     /** Formula-owned scene motion mix for the narration-timed visual plan. */
     motionProfile?: ScriptFormat['motionProfile']
+    /** App-owned motion behavior selected by a signed Content Pack. */
+    motionProfileId?: string
     /** Replaces Format.script.pacingArc when set. Each string describes
      *  one chapter's narrative function. {last} / {lastButOne} / {n}
      *  placeholders work the same as on the format. */
@@ -1028,6 +1030,8 @@ export interface Niche {
    * niches with different `kind` values coexist in one project's log.
    */
   recencyAvoidance?: {
+    /** App-owned extraction strategy selected by signed Content Packs. */
+    strategyId?: string
     /**
      * Human-readable label for the kind of item being tracked. Used as
      * the `kind` discriminator in the project's recency_log AND in the

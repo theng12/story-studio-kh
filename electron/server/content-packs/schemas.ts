@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { MOTION_PROFILE_IDS } from '../services/motion-profiles.js'
+import { RECENCY_STRATEGY_IDS } from '../services/recency-strategies.js'
 import type { ContentPackDocument, ContentPackItemKind, ContentPackManifest } from './types.js'
 
 export const CONTENT_PACK_FORMAT = 1 as const
@@ -93,7 +95,7 @@ const MetadataDescriptionSchema = z.object({
 }).strict()
 const RecencyAvoidanceSchema = z.object({
   /** This allowlist is intentionally app-owned: packs cannot deliver executable scanning rules. */
-  strategy_id: z.enum(['scripture-references']),
+  strategy_id: z.enum(RECENCY_STRATEGY_IDS),
   label: safeText(160),
   default_lookback: z.number().int().min(1).max(1000).optional(),
   scopes: z.array(z.enum(['script', 'titles', 'image_prompts', 'metadata'])).min(1).max(4).optional(),
@@ -145,7 +147,7 @@ const SeriesFormulaDocumentSchema = z.object({
     default_words_per_minute: z.number().int().min(50).max(300),
     chapters_independent: z.boolean(),
     visual_pacing_profile: VisualPacingProfileSchema.optional(),
-    motion_profile_id: z.enum(['ambient-documentary']).optional(),
+    motion_profile_id: z.enum(MOTION_PROFILE_IDS).optional(),
     pacing_arc: textList(100),
     additional_rules: textList(100),
   }).strict(),

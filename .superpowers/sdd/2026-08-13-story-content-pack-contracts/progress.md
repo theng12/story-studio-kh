@@ -32,6 +32,10 @@
   - Final review RED: expanded focused suite failed 3/22 tests before the contract follow-up (allowlisted motion/recency and non-routing provider prose).
   - Final review GREEN: focused suite passed 22/22; `npm run typecheck:electron` and `git diff --check` passed.
   - Final follow-up commit: `fix: restrict content pack behavior to app contracts`.
+  - Registry grounding: added app-owned `RECENCY_STRATEGIES` and `MOTION_PROFILES` registries with fail-closed resolvers. The Content Pack schemas derive their IDs from those registries. Existing recency and Formula motion consumers now resolve optional IDs while retaining raw built-in fields as the compatibility fallback during catalog migration.
+  - Registry RED: new registry suite failed before implementation because the resolver modules did not exist.
+  - Registry GREEN: 53/53 relevant tests passed (registry, Content Pack contract, scene motion, and format loader); `npm run typecheck:electron` and `git diff --check` passed.
+  - Registry follow-up commit: `feat: ground content pack behavior registries`.
 - [ ] Task 2 — archive integrity and Ed25519 verification
 - [ ] Task 3 — first-party publisher CLI
 - [ ] Task 4 — current-catalog migration golden

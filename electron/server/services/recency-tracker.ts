@@ -28,6 +28,7 @@
 
 import * as pm from './project-manager.js'
 import { getEffectiveNiche } from './niche-loader.js'
+import { resolveRecencyStrategy, type RecencyStrategy } from './recency-strategies.js'
 import type { Niche, RecencyLogEntry, Format } from '../models/types.js'
 
 /**
@@ -43,6 +44,18 @@ function scopesFor(niche: Niche): RecencyScope[] {
   const declared = niche.recencyAvoidance?.scopes
   if (Array.isArray(declared) && declared.length > 0) return declared
   return ['script']
+}
+
+/** Signed Content Packs use an app-owned strategy ID. Legacy built-ins retain
+ * their current raw fields until catalog migration moves them to this registry. */
+function strategyFor(niche: Niche): RecencyStrategy | undefined {
+  const id = niche.recencyAvoidance?.strategyId
+  if (!id) return undefined
+  try {
+    return resolveRecencyStrategy(id)
+  } catch {
+    return undefined
+  }
 }
 
 /** Is the given scope covered by the niche's recency rule? */
@@ -68,10 +81,12 @@ const DEFAULT_LOOKBACK = 30
  * inline in its pattern.
  */
 export function extractItems(niche: Niche | null, text: string): string[] {
-  if (!niche?.recencyAvoidance?.extractPatterns?.length) return []
+  if (!niche?.recencyAvoidance) return []
   if (!text) return []
+  const patterns = strategyFor(niche)?.extractPatterns ?? niche.recencyAvoidance.extractPatterns
+  if (!patterns?.length) return []
   const out = new Set<string>()
-  for (const raw of niche.recencyAvoidance.extractPatterns) {
+  for (const raw of patterns) {
     let re: RegExp
     try {
       re = new RegExp(raw, 'g')
@@ -142,8 +157,9 @@ export async function buildAvoidanceInstruction(
   if (!niche?.recencyAvoidance) return ''
   const { items, lookback, kind } = await getRecentItems(slug, niche, lookbackOverride)
   if (!items.length || !kind) return ''
-  const template = niche.recencyAvoidance.instructionTemplate
-    || 'These {label} were used in this channel\'s recent {count} episodes — pick a DIFFERENT one for this prompt:\n{items}'
+  const template = strategyFor(niche)?.instructionTemplate
+    ?? (niche.recencyAvoidance.instructionTemplate
+      || 'These {label} were used in this channel\'s recent {count} episodes — pick a DIFFERENT one for this prompt:\n{items}')
   const bulleted = items.map(i => `  • ${i}`).join('\n')
   return template
     .replace(/\{label\}/g, kind)

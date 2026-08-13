@@ -29,6 +29,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { createRequire } from 'module'
 import * as pm from './project-manager.js'
+import { resolveMotionProfile } from './motion-profiles.js'
 import type { Format, DeepPartial, ProjectMeta } from '../models/types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -628,13 +629,21 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
         }
       }
     }
-    if (niche_structure.motionProfile) {
-      const profile = niche_structure.motionProfile
+    if (niche_structure.motionProfile || niche_structure.motionProfileId) {
+      let profile = niche_structure.motionProfile
+      if (typeof niche_structure.motionProfileId === 'string') {
+        try {
+          profile = resolveMotionProfile(niche_structure.motionProfileId)
+        } catch {
+          // Legacy raw profile remains the compatibility fallback; signed packs
+          // cannot reach this path with an unknown ID because their schema rejects it.
+        }
+      }
       const validShares = (shares: unknown): shares is Record<'still' | 'gentle' | 'limited', number> =>
         !!shares && ['still', 'gentle', 'limited'].every(mode =>
           typeof (shares as any)[mode] === 'number' && Number.isFinite((shares as any)[mode]) && (shares as any)[mode] >= 0,
         )
-      if (typeof profile.id === 'string' && profile.id.trim()
+      if (profile && typeof profile.id === 'string' && profile.id.trim()
         && typeof profile.label === 'string' && profile.label.trim()
         && typeof profile.description === 'string'
         && typeof profile.opening_duration_sec === 'number' && profile.opening_duration_sec >= 0
