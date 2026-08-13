@@ -8,8 +8,8 @@ const MAX_LIST = 200
 const QUALIFIED_ID = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/
 const EXACT_SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/
 const SHA256 = /^[a-f0-9]{64}$/
-const UNSAFE_REFERENCE = /(?:\b[a-z][a-z0-9+.-]*:\S+|(?:^|\s)\/\/\S+)/i
-const ROUTING_DIRECTIVE = /\b(?:provider(?:_id)?|model_id)\s*(?::|=)\s*[^\s]+/i
+const UNSAFE_REFERENCE = /(?:\b[a-z][a-z0-9+.-]*:\S+|(?:^|[\s(])\/\/\S+|\bwww\.\S+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?)/i
+const ROUTING_DIRECTIVE = /\b(?:provider|provider_id|model_id|engine_id)\b|\bmodel\s*(?::|=)\s*[^\s]+/i
 
 const safeText = (max = MAX_TEXT) => z.string().min(1).max(max)
   .refine(value => !UNSAFE_REFERENCE.test(value), 'URI references are not permitted in content packs')
@@ -76,6 +76,41 @@ const NarratorStyleSchema = z.object({
   label: safeText(120),
   description: safeText(1000),
 }).strict()
+const VisualPacingProfileSchema = z.object({
+  opening_duration_sec: z.number().int().min(0).max(3600),
+  opening: z.object({ min_sec: z.number().int().min(1).max(300), max_sec: z.number().int().min(1).max(300) }).strict(),
+  settled: z.object({ min_sec: z.number().int().min(1).max(300), max_sec: z.number().int().min(1).max(300) }).strict(),
+}).strict().superRefine((profile, ctx) => {
+  if (profile.opening.min_sec > profile.opening.max_sec || profile.settled.min_sec > profile.settled.max_sec) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'visual pacing bounds must be ordered' })
+  }
+})
+const MotionMixSchema = z.object({
+  still: z.number().int().min(0).max(100),
+  gentle: z.number().int().min(0).max(100),
+  limited: z.number().int().min(0).max(100),
+}).strict().refine(mix => mix.still + mix.gentle + mix.limited === 100, 'motion mix must total 100')
+const MotionProfileSchema = z.object({
+  id: localSlug,
+  label: safeText(120),
+  description: safeText(1000),
+  opening_duration_sec: z.number().int().min(0).max(3600),
+  opening: MotionMixSchema,
+  settled: MotionMixSchema,
+}).strict()
+const MetadataDescriptionSchema = z.object({
+  voice_guidance: safeText(3000).optional(),
+  description_shape_rules: z.array(safeText(1200)).max(60).optional(),
+  closing_benediction: safeText(1200).optional(),
+  cta_shape: safeText(2000).optional(),
+}).strict()
+const RecencyAvoidanceSchema = z.object({
+  label: safeText(160),
+  extract_patterns: z.array(z.string().min(1).max(4000)).min(1).max(20),
+  default_lookback: z.number().int().min(1).max(1000).optional(),
+  instruction_template: safeText(MAX_TEXT).optional(),
+  scopes: z.array(z.enum(['script', 'titles', 'image_prompts', 'metadata'])).min(1).max(4).optional(),
+}).strict()
 
 export const ContentPackItemKindSchema = z.enum([
   'series-formula',
@@ -122,16 +157,20 @@ const SeriesFormulaDocumentSchema = z.object({
     duration_presets: z.array(z.number().int().min(1).max(600)).min(1).max(20),
     default_words_per_minute: z.number().int().min(50).max(300),
     chapters_independent: z.boolean(),
+    visual_pacing_profile: VisualPacingProfileSchema.optional(),
+    motion_profile: MotionProfileSchema.optional(),
     pacing_arc: textList(100),
     additional_rules: textList(100),
   }).strict(),
   compatible_topic_pack_ids: z.array(qualifiedId).max(MAX_LIST),
   default_topic_pack_ids: z.array(qualifiedId).max(MAX_LIST).optional(),
+  example_topics: z.array(safeText(1000)).max(200).optional(),
   recommended_visual_style_ids: z.array(qualifiedId).max(MAX_LIST),
   recommended_thumbnail_recipe_ids: z.array(qualifiedId).max(MAX_LIST),
   idea_axes: z.array(IdeaAxisSchema).max(20).optional(),
   vocabulary: VocabularySchema.optional(),
   audience_hint: safeText(1000).optional(),
+  evidence_expectations: z.array(safeText(1200)).max(60).optional(),
   idea_system_prompt_role: safeText(MAX_TEXT).optional(),
   idea_guidance_text: safeText(MAX_TEXT).optional(),
   script_context: safeText(MAX_TEXT).optional(),
@@ -150,6 +189,11 @@ const SeriesFormulaDocumentSchema = z.object({
   metadata_title_style_hint: safeText(1000).optional(),
   metadata_title_hook_rules: z.array(safeText(1000)).max(60).optional(),
   metadata_tags_hook_rules: z.array(safeText(1000)).max(60).optional(),
+  metadata_description: MetadataDescriptionSchema.optional(),
+  recency_avoidance: RecencyAvoidanceSchema.optional(),
+  visual_style_hint: safeText(2000).optional(),
+  visual_style_sheet: safeText(MAX_TEXT).optional(),
+  creative_profiles: z.array(z.enum(['narrative', 'balanced', 'editorial', 'spiritual', 'abstract'])).min(1).max(5).optional(),
 }).strict()
 
 const TopicPackDocumentSchema = z.object({
@@ -164,10 +208,13 @@ const TopicPackDocumentSchema = z.object({
   exclusions: z.array(safeText(1000)).max(1000),
   max_siblings_per_subject: z.number().int().min(1).max(20),
   prompt_context: safeText(MAX_TEXT),
+  idea_axes: z.array(IdeaAxisSchema).max(20).optional(),
   example_topics: z.array(safeText(1000)).max(200).optional(),
   vocabulary: VocabularySchema.optional(),
   youtube_tags_hint: z.array(safeText(80)).max(80).optional(),
   tags: z.array(safeText(80)).max(80).optional(),
+  evidence_expectations: z.array(safeText(1200)).max(60).optional(),
+  compatibility_rules: z.array(safeText(1200)).max(60).optional(),
 }).strict()
 
 const VisualStyleDocumentSchema = z.object({
@@ -236,12 +283,17 @@ export const ContentPackBundleSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['components'], message: 'Channel Kit requires at least one Topic Pack component' })
   }
   const seen = new Set<string>()
+  const seenItemIds = new Set<string>()
   for (const [index, component] of bundle.components.entries()) {
     const identity = `${component.pack_id}@${component.version}:${component.item_id}`
     if (seen.has(identity)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['components', index], message: 'Channel Kit component references must be unique' })
     }
     seen.add(identity)
+    if (seenItemIds.has(component.item_id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['components', index, 'item_id'], message: 'Channel Kit item IDs must be unique' })
+    }
+    seenItemIds.add(component.item_id)
   }
 })
 
@@ -330,6 +382,7 @@ export const ContentPackManifestSchema = z.object({
   assertUnique(manifest.items.map(item => item.path), ['items'], 'item paths')
   assertUnique(manifest.files.map(file => file.path), ['files'], 'file paths')
   assertUnique(manifest.bundles.map(bundle => bundle.id), ['bundles'], 'bundle IDs')
+  assertUnique((manifest.dependencies ?? []).map(dependency => `${dependency.pack_id}@${dependency.version}`), ['dependencies'], 'dependency pairs')
   for (const [index, item] of manifest.items.entries()) {
     if (!withinPublisher(item.id)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items', index, 'id'], message: 'item ID must be within the publisher namespace' })
@@ -346,11 +399,17 @@ export const ContentPackManifestSchema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', index, 'id'], message: 'bundle ID must be within the publisher namespace' })
     }
     for (const [componentIndex, component] of bundle.components.entries()) {
-      if (component.pack_id === manifest.pack_id && component.version === manifest.version) {
+      if (component.pack_id === manifest.pack_id) {
+        if (component.version !== manifest.version) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', index, 'components', componentIndex, 'version'], message: 'same-pack component must use the exact current pack version' })
+          continue
+        }
         const declaration = manifest.items.find(item => item.id === component.item_id && item.kind === component.kind)
         if (!declaration) {
           ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', index, 'components', componentIndex], message: 'same-pack component reference must name a declared document' })
         }
+      } else if (!(manifest.dependencies ?? []).some(dependency => dependency.pack_id === component.pack_id && dependency.version === component.version)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', index, 'components', componentIndex], message: 'external component reference must have an exact manifest dependency' })
       }
     }
   }

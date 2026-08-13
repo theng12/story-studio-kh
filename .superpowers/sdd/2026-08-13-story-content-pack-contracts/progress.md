@@ -24,6 +24,10 @@
   - Review RED: expanded focused suite failed 10/14 tests before the follow-up schema implementation (missing rich Formula fields/changelog/Channel Kit semantics plus URI/routing and identity invariants).
   - Review GREEN: focused suite passed 15/15; `npm run typecheck:electron` and `git diff --check` passed.
   - Follow-up commit: `fix: harden content pack contract`.
+  - Second review follow-up: added bounded Deep Time visual-pacing/motion and allowlisted creative-profile fields; Formula examples, evidence expectations, metadata descriptions, and recency avoidance; Topic diversity/evidence/compatibility fields; strict reference-token rejection; and dependency coherence for independently versioned Channel Kit components.
+  - Second review RED: expanded focused suite failed 6/20 tests before the schema follow-up (missing Formula/Topic fields, unsafe-text probes, and external dependency/version coherence).
+  - Second review GREEN: focused suite passed 20/20; `npm run typecheck:electron` and `git diff --check` passed.
+  - Second follow-up commit: `fix: complete content pack contract invariants`.
 - [ ] Task 2 — archive integrity and Ed25519 verification
 - [ ] Task 3 — first-party publisher CLI
 - [ ] Task 4 — current-catalog migration golden

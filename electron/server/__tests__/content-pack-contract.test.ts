@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { describe, test } from 'node:test'
 
 import {
@@ -189,6 +190,65 @@ describe('Content Pack v1 contracts', () => {
     assert.equal(parsed.idea_axes?.[0]?.id, 'causal-mechanism')
   })
 
+  test('accepts projections of Deep Time visual pacing and Prayer metadata-recency declarations', async () => {
+    const [deepTime, prayer] = await Promise.all([
+      readFile(new URL('../niches/deep-time-documentary.json', import.meta.url), 'utf8').then(JSON.parse),
+      readFile(new URL('../niches/prayer.json', import.meta.url), 'utf8').then(JSON.parse),
+    ])
+    const deepTimeProjection = {
+      ...documents['series-formula'],
+      id: 'com.storystudio.formula.deep-time-documentary', name: deepTime.name, description: deepTime.description,
+      formula_family: deepTime.formulaFamily, example_topics: deepTime.exampleTopics,
+      script_structure: {
+        ...documents['series-formula'].script_structure,
+        visual_pacing_profile: deepTime.scriptStructure.visualPacingProfile,
+        motion_profile: deepTime.scriptStructure.motionProfile,
+      },
+      visual_style_hint: deepTime.visualStyleHint,
+      visual_style_sheet: deepTime.visualStyleSheet,
+      evidence_expectations: ['separate observation, inference, debate, and speculation'],
+      creative_profiles: ['balanced'],
+    }
+    const prayerProjection = {
+      ...documents['series-formula'],
+      id: 'com.storystudio.formula.prayer', name: prayer.name, description: prayer.description,
+      metadata_description: {
+        voice_guidance: prayer.metadataDescription.voiceGuidance,
+        description_shape_rules: prayer.metadataDescription.descriptionShapeRules,
+        cta_shape: prayer.metadataDescription.ctaShape,
+        closing_benediction: prayer.metadataDescription.closingBenediction,
+      },
+      recency_avoidance: {
+        label: prayer.recencyAvoidance.label,
+        extract_patterns: prayer.recencyAvoidance.extractPatterns,
+        default_lookback: prayer.recencyAvoidance.defaultLookback,
+        instruction_template: prayer.recencyAvoidance.instructionTemplate,
+        scopes: prayer.recencyAvoidance.scopes,
+      },
+    }
+    const parsedDeepTime = parseContentPackDocument('series-formula', deepTimeProjection)
+    const parsedPrayer = parseContentPackDocument('series-formula', prayerProjection)
+    if (parsedDeepTime.kind !== 'series-formula' || parsedPrayer.kind !== 'series-formula') assert.fail('expected Formula documents')
+    assert.equal(parsedDeepTime.script_structure.motion_profile?.id, 'ambient-documentary')
+    assert.equal(parsedPrayer.recency_avoidance?.scopes?.[1], 'metadata')
+  })
+
+  test('accepts a Topic Pack projection with current diversity axes and declarative evidence compatibility', async () => {
+    const source = JSON.parse(await readFile(new URL('../topic-packs/historical-money-debt-financial-institutions.json', import.meta.url), 'utf8'))
+    const projection = {
+      ...documents['topic-pack'],
+      name: source.name, description: source.description, subjects: source.subjects,
+      idea_axes: source.ideaAxes.map((axis: { id: string, label: string, values: string[] }) => ({
+        id: axis.id, label: axis.label, values: axis.values,
+      })),
+      evidence_expectations: ['distinguish policy, institution, and ordinary people'],
+      compatibility_rules: ['Use only with historical-causality Formulas.'],
+    }
+    const parsed = parseContentPackDocument('topic-pack', projection)
+    if (parsed.kind !== 'topic-pack') assert.fail('expected Topic Pack document')
+    assert.equal(parsed.idea_axes?.[0]?.id, 'financial-mechanism')
+  })
+
   test('treats a channel kit as a manifest bundle reference rather than a content document', () => {
     assert.equal(ContentPackBundleSchema.parse(manifest.bundles[0]).kind, 'channel-kit')
     assert.throws(() => ContentPackDocumentSchema.parse({ ...manifest.bundles[0], schema_version: 1 }), /kind/i)
@@ -229,7 +289,8 @@ describe('Content Pack v1 contracts', () => {
   test('rejects URI schemes, protocol-relative references, and model-routing directives in active text', () => {
     for (const unsafeText of [
       'javascript:alert(1)', 'data:text/plain,hello', 'file:///secret', 'ftp://example.test/file', '//example.test/file',
-      'provider_id: route-here', 'provider: route-here', 'model_id: route-here',
+      '(//example.test/file)', 'browse www.example.test now', 'see example.test/style for details',
+      'provider', 'provider_id: route-here', 'provider: route-here', 'model_id: route-here', 'engine_id: route-here', 'model: route-here', 'model=route-here',
     ]) {
       assert.throws(() => ContentPackDocumentSchema.parse({
         ...documents['visual-style'], style_bible: unsafeText,
@@ -325,5 +386,48 @@ describe('Content Pack v1 contracts', () => {
         manifest.bundles[0].components[1],
       ],
     }), /semantic version/i)
+  })
+
+  test('requires every external Channel Kit component to have one exact manifest dependency', () => {
+    const externalComponent = {
+      pack_id: 'com.partner.pack.history-assets', version: '2.0.0', item_id: 'com.partner.style.history-assets', kind: 'visual-style',
+    } as const
+    assertRejected({
+      ...manifest,
+      bundles: [{ ...manifest.bundles[0], components: [manifest.bundles[0].components[0], manifest.bundles[0].components[1], externalComponent] }],
+    }, /dependency/i)
+    assert.equal(parseContentPackManifest({
+      ...manifest,
+      dependencies: [{ pack_id: externalComponent.pack_id, version: externalComponent.version }],
+      bundles: [{ ...manifest.bundles[0], components: [manifest.bundles[0].components[0], manifest.bundles[0].components[1], externalComponent] }],
+    }).dependencies?.length, 1)
+  })
+
+  test('rejects duplicate dependency pairs and Channel Kit item IDs even when versions differ', () => {
+    assertRejected({
+      ...manifest,
+      dependencies: [
+        { pack_id: 'com.partner.pack.history-assets', version: '2.0.0' },
+        { pack_id: 'com.partner.pack.history-assets', version: '2.0.0' },
+      ],
+    }, /unique/i)
+    assert.throws(() => ContentPackBundleSchema.parse({
+      ...manifest.bundles[0],
+      components: [
+        manifest.bundles[0].components[0],
+        manifest.bundles[0].components[1],
+        { ...manifest.bundles[0].components[1], version: '2.0.0' },
+      ],
+    }), /unique/i)
+  })
+
+  test('rejects a same-pack Channel Kit component that claims a different version', () => {
+    assertRejected({
+      ...manifest,
+      bundles: [{
+        ...manifest.bundles[0],
+        components: [{ ...manifest.bundles[0].components[0], version: '9.9.9' }, manifest.bundles[0].components[1]],
+      }],
+    }, /exact current pack version/i)
   })
 })
