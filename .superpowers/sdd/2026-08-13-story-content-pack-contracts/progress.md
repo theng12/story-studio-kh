@@ -28,6 +28,10 @@
   - Second review RED: expanded focused suite failed 6/20 tests before the schema follow-up (missing Formula/Topic fields, unsafe-text probes, and external dependency/version coherence).
   - Second review GREEN: focused suite passed 20/20; `npm run typecheck:electron` and `git diff --check` passed.
   - Second follow-up commit: `fix: complete content pack contract invariants`.
+  - Final review follow-up: narrowed routing checks to identifier syntax and imperative routing phrases; recency uses the app-owned `scripture-references` strategy ID rather than downloadable regex/template behavior; motion uses allowlisted `ambient-documentary`; Formula-owned style text is rejected so independently versioned Visual Styles remain authoritative.
+  - Final review RED: expanded focused suite failed 3/22 tests before the contract follow-up (allowlisted motion/recency and non-routing provider prose).
+  - Final review GREEN: focused suite passed 22/22; `npm run typecheck:electron` and `git diff --check` passed.
+  - Final follow-up commit: `fix: restrict content pack behavior to app contracts`.
 - [ ] Task 2 — archive integrity and Ed25519 verification
 - [ ] Task 3 — first-party publisher CLI
 - [ ] Task 4 — current-catalog migration golden

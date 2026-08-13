@@ -202,10 +202,8 @@ describe('Content Pack v1 contracts', () => {
       script_structure: {
         ...documents['series-formula'].script_structure,
         visual_pacing_profile: deepTime.scriptStructure.visualPacingProfile,
-        motion_profile: deepTime.scriptStructure.motionProfile,
+        motion_profile_id: deepTime.scriptStructure.motionProfile.id,
       },
-      visual_style_hint: deepTime.visualStyleHint,
-      visual_style_sheet: deepTime.visualStyleSheet,
       evidence_expectations: ['separate observation, inference, debate, and speculation'],
       creative_profiles: ['balanced'],
     }
@@ -219,17 +217,16 @@ describe('Content Pack v1 contracts', () => {
         closing_benediction: prayer.metadataDescription.closingBenediction,
       },
       recency_avoidance: {
+        strategy_id: 'scripture-references',
         label: prayer.recencyAvoidance.label,
-        extract_patterns: prayer.recencyAvoidance.extractPatterns,
         default_lookback: prayer.recencyAvoidance.defaultLookback,
-        instruction_template: prayer.recencyAvoidance.instructionTemplate,
         scopes: prayer.recencyAvoidance.scopes,
       },
     }
     const parsedDeepTime = parseContentPackDocument('series-formula', deepTimeProjection)
     const parsedPrayer = parseContentPackDocument('series-formula', prayerProjection)
     if (parsedDeepTime.kind !== 'series-formula' || parsedPrayer.kind !== 'series-formula') assert.fail('expected Formula documents')
-    assert.equal(parsedDeepTime.script_structure.motion_profile?.id, 'ambient-documentary')
+    assert.equal(parsedDeepTime.script_structure.motion_profile_id, 'ambient-documentary')
     assert.equal(parsedPrayer.recency_avoidance?.scopes?.[1], 'metadata')
   })
 
@@ -290,12 +287,37 @@ describe('Content Pack v1 contracts', () => {
     for (const unsafeText of [
       'javascript:alert(1)', 'data:text/plain,hello', 'file:///secret', 'ftp://example.test/file', '//example.test/file',
       '(//example.test/file)', 'browse www.example.test now', 'see example.test/style for details',
-      'provider', 'provider_id: route-here', 'provider: route-here', 'model_id: route-here', 'engine_id: route-here', 'model: route-here', 'model=route-here',
+      'provider_id: route-here', 'provider: route-here', 'model_id: route-here', 'engine_id: route-here', 'model: route-here', 'model=route-here',
+      'use provider route-here model route-model', 'route via provider route-here',
     ]) {
       assert.throws(() => ContentPackDocumentSchema.parse({
         ...documents['visual-style'], style_bible: unsafeText,
       }), /URI|routing/i)
     }
+  })
+
+  test('allows ordinary non-routing use of the word provider', () => {
+    assert.equal(ContentPackDocumentSchema.parse({
+      ...documents['visual-style'], style_bible: 'A healthcare provider and a liquidity provider appear only as ordinary documentary subjects.',
+    }).kind, 'visual-style')
+  })
+
+  test('rejects raw pack-supplied regexes, motion mixes, unregistered motion IDs, and Formula style fields', () => {
+    assert.throws(() => ContentPackDocumentSchema.parse({
+      ...documents['series-formula'],
+      recency_avoidance: { strategy_id: 'scripture-references', label: 'scripture references', extract_patterns: ['.*'] },
+    }), /unrecognized key/i)
+    assert.throws(() => ContentPackDocumentSchema.parse({
+      ...documents['series-formula'],
+      script_structure: { ...documents['series-formula'].script_structure, motion_profile: { id: 'ambient-documentary' } },
+    }), /unrecognized key/i)
+    assert.throws(() => ContentPackDocumentSchema.parse({
+      ...documents['series-formula'],
+      script_structure: { ...documents['series-formula'].script_structure, motion_profile_id: 'unregistered-motion' },
+    }), /invalid_enum_value/i)
+    assert.throws(() => ContentPackDocumentSchema.parse({
+      ...documents['series-formula'], visual_style_hint: 'Formula-owned art direction is forbidden.',
+    }), /unrecognized key/i)
   })
 
   test('rejects range dependencies and item paths that are not declared files', () => {
