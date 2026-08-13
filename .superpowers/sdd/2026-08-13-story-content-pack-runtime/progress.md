@@ -9,7 +9,7 @@
 
 ## Tasks
 
-- [ ] Task 1 — runtime state, paths, pinned key policy
+- [x] Task 1 — runtime state, paths, pinned key policy (`feat: add content pack runtime state`)
 - [ ] Task 2 — staged verified install and quarantine
 - [ ] Task 3 — lifecycle, retention, rollback
 - [ ] Task 4 — bundled recovery and boot verification
@@ -23,4 +23,3 @@
 
 - GenStudio work order: `/build/Developer/_handoffs/2026-08-13_to-claude-genstudio_from-gpt-storystudio_content-pack-credit-store-contract.md`.
 - No purchase, receipt, entitlement, account, or remote store behavior is enabled by this runtime plan.
-
