@@ -72,11 +72,13 @@ export interface ContentPackResourceRootOptions {
 /** Kept injectable so dev Electron can never accidentally select a stale resource bundle. */
 export function resolveContentPackRecoveryRoot(options: ContentPackResourceRootOptions = {}): string {
   const packaged = options.packaged ?? isPackagedApp()
+  if (packaged) {
+    const resourcesPath = options.resourcesPath ?? process.resourcesPath
+    if (!resourcesPath) throw new Error('packaged Content Pack recovery resources are unavailable')
+    return path.join(resourcesPath, 'content-packs', 'recovery')
+  }
   const sourceContentPackRoot = options.sourceContentPackRoot ?? findContentPackSourceRoot()
-  if (!packaged) return path.join(sourceContentPackRoot, 'recovery')
-  const resourcesPath = options.resourcesPath ?? process.resourcesPath
-  if (!resourcesPath) throw new Error('packaged Content Pack recovery resources are unavailable')
-  return path.join(resourcesPath, 'content-packs', 'recovery')
+  return path.join(sourceContentPackRoot, 'recovery')
 }
 
 /** Resolve only. Creating the runtime layout is an explicit write operation. */

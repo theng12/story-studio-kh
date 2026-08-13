@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.836
+
+- Fixed packaged Content Pack and Content Store pages failing to load because the installed app attempted to discover a development source directory before using its bundled recovery resources.
+
 ## v1.0.835
 
 - Added the GenStudio Content Store commerce core: browse published packs, see the exact content-spendable balance, request a signed quote, and confirm a permanent account purchase with durable idempotency.

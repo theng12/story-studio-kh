@@ -79,6 +79,20 @@ describe('Content Pack recovery catalog', () => {
     assert.equal(resolveContentPackRecoveryRoot({ packaged: true, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/Resources/content-packs/recovery')
   })
 
+  test('does not inspect the unpackaged source tree when resolving packaged resources', () => {
+    const options = {
+      packaged: true,
+      resourcesPath: '/Applications/Story Studio KH.app/Contents/Resources',
+      get sourceContentPackRoot(): string {
+        throw new Error('packaged apps must not inspect the source tree')
+      },
+    }
+    assert.equal(
+      resolveContentPackRecoveryRoot(options),
+      '/Applications/Story Studio KH.app/Contents/Resources/content-packs/recovery',
+    )
+  })
+
   test('loads the source trust resource and verifies its bundled first-party archive', async () => {
     const packs = await listVerifiedRecoveryPacks({ policy: await getFirstPartyContentPackVerificationPolicy() })
     assert.deepEqual(packs.map(pack => `${pack.manifest.pack_id}@${pack.manifest.version}`), ['com.storystudio.pack.free-recovery-test@1.0.0'])
