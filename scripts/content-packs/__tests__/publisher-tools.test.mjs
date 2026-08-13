@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { generateKeyPairSync } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -241,4 +241,54 @@ test('build-pack refuses an ancestor-directory symlink race and preserves the ou
     await rename(content, join(source, 'content-original'))
     await symlink(privateDirectory, content)
   })
+})
+
+test('build-pack refuses an equal-size in-place source rewrite before it can be signed', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const source = await writeSource(fixture.root)
+  const output = join(fixture.root, 'must-not-change.sspack')
+  await writeFile(output, 'preserve me', 'utf8')
+  const document = join(source, 'content', 'visual-style.json')
+  const original = await readFile(document, 'utf8')
+  const rewritten = original.replace('Test Style', 'Race Style')
+  assert.equal(rewritten.length, original.length)
+  const { buildContentPack } = await import('../lib.mjs')
+
+  await assert.rejects(
+    buildContentPack({
+      sourceDirectory: source,
+      privateKeyPath: fixture.privateKeyPath,
+      outputPath: output,
+      onSourceEnumerated: async () => {
+        await writeFile(document, rewritten, 'utf8')
+        await utimes(document, new Date('2030-01-01T00:00:00.000Z'), new Date('2030-01-01T00:00:00.000Z'))
+      },
+    }),
+    /source file changed/i,
+  )
+  assert.equal(await readFile(output, 'utf8'), 'preserve me')
+})
+
+test('build-pack bounds a source read and refuses growth after the safe file handle is opened', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const source = await writeSource(fixture.root)
+  const output = join(fixture.root, 'must-not-change.sspack')
+  await writeFile(output, 'preserve me', 'utf8')
+  const document = join(source, 'content', 'visual-style.json')
+  const { buildContentPack } = await import('../lib.mjs')
+
+  await assert.rejects(
+    buildContentPack({
+      sourceDirectory: source,
+      privateKeyPath: fixture.privateKeyPath,
+      outputPath: output,
+      onBeforeSourceRead: async record => {
+        if (record.relativePath === 'content/visual-style.json') await writeFile(document, `${await readFile(document, 'utf8')}x`, 'utf8')
+      },
+    }),
+    /source file changed|byte limit/i,
+  )
+  assert.equal(await readFile(output, 'utf8'), 'preserve me')
 })

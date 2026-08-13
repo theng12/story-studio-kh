@@ -58,6 +58,9 @@
   - Documentation follow-up: the publisher guide now defines `(pack_id, exact version, archive SHA-256)` as immutable published identity and corrects namespace wording to IDs rather than paths.
   - Review RED: expanded publisher suite failed 4/11 before the follow-up (key/source and public-key collisions plus file/ancestor symlink swaps).
   - Review GREEN: contract/archive suites pass 40/40, publisher suite passes 11/11, `npm run typecheck`, and `git diff --check` pass.
+  - Final source-snapshot follow-up: source records now use bigint `dev`, `ino`, `mode`, `size`, `mtimeNs`, and `ctimeNs`; directory child name sets are re-enumerated during stability checks. File handles read at most the originally validated byte count plus one byte, reject growth/truncation, and never use unbounded `readFile` for source content.
+  - Final RED: two new publisher regressions failed before implementation—an equal-size in-place rewrite after enumeration and growth after safe file-handle open both reached the output path.
+  - Final GREEN: publisher suite passes 13/13 with both output sentinels preserved; full foundation verification pending this follow-up commit.
 - [ ] Task 4 — current-catalog migration golden
 - [ ] Task 5 — independent review and runtime-plan handoff
 

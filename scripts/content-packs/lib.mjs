@@ -100,15 +100,27 @@ async function pathsResolveToSameFile(left, right) {
 }
 
 function nodeIdentity(stat) {
-  return { dev: stat.dev, ino: stat.ino, size: stat.size, mode: stat.mode }
+  return {
+    dev: stat.dev,
+    ino: stat.ino,
+    mode: stat.mode,
+    size: stat.size,
+    mtimeNs: stat.mtimeNs,
+    ctimeNs: stat.ctimeNs,
+  }
 }
 
 function sameNode(left, right) {
-  return left.dev === right.dev && left.ino === right.ino && left.size === right.size && left.mode === right.mode
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.mode === right.mode
+    && left.size === right.size
+    && left.mtimeNs === right.mtimeNs
+    && left.ctimeNs === right.ctimeNs
 }
 
 async function recordSourceNode(root, path, kind, records) {
-  const stat = await lstat(path).catch(() => undefined)
+  const stat = await lstat(path, { bigint: true }).catch(() => undefined)
   if (!stat || stat.isSymbolicLink() || (kind === 'directory' ? !stat.isDirectory() : !stat.isFile())) {
     fail(`source ${kind} changed or is not safe: ${sourceRelative(root, path)}`)
   }
@@ -118,9 +130,16 @@ async function recordSourceNode(root, path, kind, records) {
 }
 
 async function assertSourceRecordIntact(record) {
-  const stat = await lstat(record.path).catch(() => undefined)
+  const stat = await lstat(record.path, { bigint: true }).catch(() => undefined)
   if (!stat || stat.isSymbolicLink() || (record.kind === 'directory' ? !stat.isDirectory() : !stat.isFile()) || !sameNode(record.identity, nodeIdentity(stat))) {
     fail(`source ${record.kind} changed or is not safe: ${record.relativePath}`)
+  }
+  if (record.kind === 'directory') {
+    const children = await readdir(record.path)
+    children.sort(comparePaths)
+    if (children.length !== record.childNames.length || children.some((child, index) => child !== record.childNames[index])) {
+      fail(`source directory children changed: ${record.relativePath}`)
+    }
   }
 }
 
@@ -131,12 +150,13 @@ async function listFiles(root, directory, records) {
   if (!stat.isDirectory() || stat.isSymbolicLink()) fail(`${directory} must be a real directory when present`)
   const files = []
   async function walk(path) {
-    await recordSourceNode(root, path, 'directory', records)
+    const directoryRecord = await recordSourceNode(root, path, 'directory', records)
     const entries = await readdir(path)
     entries.sort(comparePaths)
+    directoryRecord.childNames = entries
     for (const entry of entries) {
       const child = resolve(path, entry)
-      const stat = await lstat(child).catch(() => undefined)
+      const stat = await lstat(child, { bigint: true }).catch(() => undefined)
       if (!stat || stat.isSymbolicLink()) fail(`source symlink is not permitted: ${sourceRelative(root, child)}`)
       if (stat.isDirectory()) {
         await walk(child)
@@ -153,18 +173,19 @@ async function listFiles(root, directory, records) {
 
 async function collectSourceFiles(sourceDirectory) {
   const root = resolve(sourceDirectory)
-  const rootStat = await lstat(root).catch(() => undefined)
+  const rootStat = await lstat(root, { bigint: true }).catch(() => undefined)
   if (!rootStat || !rootStat.isDirectory() || rootStat.isSymbolicLink()) fail('source directory must be a real directory')
   const records = []
-  await recordSourceNode(root, root, 'directory', records)
+  const rootRecord = await recordSourceNode(root, root, 'directory', records)
   const rootEntries = await readdir(root)
   rootEntries.sort(comparePaths)
+  rootRecord.childNames = rootEntries
   let packJson
   const files = []
   for (const name of rootEntries) {
     if (!SOURCE_ROOT_ENTRIES.has(name)) fail(`source file is not declared by pack.json: ${name}`)
     const path = resolve(root, name)
-    const stat = await lstat(path).catch(() => undefined)
+    const stat = await lstat(path, { bigint: true }).catch(() => undefined)
     if (!stat || stat.isSymbolicLink()) fail(`source symlink is not permitted: ${name}`)
     if (name === 'pack.json') {
       packJson = await recordSourceNode(root, path, 'file', records)
@@ -181,19 +202,36 @@ async function collectSourceFiles(sourceDirectory) {
   return { root, packJson, files, records }
 }
 
-async function snapshotSourceFile(record) {
+function boundedSourceSize(size, limit, path) {
+  if (size < 0n || size > BigInt(limit)) fail(`source file exceeds its byte limit: ${path}`)
+  return Number(size)
+}
+
+async function readBoundedFile(handle, expectedBytes) {
+  const buffer = Buffer.allocUnsafe(expectedBytes + 1)
+  let bytesRead = 0
+  while (bytesRead < buffer.byteLength) {
+    const result = await handle.read(buffer, bytesRead, buffer.byteLength - bytesRead, bytesRead)
+    if (result.bytesRead === 0) break
+    bytesRead += result.bytesRead
+  }
+  return buffer.subarray(0, bytesRead)
+}
+
+async function snapshotSourceFile(record, onBeforeSourceRead) {
   await assertSourceRecordIntact(record)
   const limit = record.relativePath === 'pack.json' || record.relativePath.startsWith('content/') ? MAX_SOURCE_JSON_BYTES : MAX_SOURCE_RASTER_BYTES
-  if (record.identity.size > limit) fail(`source file exceeds its byte limit: ${record.relativePath}`)
+  const expectedBytes = boundedSourceSize(record.identity.size, limit, record.relativePath)
   if (!Number.isInteger(constants.O_NOFOLLOW)) fail('safe no-follow source reads are unavailable on this platform')
   let handle
   try {
     handle = await open(record.path, constants.O_RDONLY | constants.O_NOFOLLOW)
-    const before = await handle.stat()
+    const before = await handle.stat({ bigint: true })
     if (!before.isFile() || !sameNode(record.identity, nodeIdentity(before))) fail(`source file changed or is not safe: ${record.relativePath}`)
-    const bytes = await handle.readFile()
-    const after = await handle.stat()
-    if (!sameNode(record.identity, nodeIdentity(after)) || bytes.byteLength !== after.size || bytes.byteLength > limit) {
+    await onBeforeSourceRead?.(record)
+    const bytes = await readBoundedFile(handle, expectedBytes)
+    const after = await handle.stat({ bigint: true })
+    if (!sameNode(record.identity, nodeIdentity(after)) || bytes.byteLength !== expectedBytes || BigInt(bytes.byteLength) !== after.size || bytes.byteLength > limit) {
       fail(`source file changed or exceeds its byte limit: ${record.relativePath}`)
     }
     return bytes
@@ -226,11 +264,11 @@ function sourceManifestToArchiveManifest(sourceManifest, items, files) {
   }
 }
 
-async function loadSourceManifest(sourceDirectory, onSourceEnumerated) {
+async function loadSourceManifest(sourceDirectory, onSourceEnumerated, onBeforeSourceRead) {
   const source = await collectSourceFiles(sourceDirectory)
   await onSourceEnumerated?.(source)
   await assertSourceStable(source)
-  const sourceManifestBytes = await snapshotSourceFile(source.packJson)
+  const sourceManifestBytes = await snapshotSourceFile(source.packJson, onBeforeSourceRead)
   let sourceManifest
   try {
     sourceManifest = JSON.parse(sourceManifestBytes.toString('utf8'))
@@ -239,7 +277,7 @@ async function loadSourceManifest(sourceDirectory, onSourceEnumerated) {
   }
   const contents = []
   for (const file of source.files.filter(file => file.relativePath.startsWith('content/'))) {
-    const bytes = await snapshotSourceFile(file)
+    const bytes = await snapshotSourceFile(file, onBeforeSourceRead)
     let document
     try {
       document = ContentPackDocumentSchema.parse(JSON.parse(bytes.toString('utf8')))
@@ -250,7 +288,7 @@ async function loadSourceManifest(sourceDirectory, onSourceEnumerated) {
   }
   const otherFiles = []
   for (const file of source.files.filter(file => file.relativePath.startsWith('assets/'))) {
-    otherFiles.push({ path: file.relativePath, bytes: await snapshotSourceFile(file) })
+    otherFiles.push({ path: file.relativePath, bytes: await snapshotSourceFile(file, onBeforeSourceRead) })
   }
   await assertSourceStable(source)
   const allFiles = [...contents, ...otherFiles].sort((left, right) => comparePaths(left.path, right.path))
@@ -294,14 +332,14 @@ async function writeOutput(path, bytes) {
   return output
 }
 
-export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath, onSourceEnumerated }) {
+export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath, onSourceEnumerated, onBeforeSourceRead }) {
   if (!sourceDirectory || !privateKeyPath || !outputPath) fail('source directory, private key, and output path are required')
   const sourcePath = resolve(sourceDirectory)
   const privateKey = resolve(privateKeyPath)
   const output = resolve(outputPath)
   await assertOutputSeparatedFromInputs(sourcePath, privateKey, output)
   const privateKeyObject = parsePrivateKey(await readFile(privateKey, 'utf8'))
-  const source = await loadSourceManifest(sourcePath, onSourceEnumerated)
+  const source = await loadSourceManifest(sourcePath, onSourceEnumerated, onBeforeSourceRead)
   const manifestBytes = Buffer.from(canonicalJson(source.manifest), 'utf8')
   const signatureBytes = sign(null, manifestBytes, privateKeyObject)
   const archiveBytes = await deterministicArchive(manifestBytes, signatureBytes, source.files)
