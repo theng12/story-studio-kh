@@ -16,7 +16,7 @@ import {
 } from '../content-packs/lifecycle.js'
 import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
-import { readContentPackState } from '../content-packs/state.js'
+import { readContentPackState, withContentPackCoordinationLock } from '../content-packs/state.js'
 import { useTempDataDir } from './_helpers.js'
 
 const PUBLISHER_ID = 'com.storystudio'
@@ -150,6 +150,53 @@ describe('Content Pack lifecycle', () => {
     await assert.rejects(fs.stat(pending.install_path), { code: 'ENOENT' })
   })
 
+  test('finishes an already-deleted pending removal after a crash before its final state checkpoint', async () => {
+    const paths = await isolated()
+    const packId = 'com.storystudio.lifecycle-test'
+    await installContentPack(request(await buildArchive({ version: '1.0.0' })), options(paths))
+    await installContentPack(request(await buildArchive({ version: '1.0.1' })), options(paths))
+    const inactive = (await readContentPackState(paths)).packs[packId].versions['1.0.0']
+
+    await assert.rejects(uninstallContentPackVersion(packId, '1.0.0', async () => [], {
+      ...options(paths), hooks: { afterRemovalDelete: async () => { throw new Error('cut power after delete') } },
+    }), /cut power after delete/)
+    const pending = (await readContentPackState(paths)).packs[packId].versions['1.0.0']
+    assert.ok(pending.pending_removal)
+    await assert.rejects(fs.stat(inactive.install_path), { code: 'ENOENT' })
+
+    await uninstallContentPackVersion(packId, '1.0.0', async () => [], options(paths))
+    assert.equal((await readContentPackState(paths)).packs[packId].versions['1.0.0'], undefined)
+  })
+
+  test('serializes a project-pin attempt behind pending deletion so it sees no removable version', async () => {
+    const paths = await isolated()
+    const packId = 'com.storystudio.lifecycle-test'
+    await installContentPack(request(await buildArchive({ version: '1.0.0' })), options(paths))
+    await installContentPack(request(await buildArchive({ version: '1.0.1' })), options(paths))
+    let releaseRemoval!: () => void
+    const removalMayContinue = new Promise<void>(resolve => { releaseRemoval = resolve })
+    let removalStarted!: () => void
+    const removalHasStarted = new Promise<void>(resolve => { removalStarted = resolve })
+    const uninstall = uninstallContentPackVersion(packId, '1.0.0', async () => [], {
+      ...options(paths),
+      hooks: { beforeRemovalDelete: async () => { removalStarted(); await removalMayContinue } },
+    })
+    await removalHasStarted
+
+    let pinAttemptEntered = false
+    let pinCouldResolve = true
+    const pinAttempt = withContentPackCoordinationLock(paths, async () => {
+      pinAttemptEntered = true
+      pinCouldResolve = Boolean((await readContentPackState(paths)).packs[packId]?.versions['1.0.0'])
+    })
+    await new Promise(resolve => setTimeout(resolve, 30))
+    assert.equal(pinAttemptEntered, false)
+    releaseRemoval()
+    await uninstall
+    await pinAttempt
+    assert.equal(pinCouldResolve, false)
+  })
+
   test('never follows a swapped inactive install symlink while a pending removal remains durable', async () => {
     const paths = await isolated()
     const packId = 'com.storystudio.lifecycle-test'
@@ -184,6 +231,52 @@ describe('Content Pack lifecycle', () => {
     const later = await pruneUnpinnedContentPackVersions(packId, async (_id, version) => version === '1.0.1', options(paths))
     assert.deepEqual(later, ['1.0.0'])
     assert.deepEqual(Object.keys((await readContentPackState(paths)).packs[packId].versions).sort(), ['1.0.1', '1.0.2', '1.0.3'])
+  })
+
+  test('recomputes prune protection after a concurrent install activates a newer version', async () => {
+    const paths = await isolated()
+    const packId = 'com.storystudio.lifecycle-test'
+    for (const version of ['1.0.0', '1.0.1', '1.0.2', '1.0.3']) {
+      await installContentPack(request(await buildArchive({ version })), options(paths))
+    }
+    let releaseInstall!: () => void
+    const installMayContinue = new Promise<void>(resolve => { releaseInstall = resolve })
+    let installReady!: () => void
+    const installIsReady = new Promise<void>(resolve => { installReady = resolve })
+    const install = installContentPack(request(await buildArchive({ version: '1.0.4' })), {
+      ...options(paths), hooks: { beforeActivationWrite: async () => { installReady(); await installMayContinue } },
+    })
+    await installIsReady
+    const prune = pruneUnpinnedContentPackVersions(packId, async () => false, options(paths))
+    releaseInstall()
+    await install
+    assert.deepEqual(await prune, ['1.0.1', '1.0.0'])
+    assert.deepEqual(Object.keys((await readContentPackState(paths)).packs[packId].versions).sort(), ['1.0.2', '1.0.3', '1.0.4'])
+  })
+
+  test('serializes rollback and prune behind a concurrent install before recomputing retention', async () => {
+    const paths = await isolated()
+    const packId = 'com.storystudio.lifecycle-test'
+    for (const version of ['1.0.0', '1.0.1', '1.0.2', '1.0.3']) {
+      await installContentPack(request(await buildArchive({ version })), options(paths))
+    }
+    let releaseInstall!: () => void
+    const installMayContinue = new Promise<void>(resolve => { releaseInstall = resolve })
+    let installReady!: () => void
+    const installIsReady = new Promise<void>(resolve => { installReady = resolve })
+    const install = installContentPack(request(await buildArchive({ version: '1.0.4' })), {
+      ...options(paths), hooks: { beforeActivationWrite: async () => { installReady(); await installMayContinue } },
+    })
+    await installIsReady
+    const rollback = rollbackContentPack(packId, '1.0.3', options(paths))
+    const prune = pruneUnpinnedContentPackVersions(packId, async () => false, options(paths))
+    releaseInstall()
+    await install
+    await rollback
+    assert.deepEqual(await prune, ['1.0.4', '1.0.0'])
+    const state = await readContentPackState(paths)
+    assert.equal(state.packs[packId].active_version, '1.0.3')
+    assert.deepEqual(Object.keys(state.packs[packId].versions).sort(), ['1.0.1', '1.0.2', '1.0.3'])
   })
 
   test('locally rolls a corrupt active version back to the newest healthy retained version without network access', async () => {

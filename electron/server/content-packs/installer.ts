@@ -13,7 +13,7 @@ import {
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import { findContentPackSourceRoot, installedVersionPath, resolveVerifiedPackFile, type ContentPackRuntimePaths } from './runtime-paths.js'
 import { type ContentPackInstallRequest, type ContentPackInstallResult, type ContentPackInstalledVersion, type ContentPackRuntimeState } from './runtime-types.js'
-import { withContentPackStateTransaction } from './state.js'
+import { withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 
 const DIRECTORY_MODE = 0o700
@@ -78,10 +78,10 @@ export async function resolveContentPackAppVersion(options: ContentPackVersionRe
 }
 
 function compareExactSemver(left: string, right: string): number {
-  const leftParts = left.split('.').map(Number)
-  const rightParts = right.split('.').map(Number)
+  const leftParts = left.split('.').map(part => BigInt(part))
+  const rightParts = right.split('.').map(part => BigInt(part))
   for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) return leftParts[index] - rightParts[index]
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] < rightParts[index] ? -1 : 1
   }
   return 0
 }
@@ -387,9 +387,19 @@ export async function installContentPack(
   options: ContentPackInstallOptions = {},
 ): Promise<ContentPackInstallResult> {
   const paths = options.paths ?? (await import('./runtime-paths.js')).getContentPackRuntimePaths()
+  // Reject unbounded input before a coordination lock can create runtime state.
   if (request.archiveBytes.byteLength > MAX_ARCHIVE_BYTES) {
     throw new Error(`Content Pack archive exceeds ${MAX_ARCHIVE_BYTES} byte limit`)
   }
+  return withContentPackCoordinationLock(paths, () => installContentPackLocked(request, options, paths))
+}
+
+/** Caller holds coordination → state; this avoids nested coordination locks in future bulk operations. */
+async function installContentPackLocked(
+  request: ContentPackInstallRequest,
+  options: ContentPackInstallOptions,
+  paths: ContentPackRuntimePaths,
+): Promise<ContentPackInstallResult> {
   const archiveSha = sha256(request.archiveBytes)
   if (request.expectedArchiveSha256 && request.expectedArchiveSha256 !== archiveSha) {
     await quarantineContentPackBytes(request.archiveBytes, 'sha256_mismatch', paths)

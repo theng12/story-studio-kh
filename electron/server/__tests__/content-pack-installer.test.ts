@@ -172,6 +172,21 @@ describe('Content Pack local installer', () => {
     await assert.rejects(resolveContentPackAppVersion({ packaged: true }), /packaged app version/i)
   })
 
+  test('compares exact-semver components without IEEE-754 rounding at large values', async () => {
+    const paths = await isolated()
+    const archive = await buildArchive({ minAppVersion: '9007199254740993.0.0' })
+    await assert.rejects(
+      installContentPack(request(archive), { paths, policy, appVersion: '9007199254740992.999999999999999999.999999999999999999' }),
+      /requires Story Studio/i,
+    )
+    const later = await buildArchive({ version: '9007199254740993.0.0' })
+    const earlier = await buildArchive({ version: '9007199254740992.0.0' })
+    await installContentPack(request(later), { paths, policy })
+    await installContentPack(request(earlier), { paths, policy })
+    assert.deepEqual((await readContentPackState(paths)).packs['com.storystudio.installer-test'].active_version, '9007199254740992.0.0')
+    assert.deepEqual((await installContentPack(request(earlier), { paths, policy })).retained_versions, ['9007199254740992.0.0', '9007199254740993.0.0'])
+  })
+
   test('quarantines only submitted bytes and a bounded failure code', async () => {
     const paths = await isolated()
     const bytes = Buffer.from('not an archive containing customer data')

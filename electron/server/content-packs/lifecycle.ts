@@ -11,13 +11,15 @@ import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import { installedVersionPath, type ContentPackRuntimePaths } from './runtime-paths.js'
 import type { ContentPackInstalledVersion, ContentPackRuntimeState } from './runtime-types.js'
 import { getContentPackRuntimePaths } from './runtime-paths.js'
-import { readContentPackState, withContentPackStateTransaction } from './state.js'
+import { withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
 
 const DIRECTORY_MODE = 0o700
 
 export interface ContentPackLifecycleHooks {
   /** Test seam: runs after the durable pending-removal checkpoint, before any move. */
   beforeRemovalDelete?: () => Promise<void>
+  /** Test seam: runs after deletion but before the final state checkpoint. */
+  afterRemovalDelete?: () => Promise<void>
 }
 
 export interface ContentPackLifecycleOptions {
@@ -35,10 +37,10 @@ export interface ContentPackRollbackResult {
 }
 
 function compareSemverDescending(left: string, right: string): number {
-  const leftParts = left.split('.').map(Number)
-  const rightParts = right.split('.').map(Number)
+  const leftParts = left.split('.').map(part => BigInt(part))
+  const rightParts = right.split('.').map(part => BigInt(part))
   for (let index = 0; index < 3; index += 1) {
-    if (leftParts[index] !== rightParts[index]) return rightParts[index] - leftParts[index]
+    if (leftParts[index] !== rightParts[index]) return leftParts[index] < rightParts[index] ? 1 : -1
   }
   return 0
 }
@@ -171,7 +173,7 @@ async function findInstalledDependents(
 async function removePendingVersion(
   paths: ContentPackRuntimePaths,
   installed: ContentPackInstalledVersion,
-): Promise<void> {
+): Promise<'deleted' | 'already-deleted'> {
   const expectedInstallPath = installedVersionPath(paths, installed.manifest)
   if (installed.install_path !== expectedInstallPath) throw new Error('Content Pack state install path does not match manifest')
   const tombstone = removalPath(paths, installed)
@@ -185,11 +187,43 @@ async function removePendingVersion(
     await fsyncDirectory(path.dirname(installed.install_path))
     await fsyncDirectory(path.dirname(tombstone))
   } else if (!tombstoneExists) {
-    throw new Error(`Content Pack pending removal source is missing: ${installed.install_path}`)
+    // The deletion completed but the process died before its final state
+    // checkpoint. `pending_removal` is the durable authority to finalise this
+    // exact idempotent removal; never attempt a network repair.
+    return 'already-deleted'
   }
   await assertSafeDirectoryChain(removalRoot(paths), tombstone)
   await fs.rm(tombstone, { recursive: true, force: false, maxRetries: 2 })
   await fsyncDirectory(path.dirname(tombstone))
+  return 'deleted'
+}
+
+async function removeAuthorisedVersion(
+  state: ContentPackRuntimeState,
+  transaction: { checkpoint: () => Promise<void> },
+  packId: string,
+  version: string,
+  isPinned: (packId: string, version: string) => Promise<string[]>,
+  paths: ContentPackRuntimePaths,
+  policy: ContentPackVerificationPolicy,
+  hooks?: ContentPackLifecycleHooks,
+): Promise<void> {
+  const pack = state.packs[packId]
+  const installed = getInstalled(state, packId, version)
+  if (pack.active_version === version) throw new Error(`Content Pack active version cannot be uninstalled: ${packId}@${version}`)
+  const projectSlugs = [...new Set(await isPinned(packId, version))].sort()
+  if (projectSlugs.length) throw new Error(`Content Pack version is pinned by projects: ${projectSlugs.join(', ')}`)
+  const dependents = await findInstalledDependents(state, packId, version, policy)
+  if (dependents.length) throw new Error(`Content Pack version is required by installed dependent packs: ${dependents.join(', ')}`)
+  if (!installed.pending_removal) {
+    installed.pending_removal = { operation_id: randomUUID(), started_at: new Date().toISOString() }
+    await transaction.checkpoint()
+  }
+  await hooks?.beforeRemovalDelete?.()
+  const deletion = await removePendingVersion(paths, installed)
+  if (deletion === 'deleted') await hooks?.afterRemovalDelete?.()
+  delete pack.versions[version]
+  if (Object.keys(pack.versions).length === 0) delete state.packs[packId]
 }
 
 export async function setContentPackDiscoveryDisabled(
@@ -198,11 +232,11 @@ export async function setContentPackDiscoveryDisabled(
   options: ContentPackLifecycleOptions = {},
 ): Promise<void> {
   const paths = options.paths ?? getContentPackRuntimePaths()
-  await withContentPackStateTransaction(state => {
+  await withContentPackCoordinationLock(paths, () => withContentPackStateTransaction(state => {
     const pack = state.packs[packId]
     if (!pack) throw new Error(`Content Pack is not installed: ${packId}`)
     pack.discovery_disabled = disabled
-  }, paths)
+  }, paths))
 }
 
 export async function rollbackContentPack(
@@ -212,12 +246,12 @@ export async function rollbackContentPack(
 ): Promise<void> {
   const paths = options.paths ?? getContentPackRuntimePaths()
   const policy = await resolvePolicy(options)
-  await withContentPackStateTransaction(async state => {
+  await withContentPackCoordinationLock(paths, () => withContentPackStateTransaction(async state => {
     const installed = getInstalled(state, packId, version)
     assertNotPending(packId, version, installed)
     await verifyInstalledContentPackClosure(state, packId, version, policy, options.appVersion)
     state.packs[packId].active_version = version
-  }, paths)
+  }, paths))
 }
 
 export async function uninstallContentPackVersion(
@@ -228,23 +262,22 @@ export async function uninstallContentPackVersion(
 ): Promise<void> {
   const paths = options.paths ?? getContentPackRuntimePaths()
   const policy = await resolvePolicy(options)
-  await withContentPackStateTransaction(async (state, transaction) => {
-    const pack = state.packs[packId]
-    const installed = getInstalled(state, packId, version)
-    if (pack.active_version === version) throw new Error(`Content Pack active version cannot be uninstalled: ${packId}@${version}`)
-    const projectSlugs = [...new Set(await isPinned(packId, version))].sort()
-    if (projectSlugs.length) throw new Error(`Content Pack version is pinned by projects: ${projectSlugs.join(', ')}`)
-    const dependents = await findInstalledDependents(state, packId, version, policy)
-    if (dependents.length) throw new Error(`Content Pack version is required by installed dependent packs: ${dependents.join(', ')}`)
-    if (!installed.pending_removal) {
-      installed.pending_removal = { operation_id: randomUUID(), started_at: new Date().toISOString() }
-      await transaction.checkpoint()
-    }
-    await options.hooks?.beforeRemovalDelete?.()
-    await removePendingVersion(paths, installed)
-    delete pack.versions[version]
-    if (Object.keys(pack.versions).length === 0) delete state.packs[packId]
-  }, paths)
+  await withContentPackCoordinationLock(paths, () => uninstallContentPackVersionLocked(packId, version, isPinned, paths, policy, options))
+}
+
+/** Caller holds coordination → state; this is deliberately not exported to renderer-facing code. */
+async function uninstallContentPackVersionLocked(
+  packId: string,
+  version: string,
+  isPinned: (packId: string, version: string) => Promise<string[]>,
+  paths: ContentPackRuntimePaths,
+  policy: ContentPackVerificationPolicy,
+  options: ContentPackLifecycleOptions,
+): Promise<void> {
+  await withContentPackStateTransaction(
+    (state, transaction) => removeAuthorisedVersion(state, transaction, packId, version, isPinned, paths, policy, options.hooks),
+    paths,
+  )
 }
 
 /**
@@ -259,37 +292,41 @@ export async function pruneUnpinnedContentPackVersions(
 ): Promise<string[]> {
   const paths = options.paths ?? getContentPackRuntimePaths()
   const policy = await resolvePolicy(options)
-  const snapshot = await readContentPackState(paths)
-  const pack = snapshot.packs[packId]
-  if (!pack) throw new Error(`Content Pack is not installed: ${packId}`)
-  const ordered = Object.keys(pack.versions).sort(compareSemverDescending)
-  const activeIndex = pack.active_version ? ordered.indexOf(pack.active_version) : -1
-  const keep = new Set(activeIndex >= 0 ? ordered.slice(activeIndex, activeIndex + 3) : [])
-  const removed: string[] = []
-  for (const version of ordered) {
-    if (keep.has(version)) continue
-    if (await isPinned(packId, version)) continue
-    const current = await readContentPackState(paths)
-    const candidate = current.packs[packId]?.versions[version]
-    if (!candidate || candidate.pending_removal || current.packs[packId]?.active_version === version) continue
-    const dependents = await findInstalledDependents(current, packId, version, policy)
-    if (dependents.length) continue
-    try {
-      await verifyInstalledContentPackVersion(candidate, policy)
-    } catch {
-      continue
+  return withContentPackCoordinationLock(paths, async () => {
+    const removed: string[] = []
+    while (true) {
+      const pruned = await withContentPackStateTransaction(async (state, transaction) => {
+        const pack = state.packs[packId]
+        if (!pack) return null
+        const ordered = Object.keys(pack.versions).sort(compareSemverDescending)
+        const activeIndex = pack.active_version ? ordered.indexOf(pack.active_version) : -1
+        const keep = new Set(activeIndex >= 0 ? ordered.slice(activeIndex, activeIndex + 3) : [])
+        for (const version of ordered) {
+          const candidate = pack.versions[version]
+          if (keep.has(version) || candidate.pending_removal || await isPinned(packId, version)) continue
+          if ((await findInstalledDependents(state, packId, version, policy)).length) continue
+          try {
+            await verifyInstalledContentPackVersion(candidate, policy)
+          } catch {
+            continue
+          }
+          await removeAuthorisedVersion(
+            state,
+            transaction,
+            packId,
+            version,
+            async () => (await isPinned(packId, version)) ? ['pinned-during-prune'] : [],
+            paths,
+            policy,
+          )
+          return version
+        }
+        return null
+      }, paths)
+      if (!pruned) return removed
+      removed.push(pruned)
     }
-    try {
-      await uninstallContentPackVersion(packId, version, async () => (await isPinned(packId, version)) ? ['pinned-during-prune'] : [], options)
-      removed.push(version)
-    } catch (error) {
-      // A pin/dependency race is a normal skip. Filesystem deletion errors are
-      // intentionally surfaced so the durable pending-removal guard is visible.
-      if (/pinned|dependent|active/i.test(error instanceof Error ? error.message : String(error))) continue
-      throw error
-    }
-  }
-  return removed
+  })
 }
 
 /**
@@ -303,7 +340,7 @@ export async function recoverContentPackActiveVersion(
 ): Promise<ContentPackRollbackResult | null> {
   const paths = options.paths ?? getContentPackRuntimePaths()
   const policy = await resolvePolicy(options)
-  return withContentPackStateTransaction(async state => {
+  return withContentPackCoordinationLock(paths, () => withContentPackStateTransaction(async state => {
     const pack = state.packs[packId]
     if (!pack?.active_version) return null
     const from = pack.active_version
@@ -325,5 +362,5 @@ export async function recoverContentPackActiveVersion(
       return { pack_id: packId, from, to: candidate }
     }
     throw new Error(`Content Pack active version is corrupt and has no healthy retained rollback: ${packId}@${from}`)
-  }, paths)
+  }, paths))
 }

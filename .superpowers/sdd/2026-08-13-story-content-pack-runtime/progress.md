@@ -11,7 +11,7 @@
 
 - [x] Task 1 — runtime state, paths, pinned key policy (`feat: add content pack runtime state`; hardened state I/O, token-owned cross-process locking with guarded incarnation-aware stale recovery, semantic coherence, symlink containment, key validation, and packaged-root policy)
 - [x] Task 2 — staged verified install and quarantine (`feat: install verified content packs atomically`; UUID staging under the cross-process state lock, expected-SHA and signature verification before materialisation, no-follow exclusive writes, durable retained archives re-verified for every dependency/re-import, exact orphan adoption, cache repair from signed truth, bottom-up nested-directory fsync, and runtime-root/lock symlink protection)
-- [x] Task 3 — lifecycle, retention, rollback (`feat: manage content pack rollback and retention`; durable pending-removal checkpoints under the cross-process lock, locally reverified rollback and recovery, symlink-safe contained deletion, and deterministic retention that preserves pins and dependency roots)
+- [x] Task 3 — lifecycle, retention, rollback (`feat: manage content pack rollback and retention`; then hardening follow-up: a completed-but-uncheckpointed deletion now finalises idempotently, every lifecycle/install operation holds the global coordination lock before state/project work, pruning re-authorises current retention under that lock, and BigInt semver comparisons cannot round high components)
 - [ ] Task 4 — bundled recovery and boot verification
 - [ ] Task 5 — verified registry and legacy adapters
 - [ ] Task 6 — exact project pins and job provenance

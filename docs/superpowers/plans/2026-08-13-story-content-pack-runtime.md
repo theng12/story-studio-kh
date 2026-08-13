@@ -456,7 +456,7 @@ Expected: FAIL because project pins and job provenance fields are absent.
 
 - [ ] **Step 3: Implement immutable selection rules**
 
-Add only additive optional fields to persisted project/job shapes. Use project-manager’s locked atomic update path for pin changes. Every registry resolution for a project receives its pin map; new projects choose the newest compatible active version only when a user selects content, never at boot. Add a `content-pack-missing` structured validation error that names each missing exact pack/version/item and blocks only generator operations that consume it. In `enqueue`, resolve pins once before constructing the Job and store `{ pack_id, version, archive_sha256, item_ids }`; never resolve a job again from current catalog state.
+Add only additive optional fields to persisted project/job shapes. Pin mutation and pin lookup that races pack lifecycle must hold `withContentPackCoordinationLock()` before obtaining the Content Pack state lock and then project-manager’s lock: **coordination → state → project**. Do not call a public installer/lifecycle operation while already holding coordination; use their locked inner operation or arrange work at the documented order. Every registry resolution for a project receives its pin map; new projects choose the newest compatible active version only when a user selects content, never at boot. Add a `content-pack-missing` structured validation error that names each missing exact pack/version/item and blocks only generator operations that consume it. In `enqueue`, resolve pins once before constructing the Job and store `{ pack_id, version, archive_sha256, item_ids }`; never resolve a job again from current catalog state.
 
 - [ ] **Step 4: Run GREEN and prove migration behavior**
 

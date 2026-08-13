@@ -191,6 +191,10 @@ function stateLockPath(statePath: string): string {
   return `${statePath}.lock`
 }
 
+function coordinationLockPath(paths: ContentPackRuntimePaths): string {
+  return path.join(paths.root, '.coordination.lock')
+}
+
 function recoveryGuardPath(lockPath: string): string {
   return `${lockPath}.recovery`
 }
@@ -376,11 +380,11 @@ async function reclaimStateLockIfProvenStale(
   }
 }
 
-async function acquireFilesystemStateLock(
+async function acquireFilesystemContentPackLock(
   paths: ContentPackRuntimePaths,
+  lockPath: string,
   options: ContentPackStateLockTestOptions = {},
 ): Promise<ContentPackStateLockHandle> {
-  const lockPath = stateLockPath(paths.statePath)
   const defaultRuntime = defaultStateLockRuntime()
   const runtime: ContentPackStateLockRuntime = { ...defaultRuntime, ...options.runtime }
   const identity = await runtime.current()
@@ -393,7 +397,7 @@ async function acquireFilesystemStateLock(
     token: randomUUID(),
   }
   await prepareContentPackRuntimeRoot(paths)
-  if (path.resolve(path.dirname(lockPath)) !== path.resolve(paths.root)) throw new Error('Content Pack state lock must live directly below its runtime root')
+  if (path.resolve(path.dirname(lockPath)) !== path.resolve(paths.root)) throw new Error('Content Pack lock must live directly below its runtime root')
   while (true) {
     if (await publishStateLock(lockPath, owner)) break
     if (await reclaimStateLockIfProvenStale(lockPath, identity, runtime, staleLockMs, deadline, options.hooks)) continue
@@ -411,11 +415,11 @@ export function __testAcquireContentPackStateLock(
   paths: ContentPackRuntimePaths,
   options?: ContentPackStateLockTestOptions,
 ): Promise<ContentPackStateLockHandle> {
-  return acquireFilesystemStateLock(paths, options)
+  return acquireFilesystemContentPackLock(paths, stateLockPath(paths.statePath), options)
 }
 
-async function withFilesystemStateLock<T>(paths: ContentPackRuntimePaths, work: () => Promise<T>): Promise<T> {
-  const lock = await acquireFilesystemStateLock(paths)
+async function withFilesystemContentPackLock<T>(paths: ContentPackRuntimePaths, lockPath: string, work: () => Promise<T>): Promise<T> {
+  const lock = await acquireFilesystemContentPackLock(paths, lockPath)
   try {
     return await work()
   } finally {
@@ -424,5 +428,19 @@ async function withFilesystemStateLock<T>(paths: ContentPackRuntimePaths, work: 
 }
 
 function withContentPackStateLock<T>(paths: ContentPackRuntimePaths, work: () => Promise<T>): Promise<T> {
-  return withLock(paths.statePath, () => withFilesystemStateLock(paths, work))
+  return withLock(paths.statePath, () => withFilesystemContentPackLock(paths, stateLockPath(paths.statePath), work))
+}
+
+/**
+ * Global Content Pack lock order is coordination → Content Pack state →
+ * project-manager. Any operation that can alter installed versions or exact
+ * project pins takes this lock first. Keep public lifecycle/install functions
+ * outside this callback; use their locked inner helpers to avoid re-entry.
+ */
+export function withContentPackCoordinationLock<T>(
+  paths: ContentPackRuntimePaths,
+  work: () => Promise<T>,
+): Promise<T> {
+  const lockPath = coordinationLockPath(paths)
+  return withLock(lockPath, () => withFilesystemContentPackLock(paths, lockPath, work))
 }
