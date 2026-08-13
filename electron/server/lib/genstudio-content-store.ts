@@ -473,7 +473,7 @@ interface RequestOptions<T> {
 }
 
 function errorBody(textBody: string): Record<string, unknown> {
-  if (Buffer.byteLength(textBody, 'utf8') > MAX_CANONICAL_BYTES) return { raw_response: textBody.slice(0, MAX_CANONICAL_BYTES) }
+  if (Buffer.byteLength(textBody, 'utf8') > MAX_CANONICAL_BYTES) throw new Error('GenStudio Content Store error response exceeds 1 MiB')
   try {
     const parsed = JSON.parse(textBody)
     return canonicalizeContentStoreObject(parsed).value

@@ -442,6 +442,18 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
     )
   })
 
+  test('rejects an oversized refusal body before retaining it', async () => {
+    globalThis.fetch = async () => new Response('x'.repeat(1024 * 1024 + 1), { status: 503 })
+    await assert.rejects(
+      purchaseGenStudioContentProduct('gsk_test', {
+        quoteCanonicalJson: canonicalizeContentStoreObject(signedQuote()).canonicalJson,
+        quoteSignature: SIGNATURE,
+        idempotencyKey: 'store-attempt-123',
+      }),
+      /response|large|limit/i,
+    )
+  })
+
   test('does not retry a quote after a socket failure', async () => {
     let calls = 0
     globalThis.fetch = () => {
