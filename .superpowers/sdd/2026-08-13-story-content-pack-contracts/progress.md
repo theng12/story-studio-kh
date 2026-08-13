@@ -61,7 +61,12 @@
   - Final source-snapshot follow-up: source records now use bigint `dev`, `ino`, `mode`, `size`, `mtimeNs`, and `ctimeNs`; directory child name sets are re-enumerated during stability checks. File handles read at most the originally validated byte count plus one byte, reject growth/truncation, and never use unbounded `readFile` for source content.
   - Final RED: two new publisher regressions failed before implementation—an equal-size in-place rewrite after enumeration and growth after safe file-handle open both reached the output path.
   - Final GREEN: publisher suite passes 13/13 with both output sentinels preserved; full foundation verification pending this follow-up commit.
-- [ ] Task 4 — current-catalog migration golden
+- [x] Task 4 — current-catalog migration golden
+  - RED: the new suite failed 2/2 before its fixture existed (`ENOENT` for `current-catalog-golden.json`).
+  - Coverage: captures stable, prompt-relevant HMH Formula facts; its selected Topic Pack IDs, subject inventories, and idea axes (counts plus deterministic SHA-256 fingerprints); its recommended archival style and thumbnail recipe; a non-HMH Deep Time Formula; and a nested user-override precedence case. It intentionally excludes filesystem paths, previews, timestamps, and whole implementation objects.
+  - GREEN: `content-pack-migration-golden.test.ts` passes 2/2 and Electron typecheck passes.
+  - Mutation proof: changing the HMH Formula name in the fixture to `Hidden Mechanics of History — MUTATION` made the catalog assertion fail with the expected name diff; fixture restored immediately.
+  - Foundation verification: contract/archive/migration/current-catalog suites pass 78/78; publisher CLI suite passes 13/13; `npm run typecheck` and `git diff --check` pass.
 - [ ] Task 5 — independent review and runtime-plan handoff
 
 ## External dependency

@@ -1,0 +1,272 @@
+{
+  "hidden_mechanics_history": {
+    "formula": {
+      "id": "hidden-mechanics-history",
+      "name": "Hidden Mechanics of History",
+      "formula_family": "Evidence & systems",
+      "default_topic_pack_ids": [
+        "historical-states-revolutions-collapse",
+        "historical-money-debt-financial-institutions",
+        "historical-empires-trade-extraction",
+        "historical-wars-treaties-world-order",
+        "historical-infrastructure-commodities-corporate-power"
+      ],
+      "compatible_topic_pack_ids": [
+        "historical-states-revolutions-collapse",
+        "historical-money-debt-financial-institutions",
+        "historical-empires-trade-extraction",
+        "historical-wars-treaties-world-order",
+        "historical-infrastructure-commodities-corporate-power",
+        "economics-ancient-civilizations"
+      ],
+      "idea_axes": [
+        {
+          "id": "causal-mechanism",
+          "label": "Causal mechanism",
+          "value_count": 11,
+          "values_sha256": "0ce4483638a6501eb2d81dff2c01e805c826d1e6d8f5525f0c7cd7a153f3ecd1"
+        },
+        {
+          "id": "popular-account-gap",
+          "label": "What the familiar account misses",
+          "value_count": 8,
+          "values_sha256": "347497d300437405d3b065e390ddc361df2a6ae1f92fdbe2d59bbbe086b514ed"
+        },
+        {
+          "id": "causal-stage",
+          "label": "Causal stage",
+          "value_count": 5,
+          "values_sha256": "d6a26b3db534bb7a11ed78a333af2309f39575cd0a559ed7e1b3dd6320629b48"
+        },
+        {
+          "id": "evidence-posture",
+          "label": "Evidence posture",
+          "value_count": 4,
+          "values_sha256": "2d4e9c41035f0ea60679fbc181b6415c2650a04680b94a96a759c854a8dac88b"
+        }
+      ],
+      "idea_system_prompt_role_sha256": "2a042ba2443b6511a433af56b2cab8632ccf3bd524d0f649017d53875875ffef",
+      "idea_guidance_text_sha256": "b65955e3be4cdc6422aaf5ab84aed01d03e03d0e36d0c1e018f9bf31f514ef3a",
+      "script_context_sha256": "cdd9c94f886b8c90ac2b2ffd7630cd2ada7e0be11e31036146989347fd15f3cb",
+      "script_system_prompt_role_sha256": "cf29f3a99258988e9ca0df09246b38505e7d88c84ca7a01b127810993234d886",
+      "script_closing_hint_sha256": "9efc51f8cd9af5fdb57ae2a91cc8b78b487e206d3d11c62dff7bd34d9cd26094",
+      "script_structure": {
+        "default_chapter_count": 9,
+        "chapter_count_range": [
+          9,
+          9
+        ],
+        "default_length_minutes": 36,
+        "length_minutes_range": [
+          30,
+          45
+        ],
+        "duration_presets": [
+          30,
+          36,
+          45
+        ],
+        "default_words_per_minute": 140,
+        "chapters_independent": true,
+        "pacing_arc_sha256": "2dc08dcc656744e60f90391a2fcc5e8b1c001ab9f7e0e2226f40e07b76e26d30",
+        "additional_rules_sha256": "7172994011be94b02c1c75402adbf39fe3b86228e95de371391b4fb53adfa0e4"
+      },
+      "recommended_visual_style_id": "builtin-archival-documentary-reconstruction",
+      "default_thumbnail_template_id": "archival-map-investigation"
+    },
+    "default_topic_packs": [
+      {
+        "id": "historical-states-revolutions-collapse",
+        "name": "States, Revolutions & Collapse",
+        "compatible_formula_ids": [
+          "hidden-mechanics-history"
+        ],
+        "subject_count": 25,
+        "subjects_sha256": "42610e725daef30c7310b382b6836352f7ec86dd895aa2ae6e9cced27bdbad77",
+        "idea_axes": [
+          {
+            "id": "state-change",
+            "label": "State-change lens",
+            "value_count": 8,
+            "values_sha256": "905f51d0dda0906cd66a84fc239931ea0b25350f97d18e867c85cba2208777ec"
+          }
+        ],
+        "prompt_context_sha256": "f01803ec6bb9e548d30afc824a1e67a28e59995984827a625a851ef0cbede0bf"
+      },
+      {
+        "id": "historical-money-debt-financial-institutions",
+        "name": "Money, Debt & Financial Institutions",
+        "compatible_formula_ids": [
+          "hidden-mechanics-history"
+        ],
+        "subject_count": 25,
+        "subjects_sha256": "5ab143e43454997895eccf351db11c6567dd140bd05351371582f1b35659dd34",
+        "idea_axes": [
+          {
+            "id": "financial-mechanism",
+            "label": "Financial mechanism",
+            "value_count": 8,
+            "values_sha256": "06ba28b2742c33c813d6e216812554e788acb7fdb7819e0ffe55e429481c4546"
+          }
+        ],
+        "prompt_context_sha256": "f89224595977bc912d9f2e6c7101824b77b81bf80ad9164567fd95c0e6783a24"
+      },
+      {
+        "id": "historical-empires-trade-extraction",
+        "name": "Empires, Trade & Extraction",
+        "compatible_formula_ids": [
+          "hidden-mechanics-history"
+        ],
+        "subject_count": 25,
+        "subjects_sha256": "3c4ce551f4150a2e356af23b96f150e7558925afc873c78089219d292eb10d22",
+        "idea_axes": [
+          {
+            "id": "extraction-system",
+            "label": "Imperial and trade mechanism",
+            "value_count": 8,
+            "values_sha256": "b1fa2f56ace66be8bb3838e179e5ca3f4d3294c4e763f2ab2b268b3f2639bc17"
+          }
+        ],
+        "prompt_context_sha256": "7b4ce91c7a4b6d428f6b4413f94a602e58d33ab821a2f652f3b90a01bb702985"
+      },
+      {
+        "id": "historical-wars-treaties-world-order",
+        "name": "Wars, Treaties & World Order",
+        "compatible_formula_ids": [
+          "hidden-mechanics-history"
+        ],
+        "subject_count": 25,
+        "subjects_sha256": "8c6b83dc627ba26f7314bbe2c63d08567a136fbab4c709e738bf48662612aa59",
+        "idea_axes": [
+          {
+            "id": "world-order-lens",
+            "label": "War and diplomacy lens",
+            "value_count": 8,
+            "values_sha256": "5177d2d981e49a930d7d7710a84cb108a667648365de1f96dda692232af502c0"
+          }
+        ],
+        "prompt_context_sha256": "ce9eed2cec095acb5cbe16e5e4ca7b086b505762e6e1bc42574ba2942e35d346"
+      },
+      {
+        "id": "historical-infrastructure-commodities-corporate-power",
+        "name": "Infrastructure, Commodities & Corporate Power",
+        "compatible_formula_ids": [
+          "hidden-mechanics-history"
+        ],
+        "subject_count": 25,
+        "subjects_sha256": "f3364b46c80a93f53763e8e090a2d8dcc0426e749ff9ee4ea4c926998a058bdb",
+        "idea_axes": [
+          {
+            "id": "material-system",
+            "label": "Material-system lens",
+            "value_count": 8,
+            "values_sha256": "503151293025a6cc076c6a0a24bf24b5d1d5ec60af8b7101c3ba44085a6e30f6"
+          }
+        ],
+        "prompt_context_sha256": "32fbcbdcec1e65441e26fb0627c1375d87a22fa080d71d2f78c75e524105f1ad"
+      }
+    ],
+    "recommended_visual_style": {
+      "id": "builtin-archival-documentary-reconstruction",
+      "name": "Archival Documentary Reconstruction",
+      "style_bible_sha256": "31d2bebcb9a5ee84dc346b78a2821350f344f2d6ecbbfaf0c5ff63395a6926f7",
+      "negative_prompt_sha256": "4ab8450f72c000fe724cef12574fc4e328db8587c350155bd0f5de0346ec5123"
+    },
+    "default_thumbnail_recipe": {
+      "id": "archival-map-investigation",
+      "name": "Archival Map Investigation",
+      "title_mode": "ai",
+      "layout": "annotated-collage",
+      "recipe_sha256": "c7864dc0f67e940e405297a649e0774f432c744a700b8fac06c90454d1587562"
+    }
+  },
+  "deep_time_documentary": {
+    "formula": {
+      "id": "deep-time-documentary",
+      "name": "Long-Form Deep-Time Documentary",
+      "formula_family": "Evidence & systems",
+      "default_topic_pack_ids": [
+        "deep-time-earth-systems",
+        "deep-time-prehistoric-life",
+        "deep-time-deep-ocean",
+        "deep-time-human-origins",
+        "deep-time-speculative-earth"
+      ],
+      "compatible_topic_pack_ids": [
+        "deep-time-earth-systems",
+        "deep-time-prehistoric-life",
+        "deep-time-deep-ocean",
+        "deep-time-human-origins",
+        "deep-time-speculative-earth"
+      ],
+      "idea_axes": [
+        {
+          "id": "episode-profile",
+          "label": "Episode profile",
+          "value_count": 2,
+          "values_sha256": "7ce55683b5b5994b7dd79113af68c26582085d1c0a71cd4332bad2c9e5c6b74c"
+        },
+        {
+          "id": "time-scale",
+          "label": "Time scale",
+          "value_count": 7,
+          "values_sha256": "d296b4e194567345001ea900d8c0d09b9f63a3674eb0d198c75f0bacc1299917"
+        },
+        {
+          "id": "evidence-lens",
+          "label": "Evidence lens",
+          "value_count": 8,
+          "values_sha256": "72dbe568e08cd254aa2a2f5b21b8d4205549d864a05689504fb2ac432feb9272"
+        },
+        {
+          "id": "documentary-engine",
+          "label": "Documentary engine",
+          "value_count": 8,
+          "values_sha256": "77882786ae2e2c55135b0ef8bc92b3b3e3580649171c99fb57a6effca6382201"
+        },
+        {
+          "id": "viewer-payoff",
+          "label": "Viewer payoff",
+          "value_count": 7,
+          "values_sha256": "5de6fb5dfe1348104c91b19c56757826986016108db79b830535117fe3b5a905"
+        }
+      ],
+      "idea_system_prompt_role_sha256": "b7b8755385871bbb4b2c6e2f41902312b60074eb501f24010671510be3c84b37",
+      "idea_guidance_text_sha256": "1c02c225e8189a7fab212d506854b0025ed7ff28f1cf1209f6a718661058a459",
+      "script_context_sha256": "6d20b9e52183cf172adf247f49122cd0b81d6652c65a2b382662a864ffab823e",
+      "script_system_prompt_role_sha256": "e6e12279b21bfe712aee284362323b88af138c70ead1ddae40602a1e7df9c8c5",
+      "script_closing_hint_sha256": "adae060ad3dac2cc402368698e0b26ca01dd7f977e4e2c182c1cf6dba215ae4d",
+      "script_structure": {
+        "default_chapter_count": 18,
+        "chapter_count_range": [
+          16,
+          24
+        ],
+        "default_length_minutes": 150,
+        "length_minutes_range": [
+          120,
+          180
+        ],
+        "duration_presets": [
+          120,
+          150,
+          180
+        ],
+        "default_words_per_minute": 120,
+        "chapters_independent": true,
+        "pacing_arc_sha256": "0fb6b37ce723c6e1c6f4d65f52c03b2a1a9cb95780c65e9f7a813cb34930065d",
+        "additional_rules_sha256": "13bedb3761c6d01399706d1f6d71fb0e010328952a86629253c58068a7be6b78"
+      },
+      "recommended_visual_style_id": "builtin-paleo-documentary-tableau",
+      "default_thumbnail_template_id": "documentary-label-tableau"
+    }
+  },
+  "user_override_precedence": {
+    "formula_id": "hidden-mechanics-history",
+    "base_default_length_minutes": 36,
+    "effective_default_length_minutes": 41,
+    "preserved_chapter_count": 9,
+    "base_script_closing_hint_sha256": "9efc51f8cd9af5fdb57ae2a91cc8b78b487e206d3d11c62dff7bd34d9cd26094",
+    "effective_script_closing_hint_sha256": "8b94bebc5abe091aa84e9197e497f4330b92751d225a27cb65e66ba5fe1a0ce8"
+  }
+}
