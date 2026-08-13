@@ -10,7 +10,7 @@
 ## Tasks
 
 - [x] Task 1 — runtime state, paths, pinned key policy (`feat: add content pack runtime state`; hardened state I/O, token-owned cross-process locking with guarded incarnation-aware stale recovery, semantic coherence, symlink containment, key validation, and packaged-root policy)
-- [ ] Task 2 — staged verified install and quarantine
+- [x] Task 2 — staged verified install and quarantine (`feat: install verified content packs atomically`; UUID staging, expected-SHA and signature verification before materialisation, no-follow exclusive writes, immutable version activation under the cross-process state lock, exact dependency/cycle checks, bounded quarantine metadata, and power-cut recovery)
 - [ ] Task 3 — lifecycle, retention, rollback
 - [ ] Task 4 — bundled recovery and boot verification
 - [ ] Task 5 — verified registry and legacy adapters

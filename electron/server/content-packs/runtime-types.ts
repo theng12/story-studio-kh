@@ -40,6 +40,20 @@ export type ContentPackInstalledVersion = z.infer<typeof ContentPackInstalledVer
 export type ContentPackRuntimeState = z.infer<typeof ContentPackRuntimeStateSchema>
 export type ContentPackVersionRef = z.infer<typeof ContentPackVersionRefSchema>
 
+export interface ContentPackInstallRequest {
+  archiveBytes: Uint8Array
+  source: z.infer<typeof ContentPackInstallSourceSchema>
+  expectedArchiveSha256?: string
+}
+
+export interface ContentPackInstallResult {
+  pack_id: string
+  version: string
+  archive_sha256: string
+  activated: boolean
+  retained_versions: string[]
+}
+
 export function emptyContentPackState(): ContentPackRuntimeState {
   return { schema_version: 1, packs: {} }
 }
