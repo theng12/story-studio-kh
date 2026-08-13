@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 import {
+  costTierLabel,
   isCompleteTierCatalog,
+  tierForKeyboard,
   tierForOpening,
   visibleTierOptions,
 } from '../utils/genstudio-cost-tier.js'
@@ -36,10 +38,11 @@ describe('GenStudio cost-tier policy', () => {
   })
 
   test('searches every tier while retaining the tier published on each result', () => {
-    // Catches search filtering to the selected tab or stripping cross-tier badge data.
+    // Catches search filtering to the selected tab or showing every result with
+    // the active tab's label instead of the tier published on that result.
     const results = visibleTierOptions(complete, 'economy', true)
     assert.deepEqual(results.map(option => option.id), ['fast', 'steady', 'flagship'])
-    assert.deepEqual(results.map(option => option.costTier), ['economy', 'balanced', 'premium'])
+    assert.deepEqual(results.map(option => costTierLabel(option.costTier)), ['Economy', 'Balanced', 'Premium'])
   })
 
   test('keeps incomplete catalogues unfiltered even without a query', () => {
@@ -48,5 +51,14 @@ describe('GenStudio cost-tier policy', () => {
     assert.deepEqual(visibleTierOptions(incomplete, 'premium', false).map(option => option.id), [
       'fast', 'steady', 'flagship', 'unknown',
     ])
+  })
+
+  test('uses the same Home/End target for selection and roving focus', () => {
+    // ModelMenu gives this returned target to both its active selection and
+    // focused button. Catches Home/End deriving the next arrow from the old tab.
+    assert.equal(tierForKeyboard('premium', 'Home'), 'economy')
+    assert.equal(tierForKeyboard('economy', 'ArrowLeft'), 'premium')
+    assert.equal(tierForKeyboard('economy', 'End'), 'premium')
+    assert.equal(tierForKeyboard('premium', 'ArrowRight'), 'economy')
   })
 })

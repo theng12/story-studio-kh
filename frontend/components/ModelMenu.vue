@@ -138,7 +138,9 @@
 <script setup lang="ts">
 import {
   GENSTUDIO_COST_TIERS,
+  costTierLabel,
   isCompleteTierCatalog,
+  tierForKeyboard,
   tierForOpening,
   visibleTierOptions,
   type GenStudioCostTier,
@@ -229,7 +231,7 @@ const selectedSummary = computed(() => {
   return [option.provider, option.meta].filter(Boolean).join(' · ')
 })
 function tierLabel(costTier: GenStudioCostTier): string {
-  return GENSTUDIO_COST_TIERS.find(tier => tier.id === costTier)?.label || costTier
+  return costTierLabel(costTier)
 }
 function tierTabId(costTier: GenStudioCostTier): string {
   return `model-menu-tier-${costTier}`
@@ -284,18 +286,17 @@ function select(option: ModelMenuOption) {
 function setTier(tier: GenStudioCostTier) {
   activeTier.value = tier
 }
-function moveTier(delta: number) {
-  const current = GENSTUDIO_COST_TIERS.findIndex(tier => tier.id === activeTier.value)
-  const next = (current + delta + GENSTUDIO_COST_TIERS.length) % GENSTUDIO_COST_TIERS.length
-  const tier = GENSTUDIO_COST_TIERS[next]
-  setTier(tier.id)
-  tierTabsEl.value?.querySelector<HTMLButtonElement>(`#${tierTabId(tier.id)}`)?.focus()
+function moveTier(key: string) {
+  const tier = tierForKeyboard(activeTier.value, key)
+  if (!tier) return
+  setTier(tier)
+  tierTabsEl.value?.querySelector<HTMLButtonElement>(`#${tierTabId(tier)}`)?.focus()
 }
 function onTierKeydown(event: KeyboardEvent) {
-  if (event.key === 'ArrowRight') { event.preventDefault(); moveTier(1) }
-  else if (event.key === 'ArrowLeft') { event.preventDefault(); moveTier(-1) }
-  else if (event.key === 'Home') { event.preventDefault(); setTier('economy') }
-  else if (event.key === 'End') { event.preventDefault(); setTier('premium') }
+  if (event.key === 'ArrowRight') { event.preventDefault(); moveTier('ArrowRight') }
+  else if (event.key === 'ArrowLeft') { event.preventDefault(); moveTier('ArrowLeft') }
+  else if (event.key === 'Home') { event.preventDefault(); moveTier('Home') }
+  else if (event.key === 'End') { event.preventDefault(); moveTier('End') }
 }
 
 /**
