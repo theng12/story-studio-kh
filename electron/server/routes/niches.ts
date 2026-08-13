@@ -14,7 +14,7 @@
  * fork; neither the bundled source nor the legacy file is overwritten.
  */
 
-import { Router } from 'express'
+import { Router, type Request } from 'express'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import * as nl from '../services/niche-loader.js'
@@ -34,11 +34,15 @@ import {
 
 export const router = Router()
 
+function packOptionsFor(req: Request) {
+  return req.app.locals.contentPackOptions || {}
+}
+
 // ── List ────────────────────────────────────────────────────────────────────
 
-router.get('/niches', async (_req, res) => {
+router.get('/niches', async (req, res) => {
   try {
-    const niches = await nl.listNiches()
+    const niches = await nl.listNiches(packOptionsFor(req))
     // For each niche, count how many projects reference it — used by the
     // niche browser to show "in use by N projects" badges and to gate
     // delete confirmation.
@@ -61,7 +65,7 @@ router.get('/niches', async (_req, res) => {
 router.get('/topic-packs', async (req, res) => {
   try {
     const nicheId = typeof req.query.niche_id === 'string' ? req.query.niche_id : ''
-    const packs = await tpl.listTopicPacks()
+    const packs = await tpl.listTopicPacks(packOptionsFor(req))
     res.json({
       topic_packs: nicheId
         ? packs.filter(pack => tpl.isCompatible(pack, nicheId))
@@ -72,9 +76,9 @@ router.get('/topic-packs', async (req, res) => {
   }
 })
 
-router.get('/visual-styles', async (_req, res) => {
+router.get('/visual-styles', async (req, res) => {
   try {
-    res.json({ visual_styles: await listVisualStyles() })
+    res.json({ visual_styles: await listVisualStyles(packOptionsFor(req)) })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to list visual styles')
   }
@@ -82,7 +86,7 @@ router.get('/visual-styles', async (_req, res) => {
 
 router.get('/topic-packs/:id', async (req, res) => {
   try {
-    const pack = await tpl.loadTopicPack(req.params.id)
+    const pack = await tpl.loadTopicPack(req.params.id, packOptionsFor(req))
     if (!pack) return res.status(404).json({ detail: 'Topic Pack not found' })
     res.json(pack)
   } catch (e: any) {
@@ -96,7 +100,7 @@ router.post('/topic-packs', async (req, res) => {
     if (!parsed.success) {
       return res.status(400).json({ detail: parsed.error.issues.map(issue => issue.message).join('; ') })
     }
-    if (await tpl.loadTopicPack(parsed.data.id)) {
+    if (await tpl.loadTopicPack(parsed.data.id, packOptionsFor(req))) {
       return res.status(409).json({ detail: `Topic Pack '${parsed.data.id}' already exists` })
     }
     await tpl.ensureTopicPacksDir()
@@ -137,7 +141,7 @@ router.delete('/topic-packs/:id', async (req, res) => {
   try {
     const filePath = tpl.topicPackFilePath(req.params.id)
     if (!existsSync(filePath)) {
-      const existing = await tpl.loadTopicPack(req.params.id)
+      const existing = await tpl.loadTopicPack(req.params.id, packOptionsFor(req))
       return res.status(existing?.builtin ? 400 : 404).json({
         detail: existing?.builtin
           ? `Topic Pack '${req.params.id}' is built-in and cannot be deleted`
@@ -168,7 +172,7 @@ router.delete('/topic-packs/:id', async (req, res) => {
 
 router.get('/niches/:id', async (req, res) => {
   try {
-    const niche = await nl.loadNiche(req.params.id)
+    const niche = await nl.loadNiche(req.params.id, packOptionsFor(req))
     if (!niche) return res.status(404).json({ detail: 'Niche not found' })
     res.json(niche)
   } catch (e: any) {
@@ -206,7 +210,7 @@ router.post('/niches', async (req, res) => {
     // it as a different action ("override built-in") — POST is for
     // brand-new niches only. This guards against accidental overrides
     // from API clients.
-    const existing = await nl.loadNiche(body.id)
+    const existing = await nl.loadNiche(body.id, packOptionsFor(req))
     if (existing) {
       return res.status(409).json({ detail: `Niche '${body.id}' already exists (built-in or user-custom)` })
     }
@@ -259,7 +263,7 @@ router.delete('/niches/:id', async (req, res) => {
     if (!existsSync(filePath)) {
       // Built-in or unknown — either way, nothing to delete on disk. Distinguish
       // via the loader so the error message guides the user correctly.
-      const builtin = await nl.loadNiche(id)
+      const builtin = await nl.loadNiche(id, packOptionsFor(req))
       if (builtin && builtin.builtin) {
         return res.status(400).json({
           detail: `Niche '${id}' is built-in and cannot be deleted. To customize, save your own version with the same id.`,
@@ -303,10 +307,11 @@ router.put('/projects/:slug/niche', async (req, res) => {
     }
     const { niche_id, topic_pack_ids } = parsed.data
     if (niche_id) {
-      const niche = await nl.loadNiche(niche_id)
+      const options = packOptionsFor(req)
+      const niche = await nl.loadNiche(niche_id, options)
       if (!niche) return res.status(404).json({ detail: `Niche '${niche_id}' not found` })
       for (const packId of topic_pack_ids || []) {
-        const pack = await tpl.loadTopicPack(packId)
+        const pack = await tpl.loadTopicPack(packId, options)
         if (!pack) return res.status(404).json({ detail: `Topic Pack '${packId}' not found` })
         if (!tpl.isCompatible(pack, niche_id)) {
           return res.status(400).json({ detail: `Topic Pack '${packId}' is not compatible with Series Formula '${niche_id}'` })
@@ -333,7 +338,7 @@ router.put('/projects/:slug/niche', async (req, res) => {
           else data.topic_pack_ids = []
         }
       },
-    })
+    }, packOptionsFor(req))
     const finalNicheId = updated.niche_id ?? null
     res.json({
       ok: true,

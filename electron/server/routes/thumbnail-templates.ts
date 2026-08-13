@@ -16,7 +16,7 @@
  * needing a real generated thumbnail handy.
  */
 
-import { Router } from 'express'
+import { Router, type Request } from 'express'
 import sharp from 'sharp'
 import * as pm from '../services/project-manager.js'
 import * as nl from '../services/niche-loader.js'
@@ -33,11 +33,15 @@ import {
 
 export const router = Router()
 
+function packOptionsFor(req: Request) {
+  return req.app.locals.contentPackOptions || {}
+}
+
 // ── Listing + detail ──────────────────────────────────────────────────────
 
-router.get('/thumbnail-templates', async (_req, res) => {
+router.get('/thumbnail-templates', async (req, res) => {
   try {
-    const list = await tl.listTemplates()
+    const list = await tl.listTemplates(packOptionsFor(req))
     res.json({ templates: list })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to list thumbnail templates'))
@@ -46,7 +50,7 @@ router.get('/thumbnail-templates', async (_req, res) => {
 
 router.get('/thumbnail-templates/:id', async (req, res) => {
   try {
-    const t = await tl.loadTemplate(req.params.id)
+    const t = await tl.loadTemplate(req.params.id, packOptionsFor(req))
     if (!t) return res.status(404).json({ detail: `Template "${req.params.id}" not found` })
     res.json(t)
   } catch (e: any) {
@@ -109,7 +113,7 @@ router.post('/thumbnail-templates', async (req, res) => {
     const baseId = (typeof body.id === 'string' && body.id.trim()) ? slugify(body.id) : slugify(body.name)
     // Find a free id (don't clobber a built-in or an existing user template).
     let id = baseId
-    for (let n = 2; await tl.loadTemplate(id); n++) id = `${baseId}-${n}`
+    for (let n = 2; await tl.loadTemplate(id, packOptionsFor(req)); n++) id = `${baseId}-${n}`
 
     const created: ThumbnailTemplate = {
       ...body,
@@ -136,7 +140,7 @@ router.post('/thumbnail-templates', async (req, res) => {
 router.put('/thumbnail-templates/:id', async (req, res) => {
   try {
     const id = req.params.id
-    const existing = await tl.loadTemplate(id)
+    const existing = await tl.loadTemplate(id, packOptionsFor(req))
     if (!existing) return res.status(404).json({ detail: `Template "${id}" not found` })
     const body = req.body || {}
     if (!body || typeof body !== 'object') return res.status(400).json({ detail: 'Body must be a JSON object' })
@@ -176,7 +180,7 @@ router.put('/thumbnail-templates/:id', async (req, res) => {
 router.delete('/thumbnail-templates/:id', async (req, res) => {
   try {
     const id = req.params.id
-    const existing = await tl.loadTemplate(id)
+    const existing = await tl.loadTemplate(id, packOptionsFor(req))
     if (!existing) return res.status(404).json({ detail: `Template "${id}" not found` })
     if (existing.builtin) {
       return res.status(403).json({ detail: `"${id}" is a built-in template and cannot be deleted.` })
@@ -200,8 +204,9 @@ router.get('/projects/:slug/effective-thumbnail-template', async (req, res) => {
   try {
     const project = await pm.getProject(req.params.slug)
     if (!project) return res.status(404).json({ detail: 'Project not found' })
-    const niche = await nl.getEffectiveNicheFor(project)
-    const t = await tl.getEffectiveTemplateFor(project, niche)
+    const options = packOptionsFor(req)
+    const niche = await nl.getEffectiveNicheFor(project, undefined, options)
+    const t = await tl.getEffectiveTemplateFor(project, niche, undefined, options)
     res.json({ template: t })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to resolve effective template'))
@@ -266,7 +271,7 @@ async function getPlaceholderPortrait(canvasW: number, canvasH: number): Promise
 
 router.get('/thumbnail-templates/:id/preview.png', async (req, res) => {
   try {
-    const t = await tl.loadTemplate(req.params.id)
+    const t = await tl.loadTemplate(req.params.id, packOptionsFor(req))
     if (!t) return res.status(404).json({ detail: `Template "${req.params.id}" not found` })
 
     const canvas = t.canvas || { width: 1920, height: 1080 }
