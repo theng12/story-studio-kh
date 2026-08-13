@@ -337,12 +337,14 @@ describe('Content Store commerce routes', () => {
     assert.equal(quoted.body.balance_after, 3_600)
     mock.queueContentPurchaseOutcome({
       status: 200,
-      body: { credits_charged: 300, balance_before: 4_000, balance_after: 3_700 },
+      body: { credits_charged: 300, discount_credits: 100, balance_before: 4_000, balance_after: 3_700 },
     })
 
     const completed = await request(localApp)
       .post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(200)
     assert.equal(completed.body.credits_charged, 300)
+    assert.equal(completed.body.discount_credits, 100)
+    assert.equal(completed.body.quoted_credits, 400)
     assert.equal(completed.body.balance_before, 4_000)
     assert.equal(completed.body.balance_after, 3_700)
   })

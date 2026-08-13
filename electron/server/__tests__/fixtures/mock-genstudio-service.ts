@@ -854,9 +854,11 @@ export class MockGenStudioService {
         const purchase = this.contentPurchaseBody(request, body, false)
         if (outcome?.body) {
           const creditsCharged = Number(outcome.body.credits_charged ?? purchase.credits_charged)
+          const discountCredits = Number(outcome.body.discount_credits ?? purchase.discount_credits)
           const balanceBefore = Number(outcome.body.balance_before ?? purchase.balance_before)
           const balanceAfter = Number(outcome.body.balance_after ?? purchase.balance_after)
           purchase.credits_charged = creditsCharged
+          purchase.discount_credits = discountCredits
           purchase.balance_before = balanceBefore
           purchase.balance_after = balanceAfter
           const receiptEnvelope = purchase.receipt as Record<string, unknown>

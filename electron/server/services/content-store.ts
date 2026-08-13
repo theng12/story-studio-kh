@@ -117,7 +117,7 @@ function publicAttempt(attempt: CachedContentQuote): PublicContentPurchaseAttemp
     expires_at: attempt.expires_at,
     status: attempt.status,
     base_credit_price: attempt.base_credit_price,
-    discount_credits: attempt.discount_credits,
+    discount_credits: completed?.discount_credits ?? attempt.discount_credits,
     quoted_credits: attempt.quoted_credits,
     balance_before: completed?.balance_before ?? attempt.balance_before,
     balance_after: completed?.balance_after ?? attempt.balance_after,
