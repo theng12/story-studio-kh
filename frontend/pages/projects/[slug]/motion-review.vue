@@ -186,6 +186,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Motion Review')
@@ -333,6 +334,7 @@ const i2vModels = computed(() => {
             ? 'GenStudio publishes no priced length or resolution for this model.'
             : undefined,
         badges: generatesAudio ? [{ label: 'Generates audio', tone: 'warning' as const }] : [],
+        costTier: model.cost_tier,
       }
     })
   return discovered
@@ -364,10 +366,11 @@ watch(selectedVideoVariants, (variants) => {
 watch(i2vModels, (models) => {
   if (!models.length) return
   const raw = videoModel.value.startsWith('genstudio-video:') ? videoModel.value.slice('genstudio-video:'.length) : videoModel.value
-  const exact = genStudioVideoModels.value.find(model => model.available && model.id === raw)
-  const mapped = genStudioVideoModels.value.find(model => model.available && model.legacy_ids?.includes(raw))
-  const fallback = exact || mapped || genStudioVideoModels.value.find(model => model.available && model.modes.includes('image-to-video'))
-  if (fallback) videoModel.value = `genstudio-video:${fallback.id}`
+  const selected = selectLiveGenStudioModel(
+    raw,
+    genStudioVideoModels.value.filter(model => model.modes.includes('image-to-video')),
+  )
+  if (selected) videoModel.value = `genstudio-video:${selected.id}`
 }, { immediate: true })
 
 const clipJobsActive = computed(() => isJobActiveFor(episodeId.value, ['scene_clip_generate', 'scene_clips_batch']))

@@ -531,6 +531,8 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue'
+import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
+import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
 import {
   MODEL_KNOWLEDGE_CLAIM_NOTE,
   MODEL_KNOWLEDGE_NOTICE,
@@ -683,6 +685,7 @@ interface WebResearchModel {
   /** Published `returns_citations`. Optional so an older backend response
    *  still types; absent means unpublished, which states nothing. */
   returns_citations?: boolean
+  cost_tier?: GenStudioCostTier
 }
 const webModels = ref<WebResearchModel[]>([])
 const webModeAvailable = ref(false)
@@ -698,9 +701,11 @@ async function loadWebModels(): Promise<void> {
     webModels.value = Array.isArray(r.models) ? r.models : []
     webModeAvailable.value = r.available === true && webModels.value.length > 0
     webModeReason.value = r.reason || ''
-    if (!webModels.value.some(m => m.id === form.value.web_model)) {
-      form.value.web_model = webModels.value[0]?.id || ''
-    }
+    const selected = selectLiveGenStudioModel(
+      form.value.web_model,
+      webModels.value.map(model => ({ ...model, available: true })),
+    )
+    if (selected && selected.id !== form.value.web_model) form.value.web_model = selected.id
   } catch {
     // Never claim "nothing qualifies" from a failed request — that would be a
     // guess about GenStudio's inventory drawn from a local network problem.
@@ -720,7 +725,7 @@ watch(webModeAvailable, (available) => {
 })
 
 const selectedWebModel = computed<WebResearchModel | null>(() =>
-  webModels.value.find(m => m.id === form.value.web_model) || webModels.value[0] || null,
+  webModels.value.find(m => m.id === form.value.web_model) || null,
 )
 
 /**
@@ -752,6 +757,7 @@ const webModelMenuOptions = computed(() => webModels.value.map((model) => {
       ...(model.returns_citations ? [{ label: 'Cites sources', tone: 'info' as const }] : []),
       ...(model.supports_domain_filters ? [{ label: 'Domain filters', tone: 'neutral' as const }] : []),
     ],
+    costTier: model.cost_tier,
   }
 }))
 /** The depth control exists ONLY when the selected web model publishes an

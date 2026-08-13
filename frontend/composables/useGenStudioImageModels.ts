@@ -1,5 +1,6 @@
 import { useApi } from './useApi.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
+import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 
 /** One published `(resolution, aspect_ratio)` pair from the image catalog. */
 export interface GenStudioImageOutputOption {
@@ -55,6 +56,7 @@ export interface GenStudioImageModelInfo {
   prompt_token_allowance?: number
   operations?: string[]
   legacy_ids?: string[]
+  cost_tier?: GenStudioCostTier
 }
 
 const cache = createGenStudioCatalogCache<GenStudioImageModelInfo[]>({

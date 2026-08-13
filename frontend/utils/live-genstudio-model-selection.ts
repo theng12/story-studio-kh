@@ -1,3 +1,5 @@
+import { isCompleteTierCatalog, type GenStudioCostTier } from './genstudio-cost-tier.js'
+
 /**
  * Resolve a saved text-model preference against GenStudio's live catalog.
  *
@@ -11,6 +13,7 @@ export interface LiveGenStudioModel {
   disabled_reason?: string | null
   supports_vision?: boolean
   legacy_ids?: readonly string[]
+  cost_tier?: GenStudioCostTier
 }
 
 export function isUsableLiveGenStudioModel(
@@ -44,7 +47,11 @@ export function selectLiveGenStudioModel<T extends LiveGenStudioModel>(
     : undefined
   if (migrated) return migrated
 
-  return saved ? null : models.find(usable) || null
+  if (saved) return null
+  if (!isCompleteTierCatalog(models.map(model => ({ costTier: model.cost_tier })))) {
+    return models.find(usable) || null
+  }
+  return models.find(model => model.cost_tier === 'economy' && usable(model)) || null
 }
 
 /**

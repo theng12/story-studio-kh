@@ -63,6 +63,7 @@ const options = computed(() => {
         ? 'This model is currently unavailable in GenStudio.'
         : '',
       badges: [],
+      costTier: model.cost_tier,
     }
   ))
   return rows

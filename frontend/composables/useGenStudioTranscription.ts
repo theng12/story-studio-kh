@@ -1,5 +1,7 @@
 import { useApi } from './useApi.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
+import { selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
+import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 
 export interface GenStudioTranscriptionModel {
   id: string
@@ -33,6 +35,8 @@ export interface GenStudioTranscriptionModel {
    *  clip's real cost is not misread as rate x seconds. */
   minimum_credits?: number
   price_version?: string
+  legacy_ids?: string[]
+  cost_tier?: GenStudioCostTier
 }
 
 /**
@@ -110,17 +114,14 @@ export function useGenStudioTranscriptionModels() {
           ? [{ label: 'qualification', tone: 'info' as const }]
           : []),
       ],
+      costTier: model.cost_tier,
     }
   }))
 
   async function load(): Promise<void> {
     await catalogCache.refresh()
-    // A remembered id is only a preference. Never leave a retired or
-    // temporarily unavailable model selected just because it still exists
-    // in an old preset; choose a currently usable catalog model instead.
-    if (!models.value.some(model => model.id === modelId.value && model.available)) {
-      modelId.value = models.value.find(model => model.available)?.id || ''
-    }
+    const selected = selectLiveGenStudioModel(modelId.value, models.value)
+    if (selected && selected.id !== modelId.value) modelId.value = selected.id
   }
 
   const error = computed(() => {

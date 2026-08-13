@@ -25,6 +25,7 @@ import {
   selectLiveGenStudioModel,
 } from '../utils/live-genstudio-model-selection.js'
 import { invalidateModelCatalogCache } from '../composables/useApi.js'
+import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 
 interface LlmModelRow {
   id: string
@@ -44,6 +45,7 @@ interface LlmModelRow {
   max_output_tokens?: number
   structured_output_mode?: 'json_object' | 'request_json_schema'
   legacy_ids?: string[]
+  cost_tier?: GenStudioCostTier
 }
 
 const props = defineProps<{
@@ -88,6 +90,7 @@ const menuOptions = computed(() => {
       disabled: isDisabled(model),
       disabledReason: model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
       badges: [],
+      costTier: model.cost_tier,
     }
   })
   return rows

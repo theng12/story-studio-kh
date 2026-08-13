@@ -9,6 +9,17 @@ const models = [
   { id: 'writer-retired', available: false },
 ]
 
+const fullyTieredModels = [
+  { id: 'balanced-model', available: true, cost_tier: 'balanced' as const },
+  { id: 'economy-model', available: true, cost_tier: 'economy' as const },
+  { id: 'premium-model', available: true, cost_tier: 'premium' as const },
+]
+
+const tieredWithoutEconomy = [
+  { id: 'balanced-model', available: true, cost_tier: 'balanced' as const },
+  { id: 'premium-model', available: true, cost_tier: 'premium' as const },
+]
+
 test('a named saved product is never silently replaced', () => {
   assert.equal(selectLiveGenStudioModel('gpt-4o', models), null)
   assert.equal(selectLiveGenStudioModel('writer-retired', models), null)
@@ -18,6 +29,17 @@ test('a named saved product is never silently replaced', () => {
 test('a valid explicit selection wins and a published legacy alias migrates', () => {
   assert.equal(selectLiveGenStudioModel('writer-quality', models)?.id, 'writer-quality')
   assert.equal(selectLiveGenStudioModel('old-quality', models)?.id, 'writer-quality')
+})
+
+test('a fully tiered empty selector chooses only an available Economy model', () => {
+  assert.equal(selectLiveGenStudioModel('', fullyTieredModels)?.id, 'economy-model')
+  assert.equal(selectLiveGenStudioModel('', tieredWithoutEconomy), null)
+  assert.equal(selectLiveGenStudioModel('premium-model', fullyTieredModels)?.id, 'premium-model')
+  assert.equal(selectLiveGenStudioModel('missing-saved-model', fullyTieredModels), null)
+})
+
+test('an untiered legacy catalog keeps its existing first-usable default', () => {
+  assert.equal(selectLiveGenStudioModel('', models)?.id, 'writer-fast')
 })
 
 test('no catalog model means no selection rather than reviving a retired id', () => {
@@ -51,6 +73,7 @@ test('generator pickers keep stale selections visible until the user replaces th
   assert.match(promptsPage, /group: 'GenStudio KH'/)
   assert.doesNotMatch(promptsPage, /claude-sonnet-4-6|gpt-4o-mini|gpt-4-turbo/)
   assert.match(metadataPage, /const model = ref\(''\)/)
-  assert.match(motionPage, /const fallback = exact \|\| mapped \|\|/)
+  assert.match(motionPage, /selectLiveGenStudioModel/)
+  assert.doesNotMatch(motionPage, /const fallback = exact \|\| mapped \|\|/)
   assert.doesNotMatch(transcription, /\|\| models\.value\[0\]/)
 })

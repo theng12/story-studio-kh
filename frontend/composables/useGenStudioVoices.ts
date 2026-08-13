@@ -17,6 +17,7 @@
  */
 
 import type { GenStudioTtsControl, TtsControlValues } from '~/utils/tts-controls'
+import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
 
 /**
  * `TTSModelResponse`. Every field is published by GenStudio except the last
@@ -36,6 +37,7 @@ export interface GenStudioTtsModel {
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
+  legacy_ids?: string[]
   /**
    * `TTSModelResponse.controls[]` — every extra knob THIS model takes, with its
    * own label, type, published bounds, default and description. Rendered as
@@ -53,6 +55,7 @@ export interface GenStudioTtsModel {
    * response cannot break the page.
    */
   planned_request_characters?: number
+  cost_tier?: GenStudioCostTier
 }
 
 /** `StandardVoiceResponse`. */

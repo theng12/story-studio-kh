@@ -1,3 +1,5 @@
+import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
+
 /** A `/v1/tts/models` row — the same catalogue the voice picker selects from. */
 export interface GenStudioVoiceModelInfo {
   id: string
@@ -13,6 +15,7 @@ export interface GenStudioVoiceModelInfo {
   preview_policy: string
   generation_enabled: boolean
   legacy_ids?: string[]
+  cost_tier?: GenStudioCostTier
 }
 
 export interface GenStudioVideoModelInfo {
@@ -43,6 +46,7 @@ export interface GenStudioVideoModelInfo {
    *  embedded track, so a `true` is disclosed at the point of choosing. */
   generates_audio?: boolean | null
   legacy_ids?: string[]
+  cost_tier?: GenStudioCostTier
 }
 
 // Two independent live catalogs (voice, video) each get their own freshness
