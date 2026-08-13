@@ -12,7 +12,7 @@ import {
 } from './archive.js'
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import { findContentPackSourceRoot, installedVersionPath, resolveVerifiedPackFile, type ContentPackRuntimePaths } from './runtime-paths.js'
-import { type ContentPackInstallRequest, type ContentPackInstallResult, type ContentPackRuntimeState } from './runtime-types.js'
+import { type ContentPackInstallRequest, type ContentPackInstallResult, type ContentPackInstalledVersion, type ContentPackRuntimeState } from './runtime-types.js'
 import { withContentPackStateTransaction } from './state.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 
@@ -86,7 +86,7 @@ function compareExactSemver(left: string, right: string): number {
   return 0
 }
 
-async function assertAppCompatible(minimum: string, explicitAppVersion?: string): Promise<void> {
+export async function assertContentPackAppCompatible(minimum: string, explicitAppVersion?: string): Promise<void> {
   const installed = explicitAppVersion ?? await resolveContentPackAppVersion()
   if (!/^\d+\.\d+\.\d+$/.test(installed)) throw new Error('Story Studio version is unavailable for Content Pack compatibility checks')
   if (compareExactSemver(installed, minimum) < 0) {
@@ -201,8 +201,8 @@ function nodeKey(packId: string, version: string): string {
   return `${packId}@${version}`
 }
 
-async function verifyInstalledVersion(
-  installed: { install_path: string; archive_sha256: string },
+export async function verifyInstalledContentPackVersion(
+  installed: Pick<ContentPackInstalledVersion, 'install_path' | 'archive_sha256'>,
   policy: ContentPackVerificationPolicy,
 ): Promise<VerifiedContentPack> {
   if (!await existingSafeDirectory(installed.install_path)) throw new Error(`Content Pack immutable version is missing on disk: ${installed.install_path}`)
@@ -220,6 +220,45 @@ async function verifyInstalledVersion(
   return verified
 }
 
+/**
+ * Verify one retained version and its exact dependency closure using only its
+ * immutable local archive and materialised bytes. It deliberately never
+ * consults a catalogue, renderer, or network.
+ */
+export async function verifyInstalledContentPackClosure(
+  state: ContentPackRuntimeState,
+  packId: string,
+  version: string,
+  policy: ContentPackVerificationPolicy,
+  appVersion?: string,
+): Promise<VerifiedContentPack> {
+  const visiting = new Set<string>()
+  const visited = new Map<string, VerifiedContentPack>()
+  const visit = async (requiredPackId: string, requiredVersion: string): Promise<VerifiedContentPack> => {
+    const key = nodeKey(requiredPackId, requiredVersion)
+    const retained = visited.get(key)
+    if (retained) return retained
+    if (visiting.has(key)) throw new Error(`Content Pack dependency cycle detected at ${key}`)
+    const installed = state.packs[requiredPackId]?.versions[requiredVersion]
+    if (!installed) throw new Error(`Content Pack dependency is not installed exactly: ${key}`)
+    if (installed.pending_removal) throw new Error(`Content Pack dependency is pending removal: ${key}`)
+    visiting.add(key)
+    try {
+      const verified = await verifyInstalledContentPackVersion(installed, policy)
+      if (verified.manifest.pack_id !== requiredPackId || verified.manifest.version !== requiredVersion) {
+        throw new Error(`Content Pack immutable archive identity does not match state: ${key}`)
+      }
+      await assertContentPackAppCompatible(verified.manifest.min_app_version, appVersion)
+      for (const dependency of verified.manifest.dependencies ?? []) await visit(dependency.pack_id, dependency.version)
+      visited.set(key, verified)
+      return verified
+    } finally {
+      visiting.delete(key)
+    }
+  }
+  return visit(packId, version)
+}
+
 async function verifiedManifestGraph(
   state: ContentPackRuntimeState,
   candidate: VerifiedContentPack,
@@ -228,7 +267,7 @@ async function verifiedManifestGraph(
   const manifests = new Map<string, VerifiedContentPack['manifest']>()
   for (const [packId, pack] of Object.entries(state.packs)) {
     for (const [version, installed] of Object.entries(pack.versions)) {
-      const verified = await verifyInstalledVersion(installed, policy)
+      const verified = await verifyInstalledContentPackVersion(installed, policy)
       if (verified.manifest.pack_id !== packId || verified.manifest.version !== version) {
         throw new Error(`Content Pack immutable archive identity does not match state: ${packId}@${version}`)
       }
@@ -317,7 +356,7 @@ async function materialiseVerifiedPack(
   await ensureExclusiveDirectory(installedRoot, path.dirname(finalPath))
   if (await existingSafeDirectory(finalPath)) {
     if (!policy) throw new Error('Content Pack verification policy is required to adopt an orphaned version')
-    const orphaned = await verifyInstalledVersion({ install_path: finalPath, archive_sha256: sha256(archiveBytes) }, policy)
+    const orphaned = await verifyInstalledContentPackVersion({ install_path: finalPath, archive_sha256: sha256(archiveBytes) }, policy)
     if (canonicalJson(orphaned.manifest) !== canonicalJson(verified.manifest)) {
       throw new Error(`Content Pack immutable orphan conflicts with candidate: ${finalPath}`)
     }
@@ -364,7 +403,7 @@ export async function installContentPack(
     await quarantineContentPackBytes(request.archiveBytes, 'invalid_archive', paths)
     throw error
   }
-  await assertAppCompatible(verified.manifest.min_app_version, options.appVersion)
+  await assertContentPackAppCompatible(verified.manifest.min_app_version, options.appVersion)
 
   return withContentPackStateTransaction(async state => {
     let transactionRoot: string | undefined
@@ -375,8 +414,9 @@ export async function installContentPack(
       const version = verified.manifest.version
       const existing = state.packs[packId]?.versions[version]
       if (existing) {
+        if (existing.pending_removal) throw new Error(`Content Pack version is pending removal: ${packId}@${version}`)
         if (existing.archive_sha256 !== archiveSha) throw new Error(`Content Pack version is immutable and already has a different archive: ${packId}@${version}`)
-        const verifiedExisting = await verifyInstalledVersion(existing, policy)
+        const verifiedExisting = await verifyInstalledContentPackVersion(existing, policy)
         if (verifiedExisting.manifest.pack_id !== packId || verifiedExisting.manifest.version !== version) throw new Error(`Content Pack immutable archive identity does not match state: ${packId}@${version}`)
         await verifiedManifestGraph(state, verified, policy)
         // The retained signed archive is the authority. Repair a stale or

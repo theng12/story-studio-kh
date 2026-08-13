@@ -106,23 +106,38 @@ export async function mutateContentPackState<T>(
  * supplied state; if they throw, no state document is written.
  */
 export async function withContentPackStateTransaction<T>(
-  mutate: (state: ContentPackRuntimeState) => Promise<T> | T,
+  mutate: (state: ContentPackRuntimeState, transaction: ContentPackStateTransaction) => Promise<T> | T,
   paths: ContentPackRuntimePaths = getContentPackRuntimePaths(),
 ): Promise<T> {
   return withContentPackStateLock(paths, async () => {
     const state = await readOrResetState(paths)
-    const result = await mutate(state)
-    const validated = validateStateForPaths(ContentPackRuntimeStateSchema.parse(state), paths)
-    assertWriteIsolatedInTests(paths.statePath, 'content-pack-state')
-    await writeJsonAtomic(paths.statePath, validated, { mode: STATE_MODE })
+    const checkpoint = async (): Promise<void> => {
+      const validated = validateStateForPaths(ContentPackRuntimeStateSchema.parse(state), paths)
+      assertWriteIsolatedInTests(paths.statePath, 'content-pack-state')
+      await writeJsonAtomic(paths.statePath, validated, { mode: STATE_MODE })
+    }
+    const result = await mutate(state, { checkpoint })
+    await checkpoint()
     return result
   })
+}
+
+/**
+ * A transaction can persist an intentional intermediate guard while retaining
+ * the cross-process lock. Destructive lifecycle work uses this before it
+ * touches an immutable pack directory.
+ */
+export interface ContentPackStateTransaction {
+  checkpoint: () => Promise<void>
 }
 
 function validateStateForPaths(state: ContentPackRuntimeState, paths: ContentPackRuntimePaths): ContentPackRuntimeState {
   for (const [packId, pack] of Object.entries(state.packs)) {
     if (pack.active_version && !pack.versions[pack.active_version]) {
       throw new Error(`Content Pack state active version is not installed: ${packId}@${pack.active_version}`)
+    }
+    if (pack.active_version && pack.versions[pack.active_version].pending_removal) {
+      throw new Error(`Content Pack state active version is pending removal: ${packId}@${pack.active_version}`)
     }
     for (const [version, installed] of Object.entries(pack.versions)) {
       if (installed.manifest.pack_id !== packId || installed.manifest.version !== version) {

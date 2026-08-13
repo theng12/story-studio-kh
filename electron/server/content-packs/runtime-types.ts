@@ -11,6 +11,11 @@ export const ContentPackInstalledVersionSchema = z.object({
   source: ContentPackInstallSourceSchema,
   install_path: z.string().min(1).max(4096),
   manifest: ContentPackManifestSchema,
+  /** Durable before an immutable directory is ever moved or deleted. */
+  pending_removal: z.object({
+    operation_id: z.string().uuid(),
+    started_at: z.string().datetime(),
+  }).strict().optional(),
 }).strict()
 
 export const ContentPackRuntimePackStateSchema = z.object({
