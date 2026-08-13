@@ -212,6 +212,92 @@ test('GenStudio media and LLM discovery use provider-owned live catalogs', async
   assert.equal(video.body.models[0].available, false)
 })
 
+test('GenStudio cost tiers pass through every Story catalog response without replacing catalog facts', async () => {
+  await request(app)
+    .put('/api/app-settings/api-keys/genstudio')
+    .send({ apiKey: 'gsk_cost_tier_catalog' })
+    .expect(200)
+
+  globalThis.fetch = async (input, init) => {
+    assert.equal((init?.headers as Record<string, string>).Authorization, 'Bearer gsk_cost_tier_catalog')
+    const url = String(input)
+    if (url.endsWith('/v1/tts/models')) return Response.json([{
+      id: 'tts-tier-v1', display_name: 'Tier TTS', provider_id: 'tts-provider', provider_name: 'Published TTS provider',
+      description: 'Narration', credits_per_1000_characters: 48, minimum_credits: 10,
+      maximum_input_characters: 12_000, supports_speed: true, supports_voice_cloning: false,
+      preview_policy: 'catalog', generation_enabled: true, cost_tier: 'economy',
+    }])
+    if (url.endsWith('/v1/chat/models')) return Response.json([{
+      id: 'chat-tier-v1', display_name: 'Tier Chat', provider_name: 'Published chat provider',
+      available: true, qualification_only: false, context_window_tokens: 32_768, max_output_tokens: 8_192,
+      controls: [], activation_blockers: [], input_credits_per_million_tokens: 12,
+      output_credits_per_million_tokens: 24, minimum_credits: 3, price_version: 'chat-tier-price-v1',
+      supports_vision: true, max_input_images: 1, accepted_image_mime_types: ['image/png'],
+      max_image_bytes: 4_000_000, max_image_dimension: 2_048, supported_detail_levels: ['high'],
+      supports_structured_output: true, supports_web_search: true, returns_citations: true,
+      citation_format: 'structured', supports_domain_filters: true, research_qualified: true,
+      cost_tier: 'economy',
+    }])
+    if (url.endsWith('/v1/videos/models')) return Response.json([{
+      id: 'video-tier-v1', display_name: 'Tier Video', available: true, cost_tier: 'premium',
+      modes: ['image-to-video'], aspect_ratios: ['16:9'],
+      variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-tier-price-v1' }],
+    }])
+    if (url.endsWith('/v1/transcription/models')) return Response.json([{
+      id: 'transcription-tier-v1', display_name: 'Tier Transcription', provider: 'Published transcription provider',
+      language: 'multilingual', available: true, available_workers: 2, qualification_only: false,
+      credits_per_second: 1, minimum_credits: 3, price_version: 'transcription-tier-price-v1', cost_tier: 'balanced',
+    }])
+    if (url.endsWith('/v1/image/models')) return Response.json([{
+      id: 'image-tier-v1', display_name: 'Tier Image', provider_name: 'Published image provider',
+      available: true, qualification_only: false, credits_per_image: 4, minimum_credits: 4,
+      price_version: 'image-tier-price-v1', base_credits_per_image: 6, chargeable: true,
+      aspect_ratios: ['16:9'], default_aspect_ratio: '16:9', supports_reference_images: true,
+      max_reference_images: 1, reference_strength_mode: 'none', supported_reference_strengths: [], cost_tier: 'balanced',
+    }])
+    if (url.endsWith('/v1/music/models')) return Response.json([{
+      id: 'music-tier-v1', display_name: 'Tier Music', provider_name: 'Published music provider', description: 'Music',
+      coming_soon: false, credits_per_request: 20, minimum_credits: 8, price_version: 'music-tier-price-v1',
+      standard_credits: 24, sale_credits: 20, sale_ends_at: null, sale_disclaimer: null,
+      supports_instrumental: true, supports_vocals: true, requires_lyrics: false,
+      max_prompt_characters: 2_000, max_prompt_without_lyrics_characters: null,
+      min_prompt_characters: 1, max_lyrics_characters: 5_000, min_lyrics_characters: 1,
+      max_title_characters: 256, outputs_per_request: 1, cost_tier: 'premium',
+    }])
+    throw new Error(`Unexpected request: ${url}`)
+  }
+
+  const [tts, chat, video, transcription, image, music] = await Promise.all([
+    request(app).get('/api/app-settings/genstudio/tts-models').expect(200),
+    request(app).get('/api/app-settings/genstudio/chat-models').expect(200),
+    request(app).get('/api/app-settings/genstudio/video-models').expect(200),
+    request(app).get('/api/app-settings/genstudio/transcription-models').expect(200),
+    request(app).get('/api/app-settings/genstudio/image-models').expect(200),
+    request(app).get('/api/app-settings/genstudio/music-models').expect(200),
+  ])
+  assert.equal(tts.body.models[0].cost_tier, 'economy')
+  assert.equal(chat.body.models[0].cost_tier, 'economy')
+  assert.equal(video.body.models[0].cost_tier, 'premium')
+  assert.equal(transcription.body.models[0].cost_tier, 'balanced')
+  assert.equal(image.body.models[0].cost_tier, 'balanced')
+  assert.equal(music.body.models[0].cost_tier, 'premium')
+  assert.equal(chat.body.models[0].provider_name, 'Published chat provider')
+  assert.equal(chat.body.models[0].price_version, 'chat-tier-price-v1')
+  assert.equal(image.body.models[0].credits_per_image, 4)
+
+  const models = await request(app).get('/api/models').expect(200)
+  assert.equal(models.body[0].cost_tier, 'economy')
+
+  const webModels = await request(app).get('/api/research/web-models').expect(200)
+  assert.equal(webModels.body.models[0].cost_tier, 'economy')
+
+  const project = await request(app).post('/api/projects').send({ name: 'Cost tier picker' }).expect(201)
+  const visionModels = await request(app)
+    .get(`/api/projects/${project.body.slug}/thumbnail-reference/vision-models`)
+    .expect(200)
+  assert.equal(visionModels.body.models[0].cost_tier, 'economy')
+})
+
 test('GenStudio transcription discovery uses the same scoped boundary key', async () => {
   await request(app)
     .put('/api/app-settings/api-keys/genstudio')

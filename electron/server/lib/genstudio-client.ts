@@ -653,6 +653,14 @@ export interface GenStudioTtsSubmitRequest extends GenStudioTtsRequest {
   modelId: string
 }
 
+export type GenStudioCostTier = 'economy' | 'balanced' | 'premium'
+
+function parseGenStudioCostTier(value: unknown): GenStudioCostTier | undefined {
+  return value === 'economy' || value === 'balanced' || value === 'premium'
+    ? value
+    : undefined
+}
+
 export interface GenStudioTranscriptionModel {
   id: string
   display_name: string
@@ -699,6 +707,7 @@ export interface GenStudioTranscriptionModel {
    *  clip is charged the floor, not rate × seconds. */
   minimum_credits: number
   price_version: string
+  cost_tier?: GenStudioCostTier
 }
 
 /** One published `(resolution, aspect_ratio)` pair from `ImageOutputOptionResponse`. */
@@ -744,6 +753,7 @@ export interface GenStudioImageModel {
   promotion_name?: string
   promotion_discount_percent?: number
   chargeable: boolean
+  cost_tier?: GenStudioCostTier
   aspect_ratios: string[]
   default_aspect_ratio: string
   /** Published resolution label used when a request names none. */
@@ -919,6 +929,7 @@ export interface GenStudioTtsModel {
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
+  cost_tier?: GenStudioCostTier
   /**
    * Optional `TTSModelResponse.provider_submit_concurrency` hint. It is not
    * capacity Story Studio owns or a submission gate; a null value means the
@@ -945,6 +956,7 @@ export interface GenStudioMusicModel {
   credits_per_request: number
   minimum_credits: number
   price_version: string
+  cost_tier?: GenStudioCostTier
   standard_credits: number | null
   sale_credits: number | null
   sale_ends_at: string | null
@@ -1082,6 +1094,7 @@ export interface GenStudioChatModel {
   output_credits_per_million_tokens: number
   minimum_credits: number
   price_version: string
+  cost_tier?: GenStudioCostTier
   input_modalities: Array<'text' | 'image'>
   supports_vision: boolean
   max_input_images: number
@@ -1159,6 +1172,7 @@ export interface GenStudioVideoModel {
   display_name: string
   description?: string
   available: boolean
+  cost_tier?: GenStudioCostTier
   /**
    * Every mode GenStudio publishes for this model, unfiltered.
    *
@@ -3270,6 +3284,7 @@ export async function listTtsModelsSnapshot(
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
         generation_enabled: value?.generation_enabled === true,
+        ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
         // This is a model-local hint, not something Story Studio may derive
         // from the provider name or id. Absent, null, and malformed values
         // stay unknown so the caller can safely serialize.
@@ -3327,6 +3342,7 @@ export async function listMusicModelsSnapshot(
         credits_per_request: value.credits_per_request,
         minimum_credits: value.minimum_credits,
         price_version: value.price_version.trim(),
+        ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
         standard_credits: value.standard_credits,
         sale_credits: value.sale_credits,
         sale_ends_at: value.sale_ends_at,
@@ -3646,6 +3662,7 @@ export async function listChatModelsSnapshot(
       ? Math.max(0, value.minimum_credits)
       : 0,
     price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
+    ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     input_modalities: Array.isArray(value?.input_modalities)
       ? value.input_modalities.filter((item: unknown): item is 'text' | 'image' => item === 'text' || item === 'image')
       : ['text'],
@@ -3711,6 +3728,7 @@ export async function listVideoModelsSnapshot(
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
+    ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     // Every published mode survives the transport. Story Studio submits only
     // image-to-video, but that is enforced where a request is built, not by
     // deleting what GenStudio said.
@@ -5248,6 +5266,7 @@ export async function listTranscriptionModelsSnapshot(
         ? Math.max(0, value.minimum_credits)
         : 0,
       price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
+      ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     })).filter((model: GenStudioTranscriptionModel) => model.id && model.display_name)
   })
 }
@@ -5313,6 +5332,7 @@ export async function listImageModelsSnapshot(
       : undefined,
     availability_note: publishedText(value?.availability_note),
     chargeable: value?.chargeable === true,
+    ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     aspect_ratios: Array.isArray(value?.aspect_ratios)
       ? value.aspect_ratios.filter((ratio: unknown): ratio is string => typeof ratio === 'string' && !!ratio.trim())
       : [],

@@ -95,7 +95,15 @@ router.get('/research/web-models', async (_req, res) => {
     }
     try {
       const catalog = await listChatModels(apiKey)
-      return res.json({ configured: true, ...describeWebResearchAvailability(catalog) })
+      const availability = describeWebResearchAvailability(catalog)
+      return res.json({
+        configured: true,
+        ...availability,
+        models: availability.models.map(model => ({
+          ...model,
+          cost_tier: catalog.find(candidate => candidate.id === model.id)?.cost_tier,
+        })),
+      })
     } catch {
       // An unreachable catalogue is NOT "nothing qualifies". Saying so would
       // be a guess about GenStudio's inventory made from a network failure.
