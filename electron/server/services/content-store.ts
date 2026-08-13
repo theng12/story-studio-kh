@@ -221,7 +221,19 @@ async function localAttempts(accountId: string): Promise<PublicContentPurchaseAt
 export async function loadContentStoreOverview(): Promise<ContentStoreOverview> {
   const apiKey = await activeKey()
   await recoverInterruptedContentPurchases()
-  const account = await getGenStudioContentAccount(apiKey)
+  let account: GenStudioContentAccount
+  try {
+    account = await getGenStudioContentAccount(apiKey)
+  } catch (error) {
+    if (error instanceof GenStudioContentStoreApiError && error.status === 401) {
+      throw new ContentStoreLocalError(
+        401,
+        'CONTENT_STORE_SCOPE_REQUIRED',
+        'The active GenStudio key was not accepted for required content:read access.',
+      )
+    }
+    throw error
+  }
   const catalog = await listGenStudioContentProducts(apiKey, await resolveStoryStudioVersion())
   return {
     phase: 'commerce_core',
@@ -321,7 +333,19 @@ export async function confirmContentStorePurchase(quoteId: string): Promise<Publ
   if (!saved) throw new ContentStoreLocalError(404, 'CONTENT_STORE_QUOTE_NOT_FOUND', 'The saved Content Store quote was not found.')
 
   const apiKey = await activeKey()
-  const account = await getGenStudioContentAccount(apiKey)
+  let account: GenStudioContentAccount
+  try {
+    account = await getGenStudioContentAccount(apiKey)
+  } catch (error) {
+    if (error instanceof GenStudioContentStoreApiError && error.status === 401) {
+      throw new ContentStoreLocalError(
+        401,
+        'CONTENT_STORE_SCOPE_REQUIRED',
+        'The active GenStudio key was not accepted for required content:read access.',
+      )
+    }
+    throw error
+  }
   if (account.accountId !== saved.account_id) {
     throw new ContentStoreLocalError(
       409,

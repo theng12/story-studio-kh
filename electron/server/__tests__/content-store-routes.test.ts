@@ -218,6 +218,19 @@ describe('Content Store commerce routes', () => {
     assert.equal((await readContentStoreCommerceState()).attempts[quoted.body.quote_id].idempotency_key, idempotencyKey)
   })
 
+  test('names content:read when purchase account preflight rejects a purchase-only key', async () => {
+    const { app: localApp } = await setup()
+    const quoted = await quote(localApp).expect(201)
+    mock.registerContentStoreKey('gsk_content_purchase_only', 'acct_a', ['content:purchase'])
+    await setApiKey('genstudio', 'gsk_content_purchase_only')
+    const denied = await request(localApp)
+      .post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(401)
+    assert.match(denied.body.detail, /content:read/i)
+    assert.doesNotMatch(denied.body.detail, /content:purchase/i)
+    assert.equal(mock.contentPurchasePostCount, 0)
+    assert.equal((await readContentStoreCommerceState()).attempts[quoted.body.quote_id].status, 'quoted')
+  })
+
   test('never leaves submitting after a synchronous not-sent purchase and preserves the key', async () => {
     const { app: localApp } = await setup()
     const quoted = await quote(localApp).expect(201)
