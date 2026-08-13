@@ -350,6 +350,10 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
   assert.match(response.body.message, /catalogs and TTS, transcription, image, LLM, music, and video job access/)
   assert.equal(response.body.usage_available, false)
   assert.match(response.body.warning, /usage:read/)
+  assert.deepEqual(response.body.content_store, {
+    read_scope: 'verified',
+    purchase_scope: 'required_unverified',
+  })
   assert.deepEqual(visited, [
     // Resolved first, so the voice probe below can be scoped by a real model id.
     'http://127.0.0.1:8000/v1/tts/models',
@@ -363,9 +367,36 @@ test('GenStudio key test proves every Story Studio catalog and generation scope'
     'http://127.0.0.1:8000/v1/images/story-studio-key-probe',
     'http://127.0.0.1:8000/v1/transcriptions/story-studio-key-probe',
     'http://127.0.0.1:8000/v1/videos/story-studio-key-probe',
+    'http://127.0.0.1:8000/v1/content/account',
     'http://127.0.0.1:8000/v1/voices?model_id=tts-probe',
     'http://127.0.0.1:8000/v1/account/overview',
   ])
+})
+
+test('GenStudio key test names content:read and never probes the debit endpoint', async () => {
+  const visited: string[] = []
+  globalThis.fetch = async (input) => {
+    const url = String(input)
+    visited.push(url)
+    if (url.endsWith('/v1/content/account')) {
+      return Response.json({ detail: 'missing scope' }, { status: 401 })
+    }
+    if (url.includes('story-studio-key-probe')) return new Response(null, { status: 404 })
+    if (url.endsWith('/v1/tts/models')) return Response.json([])
+    return Response.json([])
+  }
+
+  const response = await request(app)
+    .post('/api/app-settings/api-keys/genstudio/test')
+    .send({ apiKey: 'gsk_missing_content_read' })
+    .expect(200)
+
+  assert.equal(response.body.valid, false)
+  assert.equal(response.body.reachable, true)
+  assert.match(response.body.message, /content:read/)
+  assert.ok(visited.some(url => url.endsWith('/v1/content/account')))
+  assert.ok(!visited.some(url => url.includes('/v1/content/purchases')), 'a key test must never exercise the debit endpoint')
+  assert.ok(!visited.some(url => url.includes('/v1/content/quotes')), 'a key test does not need to create a quote')
 })
 
 test('GenStudio key test names music:generate when the music catalog is not authorized', async () => {

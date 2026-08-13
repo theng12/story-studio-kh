@@ -118,3 +118,13 @@ describe('app-settings write guard', () => {
     )
   })
 })
+
+describe('Content Store key-test safety', () => {
+  test('probes only the read account surface and labels purchase scope as unverified', async () => {
+    const source = await fs.readFile(path.join(SERVER_ROOT, 'routes', 'app-settings.ts'), 'utf8')
+    assert.match(source, /path:\s*['"]\/v1\/content\/account['"],\s*scope:\s*['"]content:read['"]/)
+    assert.match(source, /purchase_scope:\s*['"]required_unverified['"]/)
+    assert.ok(!source.includes("path: '/v1/content/purchases'"), 'key testing must never call the debit endpoint')
+    assert.ok(!source.includes("path: '/v1/content/quotes'"), 'key testing does not need to create a quote')
+  })
+})

@@ -776,6 +776,10 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         { path: '/v1/images/story-studio-key-probe', scope: 'images:generate', label: 'image job access', expected: 404 },
         { path: '/v1/transcriptions/story-studio-key-probe', scope: 'audio:transcribe', label: 'transcription job access', expected: 404 },
         { path: '/v1/videos/story-studio-key-probe', scope: 'videos:generate', label: 'video job access', expected: 404 },
+        // Safe read-only proof. Phase 1 deliberately has no non-debit endpoint
+        // that can prove content:purchase, so the purchase scope stays
+        // required-but-unverified until the customer explicitly buys a pack.
+        { path: '/v1/content/account', scope: 'content:read', label: 'Content Store account', expected: 200 },
       ]
 
       // `GET /v1/voices` REQUIRES `model_id` (ADR-0016: TTS is model-first, and
@@ -848,6 +852,10 @@ router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
         valid: true,
         reachable: true,
         usage_available: usageAvailable,
+        content_store: {
+          read_scope: 'verified',
+          purchase_scope: 'required_unverified',
+        },
         warning: usageAvailable ? null : 'Generation scopes work, but GenStudio did not accept this key for usage:read. Balance and exact settlement history remain unavailable; Story Studio will not calculate them locally.',
         message: 'Key works for GenStudio catalogs and TTS, transcription, image, LLM, music, and video job access.',
       })

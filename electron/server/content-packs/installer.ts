@@ -1,9 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 import { constants as fsConstants } from 'node:fs'
-import { createRequire } from 'node:module'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 import {
   verifyContentPackArchive,
@@ -11,17 +9,17 @@ import {
   type VerifiedContentPack,
 } from './archive.js'
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
-import { findContentPackSourceRoot, installedVersionPath, resolveVerifiedPackFile, type ContentPackRuntimePaths } from './runtime-paths.js'
+import { installedVersionPath, resolveVerifiedPackFile, type ContentPackRuntimePaths } from './runtime-paths.js'
 import { type ContentPackInstallRequest, type ContentPackInstallResult, type ContentPackInstalledVersion, type ContentPackRuntimeState } from './runtime-types.js'
 import { withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
+import { resolveStoryStudioVersion } from '../lib/app-version.js'
 
 const DIRECTORY_MODE = 0o700
 const FILE_MODE = 0o600
 const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 const MAX_QUARANTINE_REASON = 64
 const SAFE_QUARANTINE_REASON = /^[a-z0-9][a-z0-9_-]{0,63}$/
-const require = createRequire(import.meta.url)
 
 export interface ContentPackInstallerHooks {
   afterStageWrite?: () => Promise<void>
@@ -43,38 +41,21 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function parsePackageVersion(raw: string, source: string): string {
-  let pkg: { version?: unknown }
-  try {
-    pkg = JSON.parse(raw) as { version?: unknown }
-  } catch (error) {
-    throw new Error(`Story Studio package metadata is invalid: ${source}`, { cause: error })
-  }
-  if (typeof pkg.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(pkg.version)) {
-    throw new Error(`Story Studio package metadata has no exact version: ${source}`)
-  }
-  return pkg.version
-}
-
 export interface ContentPackVersionResolutionOptions {
   packaged?: boolean
   electronVersion?: string
   sourceContentPackRoot?: string
 }
 
-/** Work in source, compiled Electron, and packaged ASAR without relying on CJS require paths. */
+/** Compatibility wrapper retained for existing Content Pack callers. */
 export async function resolveContentPackAppVersion(options: ContentPackVersionResolutionOptions = {}): Promise<string> {
-  let electronApp: { isPackaged?: boolean; getVersion?: () => string } | undefined
-  try { electronApp = require('electron').app as typeof electronApp } catch { /* source/node tests have no Electron app */ }
-  const packaged = options.packaged ?? electronApp?.isPackaged === true
-  if (packaged) {
-    const version = options.electronVersion ?? electronApp?.getVersion?.()
-    if (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Story Studio packaged app version is unavailable')
-    return version
-  }
-  const sourceRoot = options.sourceContentPackRoot ?? findContentPackSourceRoot(path.dirname(fileURLToPath(import.meta.url)))
-  const packagePath = path.resolve(sourceRoot, '..', '..', '..', 'package.json')
-  return parsePackageVersion(await fs.readFile(packagePath, 'utf8'), packagePath)
+  return resolveStoryStudioVersion({
+    packaged: options.packaged,
+    electronVersion: options.electronVersion,
+    sourceRoot: options.sourceContentPackRoot
+      ? path.resolve(options.sourceContentPackRoot, '..', '..', '..')
+      : undefined,
+  })
 }
 
 function compareExactSemver(left: string, right: string): number {
