@@ -42,6 +42,10 @@
   - Mutation proof: temporarily bypassing signature verification made the raw-manifest tamper test fail; temporarily bypassing canonical collision detection made the collision test fail. Both safeguards were restored immediately.
   - Verification: Task 1 + Task 2 focused tests pass 32/32; `npm run typecheck:electron` and `git diff --check` pass.
   - Commit: `feat: verify immutable content pack archives`.
+  - Security-review follow-up: removed JSZip extraction entirely. The verifier now parses and cross-checks central and local ZIP records, rejects comments/extras/ZIP64/data descriptors/encryption/special entries, validates actual CRC and uncompressed size, and uses Node bounded raw deflate extraction before verifying any declared payload.
+  - Security-review adversarial RED→GREEN: false-small-header deflate bomb, local-name swap, local encryption, DOS-host symlink mode, ZIP64 extra, missing/orphan preview assets, oversized dimensions, and multipage raster cases were added and now pass. Mutation proofs re-ran: disabling bounded inflate plus its post-limit check, local-path matching, or multipage rejection each made its corresponding regression fail; all three protections were restored.
+  - Security-review verification: Task 1 + Task 2 focused tests pass 39/39; `npm run typecheck:electron` and `git diff --check` pass.
+  - Follow-up commit: pending.
 - [ ] Task 3 — first-party publisher CLI
 - [ ] Task 4 — current-catalog migration golden
 - [ ] Task 5 — independent review and runtime-plan handoff
