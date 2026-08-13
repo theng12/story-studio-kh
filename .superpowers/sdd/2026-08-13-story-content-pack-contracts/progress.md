@@ -81,6 +81,8 @@
   - Formula coherence follow-up: packs now require unique idea-axis IDs and values, narrator-style IDs, episode-profile IDs, and profile axis values. Whenever production episode profiles exist, exactly one `episode-profile` axis must exist and every profile value must be declared on it. Formulas without production profiles remain valid without that axis.
   - Final review RED: the expanded contract suite failed 2/27 and publisher suite failed 1/16 before this follow-up, accepting duplicate Formula mappings and secret-bearing text/source content.
   - Final review GREEN: full foundation backend suites pass 85/85; publisher CLI suite passes 16/16; `npm run typecheck` and `git diff --check` pass. Production-source secret grep is clean after excluding the schema's own protective detection pattern and test fixtures.
+  - Reviewer correction: narrowed the credential detector again. Explicit `:`/`=` assignment is still rejected for sensitive field labels, but `… is …` now rejects only a genuinely secret-shaped value. Regression probes retain PEM, assignment, Bearer, and `sk-` coverage while accepting historical/editorial sentences about a secret ledger, bearer message, Roman token, access token, and customer ID card.
+  - Reviewer-correction RED→GREEN: the new ordinary-prose probes failed before the detector change; full foundation backend suites pass 85/85, publisher CLI suite passes 16/16, and `npm run typecheck` passes after it.
 
 ## External dependency
 

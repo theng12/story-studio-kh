@@ -404,6 +404,7 @@ describe('Content Pack v1 contracts', () => {
       '-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----',
       '-----BEGIN RSA PRIVATE KEY-----\nnot-a-real-key\n-----END RSA PRIVATE KEY-----',
       'api_key: "sk-live-abc123456789"',
+      'api key is sk-live-abc123456789',
       'secret = "do-not-package-me"',
       'token: "opaque-token-value"',
       'access_token = "opaque-token-value"',
@@ -411,15 +412,24 @@ describe('Content Pack v1 contracts', () => {
       'account_id: "acct_123"',
       'customer_id = "cus_123"',
       'authorization: bearer sk-live-abc123456789',
+      'access token is 0123456789abcdef0123456789abcdef',
     ]) {
       assert.throws(() => ContentPackDocumentSchema.parse({
         ...documents['visual-style'], style_bible: unsafeText,
       }), /credential|private key|secret/i)
     }
-    assert.equal(ContentPackDocumentSchema.parse({
-      ...documents['visual-style'],
-      style_bible: 'A historian may discuss a customer ID policy, an account identifier, a secret ballot, or a token of respect without embedding credentials.',
-    }).kind, 'visual-style')
+    for (const ordinaryText of [
+      'A historian may discuss a customer ID policy, an account identifier, a secret ballot, or a token of respect without embedding credentials.',
+      'The secret revealed ledger changed the course of the negotiation.',
+      'A bearer royal message crossed the frontier at dawn.',
+      'A token Roman tessera marked a citizen’s entitlement.',
+      'The access token is never shown in the documentary.',
+      'A customer ID historical card identifies a museum drawer, not an account.',
+    ]) {
+      assert.equal(ContentPackDocumentSchema.parse({
+        ...documents['visual-style'], style_bible: ordinaryText,
+      }).kind, 'visual-style')
+    }
   })
 
   test('allows ordinary non-routing use of the word provider', () => {

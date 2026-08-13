@@ -16,14 +16,16 @@ const ROUTING_DIRECTIVE = /\b(?:provider_id|model_id|engine_id)\b|\bprovider\s*(
 const PRIVATE_KEY_PEM = /-----BEGIN(?: [A-Z0-9]+)* PRIVATE KEY-----/i
 // These reject values only when they use a credential/account field as an assignment,
 // so ordinary editorial prose about keys, tokens, accounts, or customers remains valid.
-const SENSITIVE_ASSIGNMENT = /(?:^|[\s,{;])(?:["']?(?:api(?:[_ -]?key)|secret|(?:access[_ -]?token)|token|bearer|account(?:[_ -]?id)|customer(?:[_ -]?id))["']?)\s*(?:[:=]\s*|is\s+)/i
+const SENSITIVE_FIELD = '(?:api(?:[_ -]?key)|secret|(?:access[_ -]?token)|token|bearer|account(?:[_ -]?id)|customer(?:[_ -]?id))'
+const SENSITIVE_ASSIGNMENT = new RegExp(`(?:^|[\\s,{;])(?:["']?${SENSITIVE_FIELD}["']?)\\s*(?:[:=]\\s*)`, 'i')
+const SECRET_SHAPED_CONTEXT = new RegExp(`\\b(?:api(?:[_ -]?key)|secret|(?:access[_ -]?token)|token|bearer)\\s+is\\s+["']?(?:sk-[a-z0-9_-]{8,}|[a-z0-9._~+\\/-]{16,})`, 'i')
 const AUTHORIZATION_BEARER_SECRET = /\bauthorization\s*:\s*bearer\s+(?:sk-[a-z0-9_-]{8,}|[a-z0-9._~+\/-]{16,})/i
 
 const safeText = (max = MAX_TEXT) => z.string().min(1).max(max)
   .refine(value => !UNSAFE_REFERENCE.test(value), 'URI references are not permitted in content packs')
   .refine(value => !ROUTING_DIRECTIVE.test(value), 'provider or model routing directives are not permitted in content packs')
   .refine(value => !PRIVATE_KEY_PEM.test(value), 'private key PEM blocks are not permitted in content packs')
-  .refine(value => !SENSITIVE_ASSIGNMENT.test(value) && !AUTHORIZATION_BEARER_SECRET.test(value), 'credential, token, or account assignments are not permitted in content packs')
+  .refine(value => !SENSITIVE_ASSIGNMENT.test(value) && !SECRET_SHAPED_CONTEXT.test(value) && !AUTHORIZATION_BEARER_SECRET.test(value), 'credential, token, or account assignments are not permitted in content packs')
 
 const qualifiedId = z.string().min(3).max(160)
   .regex(QUALIFIED_ID, 'must be a lowercase qualified reverse-DNS identifier')
