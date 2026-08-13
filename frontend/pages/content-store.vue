@@ -4,7 +4,7 @@
       <div>
         <NuxtLink to="/" class="back-link">Back to channels</NuxtLink>
         <h1>Content Store</h1>
-        <p>Expand Story Studio with permanently owned packs, priced and delivered by GenStudio.</p>
+        <p>Expand Story Studio with packs priced by GenStudio and permanently owned by your GenStudio account.</p>
       </div>
       <button type="button" class="btn btn-secondary" :disabled="loading" @click="loadStore">
         {{ loading ? 'Refreshing…' : 'Refresh store' }}

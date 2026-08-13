@@ -25,8 +25,8 @@
 - [x] Task 2 independent concurrency/security review — GO with zero Critical/Important findings
 - [x] Task 3 — active-account orchestration and local read/quote/purchase routes with exact status semantics and no installer/Job Queue dependency
 - [x] Task 3 independent financial/security review — GO with zero Critical/Important findings
-- [ ] Task 4 — Content Store UI, explicit confirmation, navigation, Settings scope UX, Impeccable pass, and desktop/narrow visual QA
-- [ ] Task 4 independent UX/contract review — GO with zero Critical/Important findings
+- [x] Task 4 — Content Store UI, explicit confirmation, navigation, Settings scope UX, Impeccable pass, and desktop/narrow visual QA
+- [x] Task 4 independent UX/contract review — GO with zero Critical/Important findings
 - [ ] Task 5 — whole-range review, v1.0.835 release, full verification/audits, unsigned package, and packaged QA
 
 ## Contract facts to re-check at every gate
@@ -83,3 +83,13 @@ Add one section per task with:
 - Re-review found one final Important: the purchase route's account preflight needs `content:read`, but generic route mapping labelled its 401 as `content:purchase`. A purchase-only key RED reproduced the false guidance; `1da16c04` preserves the exact call boundary, performs no claim/POST, and leaves the quote retryable.
 - Final independent review: GO, zero Critical/Important findings. Reviewer verified account-preflight `content:read` versus purchase-POST `content:purchase`, no claim/debit for the purchase-only key, and a retained `quoted` attempt.
 - Final Task 3 evidence: 81/81 passed across the route (22), client (19), commerce-state (23), local Content Pack route (10), and error-boundary (7) suites; Electron typecheck, lint `--quiet`, Electron build, and `git diff --check` exited 0.
+
+### Task 4
+
+- Implementation and correction commits: `8bf9f4b3` (`feat: add Content Store commerce UI`) and `PENDING` (`fix: describe content ownership truthfully`).
+- Initial RED: `cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/contentStore.test.ts __tests__/settingsWorkspace.test.ts __tests__/genstudioOnboardingBoundary.test.ts` failed because `useContentStore.js` and the Content Store renderer/navigation did not exist.
+- The implementation adds explicit-only catalog refresh, quote, confirm, and same-attempt uncertain replay; Discover/Owned views; exact content-spendable versus total balances; all five product kinds; free, paid, bundle discount, incompatible, empty, signing-unavailable, insufficient-credit, refusal, uncertain, and owned-not-installed states; global/project navigation; and truthful `content:read`/`content:purchase` Settings guidance. It adds no polling, automatic purchase retry, download, install, restore, gallery, license, or portal behavior.
+- Rendered QA used only a controlled local commerce mock and made no production purchase. Captures covered populated and empty 1440×900, true 390×844 Discover/Owned, sufficient and insufficient dialogs, completed ownership, signing unavailable, uncertain replay, Settings scope results, and an effective 200% viewport. Measured page/card/dialog widths had no horizontal overflow; long titles wrapped; list tails remained reachable; dialog initial focus and visible focus ring stayed on Close; Escape closed and restored the quote trigger. A visual reproduction caught a disabled quote trigger losing focus; a focused RED then kept the guarded in-flight trigger focusable and the rendered Escape check passed.
+- Impeccable context was loaded once before frontend work. Its detector ran exactly once after the UI stabilized and returned `[]`.
+- Independent review initially returned NO-GO with one Important copy mismatch: the header promised packs were “delivered by GenStudio” despite Phase 1 deliberately providing ownership without download/install/restore. A source-visible RED reproduced the promise; the correction now says packs are priced by GenStudio and permanently owned by the customer’s GenStudio account. The reviewer’s remaining contract, accessibility, viewport, focus, and Settings checks were GO.
+- Final focused GREEN: 25/25 across the Content Store, Settings workspace, and GenStudio onboarding suites. The complete frontend suite passed 568/568; frontend typecheck, production static build (including `/content-store` prerender), and `git diff --check` exited 0.

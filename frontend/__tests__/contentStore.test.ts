@@ -167,6 +167,11 @@ describe('Content Store renderer contract', () => {
     assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|>Download<|>Install<|>Restore<|portal URL/i)
   })
 
+  test('describes Phase 1 as permanent ownership without promising pack delivery', () => {
+    assert.match(page, /permanently owned by your GenStudio account/)
+    assert.doesNotMatch(page, /delivered by GenStudio/i)
+  })
+
   test('presents total and content-spendable balances as distinct account facts', () => {
     assert.match(page, /contentSpendableCredits/)
     assert.match(page, /availableCredits/)
