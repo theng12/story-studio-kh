@@ -527,6 +527,26 @@ describe('GenStudio Content Store one-attempt HTTP client', () => {
       }),
       (error: unknown) => error instanceof GenStudioContentStoreTransportError && error.outcome === 'uncertain',
     )
+
+    globalThis.fetch = async () => new Response(new Uint8Array(1024 * 1024 + 1), { status: 200 })
+    await assert.rejects(
+      purchaseGenStudioContentProduct('gsk_test', {
+        quoteCanonicalJson: canonicalizeContentStoreObject(signedQuote()).canonicalJson,
+        quoteSignature: SIGNATURE,
+        idempotencyKey: 'store-attempt-123',
+      }),
+      (error: unknown) => error instanceof GenStudioContentStoreTransportError && error.outcome === 'uncertain',
+    )
+
+    globalThis.fetch = async () => Response.json({})
+    await assert.rejects(
+      purchaseGenStudioContentProduct('gsk_test', {
+        quoteCanonicalJson: canonicalizeContentStoreObject(signedQuote()).canonicalJson,
+        quoteSignature: SIGNATURE,
+        idempotencyKey: 'store-attempt-123',
+      }),
+      (error: unknown) => error instanceof GenStudioContentStoreTransportError && error.outcome === 'uncertain',
+    )
   })
 
   test('does not retry a quote after a socket failure', async () => {

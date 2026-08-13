@@ -573,7 +573,6 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
   try {
     responseText = await readBoundedResponseBody(response)
   } catch (error) {
-    if (error instanceof ContentStoreResponseTooLargeError) throw error
     if (options.purchase && response.ok) {
       throw new GenStudioContentStoreTransportError(
         'uncertain',
@@ -582,6 +581,7 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
       )
     }
     if (!response.ok) {
+      if (error instanceof ContentStoreResponseTooLargeError) throw error
       throw new GenStudioContentStoreApiError(
         response.status,
         null,
@@ -612,7 +612,18 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
     }
     throw new Error('GenStudio Content Store returned invalid JSON', { cause: error })
   }
-  return options.parse(parsed)
+  try {
+    return options.parse(parsed)
+  } catch (error) {
+    if (options.purchase) {
+      throw new GenStudioContentStoreTransportError(
+        'uncertain',
+        'The Content Store purchase response did not match the published contract; retry only with the same saved idempotency key.',
+        error,
+      )
+    }
+    throw error
+  }
 }
 
 function assertApiKey(apiKey: string): void {
