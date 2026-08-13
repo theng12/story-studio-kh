@@ -78,7 +78,7 @@
           {{ attempt.status === 'completed' ? 'Done' : 'Cancel' }}
         </button>
         <button
-          v-if="attempt.status === 'uncertain'"
+          v-if="attempt.status === 'uncertain' || attempt.status === 'refused'"
           type="button"
           class="btn btn-primary"
           :disabled="busy"
@@ -88,7 +88,7 @@
           v-else-if="attempt.status !== 'completed'"
           type="button"
           class="btn btn-primary"
-          :disabled="busy || !attempt.sufficient_credits || attempt.status === 'submitting' || attempt.status === 'refused'"
+          :disabled="busy || !attempt.sufficient_credits || attempt.status === 'submitting'"
           @click="$emit('confirm', attempt.quote_id)"
         >{{ busy || attempt.status === 'submitting' ? 'Submitting…' : product.free ? 'Confirm permanent ownership' : `Confirm up to ${formatCredits(attempt.quoted_credits)} credits` }}</button>
       </footer>
@@ -146,7 +146,7 @@ const displayError = computed(() => {
   if (code === 'signing_unavailable') {
     return {
       tone: 'neutral', title: 'The Content Store is not open yet',
-      detail: 'GenStudio cannot sign purchases right now. No purchase was sent.', showCredits: false,
+      detail: 'GenStudio refused before any debit or ownership change because it cannot sign purchases right now.', showCredits: false,
     }
   }
   if (code === 'insufficient_credits') {

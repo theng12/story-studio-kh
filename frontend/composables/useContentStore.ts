@@ -228,6 +228,18 @@ export function useContentStore(): {
         {},
       )
       replaceAttempt(attempt)
+      if (attempt.status === 'completed') {
+        try {
+          const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
+          account.value = overview.account
+          products.value = overview.products
+          attempts.value = overview.attempts.some(row => row.quote_id === attempt.quote_id)
+            ? overview.attempts
+            : [attempt, ...overview.attempts]
+        } catch {
+          // Ownership is already durable. A read-side refresh must not turn success into failure.
+        }
+      }
       return attempt
     } catch (cause: any) {
       applyFailedAttempt(quoteId, cause)

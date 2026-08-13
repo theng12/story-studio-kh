@@ -852,6 +852,17 @@ export class MockGenStudioService {
           return
         }
         const purchase = this.contentPurchaseBody(request, body, false)
+        if (outcome?.body) {
+          const creditsCharged = Number(outcome.body.credits_charged ?? purchase.credits_charged)
+          const balanceBefore = Number(outcome.body.balance_before ?? purchase.balance_before)
+          const balanceAfter = Number(outcome.body.balance_after ?? purchase.balance_after)
+          purchase.credits_charged = creditsCharged
+          purchase.balance_before = balanceBefore
+          purchase.balance_after = balanceAfter
+          const receiptEnvelope = purchase.receipt as Record<string, unknown>
+          const signedReceipt = receiptEnvelope.receipt as Record<string, unknown>
+          signedReceipt.credits_charged = creditsCharged
+        }
         this.contentPurchases.set(idempotencyKey, purchase)
         json(response, 200, purchase)
         return

@@ -331,6 +331,50 @@ describe('Content Store commerce routes', () => {
     assert.deepEqual(await fs.readdir(path.join(tempDir, 'jobs')).catch(() => []), [])
   })
 
+  test('projects GenStudio final purchase balances when the charge settles below the quote ceiling', async () => {
+    const { app: localApp } = await setup({ products: [product({ credit_price: 400 })] })
+    const quoted = await quote(localApp).expect(201)
+    assert.equal(quoted.body.balance_after, 3_600)
+    mock.queueContentPurchaseOutcome({
+      status: 200,
+      body: { credits_charged: 300, balance_before: 4_000, balance_after: 3_700 },
+    })
+
+    const completed = await request(localApp)
+      .post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(200)
+    assert.equal(completed.body.credits_charged, 300)
+    assert.equal(completed.body.balance_before, 4_000)
+    assert.equal(completed.body.balance_after, 3_700)
+  })
+
+  for (const refusal of [
+    { status: 402 as const, code: 'insufficient_credits', fields: { required_credits: 400, available_credits: 100, shortfall_credits: 300 } },
+    { status: 503 as const, code: 'signing_unavailable', fields: {} },
+  ]) {
+    test(`explicitly retries ${refusal.status} ${refusal.code} with the saved idempotency key`, async () => {
+      const { app: localApp } = await setup({ products: [product({ credit_price: 400 })] })
+      const quoted = await quote(localApp).expect(201)
+      const savedKey = (await readContentStoreCommerceState()).attempts[quoted.body.quote_id].idempotency_key
+      mock.queueContentPurchaseOutcome({
+        status: refusal.status,
+        body: { code: refusal.code, detail: `${refusal.code} detail`, ...refusal.fields },
+      })
+
+      await request(localApp)
+        .post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(refusal.status)
+      const refused = (await readContentStoreCommerceState()).attempts[quoted.body.quote_id]
+      assert.equal(refused.status, 'refused')
+      assert.equal(refused.idempotency_key, savedKey)
+      assert.equal(mock.contentPurchasePostCount, 1)
+
+      const completed = await request(localApp)
+        .post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(200)
+      assert.equal(completed.body.status, 'completed')
+      assert.equal((await readContentStoreCommerceState()).attempts[quoted.body.quote_id].idempotency_key, savedKey)
+      assert.equal(mock.contentPurchasePostCount, 2)
+    })
+  }
+
   test('bounds quote IDs and local bodies', async () => {
     const { app: localApp } = await setup()
     await request(localApp).post('/api/content-store/quotes').send({ product_id: 'x'.repeat(257), release_id: null }).expect(400)

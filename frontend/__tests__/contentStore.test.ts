@@ -134,6 +134,122 @@ describe('useContentStore explicit commerce state machine', () => {
     assert.equal(purchaseCalls, 2)
   })
 
+  test('shows final purchase balance and reconciles the account strip without another purchase POST', async () => {
+    const quoted = {
+      quote_id: 'cq_discount', account_id: 'acct_a', product_id: 'formula', release_id: 'rel_formula',
+      entitlement_family: 'formula.family', expires_at: '2026-08-14T10:15:00Z', status: 'quoted' as const,
+      base_credit_price: 400, discount_credits: 0, quoted_credits: 400,
+      balance_before: 1_650, balance_after: 1_250, owned_components: [],
+      sufficient_credits: true, insufficient_reason: null, shortfall_credits: 0,
+    }
+    const completed = {
+      ...quoted, status: 'completed' as const, balance_after: 1_350,
+      ownership: 'owned_not_installed' as const, credits_charged: 300,
+      replayed: false, receipt_verification: 'unverified_phase1' as const,
+    }
+    let purchaseCalls = 0
+    let overviewCalls = 0
+    handler = path => {
+      if (path === '/api/content-store') {
+        overviewCalls += 1
+        if (overviewCalls === 1) return { ...structuredClone(completeOverview), attempts: [quoted] }
+        return {
+          ...structuredClone(completeOverview),
+          account: { ...structuredClone(completeOverview.account), contentSpendableCredits: 1_350 },
+          attempts: [completed],
+        }
+      }
+      if (path.endsWith('/purchase')) {
+        purchaseCalls += 1
+        return completed
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    }
+
+    const store = useContentStore()
+    await store.refresh()
+    const result = await store.confirmPurchase('cq_discount')
+    assert.equal(result.balance_after, 1_350)
+    assert.equal(store.attempts.value[0]?.balance_after, 1_350)
+    assert.equal(store.account.value?.contentSpendableCredits, 1_350)
+    assert.equal(purchaseCalls, 1)
+    assert.equal(overviewCalls, 2)
+  })
+
+  test('keeps completed ownership visible when the post-purchase account refresh fails', async () => {
+    const quoted = {
+      quote_id: 'cq_refresh_failure', account_id: 'acct_a', product_id: 'formula', release_id: 'rel_formula',
+      entitlement_family: 'formula.family', expires_at: '2026-08-14T10:15:00Z', status: 'quoted' as const,
+      base_credit_price: 400, discount_credits: 0, quoted_credits: 400,
+      balance_before: 1_650, balance_after: 1_250, owned_components: [],
+      sufficient_credits: true, insufficient_reason: null, shortfall_credits: 0,
+    }
+    const completed = {
+      ...quoted, status: 'completed' as const, balance_after: 1_350,
+      ownership: 'owned_not_installed' as const, credits_charged: 300,
+      replayed: false, receipt_verification: 'unverified_phase1' as const,
+    }
+    let overviewCalls = 0
+    handler = path => {
+      if (path === '/api/content-store') {
+        overviewCalls += 1
+        if (overviewCalls === 1) return { ...structuredClone(completeOverview), attempts: [quoted] }
+        throw new Error('post-purchase account refresh unavailable')
+      }
+      if (path.endsWith('/purchase')) return completed
+      throw new Error(`Unexpected request: ${path}`)
+    }
+
+    const store = useContentStore()
+    await store.refresh()
+    const result = await store.confirmPurchase('cq_refresh_failure')
+    assert.equal(result.status, 'completed')
+    assert.equal(store.attempts.value[0]?.status, 'completed')
+    assert.equal(store.error.value, null)
+  })
+
+  for (const refusal of [
+    { status: 402, code: 'insufficient_credits' },
+    { status: 503, code: 'signing_unavailable' },
+  ]) {
+    test(`retries refused ${refusal.status} ${refusal.code} only after an explicit click`, async () => {
+      const quoted = {
+        quote_id: `cq_${refusal.status}`, account_id: 'acct_a', product_id: 'formula', release_id: 'rel_formula',
+        entitlement_family: 'formula.family', expires_at: '2026-08-14T10:15:00Z', status: 'quoted' as const,
+        base_credit_price: 400, discount_credits: 0, quoted_credits: 400,
+        balance_before: 1_650, balance_after: 1_250, owned_components: [],
+        sufficient_credits: true, insufficient_reason: null, shortfall_credits: 0,
+      }
+      let purchaseCalls = 0
+      handler = path => {
+        if (path === '/api/content-store') return { ...structuredClone(completeOverview), attempts: [quoted] }
+        if (path.endsWith('/purchase')) {
+          purchaseCalls += 1
+          if (purchaseCalls === 1) {
+            const error: any = new Error(refusal.code)
+            error.status = refusal.status
+            error.data = { code: refusal.code, detail: `${refusal.code} detail`, status: 'refused' }
+            throw error
+          }
+          return {
+            ...quoted, status: 'completed', ownership: 'owned_not_installed', credits_charged: 400,
+            replayed: false, receipt_verification: 'unverified_phase1',
+          }
+        }
+        throw new Error(`Unexpected request: ${path}`)
+      }
+
+      const store = useContentStore()
+      await store.refresh()
+      await assert.rejects(store.confirmPurchase(quoted.quote_id))
+      assert.equal(store.attempts.value[0]?.status, 'refused')
+      await new Promise(resolve => setTimeout(resolve, 20))
+      assert.equal(purchaseCalls, 1)
+      await store.confirmPurchase(quoted.quote_id)
+      assert.equal(purchaseCalls, 2)
+    })
+  }
+
   test('preserves exact refusal and scope details for the page', async () => {
     handler = () => {
       const error: any = new Error('scope')
@@ -212,6 +328,9 @@ describe('Content Store renderer contract', () => {
     assert.match(dialog, /Retry this purchase/)
     assert.match(dialog, /store is not open yet/i)
     assert.match(dialog, /credits_charged|creditsCharged/)
+    assert.match(dialog, /attempt\.status === 'refused'/)
+    assert.doesNotMatch(dialog, /No purchase was sent/)
+    assert.match(dialog, /refused before any debit or ownership change/)
   })
 
   test('keeps the quote trigger focusable while its request is in flight so Modal can restore focus', () => {
