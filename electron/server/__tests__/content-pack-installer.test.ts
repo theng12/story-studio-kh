@@ -3,10 +3,11 @@ import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 
 import JSZip from 'jszip'
 
-import { installContentPack, quarantineContentPackBytes } from '../content-packs/installer.js'
+import { installContentPack, quarantineContentPackBytes, resolveContentPackAppVersion } from '../content-packs/installer.js'
 import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
@@ -116,14 +117,14 @@ describe('Content Pack local installer', () => {
     await assert.doesNotReject(installContentPack(request(await buildArchive({ dependencies: [{ pack_id: 'com.storystudio.dependency', version: '1.0.0' }] })), { paths, policy }))
   })
 
-  test('refuses a dependency cycle even when a malformed pre-existing state attempted to create one', async () => {
+  test('does not trust a forged state manifest when re-verifying the installed dependency graph', async () => {
     const paths = await isolated()
     await installContentPack(request(await buildArchive({ packId: 'com.storystudio.cycle-b' })), { paths, policy })
     await installContentPack(request(await buildArchive({ packId: 'com.storystudio.cycle-a', dependencies: [{ pack_id: 'com.storystudio.cycle-b', version: '1.0.0' }] })), { paths, policy })
     await mutateContentPackState(state => {
       state.packs['com.storystudio.cycle-b'].versions['1.0.0'].manifest.dependencies = [{ pack_id: 'com.storystudio.cycle-a', version: '1.0.0' }]
     }, paths)
-    await assert.rejects(installContentPack(request(await buildArchive({ packId: 'com.storystudio.unrelated' })), { paths, policy }), /cycle/i)
+    await assert.doesNotReject(installContentPack(request(await buildArchive({ packId: 'com.storystudio.unrelated' })), { paths, policy }))
   })
 
   test('keeps version identities immutable while allowing a byte-identical re-import', async () => {
@@ -134,6 +135,35 @@ describe('Content Pack local installer', () => {
     assert.deepEqual(again, one)
     const different = await buildArchive({ styleSuffix: ' A different immutable payload.' })
     await assert.rejects(installContentPack(request(different), { paths, policy }), /immutable|different archive/i)
+  })
+
+  test('re-verifies the retained archive and rejects state or on-disk archive tampering on re-import', async () => {
+    const paths = await isolated()
+    const archive = await buildArchive()
+    await installContentPack(request(archive), { paths, policy })
+    await mutateContentPackState(state => {
+      state.packs['com.storystudio.installer-test'].versions['1.0.0'].manifest.lifecycle = 'retired'
+    }, paths)
+    await assert.doesNotReject(installContentPack(request(archive), { paths, policy }))
+    const state = await readContentPackState(paths)
+    const archivePath = path.join(state.packs['com.storystudio.installer-test'].versions['1.0.0'].install_path, 'content', 'archive.sspack')
+    await fs.writeFile(archivePath, Buffer.from('tampered archive'))
+    await assert.rejects(installContentPack(request(archive), { paths, policy }), /archive hash|verification/i)
+  })
+
+  test('rejects an over-limit input before hash, staging, or quarantine writes', async () => {
+    const paths = await isolated()
+    const tooLarge = new Uint8Array(50 * 1024 * 1024 + 1)
+    await assert.rejects(installContentPack({ archiveBytes: tooLarge, source: 'local-import' }, { paths, policy }), /exceeds/i)
+    await assert.rejects(fs.stat(paths.root), { code: 'ENOENT' })
+    await assert.rejects(quarantineContentPackBytes(tooLarge, 'invalid_archive', paths), /will not be retained/i)
+  })
+
+  test('resolves the app version from the package in development and Electron metadata when packaged', async () => {
+    const sourceRoot = path.resolve('electron/server/content-packs')
+    assert.equal(await resolveContentPackAppVersion({ packaged: false, sourceContentPackRoot: sourceRoot }), '1.0.832')
+    assert.equal(await resolveContentPackAppVersion({ packaged: true, electronVersion: '8.2.1' }), '8.2.1')
+    await assert.rejects(resolveContentPackAppVersion({ packaged: true }), /packaged app version/i)
   })
 
   test('quarantines only submitted bytes and a bounded failure code', async () => {
@@ -161,6 +191,34 @@ describe('Content Pack local installer', () => {
     assert.equal((await readContentPackState(paths)).packs['com.storystudio.installer-test'].active_version, '1.0.1')
   })
 
+  test('does not activate when mandatory directory durability fails, then permits the next clean install', async () => {
+    const paths = await isolated()
+    const archive = await buildArchive()
+    await assert.rejects(installContentPack(request(archive), {
+      paths, policy,
+      hooks: { beforeRequiredFsync: async () => { throw new Error('fsync failed') } },
+    }), /fsync failed/)
+    assert.deepEqual(await readContentPackState(paths), { schema_version: 1, packs: {} })
+    await assert.doesNotReject(installContentPack(request(archive), { paths, policy }))
+  })
+
+  test('fails closed when a noncooperating process replaces the install root with a symlink before rename', async () => {
+    const paths = await isolated()
+    const outside = path.join(path.dirname(paths.root), 'content-pack-installer-outside')
+    await fs.mkdir(outside)
+    await assert.rejects(installContentPack(request(await buildArchive()), {
+      paths, policy,
+      hooks: {
+        beforeVersionRename: async () => {
+          await fs.mkdir(paths.installedRoot, { recursive: true })
+          await fs.rename(paths.installedRoot, `${paths.installedRoot}.moved`)
+          await fs.symlink(outside, paths.installedRoot)
+        },
+      },
+    }), /unsafe/i)
+    await assert.rejects(fs.stat(path.join(outside, PUBLISHER_ID)), { code: 'ENOENT' })
+  })
+
   test('serialises concurrent identical imports through state activation without a duplicate tree', async () => {
     const paths = await isolated()
     const archiveBytes = await buildArchive()
@@ -168,5 +226,14 @@ describe('Content Pack local installer', () => {
     assert.ok(results.every(result => result.archive_sha256 === sha256(archiveBytes)))
     const state = await readContentPackState(paths)
     assert.deepEqual(Object.keys(state.packs['com.storystudio.installer-test'].versions), ['1.0.0'])
+  })
+
+  test('keeps the compiled Electron installer importable with a real source-compatible version resolver', async () => {
+    const compiled = path.resolve('electron/dist/server/content-packs/installer.js')
+    await fs.access(compiled)
+    const module = await import(pathToFileURL(compiled).href)
+    const paths = await isolated()
+    assert.equal(await module.resolveContentPackAppVersion({ packaged: false }), '1.0.832')
+    await assert.doesNotReject(module.installContentPack(request(await buildArchive()), { paths, policy }))
   })
 })

@@ -81,6 +81,18 @@ export async function mutateContentPackState<T>(
   mutate: (state: ContentPackRuntimeState) => Promise<T> | T,
   paths: ContentPackRuntimePaths = getContentPackRuntimePaths(),
 ): Promise<T> {
+  return withContentPackStateTransaction(mutate, paths)
+}
+
+/**
+ * Run a complete Content Pack transaction under the same cross-process lock
+ * that protects state. Callers may stage immutable files before mutating the
+ * supplied state; if they throw, no state document is written.
+ */
+export async function withContentPackStateTransaction<T>(
+  mutate: (state: ContentPackRuntimeState) => Promise<T> | T,
+  paths: ContentPackRuntimePaths = getContentPackRuntimePaths(),
+): Promise<T> {
   return withContentPackStateLock(paths, async () => {
     const state = await readOrResetState(paths)
     const result = await mutate(state)
