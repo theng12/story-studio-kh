@@ -49,6 +49,15 @@ describe('Research workspace flow', () => {
     assert.doesNotMatch(research, /Perplexity \(direct\)/)
   })
 
+  test('requires the active mode model and never posts an omitted fallback model', () => {
+    assert.match(research, /resolveResearchModelForRun/)
+    assert.match(research, /if \(!modelReadiness\.value\.model\) return false/)
+    assert.match(research, /return modelReadiness\.value\.reason/)
+    assert.match(research, /const selectedModel = modelReadiness\.value\.model/)
+    assert.match(research, /model: selectedModel/)
+    assert.doesNotMatch(research, /model: \(webMode\.value \? form\.value\.web_model : form\.value\.source_model\) \|\| undefined/)
+  })
+
   test('makes review completeness and Script handoff explicit', () => {
     assert.match(research, /research-review-score/)
     assert.match(research, /\{\{ reviewProgress \}\}%/)

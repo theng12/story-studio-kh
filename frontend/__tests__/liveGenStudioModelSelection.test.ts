@@ -73,7 +73,7 @@ test('generator pickers keep stale selections visible until the user replaces th
   assert.match(promptsPage, /group: 'GenStudio KH'/)
   assert.doesNotMatch(promptsPage, /claude-sonnet-4-6|gpt-4o-mini|gpt-4-turbo/)
   assert.match(metadataPage, /const model = ref\(''\)/)
-  assert.match(motionPage, /selectLiveGenStudioModel/)
+  assert.match(motionPage, /selectLiveImageToVideoModel/)
   assert.doesNotMatch(motionPage, /const fallback = exact \|\| mapped \|\|/)
   assert.doesNotMatch(transcription, /\|\| models\.value\[0\]/)
 })

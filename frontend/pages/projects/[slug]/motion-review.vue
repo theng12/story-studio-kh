@@ -186,7 +186,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
+import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Motion Review')
@@ -366,10 +366,7 @@ watch(selectedVideoVariants, (variants) => {
 watch(i2vModels, (models) => {
   if (!models.length) return
   const raw = videoModel.value.startsWith('genstudio-video:') ? videoModel.value.slice('genstudio-video:'.length) : videoModel.value
-  const selected = selectLiveGenStudioModel(
-    raw,
-    genStudioVideoModels.value.filter(model => model.modes.includes('image-to-video')),
-  )
+  const selected = selectLiveImageToVideoModel(raw, genStudioVideoModels.value)
   if (selected) videoModel.value = `genstudio-video:${selected.id}`
 }, { immediate: true })
 

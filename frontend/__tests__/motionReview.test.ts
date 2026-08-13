@@ -28,7 +28,7 @@ test('Motion Review saves and restores the selected exact variant with its prese
 })
 
 test('Motion Review never replaces a named missing model with the first available row', () => {
-  assert.match(source, /selectLiveGenStudioModel\([\s\S]*?raw,[\s\S]*?genStudioVideoModels\.value\.filter/)
+  assert.match(source, /selectLiveImageToVideoModel\(raw, genStudioVideoModels\.value\)/)
   assert.doesNotMatch(source, /exact \|\| mapped \|\| genStudioVideoModels\.value\.find/)
   assert.doesNotMatch(source, /find\(model => model\.available && model\.modes\.includes\('image-to-video'\)\)/)
 })
