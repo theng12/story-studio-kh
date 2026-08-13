@@ -72,7 +72,11 @@
   - User-shadow regression: a temporary same-ID Formula, Topic Pack, and thumbnail recipe under the isolated user directories each wins while present; after removal and cache invalidation, the built-in effective HMH baseline again equals the fixture. This proves the test is isolated from the owner's catalog overrides while preserving intentional user-shadow semantics.
   - Topic-injection mutation proof: temporarily stripping the `ACTIVE TOPIC PACKS` suffix from the effective script context changed `effective_prompt_fields_sha256` (`fee87…` → `d565f…`) and made the HMH golden assertion fail; restored immediately.
   - Follow-up GREEN: golden suite passes 3/3; full foundation suites pass 79/79; publisher CLI suite passes 13/13; `npm run typecheck` and `git diff --check` pass.
-- [ ] Task 5 — independent review and runtime-plan handoff
+- [x] Task 5 — independent review and runtime-plan handoff
+  - Runtime implementation plan: `docs/superpowers/plans/2026-08-13-story-content-pack-runtime.md`.
+  - Scope is deliberately Story-local: staged import, pinned public keyring, atomic state, quarantine, retention/rollback, locally verified recovery archives, registry/adapters, user forks, exact project pins, immutable job provenance, and contained asset serving.
+  - Explicitly deferred: GenStudio catalog/checkout/entitlements/account identity and customer Store UI, pending the real published GenStudio commerce contract.
+  - Plan self-review completed: all local-runtime design requirements map to a task; no implementation placeholders or contract-name inconsistencies found.
 
 ## External dependency
 
