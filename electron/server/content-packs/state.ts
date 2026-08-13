@@ -134,6 +134,9 @@ export interface ContentPackStateLockTestOptions {
   lockWaitMs?: number
   staleLockMs?: number
   runtime?: Partial<ContentPackStateLockRuntime>
+  hooks?: {
+    afterRecoveryGuardAcquired?: () => Promise<void>
+  }
 }
 
 export interface ContentPackStateLockHandle {
@@ -143,6 +146,10 @@ export interface ContentPackStateLockHandle {
 
 function stateLockPath(statePath: string): string {
   return `${statePath}.lock`
+}
+
+function recoveryGuardPath(lockPath: string): string {
+  return `${lockPath}.recovery`
 }
 
 function sleep(ms: number): Promise<void> {
@@ -249,23 +256,81 @@ async function publishStateLock(lockPath: string, owner: StateLockOwner): Promis
   }
 }
 
-async function reclaimStateLockIfProvenStale(
+async function releaseStateLock(lockPath: string, owner: StateLockOwner): Promise<void> {
+  const canonical = await readStateLockOwner(lockPath)
+  // If another actor has replaced the canonical path, never delete it.
+  if (!canonical || canonical.token !== owner.token || canonical.hostname !== owner.hostname || canonical.process_incarnation !== owner.process_incarnation) return
+  await fs.unlink(lockPath).catch(error => {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  })
+}
+
+async function acquireRecoveryGuard(
   lockPath: string,
+  current: StateLockIdentity,
+  runtime: ContentPackStateLockRuntime,
+  deadline: number,
+): Promise<ContentPackStateLockHandle> {
+  const guardPath = recoveryGuardPath(lockPath)
+  const owner: StateLockOwner = { ...current, created_at_ms: runtime.now(), token: randomUUID() }
+  while (true) {
+    if (await publishStateLock(guardPath, owner)) {
+      return { owner, release: () => releaseStateLock(guardPath, owner) }
+    }
+    const existing = await readStateLockOwner(guardPath)
+    if (!existing) continue
+    if (existing.hostname !== current.hostname) {
+      throw new Error(`Content Pack state recovery guard belongs to foreign host ${existing.hostname}; manual recovery is required`)
+    }
+    // Recovery guards are never age-stolen: a crash or malformed record is a
+    // manual-recovery condition, not authority to touch the canonical lock.
+    if (runtime.now() >= deadline) throw new Error('timed out waiting for Content Pack state recovery guard')
+    await runtime.sleep(10 + Math.floor(Math.random() * 20))
+  }
+}
+
+async function isProvenStaleOwner(
+  owner: StateLockOwner,
   current: StateLockIdentity,
   runtime: ContentPackStateLockRuntime,
   staleLockMs: number,
 ): Promise<boolean> {
-  const owner = await readStateLockOwner(lockPath)
-  if (!owner) return true
   if (owner.hostname !== current.hostname) {
     throw new Error(`Content Pack state lock belongs to foreign host ${owner.hostname}; manual recovery is required`)
   }
   if (runtime.now() - owner.created_at_ms < staleLockMs) return false
   const observedIncarnation = await runtime.processIncarnation(owner.pid)
-  if (observedIncarnation === owner.process_incarnation) return false
-  // `null` proves the PID is absent. A different start fact proves a reused PID.
-  await fs.unlink(lockPath)
-  return true
+  return observedIncarnation !== owner.process_incarnation
+}
+
+async function reclaimStateLockIfProvenStale(
+  lockPath: string,
+  current: StateLockIdentity,
+  runtime: ContentPackStateLockRuntime,
+  staleLockMs: number,
+  deadline: number,
+  hooks?: ContentPackStateLockTestOptions['hooks'],
+): Promise<boolean> {
+  const observed = await readStateLockOwner(lockPath)
+  if (!observed) return true
+  if (!await isProvenStaleOwner(observed, current, runtime, staleLockMs)) return false
+  const guard = await acquireRecoveryGuard(lockPath, current, runtime, deadline)
+  try {
+    await hooks?.afterRecoveryGuardAcquired?.()
+    // A separate contender may have recovered or published after the initial
+    // observation. Re-check both identity and stale proof while we own the
+    // non-stealable recovery guard before unlinking anything.
+    const currentCanonical = await readStateLockOwner(lockPath)
+    if (!currentCanonical) return true
+    if (currentCanonical.token !== observed.token
+      || currentCanonical.hostname !== observed.hostname
+      || currentCanonical.process_incarnation !== observed.process_incarnation) return false
+    if (!await isProvenStaleOwner(currentCanonical, current, runtime, staleLockMs)) return false
+    await fs.unlink(lockPath)
+    return true
+  } finally {
+    await guard.release()
+  }
 }
 
 async function acquireFilesystemStateLock(
@@ -288,20 +353,13 @@ async function acquireFilesystemStateLock(
   await fs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 })
   while (true) {
     if (await publishStateLock(lockPath, owner)) break
-    if (await reclaimStateLockIfProvenStale(lockPath, identity, runtime, staleLockMs)) continue
+    if (await reclaimStateLockIfProvenStale(lockPath, identity, runtime, staleLockMs, deadline, options.hooks)) continue
     if (runtime.now() >= deadline) throw new Error('timed out waiting for Content Pack state lock')
     await runtime.sleep(10 + Math.floor(Math.random() * 20))
   }
   return {
     owner,
-    release: async () => {
-      const canonical = await readStateLockOwner(lockPath)
-      // If another actor has replaced the canonical path, never delete it.
-      if (!canonical || canonical.token !== owner.token || canonical.hostname !== owner.hostname || canonical.process_incarnation !== owner.process_incarnation) return
-      await fs.unlink(lockPath).catch(error => {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-      })
-    },
+    release: () => releaseStateLock(lockPath, owner),
   }
 }
 

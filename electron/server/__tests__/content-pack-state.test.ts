@@ -275,6 +275,66 @@ describe('Content Pack runtime state', () => {
     await reclaimed.release()
   })
 
+  test('serialises two barrier-controlled stale recoveries so a delayed contender cannot unlink the successor', async () => {
+    const { paths } = await isolatedPaths()
+    const lockPath = `${paths.statePath}.lock`
+    const reference = await __testAcquireContentPackStateLock(paths)
+    await reference.release()
+    await fs.writeFile(lockPath, JSON.stringify({
+      ...reference.owner,
+      process_incarnation: 'dead-incarnation',
+      created_at_ms: Date.now() - 120_000,
+      token: 'stale-token',
+    }))
+    let openBarrier!: () => void
+    const barrier = new Promise<void>(resolve => { openBarrier = resolve })
+    let recoveryGuardHeld!: () => void
+    const guardHeld = new Promise<void>(resolve => { recoveryGuardHeld = resolve })
+    const first = __testAcquireContentPackStateLock(paths, {
+      staleLockMs: 1,
+      lockWaitMs: 250,
+      hooks: {
+        afterRecoveryGuardAcquired: async () => {
+          recoveryGuardHeld()
+          await barrier
+        },
+      },
+    })
+    await guardHeld
+    const second = __testAcquireContentPackStateLock(paths, { staleLockMs: 1, lockWaitMs: 40 })
+    openBarrier()
+    const outcomes = await Promise.allSettled([first, second])
+    const acquired = outcomes.filter((outcome): outcome is PromiseFulfilledResult<Awaited<typeof first>> => outcome.status === 'fulfilled')
+    const rejected = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+    assert.equal(acquired.length, 1)
+    assert.equal(rejected.length, 1)
+    assert.match(String(rejected[0].reason), /timed out/i)
+    assert.equal(JSON.parse(await fs.readFile(lockPath, 'utf8')).token, acquired[0].value.owner.token)
+    await acquired[0].value.release()
+  })
+
+  test('fails closed on an abandoned recovery guard without touching the stale canonical lock', async () => {
+    const { paths } = await isolatedPaths()
+    const lockPath = `${paths.statePath}.lock`
+    const reference = await __testAcquireContentPackStateLock(paths)
+    await reference.release()
+    const stale = {
+      ...reference.owner,
+      process_incarnation: 'dead-incarnation',
+      created_at_ms: Date.now() - 120_000,
+      token: 'stale-canonical-token',
+    }
+    await fs.writeFile(lockPath, JSON.stringify(stale))
+    await fs.writeFile(`${lockPath}.recovery`, JSON.stringify({
+      ...reference.owner,
+      pid: 999_999_999,
+      process_incarnation: 'abandoned-guard',
+      token: 'abandoned-guard-token',
+    }))
+    await assert.rejects(__testAcquireContentPackStateLock(paths, { staleLockMs: 1, lockWaitMs: 25 }), /recovery guard|timed out/i)
+    assert.equal(JSON.parse(await fs.readFile(lockPath, 'utf8')).token, stale.token)
+  })
+
   test('constructs only contained immutable version paths and verified files', async () => {
     const { paths } = await isolatedPaths()
     const versionRoot = installedVersionPath(paths, manifest())
