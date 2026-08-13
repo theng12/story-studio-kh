@@ -52,6 +52,24 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /\{\{ catalogNotice \}\}/)
   })
 
+  test('the shared model dialog owns accessible published-cost tier tabs', () => {
+    // Catches moving the tabs into a modality picker, where catalog policy would diverge.
+    assert.match(modelMenu, /role="tablist"/)
+    // Catches replacing real tab buttons with non-interactive labels.
+    assert.match(modelMenu, /role="tab"/)
+    // Catches assistive technology losing the active-tab state.
+    assert.match(modelMenu, /:aria-selected="tier\.id === activeTier"/)
+    // Catches removing the semantic connection between the selected tab and results.
+    assert.match(modelMenu, /:aria-controls="tierPanelId"/)
+    assert.match(modelMenu, /:role="tierMode \? 'tabpanel' : undefined"/)
+    assert.match(modelMenu, /:aria-labelledby="tierMode \? activeTierTabId : undefined"/)
+    // Catches a keyboard-only user being unable to move tiers without a pointer.
+    assert.match(modelMenu, /event\.key === 'ArrowRight'/)
+    assert.match(modelMenu, /event\.key === 'ArrowLeft'/)
+    assert.match(modelMenu, /event\.key === 'Home'/)
+    assert.match(modelMenu, /event\.key === 'End'/)
+  })
+
   test('the image picker exposes catalog errors and heals stale saved selections silently', () => {
     assert.match(imagePicker, /v-if="error"/)
     assert.match(imagePicker, /notice-error/)

@@ -21,7 +21,11 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { createApp, ref, computed, h, nextTick, defineComponent } from 'vue'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
+
+const modelMenu = readFileSync(fileURLToPath(new URL('../components/ModelMenu.vue', import.meta.url)), 'utf8')
 
 /** Stands in for Modal: mounted for the parent's whole life, renders on `visible`. */
 const Dialog = defineComponent({
@@ -68,6 +72,11 @@ function mountPicker(ticks: number) {
 }
 
 describe('picker dialog opening focus', () => {
+  test('ModelMenu retains the two-tick dialog focus handshake', () => {
+    // Catches reducing ModelMenu to one tick, letting the shared focus trap steal search focus.
+    assert.match(modelMenu, /await nextTick\(\)\s*await nextTick\(\)\s*searchEl\.value\?\.focus/)
+  })
+
   test('the search field ends up with focus, not the trap-selected close button', async () => {
     const { open } = mountPicker(2)
     await open()
