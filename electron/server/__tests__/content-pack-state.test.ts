@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
+import { createHash, generateKeyPairSync } from 'node:crypto'
+import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, test } from 'node:test'
+import { pathToFileURL } from 'node:url'
 
 import { useTempDataDir } from './_helpers.js'
 import {
   getContentPackRuntimePaths,
   installedVersionPath,
+  resolveContentPackRecoveryRoot,
   resolveVerifiedPackFile,
 } from '../content-packs/runtime-paths.js'
 import {
@@ -16,6 +19,7 @@ import {
   readContentPackState,
 } from '../content-packs/state.js'
 import type { ContentPackManifest } from '../content-packs/types.js'
+import { createContentPackKeyring, resolveFirstPartyContentPackKeyringPath } from '../content-packs/keyring.js'
 
 let cleanup: (() => Promise<void>) | undefined
 
@@ -56,6 +60,39 @@ function manifest(): ContentPackManifest {
   }
 }
 
+function installedState(installPath: string) {
+  const m = manifest()
+  return {
+    schema_version: 1,
+    packs: {
+      [m.pack_id]: {
+        active_version: m.version,
+        discovery_disabled: false,
+        versions: {
+          [m.version]: {
+            archive_sha256: 'a'.repeat(64),
+            installed_at: '2026-08-13T00:00:00.000Z',
+            verified_at: '2026-08-13T00:00:00.000Z',
+            source: 'local-import',
+            install_path: installPath,
+            manifest: m,
+          },
+        },
+      },
+    },
+  }
+}
+
+function runWorker(workerPath: string, env: NodeJS.ProcessEnv): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--import', 'tsx', workerPath], { env, stdio: 'pipe' })
+    let stderr = ''
+    child.stderr.on('data', chunk => { stderr += chunk })
+    child.once('error', reject)
+    child.once('exit', code => code === 0 ? resolve() : reject(new Error(`state worker exited ${code}: ${stderr}`)))
+  })
+}
+
 describe('Content Pack runtime state', () => {
   test('resolves userData paths lazily and does not create layout on reads', async () => {
     const { temp, paths } = await isolatedPaths()
@@ -82,6 +119,45 @@ describe('Content Pack runtime state', () => {
     assert.deepEqual(JSON.parse(await fs.readFile(paths.statePath, 'utf8')), emptyContentPackState())
   })
 
+  test('propagates state I/O errors without replacing or quarantining readable bytes', async () => {
+    const { paths } = await isolatedPaths()
+    await fs.mkdir(paths.root, { recursive: true })
+    const known = '{"this":"must stay intact"}\n'
+    await fs.writeFile(paths.statePath, known, { mode: 0o600 })
+    await fs.chmod(paths.statePath, 0o000)
+    try {
+      await assert.rejects(readContentPackState(paths), /EACCES|permission/i)
+    } finally {
+      await fs.chmod(paths.statePath, 0o600)
+    }
+    assert.equal(await fs.readFile(paths.statePath, 'utf8'), known)
+    await assert.rejects(fs.stat(paths.quarantineRoot), { code: 'ENOENT' })
+  })
+
+  test('quarantines semantically forged state instead of accepting path or identity drift', async () => {
+    const { paths } = await isolatedPaths()
+    await fs.mkdir(paths.root, { recursive: true })
+    const forged = installedState('/etc')
+    await fs.writeFile(paths.statePath, JSON.stringify(forged), { mode: 0o600 })
+
+    assert.deepEqual(await readContentPackState(paths), emptyContentPackState())
+    const raw = JSON.stringify(forged)
+    const hash = createHash('sha256').update(raw).digest('hex')
+    await fs.access(path.join(paths.quarantineRoot, `state-invalid-${hash}.json`))
+  })
+
+  test('quarantines state when its record keys or active version disagree with the manifest', async () => {
+    const { paths } = await isolatedPaths()
+    await fs.mkdir(paths.root, { recursive: true })
+    const coherent = installedState(installedVersionPath(paths, manifest()))
+    const pack = coherent.packs['com.storystudio.test-pack']
+    pack.active_version = '9.9.9'
+    pack.versions['1.2.3'].manifest.pack_id = 'com.storystudio.other-pack'
+    await fs.writeFile(paths.statePath, JSON.stringify(coherent), { mode: 0o600 })
+
+    assert.deepEqual(await readContentPackState(paths), emptyContentPackState())
+  })
+
   test('serialises parallel state mutations without losing entries', async () => {
     const { paths } = await isolatedPaths()
     await Promise.all(Array.from({ length: 20 }, (_, n) =>
@@ -90,6 +166,41 @@ describe('Content Pack runtime state', () => {
       }, paths),
     ))
     assert.equal(Object.keys((await readContentPackState(paths)).packs).length, 20)
+  })
+
+  test('serialises state mutations across 20 Node processes', async () => {
+    const { temp } = await isolatedPaths()
+    const workerPath = path.join(temp.dir, 'content-pack-state-worker.mts')
+    const stateModule = pathToFileURL(path.resolve('electron/server/content-packs/state.ts')).href
+    const pathsModule = pathToFileURL(path.resolve('electron/server/content-packs/runtime-paths.ts')).href
+    await fs.writeFile(workerPath, [
+      `import { mutateContentPackState } from ${JSON.stringify(stateModule)};`,
+      `import { getContentPackRuntimePaths } from ${JSON.stringify(pathsModule)};`,
+      'const id = process.env.CONTENT_PACK_WORKER_ID;',
+      'await mutateContentPackState(state => { state.packs[`com.storystudio.process.${id}`] = { discovery_disabled: false, versions: {} }; }, getContentPackRuntimePaths());',
+    ].join('\n'))
+    await Promise.all(Array.from({ length: 20 }, (_, n) => runWorker(workerPath, {
+      ...process.env,
+      STORY_STUDIO_DATA_DIR: temp.dir,
+      CONTENT_PACK_WORKER_ID: String(n),
+      STORY_STUDIO_DISABLE_LISTEN: '1',
+    })))
+    assert.equal(Object.keys((await readContentPackState()).packs).length, 20)
+  })
+
+  test('recovers a bounded stale cross-process lock owned by a dead process', async () => {
+    const { paths } = await isolatedPaths()
+    const lockPath = `${paths.statePath}.lock`
+    await fs.mkdir(lockPath, { recursive: true })
+    await fs.writeFile(path.join(lockPath, 'owner.json'), JSON.stringify({
+      pid: 999_999_999,
+      created_at_ms: Date.now() - 120_000,
+      token: 'dead-owner',
+    }))
+    await mutateContentPackState(state => {
+      state.packs['com.storystudio.recovered-lock'] = { discovery_disabled: false, versions: {} }
+    }, paths)
+    assert.ok((await readContentPackState(paths)).packs['com.storystudio.recovered-lock'])
   })
 
   test('constructs only contained immutable version paths and verified files', async () => {
@@ -102,5 +213,50 @@ describe('Content Pack runtime state', () => {
     assert.throws(() => resolveVerifiedPackFile(versionRoot, 'content/../style.json'), /contained/i)
     assert.throws(() => resolveVerifiedPackFile(versionRoot, 'content/\0style.json'), /contained/i)
     assert.throws(() => resolveVerifiedPackFile(versionRoot, 'content/link/../../state.json'), /contained/i)
+    assert.throws(() => resolveVerifiedPackFile(versionRoot, 'content/UPPER.json'), /contained/i)
+    assert.throws(() => resolveVerifiedPackFile(versionRoot, 'content/caf\u00e9.json'), /contained/i)
+  })
+
+  test('rejects an existing intermediate symlink that escapes the verified version root', async () => {
+    const { temp } = await isolatedPaths()
+    const versionRoot = path.join(temp.dir, 'version')
+    const outside = path.join(temp.dir, 'outside')
+    await fs.mkdir(path.join(versionRoot, 'content'), { recursive: true })
+    await fs.mkdir(outside)
+    await fs.symlink(outside, path.join(versionRoot, 'content', 'link'))
+    assert.throws(() => resolveVerifiedPackFile(versionRoot, 'content/link/file.json'), /symlink|contained/i)
+  })
+
+  test('uses source roots in dev Electron and packaged resources only for packaged app', () => {
+    const sourceRoot = '/source/electron/server/content-packs'
+    assert.equal(resolveContentPackRecoveryRoot({ packaged: false, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), sourceRoot)
+    assert.equal(resolveContentPackRecoveryRoot({ packaged: true, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/Resources/content-packs')
+    assert.equal(resolveFirstPartyContentPackKeyringPath({ packaged: false, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/source/electron/server/content-packs/first-party-keys.json')
+    assert.equal(resolveFirstPartyContentPackKeyringPath({ packaged: true, sourceContentPackRoot: sourceRoot, resourcesPath: '/Resources' }), '/Resources/content-packs/first-party-keys.json')
+  })
+
+  test('accepts only canonical Ed25519 public keys in the publisher namespace', () => {
+    const ed25519 = generateKeyPairSync('ed25519')
+    const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 })
+    const publicKeyPem = ed25519.publicKey.export({ type: 'spki', format: 'pem' }).toString()
+    assert.equal(createContentPackKeyring([{
+      keyId: 'com.storystudio.test-key',
+      publisherId: 'com.storystudio',
+      publicKeyPem,
+    }]).publisherKeys.size, 1)
+    assert.throws(() => createContentPackKeyring([{
+      keyId: 'com.other.test-key', publisherId: 'com.storystudio', publicKeyPem,
+    }]), /namespace/i)
+    assert.throws(() => createContentPackKeyring([{
+      keyId: 'com.storystudio.rsa', publisherId: 'com.storystudio',
+      publicKeyPem: rsa.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+    }]), /Ed25519/i)
+    assert.throws(() => createContentPackKeyring([{
+      keyId: 'com.storystudio.private', publisherId: 'com.storystudio',
+      publicKeyPem: ed25519.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+    }]), /public key|private/i)
+    assert.throws(() => createContentPackKeyring([{
+      keyId: 'com.storystudio.trailing', publisherId: 'com.storystudio', publicKeyPem: `${publicKeyPem}not a key`,
+    }]), /canonical|public key/i)
   })
 })

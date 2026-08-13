@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -15,6 +17,8 @@ export interface ContentPackRuntimePaths {
 }
 
 const SAFE_SEGMENT = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/
+const SAFE_VERIFIED_FILE_PATH = /^(?:content|assets)\/[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/
+const require = createRequire(import.meta.url)
 
 function assertContained(root: string, candidate: string): string {
   const resolvedRoot = path.resolve(root)
@@ -36,12 +40,36 @@ function projectContentPackRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'content-packs')
 }
 
+function isPackagedApp(): boolean {
+  if (!process.resourcesPath || process.env.ELECTRON_RUN_AS_NODE) return false
+  try {
+    const { app } = require('electron')
+    return app?.isPackaged === true
+  } catch {
+    return false
+  }
+}
+
+export interface ContentPackResourceRootOptions {
+  packaged?: boolean
+  resourcesPath?: string
+  sourceContentPackRoot?: string
+}
+
+/** Kept injectable so dev Electron can never accidentally select a stale resource bundle. */
+export function resolveContentPackRecoveryRoot(options: ContentPackResourceRootOptions = {}): string {
+  const packaged = options.packaged ?? isPackagedApp()
+  const sourceContentPackRoot = options.sourceContentPackRoot ?? projectContentPackRoot()
+  if (!packaged) return sourceContentPackRoot
+  const resourcesPath = options.resourcesPath ?? process.resourcesPath
+  if (!resourcesPath) throw new Error('packaged Content Pack recovery resources are unavailable')
+  return path.join(resourcesPath, 'content-packs')
+}
+
 /** Resolve only. Creating the runtime layout is an explicit write operation. */
 export function getContentPackRuntimePaths(): ContentPackRuntimePaths {
   const root = path.join(getUserDataDir(), 'content-packs')
-  const recoveryRoot = process.resourcesPath && !process.env.ELECTRON_RUN_AS_NODE
-    ? path.join(process.resourcesPath, 'content-packs')
-    : projectContentPackRoot()
+  const recoveryRoot = resolveContentPackRecoveryRoot()
   return {
     root,
     statePath: path.join(root, 'state.json'),
@@ -61,12 +89,26 @@ export function installedVersionPath(paths: ContentPackRuntimePaths, manifest: C
 
 /** Resolve only a manifest-declared forward-slash file path inside a verified version root. */
 export function resolveVerifiedPackFile(versionRoot: string, relativePath: string): string {
-  if (!relativePath || relativePath.includes('\0') || relativePath.includes('\\') || relativePath.startsWith('/') || relativePath.endsWith('/')) {
+  if (!SAFE_VERIFIED_FILE_PATH.test(relativePath) || relativePath.includes('\0') || relativePath.includes('\\')) {
     throw new Error('content pack path must be contained by its root')
   }
   const segments = relativePath.split('/')
-  if (segments.some(segment => !segment || segment === '.' || segment === '..')) {
-    throw new Error('content pack path must be contained by its root')
+  const candidate = assertContained(versionRoot, path.join(versionRoot, ...segments))
+  let cursor = path.resolve(versionRoot)
+  for (const segment of segments) {
+    assertNoSymlink(cursor)
+    cursor = path.join(cursor, segment)
   }
-  return assertContained(versionRoot, path.join(versionRoot, ...segments))
+  assertNoSymlink(cursor)
+  return candidate
+}
+
+/** Existing pack trees must be immutable regular directories/files; symlinks are never trusted. */
+function assertNoSymlink(target: string): void {
+  try {
+    if (fs.lstatSync(target).isSymbolicLink()) throw new Error('content pack path contains a symlink')
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+    throw error
+  }
 }
