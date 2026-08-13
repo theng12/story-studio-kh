@@ -21,8 +21,8 @@
 
 - [x] Task 1 — exact GenStudio 0.21 client, canonical payload preservation, generic app-version resolver, and safe `content:read` scope probe
 - [x] Task 1 independent contract/security review — GO with zero Critical/Important findings
-- [ ] Task 2 — atomic commerce state, stable idempotency, interrupted-submit recovery, exact refusal cache, and unverified receipt bytes
-- [ ] Task 2 independent concurrency/security review — GO with zero Critical/Important findings
+- [x] Task 2 — atomic commerce state, stable idempotency, interrupted-submit recovery, exact refusal cache, and unverified receipt bytes
+- [x] Task 2 independent concurrency/security review — GO with zero Critical/Important findings
 - [ ] Task 3 — active-account orchestration and local read/quote/purchase routes with exact status semantics and no installer/Job Queue dependency
 - [ ] Task 3 independent financial/security review — GO with zero Critical/Important findings
 - [ ] Task 4 — Content Store UI, explicit confirmation, navigation, Settings scope UX, Impeccable pass, and desktop/narrow visual QA
@@ -62,3 +62,14 @@ Add one section per task with:
 - A second review found one Important: successful oversized or schema-invalid purchase responses still escaped as generic errors after a possible debit. Focused REDs were added, then `29c0e6ca` (`fix: mark unreadable purchase results uncertain`) mapped all successful post-submit body/decode/JSON/schema failures to typed `uncertain` while preserving non-OK refusal semantics.
 - Final independent scoped re-review: GO, zero Critical/Important findings. Reviewer independently verified the 200 oversized and schema-invalid outcomes and reran the 19/19 client suite.
 - Final focused evidence for Task 1: all 99 tests passed across the five named suites (19 client + 17 installer + 5 app-settings isolation + 37 GenStudio boundary + 21 route); Electron typecheck, lint `--quiet`, and `git diff --check` exited 0.
+
+### Task 2
+
+- Implementation and correction commits: `991b67e8` (`feat: persist content store purchase evidence`), `d4e354f2` (`fix: harden content purchase recovery`), and `aaf329a5` (`fix: enforce commerce journal byte budget`).
+- Initial RED: `STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 electron/server/__tests__/content-store-commerce-state.test.ts` failed with `ERR_MODULE_NOT_FOUND` for `content-store/commerce-state.js`.
+- The initial implementation added a strict 0600 atomic journal, one stable `story-content-<uuid>` idempotency key, exact quote identity checks, bounded refusal evidence, explicit state transitions, account and entitlement-family checks, immutable unverified receipt bytes, safe record pruning, cross-process locking, malformed-state quarantine, and secret/path/symlink rejection.
+- Before independent review, a focused concurrency RED proved 12 concurrent callers could all treat one `submitting` attempt as their own. The correction made durable submission claiming exclusive so exactly one caller may own the POST transition.
+- Independent review initially returned NO-GO with three Important findings: a second process could recover a live submitter, valid large completed evidence could wedge the journal before count-based pruning, and oversized state recovery allocated the whole file. Each received a focused RED, then `d4e354f2` added durable host/PID/process-incarnation submission ownership with dead-owner-only recovery, exact byte-budget pruning that protects current/in-flight evidence, and 64 KiB streaming hash plus same-volume rename quarantine. A two-process test proves live owners remain `submitting` and dead owners become `uncertain`; a 256 MiB sparse journal stays bounded.
+- Re-review found one final Important: the budget measured compact JSON while `writeJsonAtomic` persists indented JSON. A near-boundary RED reproduced a compact-valid journal whose actual persisted bytes exceeded 16 MiB; `aaf329a5` now measures exactly ```${JSON.stringify(state, null, 2)}\n``` for both pruning and the pre-write guard.
+- Final independent review: GO, zero Critical/Important findings. Reviewer reran the 22/22 focused commerce-state suite and confirmed all original and follow-up findings closed.
+- Final Task 2 evidence: 46/46 passed across commerce state (22), Content Pack state (21), and atomic-store crash (3); Electron typecheck, lint `--quiet`, and `git diff --check` exited 0.
