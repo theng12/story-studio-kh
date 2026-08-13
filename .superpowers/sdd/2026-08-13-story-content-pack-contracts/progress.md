@@ -47,7 +47,12 @@
   - Security-review verification: Task 1 + Task 2 focused tests pass 39/39; `npm run typecheck:electron` and `git diff --check` pass.
   - Follow-up commit: `54dd0df fix: harden content pack archive verification`.
   - Final ZIP review follow-up: v1 now requires the central directory to end exactly at EOCD, rejecting any unclaimed gap/digital-signature record. RED observed with injected `HIDDEN` bytes; Task 1 + Task 2 focused tests now pass 40/40 with Electron typecheck and diff check green. Commit: `fix: reject content pack ZIP gaps`.
-- [ ] Task 3 — first-party publisher CLI
+- [x] Task 3 — first-party publisher CLI
+  - RED: `node --test scripts/content-packs/__tests__/publisher-tools.test.mjs` failed 7/7 before the commands existed (`MODULE_NOT_FOUND` for `build-pack.mjs`).
+  - GREEN: publisher CLI suite passes 7/7. It generates ephemeral test keys and temporary source trees only; no private key fixture was added.
+  - Implementation: `build-pack` accepts an explicit `--private-key` path or the deliberate `STORY_CONTENT_PACK_PRIVATE_KEY_PATH` path, derives items/file bindings from a source directory restricted to `pack.json`, `content/`, and `assets/`, canonicalizes the validated shared manifest, signs it, builds deterministic ZIP bytes, then calls the shared archive verifier before writing output. `validate-pack` requires the explicit key ID, publisher ID, and public-key path and emits only pack ID, version, and archive SHA-256.
+  - Verification: Task 1 + Task 2 suites pass 40/40; publisher suite passes 7/7; `npm run typecheck` and `git diff --check` pass.
+  - Review: no private key is loaded into output/reporting, no schema/signature/archive policy is duplicated, all validation reaches the shared TypeScript contract, and no runtime/catalog/generation/version/changelog file changed.
 - [ ] Task 4 — current-catalog migration golden
 - [ ] Task 5 — independent review and runtime-plan handoff
 
