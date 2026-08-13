@@ -33,7 +33,7 @@ describe('enqueue()', () => {
     const proj = await pm.createProject({ name: 'JQ1' })
     // Register a no-op executor so the job doesn't actually run anything
     jq.registerExecutor('script-only', async () => {})
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'script-only',
       episode_id: 'EP001',
@@ -50,10 +50,10 @@ describe('enqueue()', () => {
   test('multiple jobs with different episode IDs coexist', async () => {
     const proj = await pm.createProject({ name: 'JQ2' })
     jq.registerExecutor('script-only', async () => {})
-    const j1 = jq.enqueue({
+    const j1 = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 'a', params: {},
     })
-    const j2 = jq.enqueue({
+    const j2 = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'EP002', title: 'b', params: {},
     })
     assert.notEqual(j1.job_id, j2.job_id)
@@ -74,7 +74,7 @@ describe('isDuplicate()', () => {
     const block = new Promise<void>((r) => { release = r })
     jq.registerExecutor('script-only', async () => await block)
 
-    jq.enqueue({
+    jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 't', params: {},
     })
 
@@ -99,7 +99,7 @@ describe('Scene Review and Pipeline render ownership', () => {
     jq.registerExecutor('scene_images_batch', async () => await legacyBlock)
     jq.registerExecutor('metadata', async () => { metadataRuns++ })
 
-    const legacy = jq.enqueue({
+    const legacy = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'scene_images_batch',
       episode_id: 'EP001',
@@ -110,7 +110,7 @@ describe('Scene Review and Pipeline render ownership', () => {
 
     const active = jq.getActiveBulkSceneRenderJob(proj.slug, 'EP001')
     assert.equal(active?.job_id, legacy.job_id)
-    assert.throws(() => jq.enqueue({
+    assert.throws(() => jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'continuity_render',
       episode_id: 'EP001',
@@ -143,7 +143,7 @@ describe('Scene Review and Pipeline render ownership', () => {
     let release!: () => void
     const block = new Promise<void>((resolve) => { release = resolve })
     jq.registerExecutor('continuity_render', async () => await block)
-    jq.enqueue({
+    jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'continuity_render',
       episode_id: 'EP002',
@@ -167,8 +167,8 @@ describe('getJobs() / getQueueStats()', () => {
   test('returns all jobs for a project', async () => {
     const proj = await pm.createProject({ name: 'JQList' })
     jq.registerExecutor('script-only', async () => {})
-    jq.enqueue({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 'a', params: {} })
-    jq.enqueue({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP002', title: 'b', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 'a', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP002', title: 'b', params: {} })
 
     // Wait for sync execution
     await new Promise((r) => setTimeout(r, 50))
@@ -209,7 +209,7 @@ describe('getJobs() / getQueueStats()', () => {
   test('getQueueStats reports counts', async () => {
     const proj = await pm.createProject({ name: 'JQStats' })
     jq.registerExecutor('script-only', async () => {})
-    jq.enqueue({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP100', title: 'a', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP100', title: 'a', params: {} })
     await new Promise((r) => setTimeout(r, 50))
 
     const stats = jq.getQueueStats(proj.slug)
@@ -228,7 +228,7 @@ describe('pipeline chain handoff failures', () => {
     jq.registerExecutor('metadata', async () => {
       finalizerRuns++
     })
-    const subtitle = jq.enqueue({
+    const subtitle = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'subtitles_transcribe',
       episode_id: 'EP001',
@@ -260,7 +260,7 @@ describe('pipeline chain handoff failures', () => {
     const proj = await pm.createProject({ name: 'JQ Chain Handoff' })
     jq.registerExecutor('script-only', async () => {})
     const batchId = 'batch-handoff-test'
-    jq.enqueue({
+    jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'script-only',
       episode_id: 'EP001',
@@ -299,7 +299,7 @@ describe('verified completion backstop', () => {
     jq.registerExecutor('metadata', async (job) => {
       job.result = { complete: false, completion_error: 'Metadata incomplete: description is missing.' }
     })
-    const queued = jq.enqueue({
+    const queued = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'metadata', episode_id: 'EP001', title: 'partial', params: {},
     })
 
@@ -318,7 +318,7 @@ describe('retryTerminalJob()', () => {
   test('replaces a failed job only after the exact checkpoint params are re-enqueued', async () => {
     const proj = await pm.createProject({ name: 'JQ Generic Retry' })
     jq.registerExecutor('research_run', async () => { throw new Error('first attempt failed') })
-    const original = jq.enqueue({
+    const original = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'research_run',
       episode_id: 'EP001',
@@ -349,7 +349,7 @@ describe('retryTerminalJob()', () => {
   test('replays the selected Motion variant without replacing it', async () => {
     const proj = await pm.createProject({ name: 'JQ Motion Variant Retry' })
     jq.registerExecutor('scene_clips_batch', async () => { throw new Error('first attempt failed') })
-    const original = jq.enqueue({
+    const original = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'scene_clips_batch',
       episode_id: 'EP001',
@@ -377,7 +377,7 @@ describe('retryTerminalJob()', () => {
     let release!: () => void
     const block = new Promise<void>(resolve => { release = resolve })
     jq.registerExecutor('research_run', async () => await block)
-    const active = jq.enqueue({
+    const active = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'research_run',
       episode_id: 'EP002',
@@ -405,9 +405,9 @@ describe('requestJobCancellation()', () => {
     jq.registerExecutor('script-only', async () => await block)
 
     // Fill the single-slot queue first
-    jq.enqueue({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP_HOLD', title: 'hold', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP_HOLD', title: 'hold', params: {} })
     // Second job should be queued (not running)
-    const second = jq.enqueue({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP_CANCEL', title: 'c', params: {} })
+    const second = jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'script-only', episode_id: 'EP_CANCEL', title: 'c', params: {} })
 
     const cancelled = await jq.requestJobCancellation(proj.slug, second.job_id)
     assert.equal(cancelled.status, 'cancelled')
@@ -471,12 +471,12 @@ describe('Concurrent enqueues across different job types', () => {
     const N = 12  // 6 images + 6 audio, exceeds the 3-worker pool per type
     const enqueued: string[] = []
     for (let i = 0; i < N / 2; i++) {
-      const a = jq.enqueue({
+      const a = jq.enqueuePreparedForTest({
         project_slug: proj.slug, type: 'images',
         episode_id: `EP${String(100 + i).padStart(3, '0')}`,
         title: `img-${i}`, params: {},
       })
-      const b = jq.enqueue({
+      const b = jq.enqueuePreparedForTest({
         project_slug: proj.slug, type: 'audio',
         episode_id: `EP${String(200 + i).padStart(3, '0')}`,
         title: `aud-${i}`, params: {},
@@ -520,7 +520,7 @@ describe('recordAccountUsed()', () => {
   test('records one provider/account on a queued job and fires an update event', async () => {
     const proj = await pm.createProject({ name: 'JQ Account Use 1' })
     jq.registerExecutor('script-only', async () => {})
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 't', params: {},
     })
     let updates = 0
@@ -539,7 +539,7 @@ describe('recordAccountUsed()', () => {
   test('same provider overwrites with the latest resolution; other providers accumulate', async () => {
     const proj = await pm.createProject({ name: 'JQ Account Use 2' })
     jq.registerExecutor('script-only', async () => {})
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'EP001', title: 't', params: {},
     })
     jq.recordAccountUsed(job.job_id, 'openai', { id: 'acc-1', label: 'A' })
@@ -567,8 +567,8 @@ describe('cooperative pause and resume', () => {
     jq.registerExecutor('broll_normalize', async job => {
       if (job.episode_id === 'HOLD') await blocker
     })
-    jq.enqueue({ project_slug: proj.slug, type: 'broll_normalize', episode_id: 'HOLD', title: 'hold', params: {} })
-    const waiting = jq.enqueue({ project_slug: proj.slug, type: 'broll_normalize', episode_id: 'EP001', title: 'waiting', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'broll_normalize', episode_id: 'HOLD', title: 'hold', params: {} })
+    const waiting = jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'broll_normalize', episode_id: 'EP001', title: 'waiting', params: {} })
     await new Promise(resolve => setTimeout(resolve, 30))
 
     const paused = await jq.pauseJob(waiting.job_id)
@@ -597,7 +597,7 @@ describe('cooperative pause and resume', () => {
       runs++
       if (runs === 1) await boundary
     })
-    const job = jq.enqueue({ project_slug: proj.slug, type: 'audio', episode_id: 'EP002', title: 'running', params: {} })
+    const job = jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'audio', episode_id: 'EP002', title: 'running', params: {} })
     const runningDeadline = Date.now() + 2_000
     while (Date.now() < runningDeadline && jq.getJob(job.job_id)?.status !== 'running') {
       await new Promise(resolve => setTimeout(resolve, 20))
@@ -635,14 +635,14 @@ describe('cooperative pause and resume', () => {
       }
       if (job.episode_id === 'MANUAL') await boundary
     })
-    const globallyHeld = jq.enqueue({
+    const globallyHeld = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'audio',
       episode_id: 'GLOBAL',
       title: 'global',
       params: { provider: 'genstudio' },
     })
-    const manuallyHeld = jq.enqueue({
+    const manuallyHeld = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'audio',
       episode_id: 'MANUAL',
@@ -704,7 +704,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('outline submit outcome was lost')
     })
-    const failed = jq.enqueue({
+    const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'outline', params: { model: 'writer-alpha' },
     })
     await waitForTerminalJob(failed.job_id)
@@ -738,11 +738,11 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('chapter submit outcome was lost')
     })
-    const unresolvedChapter = jq.enqueue({
+    const unresolvedChapter = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
     })
     await waitForTerminalJob(unresolvedChapter.job_id)
-    const failedOutline = jq.enqueue({
+    const failedOutline = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'outline', params: { model: 'writer-alpha' },
     })
     await waitForTerminalJob(failedOutline.job_id)
@@ -774,7 +774,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('insufficient credits')
     })
-    const failed = jq.enqueue({
+    const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
     })
     await waitForTerminalJob(failed.job_id)
@@ -808,7 +808,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('repair submit outcome was lost')
     })
-    const failed = jq.enqueue({
+    const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
     })
     await waitForTerminalJob(failed.job_id)
@@ -835,7 +835,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('one batch is still reconcilable')
     })
-    const failed = jq.enqueue({
+    const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
     })
     await waitForTerminalJob(failed.job_id)
@@ -859,7 +859,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('a submission response is still unresolved')
     })
-    const failed = jq.enqueue({
+    const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'writer-alpha' },
     })
     await waitForTerminalJob(failed.job_id)
@@ -882,7 +882,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('one submitted batch must be reattached')
     })
-    const failed = jq.enqueue({
+    const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'expand_chapters', episode_id: 'EP001', title: 'chapters', params: { model: 'old-model' },
     })
     await waitForTerminalJob(failed.job_id)
@@ -912,7 +912,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('submission evidence still needs exact replay')
     })
-    const older = jq.enqueue({
+    const older = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'expand_chapters',
       episode_id: 'EP001',
@@ -920,7 +920,7 @@ describe('manual GenStudio chat retries', () => {
       params: { model: 'older-model' },
     })
     await waitForTerminalJob(older.job_id)
-    const newer = jq.enqueue({
+    const newer = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'expand_chapters',
       episode_id: 'EP001',
@@ -962,7 +962,7 @@ describe('manual GenStudio chat retries', () => {
           })
       throw new Error('terminal fixture')
     })
-    const unresolved = jq.enqueue({
+    const unresolved = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'expand_chapters',
       episode_id: 'EP001',
@@ -971,7 +971,7 @@ describe('manual GenStudio chat retries', () => {
     })
     await waitForTerminalJob(unresolved.job_id)
     evidenceMode = 'settled'
-    const settledFailure = jq.enqueue({
+    const settledFailure = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'expand_chapters',
       episode_id: 'EP001',
@@ -1005,7 +1005,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('GenStudio settled the request as terminal')
     })
-    const failed = jq.enqueue({
+    const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'expand_chapters',
       episode_id: 'EP001',
@@ -1041,7 +1041,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('GenStudio settled the request as terminal')
     })
-    const failed = jq.enqueue({
+    const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'expand_chapters',
       episode_id: 'EP001',
@@ -1073,7 +1073,7 @@ describe('manual GenStudio chat retries', () => {
       })
       throw new Error('connection lost before GenStudio returned a terminal result')
     })
-    const failed = jq.enqueue({
+    const failed = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'expand_chapters',
       episode_id: 'EP001',

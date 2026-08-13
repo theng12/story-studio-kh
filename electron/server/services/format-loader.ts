@@ -362,6 +362,7 @@ export async function getEffectiveFormatFor(
         base = applyNicheToFormat(base, niche)
       }
     } catch (e: any) {
+      if (e?.code === 'content-pack-missing') throw e
       console.warn(`[format-loader] failed applying niche '${effectiveNicheId}' for project '${project.slug}': ${e.message}`)
     }
   }

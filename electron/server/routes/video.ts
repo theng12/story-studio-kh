@@ -866,7 +866,7 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
     return res.status(409).json({ detail: `Transcription already running for ${episodeId}` })
   }
 
-  const job = enqueue({
+  const job = await enqueue({
     project_slug: slug,
     type: 'subtitles_transcribe',
     episode_id: episodeId,
@@ -1173,7 +1173,7 @@ router.post('/projects/:slug/generate/video-assembly', async (req, res) => {
   delete req.body.render_target
   delete req.body.remote_render_requested
 
-  const job = enqueue({
+  const job = await enqueue({
     project_slug: slug,
     type: 'video_assembly',
     episode_id,

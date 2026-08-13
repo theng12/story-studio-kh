@@ -56,7 +56,7 @@ describe('killAllTrackedChildren()', () => {
       await new Promise((r) => setTimeout(r, 5000))
     })
 
-    jq.enqueue({
+    jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'KILL_ALL_1',
       title: 't', params: {},
     })

@@ -21,6 +21,7 @@ import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { humanizeBackendError, respondWithError } from '../lib/humanize-backend-error.js'
 import type { ProjectMeta } from '../models/types.js'
 import type { JobType } from '../models/types.js'
+import { createProjectWithContentSelections } from '../content-packs/project-pins.js'
 
 export const router = Router()
 
@@ -253,7 +254,7 @@ router.post('/projects/:slug/assets/repair-all', async (req, res) => {
         if (jq.isDuplicate(slug, row.episode_id, 'images_repair')) {
           skipped.push({ episode_id: row.episode_id, modality: 'images', reason: 'already queued/running' })
         } else {
-          const job = jq.enqueue({
+          const job = await jq.enqueue({
             project_slug: slug,
             type: 'images_repair',
             episode_id: row.episode_id,
@@ -287,7 +288,7 @@ router.post('/projects/:slug/assets/repair-all', async (req, res) => {
 
 router.post('/projects', validateBody(CreateProjectSchema), async (req, res) => {
   try {
-    const project = await pm.createProject(req.body)
+    const project = await createProjectWithContentSelections(req.body)
     res.status(201).json(project)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Project creation failed'))

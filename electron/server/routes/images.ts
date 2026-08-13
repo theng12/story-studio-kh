@@ -120,7 +120,7 @@ router.post('/projects/:slug/generate/images', validateBody(GenerateImagesSchema
     return res.status(409).json({ detail })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: jobType,
     episode_id: req.body.episode_id,
@@ -165,7 +165,7 @@ router.post('/projects/:slug/generate/images-repair', async (req, res) => {
   }
 
   const poolTitle = pool === 'scenes' ? 'Scene Image Repair' : pool === 'thumbnails' ? 'Thumbnail Repair' : 'Image Repair'
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'images_repair' as JobType,
     episode_id: episodeId,

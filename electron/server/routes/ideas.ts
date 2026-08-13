@@ -436,7 +436,7 @@ router.post('/projects/:slug/generate/ideas/campaign', async (req, res) => {
     }
     delete (params as any).niche_id
 
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'idea_campaign',
       episode_id: 'ideas',
@@ -1422,7 +1422,7 @@ router.post('/projects/:slug/ideas/:ideaId/accept', async (req, res) => {
     if (req.body?.auto_generate_script && req.body?.model) {
       const config = await pm.getConfig(req.params.slug)
       if (config?.anthropic_api_key || config?.openai_api_key || config?.kie_api_key) {
-        jq.enqueue({
+        await jq.enqueue({
           project_slug: req.params.slug,
           // M1: legacy 'script' job type was removed. Auto-script-on-accept
           // now enqueues 'script-only' (chapters). Intro is opt-in per the

@@ -27,6 +27,9 @@ import path from 'path'
 import { existsSync } from 'fs'
 import * as pm from './project-manager.js'
 import type { StylePreset } from '../models/types.js'
+import { resolveProjectContentPinsForKinds } from '../content-packs/project-pins.js'
+import { loadVisualStyle } from './visual-style-loader.js'
+import type { ContentPackRegistryOptions } from '../content-packs/registry.js'
 
 export interface ResolvedArtStyle {
   /** Where the style came from — for logging / UI hints. */
@@ -73,12 +76,34 @@ function resolvePresetReferenceImages(slug: string, preset: StylePreset): string
  * Resolve the effective art style for a project. Returns null when the
  * project has no active preset; the caller then keeps the format+niche tag.
  */
-export async function resolveProjectArtStyle(slug: string): Promise<ResolvedArtStyle | null> {
+export async function resolveProjectArtStyle(
+  slug: string,
+  registryOptions: ContentPackRegistryOptions = {},
+): Promise<ResolvedArtStyle | null> {
   const config = await pm.getConfig(slug)
   if (!config) return null
 
   // 1. Active preset wins.
   const activeId = (config.active_style_preset_id || '').trim()
+  if (activeId) {
+    const project = await pm.getProject(slug)
+    if (project) {
+      const pins = await resolveProjectContentPinsForKinds(project, ['visual-style'], registryOptions)
+      const signed = await loadVisualStyle(activeId, { ...registryOptions, pins })
+      if (signed) {
+        return {
+          source: 'preset',
+          presetId: signed.id,
+          name: signed.name,
+          description: signed.data.style_bible.trim(),
+          negatives: signed.data.negative_prompt
+            ? signed.data.negative_prompt.split(',').map(value => value.trim()).filter(Boolean)
+            : [],
+          referenceImagePaths: [],
+        }
+      }
+    }
+  }
   if (activeId && Array.isArray(config.style_presets)) {
     const preset = config.style_presets.find(p => p && p.id === activeId)
     if (preset && (preset.description || '').trim()) {

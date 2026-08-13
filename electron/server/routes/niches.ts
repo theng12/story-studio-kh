@@ -18,15 +18,15 @@
 import { Router } from 'express'
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
-import path from 'path'
 import * as nl from '../services/niche-loader.js'
 import * as tpl from '../services/topic-pack-loader.js'
 import * as pm from '../services/project-manager.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { respondWithError } from '../lib/humanize-backend-error.js'
 import { NicheSchema, SetProjectNicheSchema, TopicPackSchema } from '../contracts/index.js'
-import type { Niche, ProjectMeta, TopicPack } from '../models/types.js'
+import type { Niche, TopicPack } from '../models/types.js'
 import { listVisualStyles } from '../services/visual-style-loader.js'
+import { updateProjectContentSelections } from '../content-packs/project-pins.js'
 
 export const router = Router()
 
@@ -313,33 +313,34 @@ router.put('/projects/:slug/niche', async (req, res) => {
         }
       }
     }
-    const projectDir = pm.getProjectDir(req.params.slug)
-    if (!projectDir) return res.status(404).json({ detail: 'Project not found' })
-    const metaPath = path.join(projectDir, 'project.json')
-    if (!existsSync(metaPath)) return res.status(404).json({ detail: 'Project not found' })
-    let updated: ProjectMeta | null = null
-    await withLock(metaPath, async () => {
-      const raw = await fs.readFile(metaPath, 'utf-8')
-      const data = JSON.parse(raw) as ProjectMeta
-      if (niche_id === null || niche_id === '') {
-        delete (data as any).niche_id
-        delete (data as any).niche_overrides
-        delete (data as any).topic_pack_ids
-      } else {
-        data.niche_id = niche_id
-        if (topic_pack_ids === undefined) delete (data as any).topic_pack_ids
-        else if (topic_pack_ids.length) data.topic_pack_ids = [...new Set(topic_pack_ids)]
-        else data.topic_pack_ids = []
-      }
-      await writeJsonAtomic(metaPath, data)
-      updated = data
+    const updated = await updateProjectContentSelections(req.params.slug, {
+      replace_kinds: ['series-formula', 'topic-pack'],
+      selections: niche_id
+        ? [
+            { id: niche_id, kind: 'series-formula' as const },
+            ...(topic_pack_ids || []).map(id => ({ id, kind: 'topic-pack' as const })),
+          ]
+        : [],
+      update(data) {
+        if (niche_id === null || niche_id === '') {
+          delete (data as any).niche_id
+          delete (data as any).niche_overrides
+          delete (data as any).topic_pack_ids
+        } else {
+          data.niche_id = niche_id
+          if (topic_pack_ids === undefined) delete (data as any).topic_pack_ids
+          else if (topic_pack_ids.length) data.topic_pack_ids = [...new Set(topic_pack_ids)]
+          else data.topic_pack_ids = []
+        }
+      },
     })
-    const finalNicheId = (updated as ProjectMeta | null)?.niche_id ?? null
+    const finalNicheId = updated.niche_id ?? null
     res.json({
       ok: true,
       slug: req.params.slug,
       niche_id: finalNicheId,
-      topic_pack_ids: (updated as ProjectMeta | null)?.topic_pack_ids || [],
+      topic_pack_ids: updated.topic_pack_ids || [],
+      content_pack_versions: updated.content_pack_versions || {},
     })
   } catch (e: any) {
     respondWithError(res, e, 'Failed to update project niche')

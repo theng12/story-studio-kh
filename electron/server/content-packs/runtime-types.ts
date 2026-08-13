@@ -41,9 +41,14 @@ export const ContentPackVersionRefSchema = z.object({
   archive_sha256: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict()
 
+export const ContentPackProvenanceSchema = ContentPackVersionRefSchema.extend({
+  item_ids: z.array(z.string().min(3).max(200)).min(1).max(1000),
+}).strict()
+
 export type ContentPackInstalledVersion = z.infer<typeof ContentPackInstalledVersionSchema>
 export type ContentPackRuntimeState = z.infer<typeof ContentPackRuntimeStateSchema>
 export type ContentPackVersionRef = z.infer<typeof ContentPackVersionRefSchema>
+export type ContentPackProvenance = z.infer<typeof ContentPackProvenanceSchema>
 
 export interface ContentPackInstallRequest {
   archiveBytes: Uint8Array

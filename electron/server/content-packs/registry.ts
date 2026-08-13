@@ -17,6 +17,15 @@ export interface CatalogEntry<T> {
   assets?: Readonly<Record<string, { asset_id: string; mime: 'image/png' | 'image/jpeg' | 'image/webp' }>>
 }
 
+export interface CatalogPackVersion {
+  ref: ContentPackVersionRef
+  items: Array<{
+    id: string
+    kind: ContentPackItemKind
+    content_sha256: string
+  }>
+}
+
 type LegacyCatalogEntry = CatalogEntry<ContentPackDocument> & {
   source: 'legacy-builtin' | 'legacy-user-fork'
   pack?: never
@@ -103,6 +112,35 @@ async function recoveryPacks(options: ContentPackRegistryOptions): Promise<Verif
   })
 }
 
+function catalogPackVersion(verified: VerifiedContentPack): CatalogPackVersion {
+  const fileHashes = new Map(verified.manifest.files.map(file => [file.path, file.sha256]))
+  return {
+    ref: packRef(verified),
+    items: verified.manifest.items.map(item => ({
+      id: item.id,
+      kind: item.kind,
+      content_sha256: fileHashes.get(item.path) || '',
+    })),
+  }
+}
+
+/** Resolve one exact locally verified version without using active discovery. */
+export async function resolveCatalogPackVersion(
+  packId: string,
+  version: string,
+  options: ContentPackRegistryOptions = {},
+  expectedArchiveSha256?: string,
+): Promise<CatalogPackVersion | null> {
+  const installed = await verifiedInstalled({ pack_id: packId, version }, options, expectedArchiveSha256)
+  if (installed) return catalogPackVersion(installed)
+  const recovery = (await recoveryPacks(options)).find(pack => (
+    pack.manifest.pack_id === packId
+    && pack.manifest.version === version
+    && (!expectedArchiveSha256 || pack.archiveSha256 === expectedArchiveSha256)
+  ))
+  return recovery ? catalogPackVersion(recovery) : null
+}
+
 /**
  * List immutable clones in deterministic precedence order. Discovery never
  * exposes retired/replaced packs; disabled installed packs require an exact pin.
@@ -174,6 +212,24 @@ export async function resolveCatalogItem(
     return recovery && document
       ? entriesFromVerified(recovery, 'signed-recovery').find(entry => entry.value.id === id) ?? null
       : null
+  }
+
+  // Project pins are an ordered exact-version preference. They are searched
+  // before active discovery so installing a newer version cannot change an
+  // existing project's effective content.
+  for (const projectPin of options.pins ?? []) {
+    const installed = await verifiedInstalled(projectPin, options, projectPin.archive_sha256)
+    if (installed?.documents.has(id)) {
+      return entriesFromVerified(installed, 'signed-installed').find(entry => entry.value.id === id) ?? null
+    }
+    const recovery = (await recoveryPacks(options)).find(pack => (
+      pack.manifest.pack_id === projectPin.pack_id
+      && pack.manifest.version === projectPin.version
+      && pack.archiveSha256 === projectPin.archive_sha256
+    ))
+    if (recovery?.documents.has(id)) {
+      return entriesFromVerified(recovery, 'signed-recovery').find(entry => entry.value.id === id) ?? null
+    }
   }
 
   const paths = options.paths ?? getContentPackRuntimePaths()

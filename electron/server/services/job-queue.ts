@@ -26,6 +26,11 @@ import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-canc
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
+import {
+  snapshotProjectContentPackProvenance,
+  type ContentPackProjectPinOptions,
+} from '../content-packs/project-pins.js'
+import { runWithJobContentPackProvenance } from '../content-packs/job-provenance-context.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -1206,7 +1211,7 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
 
   try {
     const batchId = job.params?.pipeline_batch_id
-    enqueue({
+    await enqueue({
       project_slug: job.project_slug,
       type: 'metadata',
       episode_id: job.episode_id,
@@ -1233,15 +1238,20 @@ async function continueFinalizerAfterSubtitleFailure(job: Job): Promise<void> {
 /** One success path for ordinary completions and reconciled provider outputs. */
 async function completeSuccessfulJob(job: Job): Promise<void> {
   if (job.status !== 'running') return
-  job.status = 'done'
   const typeMap: Record<string, 'script' | 'image' | 'audio'> = { 'script-only': 'script', 'introduction-only': 'script', 'chapter-only': 'script', images: 'image', scene_images: 'image', thumb_images: 'image', audio: 'audio', audio_merge: 'audio', video: 'image' }
   const trackType = typeMap[job.type]
   if (trackType) trackGeneration(job.project_slug, trackType).catch(() => {})
 
   const chain = job.params?.pipeline_chain
-  if (!Array.isArray(chain) || chain.length === 0) return
+  if (!Array.isArray(chain) || chain.length === 0) {
+    job.status = 'done'
+    return
+  }
   const [nextStep, ...rest] = chain
-  if (!nextStep || typeof nextStep.type !== 'string') return
+  if (!nextStep || typeof nextStep.type !== 'string') {
+    job.status = 'done'
+    return
+  }
   try {
     const batchId = job.params.pipeline_batch_id
     const nextParams = {
@@ -1256,13 +1266,17 @@ async function completeSuccessfulJob(job: Job): Promise<void> {
     if (joined?.conflict) throw new Error(`An existing scene render already owns a different Pipeline continuation for ${job.episode_id}`)
     if (joined) job.output_lines.push(`→ Joined existing scene render ${joined.job.job_id}; duplicate Hub work was not queued.`)
     else {
-      enqueue({ project_slug: job.project_slug, type: nextStep.type as JobType, episode_id: job.episode_id, title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`, params: nextParams })
+      await enqueue({ project_slug: job.project_slug, type: nextStep.type as JobType, episode_id: job.episode_id, title: nextStep.title || `[batch] ${nextStep.type} — ${job.episode_id}`, params: nextParams })
       job.output_lines.push(`→ Chained next step: ${nextStep.type}`)
     }
   } catch (error) {
     const failed = await recordChainHandoffFailure(job, nextStep, rest, error)
     job.output_lines.push(`Chain-next failed: ${error instanceof Error ? error.message : String(error)} (recorded as failed job ${failed.job_id})`)
   }
+  // enqueue() now verifies exact Content Pack pins asynchronously. Do not
+  // expose the parent as Done until its continuation or failure record is
+  // durably present; the previous synchronous insertion made this atomic.
+  job.status = 'done'
 }
 
 /**
@@ -1329,7 +1343,9 @@ async function runJob(type: JobType, job: Job): Promise<void> {
           // child processes spawned deep in the call tree register against this
           // job id via `trackChild(proc)`. Without this, a cancelled FFmpeg
           // assembly would keep running until it finished or hit an error.
-          await jobContext.run({ jobId: job.job_id }, () => q.executor!(job))
+          await jobContext.run({ jobId: job.job_id }, () => (
+            runWithJobContentPackProvenance(job.content_pack_provenance, () => q.executor!(job))
+          ))
           job.local_execution_complete = true
           throwIfPauseRequested(job.job_id)
           assertJobDidNotDeclareIncomplete(job)
@@ -1699,15 +1715,20 @@ export async function enqueueOrRun(opts: {
   title?: string
   params?: Record<string, any>
   sync?: boolean
-}): Promise<Job> {
+}, contentPackOptions: ContentPackProjectPinOptions = {}): Promise<Job> {
   if (projectRemovalInProgress.has(opts.project_slug)) {
     throw Object.assign(new Error('Project removal is in progress. Return later before starting new work.'), { statusCode: 409 })
   }
-  if (!opts.sync) return enqueue(opts)
+  if (!opts.sync) return enqueue(opts, contentPackOptions)
 
   const executor = queues[opts.type]?.executor
   if (!executor) throw new Error(`enqueueOrRun(sync): no executor registered for ${opts.type}`)
 
+  const contentPackProvenance = await snapshotProjectContentPackProvenance(
+    opts.project_slug,
+    opts.type,
+    contentPackOptions,
+  )
   const jobId = randomUUID().slice(0, 8)
   const job: Job = {
     job_id: jobId,
@@ -1721,10 +1742,11 @@ export async function enqueueOrRun(opts: {
     finished_at: null,
     error: null,
     output_lines: [],
+    ...(contentPackProvenance.length ? { content_pack_provenance: contentPackProvenance } : {}),
     params: opts.params || {},
   }
   try {
-    await executor(job)
+    await runWithJobContentPackProvenance(job.content_pack_provenance, () => executor(job))
     assertJobDidNotDeclareIncomplete(job)
     job.status = 'done'
     job.finished_at = new Date().toISOString()
@@ -1737,7 +1759,7 @@ export async function enqueueOrRun(opts: {
   return serializeJob(job)
 }
 
-export function enqueue(opts: {
+export interface EnqueueOptions {
   project_slug: string
   type: JobType
   episode_id: string
@@ -1758,7 +1780,12 @@ export function enqueue(opts: {
    *  `params.chapter_number` so two regens for different chapters can both
    *  enqueue (run back-to-back) without rejecting each other. */
   dedupeParams?: (params: any) => boolean
-}): Job {
+}
+
+function enqueuePrepared(
+  opts: EnqueueOptions,
+  contentPackProvenance: Job['content_pack_provenance'] = [],
+): Job {
   if (projectRemovalInProgress.has(opts.project_slug)) {
     throw Object.assign(new Error('Project removal is in progress. Return later before starting new work.'), { statusCode: 409 })
   }
@@ -1796,6 +1823,7 @@ export function enqueue(opts: {
     finished_at: null,
     error: null,
     output_lines: [],
+    ...(contentPackProvenance.length ? { content_pack_provenance: contentPackProvenance } : {}),
     params: opts.params || {},
     ...(opts.genstudio_chat_retry_scope ? { genstudio_chat_retry_scope: opts.genstudio_chat_retry_scope } : {}),
     ...(opts.genstudio_chat_recovery ? { genstudio_chat_recovery: true as const } : {}),
@@ -1817,6 +1845,28 @@ export function enqueue(opts: {
   pump(opts.type)
 
   return serializeJob(job)
+}
+
+/**
+ * Test-only low-level insertion for queue state-machine tests that construct
+ * isolated jobs without a durable project Content Pack selection. Production
+ * callers must use enqueue(), which snapshots and verifies exact pins first.
+ */
+export function enqueuePreparedForTest(opts: EnqueueOptions): Job {
+  return enqueuePrepared(opts)
+}
+
+/** Resolve project pins exactly once, then construct the immutable queued job. */
+export async function enqueue(
+  opts: EnqueueOptions,
+  contentPackOptions: ContentPackProjectPinOptions = {},
+): Promise<Job> {
+  const provenance = await snapshotProjectContentPackProvenance(
+    opts.project_slug,
+    opts.type,
+    contentPackOptions,
+  )
+  return enqueuePrepared(opts, provenance)
 }
 
 export async function getJobs(projectSlug: string): Promise<Job[]> {
@@ -2012,7 +2062,7 @@ export function retryTerminalJob(
     )
   }
 
-  const retried = enqueue({
+  const retried = enqueuePrepared({
     project_slug: original.project_slug,
     type: original.type,
     episode_id: original.episode_id,
@@ -2026,7 +2076,7 @@ export function retryTerminalJob(
       ...(recovery.chapters ? { genstudio_chat_recovery_chapters: recovery.chapters } : {}),
       ...(pendingKeys.length ? { genstudio_chat_recovery_keys: pendingKeys } : {}),
     } : pendingKeys.length ? { genstudio_chat_recovery_keys: pendingKeys } : {}),
-  })
+  }, original.content_pack_provenance)
 
   jobs.delete(jobId)
   emitCleared(projectSlug, [jobId])

@@ -158,7 +158,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
     return res.status(409).json({ detail: `Scene plan already running for ${episodeId}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
@@ -246,7 +246,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-prompt', async (re
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
@@ -302,7 +302,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
@@ -658,7 +658,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-motion-prompt', as
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
   }
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,
@@ -691,7 +691,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-promp
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })
   }
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'scene_plan_run' as JobType,
     episode_id: episodeId,

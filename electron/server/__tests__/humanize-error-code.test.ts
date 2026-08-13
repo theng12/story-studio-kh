@@ -11,6 +11,7 @@
 
 import { after, before, test, describe } from 'node:test'
 import assert from 'node:assert/strict'
+import { ContentPackMissingError } from '../content-packs/project-pins.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { useTempDataDir } from './_helpers.js'
 
@@ -62,5 +63,21 @@ describe('humanizeBackendError — domain code passthrough', () => {
     const e = Object.assign(new Error('hi'), { code: 42, expose: true })
     const out = humanizeBackendError(e)
     assert.equal(out.code, undefined)
+  })
+
+  test('forwards bounded exact Content Pack requirements as structured recovery data', () => {
+    const out = humanizeBackendError(new ContentPackMissingError([{
+      pack_id: 'com.storystudio.history',
+      version: '1.2.3',
+      item_ids: ['com.storystudio.history.formula'],
+      item_kinds: ['series-formula'],
+    }]))
+    assert.equal(out.code, 'content-pack-missing')
+    assert.deepEqual(out.requirements, [{
+      pack_id: 'com.storystudio.history',
+      version: '1.2.3',
+      item_ids: ['com.storystudio.history.formula'],
+      item_kinds: ['series-formula'],
+    }])
   })
 })

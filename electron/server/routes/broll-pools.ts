@@ -125,7 +125,7 @@ router.post('/broll-pools/:id/scan', async (req, res) => {
       const toQueue = unnormalized.filter(fn => touched.has(fn))
       for (const fn of toQueue) {
         if (jq.isDuplicate('_app_', pool.id, 'broll_normalize' as JobType, (p: any) => p?.filename === fn)) continue
-        jq.enqueue({
+        await jq.enqueue({
           project_slug: '_app_', // app-level job, no project association
           type: 'broll_normalize' as JobType,
           episode_id: pool.id,    // reuse the episode slot to thread pool id
@@ -295,7 +295,7 @@ router.post('/broll-pools/:id/clips/:filename/normalize', async (req, res) => {
   try {
     const pool = await bp.getPool(req.params.id)
     if (!pool) return res.status(404).json({ detail: 'Pool not found' })
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: '_app_',
       type: 'broll_normalize' as JobType,
       episode_id: pool.id,
@@ -338,7 +338,7 @@ router.post('/broll-pools/:id/normalize-all', async (req, res) => {
     let queued = 0
     for (const c of unnormalized) {
       if (jq.isDuplicate('_app_', pool.id, 'broll_normalize' as JobType, (p: any) => p?.filename === c.filename)) continue
-      jq.enqueue({
+      await jq.enqueue({
         project_slug: '_app_',
         type: 'broll_normalize' as JobType,
         episode_id: pool.id,

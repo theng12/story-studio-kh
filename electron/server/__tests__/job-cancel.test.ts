@@ -74,7 +74,7 @@ describe('requestJobCancellation()', () => {
       })
     })
 
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'video_assembly', episode_id: 'CANCEL_CHILD',
       title: 't', params: {},
     })
@@ -113,7 +113,7 @@ describe('requestJobCancellation()', () => {
       })
     })
 
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'video_assembly', episode_id: 'CANCEL_STATUS',
       title: 't', params: {},
     })
@@ -149,7 +149,7 @@ describe('requestJobCancellation()', () => {
         })
       })
 
-      const job = jq.enqueue({
+      const job = jq.enqueuePreparedForTest({
         project_slug: proj.slug, type: 'video_assembly', episode_id: 'CANCEL_EVENT',
         title: 't', params: {},
       })
@@ -178,14 +178,14 @@ describe('enqueue() dedupe', () => {
       await new Promise(() => {}) // never resolves — we don't cancel this one
     })
 
-    jq.enqueue({
+    jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'DEDUPE_1',
       title: 'a', params: {},
     })
     await new Promise((r) => setTimeout(r, 50))
 
     assert.throws(
-      () => jq.enqueue({
+      () => jq.enqueuePreparedForTest({
         project_slug: proj.slug, type: 'script-only', episode_id: 'DEDUPE_1',
         title: 'b', params: {},
       }),
@@ -206,7 +206,7 @@ describe('enqueue() dedupe', () => {
       await new Promise(() => {}) // block forever
     })
 
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'video_assembly', episode_id: 'ISC_1',
       title: 't', params: {},
     })
@@ -226,7 +226,7 @@ describe('remote cancellation checkpoints', () => {
     jq.registerExecutor('audio', async () => await hold)
     registerJobCancellationAuditor('audio', async () => 'complete')
 
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'audio', episode_id: 'REMOTE_CANCEL', title: 'remote', params: {},
     })
     const deadline = Date.now() + 2_000
@@ -265,7 +265,7 @@ describe('remote cancellation checkpoints', () => {
     const hold = new Promise<void>(resolve => { release = resolve })
     jq.registerExecutor('audio', async () => await hold)
     registerJobCancellationAuditor('audio', async () => 'complete')
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'CLAIM_ONCE', title: 'claim once', params: {},
     })
     const deadline = Date.now() + 2_000
@@ -296,7 +296,7 @@ describe('remote cancellation checkpoints', () => {
     const hold = new Promise<void>(resolve => { release = resolve })
     jq.registerExecutor('audio', async () => await hold)
     registerJobCancellationAuditor('audio', async () => 'complete')
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'SETTLEMENT', title: 'settlement', params: {},
     })
     const deadline = Date.now() + 2_000
@@ -340,7 +340,7 @@ describe('remote cancellation checkpoints', () => {
     const hold = new Promise<void>(resolve => { release = resolve })
     jq.registerExecutor('audio', async () => await hold)
     registerJobCancellationAuditor('audio', async () => 'complete')
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'ALL_TARGETS', title: 'all targets', params: {},
     })
     const deadline = Date.now() + 2_000
@@ -391,7 +391,7 @@ describe('remote cancellation checkpoints', () => {
       const hold = new Promise<void>(resolve => { release = resolve })
       jq.registerExecutor('audio', async () => await hold)
       const project = await pm.createProject({ name: `ProviderFinal-${episode}` })
-      const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: episode, title: episode, params: {} })
+      const job = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'audio', episode_id: episode, title: episode, params: {} })
       const deadline = Date.now() + 2_000
       while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
       await jq.recordGenStudioJob(job.job_id, {
@@ -437,7 +437,7 @@ describe('remote cancellation checkpoints', () => {
     jq.registerExecutor('audio', async () => await hold)
     jq.registerExecutor('broll_assemble', async () => {})
     registerJobCancellationAuditor('audio', async () => { audits++; return 'complete' })
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'FINAL_ONCE', title: 'final once',
       params: { pipeline_chain: [{ type: 'broll_assemble', title: 'next local assembly', params: {} }] },
     })
@@ -513,7 +513,7 @@ describe('remote cancellation checkpoints', () => {
     })
     registerJobCancellationAuditor('audio', async () => 'complete')
 
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'PENDING_CANCEL', title: 'pending', params: {},
     })
     const deadline = Date.now() + 2_000
@@ -557,7 +557,7 @@ describe('remote cancellation checkpoints', () => {
     })
     registerJobCancellationAuditor('audio', async () => 'complete')
 
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'PENDING_CANCEL_FAILURE', title: 'pending failure', params: {},
     })
     const deadline = Date.now() + 2_000
@@ -603,7 +603,7 @@ describe('remote cancellation checkpoints', () => {
     })
     registerJobCancellationAuditor('audio', async () => 'complete')
 
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'PENDING_CANCEL_PAUSE', title: 'pending pause', params: {},
     })
     const deadline = Date.now() + 2_000
@@ -637,7 +637,7 @@ describe('remote cancellation checkpoints', () => {
   test('marks an ordinary completed executor done', async () => {
     const project = await pm.createProject({ name: 'OrdinaryCompletionStillDone' })
     jq.registerExecutor('broll_assemble', async () => {})
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'broll_assemble', episode_id: 'ORDINARY_DONE', title: 'ordinary', params: {},
     })
     await waitForTerminal(job.job_id)
@@ -649,7 +649,7 @@ describe('remote cancellation checkpoints', () => {
     jq.registerExecutor('audio', async () => {
       throw new Error('ordinary executor failure')
     })
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'ORDINARY_ERROR', title: 'ordinary failure', params: {},
     })
     await waitForTerminal(job.job_id)
@@ -665,7 +665,7 @@ describe('remote cancellation checkpoints', () => {
       await hold
       jq.throwIfPauseRequested(job.job_id)
     })
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'ORDINARY_PAUSE', title: 'ordinary pause', params: {},
     })
     const deadline = Date.now() + 2_000
@@ -695,7 +695,7 @@ describe('remote cancellation checkpoints', () => {
       jq.throwIfPauseRequested(job.job_id)
       submitted++
     })
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'continuity_render', episode_id: 'PAUSE_IMAGES', title: 'pause images', params: {},
     })
     await started
@@ -735,7 +735,7 @@ describe('terminal provider-evidence guards', () => {
       audits++
       return outputCreated ? 'complete' : 'repair-required'
     })
-    const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'LIVE_SUCCESS', title: 'live success', params: {} })
+    const job = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'audio', episode_id: 'LIVE_SUCCESS', title: 'live success', params: {} })
     const deadline = Date.now() + 2_000
     while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
     await jq.recordGenStudioJob(job.job_id, { id: 'live-success-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, updated_at: new Date().toISOString() })
@@ -775,7 +775,7 @@ describe('terminal provider-evidence guards', () => {
       return Response.json({ id: 'live-cancel-target', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, cancelled: false })
     }
     jq.registerExecutor('audio', async () => await hold)
-    const job = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'LIVE_CANCEL', title: 'live', params: {} })
+    const job = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'audio', episode_id: 'LIVE_CANCEL', title: 'live', params: {} })
     const deadline = Date.now() + 2_000
     while (Date.now() < deadline && jq.getJob(job.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
     await jq.recordGenStudioJob(job.job_id, { id: 'live-cancel-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, updated_at: new Date().toISOString() })
@@ -881,7 +881,7 @@ describe('terminal provider-evidence guards', () => {
         if (scenario === 'error') throw new Error('local boundary error')
         if (scenario === 'pause') jq.throwIfPauseRequested(job.job_id)
       })
-      const queued = jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: `EP_${scenario}`, title: scenario, params: {} })
+      const queued = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'audio', episode_id: `EP_${scenario}`, title: scenario, params: {} })
       const deadline = Date.now() + 2_000
       while (Date.now() < deadline && jq.getJob(queued.job_id)?.status !== 'running') await new Promise(resolve => setTimeout(resolve, 20))
       await jq.recordGenStudioJob(queued.job_id, { id: 'live-target', operation: 'voice.tts', state: 'accepted', dispatch_state: 'pre_dispatch', cancellable: true, updated_at: new Date().toISOString() })
@@ -914,7 +914,7 @@ describe('job route controls', () => {
     await fs.writeFile(output, 'generated output stays')
     await jq.setQueuePaused(true)
     jq.registerExecutor('script-only', async () => {})
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'script-only', episode_id: 'DELETE_ONLY', title: 'terminal', params: {},
     })
 
@@ -955,7 +955,7 @@ describe('job route controls', () => {
     app.use('/api', jobsRouter)
     const project = await pm.createProject({ name: 'UniversalCancellationParity' })
     await jq.setQueuePaused(true)
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'script-only', episode_id: 'UNIVERSAL_DELETE', title: 'universal', params: {},
     })
     try {
@@ -978,7 +978,7 @@ describe('job route controls', () => {
     let release!: () => void
     const hold = new Promise<void>(resolve => { release = resolve })
     jq.registerExecutor('audio', async () => await hold)
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: project.slug, type: 'audio', episode_id: 'REMOTE_TOO_LATE', title: 'remote', params: {},
     })
     const deadline = Date.now() + 2_000

@@ -251,6 +251,11 @@ export interface ProjectMetaResponse {
   format_id?: string
   niche_id?: string
   topic_pack_ids?: string[]
+  content_pack_versions?: Record<string, string>
+  content_pack_items?: Record<string, {
+    pack_id: string
+    kind: 'series-formula' | 'topic-pack' | 'visual-style' | 'thumbnail-recipe'
+  }>
   continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
 }
 
@@ -561,6 +566,12 @@ export interface JobEnqueuedResponse {
   finished_at: string | null
   error: string | null
   output_lines: string[]
+  content_pack_provenance?: Array<{
+    pack_id: string
+    version: string
+    archive_sha256: string
+    item_ids: string[]
+  }>
   /** Bounded automatic retry state. `eligible` is true only for work proven
    * to stay on this Mac. */
   auto_retry?: {

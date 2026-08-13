@@ -638,7 +638,43 @@ export async function getProject(slug: string): Promise<ProjectMeta | null> {
   return await readJson(metaPath)
 }
 
-export async function createProject(req: CreateProjectRequest): Promise<ProjectMeta> {
+/**
+ * Coherent project metadata read for cross-file transactions. Callers that
+ * also touch Content Pack state acquire coordination/state before entering
+ * this project-file lock.
+ */
+export async function readProjectMetaConsistently(slug: string): Promise<ProjectMeta | null> {
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const metaPath = path.join(projectDir, 'project.json')
+  if (!existsSync(metaPath)) return null
+  return withLock(metaPath, async () => readJson(metaPath))
+}
+
+/** Atomic project.json mutation used by Content Pack pin transactions. */
+export async function mutateProjectMetaConsistently(
+  slug: string,
+  mutate: (project: ProjectMeta) => void,
+): Promise<ProjectMeta | null> {
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const metaPath = path.join(projectDir, 'project.json')
+  if (!existsSync(metaPath)) return null
+  let updated: ProjectMeta | null = null
+  await withLock(metaPath, async () => {
+    const project = await readJson(metaPath) as ProjectMeta
+    mutate(project)
+    await writeJsonAtomic(metaPath, project)
+    updated = structuredClone(project)
+  })
+  await syncManifest(slug)
+  return updated
+}
+
+export async function createProject(
+  req: CreateProjectRequest,
+  initialContentPins: Pick<ProjectMeta, 'content_pack_versions' | 'content_pack_items'> = {},
+): Promise<ProjectMeta> {
   const slug = uniqueSlug(slugify(req.name))
   const projectDir = path.join(ensureProjectsRoot(), slug)
   // If a tombstone exists for this slug, clear it — the user is
@@ -720,6 +756,12 @@ export async function createProject(req: CreateProjectRequest): Promise<ProjectM
     // the project.
     ...(req.niche_id ? { niche_id: req.niche_id } : {}),
     ...(req.topic_pack_ids?.length ? { topic_pack_ids: [...new Set(req.topic_pack_ids)] } : {}),
+    ...(initialContentPins.content_pack_versions
+      ? { content_pack_versions: structuredClone(initialContentPins.content_pack_versions) }
+      : {}),
+    ...(initialContentPins.content_pack_items
+      ? { content_pack_items: structuredClone(initialContentPins.content_pack_items) }
+      : {}),
   }
 
   // Merge with any template defaults
@@ -1230,16 +1272,9 @@ export async function updateApiKeys(slug: string, req: UpdateApiKeysRequest): Pr
   return true
 }
 
-export async function updateConfig(slug: string, req: UpdateConfigRequest): Promise<boolean> {
-  const projectDir = getProjectDir(slug)
-  if (!projectDir) return false
-  const configPath = path.join(projectDir, 'config.json')
-  if (!existsSync(configPath)) return false
-  // Voice curation is now global (app-settings.json) — divert before the
-  // per-project write so the slug-bearing settings/config endpoint stays
-  // a transparent read/write proxy for the frontend. The project-side
-  // field is intentionally NOT cleared here — older app builds still
-  // expect it to exist.
+async function applyGlobalConfigSideEffects(req: UpdateConfigRequest): Promise<void> {
+  // Voice curation is global (app-settings.json); the project-side field is
+  // intentionally not rewritten so older builds retain their compatibility.
   if (req.voice_presets) {
     const { setVoicePresetsGlobal } = await import('./app-settings.js')
     await setVoicePresetsGlobal(req.voice_presets as any)
@@ -1249,52 +1284,112 @@ export async function updateConfig(slug: string, req: UpdateConfigRequest): Prom
     const ids = (req as any).voice_favourites
     if (Array.isArray(ids)) await setVoiceFavouritesGlobal(ids)
   }
+}
+
+function applyConfigRequest(data: Record<string, any>, req: UpdateConfigRequest): void {
+  migrateProjectPresetFields(data)
+  // Retired custom-model storage. Any normal settings save permanently
+  // prunes it from this project's config without requiring a bulk migration.
+  delete data.models
+  for (const retiredKey of [
+    'audio_concurrency',
+    'video_concurrency',
+    'image_concurrency',
+    'subtitle_concurrency',
+    'image_launch_stagger_ms',
+    'audio_launch_stagger_ms',
+    'video_launch_stagger_ms',
+    'generation_timeouts',
+  ]) {
+    delete data[retiredKey]
+  }
+  if (req.image_models) {
+    data.image_models = req.image_models
+    data.image_pricing_last_updated = new Date().toISOString().split('T')[0]
+  }
+  // Pass through project settings, excluding global/retired catalog fields.
+  const PROJECT_LEVEL_EXCLUDES = ['image_models', 'voice_presets', 'voice_favourites', 'audio_models', 'video_models', 'models']
+  for (const key of Object.keys(req)) {
+    if (!PROJECT_LEVEL_EXCLUDES.includes(key)) {
+      const requested = key === 'audio_generator_presets'
+        ? sanitizeAudioGeneratorPresets((req as any)[key])
+        : (req as any)[key]
+      ;(data as any)[key] = migratePresetField(key, requested)
+    }
+  }
+  if ((req as any).video_models) {
+    data.video_models = sanitizeVideoCatalog((req as any).video_models)
+    data.video_pricing_last_updated = new Date().toISOString().split('T')[0]
+  }
+}
+
+export async function updateConfig(slug: string, req: UpdateConfigRequest): Promise<boolean> {
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return false
+  const configPath = path.join(projectDir, 'config.json')
+  if (!existsSync(configPath)) return false
+  await applyGlobalConfigSideEffects(req)
   // Read-modify-write must be atomic against concurrent updateConfig calls.
   await withLock(configPath, async () => {
     const data = await readJson(configPath)
-    migrateProjectPresetFields(data)
-    // Retired custom-model storage. Any normal settings save permanently
-    // prunes it from this project's config without requiring a bulk migration.
-    delete data.models
-    for (const retiredKey of [
-      'audio_concurrency',
-      'video_concurrency',
-      'image_concurrency',
-      'subtitle_concurrency',
-      'image_launch_stagger_ms',
-      'audio_launch_stagger_ms',
-      'video_launch_stagger_ms',
-      'generation_timeouts',
-    ]) {
-      delete data[retiredKey]
-    }
-    if (req.image_models) {
-      data.image_models = req.image_models
-      data.image_pricing_last_updated = new Date().toISOString().split('T')[0]
-    }
-    // audio_models is historical evidence only. The request contract strips
-    // it, and this service intentionally never rewrites it into an executable
-    // project-owned TTS route. GenStudio owns the live catalog and pricing.
-    // Pass through any extra settings (script_settings, youtube_templates, etc.)
-    // Excludes voice_presets / voice_favourites — those went to global above
-    // and must not be re-written into the project config.
-    const PROJECT_LEVEL_EXCLUDES = ['image_models', 'voice_presets', 'voice_favourites', 'audio_models', 'video_models', 'models']
-    for (const key of Object.keys(req)) {
-      if (!PROJECT_LEVEL_EXCLUDES.includes(key)) {
-        const requested = key === 'audio_generator_presets'
-          ? sanitizeAudioGeneratorPresets((req as any)[key])
-          : (req as any)[key]
-        ;(data as any)[key] = migratePresetField(key, requested)
-      }
-    }
-    if ((req as any).video_models) {
-      data.video_models = sanitizeVideoCatalog((req as any).video_models)
-      data.video_pricing_last_updated = new Date().toISOString().split('T')[0]
-    }
+    applyConfigRequest(data, req)
     await writeJsonAtomic(configPath, data)
   })
   await syncManifest(slug)
   return true
+}
+
+/**
+ * Coordinated signed-selection write. The caller owns the Content Pack
+ * coordination lock, then this function takes project.json → config.json in
+ * that order. A transitional project record retains both old and new pins
+ * while config changes, so a crash can only over-pin safe bytes; it can never
+ * expose a newly selected signed item without an exact pin.
+ */
+export async function updateConfigAndProjectMetaConsistently(
+  slug: string,
+  req: UpdateConfigRequest,
+  mutateProject: (project: ProjectMeta) => void,
+): Promise<ProjectMeta | null> {
+  const projectDir = getProjectDir(slug)
+  if (!projectDir) return null
+  const metaPath = path.join(projectDir, 'project.json')
+  const configPath = path.join(projectDir, 'config.json')
+  if (!existsSync(metaPath) || !existsSync(configPath)) return null
+  let updated: ProjectMeta | null = null
+  await withLock(metaPath, async () => withLock(configPath, async () => {
+    const originalProject = await readJson(metaPath) as ProjectMeta
+    const originalConfig = await readJson(configPath) as Record<string, any>
+    const finalProject = structuredClone(originalProject)
+    const finalConfig = structuredClone(originalConfig)
+    mutateProject(finalProject)
+    applyConfigRequest(finalConfig, req)
+
+    const transitionalProject: ProjectMeta = {
+      ...finalProject,
+      content_pack_versions: {
+        ...(originalProject.content_pack_versions ?? {}),
+        ...(finalProject.content_pack_versions ?? {}),
+      },
+      content_pack_items: {
+        ...(originalProject.content_pack_items ?? {}),
+        ...(finalProject.content_pack_items ?? {}),
+      },
+    }
+    try {
+      await writeJsonAtomic(metaPath, transitionalProject)
+      await writeJsonAtomic(configPath, finalConfig)
+      await writeJsonAtomic(metaPath, finalProject)
+      updated = structuredClone(finalProject)
+    } catch (error) {
+      await writeJsonAtomic(configPath, originalConfig).catch(() => {})
+      await writeJsonAtomic(metaPath, originalProject).catch(() => {})
+      throw error
+    }
+  }))
+  await applyGlobalConfigSideEffects(req)
+  await syncManifest(slug)
+  return updated
 }
 
 // ── Standards ───────────────────────────────────────────────────────────────

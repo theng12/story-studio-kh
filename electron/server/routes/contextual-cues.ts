@@ -72,7 +72,7 @@ router.post('/projects/:slug/contextual-cues/:episodeId/propose', async (req, re
   }
   const settings = normalizeContextualCueProposalSettings(req.body)
   if (!settings.model) return res.status(409).json({ detail: 'Choose a live GenStudio model in Contextual Cues before proposing cues.' })
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'contextual_cues' as JobType,
     episode_id: episodeId,

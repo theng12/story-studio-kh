@@ -91,7 +91,7 @@ describe('status-aware durable job retention', () => {
     await jq.setQueuePaused(true)
     jq.registerExecutor('script-only', async () => {})
 
-    const queued = Array.from({ length: 125 }, (_, index) => jq.enqueue({
+    const queued = Array.from({ length: 125 }, (_, index) => jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'script-only',
       episode_id: `EP${String(index).padStart(4, '0')}`,
@@ -204,7 +204,7 @@ describe('status-aware durable job retention', () => {
     const project = await pm.createProject({ name: 'Clear History Keeps Queue' })
     const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
     jq.registerExecutor('metadata', async () => {})
-    const terminal = jq.enqueue({
+    const terminal = jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'metadata',
       episode_id: 'EP-DONE',
@@ -219,7 +219,7 @@ describe('status-aware durable job retention', () => {
 
     await jq.setQueuePaused(true)
     jq.registerExecutor('script-only', async () => {})
-    const queued = Array.from({ length: 120 }, (_, index) => jq.enqueue({
+    const queued = Array.from({ length: 120 }, (_, index) => jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'script-only',
       episode_id: `EP-CLEAR-${index}`,

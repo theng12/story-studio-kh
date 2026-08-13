@@ -581,7 +581,7 @@ router.post('/projects/:slug/image-pool/generate', async (req, res) => {
       return res.status(409).json({ detail: `Generation already running for pool ${pool.name}` })
     }
 
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'image_pool_generate' as JobType,
       episode_id: poolId,  // pool id threaded via the episode slot (app-level target)
@@ -687,7 +687,7 @@ router.post('/projects/:slug/image-pool/assemble', async (req, res) => {
       return res.status(409).json({ detail: `Assembly already queued/running for ${episode_id}` })
     }
 
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'broll_assemble' as JobType,
       episode_id,
@@ -734,7 +734,7 @@ router.post('/projects/:slug/broll/assemble', async (req, res) => {
       return res.status(409).json({ detail: `B-Roll assembly already queued/running for ${episode_id}` })
     }
 
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'broll_assemble' as JobType,
       episode_id,

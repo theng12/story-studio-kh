@@ -186,7 +186,7 @@ router.post('/projects/:slug/research/:episodeId/run', async (req, res) => {
     return res.status(409).json({ detail: `Research already running for ${episodeId}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'research_run' as JobType,
     episode_id: episodeId,

@@ -1249,7 +1249,7 @@ router.post('/projects/:slug/upload/upload', async (req, res) => {
       throw e
     }
 
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'youtube_upload' as JobType,
       episode_id,
@@ -1293,7 +1293,7 @@ router.post('/projects/:slug/upload/refresh-thumbnails', async (req, res) => {
     if (jq.isDuplicate(slug, '_thumbnail_refresh_', 'youtube_thumbnail_refresh' as JobType)) {
       return res.status(409).json({ detail: 'A thumbnail backfill is already running for this project.' })
     }
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'youtube_thumbnail_refresh' as JobType,
       episode_id: '_thumbnail_refresh_',
@@ -1336,7 +1336,7 @@ router.post('/projects/:slug/upload/update-playlist', async (req, res) => {
     // handled in the generator. Any other string is a literal playlist id.
     const playlist_id = typeof req.body?.playlist_id === 'string' ? req.body.playlist_id : null
 
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'youtube_playlist_update' as JobType,
       episode_id,

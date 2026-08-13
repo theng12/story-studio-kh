@@ -266,7 +266,7 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
     return res.status(409).json({ detail: `Video generation already queued/running for ${episodeId}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'video',
     episode_id: episodeId,

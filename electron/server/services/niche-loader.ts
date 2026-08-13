@@ -43,6 +43,7 @@ import {
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
 import { contentPackDocumentToNiche } from '../content-packs/legacy-adapters.js'
+import { registryOptionsForCurrentJob, resolveProjectContentPinsForKinds } from '../content-packs/project-pins.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -231,7 +232,8 @@ function validateNicheShape(n: any, filePath: string): void {
 export async function loadNiche(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<Niche | null> {
   if (!id) return null
   if (isQualifiedContentPackId(id)) {
-    const signed = await resolveCatalogItem(id, undefined, registryOptions)
+    const effectiveOptions = await registryOptionsForCurrentJob(['series-formula'], registryOptions)
+    const signed = await resolveCatalogItem(id, undefined, effectiveOptions)
     if (signed?.value.kind === 'series-formula') return contentPackDocumentToNiche(signed.value)
   }
   const userPath = path.join(userNichesDir(), `${id}.json`)
@@ -347,6 +349,7 @@ function mergeAxes(base: IdeaAxis[] | undefined, packs: TopicPack[]): IdeaAxis[]
 export async function composeNicheWithTopicPacks(
   niche: Niche,
   requestedIds?: string[],
+  registryOptions: ContentPackRegistryOptions = {},
 ): Promise<Niche> {
   const ids = requestedIds === undefined
     ? (niche.defaultTopicPackIds || [])
@@ -360,7 +363,7 @@ export async function composeNicheWithTopicPacks(
       console.warn(`[niche-loader] topic pack '${id}' is not allowed by Series Formula '${niche.id}'`)
       continue
     }
-    const pack = await topicPackLoader.loadTopicPack(id)
+    const pack = await topicPackLoader.loadTopicPack(id, registryOptions)
     if (!pack) {
       console.warn(`[niche-loader] topic pack '${id}' not found for Series Formula '${niche.id}'`)
       continue
@@ -433,11 +436,14 @@ function deepMerge(target: any, source: any): any {
 export async function getEffectiveNicheFor(
   project: ProjectMeta,
   topicPackIdsOverride?: string[],
+  registryOptions: ContentPackRegistryOptions = {},
 ): Promise<Niche | null> {
   if (!project.niche_id) return null
+  const pins = await resolveProjectContentPinsForKinds(project, ['series-formula', 'topic-pack'], registryOptions)
+  const pinnedOptions = { ...registryOptions, pins }
   let base: Niche | null = null
   try {
-    base = await loadNiche(project.niche_id)
+    base = await loadNiche(project.niche_id, pinnedOptions)
   } catch (e: any) {
     console.warn(`[niche-loader] failed loading niche '${project.niche_id}' for project '${project.slug}': ${e.message}`)
     return null
@@ -449,7 +455,7 @@ export async function getEffectiveNicheFor(
   const requestedPackIds = topicPackIdsOverride === undefined
     ? project.topic_pack_ids
     : topicPackIdsOverride
-  const composed = await composeNicheWithTopicPacks(base, requestedPackIds)
+  const composed = await composeNicheWithTopicPacks(base, requestedPackIds, pinnedOptions)
   return mergeNicheOverrides(composed, project.niche_overrides)
 }
 

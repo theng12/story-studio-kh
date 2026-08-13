@@ -81,7 +81,7 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
     return res.status(409).json({ detail: `Audio generation already queued/running for ${req.body.episode_id}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'audio',
     episode_id: req.body.episode_id,
@@ -307,7 +307,7 @@ router.post('/projects/:slug/episodes/:code/expression/generate-all', async (req
     if (jq.isDuplicate(slug, code, 'expression_markup')) {
       return res.status(409).json({ detail: 'Expression tagging is already running for this episode.' })
     }
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'expression_markup',
       episode_id: code,

@@ -70,7 +70,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('outline_only', b.executor)
     jq.setLlmConcurrency(2)
     for (const ep of ['EP001', 'EP002', 'EP003']) {
-      jq.enqueue({ project_slug: proj.slug, type: 'outline_only', episode_id: ep, title: ep, params: {} })
+      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'outline_only', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 2)
     await settle()
@@ -90,7 +90,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('metadata', b.executor)
     jq.setLlmConcurrency(1)
     for (const ep of ['EP001', 'EP002']) {
-      jq.enqueue({ project_slug: proj.slug, type: 'metadata', episode_id: ep, title: ep, params: {} })
+      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'metadata', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 1)
     await settle()
@@ -109,7 +109,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('metadata', b.executor)
     jq.setLlmConcurrency(1)
     for (const ep of ['EP001', 'EP002', 'EP003']) {
-      jq.enqueue({
+      jq.enqueuePreparedForTest({
         project_slug: proj.slug,
         type: 'metadata',
         episode_id: ep,
@@ -130,7 +130,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('metadata', b.executor)
     jq.setLlmConcurrency(1)
     for (const ep of ['EP001', 'EP002']) {
-      jq.enqueue({
+      jq.enqueuePreparedForTest({
         project_slug: proj.slug,
         type: 'metadata',
         episode_id: ep,
@@ -159,7 +159,7 @@ describe('LLM-group concurrency', () => {
       ['EP003', 'chatstudio:local/model-c'],
     ]
     for (const [episode_id, model] of rows) {
-      jq.enqueue({ project_slug: proj.slug, type: 'metadata', episode_id, title: episode_id, params: { model } })
+      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'metadata', episode_id, title: episode_id, params: { model } })
     }
     await waitFor(() => b.active === 3)
     assert.equal(b.peak, 3)
@@ -174,9 +174,9 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('outline_only', b.executor)
     jq.registerExecutor('metadata', b.executor)
     jq.setLlmConcurrency(2)
-    jq.enqueue({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'o1', params: {} })
-    jq.enqueue({ project_slug: proj.slug, type: 'metadata', episode_id: 'EP001', title: 'm1', params: {} })
-    jq.enqueue({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP002', title: 'o2', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP001', title: 'o1', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'metadata', episode_id: 'EP001', title: 'm1', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'outline_only', episode_id: 'EP002', title: 'o2', params: {} })
     await waitFor(() => b.active === 2)
     await settle()
     assert.equal(b.active, 2, 'outline + metadata together obey ONE shared budget')
@@ -195,7 +195,7 @@ describe('LLM-group concurrency', () => {
     jq.registerExecutor('video', b.executor)
     jq.setLlmConcurrency(4)              // must NOT affect the video queue
     for (const ep of ['EP001', 'EP002']) {
-      jq.enqueue({ project_slug: proj.slug, type: 'video', episode_id: ep, title: ep, params: {} })
+      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'video', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 1)
     await settle()
@@ -215,7 +215,7 @@ describe('LLM-group concurrency', () => {
     jq.setLlmConcurrency(1)
     jq.setSubtitleTranscribeConcurrency(3)
     for (const ep of ['EP001', 'EP002', 'EP003', 'EP004']) {
-      jq.enqueue({ project_slug: proj.slug, type: 'subtitles_transcribe', episode_id: ep, title: ep, params: {} })
+      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'subtitles_transcribe', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 3)
     await settle()
@@ -235,7 +235,7 @@ describe('LLM-group concurrency', () => {
     const b = makeBlocker()
     jq.registerExecutor('video_assembly', b.executor)
     for (const ep of ['EP001', 'EP002']) {
-      jq.enqueue({ project_slug: proj.slug, type: 'video_assembly', episode_id: ep, title: ep, params: {} })
+      jq.enqueuePreparedForTest({ project_slug: proj.slug, type: 'video_assembly', episode_id: ep, title: ep, params: {} })
     }
     await waitFor(() => b.active === 1)
     await settle()

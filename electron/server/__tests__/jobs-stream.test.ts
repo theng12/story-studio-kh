@@ -137,7 +137,7 @@ describe('SSE /projects/:slug/jobs/stream', () => {
     // Let the snapshot flush before we enqueue so the `update` is clearly
     // attributable to our action.
     await new Promise((r) => setTimeout(r, 50))
-    jq.enqueue({
+    jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'script-only',
       episode_id: 'SSE_EP1',
@@ -161,7 +161,7 @@ describe('SSE /projects/:slug/jobs/stream', () => {
     const collectionA = collectFrames(`/api/projects/${a.slug}/jobs/stream`, 300)
     await new Promise((r) => setTimeout(r, 50))
     // Enqueue on project B — A's subscriber must NOT see it.
-    jq.enqueue({
+    jq.enqueuePreparedForTest({
       project_slug: b.slug,
       type: 'script-only',
       episode_id: 'SSE_SCOPE_B1',
@@ -182,7 +182,7 @@ describe('SSE /projects/:slug/jobs/stream', () => {
 
     // Enqueue and wait for it to complete so clearFinished has something
     // to purge. The no-op executor means the job reaches `done` in < 50 ms.
-    jq.enqueue({
+    jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'script-only',
       episode_id: 'SSE_CLEAR_1',
@@ -207,8 +207,8 @@ describe('SSE /jobs/all/stream', () => {
   test('initial snapshot combines jobs from every project', async () => {
     const a = await pm.createProject({ name: 'SSE_All_A' })
     const b = await pm.createProject({ name: 'SSE_All_B' })
-    jq.enqueue({ project_slug: a.slug, type: 'script-only', episode_id: 'ALL_A1', title: '', params: {} })
-    jq.enqueue({ project_slug: b.slug, type: 'script-only', episode_id: 'ALL_B1', title: '', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: a.slug, type: 'script-only', episode_id: 'ALL_A1', title: '', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: b.slug, type: 'script-only', episode_id: 'ALL_B1', title: '', params: {} })
     await new Promise((resolve) => setTimeout(resolve, 100))
 
     const frames = await collectFrames('/api/jobs/all/stream', 200)
@@ -224,7 +224,7 @@ describe('SSE /jobs/all/stream', () => {
     const project = await pm.createProject({ name: 'SSE_All_Update' })
     const collection = collectFrames('/api/jobs/all/stream', 350)
     await new Promise((resolve) => setTimeout(resolve, 50))
-    jq.enqueue({ project_slug: project.slug, type: 'script-only', episode_id: 'ALL_LIVE_1', title: '', params: {} })
+    jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'script-only', episode_id: 'ALL_LIVE_1', title: '', params: {} })
     const frames = await collection
     const updates = frames.filter(frame => frame.event === 'update').map(frame => JSON.parse(frame.data))
     assert.ok(updates.some(job => job.project_slug === project.slug && job.episode_id === 'ALL_LIVE_1'))

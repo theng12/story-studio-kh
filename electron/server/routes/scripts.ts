@@ -51,7 +51,7 @@ router.post('/projects/:slug/generate/script-only', validateBody(GenerateScriptO
     return res.status(409).json({ detail: `Script generation already queued/running for ${req.body.episode_id}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'script-only',
     episode_id: req.body.episode_id,
@@ -88,7 +88,7 @@ router.post('/projects/:slug/generate/outline-only', validateBody(GenerateScript
     return res.status(409).json({ detail: `Outline build already queued/running for ${req.body.episode_id}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'outline_only',
     episode_id: req.body.episode_id,
@@ -222,7 +222,7 @@ router.post('/projects/:slug/generate/expand-chapters', async (req, res) => {
     })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'expand_chapters',
     episode_id,
@@ -532,7 +532,7 @@ router.post('/projects/:slug/generate/chapter-only', validateBody(GenerateChapte
     })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'chapter-only',
     episode_id: req.body.episode_id,
@@ -558,7 +558,7 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
     return res.status(409).json({ detail: `Introduction generation already queued/running for ${req.body.episode_id}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'introduction-only',
     episode_id: req.body.episode_id,
@@ -839,7 +839,7 @@ router.post('/projects/:slug/generate/image-prompts', async (req, res) => {
     })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'image_prompts',
     episode_id,
@@ -1319,7 +1319,7 @@ router.post('/projects/:slug/generate/metadata', async (req, res) => {
     return res.status(409).json({ detail: `YouTube finalization already queued/running for ${episode_id}` })
   }
 
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'metadata',
     episode_id,

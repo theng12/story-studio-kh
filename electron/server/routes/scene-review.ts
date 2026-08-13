@@ -280,7 +280,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
   }
 })
 
-function enqueueContinuityRender(
+async function enqueueContinuityRender(
   slug: string,
   episodeId: string,
   body: any,
@@ -292,7 +292,7 @@ function enqueueContinuityRender(
   const dedupeParams = singleSceneId
     ? (p: any) => p.single_scene_id === singleSceneId
     : (p: any) => !p.single_scene_id
-  return jq.enqueue({
+  return await jq.enqueue({
     project_slug: slug,
     type: 'continuity_render' as JobType,
     episode_id: episodeId,
@@ -337,7 +337,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
       return res.status(409).json({ detail: `Scene ${sceneId} image already generating` })
     }
 
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'scene_image_generate' as JobType,
       episode_id: episodeId,
@@ -408,7 +408,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
     }
 
     try {
-      const job = enqueueContinuityRender(slug, episodeId, {
+      const job = await enqueueContinuityRender(slug, episodeId, {
         ...body,
         model,
         aspect_ratio,
@@ -465,7 +465,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
     if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === sceneId)) {
       return res.status(409).json({ detail: `Scene ${sceneId} clip already generating` })
     }
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'scene_clip_generate' as JobType,
       episode_id: episodeId,
@@ -498,7 +498,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
   try { requestedVariant = requestedSceneClipVariant(body) } catch (e: any) { return res.status(400).json({ detail: e.message }) }
   try {
     const { modelId, variant } = await requireSceneClipGenStudioModel(model, requestedVariant)
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: 'scene_clips_batch' as JobType,
       episode_id: episodeId,
@@ -562,7 +562,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
       // and not already freshly clipped. Skip in-flight.
       if (!s.approved || !hasImage || !hasMotion || !longEnough || (clipExists && !clipStale)) { skipped++; continue }
       if (jq.isDuplicate(slug, episodeId, 'scene_clip_generate' as JobType, (p: any) => p?.scene_id === s.id)) { skipped++; continue }
-      jq.enqueue({
+      await jq.enqueue({
         project_slug: slug,
         type: 'scene_clip_generate' as JobType,
         episode_id: episodeId,
@@ -623,7 +623,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
 
   let job
   try {
-    job = jq.enqueue({
+    job = await jq.enqueue({
       project_slug: slug,
       type: 'continuity_render' as JobType,
       episode_id: episodeId,

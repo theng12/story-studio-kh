@@ -2,6 +2,7 @@ import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import express from 'express'
 import request from 'supertest'
+import { ContentPackMissingError } from '../content-packs/project-pins.js'
 import { errorBoundary } from '../lib/error-boundary.js'
 import { useTempDataDir } from './_helpers.js'
 
@@ -71,6 +72,26 @@ describe('errorBoundary', () => {
     const res = await request(app).get('/boom')
     assert.equal(res.status, 429)
     assert.equal(res.body.detail, 'Quota exceeded for this provider')
+  })
+
+  test('an async Content Pack enqueue rejection keeps bounded structured recovery data', async () => {
+    const app = appWith(async () => {
+      throw new ContentPackMissingError([{
+        pack_id: 'com.storystudio.history',
+        version: '1.2.3',
+        item_ids: ['com.storystudio.history.formula'],
+        item_kinds: ['series-formula'],
+      }])
+    })
+    const res = await request(app).get('/boom')
+    assert.equal(res.status, 409)
+    assert.equal(res.body.code, 'content-pack-missing')
+    assert.deepEqual(res.body.requirements, [{
+      pack_id: 'com.storystudio.history',
+      version: '1.2.3',
+      item_ids: ['com.storystudio.history.formula'],
+      item_kinds: ['series-formula'],
+    }])
   })
 
   test('does not double-respond once headers are sent', async () => {

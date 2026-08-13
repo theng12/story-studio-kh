@@ -219,7 +219,7 @@ router.post('/projects/:slug/continuity/:episodeId/apply-recipe', async (req, re
   if (jq.isDuplicate(slug, episodeId, 'prompt_director' as JobType)) {
     return res.status(409).json({ detail: `Visual Recipe is already being applied for ${episodeId}` })
   }
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'prompt_director' as JobType,
     episode_id: episodeId,

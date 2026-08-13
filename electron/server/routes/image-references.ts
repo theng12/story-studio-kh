@@ -261,7 +261,7 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/composition/
   if (jq.isDuplicate(slug, episodeId, 'composition_generate' as JobType)) {
     return res.status(409).json({ detail: `A composition template is already being generated for ${episodeId}` })
   }
-  const job = jq.enqueue({
+  const job = await jq.enqueue({
     project_slug: slug,
     type: 'composition_generate' as JobType,
     episode_id: episodeId,

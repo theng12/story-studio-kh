@@ -5,6 +5,7 @@ import { validateBody } from '../lib/validate.js'
 import {
   UpdateConfigSchema, UpdateStandardsSchema,
 } from '../schemas/index.js'
+import { updateProjectContentConfigSelections } from '../content-packs/project-pins.js'
 
 export const router = Router()
 
@@ -25,7 +26,16 @@ router.all('/projects/:slug/settings/accounts/:providerId/:accountId', retiredCr
 router.all('/projects/:slug/settings/accounts/:providerId/:accountId/default', retiredCredentialPath)
 
 router.put('/projects/:slug/settings/config', validateBody(UpdateConfigSchema), async (req, res) => {
-  if (!await pm.updateConfig(req.params.slug, req.body)) {
+  const hasContentSelection = Object.prototype.hasOwnProperty.call(req.body, 'active_style_preset_id')
+    || Object.prototype.hasOwnProperty.call(req.body, 'thumbnail_template_id')
+  const updated = hasContentSelection
+    ? await updateProjectContentConfigSelections(
+        req.params.slug,
+        req.body,
+        req.app.locals.contentPackOptions,
+      ).then(() => true)
+    : await pm.updateConfig(req.params.slug, req.body)
+  if (!updated) {
     return res.status(404).json({ detail: 'Project not found' })
   }
   res.json({ ok: true })

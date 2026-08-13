@@ -226,14 +226,14 @@ describe('soft-delete', () => {
     let linkedJob: { job_id: string } | undefined
     try {
       const defaultDir = await seedProject(pm.projectsRoot(), 'immediate-queued-delete')
-      defaultJob = jq.enqueue({ project_slug: 'immediate-queued-delete', type: 'audio', episode_id: 'EP0001', title: 'race', params: {} })
+      defaultJob = jq.enqueuePreparedForTest({ project_slug: 'immediate-queued-delete', type: 'audio', episode_id: 'EP0001', title: 'race', params: {} })
       const soft = await request(app).delete('/api/projects/immediate-queued-delete')
       assert.equal(soft.status, 409)
       assert.ok(existsSync(defaultDir), 'the soft-delete mutation must not win the enqueue/persist race')
 
       const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'immediate-queued-unlink')
       await lp.addLinkedProject(linkedDir)
-      linkedJob = jq.enqueue({ project_slug: 'immediate-queued-unlink', type: 'audio', episode_id: 'EP0001', title: 'race', params: {} })
+      linkedJob = jq.enqueuePreparedForTest({ project_slug: 'immediate-queued-unlink', type: 'audio', episode_id: 'EP0001', title: 'race', params: {} })
       const unlink = await request(app).delete('/api/linked-projects').send({ path: linkedDir })
       assert.equal(unlink.status, 409)
       assert.ok((await lp.getLinkedProjectPaths()).includes(path.resolve(linkedDir)))

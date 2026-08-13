@@ -37,6 +37,28 @@ export interface HumanizedError {
    * get folded into a friendlier message above.
    */
   code?: string
+  /** Exact, bounded recovery requirements for a missing Content Pack. */
+  requirements?: Array<{
+    pack_id: string
+    version: string
+    item_ids: string[]
+    item_kinds: string[]
+  }>
+}
+
+function exposedContentPackRequirements(e: unknown): HumanizedError['requirements'] {
+  if ((e as any)?.expose !== true || (e as any)?.code !== 'content-pack-missing') return undefined
+  if (!Array.isArray((e as any)?.requirements)) return undefined
+  return (e as any).requirements.slice(0, 64).flatMap((raw: any) => {
+    if (!raw || typeof raw.pack_id !== 'string' || typeof raw.version !== 'string') return []
+    const itemIds = Array.isArray(raw.item_ids)
+      ? raw.item_ids.filter((value: unknown): value is string => typeof value === 'string').slice(0, 256)
+      : []
+    const itemKinds = Array.isArray(raw.item_kinds)
+      ? raw.item_kinds.filter((value: unknown): value is string => typeof value === 'string').slice(0, 16)
+      : []
+    return [{ pack_id: raw.pack_id, version: raw.version, item_ids: itemIds, item_kinds: itemKinds }]
+  })
 }
 
 /**
@@ -213,8 +235,12 @@ export function humanizeBackendError(e: unknown, fallback?: string): HumanizedEr
   //    open the log file to diagnose anything. We log the raw message
   //    via logLine above either way, but the front-line UX should also
   //    carry the signal.
+  const contentPackRequirements = exposedContentPackRequirements(e)
   const exposed = (e as any)?.expose === true && typeof (e as any)?.code === 'string'
-    ? { code: (e as any).code as string }
+    ? {
+        code: (e as any).code as string,
+        ...(contentPackRequirements ? { requirements: contentPackRequirements } : {}),
+      }
     : {}
   if (safeMessage) return { detail: safeMessage, ...exposed }
   if (fallback) return { detail: fallback, ...exposed }

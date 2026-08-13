@@ -3,6 +3,8 @@
  */
 
 import type { GenStudioRequestPreview } from '../lib/genstudio-request-preview.js'
+import type { ContentPackProvenance } from '../content-packs/runtime-types.js'
+import type { ContentPackItemKind } from '../content-packs/types.js'
 
 // ── Project ─────────────────────────────────────────────────────────────────
 
@@ -94,6 +96,17 @@ export interface ProjectMeta {
    */
   media_root?: string
   created_at: string
+  /** Exact immutable versions selected by this project. Older projects omit
+   * this and continue through the legacy catalog unchanged. */
+  content_pack_versions?: Record<string, string>
+  /** Qualified selected item → owning pack/kind. Kept separately from the
+   * version map so an imported project can name an unavailable requirement
+   * without guessing from an item id. */
+  content_pack_items?: Record<string, { pack_id: string; kind: ContentPackItemKind }>
+  /** Canonical signed selections mirrored from config in the same coordinated
+   * transaction. Legacy/local ids may be stored here but create no pack pin. */
+  active_style_preset_id?: string
+  thumbnail_template_id?: string
   youtube_channel_url?: string
 
   /**
@@ -2030,6 +2043,8 @@ export interface UpdateConfigRequest {
   audio_models?: Record<string, AudioModelConfig>
   video_models?: Record<string, VideoModelConfig>
   confirmation_preferences?: ConfirmationPreferences
+  active_style_preset_id?: string
+  formula_applied_style_id?: string
   thumbnail_template_id?: string
 }
 
@@ -2200,6 +2215,8 @@ export interface Job {
   finished_at: string | null
   error: string | null
   output_lines: string[]
+  /** Immutable Content Pack selection captured before queue insertion. */
+  content_pack_provenance?: ContentPackProvenance[]
   /** Queue-owned retry state. Only jobs proven to use local/free compute are
    * eligible; cloud/API jobs remain one-shot and require manual Retry. */
   auto_retry?: {

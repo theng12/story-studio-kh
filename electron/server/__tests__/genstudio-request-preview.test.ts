@@ -316,7 +316,7 @@ describe('job-queue adopts the pre-submit preview', () => {
       })
     })
 
-    const enqueued = jq.enqueue({
+    const enqueued = jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'script-only',
       episode_id: 'EP0001',
@@ -370,7 +370,7 @@ describe('job-queue adopts the pre-submit preview', () => {
           idempotencyKey: 'story-chat-credit-preview',
         })
       })
-      const enqueued = jq.enqueue({
+      const enqueued = jq.enqueuePreparedForTest({
         project_slug: project.slug,
         type: 'script-only',
         episode_id: 'EP0001',

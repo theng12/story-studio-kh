@@ -19,6 +19,7 @@ import {
   resolveCatalogItem,
   type ContentPackRegistryOptions,
 } from '../content-packs/registry.js'
+import { registryOptionsForCurrentJob } from '../content-packs/project-pins.js'
 import { contentPackDocumentToTopicPack } from '../content-packs/legacy-adapters.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -92,7 +93,8 @@ async function readPack(filePath: string): Promise<TopicPack> {
 export async function loadTopicPack(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<TopicPack | null> {
   if (!id) return null
   if (isQualifiedContentPackId(id)) {
-    const signed = await resolveCatalogItem(id, undefined, registryOptions)
+    const effectiveOptions = await registryOptionsForCurrentJob(['topic-pack'], registryOptions)
+    const signed = await resolveCatalogItem(id, undefined, effectiveOptions)
     if (signed?.value.kind === 'topic-pack') return contentPackDocumentToTopicPack(signed.value)
   }
   const customPath = topicPackFilePath(id)

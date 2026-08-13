@@ -1465,7 +1465,7 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       continue
     }
 
-    const job = jq.enqueue({
+    const job = await jq.enqueue({
       project_slug: slug,
       type: first.type,
       episode_id: episodeId,

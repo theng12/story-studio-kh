@@ -91,7 +91,7 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
     return res.status(409).json({ detail: `Audio merge already queued/running for ${episode_id}` })
   }
 
-  const job = enqueue({
+  const job = await enqueue({
     project_slug: slug,
     type: 'audio_merge',
     episode_id,

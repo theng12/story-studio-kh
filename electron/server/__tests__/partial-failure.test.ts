@@ -41,7 +41,7 @@ describe('partial-failure status contract', () => {
       throw new Error('2 item(s) failed: first failure; second failure')
     })
 
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'PF_EP1',
       title: 't', params: {},
     })
@@ -68,7 +68,7 @@ describe('partial-failure status contract', () => {
       j.output_lines.push('All items generated successfully')
     })
 
-    const job = jq.enqueue({
+    const job = jq.enqueuePreparedForTest({
       project_slug: proj.slug, type: 'script-only', episode_id: 'PF_EP2',
       title: 't', params: {},
     })
@@ -95,7 +95,7 @@ describe('partial-failure status contract', () => {
         throw new Error('3 clip(s) failed: clip 1; clip 2; clip 3')
       })
 
-      jq.enqueue({
+      jq.enqueuePreparedForTest({
         project_slug: proj.slug, type: 'script-only', episode_id: 'PF_EV_1',
         title: 't', params: {},
       })

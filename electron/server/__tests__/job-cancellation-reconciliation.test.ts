@@ -517,8 +517,8 @@ test('cold persisted cancellation reconciles outside a generation lane and retai
     assert.equal(restored.finished_at, null)
     assert.equal(jq.isDuplicate(project.slug, 'EP0001', 'audio'), true)
     assert.equal(jq.removeTerminalJob(project.slug, restored.job_id), false)
-    assert.throws(() => jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'EP0001', title: 'duplicate', params: {} }))
-    const unrelated = jq.enqueue({ project_slug: project.slug, type: 'script-only', episode_id: 'EP0099', title: 'unrelated', params: {} })
+    assert.throws(() => jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'audio', episode_id: 'EP0001', title: 'duplicate', params: {} }))
+    const unrelated = jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'script-only', episode_id: 'EP0099', title: 'unrelated', params: {} })
     while (Date.now() < deadline && !unrelatedRan) await new Promise(resolve => setTimeout(resolve, 10))
     assert.equal(unrelatedRan, true)
     while (Date.now() < deadline && jq.getJob(unrelated.job_id)?.status === 'running') await new Promise(resolve => setTimeout(resolve, 10))
@@ -602,7 +602,7 @@ test('a cold cancelled target keeps its restart reconciler active until an accep
     assert.equal(jq.isDuplicate(project.slug, 'EP0001', 'audio'), true)
     assert.equal(jq.removeTerminalJob(project.slug, during.job_id), false)
     assert.throws(() => jq.retryTerminalJob(project.slug, during.job_id))
-    assert.throws(() => jq.enqueue({ project_slug: project.slug, type: 'audio', episode_id: 'EP0001', title: 'duplicate', params: {} }))
+    assert.throws(() => jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'audio', episode_id: 'EP0001', title: 'duplicate', params: {} }))
 
     siblingSettled = true
     await waitFor(() => jq.getJob('cold-sibling')?.status === 'error')

@@ -39,6 +39,7 @@ import {
 } from '../content-packs/registry.js'
 import { contentPackDocumentToThumbnailTemplate } from '../content-packs/legacy-adapters.js'
 import type { ContentPackDocument } from '../content-packs/types.js'
+import { registryOptionsForCurrentJob, resolveProjectContentPinsForKinds } from '../content-packs/project-pins.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
@@ -134,7 +135,8 @@ function signedTemplate(entry: CatalogEntry<ContentPackDocument>): ThumbnailTemp
 export async function loadTemplate(id: string, registryOptions: ContentPackRegistryOptions = {}): Promise<ThumbnailTemplate | null> {
   if (!id) return null
   if (isQualifiedContentPackId(id)) {
-    const signed = await resolveCatalogItem(id, undefined, registryOptions)
+    const effectiveOptions = await registryOptionsForCurrentJob(['thumbnail-recipe'], registryOptions)
+    const signed = await resolveCatalogItem(id, undefined, effectiveOptions)
     if (signed) {
       const mapped = signedTemplate(signed)
       if (mapped) return mapped
@@ -216,19 +218,22 @@ export async function getEffectiveTemplateFor(
   project: ProjectMeta,
   niche: Niche | null,
   projectConfig?: Record<string, any> | null,
+  registryOptions: ContentPackRegistryOptions = {},
 ): Promise<ThumbnailTemplate | null> {
+  const pins = await resolveProjectContentPinsForKinds(project, ['thumbnail-recipe'], registryOptions)
+  const pinnedOptions = { ...registryOptions, pins }
   // 1. Project-level override wins everywhere
   const cfg = projectConfig || (await pm.getConfig(project.slug)) || {}
   const overrideId = typeof cfg.thumbnail_template_id === 'string' ? cfg.thumbnail_template_id : ''
   if (overrideId) {
-    const t = await loadTemplate(overrideId)
+    const t = await loadTemplate(overrideId, pinnedOptions)
     if (t) return t
     console.warn(`[thumbnail-template-loader] project '${project.slug}' references template '${overrideId}' but no file found; falling back to niche default`)
   }
 
   // 2. Niche's declared default (the modern path)
   if (niche?.defaultThumbnailTemplateId) {
-    const t = await loadTemplate(niche.defaultThumbnailTemplateId)
+    const t = await loadTemplate(niche.defaultThumbnailTemplateId, pinnedOptions)
     if (t) return t
     console.warn(`[thumbnail-template-loader] niche '${niche.id}' references default template '${niche.defaultThumbnailTemplateId}' but no file was found`)
   }

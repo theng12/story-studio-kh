@@ -342,7 +342,7 @@ test('Jobs retry preserves legacy Motion fallback and an exact selected variant'
       .expect(400)
 
     jq.registerExecutor('scene_clip_generate', async () => { throw new Error('legacy failure') })
-    const legacy = jq.enqueue({
+    const legacy = jq.enqueuePreparedForTest({
       project_slug: episode.project.slug, type: 'scene_clip_generate', episode_id: episode.episodeId,
       title: 'Legacy motion clip', params: {
         episode_id: episode.episodeId, scene_id: 'scene-001', model: 'genstudio-video:mock-video-v1',
@@ -369,7 +369,7 @@ test('Jobs retry preserves legacy Motion fallback and an exact selected variant'
     await waitForTerminalJob(jq, legacyRetry.body.job.job_id, 8_000)
 
     jq.registerExecutor('scene_clip_generate', async () => { throw new Error('selected failure') })
-    const selected = jq.enqueue({
+    const selected = jq.enqueuePreparedForTest({
       project_slug: episode.project.slug, type: 'scene_clip_generate', episode_id: episode.episodeId,
       title: 'Selected motion clip', params: {
         episode_id: episode.episodeId, scene_id: 'scene-001', model: 'genstudio-video:mock-video-v1',

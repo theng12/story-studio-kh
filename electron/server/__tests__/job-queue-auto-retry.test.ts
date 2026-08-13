@@ -38,7 +38,7 @@ describe('queue-owned local retries', () => {
     })
     jq.registerExecutor('audio_merge', async () => { chained++ })
 
-    const queued = jq.enqueue({
+    const queued = jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'subtitles_transcribe',
       episode_id: 'EP0036',
@@ -74,7 +74,7 @@ describe('queue-owned local retries', () => {
       throw new Error('Legacy setting awaiting GenStudio migration')
     })
 
-    const queued = jq.enqueue({
+    const queued = jq.enqueuePreparedForTest({
       project_slug: project.slug,
       type: 'subtitles_transcribe',
       episode_id: 'EP0037',

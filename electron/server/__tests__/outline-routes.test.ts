@@ -123,7 +123,7 @@ async function terminalExpansionJob(
   const jq = await import('../services/job-queue.js')
   const wasPaused = jq.isQueuePaused()
   await jq.setQueuePaused(true)
-  const original = jq.enqueue({
+  const original = jq.enqueuePreparedForTest({
     project_slug: slug,
     type: 'expand_chapters',
     episode_id: episodeId,
@@ -473,7 +473,7 @@ describe('POST /expand-chapters — terminal manual retry', () => {
     const terminalSource = await terminalExpansionJob(EPISODE_ID)
     const jq = await import('../services/job-queue.js')
     await jq.setQueuePaused(true)
-    const active = jq.enqueue({
+    const active = jq.enqueuePreparedForTest({
       project_slug: slug,
       type: 'expand_chapters',
       episode_id: EPISODE_ID,
