@@ -331,6 +331,18 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
     }
     const tupleKey = (tuple: { episode_object: string, time_place_scope: string, mechanism: string, evidence_lens: string }) =>
       [tuple.episode_object, tuple.time_place_scope, tuple.mechanism, tuple.evidence_lens].join('|')
+    const coreOwners = new Map<string, string>()
+    for (const profile of topic.coverage_profiles!) {
+      for (const tuple of profile.tuples) {
+        const core = `${tuple.episode_object}|${tuple.mechanism}`
+        const priorSubject = coreOwners.get(core)
+        const deliberateReusableCue = topicSlug === 'habits-momentum'
+          && core === 'a water bottle|cue design'
+        assert.ok(!priorSubject || priorSubject === profile.subject || deliberateReusableCue,
+          `${topicSlug} ${profile.subject} must not reuse the core object and mechanism from ${priorSubject}`)
+        coreOwners.set(core, profile.subject)
+      }
+    }
     for (const profile of topic.coverage_profiles!) {
       const authoredTuples = profile.tuples
       for (const other of topic.coverage_profiles!) {
@@ -413,6 +425,9 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
   assert.equal(samples.get('ancient-humans-survival')?.['living without medicine']?.mechanism, 'wound covering and protected rest')
   assert.equal(samples.get('ancient-humans-survival')?.['finding safe drinking water']?.['episode-object'], 'a line of animal tracks converging on a spring')
   assert.equal(samples.get('ancient-humans-survival')?.['escaping wildfires']?.['episode-object'], 'a low-fuel burned strip beside camp')
+  assert.equal(reservedSamples.get('ancient-humans-survival')?.['sleeping near predators']?.['episode-object'], 'a ring of thorn branches')
+  assert.equal(reservedSamples.get('ancient-humans-survival')?.['avoiding food poisoning']?.['episode-object'], 'an offal discard pit beyond camp')
+  assert.equal(samples.get('ancient-humans-survival')?.['surviving famine']?.['episode-object'], 'a ground-stone seed-processing slab')
   assert.equal(samples.get('everyday-calm')?.['desk-side stretch']?.['episode-object'], 'the edge of a desk')
   assert.equal(samples.get('everyday-calm')?.['after-screen pause']?.['episode-object'], 'a view through a distant window')
   assert.equal(samples.get('everyday-calm')?.['bedtime lamp ritual']?.mechanism, 'single-task closing ritual')
@@ -424,6 +439,7 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
   assert.equal(reservedSamples.get('everyday-calm')?.['after-screen pause']?.['episode-object'], 'a closed laptop beside a doorway')
   assert.equal(reservedSamples.get('everyday-calm')?.['rain at the window']?.['episode-object'], 'a loose window latch')
   assert.equal(reservedSamples.get('everyday-calm')?.['five-senses walk']?.['episode-object'], 'a rough tree-bark patch')
+  assert.equal(reservedSamples.get('everyday-calm')?.['homecoming threshold']?.['episode-object'], 'a key tray beside the door')
   assert.equal(reservedSamples.get('night-journeys')?.['moonlit garden watering']?.['episode-object'], 'a clay watering jar')
   assert.equal(samples.get('night-journeys')?.['riverside map folding']?.['time-place-scope'], 'a table beside an open riverside window')
   assert.equal(samples.get('night-journeys')?.['teashop closing ritual']?.mechanism, 'rinsing the last cup')
