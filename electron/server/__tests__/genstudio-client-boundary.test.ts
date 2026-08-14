@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import test from 'node:test'
+import { after, test } from 'node:test'
 import { DEFAULT_AUDIO_MODELS, DEFAULT_VOICE_PRESETS } from '../models/defaults.js'
 import { normalizeVoicePresets, voiceSupportsProvider } from '../services/voice-presets.js'
 import {
@@ -43,6 +43,13 @@ import {
   splitGenStudioApiRequests,
   transcribeWithGenStudio,
 } from '../lib/genstudio-client.js'
+import { useTempDataDir } from './_helpers.js'
+
+// The client resolves its base URL from app settings for every request. Claim a
+// fresh settings directory before the exact default-origin assertions below so
+// a developer's saved GenStudio port cannot affect this boundary suite.
+const isolatedDataDir = await useTempDataDir()
+after(() => isolatedDataDir.cleanup())
 
 const ONE_PIXEL_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
