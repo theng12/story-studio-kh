@@ -2,6 +2,8 @@ import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import express from 'express'
 import request from 'supertest'
 import type { Job } from '../models/types.js'
@@ -67,6 +69,31 @@ async function waitForInactive(statusFile: string): Promise<Record<string, unkno
     await new Promise(resolve => setTimeout(resolve, 20))
   }
   assert.fail(`render status remained active: ${await fs.readFile(statusFile, 'utf-8')}`)
+}
+
+const processFixture = fileURLToPath(new URL('./fixtures/scene-render-status-process.ts', import.meta.url))
+
+function runStatusProcess(args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--import', 'tsx', processFixture, ...args], {
+      env: { ...process.env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let output = ''
+    child.stdout.on('data', chunk => { output += String(chunk) })
+    child.stderr.on('data', chunk => { output += String(chunk) })
+    child.once('error', reject)
+    child.once('exit', code => code === 0 ? resolve() : reject(new Error(`scene status worker exited ${code}: ${output}`)))
+  })
+}
+
+async function waitForFile(filePath: string, timeoutMs = 2_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await fs.access(filePath).then(() => true, () => false)) return true
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  return false
 }
 
 describe('Scene render status lifecycle', () => {
@@ -194,6 +221,48 @@ describe('Scene render status lifecycle', () => {
     assert.equal(status.active, true)
     assert.equal(status.job_id, 'new-render-batch')
     assert.deepEqual(status.in_flight, [3])
+  })
+
+  test('coordinates cleanup and a newer marker across independent processes', async () => {
+    const project = await pm.createProject({ name: 'Cross-process render marker' })
+    const episodeId = 'EP009'
+    const { statusFile } = await writeActiveRenderStatus(project.slug, episodeId)
+    await fs.writeFile(statusFile, JSON.stringify({ active: true, job_id: 'old-render-batch', in_flight: [2] }, null, 2))
+    const readyFile = `${statusFile}.old-read`
+    const releaseFile = `${statusFile}.release`
+    const writerStartedFile = `${statusFile}.writer-started`
+    const writerDoneFile = `${statusFile}.writer-done`
+
+    const cleanup = runStatusProcess(['cleanup', project.slug, episodeId, 'old-render-batch', readyFile, releaseFile])
+    assert.equal(await waitForFile(readyFile), true, 'cleanup worker must hold its old read')
+    const writer = runStatusProcess(['write', statusFile, writerStartedFile, writerDoneFile])
+    assert.equal(await waitForFile(writerStartedFile), true, 'new writer must begin before cleanup is released')
+    const writerFinishedBeforeRelease = await waitForFile(writerDoneFile, 250)
+    await fs.writeFile(releaseFile, 'release')
+    await Promise.all([cleanup, writer])
+
+    const status = JSON.parse(await fs.readFile(statusFile, 'utf-8'))
+    assert.equal(writerFinishedBeforeRelease, false, 'the new writer must wait for the cross-process ownership check')
+    assert.equal(status.active, true)
+    assert.equal(status.job_id, 'new-render-batch')
+    assert.deepEqual(status.in_flight, [3])
+  })
+
+  test('reclaims a stale cross-process lock without leaving a successor lock behind', async () => {
+    const project = await pm.createProject({ name: 'Stale render marker lock' })
+    const episodeId = 'EP010'
+    const { statusFile } = await writeActiveRenderStatus(project.slug, episodeId)
+    const lockPath = `${statusFile}.lock`
+    await fs.mkdir(lockPath)
+    await fs.writeFile(path.join(lockPath, 'owner'), 'crashed-owner')
+    const staleAt = new Date(Date.now() - 31_000)
+    await fs.utimes(lockPath, staleAt, staleAt)
+
+    await writeSceneRenderStatus(statusFile, { active: true, job_id: 'recovered-render-batch', in_flight: [4] })
+
+    const status = JSON.parse(await fs.readFile(statusFile, 'utf-8'))
+    assert.equal(status.job_id, 'recovered-render-batch')
+    assert.equal(await fs.access(lockPath).then(() => true, () => false), false)
   })
 
   test('restart terminalization deactivates an interrupted render marker', async () => {

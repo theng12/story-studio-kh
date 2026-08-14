@@ -84,6 +84,17 @@ describe('Scene Review image preview', () => {
     assert.match(sceneReviewSource, /if \(activeRenderJob\.value\?\.status === 'paused'\) return/)
   })
 
+  test('a paused render is visibly paused, not loading, spinning, or regenerable', () => {
+    assert.match(sceneReviewSource, /:generate-loading="\(bulkQueuing && !isRenderPaused\) \|\| isRendering"/)
+    assert.doesNotMatch(sceneReviewSource, /:generate-loading="[^"\n]*reviewJobActive/)
+    assert.match(sceneReviewSource, /<span v-if="!isRenderPaused" class="review-spinner"/)
+    assert.match(sceneReviewSource, /function isSceneGenerating\(scene: ReviewScene\): boolean \{\s*if \(isRenderPaused\.value\) return false/)
+    assert.match(sceneReviewSource, /v-else[\s\S]*:class="\['review-thumb-empty', \{ 'is-disabled': reviewJobActive \}\]"[\s\S]*:aria-disabled="reviewJobActive"[\s\S]*@click="!reviewJobActive && generateOne\(scene\)"/)
+    assert.match(sceneReviewSource, /:disabled="!form\.model \|\| regeneratingId === previewScene\.id \|\| reviewJobActive"/)
+    assert.match(sceneReviewSource, /\.review-thumb-empty\.is-disabled[\s\S]*cursor:\s*not-allowed/)
+    assert.match(sceneReviewSource, /Resume explicitly\. Story Studio audits saved files/)
+  })
+
   test('the preview is teleported above the clipped dashboard', () => {
     assert.match(sceneReviewSource, /<Teleport to="body">[\s\S]*class="sr-lightbox"/)
     assert.match(sceneReviewSource, /\.sr-lightbox\s*{[\s\S]*z-index:\s*10000;/)

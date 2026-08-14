@@ -43,7 +43,7 @@
         :presets="srPresets"
         generate-label="Generate all missing"
         loading-label="Queuing…"
-        :generate-loading="bulkQueuing || reviewJobActive || isRendering"
+        :generate-loading="(bulkQueuing && !isRenderPaused) || isRendering"
         :generate-disabled="!canBulkGenerate || reviewJobActive"
         :generate-status="bulkStatus"
         @generate="generateAllMissing"
@@ -278,7 +278,7 @@
       <!-- v1.0.231 — live render banner. Shows while a render job for this
            episode is active, with overall progress + the current scene. -->
       <div v-if="activeRenderJob" class="review-render-banner mt-2">
-        <span class="review-spinner" aria-hidden="true" />
+        <span v-if="!isRenderPaused" class="review-spinner" aria-hidden="true" />
         <span v-if="isRenderPaused">
           Paused — awaiting explicit Resume.
           <span class="text-muted">{{ hasSettlingProviderWork ? ' Accepted provider work is still settling; no new submissions will start.' : ' No new submissions will start until you resume.' }}</span>
@@ -289,7 +289,7 @@
           <template v-if="renderProgress != null"> · {{ renderProgress }}% done</template>
           <span class="text-muted"> — GenStudio schedules the batch and images appear here as each one finishes.</span>
         </span>
-        <span v-if="renderProgress != null" class="review-render-bar" aria-hidden="true">
+        <span v-if="!isRenderPaused && renderProgress != null" class="review-render-bar" aria-hidden="true">
           <span class="review-render-fill" :style="{ width: renderProgress + '%' }" />
         </span>
         <button
@@ -383,7 +383,14 @@
               <span class="review-spinner" aria-hidden="true" />
               <small>Generating…</small>
             </div>
-            <div v-else class="review-thumb-empty" :style="{ aspectRatio: thumbAspect }" @click="generateOne(scene)">
+            <div
+              v-else
+              :class="['review-thumb-empty', { 'is-disabled': reviewJobActive }]"
+              :style="{ aspectRatio: thumbAspect }"
+              :aria-disabled="reviewJobActive"
+              :title="reviewJobActive ? 'Resume or finish the current scene render before generating another image.' : 'Generate image'"
+              @click="!reviewJobActive && generateOne(scene)"
+            >
               <span>No image yet</span>
               <small>(click to generate)</small>
             </div>
@@ -516,7 +523,7 @@
             >{{ savingPrompt ? '⏳' : '💾 Save prompt' }}</button>
             <button
               class="btn btn-sm btn-secondary"
-              :disabled="!form.model || regeneratingId === previewScene.id"
+              :disabled="!form.model || regeneratingId === previewScene.id || reviewJobActive"
               @click.stop="regenerateFromPreview(previewScene)"
               :title="!form.model ? 'Pick a model in the Greenlight panel first' : 'Re-render this image (saves your prompt edit first)'"
             >{{ regeneratingId === previewScene.id ? '⏳ Rendering…' : '🔄 Regenerate' }}</button>
@@ -1323,6 +1330,7 @@ const batchInFlight = computed<Set<number>>(() => {
   return new Set(s.in_flight)
 })
 function isSceneGenerating(scene: ReviewScene): boolean {
+  if (isRenderPaused.value) return false
   if (regeneratingId.value === scene.id) return true
   return batchInFlight.value.has(scene.scene_index)
 }
@@ -2007,6 +2015,8 @@ watch(episodeId, () => {
   padding: 4px;
 }
 .review-thumb-empty:hover { border-color: var(--accent); color: var(--accent); }
+.review-thumb-empty.is-disabled { cursor: not-allowed; opacity: .58; }
+.review-thumb-empty.is-disabled:hover { border-color: var(--border); color: var(--text-muted); }
 
 .review-body-cell { min-width: 0; }
 .review-row-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }

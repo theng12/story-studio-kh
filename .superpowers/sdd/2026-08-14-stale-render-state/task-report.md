@@ -34,6 +34,21 @@ that the owning queue job was still active.
   per-file lock and atomic write. A deterministic interleaving regression
   proves an old cleanup cannot overwrite a newer batch marker.
 
+## Second re-review correction
+
+- The sidecar critical section now adds a short-lived, owner-checked atomic
+  lock directory around the existing in-process lock and atomic JSON rename.
+  A stale lock is atomically moved aside before cleanup; an owner only removes
+  its own marker, and lock acquisition times out closed rather than writing
+  over an unproven owner.
+- A genuine two-`tsx`-process test pauses an old cleanup after its read while
+  a newer writer attempts to update the same status file. The newer writer
+  waits, then the final marker remains active for the newer job.
+- Paused ownership no longer drives `Queuing…` or a spinner. The paused banner
+  stays explicit with Resume, in-flight thumbnail spinners stop, and empty or
+  preview regeneration controls are visibly disabled until the owner settles,
+  is cancelled, or is explicitly resumed.
+
 ## Safety boundary
 
 The new cleanup does local sidecar reads/writes only. It sends no provider
@@ -47,7 +62,10 @@ deletion. Tests use temporary local projects and no provider calls.
 - Local mock-only control/queue/state suites: `job-cancel.test.ts`,
   `job-queue.test.ts`, and `scene-render-status.test.ts` — 74 pass.
 - Focused frontend suites: `sceneReviewPreview.test.ts` and `useJobs.test.ts`
-  — 22 pass.
+  — 23 pass.
+- Second re-review race/control/state suite: `job-cancel.test.ts`,
+  `job-queue.test.ts`, and `scene-render-status.test.ts` — 76 pass, including
+  the cross-process regression.
 - Both `npm run typecheck:electron` and `npm --prefix frontend run typecheck`
   completed in the local toolchain; `npm run lint` and `git diff --check` were
   also run.
