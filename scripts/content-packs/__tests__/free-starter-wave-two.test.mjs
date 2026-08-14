@@ -97,17 +97,18 @@ test('BLOCKED: Centered Hero and Portrait Block bind a future raster to their ex
     assert.equal(record.provenance, 'owner-supplied-original')
     const url = new URL(preview, WAVE)
     const canonicalSourcePath = `content-packs/free-starters/${preview}`
-    if (record.status === 'blocked-missing-owner-original') {
-      assert.equal(record.sourcePath, null)
-      assert.equal(record.sha256, null)
-      await access(url)
-      continue
+    const assetPath = sourcePath(url)
+    try {
+      await access(assetPath)
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error
+      assert.deepEqual(record, { id: ownerId, ownerId, provenance: 'owner-supplied-original', status: 'blocked-missing-owner-original', sourcePath: null, sha256: null })
+      assert.fail(`missing owner-original ${ownerId} raster: ${canonicalSourcePath}`)
     }
     assert.equal(record.status, 'approved')
     assert.equal(record.sourcePath, canonicalSourcePath)
     assert.match(record.sha256, /^[a-f0-9]{64}$/)
-    await access(url)
-    assert.equal(createHash('sha256').update(await readFile(url)).digest('hex'), record.sha256)
-    assert.deepEqual(await sharp(sourcePath(url)).metadata().then(({ format, width, height }) => ({ format, width, height })), { format: 'webp', width: 1672, height: 941 })
+    assert.equal(createHash('sha256').update(await readFile(assetPath)).digest('hex'), record.sha256)
+    assert.deepEqual(await sharp(assetPath).metadata().then(({ format, width, height }) => ({ format, width, height })), { format: 'webp', width: 1672, height: 941 })
   }
 })

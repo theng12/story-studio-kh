@@ -25,6 +25,16 @@ function provenanceRecords(markdown) {
   assert.ok(match, 'ASSET-PROVENANCE.md must contain the machine-readable preview registry')
   return JSON.parse(match[1])
 }
+async function assertApprovedPreview(record, { ownerId, assetPath, canonicalSourcePath }) {
+  assert.equal(record.ownerId, ownerId)
+  assert.equal(record.provenance, 'owner-supplied-original')
+  assert.equal(record.status, 'approved')
+  assert.equal(record.sourcePath, canonicalSourcePath)
+  assert.match(record.sha256, /^[a-f0-9]{64}$/)
+  await access(assetPath)
+  assert.equal(createHash('sha256').update(await readFile(assetPath)).digest('hex'), record.sha256)
+  assert.deepEqual(await sharp(assetPath).metadata().then(({ format, width, height }) => ({ format, width, height })), { format: 'webp', width: 1672, height: 941 })
+}
 
 test('wave three binds the exact wellness identities, 15-subject Topics, complete axes, and Kit closures', async () => {
   const actualCounts = []
@@ -133,19 +143,29 @@ test('BLOCKED: Dreamscape Story Window binds a future raster to its exact owner 
   assert.deepEqual(recipe.preview_assets, ['assets/dreamscape-story-window.webp'])
   const record = provenanceRecords(await readFile(PROVENANCE, 'utf8')).find(row => row.id === 'dreamscape-story-window')
   assert.ok(record, 'missing dreamscape-story-window provenance record')
-  assert.equal(record.ownerId, 'dreamscape-story-window')
-  assert.equal(record.provenance, 'owner-supplied-original')
+  const ownerId = 'dreamscape-story-window'
   const canonicalSourcePath = 'content-packs/free-starters/thumbnail/dreamscape-story-window/assets/dreamscape-story-window.webp'
-  if (record.status === 'blocked-missing-owner-original') {
-    assert.equal(record.sourcePath, null)
-    assert.equal(record.sha256, null)
-    await access(BLOCKED_DREAMSCAPE_PREVIEW)
-    return
+  const assetPath = sourcePath(BLOCKED_DREAMSCAPE_PREVIEW)
+  try {
+    await access(assetPath)
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    assert.deepEqual(record, { id: ownerId, ownerId, provenance: 'owner-supplied-original', status: 'blocked-missing-owner-original', sourcePath: null, sha256: null })
+    assert.fail(`missing owner-original Dreamscape Story Window raster: ${canonicalSourcePath}`)
   }
-  assert.equal(record.status, 'approved')
-  assert.equal(record.sourcePath, canonicalSourcePath)
-  assert.match(record.sha256, /^[a-f0-9]{64}$/)
-  await access(BLOCKED_DREAMSCAPE_PREVIEW)
-  assert.equal(createHash('sha256').update(await readFile(BLOCKED_DREAMSCAPE_PREVIEW)).digest('hex'), record.sha256)
-  assert.deepEqual(await sharp(sourcePath(BLOCKED_DREAMSCAPE_PREVIEW)).metadata().then(({ format, width, height }) => ({ format, width, height })), { format: 'webp', width: 1672, height: 941 })
+  await assertApprovedPreview(record, { ownerId, assetPath, canonicalSourcePath })
+})
+
+test('a present Dreamscape raster rejects a blocked provenance record', async t => {
+  const temporary = await mkdtemp(join(tmpdir(), 'story-wave-three-blocked-preview-'))
+  t.after(() => rm(temporary, { recursive: true, force: true }))
+  const assetPath = join(temporary, 'dreamscape-story-window.webp')
+  await writeFile(assetPath, await readFile(new URL('style/watercolor-storybook/assets/watercolor-storybook.webp', WAVE)))
+  await assert.rejects(
+    assertApprovedPreview({ id: 'dreamscape-story-window', ownerId: 'dreamscape-story-window', provenance: 'owner-supplied-original', status: 'blocked-missing-owner-original', sourcePath: null, sha256: null }, {
+      ownerId: 'dreamscape-story-window', assetPath,
+      canonicalSourcePath: 'content-packs/free-starters/thumbnail/dreamscape-story-window/assets/dreamscape-story-window.webp',
+    }),
+    { name: 'AssertionError', message: /approved/ },
+  )
 })
