@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   localStartupPath,
+  contentStoreAssetErrors,
   remoteStartupReferences,
   startupReferences,
   validateServiceBaseUrl,
@@ -92,6 +93,12 @@ function checkBuiltOutputs() {
   if (!fs.existsSync(indexPath)) fail('frontend/.output/public/index.html: offline startup document is missing')
 
   const electronFiles = walkFiles(electronRoot)
+  const publicFiles = walkFiles(publicRoot)
+  const contentStoreErrors = contentStoreAssetErrors(
+    publicFiles.map(file => path.relative(root, file).replace(/\\/g, '/')),
+    entry => fs.readFileSync(path.join(root, entry), 'utf8'),
+  )
+  for (const error of contentStoreErrors) fail(`frontend Content Store: ${error}`)
   for (const file of electronFiles) {
     const relative = path.relative(root, file).replace(/\\/g, '/')
     if (/(?:^|\/)(?:__tests__|tests|test)(?:\/|$)/.test(relative) || /\.test\.js$/.test(relative)) {

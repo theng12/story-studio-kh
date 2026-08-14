@@ -9,6 +9,7 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import {
   expandArtifactName,
+  contentStoreAssetErrors,
   forbiddenPackageEntry,
   parseChangelog,
   remoteStartupReferences,
@@ -110,6 +111,11 @@ if (fs.existsSync(appPath)) {
     for (const required of [contract.main, 'electron/preload.cjs', 'frontend/.output/public/index.html', 'package.json']) {
       if (!entrySet.has(required)) fail(`app.asar is missing ${required}`)
     }
+    const contentStoreErrors = contentStoreAssetErrors(entries, (entry) => {
+      if (!entry.startsWith('frontend/.output/public/_nuxt/')) return ''
+      return asar.extractFile(asarPath, entry).toString('utf8')
+    })
+    for (const error of contentStoreErrors) fail(`packaged frontend Content Store: ${error}`)
     for (const entry of entries) {
       if (forbiddenPackageEntry(entry)) fail(`forbidden file reached app.asar: ${entry}`)
     }

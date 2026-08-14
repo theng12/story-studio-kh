@@ -57,6 +57,40 @@ export function remoteStartupReferences(html) {
   return startupReferences(html).filter((ref) => /^(?:https?:)?\/\//i.test(ref))
 }
 
+/**
+ * The Content Store is a statically generated route, but its page code is a
+ * lazy client chunk. Check both sides of that mapping so an old/partial
+ * frontend cannot pass the release gate while silently dropping the page.
+ */
+export function contentStoreAssetErrors(entries, readText) {
+  const present = new Set(entries.map(entry => String(entry).replace(/\\/g, '/').replace(/^\/+/, '')))
+  const errors = []
+  const routeEntry = 'frontend/.output/public/content-store/index.html'
+  if (!present.has(routeEntry)) errors.push('Content Store static route entry is missing')
+
+  const routeManifestEntries = [...present].filter(entry => (
+    entry.startsWith('frontend/.output/public/_nuxt/') && entry.endsWith('.js')
+  ))
+  let pageChunkEntry = null
+  let foundRouteManifest = false
+  for (const entry of routeManifestEntries) {
+    const source = String(readText(entry))
+    if (!/name:[`"']content-store[`"']/.test(source)) continue
+    foundRouteManifest = true
+    const match = source.match(
+      /name:[`"']content-store[`"'][\s\S]{0,180}?path:[`"']\/content-store[`"'][\s\S]{0,320}?import\([`"']\.\/([^`"']+\.js)[`"']\)/,
+    )
+    if (match) {
+      pageChunkEntry = `frontend/.output/public/_nuxt/${match[1]}`
+      break
+    }
+  }
+  if (!foundRouteManifest) errors.push('Content Store client route manifest is missing')
+  else if (!pageChunkEntry) errors.push('Content Store lazy page chunk mapping is missing')
+  else if (!present.has(pageChunkEntry)) errors.push(`Content Store lazy page chunk is missing: ${pageChunkEntry}`)
+  return errors
+}
+
 export function localStartupPath(publicRoot, reference) {
   if (!reference || /^(?:[a-z]+:|#|\/\/)/i.test(reference)) return null
   const clean = reference.split(/[?#]/, 1)[0]

@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.842
+
+- Added Content Store navigation and in-page scope/load regression coverage.
+- Release gates now require the generated `/content-store` route and lazy page chunk in static and packaged frontend inputs, preventing stale DMGs from silently dropping the Store.
+
 ## v1.0.841
 
 - Upgraded the desktop runtime from Electron 39 to Electron 43.4.0, removing the vulnerable legacy archive extractor from Story Studio's development and packaging dependency tree.

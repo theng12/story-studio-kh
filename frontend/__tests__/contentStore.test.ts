@@ -366,6 +366,25 @@ describe('useContentStore explicit commerce state machine', () => {
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.equal(installCalls, 1, 'a recalled exact version must never retry automatically')
   })
+
+  test('keeps an initial catalog scope refusal on the Content Store page', async () => {
+    handler = () => {
+      const error: any = new Error('scope')
+      error.status = 401
+      error.data = {
+        code: 'CONTENT_STORE_SCOPE_REQUIRED',
+        detail: 'The active GenStudio key was not accepted for required content:read access.',
+      }
+      throw error
+    }
+
+    const store = useContentStore()
+    await assert.rejects(store.refresh())
+    assert.equal(store.error.value?.status, 401)
+    assert.equal(store.error.value?.code, 'CONTENT_STORE_SCOPE_REQUIRED')
+    assert.match(store.error.value?.detail || '', /content:read/)
+    assert.deepEqual(store.products.value, [])
+  })
 })
 
 describe('Content Store renderer contract', () => {
@@ -464,5 +483,12 @@ describe('Content Store renderer contract', () => {
     assert.match(dashboard, /to="\/content-store"[^>]*>Content Store</)
     assert.match(dashboard, /closeMobileNav/)
     assert.match(dashboard, /focusableSidebarItems/)
+  })
+
+  test('mounts the Content Store page directly and loads errors in place', () => {
+    assert.match(page, /useAppTitle\('Content Store'\)/)
+    assert.match(page, /onMounted\(\(\) => \{ void loadStore\(\) \}\)/)
+    assert.match(page, /v-if="pageError"/)
+    assert.doesNotMatch(page, /navigateTo\(['"]\/login['"]\)/)
   })
 })

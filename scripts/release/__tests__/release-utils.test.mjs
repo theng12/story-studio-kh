@@ -2,6 +2,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   compareVersions,
+  contentStoreAssetErrors,
   expandArtifactName,
   forbiddenPackageEntry,
   parseChangelog,
@@ -44,6 +45,28 @@ describe('release utility contracts', () => {
   test('detects remote startup dependencies but permits local assets', () => {
     const html = '<link href="/_nuxt/a.css"><script src="https://cdn.invalid/a.js"></script>'
     assert.deepEqual(remoteStartupReferences(html), ['https://cdn.invalid/a.js'])
+  })
+
+  test('requires the generated Content Store route and lazy page chunk in release inputs', () => {
+    const contents = new Map([
+      ['frontend/.output/public/_nuxt/routes.js', 'name:`content-store`,path:`/content-store`,component:()=>import(`./content-store-page.js`)'],
+      ['frontend/.output/public/_nuxt/content-store-page.js', 'Content Store'],
+    ])
+    const entries = [
+      'frontend/.output/public/content-store/index.html',
+      ...contents.keys(),
+    ]
+    const readText = entry => contents.get(entry) || ''
+
+    assert.deepEqual(contentStoreAssetErrors(entries, readText), [])
+    assert.match(
+      contentStoreAssetErrors(entries.filter(entry => !entry.endsWith('content-store-page.js')), readText).join('\n'),
+      /lazy page chunk is missing/,
+    )
+    assert.match(
+      contentStoreAssetErrors(entries.filter(entry => entry !== 'frontend/.output/public/content-store/index.html'), readText).join('\n'),
+      /static route entry is missing/,
+    )
   })
 
   test('rejects secret, database, test, map, log, and generated-data package entries', () => {
