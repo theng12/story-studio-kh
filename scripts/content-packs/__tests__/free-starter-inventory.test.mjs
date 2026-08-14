@@ -64,8 +64,8 @@ const registry = {
     ['prehistoric-discovery', false],
     ['documentary-label-tableau', true],
     ['annotated-business-board', true],
-    ['centered-hero-headline', true],
-    ['portrait-block-right', true],
+    ['centered-hero-headline', false],
+    ['portrait-block-right', false],
     ['dreamscape-story-window', false],
   ].map(([slug, migrated]) => ({
     id: `com.storystudio.thumbnail.${slug}`,
@@ -172,16 +172,22 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
     }
   }
 
-  for (const sourceId of ['prehistoric-discovery', 'dreamscape-story-window']) {
+  for (const [sourceId, sourcePath, hash] of [
+    ['prehistoric-discovery', 'content-packs/free-starters/thumbnail/prehistoric-discovery/assets/prehistoric-discovery.webp', '557f86602b5f96f8d92fc28f981c79eb1121d63b2f7ab1d8bff535e8524dfd14'],
+    ['centered-hero-headline', 'content-packs/free-starters/thumbnail/centered-hero-headline/assets/centered-hero-headline.webp', '330334bf935e06fb8167a4ea8321d37a92f64b12a88e9564ccb9cf45f893d2ab'],
+    ['portrait-block-right', 'content-packs/free-starters/thumbnail/portrait-block-right/assets/portrait-block-right.webp', 'd7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f'],
+    ['dreamscape-story-window', 'content-packs/free-starters/thumbnail/dreamscape-story-window/assets/dreamscape-story-window.webp', '1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce'],
+  ]) {
     const record = records.find(row => row.id === sourceId)
     assert.deepEqual(record, {
       id: sourceId,
-      ...(sourceId === 'dreamscape-story-window' ? { ownerId: 'dreamscape-story-window' } : {}),
+      ownerId: sourceId,
       provenance: 'owner-supplied-original',
-      status: 'blocked-missing-owner-original',
-      sourcePath: null,
-      sha256: null,
+      status: 'approved',
+      sourcePath,
+      sha256: hash,
     })
+    assert.equal(sha256(await readFile(new URL(sourcePath, ROOT))), hash)
   }
 })
 

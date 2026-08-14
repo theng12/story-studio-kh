@@ -9,10 +9,9 @@ Each approved record's `ownerId` is the exact legacy Style or Recipe
 declaration authorized to select those bytes.
 
 Prehistoric Discovery, Dreamscape Story Window, Centered Hero Headline, and
-Portrait Block Right are deliberately blocked:
-there is no raster path, no SHA-256, and no substitute preview. The First
-Humans and Sleep Journeys kits must remain blocked until the corresponding
-owner-supplied originals are added to this ledger.
+Portrait Block Right now use owner-supplied original previews. Their canonical
+source paths and SHA-256 values below bind the approved bytes used by the
+associated Free Starter Channel Kit recipes.
 
 <!-- free-starter-preview-provenance
 [
@@ -34,9 +33,9 @@ owner-supplied originals are added to this ledger.
   {"id":"annotated-business-board-coffee","ownerId":"annotated-business-board","provenance":"migrated-approved-built-in","status":"approved","sourcePath":"frontend/public/thumbnail-recipe-previews/annotated-business-board-coffee.webp","sha256":"7b0a222dcf0ca1d558d5ebfa28300ec9be201d8ddcbe70259c0fb05fc57da1e8"},
   {"id":"annotated-business-board-workshop","ownerId":"annotated-business-board","provenance":"migrated-approved-built-in","status":"approved","sourcePath":"frontend/public/thumbnail-recipe-previews/annotated-business-board-workshop.webp","sha256":"ee08f477759b2dbc1ddc1df4a3560e3c030523858f23f396b67730c3b7240328"},
   {"id":"annotated-business-board-hotel","ownerId":"annotated-business-board","provenance":"migrated-approved-built-in","status":"approved","sourcePath":"frontend/public/thumbnail-recipe-previews/annotated-business-board-hotel.webp","sha256":"29064f0bd0b38e59883db2ee8f1c66f428c10a3afbca02ca488c9adaf758c2fe"},
-  {"id":"centered-hero-headline","ownerId":"centered-hero-headline","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null},
-  {"id":"portrait-block-right","ownerId":"portrait-block-right","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null},
-  {"id":"prehistoric-discovery","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null},
-  {"id":"dreamscape-story-window","ownerId":"dreamscape-story-window","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null}
+  {"id":"centered-hero-headline","ownerId":"centered-hero-headline","provenance":"owner-supplied-original","status":"approved","sourcePath":"content-packs/free-starters/thumbnail/centered-hero-headline/assets/centered-hero-headline.webp","sha256":"330334bf935e06fb8167a4ea8321d37a92f64b12a88e9564ccb9cf45f893d2ab"},
+  {"id":"portrait-block-right","ownerId":"portrait-block-right","provenance":"owner-supplied-original","status":"approved","sourcePath":"content-packs/free-starters/thumbnail/portrait-block-right/assets/portrait-block-right.webp","sha256":"d7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f"},
+  {"id":"prehistoric-discovery","ownerId":"prehistoric-discovery","provenance":"owner-supplied-original","status":"approved","sourcePath":"content-packs/free-starters/thumbnail/prehistoric-discovery/assets/prehistoric-discovery.webp","sha256":"557f86602b5f96f8d92fc28f981c79eb1121d63b2f7ab1d8bff535e8524dfd14"},
+  {"id":"dreamscape-story-window","ownerId":"dreamscape-story-window","provenance":"owner-supplied-original","status":"approved","sourcePath":"content-packs/free-starters/thumbnail/dreamscape-story-window/assets/dreamscape-story-window.webp","sha256":"1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce"}
 ]
 -->
