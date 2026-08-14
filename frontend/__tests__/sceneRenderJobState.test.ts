@@ -35,4 +35,16 @@ describe('Scene Review render owner reconciliation', () => {
       assert.equal(Boolean(owner), expectBanner, `${status} continuity controls truth`)
     }
   })
+
+  test('a terminal cached batch falls through to a newer active batch for the same episode', () => {
+    const continuityTypes = ['continuity_render', 'scene_images_batch']
+    for (const terminal of ['cancelled', 'done']) {
+      for (const status of ['queued', 'running']) {
+        const newer = { ...pausedSnapshot, job_id: `new-${status}`, status }
+        const owner = resolveActiveSceneRenderJob('EP-SSE', pausedSnapshot, [live(terminal), newer], continuityTypes)
+        assert.equal(owner?.job_id, newer.job_id, `${terminal} batch must yield to queued/running successor`)
+        assert.equal(owner?.status, status, 'successor drives banner, spinner, poll, and continuity controls')
+      }
+    }
+  })
 })

@@ -17,8 +17,8 @@ function isActiveRenderJob(job: SceneRenderJob | null | undefined, types: readon
 /**
  * The Scene Review GET payload can be a paused snapshot while the global Jobs
  * SSE stream has already advanced the same batch. Match by job id first so a
- * newer queued/running state resumes the live UI and a terminal state clears
- * it instead of letting the cached paused owner win forever.
+ * newer queued/running state resumes the live UI. A terminal match yields to
+ * another active batch for the episode instead of letting stale state clear it.
  */
 export function resolveActiveSceneRenderJob(
   episodeId: string | null | undefined,
@@ -31,7 +31,7 @@ export function resolveActiveSceneRenderJob(
   const liveForCached = cachedForEpisode?.job_id
     ? jobs.find(job => job.job_id === cachedForEpisode.job_id)
     : null
-  if (liveForCached) return isActiveRenderJob(liveForCached, types) ? liveForCached : null
-  if (isActiveRenderJob(cachedForEpisode, types)) return cachedForEpisode
+  if (isActiveRenderJob(liveForCached, types)) return liveForCached
+  if (!liveForCached && isActiveRenderJob(cachedForEpisode, types)) return cachedForEpisode
   return jobs.find(job => job.episode_id === episodeId && isActiveRenderJob(job, types)) || null
 }

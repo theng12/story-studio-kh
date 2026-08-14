@@ -63,6 +63,13 @@ that the owning queue job was still active.
   only until the stream has a newer record for that exact batch. Pause/cancel
   classifications and duplicate-submission locks are unchanged.
 
+## Same-episode successor correction
+
+- If the matching cached batch is terminal in SSE, Scene Review now falls
+  through to another queued or running render batch for the same episode. The
+  terminal record suppresses only its own stale cached snapshot; it cannot
+  clear banner, spinner, poll, or controls for the successor batch.
+
 ## Safety boundary
 
 The new cleanup does local sidecar reads/writes only. It sends no provider
@@ -77,8 +84,9 @@ deletion. Tests use temporary local projects and no provider calls.
   `job-queue.test.ts`, and `scene-render-status.test.ts` — 77 pass, including
   both genuine cross-process ownership regressions.
 - Focused frontend suites: `sceneReviewPreview.test.ts`,
-  `sceneRenderJobState.test.ts`, and `useJobs.test.ts` — 27 pass, including
-  paused snapshot → SSE queued/running/terminal reconciliation.
+  `sceneRenderJobState.test.ts`, and `useJobs.test.ts` — 28 pass, including
+  paused snapshot → terminal old batch → queued/running successor
+  reconciliation.
 - Both `npm run typecheck:electron` and `npm --prefix frontend run typecheck`
   completed in the local toolchain; `npm run lint` and `git diff --check` were
   also run.
