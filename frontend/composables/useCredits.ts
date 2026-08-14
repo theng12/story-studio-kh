@@ -85,7 +85,8 @@ export function useCredits() {
   }
 
   function startPolling(intervalMs = DEFAULT_CREDIT_POLL_MS): () => void {
-    const consumer = Symbol('genstudio-account-standing')
+  // model-drift-allow: Internal polling-lease label, not a GenStudio catalog product ID.
+  const consumer = Symbol('genstudio-account-standing')
     pollingConsumers.add(consumer)
     if (!creditInterval) {
       pollIntervalMs.value = intervalMs

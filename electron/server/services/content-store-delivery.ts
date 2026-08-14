@@ -191,6 +191,7 @@ async function installOwnedEntitlement(
     }
     const installed = await installContentPack({
       archiveBytes,
+      // model-drift-allow: Persisted Content Pack provenance discriminator, not a GenStudio catalog product ID.
       source: 'genstudio-store',
       expectedArchiveSha256: release.archiveSha256,
       expectedPackId: release.packId,

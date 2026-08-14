@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { ContentPackManifestSchema } from './schemas.js'
 
+// model-drift-allow: Persisted Content Pack provenance discriminator, not a GenStudio catalog product ID.
 export const ContentPackInstallSourceSchema = z.enum(['local-import', 'recovery', 'genstudio-store'])
 
 export const ContentPackInstalledVersionSchema = z.object({
