@@ -78,6 +78,7 @@ export interface PricedImageModel {
   promotion_name?: string
   promotion_discount_percent?: number
   reference_generation_credits?: number
+  output_options?: PricedImageOption[]
 }
 
 export interface PricedImageOption {
@@ -86,6 +87,58 @@ export interface PricedImageOption {
   credits_per_image?: number
   base_credits_per_image?: number
   reference_generation_credits?: number
+}
+
+/**
+ * Per-image rate summary for choosing a MODEL before choosing its output size.
+ *
+ * When every published output row carries a price, the model menu shows their
+ * complete min–max range. This avoids presenting the default 1K price as if it
+ * also covered a more expensive 2K choice. The exact selected row is still
+ * priced separately by `describeImageUnitCost`.
+ */
+export function describeImageModelRate(
+  model: PricedImageModel | null | undefined,
+  opts: { referenceGuided?: boolean } = {},
+): CreditDisplay {
+  if (!model || model.chargeable === false) return describeImageUnitCost(model, null, opts)
+
+  const options = Array.isArray(model.output_options) ? model.output_options : []
+  const label = model.display_name || 'This model'
+  if (opts.referenceGuided) {
+    const modelSurcharge = publishedNumber(model.reference_generation_credits)
+    const hasUnpricedReference = options.length
+      ? options.some(option => publishedNumber(option.reference_generation_credits) === null && modelSurcharge === null)
+      : modelSurcharge === null
+    if (hasUnpricedReference) return unpublishedCost(label)
+  }
+  if (!options.length || options.some(option => publishedNumber(option.credits_per_image) === null)) {
+    return describeImageUnitCost(model, null, opts)
+  }
+
+  const prices = options.map((option) => {
+    const unit = publishedNumber(option.credits_per_image) as number
+    if (!opts.referenceGuided) return unit
+    const surcharge = publishedNumber(option.reference_generation_credits)
+      ?? publishedNumber(model.reference_generation_credits)
+    return unit + (surcharge as number)
+  })
+  const minimum = Math.min(...prices)
+  const maximum = Math.max(...prices)
+  const text = minimum === maximum
+    ? `${formatCredits(minimum)} / image`
+    : `${formatCredits(minimum).replace(/ credits?$/, '')}–${formatCredits(maximum)} / image by output size`
+
+  return {
+    text,
+    basis: 'rate',
+    title: minimum === maximum
+      ? `GenStudio publishes ${formatCredits(minimum)} per image for every listed output size for ${label}. `
+        + 'GenStudio reports the charge it actually applied on the finished job.'
+      : `GenStudio publishes rates from ${formatCredits(minimum)} to ${formatCredits(maximum)} per image for ${label}, depending on output size. `
+        + 'The output-size picker shows the exact published rate for the output size you choose. '
+        + 'GenStudio reports the charge it actually applied on the finished job.',
+  }
 }
 
 /**

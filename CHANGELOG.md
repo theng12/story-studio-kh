@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.838
+
+- Added GenStudio-published per-image pricing to every image-model row before selection.
+- Shows the full published rate range when output sizes cost differently, instead of presenting the default 1K rate as if it covered every size.
+- Keeps the exact selected output-size rate in the existing output picker and never invents a total charge.
+
 ## v1.0.837
 
 - Added a dedicated published-rate line to model selection rows so LLM input/output token rates and TTS character rates are visible before choosing a model.

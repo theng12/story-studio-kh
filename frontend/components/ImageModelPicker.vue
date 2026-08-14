@@ -31,7 +31,7 @@
 
 <script setup lang="ts">
 import { selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
-import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../utils/genstudio-credit-cost.js'
+import { CREDIT_BASIS_LABEL, describeImageModelRate, describeImageUnitCost } from '../utils/genstudio-credit-cost.js'
 import { defaultOutputOption } from '../utils/genstudio-output-options.js'
 
 const props = withDefaults(defineProps<{
@@ -53,11 +53,15 @@ const options = computed(() => {
   const visibleModels = props.imageMode === 'img2img'
     ? models.value.filter(model => model.available && model.supports_reference_images && model.max_reference_images >= 1 && model.chargeable)
     : models.value
-  const rows = visibleModels.map((model) => ({
+  const rows = visibleModels.map((model) => {
+    const rate = describeImageModelRate(model, { referenceGuided: props.imageMode === 'img2img' })
+    return {
       id: model.id,
       label: model.display_name,
       group: 'Image models',
       provider: model.provider_name || '',
+      price: rate.text,
+      priceTitle: rate.title,
       disabled: !model.available,
       disabledReason: !model.available
         ? 'This model is currently unavailable in GenStudio.'
@@ -65,7 +69,7 @@ const options = computed(() => {
       badges: [],
       costTier: model.cost_tier,
     }
-  ))
+  })
   return rows
 })
 

@@ -14,6 +14,7 @@ import {
   CREDIT_BASIS_LABEL,
   describeChatRate,
   describeImageBatchEstimate,
+  describeImageModelRate,
   describeImageUnitCost,
   describeQuotedCost,
   describeQuotedTotal,
@@ -101,6 +102,34 @@ test('image cost comes from the OPTION price, with the model figure only as fall
   assert.match(perRow.text, /9 credits \/ image/)
   // No option: the model-level figure stands in, and only then.
   assert.match(describeImageUnitCost(priced, null).text, /4 credits \/ image/)
+})
+
+test('image model selection summarizes the complete published output-size rate range', () => {
+  const variable = {
+    display_name: 'GPT Image 2',
+    chargeable: true,
+    credits_per_image: 20,
+    output_options: [
+      { ...ONE_K_16_9, credits_per_image: 20 },
+      { ...TWO_K_16_9, credits_per_image: 29 },
+    ],
+  }
+  const display = describeImageModelRate(variable)
+  assert.equal(display.basis, 'rate')
+  assert.equal(display.text, '20–29 credits / image by output size')
+  assert.match(display.title, /exact published rate for the output size/)
+
+  const fixed = describeImageModelRate({
+    display_name: 'FLUX.2 Klein',
+    chargeable: true,
+    credits_per_image: 9,
+    output_options: [{ ...ONE_K_16_9, credits_per_image: 9 }],
+  })
+  assert.equal(fixed.text, '9 credits / image')
+
+  const unknownReferencePrice = describeImageModelRate(variable, { referenceGuided: true })
+  assert.equal(unknownReferencePrice.basis, 'unpublished')
+  assert.match(unknownReferencePrice.text, /not reported/i)
 })
 
 test('an unpublished price is reported as unpublished, never filled in', () => {
