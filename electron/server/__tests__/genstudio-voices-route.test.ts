@@ -287,6 +287,10 @@ test('GenStudio cost tiers pass through every Story catalog response without rep
 
   const models = await request(app).get('/api/models').expect(200)
   assert.equal(models.body[0].cost_tier, 'economy')
+  assert.equal(models.body[0].input_credits_per_million_tokens, 12)
+  assert.equal(models.body[0].output_credits_per_million_tokens, 24)
+  assert.equal(models.body[0].minimum_credits, 3)
+  assert.equal(models.body[0].price_version, 'chat-tier-price-v1')
 
   const webModels = await request(app).get('/api/research/web-models').expect(200)
   assert.equal(webModels.body.models[0].cost_tier, 'economy')

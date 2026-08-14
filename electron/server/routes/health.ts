@@ -130,6 +130,12 @@ router.get('/models', async (_req, res) => {
       context_window_tokens: model.context_window_tokens,
       max_output_tokens: model.max_output_tokens,
       structured_output_mode: model.structured_output_mode,
+      // Preserve GenStudio's published pricing verbatim. The renderer shows
+      // these as rates because an LLM total is unknowable before generation.
+      input_credits_per_million_tokens: model.input_credits_per_million_tokens,
+      output_credits_per_million_tokens: model.output_credits_per_million_tokens,
+      minimum_credits: model.minimum_credits,
+      price_version: model.price_version,
     }))
     res.json(models)
   } catch (error: any) {

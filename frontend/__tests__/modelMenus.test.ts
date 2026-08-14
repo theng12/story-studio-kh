@@ -49,8 +49,11 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /catalogNoticeHref/)
     assert.match(modelMenu, /selectableOptionCount/)
     // Every published fact the anchored panel carried still renders.
-    assert.match(modelMenu, /option\.meta \|\| option\.description/)
+    assert.match(modelMenu, /v-if="option\.description"/)
+    assert.match(modelMenu, /v-if="option\.meta"/)
     assert.match(modelMenu, /model-menu-option-provider/)
+    assert.match(modelMenu, /model-menu-option-price/)
+    assert.match(modelMenu, /Published rate/)
     assert.match(modelMenu, /option\.provider/)
     assert.match(modelMenu, /option\.disabledReason/)
     assert.match(modelMenu, /\{\{ catalogNotice \}\}/)
@@ -123,6 +126,15 @@ describe('shared model menus', () => {
     // Transparency is DISPLAY only. Story Studio still never selects a provider
     // and never sends one on a generation request.
     assert.doesNotMatch(appSettings, /provider_id:\s*(?!.*req\.params)/)
+  })
+
+  test('LLM and TTS menus show GenStudio-published rates through the shared price row', () => {
+    assert.match(modelSelector, /describeChatRate/)
+    assert.match(modelSelector, /price:\s*rate\.text/)
+    assert.match(modelSelector, /priceTitle:\s*rate\.title/)
+    assert.match(modelSurfaces.audio, /describeVoiceRate/)
+    assert.match(modelSurfaces.audio, /price:\s*rate\.text/)
+    assert.match(modelSurfaces.audio, /priceTitle:\s*rate\.title/)
   })
 
   test('thumbnail generator enables reference guidance only for qualified GenStudio models', () => {

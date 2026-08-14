@@ -106,7 +106,13 @@
               <span class="model-menu-option-copy">
                 <strong>{{ option.label }}</strong>
                 <small v-if="option.provider" class="model-menu-option-provider">{{ option.provider }}</small>
-                <span v-if="option.meta || option.description">{{ option.meta || option.description }}</span>
+                <small
+                  v-if="option.price"
+                  class="model-menu-option-price"
+                  :title="option.priceTitle || option.price"
+                >Published rate · {{ option.price }}</small>
+                <span v-if="option.description" class="model-menu-option-description">{{ option.description }}</span>
+                <span v-if="option.meta" class="model-menu-option-meta">{{ option.meta }}</span>
                 <small v-if="option.disabledReason">{{ option.disabledReason }}</small>
               </span>
               <span class="model-menu-option-side">
@@ -159,6 +165,8 @@ interface ModelMenuOption {
   provider?: string
   meta?: string
   description?: string
+  price?: string
+  priceTitle?: string
   disabled?: boolean
   disabledReason?: string
   badges?: ModelMenuBadge[]
@@ -245,7 +253,7 @@ function tierTabId(costTier: GenStudioCostTier): string {
 const filteredOptions = computed(() => {
   const terms = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean)
   const matching = !terms.length ? props.options : props.options.filter((option) => {
-    const haystack = [option.label, option.id, option.group, option.provider, option.meta, option.description, option.costTier && tierLabel(option.costTier)]
+    const haystack = [option.label, option.id, option.group, option.provider, option.price, option.meta, option.description, option.costTier && tierLabel(option.costTier)]
       .filter(Boolean)
       .join(' ')
       .toLowerCase()
@@ -427,6 +435,7 @@ function onListKeydown(event: KeyboardEvent) {
 .model-menu-option-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
 .model-menu-option-copy strong { font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; }
 .model-menu-option-copy .model-menu-option-provider { color: var(--accent); font-size: var(--font-xs); font-weight: 750; letter-spacing: .08em; line-height: 1.2; text-transform: uppercase; }
+.model-menu-option-copy .model-menu-option-price { color: var(--warning); font-size: var(--font-xs); font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
 .model-menu-option-copy span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.35; overflow-wrap: anywhere; }
 .model-menu-option-copy small { color: var(--warning); font-size: var(--font-xs); line-height: 1.3; }
 .model-menu-option-side { display: flex; flex: 0 0 auto; align-items: center; justify-content: flex-end; gap: 5px; }

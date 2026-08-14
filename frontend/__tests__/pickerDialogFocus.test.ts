@@ -74,7 +74,14 @@ async function mountModelMenu() {
     modelValue: 'steady',
     options: [
       { id: 'fast', label: 'Fast', costTier: 'economy' },
-      { id: 'steady', label: 'Steady', costTier: 'balanced' },
+      {
+        id: 'steady',
+        label: 'Steady',
+        costTier: 'balanced',
+        description: 'A balanced model for routine work.',
+        price: '12 credits / 1M input tokens · 24 credits / 1M output tokens',
+        priceTitle: 'GenStudio publishes this token rate. The final charge depends on actual usage.',
+      },
       { id: 'flagship', label: 'Flagship', costTier: 'premium' },
     ],
   })
@@ -133,6 +140,21 @@ function mountPicker(ticks: number) {
 }
 
 describe('picker dialog opening focus', () => {
+  test('ModelMenu shows a dedicated published rate without hiding the model description', async () => {
+    const { host, unmount } = await mountModelMenu()
+    try {
+      const price = host.querySelector<HTMLElement>('.model-menu-option-price')
+      assert.equal(price?.textContent?.trim(), 'Published rate · 12 credits / 1M input tokens · 24 credits / 1M output tokens')
+      assert.equal(price?.title, 'GenStudio publishes this token rate. The final charge depends on actual usage.')
+      assert.equal(
+        host.querySelector<HTMLElement>('.model-menu-option-description')?.textContent?.trim(),
+        'A balanced model for routine work.',
+      )
+    } finally {
+      unmount()
+    }
+  })
+
   test('ModelMenu keeps tab focus, selection, and roving tabindex synchronized for Home and End', async () => {
     // Catches Home/End calling setTier directly: selection changes but DOM focus
     // remains on the previous tab, so the next Arrow key starts from the wrong place.

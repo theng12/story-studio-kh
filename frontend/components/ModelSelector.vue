@@ -26,6 +26,7 @@ import {
 } from '../utils/live-genstudio-model-selection.js'
 import { invalidateModelCatalogCache } from '../composables/useApi.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
+import { describeChatRate } from '../utils/genstudio-credit-cost.js'
 
 interface LlmModelRow {
   id: string
@@ -46,6 +47,10 @@ interface LlmModelRow {
   structured_output_mode?: 'json_object' | 'request_json_schema'
   legacy_ids?: string[]
   cost_tier?: GenStudioCostTier
+  input_credits_per_million_tokens?: number | null
+  output_credits_per_million_tokens?: number | null
+  minimum_credits?: number | null
+  price_version?: string | null
 }
 
 const props = defineProps<{
@@ -81,11 +86,14 @@ const menuOptions = computed(() => {
   // separate published fact and appears on the row only when GenStudio sends
   // `provider_name`; it is never reconstructed from an id or display name.
   const rows = eligibleModels.map((model) => {
+    const rate = describeChatRate({ ...model, display_name: model.label })
     return {
       id: model.id,
       label: model.label,
       group: 'Language models',
       provider: model.provider_name || '',
+      price: rate.text,
+      priceTitle: rate.title,
       description: model.disabled_reason || model.hint || '',
       disabled: isDisabled(model),
       disabledReason: model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),

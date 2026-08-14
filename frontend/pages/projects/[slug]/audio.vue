@@ -441,15 +441,17 @@ const {
  * is respected — a model GenStudio has switched off cannot be chosen.
  */
 const audioModelOptions = computed(() => ttsModels.value.map((model) => {
+  const rate = describeVoiceRate(model)
   return {
     id: model.id,
     label: model.display_name,
     group: model.provider_name || 'Voice models',
     provider: model.provider_name || '',
+    price: rate.text,
+    priceTitle: rate.title,
     meta: [
-      `${formatCredits(model.credits_per_1000_characters)} / 1,000 characters`,
-      `min ${formatCredits(model.minimum_credits)}`,
-      `up to ${model.maximum_input_characters.toLocaleString()} characters per request`,
+      `Minimum ${formatCredits(model.minimum_credits)} per request`,
+      `Up to ${model.maximum_input_characters.toLocaleString()} characters per request`,
     ].join(' · '),
     description: model.description,
     disabled: !model.generation_enabled,
