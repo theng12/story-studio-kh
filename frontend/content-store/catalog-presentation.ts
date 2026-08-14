@@ -93,10 +93,12 @@ export function validateCatalogPresentationFixture(
       invalidFixture(`product ${productId} presentation productId must match its record key`)
     }
     validateCover(presentation.cover, productId)
-    if (presentation.licenseLabel !== null && typeof presentation.licenseLabel !== 'string') {
-      invalidFixture(`product ${productId} licenseLabel must be a string or null`)
+    if (presentation.licenseLabel !== null) {
+      requireNonBlank(presentation.licenseLabel, `product ${productId} licenseLabel`)
     }
-    if (!Array.isArray(presentation.tags) || presentation.tags.some(tag => typeof tag !== 'string')) {
+    if (!Array.isArray(presentation.tags) || presentation.tags.some(tag =>
+      typeof tag !== 'string' || !tag.trim(),
+    )) {
       invalidFixture(`product ${productId} tags must be an array of strings`)
     }
   }
@@ -136,17 +138,15 @@ export function orderShelfProducts(
   })
 }
 
-type ProductWithPresentation = ContentStoreProduct & {
-  presentation?: Pick<CatalogProductPresentation, 'tags'>
-}
-
-function customerSearchText(product: ContentStoreProduct): string[] {
-  const localPresentation = (product as ProductWithPresentation).presentation
+function customerSearchText(
+  product: ContentStoreProduct,
+  presentations?: CatalogPresentationFixture['products'],
+): string[] {
   return [
     product.title,
     product.summary,
     product.description,
-    ...(Array.isArray(localPresentation?.tags) ? localPresentation.tags : []),
+    ...(presentations?.[product.productId]?.tags || []),
   ]
 }
 
@@ -154,6 +154,7 @@ export function filterCatalogProducts(
   products: readonly ContentStoreProduct[],
   query: string,
   options: { price: 'all' | 'free' | 'paid'; kind: ContentStoreKindFilter; compatibleOnly: boolean },
+  presentations?: CatalogPresentationFixture['products'],
 ): ContentStoreProduct[] {
   const normalizedQuery = query.trim().toLocaleLowerCase()
   return products.filter(product => {
@@ -162,7 +163,7 @@ export function filterCatalogProducts(
     if (options.kind !== 'all' && product.kind !== options.kind) return false
     if (options.compatibleOnly && !product.compatible) return false
     if (!normalizedQuery) return true
-    return customerSearchText(product).some(text =>
+    return customerSearchText(product, presentations).some(text =>
       typeof text === 'string' && text.toLocaleLowerCase().includes(normalizedQuery),
     )
   })

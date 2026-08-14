@@ -67,16 +67,6 @@ describe('Content Store catalog presentation boundary', () => {
     assert.deepEqual(result.map(product => product.productId), ['kit-a'])
   })
 
-  test('searches tags only when they are already attached as normalized presentation data', () => {
-    const tagged = Object.assign(product('kit-tags', { title: 'Starter' }), {
-      presentation: { tags: ['documentary'] },
-    })
-    const result = filterCatalogProducts([tagged], 'documentary', {
-      price: 'all', kind: 'all', compatibleOnly: false,
-    })
-    assert.deepEqual(result.map(product => product.productId), ['kit-tags'])
-  })
-
   test('does not search opaque product identifiers', () => {
     const result = filterCatalogProducts(products, 'kit-b', {
       price: 'all', kind: 'all', compatibleOnly: false,
@@ -125,6 +115,30 @@ describe('Content Store catalog presentation boundary', () => {
 
   test('accepts a valid local presentation fixture unchanged', () => {
     assert.equal(validateCatalogPresentationFixture(validFixture), validFixture)
+  })
+
+  test('searches tags from an explicit normalized product presentation map', () => {
+    const result = filterCatalogProducts(
+      [product('kit-tags', { title: 'Starter' })],
+      'documentary',
+      { price: 'all', kind: 'all', compatibleOnly: false },
+      {
+        'kit-tags': {
+          productId: 'kit-tags', cover: null, licenseLabel: null, tags: ['documentary'],
+        },
+      },
+    )
+    assert.deepEqual(result.map(product => product.productId), ['kit-tags'])
+  })
+
+  test('does not search a hidden product presentation property', () => {
+    const productWithHiddenPresentation = Object.assign(product('kit-tags', { title: 'Starter' }), {
+      presentation: { tags: ['documentary'] },
+    })
+    const result = filterCatalogProducts([productWithHiddenPresentation], 'documentary', {
+      price: 'all', kind: 'all', compatibleOnly: false,
+    })
+    assert.deepEqual(result, [])
   })
 
   test('allows one published product on multiple shelves', () => {
@@ -178,6 +192,27 @@ describe('Content Store catalog presentation boundary', () => {
         },
       }),
       /cover alt/i,
+    )
+  })
+
+  test('rejects blank license labels and tag entries', () => {
+    assert.throws(
+      () => validateCatalogPresentationFixture({
+        ...validFixture,
+        products: {
+          'kit-a': { ...validFixture.products['kit-a']!, licenseLabel: '   ' },
+        },
+      }),
+      /licenseLabel/i,
+    )
+    assert.throws(
+      () => validateCatalogPresentationFixture({
+        ...validFixture,
+        products: {
+          'kit-a': { ...validFixture.products['kit-a']!, tags: [''] },
+        },
+      }),
+      /tags/i,
     )
   })
 
