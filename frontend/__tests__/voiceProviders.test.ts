@@ -80,6 +80,8 @@ test('Story Studio holds no local TTS product list — the model catalogue is th
   // No Story-owned tier vocabulary survives anywhere on the page.
   assert.doesNotMatch(audioPage, /genstudio-tts-regular|genstudio-tts-premium|genstudio-tts-clone/)
   assert.doesNotMatch(audioPage, /genstudio-tts-tiers|GENSTUDIO_TTS_TIER_OPTIONS/)
+  assert.match(audioPage, /model\.supported_languages/)
+  assert.doesNotMatch(audioPage, /genstudio-multilingual-v3|Khmer/i)
 })
 
 test('Audio generation receives the live GenStudio voice catalog from VoicePicker', () => {

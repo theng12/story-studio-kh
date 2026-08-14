@@ -34,7 +34,7 @@ class GenStudioResearchAdapter implements ResearchAdapter {
     let model = requestedModel
     if (!model) {
       const apiKey = await getApiKey('genstudio').catch(() => '')
-      if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before running research.')
+      if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before running research.')
       model = (await resolveDefaultChatModel(apiKey)).modelId
     }
     const { system, user } = buildResearchPrompt(opts, 'llm-only')

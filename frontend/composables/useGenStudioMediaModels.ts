@@ -14,6 +14,8 @@ export interface GenStudioVoiceModelInfo {
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
+  /** Exact language codes published for this model. Empty means unpublished. */
+  supported_languages: string[]
   legacy_ids?: string[]
   cost_tier?: GenStudioCostTier
   locked?: boolean

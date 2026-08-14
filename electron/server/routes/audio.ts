@@ -27,7 +27,7 @@ export const router = Router()
 async function resolveExpressionDefaultModel(config: any): Promise<string> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
+    throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   const resolved = await resolveDefaultChatModel(apiKey, saved)
@@ -51,7 +51,7 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
   if (!apiKey) {
     return res.status(400).json({
       code: 'GENSTUDIO_KEY_REQUIRED',
-      detail: 'No scoped GenStudio KH API key configured. Add it in Settings → This Mac.',
+      detail: 'No GenStudio KH API key configured. Add it in Settings → This Mac.',
     })
   }
 
@@ -106,7 +106,7 @@ router.post('/projects/:slug/preview-voice', async (req, res) => {
   if (!apiKey) {
     return res.status(400).json({
       code: 'GENSTUDIO_KEY_REQUIRED',
-      detail: 'No scoped GenStudio KH API key configured. Add it in Settings → This Mac.',
+      detail: 'No GenStudio KH API key configured. Add it in Settings → This Mac.',
     })
   }
   const resolvedVoiceId = typeof voice_id === 'string' ? voice_id.trim() : ''
@@ -180,7 +180,7 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
     if (!apiKey) {
       return res.status(400).json({
         code: 'GENSTUDIO_KEY_REQUIRED',
-        detail: 'No scoped GenStudio KH API key configured. Add it in Settings → This Mac.',
+        detail: 'No GenStudio KH API key configured. Add it in Settings → This Mac.',
       })
     }
 

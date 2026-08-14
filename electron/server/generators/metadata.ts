@@ -85,7 +85,7 @@ function aiCreds(_config: any) { return {} }
 async function resolveDefaultMetadataModel(config: any): Promise<string> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating metadata.')
+    throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating metadata.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   const resolved = await resolveDefaultChatModel(apiKey, saved)

@@ -326,7 +326,7 @@ async function loadExistingThumbnails(
 async function resolveDefaultImagePromptsModel(config: any): Promise<string> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating thumbnail prompts.')
+    throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating thumbnail prompts.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   const resolved = await resolveDefaultChatModel(apiKey, saved)

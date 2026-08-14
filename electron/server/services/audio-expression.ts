@@ -359,7 +359,7 @@ export async function runExpressionMarkupJob(job: Job): Promise<void> {
     const { getApiKey } = await import('./app-secrets-store.js')
     const { resolveDefaultChatModel } = await import('./genstudio-default-model.js')
     const apiKey = await getApiKey('genstudio').catch(() => '')
-    if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
+    if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
     const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
     model = (await resolveDefaultChatModel(apiKey, saved)).modelId
   }

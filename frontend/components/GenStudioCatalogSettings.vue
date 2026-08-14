@@ -286,7 +286,7 @@ const connectionState = computed(() => {
     return { label: 'Checking…', detail: 'Verifying the GenStudio connection', tone: 'muted' }
   }
   if (!accountConfigured.value) {
-    return { label: 'Not configured', detail: 'Add a scoped API key above', tone: 'muted' }
+    return { label: 'Not configured', detail: 'Add a GenStudio API key above', tone: 'muted' }
   }
   if (combinedErrors.value.length) {
     return { label: 'Needs attention', detail: 'Connected, with live-data errors', tone: 'warning' }

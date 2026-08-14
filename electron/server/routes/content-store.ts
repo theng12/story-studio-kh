@@ -69,6 +69,7 @@ function upstreamFailure(res: Response, error: GenStudioContentStoreApiError, re
     not_entitled: 'This GenStudio account does not own the requested Content Pack.',
     product_unavailable: 'This Content Store product is not available.',
     quote_rejected: 'GenStudio rejected the saved Content Store quote.',
+    release_recalled: 'GenStudio stopped serving this exact Content Pack release. Ownership remains permanent.',
     release_unavailable: 'This Content Pack release is not available.',
     signing_unavailable: 'GenStudio cannot sign Content Store evidence right now.',
   }
@@ -85,7 +86,12 @@ function upstreamFailure(res: Response, error: GenStudioContentStoreApiError, re
     available_credits: error.refusal.available_credits,
     shortfall_credits: error.refusal.shortfall_credits,
   } : {}
-  res.status(error.status).json({ code: error.code, detail: safeDetail, ...credits })
+  const recall = error.status === 410 && error.code === 'release_recalled' ? {
+    recall_reason: typeof error.refusal.recall_reason === 'string' ? error.refusal.recall_reason : null,
+    recalled_at: typeof error.refusal.recalled_at === 'string' ? error.refusal.recalled_at : null,
+    terminal: true,
+  } : {}
+  res.status(error.status).json({ code: error.code, detail: safeDetail, ...credits, ...recall })
 }
 
 function localFailure(res: Response, error: ContentStoreLocalError): void {
@@ -97,7 +103,12 @@ function localFailure(res: Response, error: ContentStoreLocalError): void {
     res.status(502).json({ code: error.code, detail: error.message, status: 'quoted' })
     return
   }
-  res.status(error.status).json({ code: error.code, detail: error.message, ...(error.attempt ? { attempt: error.attempt } : {}) })
+  res.status(error.status).json({
+    code: error.code,
+    detail: error.message,
+    ...(error.code === 'release_recalled' ? { terminal: true } : {}),
+    ...(error.attempt ? { attempt: error.attempt } : {}),
+  })
 }
 
 function handleFailure(

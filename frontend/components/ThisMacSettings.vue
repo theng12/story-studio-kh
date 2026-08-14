@@ -3,7 +3,7 @@
     <header>
       <span class="eyebrow">This Mac</span>
       <h3>App &amp; GenStudio connection</h3>
-      <p>Story Studio uses one GenStudio API URL and one scoped key for every AI catalog, job, and credit event.</p>
+      <p>Story Studio uses one GenStudio API URL and one API key for every AI catalog, job, and credit event. The key may be all-access or scoped.</p>
     </header>
 
     <section class="panel appearance">
@@ -39,7 +39,7 @@
           <button class="btn btn-secondary btn-sm" :disabled="busy === 'url'" @click="saveUrl">{{ busy === 'url' ? 'Saving…' : 'Save URL' }}</button>
         </div>
 
-        <label for="genstudio-key">Scoped API key</label>
+        <label for="genstudio-key">GenStudio API key</label>
         <div class="field-row">
           <input id="genstudio-key" v-model="keyDraft" class="input" type="password" placeholder="gsk_…" autocomplete="off" spellcheck="false" />
           <button class="btn btn-primary btn-sm" :disabled="busy !== '' || !keyDraft.trim()" @click="saveKey">{{ busy === 'save' ? 'Saving…' : 'Save key' }}</button>
@@ -120,7 +120,7 @@ async function saveKey(): Promise<void> {
     await put('/app-settings/api-keys/genstudio', { apiKey })
     keyDraft.value = ''
     await load()
-    result.value = { kind: 'ok', message: 'Scoped GenStudio key saved and masked.' }
+    result.value = { kind: 'ok', message: 'GenStudio key saved and masked.' }
   } catch (error: any) {
     result.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save the key.' }
   } finally { busy.value = '' }
@@ -156,7 +156,7 @@ async function testKey(): Promise<void> {
 }
 
 async function removeKey(): Promise<void> {
-  if (!await ask({ title: 'Remove GenStudio key?', message: 'All AI generation will remain unavailable until a scoped GenStudio key is saved.', confirmLabel: 'Remove key', danger: true })) return
+  if (!await ask({ title: 'Remove GenStudio key?', message: 'All AI generation will remain unavailable until a GenStudio key is saved.', confirmLabel: 'Remove key', danger: true })) return
   busy.value = 'remove'; result.value = null
   try {
     await del('/app-settings/api-keys/genstudio')

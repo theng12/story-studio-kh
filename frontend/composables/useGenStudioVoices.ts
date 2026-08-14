@@ -30,6 +30,7 @@ export interface GenStudioTtsModel {
   provider_id: string
   provider_name: string
   description: string
+  supported_languages: string[]
   credits_per_1000_characters: number
   minimum_credits: number
   maximum_input_characters: number

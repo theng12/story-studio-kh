@@ -949,6 +949,8 @@ export interface GenStudioTtsModel extends GenStudioCatalogLock {
   supports_voice_cloning: boolean
   preview_policy: string
   generation_enabled: boolean
+  /** Exact language codes sold by this product. Empty means GenStudio did not publish a list. */
+  supported_languages: string[]
   cost_tier?: GenStudioCostTier
   /**
    * Optional `TTSModelResponse.provider_submit_concurrency` hint. It is not
@@ -3337,6 +3339,11 @@ export async function listTtsModelsSnapshot(
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
         generation_enabled: value?.generation_enabled === true,
+        supported_languages: Array.isArray(value?.supported_languages)
+          ? value.supported_languages
+            .filter((code: unknown): code is string => typeof code === 'string' && !!code.trim())
+            .map((code: string) => code.trim())
+          : [],
         ...parseGenStudioCatalogLock(value),
         ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
         // This is a model-local hint, not something Story Studio may derive

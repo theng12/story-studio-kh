@@ -272,7 +272,7 @@ router.get('/app-settings/api-keys', async (_req, res) => {
 router.put('/app-settings/api-keys/:providerId', async (req, res) => {
   const providerId = req.params.providerId
   if (!(CUSTOMER_SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
-    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only the scoped GenStudio API key can be configured.' })
+    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only a GenStudio API key can be configured.' })
   }
   const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey : ''
   if (!apiKey.trim()) {
@@ -289,7 +289,7 @@ router.put('/app-settings/api-keys/:providerId', async (req, res) => {
 router.delete('/app-settings/api-keys/:providerId', async (req, res) => {
   const providerId = req.params.providerId
   if (!(CUSTOMER_SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
-    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only the scoped GenStudio API key can be configured.' })
+    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only a GenStudio API key can be configured.' })
   }
   try {
     await clearApiKey(providerId)
@@ -567,7 +567,7 @@ router.get('/app-settings/genstudio/music-models', async (_req, res) => {
 
 router.get('/app-settings/genstudio/admission', async (_req, res) => {
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return res.status(400).json({ detail: 'Add the scoped GenStudio API key first.' })
+  if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio API key first.' })
   try {
     res.json(await refreshGenStudioAdmission(apiKey))
   } catch (error: any) {
@@ -575,7 +575,7 @@ router.get('/app-settings/genstudio/admission', async (_req, res) => {
       return res.status(503).json({
         code: 'GENSTUDIO_ADMISSION_SCOPE_UNAVAILABLE',
         detail: 'The saved GenStudio key is invalid or missing usage:read for account admission capacity. ' +
-          'Issue or update a scoped key in GenStudio with usage:read, then save and test it again.',
+          'Use a GenStudio key with usage:read (all-access keys already include it), then save and test it again.',
       })
     }
     res.status(502).json(humanizeBackendError(error, 'Could not load GenStudio account admission capacity'))
@@ -584,7 +584,7 @@ router.get('/app-settings/genstudio/admission', async (_req, res) => {
 
 router.get('/app-settings/genstudio/usage', async (_req, res) => {
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return res.status(400).json({ detail: 'Add the scoped GenStudio API key first.' })
+  if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio API key first.' })
   try {
     res.json(await getGenStudioAccountSnapshot(apiKey))
   } catch (error: any) {
@@ -592,7 +592,7 @@ router.get('/app-settings/genstudio/usage', async (_req, res) => {
       return res.status(503).json({
         code: 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE',
         detail: 'The saved GenStudio key is invalid or missing usage:read for account balance and settlement history. ' +
-          'Issue or update a scoped key in GenStudio with usage:read, then save and test it again. ' +
+          'Use a GenStudio key with usage:read (all-access keys already include it), then save and test it again. ' +
           'Story Studio will not estimate or reconstruct credits locally.',
       })
     }
@@ -748,7 +748,7 @@ router.put('/app-settings/last-seen-version', async (req, res) => {
 router.post('/app-settings/api-keys/:providerId/test', async (req, res) => {
   const providerId = req.params.providerId
   if (!(CUSTOMER_SECRET_PROVIDERS as readonly string[]).includes(providerId)) {
-    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only the scoped GenStudio API key can be tested.' })
+    return res.status(410).json({ code: 'GENSTUDIO_ONLY', detail: 'Only a GenStudio API key can be tested.' })
   }
   // Allow caller to test a key BEFORE saving (req.body.apiKey) or to
   // re-test the currently-stored key (no body).

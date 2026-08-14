@@ -451,6 +451,7 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
     price: rate.text,
     priceTitle: rate.title,
     meta: [
+      ...(model.supported_languages.length ? [`Languages ${model.supported_languages.join(', ')}`] : []),
       `Minimum ${formatCredits(model.minimum_credits)} per request`,
       `Up to ${model.maximum_input_characters.toLocaleString()} characters per request`,
     ].join(' · '),

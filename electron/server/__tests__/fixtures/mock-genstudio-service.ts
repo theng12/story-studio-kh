@@ -321,7 +321,13 @@ export class MockGenStudioService {
   contentPurchasePostCount = 0
   contentDownloadPostCount = 0
   contentArchiveGetCount = 0
-  contentDownloadRefusal: { status: number; code: string; detail: string } | null = null
+  contentDownloadRefusal: {
+    status: number
+    code: string
+    detail: string
+    recall_reason?: string
+    recalled_at?: string
+  } | null = null
   tamperContentPurchaseReceipt = false
   private readonly queuedScenarios = new Map<MockGenStudioOperation, StoredScenario[]>()
   private readonly jobs = new Map<string, MockJob>()
@@ -569,6 +575,7 @@ export class MockGenStudioService {
       retired: product.retired === true,
       current_release: product.current_release,
       download_available: Boolean((product.current_release as Record<string, unknown> | null)?.archive_available),
+      recalled_release_versions: product.recalled_release_versions || [],
       showcase_videos: product.showcase_videos || [],
     }))
     const signedEntitlements = entitlements.map(item => ({
@@ -1034,6 +1041,12 @@ export class MockGenStudioService {
           json(response, this.contentDownloadRefusal.status, {
             code: this.contentDownloadRefusal.code,
             detail: this.contentDownloadRefusal.detail,
+            ...(this.contentDownloadRefusal.recall_reason
+              ? { recall_reason: this.contentDownloadRefusal.recall_reason }
+              : {}),
+            ...(this.contentDownloadRefusal.recalled_at
+              ? { recalled_at: this.contentDownloadRefusal.recalled_at }
+              : {}),
             internal_path: '/srv/private/content/archive',
           })
           return

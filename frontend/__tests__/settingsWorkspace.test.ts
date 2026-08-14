@@ -100,6 +100,9 @@ describe('Settings workspace navigation', () => {
     assert.match(thisMacSettingsSource, /content:purchase/)
     assert.match(thisMacSettingsSource, /Read scope verified/)
     assert.match(thisMacSettingsSource, /Purchase scope required · not safely testable without buying/)
+    assert.match(thisMacSettingsSource, /all-access or scoped/i)
+    assert.doesNotMatch(thisMacSettingsSource, /one scoped key|Scoped API key|Scoped GenStudio key saved/i)
+    assert.doesNotMatch(thisMacSettingsSource, /\/v1\/api-keys|\/reveal/)
   })
 
   test('Storage separates active destinations from optional maintenance and keeps retired migration out', () => {

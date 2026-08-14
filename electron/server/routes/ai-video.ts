@@ -249,7 +249,7 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
     return res.status(400).json({ detail: 'Text-to-video has been retired. Choose an image-to-video model and generate the scene image first.' })
   }
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) return res.status(400).json({ detail: 'Add the scoped GenStudio API key in Settings → This Mac.' })
+  if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio API key in Settings → This Mac.' })
   try {
     const catalog = await listGenStudioVideoModels(apiKey)
     const entry = catalog.find(item => item.id === modelId)

@@ -81,6 +81,7 @@ test('TTS models carry only a positive published provider submit concurrency hin
         } : {}),
         ...(provider_submit_concurrency === undefined ? {} : { provider_submit_concurrency }),
         controls: [],
+        supported_languages: index === 0 ? ['en'] : undefined,
       })))
     }
     const models = await listTtsModels('task3-tts-concurrency-parser')
@@ -89,6 +90,8 @@ test('TTS models carry only a positive published provider submit concurrency hin
     assert.equal(models[0]?.locked, true)
     assert.equal(models[0]?.lock_reason, 'requires_paid_account')
     assert.equal(Object.hasOwn(models[1] ?? {}, 'locked'), false)
+    assert.deepEqual(models[0]?.supported_languages, ['en'])
+    assert.deepEqual(models[1]?.supported_languages, [])
   } finally {
     globalThis.fetch = originalFetch
     clearGenStudioCatalogCache()

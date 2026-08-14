@@ -49,7 +49,7 @@ export function useCredits() {
           genstudioTier.value = null
           genstudioActiveLanes.value = null
           genstudioLaneLimit.value = null
-          usageError.value = 'Scoped GenStudio key is not configured.'
+          usageError.value = 'GenStudio API key is not configured.'
           return
         }
         const usage = await get<{ overview: {

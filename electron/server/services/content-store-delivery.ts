@@ -147,6 +147,13 @@ export async function resolveOwnedContentStoreDependency(
   for (const entitlement of candidates) {
     const history = await ownedReleaseHistory(entitlement, context)
     const release = history.releases.find(candidate => candidate.packId === packId && candidate.version === version)
+    if (release?.state === 'recalled') {
+      throw new ContentStoreLocalError(
+        410,
+        'release_recalled',
+        `GenStudio recalled ${packId}@${version}: ${release.recallReason}. Ownership remains permanent, but that exact version cannot be downloaded.`,
+      )
+    }
     if (release) return { entitlement, release }
   }
   throw new ContentStoreLocalError(

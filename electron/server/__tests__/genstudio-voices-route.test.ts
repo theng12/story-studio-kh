@@ -85,7 +85,7 @@ test('the voice model catalogue is published with its price, minimum and boundar
       id: 'tts-qwen3', display_name: 'Qwen3 TTS', provider_id: 'fish', provider_name: 'Fish Audio',
       description: 'Multilingual narration', credits_per_1000_characters: 48, minimum_credits: 10,
       maximum_input_characters: 12_000, supports_speed: true, supports_voice_cloning: false,
-      preview_policy: 'catalog', generation_enabled: true,
+      preview_policy: 'catalog', generation_enabled: true, supported_languages: ['en'],
     }])
   }
 
@@ -96,6 +96,8 @@ test('the voice model catalogue is published with its price, minimum and boundar
   assert.equal(model.minimum_credits, 10)
   assert.equal(model.maximum_input_characters, 12_000)
   assert.equal(model.supports_speed, true)
+  assert.deepEqual(model.supported_languages, ['en'])
+  assert.equal(JSON.stringify(model).includes('km'), false, 'Story must not restore retired Khmer support')
 })
 
 test('the music model catalogue forwards GenStudio published details without inferring a provider', async () => {
@@ -469,7 +471,8 @@ test('GenStudio usage failures name the supported usage:read scope actionably', 
 
   assert.equal(response.body.code, 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE')
   assert.match(response.body.detail, /invalid or missing usage:read/i)
-  assert.match(response.body.detail, /Issue or update a scoped key in GenStudio/i)
+  assert.match(response.body.detail, /GenStudio key with usage:read/i)
+  assert.match(response.body.detail, /all-access keys already include it/i)
   assert.doesNotMatch(response.body.detail, /after GenStudio exposes/i)
   assert.deepEqual(visited, ['http://127.0.0.1:8000/v1/account/overview'])
 })

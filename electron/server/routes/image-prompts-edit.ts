@@ -87,7 +87,7 @@ router.post(
       // and a retired/renamed literal must never be submitted blind.
       const model = requestedModel || await (async () => {
         const apiKey = await getApiKey('genstudio').catch(() => '')
-        if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before regenerating a prompt.')
+        if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before regenerating a prompt.')
         const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
         return (await resolveDefaultChatModel(apiKey, saved)).modelId
       })()

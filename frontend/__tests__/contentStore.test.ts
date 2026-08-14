@@ -307,6 +307,65 @@ describe('useContentStore explicit commerce state machine', () => {
     assert.equal(store.error.value?.code, 'CONTENT_STORE_SCOPE_REQUIRED')
     assert.match(store.error.value?.detail || '', /content:purchase/)
   })
+
+  test('treats a recalled install as terminal, refreshes to the safe owned fallback, and never retries it', async () => {
+    const recalledOverview = structuredClone(completeOverview) as any
+    recalledOverview.account.owned = [{
+      entitlementFamily: 'formula.family', productId: 'formula', title: 'Archive Formula',
+      kind: 'series_formula', grantedAt: '2026-08-14T09:12:44Z', purchaseId: 'cpur_1',
+      currentRelease: structuredClone(completeOverview.products[0]!.currentRelease),
+      recalledReleaseVersions: [], receiptVerification: 'verified', downloadAvailable: true,
+      installState: 'not_installed', installedVersion: null, showcaseVideos: [],
+    }]
+    recalledOverview.products[0].owned = true
+
+    const safeOverview = structuredClone(recalledOverview)
+    safeOverview.account.owned[0].recalledReleaseVersions = ['1.0.0']
+    safeOverview.account.owned[0].currentRelease = {
+      ...safeOverview.account.owned[0].currentRelease,
+      releaseId: 'rel_safe', version: '0.9.0',
+    }
+    safeOverview.products[0].currentRelease = {
+      ...safeOverview.products[0].currentRelease,
+      releaseId: 'rel_safe', version: '0.9.0',
+    }
+
+    let overviewCalls = 0
+    let installCalls = 0
+    handler = path => {
+      if (path === '/api/content-store') {
+        overviewCalls += 1
+        return overviewCalls === 1 ? recalledOverview : safeOverview
+      }
+      if (path === '/api/content-store/releases/rel_formula/install') {
+        installCalls += 1
+        const error: any = new Error('release recalled')
+        error.status = 410
+        error.data = {
+          code: 'release_recalled',
+          detail: 'Unsafe bundled reference image detected.',
+          recall_reason: 'Unsafe bundled reference image detected.',
+          recalled_at: '2026-08-14T10:30:00Z',
+          terminal: true,
+        }
+        throw error
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    }
+
+    const store = useContentStore()
+    await store.refresh()
+    await assert.rejects(store.installRelease('rel_formula'))
+    assert.equal(installCalls, 1)
+    assert.equal(overviewCalls, 2)
+    assert.equal(store.account.value?.owned[0]?.currentRelease?.releaseId, 'rel_safe')
+    assert.deepEqual(store.account.value?.owned[0]?.recalledReleaseVersions, ['1.0.0'])
+    assert.equal(store.error.value?.code, 'release_recalled')
+    assert.equal(store.error.value?.terminal, true)
+    assert.equal(store.error.value?.recallReason, 'Unsafe bundled reference image detected.')
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal(installCalls, 1, 'a recalled exact version must never retry automatically')
+  })
 })
 
 describe('Content Store renderer contract', () => {
@@ -338,6 +397,16 @@ describe('Content Store renderer contract', () => {
     assert.match(card, /Verified ownership · installed on this Mac/)
     assert.match(card, /ready to install on this Mac/)
     assert.match(page, /hasVerifiedOwnership/)
+  })
+
+  test('labels recalled ownership without claiming entitlement loss or offering an exact-version retry', () => {
+    assert.match(card, /recalledReleaseVersions/)
+    assert.match(card, /Ownership remains permanent/i)
+    assert.match(card, /newest safe owned release/i)
+    assert.match(page, /A Content Pack release was recalled/i)
+    assert.match(page, /GenStudio stopped serving that exact version/i)
+    assert.doesNotMatch(page + card, /ownership (?:was|is) revoked|entitlement (?:was|is) lost/i)
+    assert.doesNotMatch(page + card, /retry recalled/i)
   })
 
   test('presents total and content-spendable balances as distinct account facts', () => {

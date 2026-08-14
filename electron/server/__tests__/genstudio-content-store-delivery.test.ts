@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 
 import {
+  GenStudioContentStoreApiError,
   downloadGenStudioContentArchive,
   getGenStudioContentPublicKey,
   getGenStudioContentReceipts,
@@ -305,6 +306,26 @@ describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
     assert.deepEqual(parseContentStoreReceipts(receipts()).entitlements[0].showcaseVideos, [])
   })
 
+  test('preserves recalled release versions without changing permanent ownership', () => {
+    const response = receipts()
+    ;(response.entitlements as Array<Record<string, unknown>>)[0] = {
+      ...response.entitlements[0],
+      recalled_release_versions: ['1.1.0', '2.0.0'],
+    }
+    const entitlement = parseContentStoreReceipts(response).entitlements[0]
+    assert.deepEqual(entitlement.recalledReleaseVersions, ['1.1.0', '2.0.0'])
+    assert.equal(entitlement.currentRelease?.version, '1.0.0')
+    assert.equal(entitlement.downloadAvailable, true)
+    assert.deepEqual(parseContentStoreReceipts(receipts()).entitlements[0].recalledReleaseVersions, [])
+
+    const malformed = receipts()
+    ;(malformed.entitlements as Array<Record<string, unknown>>)[0] = {
+      ...malformed.entitlements[0],
+      recalled_release_versions: ['1.1.0', 2],
+    }
+    assert.throws(() => parseContentStoreReceipts(malformed), /recalled_release_versions\[1\]/i)
+  })
+
   test('re-canonicalises parsed receipt values at verification time', () => {
     const key = parseContentStorePublicKey(publicKey())
     const parsed = parseContentStoreReceipts(receipts())
@@ -378,7 +399,25 @@ describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
     assert.equal(upstreamValid.archiveBytes, upstreamBytes)
   })
 
-  test('parses owned published and withdrawn releases without inventing unreleased states', () => {
+  test('parses published, withdrawn, and terminal recalled release states exactly', () => {
+    const recalledAt = '2026-08-14T10:30:00Z'
+    const reason = 'Unsafe bundled reference image detected.'
+    const withRecall = ownedReleases({
+      releases: [
+        ...ownedReleases().releases,
+        release({
+          release_id: 'crel_recalled', version: '1.1.0', archive_available: false,
+          state: 'recalled', published_at: '2026-08-01T10:00:00Z', current: false,
+          recalled_at: recalledAt, recall_reason: reason,
+        }),
+      ],
+    })
+    const recalled = parseOwnedContentReleases(withRecall).releases[2]!
+    assert.equal(recalled.state, 'recalled')
+    assert.equal(recalled.current, false)
+    assert.equal(recalled.recalledAt, recalledAt)
+    assert.equal(recalled.recallReason, reason)
+
     const parsed = parseOwnedContentReleases(ownedReleases())
     assert.equal(parsed.currentReleaseId, 'crel_b')
     assert.deepEqual(parsed.releases.map(item => [item.version, item.state, item.current]), [
@@ -386,7 +425,22 @@ describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
     ])
     assert.throws(() => parseOwnedContentReleases(ownedReleases({
       releases: [release({ ...ownedReleases().releases[0], state: 'draft' })],
-    })), /state|published|withdrawn/i)
+    })), /state|published|withdrawn|recalled/i)
+    assert.throws(() => parseOwnedContentReleases(ownedReleases({
+      current_release_id: 'crel_recalled',
+      releases: [release({
+        release_id: 'crel_recalled', archive_available: false, state: 'recalled',
+        published_at: '2026-08-01T10:00:00Z', current: true,
+        recalled_at: recalledAt, recall_reason: reason,
+      })],
+    })), /recalled.*current|current.*recalled/i)
+    assert.throws(() => parseOwnedContentReleases(ownedReleases({
+      releases: [release({
+        ...ownedReleases().releases[0], state: 'recalled', current: false,
+        recalled_at: null, recall_reason: null,
+      })],
+      current_release_id: null,
+    })), /recall_reason|recalled_at/i)
   })
 })
 
@@ -430,6 +484,33 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
     assert.equal(calls[3].init?.body, JSON.stringify({
       entitlement_family: 'com.storystudio.test/family', version: '1.0.0',
     }))
+  })
+
+  test('preserves the exact terminal 410 release recall refusal without retrying', async () => {
+    let calls = 0
+    globalThis.fetch = async () => {
+      calls += 1
+      return Response.json({
+        code: 'release_recalled',
+        detail: 'release 1.1.0 was recalled',
+        recall_reason: 'Unsafe bundled reference image detected.',
+        recalled_at: '2026-08-14T10:30:00Z',
+      }, { status: 410 })
+    }
+    await assert.rejects(
+      issueGenStudioContentDownload('gsk_test', {
+        entitlementFamily: 'com.storystudio.test', version: '1.1.0',
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof GenStudioContentStoreApiError)
+        assert.equal(error.status, 410)
+        assert.equal(error.code, 'release_recalled')
+        assert.equal(error.refusal.recall_reason, 'Unsafe bundled reference image detected.')
+        assert.equal(error.refusal.recalled_at, '2026-08-14T10:30:00Z')
+        return true
+      },
+    )
+    assert.equal(calls, 1)
   })
 
   test('fetches the opaque archive without an API key and verifies exact bytes', async () => {
@@ -476,6 +557,35 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
     await assert.rejects(resolveOwnedContentStoreDependency({
       apiKey: 'gsk_test', receipts: parseContentStoreReceipts(receipts()), releaseHistories: new Map(),
     }, 'com.storystudio.missing', '1.0.0'), /not own|dependency/i)
+  })
+
+  test('refuses a recalled exact dependency locally and never requests its bytes', async () => {
+    let calls = 0
+    globalThis.fetch = async () => {
+      calls += 1
+      return Response.json(ownedReleases({
+        releases: [
+          release({ release_id: 'crel_a', version: '1.0.0', archive_available: true,
+            state: 'published', published_at: '2026-07-14T10:00:00Z', current: true }),
+          release({ release_id: 'crel_bad', version: '1.1.0', archive_available: false,
+            state: 'recalled', published_at: '2026-08-01T10:00:00Z', current: false,
+            recall_reason: 'Unsafe bundled reference image detected.', recalled_at: '2026-08-14T10:30:00Z' }),
+        ],
+        current_release_id: 'crel_a',
+      }))
+    }
+    await assert.rejects(
+      resolveOwnedContentStoreDependency({
+        apiKey: 'gsk_test', receipts: parseContentStoreReceipts(receipts()), releaseHistories: new Map(),
+      }, 'com.storystudio.test', '1.1.0'),
+      (error: any) => {
+        assert.equal(error.code, 'release_recalled')
+        assert.equal(error.status, 410)
+        assert.match(error.message, /Unsafe bundled reference image detected/i)
+        return true
+      },
+    )
+    assert.equal(calls, 1, 'only the owned release history may be read; no download request is sent')
   })
 
   test('rejects non-HTTP and embedded-credential archive URLs before fetch', async () => {

@@ -51,6 +51,20 @@
       {{ product.compatibilityReason }}
     </p>
 
+    <section v-if="ownership?.recalledReleaseVersions.length" class="recall-message" role="status">
+      <strong>
+        Recalled {{ ownership.recalledReleaseVersions.length === 1 ? 'version' : 'versions' }}:
+        {{ ownership.recalledReleaseVersions.join(', ') }}
+      </strong>
+      <p>
+        GenStudio stopped serving {{ ownership.recalledReleaseVersions.length === 1 ? 'that version' : 'those versions' }}.
+        Ownership remains permanent.
+        <template v-if="ownership.currentRelease">
+          The newest safe owned release is {{ ownership.currentRelease.version }}.
+        </template>
+      </p>
+    </section>
+
     <div class="product-action">
       <p v-if="product.owned">{{ ownedStatus }}</p>
       <p v-else-if="product.retired">This product is no longer available for new ownership.</p>
@@ -151,6 +165,9 @@ h2 { max-width: 100%; margin-top: 2px; overflow-wrap: anywhere; word-break: brea
 .showcase-videos p { margin: 2px 0 0; color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }
 .compatibility-message { padding: 12px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); }
 .compatibility-message strong { display: block; color: var(--warning); }
+.recall-message { padding: 12px; border: 1px solid color-mix(in srgb, var(--danger) 32%, var(--border)); border-radius: var(--radius-md); background: color-mix(in srgb, var(--danger) 8%, var(--bg-secondary)); }
+.recall-message strong { color: var(--danger); }
+.recall-message p { margin-top: 4px; color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }
 .product-action { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 14px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border); }
 .product-action p { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.45; }
 .product-action .btn { flex: 0 0 auto; }

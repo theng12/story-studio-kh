@@ -113,7 +113,7 @@ router.post('/projects/:slug/upload/playlists/generate-description', async (req,
     const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
     const model = requestedModel || await (async () => {
       const apiKey = await getApiKey('genstudio').catch(() => '')
-      if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before generating a playlist description.')
+      if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating a playlist description.')
       const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
       return (await resolveDefaultChatModel(apiKey, saved)).modelId
     })()

@@ -3,6 +3,7 @@ import {
   GenStudioContentStoreTransportError,
   canonicalizeContentStoreObject,
   getGenStudioContentAccount,
+  getGenStudioContentReceipts,
   listGenStudioContentProducts,
   purchaseGenStudioContentProduct,
   parseContentStorePublicKey,
@@ -64,6 +65,7 @@ export interface PublicContentPurchaseAttempt {
 export type PublicContentAccount = Omit<GenStudioContentAccount, 'raw' | 'owned'> & {
   owned: Array<Omit<GenStudioContentAccount['owned'][number], 'raw' | 'currentRelease'> & {
     currentRelease: PublicContentRelease | null
+    recalledReleaseVersions: string[]
     receiptVerification: 'verified' | 'unverified'
     downloadAvailable: boolean
     installState: ContentStoreInstallState
@@ -236,6 +238,7 @@ async function publicAccount(
   account: GenStudioContentAccount,
   verifiedFamilies: ReadonlySet<string>,
   installStates: ReadonlyArray<ContentStoreLocalInstallState>,
+  recalledVersionsByFamily: ReadonlyMap<string, string[]>,
 ): Promise<PublicContentAccount> {
   return {
     accountId: account.accountId,
@@ -251,6 +254,7 @@ async function publicAccount(
       purchaseId: owned.purchaseId,
       currentRelease: owned.currentRelease ? publicRelease(owned.currentRelease) : null,
       showcaseVideos: owned.showcaseVideos,
+      recalledReleaseVersions: [...(recalledVersionsByFamily.get(owned.entitlementFamily) ?? [])],
       receiptVerification: verifiedFamilies.has(owned.entitlementFamily) ? 'verified' as const : 'unverified' as const,
       downloadAvailable: owned.currentRelease?.archiveAvailable === true,
       ...installStates[index]!,
@@ -294,14 +298,28 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     }
     throw error
   }
-  const catalog = await listGenStudioContentProducts(apiKey, await resolveStoryStudioVersion())
+  const [catalog, receipts] = await Promise.all([
+    listGenStudioContentProducts(apiKey, await resolveStoryStudioVersion()),
+    getGenStudioContentReceipts(apiKey),
+  ])
+  if (receipts.accountId !== account.accountId || receipts.contentAccountId !== account.contentAccountId) {
+    throw new ContentStoreLocalError(
+      409,
+      'CONTENT_STORE_ACCOUNT_MISMATCH',
+      'GenStudio returned Content Store recall state for a different account.',
+    )
+  }
+  const recalledVersionsByFamily = new Map(receipts.entitlements.map(entitlement => [
+    entitlement.entitlementFamily,
+    entitlement.recalledReleaseVersions,
+  ]))
   const [verifiedFamilies, installStates] = await Promise.all([
     cachedVerifiedFamilies(account.accountId),
     resolveContentStoreInstallStates(account.owned.map(owned => owned.currentRelease)),
   ])
   return {
     phase: 'delivery_ready',
-    account: await publicAccount(account, verifiedFamilies, installStates),
+    account: await publicAccount(account, verifiedFamilies, installStates, recalledVersionsByFamily),
     products: catalog.products.map(publicProduct),
     attempts: await localAttempts(account.accountId),
     capabilities: {

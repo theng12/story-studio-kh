@@ -158,6 +158,15 @@ const hasVerifiedOwnership = computed(() => account.value?.owned.some(row => row
 
 const pageError = computed(() => {
   if (!error.value || dialogOpen.value) return null
+  if (error.value.code === 'release_recalled') {
+    return {
+      tone: 'warning', title: 'A Content Pack release was recalled',
+      detail: error.value.recallReason
+        ? `GenStudio stopped serving that exact version. Reason: ${error.value.recallReason} Ownership remains permanent; use the newest safe owned release when one is available.`
+        : error.value.detail,
+      showSettings: false,
+    }
+  }
   if (error.value.code === 'signing_unavailable') {
     return {
       tone: 'neutral', title: 'The Content Store is not open yet',

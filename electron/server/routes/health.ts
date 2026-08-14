@@ -148,7 +148,7 @@ router.get('/models', async (_req, res) => {
 async function authoritativeUsage(res: any): Promise<void> {
   const apiKey = await withGenStudioKey()
   if (!apiKey) {
-    res.status(400).json({ detail: 'Add the scoped GenStudio API key in Settings → This Mac.' })
+    res.status(400).json({ detail: 'Add a GenStudio API key in Settings → This Mac.' })
     return
   }
   try {
@@ -171,7 +171,7 @@ router.get('/usage/rollup', (_req, res) => authoritativeUsage(res))
 router.get('/projects/:slug/health', async (req, res) => {
   if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
   const apiKey = await withGenStudioKey()
-  if (!apiKey) return res.json({ genstudio: { configured: false, online: false, detail: 'Add the scoped GenStudio API key.' } })
+  if (!apiKey) return res.json({ genstudio: { configured: false, online: false, detail: 'Add a GenStudio API key.' } })
   try {
     const models = await listGenStudioChatModels(apiKey)
     res.json({ genstudio: { configured: true, online: true, available_chat_models: models.filter(model => model.available).length } })
@@ -182,7 +182,7 @@ router.get('/projects/:slug/health', async (req, res) => {
 
 router.get('/connectivity/precheck', async (_req, res) => {
   const apiKey = await withGenStudioKey()
-  if (!apiKey) return res.json({ online: false, genstudio: false, detail: 'Scoped GenStudio API key is not configured.' })
+  if (!apiKey) return res.json({ online: false, genstudio: false, detail: 'GenStudio API key is not configured.' })
   try {
     await listGenStudioChatModels(apiKey)
     res.json({ online: true, genstudio: true })

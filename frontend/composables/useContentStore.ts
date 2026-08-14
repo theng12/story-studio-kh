@@ -70,6 +70,7 @@ export interface ContentStoreAccount {
     purchaseId: string | null
     currentRelease: ContentStoreRelease | null
     showcaseVideos: ContentStoreShowcaseVideo[]
+    recalledReleaseVersions: string[]
     receiptVerification: 'verified' | 'unverified'
     downloadAvailable: boolean
     installState: 'not_installed' | 'installed_current' | 'installed_other_version' | 'update_available' | 'unavailable'
@@ -132,6 +133,9 @@ export interface ContentStoreUiError {
   requiredCredits?: number
   availableCredits?: number
   shortfallCredits?: number
+  terminal?: boolean
+  recallReason?: string | null
+  recalledAt?: string | null
 }
 
 function uiError(cause: any, fallback: string): ContentStoreUiError {
@@ -146,6 +150,11 @@ function uiError(cause: any, fallback: string): ContentStoreUiError {
     ...(Number.isInteger(data.required_credits) ? { requiredCredits: data.required_credits } : {}),
     ...(Number.isInteger(data.available_credits) ? { availableCredits: data.available_credits } : {}),
     ...(Number.isInteger(data.shortfall_credits) ? { shortfallCredits: data.shortfall_credits } : {}),
+    ...(data.terminal === true ? { terminal: true } : {}),
+    ...(typeof data.recall_reason === 'string' || data.recall_reason === null
+      ? { recallReason: data.recall_reason as string | null } : {}),
+    ...(typeof data.recalled_at === 'string' || data.recalled_at === null
+      ? { recalledAt: data.recalled_at as string | null } : {}),
   }
 }
 
@@ -167,6 +176,12 @@ export function useContentStore(): {
   const attempts = ref<PublicContentPurchaseAttempt[]>([])
   const loading = ref(false)
   const error = ref<ContentStoreUiError | null>(null)
+
+  function applyOverview(overview: ContentStoreOverview): void {
+    account.value = overview.account
+    products.value = overview.products
+    attempts.value = overview.attempts
+  }
 
   function replaceAttempt(attempt: PublicContentPurchaseAttempt): void {
     const index = attempts.value.findIndex(row => row.quote_id === attempt.quote_id)
@@ -206,9 +221,7 @@ export function useContentStore(): {
     error.value = null
     try {
       const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
-      account.value = overview.account
-      products.value = overview.products
-      attempts.value = overview.attempts
+      applyOverview(overview)
     } catch (cause: any) {
       account.value = null
       products.value = []
@@ -268,9 +281,7 @@ export function useContentStore(): {
     error.value = null
     try {
       const overview = await post<ContentStoreOverview>('/content-store/restore', {})
-      account.value = overview.account
-      products.value = overview.products
-      attempts.value = overview.attempts
+      applyOverview(overview)
     } catch (cause: any) {
       error.value = uiError(cause, 'GenStudio ownership could not be restored.')
       throw cause
@@ -286,12 +297,19 @@ export function useContentStore(): {
         install: { pack_id: string; version: string; activated: boolean }
         overview: ContentStoreOverview
       }>(`/content-store/releases/${encodeURIComponent(releaseId)}/install`, {})
-      account.value = response.overview.account
-      products.value = response.overview.products
-      attempts.value = response.overview.attempts
+      applyOverview(response.overview)
       return response.install
     } catch (cause: any) {
-      error.value = uiError(cause, 'This owned Content Pack could not be installed.')
+      const installError = uiError(cause, 'This owned Content Pack could not be installed.')
+      error.value = installError
+      if (installError.code === 'release_recalled') {
+        try {
+          applyOverview(await get<ContentStoreOverview>('/content-store', { cache: 'no-store' }))
+        } catch {
+          // Preserve the terminal recall. A failed read refresh is not permission to retry the recalled version.
+        }
+        error.value = installError
+      }
       throw cause
     }
   }

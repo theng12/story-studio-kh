@@ -206,6 +206,34 @@ describe('Content Store commerce routes', () => {
     assert.doesNotMatch(JSON.stringify(response.body), /future_internal_refusal|private bucket|\/srv\/private|internal_path/i)
   })
 
+  test('preserves an exact release recall as a terminal refusal without retrying delivery', async () => {
+    const { app: localApp } = await setup({ products: [product({
+      owned: true,
+      current_release: release({ archive_available: true }),
+    })] })
+    mock.contentDownloadRefusal = {
+      status: 410,
+      code: 'release_recalled',
+      detail: 'release 1.0.0 was recalled: unsafe bundled reference',
+      recall_reason: 'unsafe bundled reference',
+      recalled_at: '2026-08-14T09:00:00Z',
+    }
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+
+    const response = await request(localApp)
+      .post('/api/content-store/releases/crel_a/install').send({}).expect(410)
+
+    assert.deepEqual(response.body, {
+      code: 'release_recalled',
+      detail: 'GenStudio stopped serving this exact Content Pack release. Ownership remains permanent.',
+      recall_reason: 'unsafe bundled reference',
+      recalled_at: '2026-08-14T09:00:00Z',
+      terminal: true,
+    })
+    assert.equal(mock.contentDownloadPostCount, 1)
+    assert.equal(mock.contentArchiveGetCount, 0)
+  })
+
   test('requires a saved key locally and sends no remote request', async () => {
     const { app: localApp } = await setup({ key: '' })
     const response = await request(localApp).get('/api/content-store').expect(400)
@@ -226,6 +254,20 @@ describe('Content Store commerce routes', () => {
     })
     assert.equal(mock.requests.filter(row => row.path === '/v1/content/account').length, 1)
     assert.match(mock.requests.find(row => row.path === '/v1/content/products')!.path, /^\/v1\/content\/products$/)
+  })
+
+  test('shows recalled owned versions beside the newest safe release without changing ownership', async () => {
+    const { app: localApp } = await setup({ products: [product({
+      owned: true,
+      current_release: release({ release_id: 'crel_safe', version: '0.9.0', archive_available: true }),
+      recalled_release_versions: ['1.0.0'],
+    })] })
+
+    const response = await request(localApp).get('/api/content-store').expect(200)
+
+    assert.equal(response.body.account.owned[0].currentRelease.version, '0.9.0')
+    assert.deepEqual(response.body.account.owned[0].recalledReleaseVersions, ['1.0.0'])
+    assert.equal(response.body.account.owned[0].entitlementFamily, 'com.storystudio.test')
   })
 
   test('does not use stale ownership after a content scope failure', async () => {

@@ -50,9 +50,11 @@ export interface GenStudioContentRelease {
 }
 
 export interface GenStudioOwnedContentRelease extends GenStudioContentRelease {
-  state: 'published' | 'withdrawn'
+  state: 'published' | 'withdrawn' | 'recalled'
   publishedAt: string | null
   current: boolean
+  recalledAt: string | null
+  recallReason: string | null
 }
 
 export interface GenStudioOwnedContentReleases {
@@ -212,6 +214,7 @@ export interface GenStudioContentRestoreEntitlement {
   retired: boolean
   currentRelease: GenStudioContentRelease | null
   downloadAvailable: boolean
+  recalledReleaseVersions: string[]
   showcaseVideos: GenStudioShowcaseVideo[]
   raw: CanonicalJsonObject
 }
@@ -375,6 +378,10 @@ function textArray(record: Record<string, unknown>, key: string): string[] {
     if (typeof value !== 'string' || value.length === 0) throw new Error(`${key}[${index}] must be a non-empty string`)
     return value
   })
+}
+
+function optionalTextArray(record: Record<string, unknown>, key: string): string[] {
+  return record[key] === undefined ? [] : textArray(record, key)
 }
 
 function strictBase64(value: string, field: string, expectedBytes?: number): Uint8Array {
@@ -806,6 +813,7 @@ export function parseContentStoreReceipts(value: unknown): GenStudioContentRecei
         retired: bool(entitlement, 'retired'),
         currentRelease,
         downloadAvailable,
+        recalledReleaseVersions: optionalTextArray(entitlement, 'recalled_release_versions'),
         showcaseVideos: parseShowcaseVideos(entitlement.showcase_videos, `entitlements[${index}].showcase_videos`),
         raw: entitlementRaw,
       }
@@ -824,11 +832,26 @@ export function parseOwnedContentReleases(value: unknown): GenStudioOwnedContent
     const release = parseRelease(value, `releases[${index}]`)
     const source = release.raw.value
     const state = text(source, 'state')
-    if (state !== 'published' && state !== 'withdrawn') {
-      throw new Error(`releases[${index}].state must be published or withdrawn`)
+    if (state !== 'published' && state !== 'withdrawn' && state !== 'recalled') {
+      throw new Error(`releases[${index}].state must be published, withdrawn, or recalled`)
     }
     const publishedAt = source.published_at === null ? null : isoInstant(source, 'published_at')
-    return { ...release, state, publishedAt, current: bool(source, 'current') }
+    const current = bool(source, 'current')
+    const recalledAt = source.recalled_at === undefined || source.recalled_at === null
+      ? null
+      : isoInstant(source, 'recalled_at')
+    const recallReason = source.recall_reason === undefined || source.recall_reason === null
+      ? null
+      : text(source, 'recall_reason')
+    if (state === 'recalled') {
+      if (current) throw new Error(`releases[${index}] recalled release cannot be current`)
+      if (!recalledAt || !recallReason) {
+        throw new Error(`releases[${index}] recalled release requires recalled_at and recall_reason`)
+      }
+    } else if (recalledAt !== null || recallReason !== null) {
+      throw new Error(`releases[${index}] non-recalled release must not carry recall metadata`)
+    }
+    return { ...release, state, publishedAt, current, recalledAt, recallReason }
   })
   if (new Set(releases.map(release => release.releaseId)).size !== releases.length) {
     throw new Error('Owned release history contains a duplicate release_id')

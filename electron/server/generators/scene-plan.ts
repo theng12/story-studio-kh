@@ -282,7 +282,7 @@ export async function requireScenePlanGenStudioModel(selectedModel: string): Pro
 export async function getScenePlanGenStudioModel(selectedModel: string): Promise<GenStudioChatModel> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('Add the scoped GenStudio API key in Settings → This Mac before generating scene prompts.')
+    throw new Error('Add a GenStudio API key in Settings → This Mac before generating scene prompts.')
   }
   const catalog = await listGenStudioChatModels(apiKey)
   const modelId = resolveScenePlanCatalogModel(selectedModel, catalog)

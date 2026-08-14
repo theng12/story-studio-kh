@@ -86,9 +86,9 @@ function humanizeError(raw: string): string {
   // since the GenStudio-only migration no backend string names any of them —
   // every generation travels over one gateway and `hasAnyTextProviderKey()`
   // checks one key. So it now matches the messages the backend actually emits
-  // and states the one true thing: the missing key is the scoped GenStudio key.
+  // and states the one true thing: the missing key is the GenStudio API key.
   if (/\bNo\b[^.]{0,40}\bAPI key configured\b/i.test(s)) {
-    return 'GenStudio API key missing. Add the scoped key in Settings → This Mac.'
+    return 'GenStudio API key missing. Add it in Settings → This Mac.'
   }
 
   // Auth errors

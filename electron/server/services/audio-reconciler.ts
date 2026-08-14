@@ -272,7 +272,7 @@ export async function reconcileAudio(slug: string, episodeId: string): Promise<R
       continue
     }
     if (!apiKey) {
-      fail(filename, entry.task_id, 'No scoped GenStudio KH API key configured. Add it in Settings → This Mac.')
+      fail(filename, entry.task_id, 'No GenStudio KH API key configured. Add it in Settings → This Mac.')
       continue
     }
     const chunk = expectedByName.get(filename)!

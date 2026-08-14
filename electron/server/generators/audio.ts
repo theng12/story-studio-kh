@@ -240,7 +240,7 @@ export async function generateAudio(job: Job): Promise<void> {
   // new execution. resolveAudioProvider intentionally always returns GenStudio.
   const providerId = resolveAudioProvider(req.model, config.audio_models)
   const apiKey = await getApiKey('genstudio').catch(() => '')
-  if (!apiKey) throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac.')
+  if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac.')
 
   // `maximum_input_characters` belongs to the model, is read fresh on every
   // run, and is never remembered between runs. Without it Story Studio has no

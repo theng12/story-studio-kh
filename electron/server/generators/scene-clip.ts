@@ -195,7 +195,7 @@ export async function requireSceneClipGenStudioModel(
 }> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
-    throw new Error('Add the scoped GenStudio API key in Settings → This Mac before generating motion clips.')
+    throw new Error('Add a GenStudio API key in Settings → This Mac before generating motion clips.')
   }
   // A catalogue beyond the staleness window throws GenStudioCatalogUnavailableError
   // and is deliberately NOT caught: never submit paid video work against a

@@ -60,7 +60,7 @@ class GenStudioWebResearchAdapter implements ResearchAdapter {
   async run(opts: ResearchRunOptions): Promise<ResearchOutput> {
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (!apiKey) {
-      throw new Error('No scoped GenStudio API key configured. Add it in Settings → This Mac before running research.')
+      throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before running research.')
     }
 
     const qualified = selectWebResearchModels(await listChatModels(apiKey))
