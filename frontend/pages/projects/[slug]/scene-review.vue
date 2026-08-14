@@ -571,6 +571,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { resolveActiveSceneRenderJob } from '~/utils/scene-render-job-state'
 import { findOutputOption, publishedOutputOptions, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
 
@@ -1291,32 +1292,8 @@ const { jobs, isJobActiveFor } = useJobs()
 // this episode, so the bulk button stays greyed even after a reload (the local
 // `bulkQueuing` ref doesn't survive one). See useJobs.isJobActiveFor.
 const reviewJobActive = computed(() => isJobActiveFor(episodeId.value, ['scene_image_generate', 'scene_images_batch', 'continuity_render']))
-const activeRenderJob = computed(() => {
-  const code = episodeId.value
-  if (!code) return null
-  const fromReview = activeRenderJobFromReview.value
-  if (fromReview && fromReview.episode_id === code && ['running', 'queued', 'paused'].includes(fromReview.status)) {
-    return fromReview
-  }
-  return (jobs.value || []).find((j: any) =>
-    j.episode_id === code
-    && ['continuity_render', 'scene_images_batch', 'images', 'scene_images', 'thumb_images'].includes(j.type)
-    && ['running', 'queued', 'paused'].includes(j.status),
-  ) || null
-})
-const activeContinuityRenderJob = computed(() => {
-  const code = episodeId.value
-  if (!code) return null
-  const fromReview = activeRenderJobFromReview.value
-  if (fromReview && fromReview.episode_id === code && ['continuity_render', 'scene_images_batch'].includes(fromReview.type) && ['running', 'queued', 'paused'].includes(fromReview.status)) {
-    return fromReview
-  }
-  return (jobs.value || []).find((j: any) =>
-    j.episode_id === code
-    && ['continuity_render', 'scene_images_batch'].includes(j.type)
-    && ['running', 'queued', 'paused'].includes(j.status),
-  ) || null
-})
+const activeRenderJob = computed(() => resolveActiveSceneRenderJob(episodeId.value, activeRenderJobFromReview.value, jobs.value))
+const activeContinuityRenderJob = computed(() => resolveActiveSceneRenderJob(episodeId.value, activeRenderJobFromReview.value, jobs.value, ['continuity_render', 'scene_images_batch']))
 const isRenderPaused = computed(() => activeRenderJob.value?.status === 'paused')
 const isRendering = computed(() => !!activeRenderJob.value && !isRenderPaused.value)
 const renderProgress = computed<number | null>(() => {

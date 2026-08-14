@@ -79,7 +79,7 @@ describe('Scene Review image preview', () => {
     assert.doesNotMatch(sceneReviewSource, /del\(`\/projects\/\$\{slug\.value\}\/jobs\/\$\{job\.job_id\}`\)/)
     assert.match(sceneReviewSource, /Paused — awaiting explicit Resume/)
     assert.match(sceneReviewSource, /\/projects\/\$\{slug\.value\}\/jobs\/\$\{job\.job_id\}\/resume/)
-    assert.match(sceneReviewSource, /\['running', 'queued', 'paused'\]/)
+    assert.match(sceneReviewSource, /resolveActiveSceneRenderJob\(episodeId\.value, activeRenderJobFromReview\.value, jobs\.value\)/)
     assert.ok((sceneReviewSource.match(/if \(reviewJobActive\.value\) return/g) || []).length >= 2)
     assert.match(sceneReviewSource, /if \(activeRenderJob\.value\?\.status === 'paused'\) return/)
   })
@@ -93,6 +93,16 @@ describe('Scene Review image preview', () => {
     assert.match(sceneReviewSource, /:disabled="!form\.model \|\| regeneratingId === previewScene\.id \|\| reviewJobActive"/)
     assert.match(sceneReviewSource, /\.review-thumb-empty\.is-disabled[\s\S]*cursor:\s*not-allowed/)
     assert.match(sceneReviewSource, /Resume explicitly\. Story Studio audits saved files/)
+  })
+
+  test('live SSE state supersedes a matching paused review snapshot', () => {
+    assert.match(sceneReviewSource, /import \{ resolveActiveSceneRenderJob \} from '~\/utils\/scene-render-job-state'/)
+    assert.match(sceneReviewSource, /const activeRenderJob = computed\(\(\) => resolveActiveSceneRenderJob\(episodeId\.value, activeRenderJobFromReview\.value, jobs\.value\)\)/)
+    assert.match(sceneReviewSource, /const activeContinuityRenderJob = computed\(\(\) => resolveActiveSceneRenderJob\(episodeId\.value, activeRenderJobFromReview\.value, jobs\.value, \['continuity_render', 'scene_images_batch'\]\)\)/)
+    assert.match(sceneReviewSource, /const isRenderPaused = computed\(\(\) => activeRenderJob\.value\?\.status === 'paused'\)/)
+    assert.match(sceneReviewSource, /const isRendering = computed\(\(\) => !!activeRenderJob\.value && !isRenderPaused\.value\)/)
+    assert.match(sceneReviewSource, /watch\(isRendering,[\s\S]*setInterval/)
+    assert.match(sceneReviewSource, /sceneRenderControls\(activeContinuityRenderJob\)/)
   })
 
   test('the preview is teleported above the clipped dashboard', () => {

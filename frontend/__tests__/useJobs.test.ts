@@ -61,6 +61,7 @@ class FakeEventSource {
 ;(globalThis as any).$fetch = async () => ({ jobs: [], stats: { running: 0, queued: 0, done: 0, error: 0, total: 0 } })
 
 const { useJobs, jobCompletionNotice } = await import('../composables/useJobs.js')
+const { resolveActiveSceneRenderJob } = await import('../utils/scene-render-job-state.js')
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -229,6 +230,26 @@ describe('useJobs — episode ownership', () => {
       true,
       'a paused owner must retain the duplicate-submission lock until explicit resume or cancellation',
     )
+  })
+
+  test('SSE queued, running, and terminal updates supersede a paused Scene Review snapshot', () => {
+    reset('scene-review-sse-project')
+    const { jobs } = useJobs()
+    const cachedPaused = mkJob({
+      job_id: 'scene-review-sse',
+      project_slug: 'scene-review-sse-project',
+      episode_id: 'EP-SSE',
+      type: 'continuity_render',
+      status: 'paused',
+    })
+
+    assert.equal(resolveActiveSceneRenderJob('EP-SSE', cachedPaused, jobs.value)?.status, 'paused')
+    FakeEventSource.last!.fire('snapshot', mkSnapshot([{ ...cachedPaused, status: 'queued' }]))
+    assert.equal(resolveActiveSceneRenderJob('EP-SSE', cachedPaused, jobs.value)?.status, 'queued')
+    FakeEventSource.last!.fire('update', { ...cachedPaused, status: 'running' })
+    assert.equal(resolveActiveSceneRenderJob('EP-SSE', cachedPaused, jobs.value)?.status, 'running')
+    FakeEventSource.last!.fire('update', { ...cachedPaused, status: 'cancelled' })
+    assert.equal(resolveActiveSceneRenderJob('EP-SSE', cachedPaused, jobs.value), null)
   })
 })
 

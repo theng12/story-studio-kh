@@ -53,6 +53,16 @@ that the owning queue job was still active.
   preview regeneration controls are visibly disabled until the owner settles,
   is cancelled, or is explicitly resumed.
 
+## Final Scene Review SSE reconciliation correction
+
+- A paused Scene Review GET snapshot no longer wins forever over the global
+  Jobs stream. When the stream contains the same `job_id`, its queued/running
+  state restores the banner, spinner, poll, and eligible controls; terminal
+  stream state clears the owner and those active affordances.
+- The reconciliation is keyed by `job_id`, retaining the cached paused owner
+  only until the stream has a newer record for that exact batch. Pause/cancel
+  classifications and duplicate-submission locks are unchanged.
+
 ## Safety boundary
 
 The new cleanup does local sidecar reads/writes only. It sends no provider
@@ -66,8 +76,9 @@ deletion. Tests use temporary local projects and no provider calls.
 - Local mock-only control/queue/state suites: `job-cancel.test.ts`,
   `job-queue.test.ts`, and `scene-render-status.test.ts` — 77 pass, including
   both genuine cross-process ownership regressions.
-- Focused frontend suites: `sceneReviewPreview.test.ts` and `useJobs.test.ts`
-  — 23 pass.
+- Focused frontend suites: `sceneReviewPreview.test.ts`,
+  `sceneRenderJobState.test.ts`, and `useJobs.test.ts` — 27 pass, including
+  paused snapshot → SSE queued/running/terminal reconciliation.
 - Both `npm run typecheck:electron` and `npm --prefix frontend run typecheck`
   completed in the local toolchain; `npm run lint` and `git diff --check` were
   also run.
