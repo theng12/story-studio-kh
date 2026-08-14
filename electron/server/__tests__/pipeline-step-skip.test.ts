@@ -177,6 +177,7 @@ function enableMockVideoCatalog(
       ...model,
       available: true,
       variants: [{
+        operation: 'image-to-video',
         duration_seconds: 8, resolution: '1080p', credits_per_video: 90,
         minimum_credits: 90, price_version: 'mock-video-price-v1',
       }],

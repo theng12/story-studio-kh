@@ -441,7 +441,7 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
           locked: false,
           lock_reason: 'must-not-survive-when-unlocked',
           modes: ['image-to-video'], aspect_ratios: ['16:9'],
-          variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-v1' }],
+          variants: [{ operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-v1' }],
         }])
       }
       throw new Error(`Unexpected request: ${url}`)

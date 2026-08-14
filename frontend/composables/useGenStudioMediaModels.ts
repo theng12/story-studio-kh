@@ -36,6 +36,7 @@ export interface GenStudioVideoModelInfo {
    *  here would be a copy of the catalogue that goes stale on their release,
    *  not ours. */
   variants: Array<{
+    operation: string
     duration_seconds: number
     resolution: string
     credits_per_video: number

@@ -22,6 +22,7 @@ import {
   describeVideoModelRate,
   describeWebResearchRate,
 } from '../utils/genstudio-credit-cost.js'
+import { variantsForVideoOperation, videoVariantKey } from '../utils/genstudio-video-variants.js'
 
 const ONE_K_16_9 = { resolution: '1K', aspect_ratio: '16:9', width: 1920, height: 1080, is_default: true, credits_per_image: 4 }
 const ONE_K_1_1 = { resolution: '1K', aspect_ratio: '1:1', width: 1024, height: 1024, is_default: false, credits_per_image: 4 }
@@ -163,12 +164,15 @@ test('promotions show the discounted price alongside the undiscounted one', () =
   assert.match(display.title, /Launch week/)
 })
 
-test('a reference-guided run adds the published surcharge, and only when published', () => {
-  const withSurcharge = { display_name: 'Fast', chargeable: true, credits_per_image: 4, reference_generation_credits: 2 }
-  assert.match(describeImageUnitCost(withSurcharge, null, { referenceGuided: true }).text, /\+ 2 credits reference/)
-  assert.doesNotMatch(describeImageUnitCost(withSurcharge, null).text, /reference/)
+test('a reference-guided run uses its published effective I2I rate, not a surcharge', () => {
+  const withReferenceRate = { display_name: 'Fast', chargeable: true, credits_per_image: 4, reference_generation_credits: 9 }
+  const guided = describeImageUnitCost(withReferenceRate, null, { referenceGuided: true })
+  assert.equal(guided.text, '9 credits / image')
+  assert.doesNotMatch(guided.text, /\+|surcharge/i)
+  assert.match(guided.title, /reference-guided image/)
+  assert.doesNotMatch(describeImageUnitCost(withReferenceRate, null).text, /reference/)
   const without = { display_name: 'Fast', chargeable: true, credits_per_image: 4 }
-  assert.doesNotMatch(describeImageUnitCost(without, null, { referenceGuided: true }).text, /reference/)
+  assert.equal(describeImageUnitCost(without, null, { referenceGuided: true }).basis, 'unpublished')
 })
 
 test('a batch total is labelled an estimate and keeps the unit rate visible', () => {
@@ -216,6 +220,17 @@ test('video model selection summarizes the complete published variant rate range
   })
   assert.equal(missing.basis, 'unpublished')
   assert.match(missing.text, /not reported/i)
+})
+
+test('Motion Review only uses image-to-video variants and keeps their operation in the selection key', () => {
+  const variants = [
+    { operation: 'text-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 1, minimum_credits: 1, price_version: 't2v-v1' },
+    { operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 9, minimum_credits: 3, price_version: 'i2v-v1' },
+  ]
+  const i2v = variantsForVideoOperation(variants, 'image-to-video')
+  assert.deepEqual(i2v, [variants[1]])
+  assert.equal(describeVideoModelRate({ display_name: 'Mixed Motion', variants: i2v }).text, '9 credits / clip')
+  assert.equal(videoVariantKey(i2v[0]!), 'image-to-video:5:720p')
 })
 
 test('web research selection states published request and search rates without deriving a total', () => {
@@ -277,19 +292,20 @@ test('a job GenStudio did not price makes the TOTAL unavailable — it never cou
   }
 })
 
-test('an unpublished reference surcharge does not price reference guidance as free', () => {
+test('an unpublished reference effective rate does not price reference guidance as plain generation', () => {
   const priced = { chargeable: true, credits_per_image: 4 }
-  // No `reference_generation_credits` anywhere: the surcharge is unknown, so
-  // there is no batch total to state — only the published unit rate.
+  // No `reference_generation_credits` anywhere: the full reference-guided
+  // rate is unknown, so plain-generation pricing must not leak into this UI.
   const guided = describeImageBatchEstimate(priced as any, null, 10, { referenceGuided: true })
-  assert.notEqual(guided.basis, 'estimate')
+  assert.equal(guided.basis, 'unpublished')
   assert.doesNotMatch(guided.text, /Estimate/i)
-  // Published surcharge → the estimate is stated, and it includes it.
-  const withSurcharge = describeImageBatchEstimate(
-    { ...priced, reference_generation_credits: 1 } as any, null, 10, { referenceGuided: true },
+  // Published reference rate → the estimate is stated at that rate, exactly.
+  const withReferenceRate = describeImageBatchEstimate(
+    { ...priced, reference_generation_credits: 9 } as any, null, 10, { referenceGuided: true },
   )
-  assert.equal(withSurcharge.basis, 'estimate')
-  assert.match(withSurcharge.text, /Estimate 50 credits/)
+  assert.equal(withReferenceRate.basis, 'estimate')
+  assert.match(withReferenceRate.text, /Estimate 90 credits/)
+  assert.match(withReferenceRate.text, /9 credits \/ image × 10/)
 })
 
 // ── Source guards ─────────────────────────────────────────────────────────

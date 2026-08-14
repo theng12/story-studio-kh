@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
 import { transform } from 'esbuild'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
+import { thumbnailVisionModelMenuOption } from '../utils/thumbnail-vision-model-menu.js'
 
 const modelMenu = readFileSync(fileURLToPath(new URL('../components/ModelMenu.vue', import.meta.url)), 'utf8')
 
@@ -67,23 +68,25 @@ const PickerDialogStub = defineComponent({
   },
 })
 
-async function mountModelMenu() {
+const defaultModelMenuOptions = [
+  { id: 'fast', label: 'Fast', costTier: 'economy' },
+  {
+    id: 'steady',
+    label: 'Steady',
+    costTier: 'balanced',
+    description: 'A balanced model for routine work.',
+    price: '12 credits / 1M input tokens · 24 credits / 1M output tokens',
+    priceTitle: 'GenStudio publishes this token rate. The final charge depends on actual usage.',
+  },
+  { id: 'flagship', label: 'Flagship', costTier: 'premium' },
+]
+
+async function mountModelMenu(options = defaultModelMenuOptions, modelValue = 'steady') {
   document.body.innerHTML = ''
   const host = document.body.appendChild(document.createElement('div'))
   const app = createApp(await loadModelMenu(), {
-    modelValue: 'steady',
-    options: [
-      { id: 'fast', label: 'Fast', costTier: 'economy' },
-      {
-        id: 'steady',
-        label: 'Steady',
-        costTier: 'balanced',
-        description: 'A balanced model for routine work.',
-        price: '12 credits / 1M input tokens · 24 credits / 1M output tokens',
-        priceTitle: 'GenStudio publishes this token rate. The final charge depends on actual usage.',
-      },
-      { id: 'flagship', label: 'Flagship', costTier: 'premium' },
-    ],
+    modelValue,
+    options,
   })
   app.component('PickerDialog', PickerDialogStub)
   app.component('NuxtLink', PickerDialogStub)
@@ -150,6 +153,31 @@ describe('picker dialog opening focus', () => {
         host.querySelector<HTMLElement>('.model-menu-option-description')?.textContent?.trim(),
         'A balanced model for routine work.',
       )
+    } finally {
+      unmount()
+    }
+  })
+
+  test('thumbnail vision selection mounts its live input and output rates with the published minimum', async () => {
+    const option = thumbnailVisionModelMenuOption({
+      id: 'vision-live-v1',
+      display_name: 'Live Vision',
+      supported_detail_levels: ['high'],
+      max_input_images: 1,
+      accepted_image_mime_types: ['image/png'],
+      max_image_bytes: 4_000_000,
+      max_image_dimension: 2_048,
+      input_credits_per_million_tokens: 12,
+      output_credits_per_million_tokens: 24,
+      minimum_credits: 3,
+      price_version: 'vision-price-v1',
+    })
+    const { host, unmount } = await mountModelMenu([option], option.id)
+    try {
+      const price = host.querySelector<HTMLElement>('.model-menu-option-price')
+      assert.equal(price?.textContent?.trim(), 'Published rate · 12 credits / 1M input tokens · 24 credits / 1M output tokens')
+      assert.match(price?.title || '', /minimum of 3 credits/i)
+      assert.match(price?.title || '', /Live Vision/)
     } finally {
       unmount()
     }

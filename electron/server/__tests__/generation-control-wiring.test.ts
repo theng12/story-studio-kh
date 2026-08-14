@@ -229,8 +229,8 @@ test('the scene clip route persists the selected published variant on the queued
   try {
     await configureMockGenStudio(service.baseUrl)
     restoreVideoCatalog = enableMockVideoCatalog(service, [
-      { duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
-      { duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
+      { operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
+      { operation: 'image-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
     ])
     const pm = await import('../services/project-manager.js')
     const jq = await import('../services/job-queue.js')
@@ -267,8 +267,8 @@ test('new Motion Review routes require an exact pair and preserve it for durable
   try {
     await configureMockGenStudio(service.baseUrl)
     restoreVideoCatalog = enableMockVideoCatalog(service, [
-      { duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
-      { duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
+      { operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
+      { operation: 'image-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
     ])
     const pm = await import('../services/project-manager.js')
     const jq = await import('../services/job-queue.js')
@@ -322,8 +322,8 @@ test('Jobs retry preserves legacy Motion fallback and an exact selected variant'
   try {
     await configureMockGenStudio(service.baseUrl)
     restoreVideoCatalog = enableMockVideoCatalog(service, [
-      { duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
-      { duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
+      { operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 50, minimum_credits: 50, price_version: 'mock-video-price-v1' },
+      { operation: 'image-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mock-video-price-v1' },
     ])
     const jq = await import('../services/job-queue.js')
     const { generateSceneClipJob } = await import('../generators/scene-clip.js')

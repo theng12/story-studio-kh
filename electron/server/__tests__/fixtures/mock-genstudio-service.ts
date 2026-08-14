@@ -1372,6 +1372,7 @@ export class MockGenStudioService {
         modes: ['image-to-video'],
         aspect_ratios: ['16:9'],
         variants: [{
+          operation: 'image-to-video',
           duration_seconds: 5,
           resolution: '720p',
           credits_per_video: 50,

@@ -106,10 +106,10 @@ export function describeImageModelRate(
   const options = Array.isArray(model.output_options) ? model.output_options : []
   const label = model.display_name || 'This model'
   if (opts.referenceGuided) {
-    const modelSurcharge = publishedNumber(model.reference_generation_credits)
+    const modelReferenceRate = publishedNumber(model.reference_generation_credits)
     const hasUnpricedReference = options.length
-      ? options.some(option => publishedNumber(option.reference_generation_credits) === null && modelSurcharge === null)
-      : modelSurcharge === null
+      ? options.some(option => publishedNumber(option.reference_generation_credits) === null && modelReferenceRate === null)
+      : modelReferenceRate === null
     if (hasUnpricedReference) return unpublishedCost(label)
   }
   if (!options.length || options.some(option => publishedNumber(option.credits_per_image) === null)) {
@@ -117,11 +117,9 @@ export function describeImageModelRate(
   }
 
   const prices = options.map((option) => {
-    const unit = publishedNumber(option.credits_per_image) as number
-    if (!opts.referenceGuided) return unit
-    const surcharge = publishedNumber(option.reference_generation_credits)
+    if (!opts.referenceGuided) return publishedNumber(option.credits_per_image) as number
+    return publishedNumber(option.reference_generation_credits)
       ?? publishedNumber(model.reference_generation_credits)
-    return unit + (surcharge as number)
   })
   const minimum = Math.min(...prices)
   const maximum = Math.max(...prices)
@@ -163,7 +161,9 @@ export function describeImageUnitCost(
     }
   }
 
-  const unit = publishedNumber(option?.credits_per_image) ?? publishedNumber(model.credits_per_image)
+  const unit = opts.referenceGuided
+    ? (publishedNumber(option?.reference_generation_credits) ?? publishedNumber(model.reference_generation_credits))
+    : (publishedNumber(option?.credits_per_image) ?? publishedNumber(model.credits_per_image))
   if (unit === null) return unpublishedCost(label)
 
   const where = option?.resolution && option?.aspect_ratio
@@ -172,7 +172,9 @@ export function describeImageUnitCost(
   let text = `${formatCredits(unit)} / image`
   const parts = [`GenStudio publishes ${formatCredits(unit)} per image for ${where}.`]
 
-  const base = publishedNumber(option?.base_credits_per_image) ?? publishedNumber(model.base_credits_per_image)
+  const base = opts.referenceGuided
+    ? null
+    : (publishedNumber(option?.base_credits_per_image) ?? publishedNumber(model.base_credits_per_image))
   if (base !== null && base > unit) {
     const promotion = model.promotion_name?.trim()
     const percent = publishedNumber(model.promotion_discount_percent)
@@ -185,14 +187,7 @@ export function describeImageUnitCost(
     )
   }
 
-  if (opts.referenceGuided) {
-    const reference = publishedNumber(option?.reference_generation_credits)
-      ?? publishedNumber(model.reference_generation_credits)
-    if (reference !== null) {
-      text += ` + ${formatCredits(reference)} reference`
-      parts.push(`Reference-guided renders carry a published surcharge of ${formatCredits(reference)}.`)
-    }
-  }
+  if (opts.referenceGuided) parts[0] = `GenStudio publishes ${formatCredits(unit)} per reference-guided image for ${where}.`
 
   parts.push('GenStudio reports the charge it actually applied on the finished job.')
   return { text, basis: 'rate', title: parts.join(' ') }
@@ -215,18 +210,11 @@ export function describeImageBatchEstimate(
   const count = Math.max(0, Math.floor(imageCount))
   if (unitDisplay.basis !== 'rate' || count < 1) return unitDisplay
 
-  const unit = publishedNumber(option?.credits_per_image) ?? publishedNumber(model?.credits_per_image)
-  if (unit === null) return unitDisplay
-  // Reference guidance is priced separately, and an unpublished surcharge is
-  // NOT a free one. Adding 0 here quietly told the customer that reference-
-  // guided generation costs the same as plain generation — the same "silent 0
-  // reads as free" mistake as `credits ?? 0` on a quote. With no published
-  // surcharge there is no total to state, so the unit rate stands alone.
-  const reference = opts.referenceGuided
+  const unit = opts.referenceGuided
     ? (publishedNumber(option?.reference_generation_credits) ?? publishedNumber(model?.reference_generation_credits))
-    : 0
-  if (reference === null) return unitDisplay
-  const estimate = (unit + reference) * count
+    : (publishedNumber(option?.credits_per_image) ?? publishedNumber(model?.credits_per_image))
+  if (unit === null) return unitDisplay
+  const estimate = unit * count
   return {
     text: `Estimate ${formatCredits(estimate)} (${unitDisplay.text} × ${count.toLocaleString()})`,
     basis: 'estimate',

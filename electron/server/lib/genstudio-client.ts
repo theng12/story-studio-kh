@@ -1180,6 +1180,8 @@ export interface GenStudioImageSourceAsset {
  * happens to know today.
  */
 export interface GenStudioVideoVariant {
+  /** GenStudio operation this exact duration/resolution/price row belongs to. */
+  operation: string
   duration_seconds: number
   resolution: string
   credits_per_video: number
@@ -3781,12 +3783,15 @@ export async function listVideoModelsSnapshot(
       ? value.variants.filter((item: any) => (
           Number.isFinite(item?.duration_seconds)
           && item.duration_seconds > 0
+          && typeof item?.operation === 'string'
+          && item.operation.trim().length > 0
           && typeof item?.resolution === 'string'
           && item.resolution.trim().length > 0
           && Number.isFinite(item?.credits_per_video)
           && Number.isFinite(item?.minimum_credits)
           && typeof item?.price_version === 'string'
         )).map((item: any): GenStudioVideoVariant => ({
+          operation: item.operation.trim(),
           duration_seconds: item.duration_seconds,
           resolution: item.resolution.trim(),
           credits_per_video: item.credits_per_video,

@@ -58,7 +58,7 @@ const props = withDefaults(defineProps<{
   model: GenStudioImageModelInfo | null | undefined
   /** The customer's current pick. Preserved across a model switch when published. */
   modelValue: OutputOptionChoice | null
-  /** True when references are attached, so the published surcharge is shown. */
+  /** True when references are attached, so the published effective rate is shown. */
   referenceGuided?: boolean
 }>(), { referenceGuided: false })
 

@@ -95,19 +95,20 @@ test('a 4k and an 8-second variant published today reach the catalogue intact', 
         id: 'gs-video-wide-v1',
         display_name: 'Wide Ladder',
         available: true,
-        // Four published modes. Story Studio submits only image-to-video, but
-        // the other three must survive the transport for a future surface.
-        modes: ['image-to-video', 'text-to-video', 'video-to-video', 'reference-to-video'],
+        // GenStudio's published operations. Story Studio submits only
+        // image-to-video, but every operation must survive transport.
+        modes: ['image-to-video', 'text-to-video', 'start-end-frame', 'video-to-video'],
         aspect_ratios: ['16:9', '9:16'],
         variants: [
-          { duration_seconds: 3, resolution: '480p', credits_per_video: 8, minimum_credits: 8, price_version: 'v1' },
-          { duration_seconds: 8, resolution: '1080p', credits_per_video: 40, minimum_credits: 40, price_version: 'v1' },
-          { duration_seconds: 15, resolution: '4k', credits_per_video: 200, minimum_credits: 200, price_version: 'v1' },
+          { operation: 'image-to-video', duration_seconds: 3, resolution: '480p', credits_per_video: 8, minimum_credits: 8, price_version: 'v1' },
+          { operation: 'text-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 40, minimum_credits: 40, price_version: 'v1' },
+          { operation: 'start-end-frame', duration_seconds: 15, resolution: '4k', credits_per_video: 200, minimum_credits: 200, price_version: 'v1' },
           // Malformed rows are still dropped — SHAPE is validated.
-          { duration_seconds: 0, resolution: '1080p', credits_per_video: 5, minimum_credits: 5, price_version: 'v1' },
-          { duration_seconds: 10, resolution: '   ', credits_per_video: 5, minimum_credits: 5, price_version: 'v1' },
-          { duration_seconds: 10, resolution: '720p', credits_per_video: 'free', minimum_credits: 5, price_version: 'v1' },
-          { duration_seconds: 10, resolution: '720p', credits_per_video: 5, minimum_credits: 5 },
+          { operation: 'image-to-video', duration_seconds: 0, resolution: '1080p', credits_per_video: 5, minimum_credits: 5, price_version: 'v1' },
+          { operation: 'image-to-video', duration_seconds: 10, resolution: '   ', credits_per_video: 5, minimum_credits: 5, price_version: 'v1' },
+          { operation: 'image-to-video', duration_seconds: 10, resolution: '720p', credits_per_video: 'free', minimum_credits: 5, price_version: 'v1' },
+          { operation: 'image-to-video', duration_seconds: 10, resolution: '720p', credits_per_video: 5, minimum_credits: 5 },
+          { duration_seconds: 10, resolution: '720p', credits_per_video: 5, minimum_credits: 5, price_version: 'v1' },
         ],
       }])
     }
@@ -117,8 +118,11 @@ test('a 4k and an 8-second variant published today reach the catalogue intact', 
       model.variants.map(describeGenStudioVideoVariant),
       ['3s at 480p', '8s at 1080p', '15s at 4k'],
     )
+    assert.deepEqual(model.variants.map(variant => variant.operation), [
+      'image-to-video', 'text-to-video', 'start-end-frame',
+    ])
     assert.deepEqual(model.modes, [
-      'image-to-video', 'text-to-video', 'video-to-video', 'reference-to-video',
+      'image-to-video', 'text-to-video', 'start-end-frame', 'video-to-video',
     ])
     assert.equal(supportsGenStudioVideoMode(model), true)
     assert.equal(supportsGenStudioVideoMode(model, 'text-to-video'), true)
@@ -130,9 +134,9 @@ test('a 4k and an 8-second variant published today reach the catalogue intact', 
 
 test('variant selection takes the cheapest published option and rejects unpublished combinations', () => {
   const variants: GenStudioVideoVariant[] = [
-    { duration_seconds: 15, resolution: '4k', credits_per_video: 200, minimum_credits: 200, price_version: 'v1' },
-    { duration_seconds: 8, resolution: '1080p', credits_per_video: 40, minimum_credits: 40, price_version: 'v1' },
-    { duration_seconds: 3, resolution: '480p', credits_per_video: 8, minimum_credits: 8, price_version: 'v1' },
+    { operation: 'image-to-video', duration_seconds: 15, resolution: '4k', credits_per_video: 200, minimum_credits: 200, price_version: 'v1' },
+    { operation: 'image-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 40, minimum_credits: 40, price_version: 'v1' },
+    { operation: 'image-to-video', duration_seconds: 3, resolution: '480p', credits_per_video: 8, minimum_credits: 8, price_version: 'v1' },
   ]
   assert.equal(describeGenStudioVideoVariant(cheapestGenStudioVideoVariant(variants)!), '3s at 480p')
   assert.equal(cheapestGenStudioVideoVariant([]), null)
@@ -147,8 +151,8 @@ test('variant selection takes the cheapest published option and rejects unpublis
 
 test('scene clips keep an exact published variant, reject a removed one, and use cheapest only for legacy jobs', () => {
   const variants: GenStudioVideoVariant[] = [
-    { duration_seconds: 3, resolution: '480p', credits_per_video: 8, minimum_credits: 8, price_version: 'v1' },
-    { duration_seconds: 8, resolution: '1080p', credits_per_video: 40, minimum_credits: 40, price_version: 'v1' },
+    { operation: 'image-to-video', duration_seconds: 3, resolution: '480p', credits_per_video: 8, minimum_credits: 8, price_version: 'v1' },
+    { operation: 'image-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 40, minimum_credits: 40, price_version: 'v1' },
   ]
 
   assert.deepEqual(

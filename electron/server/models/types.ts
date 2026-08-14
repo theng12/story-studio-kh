@@ -1582,7 +1582,7 @@ export interface ImageOutputOption {
   /** Undiscounted price of this combination, when a promotion is running. */
   base_credits_per_image?: number
   price_version?: string
-  /** Surcharge when this combination is rendered from reference images. */
+  /** Full effective rate when this combination is rendered from reference images. */
   reference_generation_credits?: number
   reference_generation_price_version?: string
 }

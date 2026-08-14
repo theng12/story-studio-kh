@@ -66,6 +66,10 @@ router.get('/projects/:slug/thumbnail-reference/vision-models', async (req, res)
     const models = (await listChatModels(apiKey)).filter(eligibleThumbnailVisionModel).map(model => ({
       id: model.id, display_name: model.display_name, supported_detail_levels: model.supported_detail_levels,
       cost_tier: model.cost_tier,
+      input_credits_per_million_tokens: model.input_credits_per_million_tokens,
+      output_credits_per_million_tokens: model.output_credits_per_million_tokens,
+      minimum_credits: model.minimum_credits,
+      price_version: model.price_version,
       max_input_images: model.max_input_images, accepted_image_mime_types: model.accepted_image_mime_types,
       max_image_bytes: model.max_image_bytes, max_image_dimension: model.max_image_dimension,
     }))

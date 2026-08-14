@@ -1011,6 +1011,7 @@ import {
 import { readRememberedImageModelId } from '~/utils/project-image-model'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
+import { thumbnailVisionModelMenuOption, type ThumbnailVisionModel } from '~/utils/thumbnail-vision-model-menu'
 definePageMeta({ layout: 'dashboard' })
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
@@ -1170,16 +1171,6 @@ const customStyles = computed<StylePresetMeta[]>(
 
 // ── Reference-image style extraction (pain-point #7) ─────────────────────
 interface VisionModelCap { id: string; available: boolean; cost_tier?: GenStudioCostTier }
-interface ThumbnailVisionModel {
-  id: string
-  display_name: string
-  supported_detail_levels: Array<'low' | 'high' | 'auto'>
-  max_input_images: number
-  accepted_image_mime_types: string[]
-  max_image_bytes: number
-  max_image_dimension: number
-  cost_tier?: GenStudioCostTier
-}
 interface ThumbnailReferenceAsset {
   id: string
   filename: string
@@ -1213,14 +1204,7 @@ const thumbnailVisionModels = ref<ThumbnailVisionModel[]>([])
 const thumbnailVisionModel = ref('')
 const thumbnailVisionLoading = ref(false)
 const thumbnailVisionLoadError = ref('')
-const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.value.map(model => ({
-  id: model.id,
-  label: model.display_name,
-  group: 'GenStudio KH · Vision only',
-  meta: `${model.max_input_images} image · ${model.supported_detail_levels.join(', ')} detail`,
-  badges: [{ label: 'Vision', tone: 'info' as const }, { label: 'JSON', tone: 'neutral' as const }],
-  costTier: model.cost_tier,
-})))
+const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.value.map(thumbnailVisionModelMenuOption))
 const selectedThumbnailVisionModel = computed(() => thumbnailVisionModels.value.find(model => model.id === thumbnailVisionModel.value) || null)
 
 // Session history

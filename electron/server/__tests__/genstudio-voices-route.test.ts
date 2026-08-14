@@ -195,7 +195,7 @@ test('GenStudio media and LLM discovery use provider-owned live catalogs', async
       return Response.json([{
         id: 'video-v1', display_name: 'Video V1', available: false,
         modes: ['image-to-video'], aspect_ratios: ['16:9'],
-        variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-v1' }],
+        variants: [{ operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-v1' }],
       }])
     }
     throw new Error(`Unexpected request: ${url}`)
@@ -241,7 +241,7 @@ test('GenStudio cost tiers pass through every Story catalog response without rep
     if (url.endsWith('/v1/videos/models')) return Response.json([{
       id: 'video-tier-v1', display_name: 'Tier Video', available: true, cost_tier: 'premium',
       modes: ['image-to-video'], aspect_ratios: ['16:9'],
-      variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-tier-price-v1' }],
+      variants: [{ operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-tier-price-v1' }],
     }])
     if (url.endsWith('/v1/transcription/models')) return Response.json([{
       id: 'transcription-tier-v1', display_name: 'Tier Transcription', provider: 'Published transcription provider',
@@ -300,6 +300,10 @@ test('GenStudio cost tiers pass through every Story catalog response without rep
     .get(`/api/projects/${project.body.slug}/thumbnail-reference/vision-models`)
     .expect(200)
   assert.equal(visionModels.body.models[0].cost_tier, 'economy')
+  assert.equal(visionModels.body.models[0].input_credits_per_million_tokens, 12)
+  assert.equal(visionModels.body.models[0].output_credits_per_million_tokens, 24)
+  assert.equal(visionModels.body.models[0].minimum_credits, 3)
+  assert.equal(visionModels.body.models[0].price_version, 'chat-tier-price-v1')
 })
 
 test('GenStudio transcription discovery uses the same scoped boundary key', async () => {

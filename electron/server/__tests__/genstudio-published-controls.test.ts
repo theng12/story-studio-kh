@@ -232,17 +232,17 @@ test('published generates_audio is carried through; an absent one stays null', a
       {
         id: 'video-loud', display_name: 'Video Loud', available: true,
         modes: ['image-to-video'], aspect_ratios: ['16:9'], generates_audio: true,
-        variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'v1' }],
+        variants: [{ operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'v1' }],
       },
       {
         id: 'video-silent', display_name: 'Video Silent', available: true,
         modes: ['image-to-video'], aspect_ratios: ['16:9'], generates_audio: false,
-        variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'v1' }],
+        variants: [{ operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'v1' }],
       },
       {
         id: 'video-unsaid', display_name: 'Video Unsaid', available: true,
         modes: ['image-to-video'], aspect_ratios: ['16:9'],
-        variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'v1' }],
+        variants: [{ operation: 'image-to-video', duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'v1' }],
       },
     ])
     const models = await listVideoModels('video-audio-key')

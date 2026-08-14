@@ -189,6 +189,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { describeVideoModelRate } from '~/utils/genstudio-credit-cost'
+import { variantsForVideoOperation, videoVariantKey as publishedVideoVariantKey } from '~/utils/genstudio-video-variants'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Motion Review')
@@ -256,20 +257,35 @@ const motionPresets = usePresets({
   snapshot: () => ({
     model: videoModel.value,
     aspect_ratio: '16:9',
+    operation: selectedVideoVariant.value?.operation,
     duration_seconds: selectedVideoVariant.value?.duration_seconds,
     resolution: selectedVideoVariant.value?.resolution,
   }),
   apply: (data: any) => {
     if (typeof data?.model === 'string') videoModel.value = data.model
     if (Number.isFinite(Number(data?.duration_seconds)) && typeof data?.resolution === 'string' && data.resolution.trim()) {
-      videoVariantKey.value = variantKey({ duration_seconds: Number(data.duration_seconds), resolution: data.resolution.trim() })
+      videoVariantKey.value = variantKey({
+        operation: typeof data?.operation === 'string' && data.operation.trim()
+          ? data.operation.trim()
+          : STORY_STUDIO_VIDEO_OPERATION,
+        duration_seconds: Number(data.duration_seconds),
+        resolution: data.resolution.trim(),
+      })
     }
   },
 })
 
 // Cheapest is only the first default. The selected published pair is what
 // the generator submits, and it remains live-derived rather than cached.
-type VideoVariant = { duration_seconds: number, resolution: string, credits_per_video: number, minimum_credits: number, price_version: string }
+const STORY_STUDIO_VIDEO_OPERATION = 'image-to-video'
+type VideoVariant = {
+  operation: string
+  duration_seconds: number
+  resolution: string
+  credits_per_video: number
+  minimum_credits: number
+  price_version: string
+}
 function cheapestVariant(variants: readonly VideoVariant[]) {
   if (!variants.length) return null
   return [...variants].sort((a, b) => (
@@ -279,8 +295,8 @@ function cheapestVariant(variants: readonly VideoVariant[]) {
     || a.resolution.localeCompare(b.resolution)
   ))[0]!
 }
-function variantKey(variant: Pick<VideoVariant, 'duration_seconds' | 'resolution'>): string {
-  return `${variant.duration_seconds}:${variant.resolution}`
+function variantKey(variant: Pick<VideoVariant, 'operation' | 'duration_seconds' | 'resolution'>): string {
+  return publishedVideoVariantKey(variant)
 }
 
 /**
@@ -305,10 +321,11 @@ const i2vModels = computed(() => {
   const discovered = genStudioVideoModels.value
     // Story Studio submits image-to-video only. The catalogue carries every
     // published mode; the restriction is applied here, at the picker.
-    .filter(model => model.modes.includes('image-to-video'))
+    .filter(model => model.modes.includes(STORY_STUDIO_VIDEO_OPERATION))
     .map((model) => {
-      const variant = cheapestVariant(model.variants)
-      const rate = describeVideoModelRate(model)
+      const variants = variantsForVideoOperation(model.variants, STORY_STUDIO_VIDEO_OPERATION)
+      const variant = cheapestVariant(variants)
+      const rate = describeVideoModelRate({ ...model, variants })
       // An enforced limit has to be visible at the point of choosing.
       const noVariant = 'No published length or resolution'
       // Only a published `true` is disclosed. `false` and `null` (GenStudio
@@ -360,7 +377,9 @@ const selectedVideoModel = computed(() => {
     : videoModel.value
   return genStudioVideoModels.value.find(item => item.id === raw) || null
 })
-const selectedVideoVariants = computed<VideoVariant[]>(() => selectedVideoModel.value?.variants || [])
+const selectedVideoVariants = computed<VideoVariant[]>(() => (
+  variantsForVideoOperation(selectedVideoModel.value?.variants, STORY_STUDIO_VIDEO_OPERATION)
+))
 const selectedVideoVariant = computed(() => selectedVideoVariants.value.find(variant => variantKey(variant) === videoVariantKey.value) || null)
 watch(selectedVideoVariants, (variants) => {
   if (!variants.length) { videoVariantKey.value = ''; return }
