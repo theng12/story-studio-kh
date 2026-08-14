@@ -244,6 +244,79 @@ test('buildContentPack refuses content or assets in a bundle-only source', async
   }
 })
 
+test('buildContentPack keeps a bundle-only source stable through signing and preserves a sentinel output', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const source = await writeBundleOnlySource(fixture.root)
+  const output = join(fixture.root, 'sentinel.sspack')
+  const sentinel = Buffer.from('do not sign a raced bundle-only source')
+  await writeFile(output, sentinel)
+  const { buildContentPack } = await import('../lib.mjs')
+
+  await assert.rejects(
+    buildContentPack({
+      sourceDirectory: source,
+      privateKeyPath: fixture.privateKeyPath,
+      outputPath: output,
+      minAppVersion: '1.0.0',
+      keyId: 'com.storystudio.key.free-starter',
+      onBeforeSourceRead: async record => {
+        if (record.relativePath === 'pack.json') {
+          await mkdir(join(source, 'assets'))
+          await writeFile(join(source, 'assets', 'late.png'), PNG_1PX)
+        }
+      },
+    }),
+    /source directory.*(?:changed|safe)/i,
+  )
+  assert.deepEqual(await readFile(output), sentinel)
+})
+
+test('buildContentPack rejects release tokens outside their two exact manifest fields', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const { buildContentPack } = await import('../lib.mjs')
+  for (const token of ['{{MIN_APP_VERSION}}', '{{KEY_ID}}']) {
+    const source = await writeBundleOnlySource(fixture.root, { config: { changelog: `must not expand ${token}` } })
+    const output = join(fixture.root, `smuggled-${token.includes('KEY') ? 'key' : 'version'}.sspack`)
+    await assert.rejects(
+      buildContentPack({
+        sourceDirectory: source,
+        privateKeyPath: fixture.privateKeyPath,
+        outputPath: output,
+        minAppVersion: '1.0.0',
+        keyId: 'com.storystudio.key.free-starter',
+      }),
+      /release token|MIN_APP_VERSION|KEY_ID/i,
+    )
+    await assert.rejects(readFile(output), /ENOENT/)
+    await rm(source, { recursive: true })
+  }
+})
+
+test('buildContentPack rejects empty content or asset directories for a bundle-only source', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const { buildContentPack } = await import('../lib.mjs')
+  for (const directory of ['content', 'assets']) {
+    const source = await writeBundleOnlySource(fixture.root)
+    const output = join(fixture.root, `empty-${directory}.sspack`)
+    await mkdir(join(source, directory))
+    await assert.rejects(
+      buildContentPack({
+        sourceDirectory: source,
+        privateKeyPath: fixture.privateKeyPath,
+        outputPath: output,
+        minAppVersion: '1.0.0',
+        keyId: 'com.storystudio.key.free-starter',
+      }),
+      /bundle-only|pack\.json|content|assets/i,
+    )
+    await assert.rejects(readFile(output), /ENOENT/)
+    await rm(source, { recursive: true })
+  }
+})
+
 test('build-pack refuses a secret-bearing content source and writes no archive', async (t) => {
   const fixture = await makeFixture()
   t.after(() => rm(fixture.root, { recursive: true, force: true }))

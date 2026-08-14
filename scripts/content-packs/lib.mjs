@@ -267,6 +267,19 @@ function sourceManifestToArchiveManifest(sourceManifest, items, files) {
 
 function substituteReleaseInputs(sourceManifest, { minAppVersion, keyId }) {
   if (!sourceManifest || typeof sourceManifest !== 'object' || Array.isArray(sourceManifest)) return sourceManifest
+  const assertTokenPlacement = (value, path = []) => {
+    if (typeof value === 'string') {
+      for (const [field, token] of [['min_app_version', MIN_APP_VERSION_TOKEN], ['key_id', KEY_ID_TOKEN]]) {
+        if (value.includes(token) && !(path.length === 1 && path[0] === field && value === token)) {
+          fail(`pack.json release token ${token} is permitted only as the exact ${field} value`)
+        }
+      }
+      return
+    }
+    if (!value || typeof value !== 'object') return
+    for (const [key, child] of Object.entries(value)) assertTokenPlacement(child, [...path, key])
+  }
+  assertTokenPlacement(sourceManifest)
   const manifest = { ...sourceManifest }
   if (manifest.min_app_version === MIN_APP_VERSION_TOKEN) {
     if (!minAppVersion) fail(`pack.json ${MIN_APP_VERSION_TOKEN} requires minAppVersion`)
@@ -276,6 +289,7 @@ function substituteReleaseInputs(sourceManifest, { minAppVersion, keyId }) {
     if (!keyId) fail(`pack.json ${KEY_ID_TOKEN} requires keyId`)
     manifest.key_id = keyId
   }
+  assertTokenPlacement(manifest)
   return manifest
 }
 
@@ -296,6 +310,10 @@ async function loadSourceManifest(sourceDirectory, onSourceEnumerated, onBeforeS
     const manifest = sourceManifestToArchiveManifest(sourceManifest, [], [])
     if (!isBundleOnlyCoordinationManifest(manifest)) fail('source directory requires at least one content JSON document')
     if (source.files.length !== 0) fail('bundle-only coordination sources must not contain content or assets')
+    if (source.records.some(record => record.relativePath === 'content' || record.relativePath === 'assets')) {
+      fail('bundle-only coordination sources must contain only pack.json')
+    }
+    await assertSourceStable(source)
     return { root: source.root, manifest, files: [] }
   }
   const contents = []
