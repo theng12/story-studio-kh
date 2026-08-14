@@ -2,9 +2,13 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { access, readFile } from 'node:fs/promises'
 import { test } from 'node:test'
+import { register } from 'tsx/esm/api'
 
 const ROOT = new URL('../../../', import.meta.url)
 const PROVENANCE = new URL('../../../content-packs/free-starters/ASSET-PROVENANCE.md', import.meta.url)
+const unregisterTsx = register()
+const { BUILT_IN_STYLES } = await import(new URL('../../../frontend/composables/useBuiltInStyles.ts', import.meta.url))
+unregisterTsx()
 
 const registry = {
   formulas: [
@@ -49,12 +53,11 @@ const registry = {
     ['cinematic-photoreal', 'cinematic-photoreal'],
     ['watercolor-storybook', 'watercolor-storybook'],
     ['flat-vector-explainer', 'flat-vector-explainer'],
-  ].map(([slug, preview]) => ({
+  ].map(([slug]) => ({
     id: `com.storystudio.style.${slug}`,
     packId: `com.storystudio.pack.style.${slug}`,
     sourceId: `builtin-${slug}`,
     sourcePath: 'frontend/composables/useBuiltInStyles.ts',
-    previewPath: `frontend/public/builtin-style-previews/${preview}.webp`,
   })),
   recipes: [
     ['curiosity-question-cartoon', true],
@@ -91,18 +94,6 @@ const registry = {
   })),
 }
 
-const recipePreviewPaths = [
-  'frontend/public/thumbnail-recipe-previews/curiosity-question-cartoon-poison-or-cure.webp',
-  'frontend/public/thumbnail-recipe-previews/curiosity-question-cartoon-too-smart.webp',
-  'frontend/public/thumbnail-recipe-previews/curiosity-question-cartoon-silent-killer.webp',
-  'frontend/public/thumbnail-recipe-previews/documentary-label-tableau-sleep.webp',
-  'frontend/public/thumbnail-recipe-previews/documentary-label-tableau-giants.webp',
-  'frontend/public/thumbnail-recipe-previews/documentary-label-tableau-rift.webp',
-  'frontend/public/thumbnail-recipe-previews/annotated-business-board-coffee.webp',
-  'frontend/public/thumbnail-recipe-previews/annotated-business-board-workshop.webp',
-  'frontend/public/thumbnail-recipe-previews/annotated-business-board-hotel.webp',
-]
-
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
 }
@@ -115,6 +106,21 @@ function readProvenance(markdown) {
   const match = markdown.match(/<!-- free-starter-preview-provenance\n([\s\S]*?)\n-->/)
   assert.ok(match, 'ASSET-PROVENANCE.md must contain the machine-readable preview registry')
   return JSON.parse(match[1])
+}
+
+function sourcePathForPublicAsset(publicPath) {
+  assert.match(publicPath, /^\/(builtin-style-previews|thumbnail-recipe-previews)\/[a-z0-9-]+\.webp$/)
+  return `frontend/public${publicPath}`
+}
+
+function assertDeclaredPreview(records, ownerId, publicPath) {
+  const sourcePath = sourcePathForPublicAsset(publicPath)
+  const record = records.find(row => row.sourcePath === sourcePath)
+  assert.ok(record, `missing provenance record for declared ${publicPath}`)
+  assert.equal(record.ownerId, ownerId, `declared ${publicPath} must retain ${ownerId} provenance`)
+  assert.equal(record.provenance, 'migrated-approved-built-in')
+  assert.match(record.sha256, /^[a-f0-9]{64}$/)
+  return record
 }
 
 test('free Starter Channel Kit registry freezes approved identities, source mappings, and preview provenance', async () => {
@@ -140,16 +146,30 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
     'owner-supplied-original',
   ]))
 
-  const expectedExistingPaths = [
-    ...registry.styles.map(row => row.previewPath),
-    ...recipePreviewPaths,
-  ]
-  for (const sourcePath of expectedExistingPaths) {
-    const record = records.find(row => row.sourcePath === sourcePath)
-    assert.ok(record, `missing provenance record for ${sourcePath}`)
-    assert.equal(record.provenance, 'migrated-approved-built-in')
-    assert.match(record.sha256, /^[a-f0-9]{64}$/)
-    assert.equal(sha256(await readFile(new URL(sourcePath, ROOT))), record.sha256)
+  const styleDeclarations = registry.styles.map(row => {
+    const style = BUILT_IN_STYLES.find(candidate => candidate.id === row.sourceId)
+    assert.ok(style, `missing built-in Style declaration for ${row.sourceId}`)
+    return { row, style }
+  })
+  const recipeDeclarations = await Promise.all(registry.recipes
+    .filter(row => row.sourcePath)
+    .map(async row => ({
+      row,
+      template: JSON.parse(await readFile(new URL(row.sourcePath, ROOT), 'utf8')),
+    })))
+
+  for (const { row, style } of styleDeclarations) {
+    const record = assertDeclaredPreview(records, row.sourceId, style.preview_image)
+    assert.equal(sha256(await readFile(new URL(record.sourcePath, ROOT))), record.sha256)
+  }
+  for (const { row, template } of recipeDeclarations) {
+    const declaredPaths = template.previewImages || []
+    const approvedRecords = records.filter(record => record.ownerId === row.sourceId)
+    assert.equal(declaredPaths.length, approvedRecords.length, `${row.sourceId} preview declarations must match its approved ledger records`)
+    for (const publicPath of declaredPaths) {
+      const record = assertDeclaredPreview(records, row.sourceId, publicPath)
+      assert.equal(sha256(await readFile(new URL(record.sourcePath, ROOT))), record.sha256)
+    }
   }
 
   for (const sourceId of ['prehistoric-discovery', 'dreamscape-story-window']) {
@@ -162,4 +182,27 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
       sha256: null,
     })
   }
+})
+
+test('declared preview redirects cannot cross a Style or Recipe provenance identity', async () => {
+  const records = readProvenance(await readFile(PROVENANCE, 'utf8'))
+  const style = BUILT_IN_STYLES.find(candidate => candidate.id === 'builtin-waxy-outline-cartoon')
+  const redirectedStyle = BUILT_IN_STYLES.find(candidate => candidate.id === 'builtin-paleo-documentary-tableau')
+  assert.ok(style)
+  assert.ok(redirectedStyle)
+  const redirectedStyleDeclaration = { ...style, preview_image: redirectedStyle.preview_image }
+  assert.throws(
+    () => assertDeclaredPreview(records, style.id, redirectedStyleDeclaration.preview_image),
+    /must retain builtin-waxy-outline-cartoon provenance/,
+  )
+
+  const curiosity = JSON.parse(await readFile(new URL('electron/server/thumbnail-templates/curiosity-question-cartoon.json', ROOT), 'utf8'))
+  const documentary = JSON.parse(await readFile(new URL('electron/server/thumbnail-templates/documentary-label-tableau.json', ROOT), 'utf8'))
+  assert.ok(curiosity.previewImages?.[0])
+  assert.ok(documentary.previewImages?.[0])
+  const redirectedRecipeDeclaration = { ...curiosity, previewImages: [documentary.previewImages[0]] }
+  assert.throws(
+    () => assertDeclaredPreview(records, curiosity.id, redirectedRecipeDeclaration.previewImages[0]),
+    /must retain curiosity-question-cartoon provenance/,
+  )
 })

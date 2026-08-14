@@ -209,13 +209,30 @@ function visualStyleFacts(style: { id: string; name: string; data: { style_bible
   }) as Record<string, unknown>
 }
 
+function thumbnailRecipeBehavior(template: NonNullable<Awaited<ReturnType<typeof thumbnailTemplateLoader.loadTemplate>>>): Record<string, unknown> {
+  const behavior = { ...template } as Record<string, unknown>
+  for (const metadataField of [
+    'id',
+    'name',
+    'description',
+    'tagline',
+    'builtin',
+    'schemaVersion',
+    'category',
+    'tags',
+    'recommendedNicheIds',
+    'previewImages',
+  ]) delete behavior[metadataField]
+  return behavior
+}
+
 function thumbnailRecipeFacts(template: NonNullable<Awaited<ReturnType<typeof thumbnailTemplateLoader.loadTemplate>>>): Record<string, unknown> {
   return withoutUndefined({
     id: template.id,
     name: template.name,
     title_mode: template.recipe?.titleMode,
     layout: template.recipe?.layout,
-    recipe_sha256: sha256(canonicalJson(template.recipe ?? null)),
+    recipe_behavior_sha256: sha256(canonicalJson(thumbnailRecipeBehavior(template))),
   }) as Record<string, unknown>
 }
 
@@ -318,6 +335,22 @@ test('free Starter Kit source components retain effective legacy prompt, style, 
     blocked_recipe_sources: ['prehistoric-discovery', 'dreamscape-story-window'],
   }
   assert.deepEqual(observed, golden.free_starter_source_catalog)
+})
+
+test('static thumbnail layout behavior is golden-protected against top-level rendering changes', async () => {
+  const template = await thumbnailTemplateLoader.loadTemplate('centered-hero-headline')
+  assert.ok(template)
+  const facts = thumbnailRecipeFacts(template)
+  assert.match(String(facts.recipe_behavior_sha256), /^[a-f0-9]{64}$/)
+
+  const changed = structuredClone(template)
+  assert.ok(changed.canvas)
+  changed.canvas = { ...changed.canvas, width: changed.canvas.width + 1 }
+  assert.notEqual(
+    facts.recipe_behavior_sha256,
+    thumbnailRecipeFacts(changed).recipe_behavior_sha256,
+    'changing a top-level canvas field must change the frozen rendering behavior',
+  )
 })
 
 test('current user niche overrides retain precedence over formula defaults', async () => {
