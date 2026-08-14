@@ -75,4 +75,8 @@ deletion. Tests use temporary local projects and no provider calls.
 ## Release gate
 
 Version remains `1.0.841`. Mandatory release metadata is intentionally
-deferred until independent re-review returns GO.
+deferred; independent re-review returned GO for `72b063a2` with no
+Critical/Important findings. The reviewer replayed an aged but still-live
+cross-process owner and confirmed the contender waited and retained the newer
+active marker. Corrupt and foreign-owner probes also failed closed without
+changing status.
