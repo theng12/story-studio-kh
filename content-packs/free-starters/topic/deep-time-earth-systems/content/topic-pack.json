@@ -40,44 +40,238 @@
     "the first rain"
   ],
   "episode_objects": [
-    "a rock layer",
+    "a folded rock layer",
+    "a metamorphic mineral grain",
+    "matching fossil assemblages",
+    "seafloor magnetic stripes",
+    "a zircon age cluster",
+    "a rift-basin sediment sequence",
+    "a carbonate rock bed",
+    "fossil leaf stomata",
+    "a banded iron formation",
+    "a sulfur-isotope anomaly",
+    "a pillow-basalt sequence",
+    "an oxygen-bearing detrital zircon",
+    "a tonalite crust sample",
+    "an ancient zircon grain",
+    "a tropical dropstone",
+    "a cap-carbonate bed",
+    "a truncated bedrock surface",
+    "a detrital-zircon age gap",
+    "an Archean greenstone belt",
+    "an ancient apparent-polar-wander path",
+    "a radiating dyke swarm",
+    "a mercury-rich boundary layer",
+    "an Earth-Moon tungsten-isotope ratio",
+    "a lunar anorthosite sample",
+    "a magnetized zircon inclusion",
+    "a lava-flow polarity sequence",
+    "a rounded conglomerate",
+    "a preserved channel bar",
+    "a windblown loess layer",
+    "a fossil-pollen decline",
+    "a fossil root mat",
+    "a coalified tree trunk",
+    "a stack of basalt flows",
+    "a baked sediment contact",
+    "a marine limestone bed",
+    "a foreland-basin sediment fan",
+    "a rift-basin fault",
     "a fossil shoreline",
-    "a continental map",
-    "an ice core",
-    "a volcanic province",
-    "an isotope record",
-    "a river basin"
+    "an ophiolite belt",
+    "an accretionary prism",
+    "a sequence boundary",
+    "a fossil coral terrace",
+    "a benthic oxygen-isotope stack",
+    "an ice-core gas bubble",
+    "a cave stalagmite",
+    "a leaf-wax layer",
+    "a buried river gravel",
+    "an uplifted river terrace",
+    "a thick gypsum layer",
+    "a submerged river gorge",
+    "an Archean paleosol",
+    "a solar-analog spectrum",
+    "a boron-isotope ratio",
+    "a weathered paleosol horizon",
+    "a fossil root trace",
+    "a reef-limestone framework",
+    "a coral growth band",
+    "a water-altered zircon",
+    "sedimentary ripple marks"
   ],
   "time_place_scopes": [
-    "an Archean coastline",
-    "a Proterozoic ocean",
-    "a supercontinent interior",
+    "a Paleozoic collision belt",
+    "an eroded ancient orogen",
+    "the separated Gondwana margins",
+    "the Mid-Atlantic Ridge",
+    "dispersed Rodinia fragments",
+    "the breakup of Pangaea",
+    "a Phanerozoic continental shelf",
+    "a Cretaceous greenhouse interval",
+    "an Archean ocean basin",
+    "the Great Oxidation Event",
+    "the early Archean crust",
+    "the Hadean crust",
+    "an Archean craton",
+    "the Jack Hills",
+    "a Cryogenian seafloor",
+    "a postglacial continental shelf",
+    "the Grand Canyon",
+    "a Neoproterozoic continental interior",
+    "an early craton margin",
+    "a stabilized Archean craton",
+    "the Siberian Traps feeder system",
+    "a marine basin beside a flood-basalt province",
+    "a Hadean impact landscape",
+    "the lunar highlands",
+    "an Archean rock unit",
+    "an oceanic crust section",
+    "an Archean channel deposit",
+    "an ancient terrestrial basin",
+    "a drying continental interior",
+    "a contracting lake basin",
+    "a Devonian floodplain",
+    "the Gilboa forest",
+    "the Deccan volcanic province",
+    "the Columbia River Basalt province",
+    "the Tethyan Himalaya",
+    "the Himalayan foothills",
+    "the Triassic Newark basin",
     "a rifting seaway",
-    "a glacial world",
-    "a volcanic plateau",
-    "a modern landscape revealing deep time",
-    "a Hadean impact landscape"
+    "the Tethys suture",
+    "a Paleozoic suture zone",
+    "a Cretaceous continental shelf",
+    "a Pleistocene coastline",
+    "a Pleistocene seafloor",
+    "late-Pleistocene Antarctica",
+    "the South Asian monsoon belt",
+    "the Arabian Sea margin",
+    "the Colorado Plateau",
+    "the canyon rim",
+    "the Messinian Mediterranean basin",
+    "the Mediterranean margin",
+    "the early Earth surface",
+    "main-sequence stars of different ages",
+    "an Eocene forest",
+    "an ancient marine carbonate",
+    "a Silurian land surface",
+    "an Ordovician shelf sea",
+    "a Pleistocene reef terrace",
+    "an Archean basin"
   ],
   "mechanisms": [
-    "plate collision",
-    "rift spreading",
-    "carbon burial",
-    "ocean circulation",
-    "orbital forcing",
-    "weathering feedback",
-    "volcanic outgassing",
+    "crustal shortening",
+    "isostatic rebound",
+    "continental separation",
+    "seafloor spreading",
+    "continental assembly",
+    "continental rifting",
+    "carbon burial and weathering",
+    "atmosphere-biosphere carbon exchange",
+    "dissolved iron oxidation",
+    "atmospheric oxygen accumulation",
+    "water-lava interaction",
+    "surface cooling and water condensation",
+    "crustal differentiation",
+    "crust formation and recycling",
+    "low-latitude glaciation",
+    "rapid deglaciation and carbon release",
+    "continental erosion",
+    "glacial denudation",
+    "incipient subduction",
+    "plate mobility",
+    "magma plumbing",
+    "volcanic gas release",
     "giant impact",
+    "magma-ocean crystallization",
     "core dynamo",
-    "impact debris cooling",
-    "field reversal record"
+    "geomagnetic reversal",
+    "sustained surface runoff",
+    "river incision and deposition",
+    "aridification",
+    "vegetation-climate feedback",
+    "deep rooting",
+    "canopy development",
+    "repeated fissure eruption",
+    "eruption-tempo recording",
+    "India-Asia collision",
+    "uplift-driven erosion",
+    "continental extension",
+    "ocean circulation",
+    "ocean closure by subduction",
+    "terrane collision",
+    "eustatic rise and fall",
+    "glacial water storage",
+    "orbital pacing",
+    "greenhouse-gas feedback",
+    "rainfall variability",
+    "land-sea thermal contrast",
+    "river incision",
+    "base-level change",
+    "restricted evaporation",
+    "catastrophic reflooding",
+    "climate compensation under a faint young Sun",
+    "stellar luminosity evolution",
+    "stomatal response to carbon dioxide",
+    "ocean acidity response to carbon dioxide",
+    "mineral weathering",
+    "biological soil formation",
+    "skeletal reef building",
+    "carbonate accretion",
+    "early hydrologic cycling",
+    "rainfall-driven runoff"
   ],
   "evidence_lenses": [
-    "rock record",
-    "isotope evidence",
+    "structural geology",
+    "thermochronology",
+    "fossil biogeography",
+    "marine magnetometer survey",
+    "geochronology",
+    "stratigraphic correlation",
+    "carbon-isotope record",
+    "proxy calibration",
+    "sedimentary geochemistry",
+    "isotope geochemistry",
+    "volcanic rock textures",
+    "zircon geochemistry",
+    "radiometric dating",
+    "stratigraphic position",
+    "stratigraphic contact",
+    "sediment provenance dating",
+    "metamorphic pressure-temperature record",
+    "paleomagnetic reconstruction",
+    "trace-element geochemistry",
+    "sample mineralogy",
+    "paleomagnetic measurement",
+    "magnetic stratigraphy",
+    "sedimentology",
+    "geomorphic mapping",
+    "grain-size analysis",
+    "palynology",
+    "paleosol analysis",
+    "fossil anatomy",
+    "argon-argon dating",
+    "paleomagnetic correlation",
+    "fossil stratigraphy",
+    "seismic stratigraphy",
     "fossil record",
-    "paleomagnetic evidence",
-    "sediment core",
-    "terrain mapping"
+    "rock petrology",
+    "uranium-thorium dating",
+    "foraminiferal geochemistry",
+    "ice-core chronology",
+    "oxygen-isotope record",
+    "biomarker analysis",
+    "cosmogenic-nuclide dating",
+    "drill-core stratigraphy",
+    "seismic imaging",
+    "paleosol geochemistry",
+    "stellar spectroscopy",
+    "plant-fossil calibration",
+    "soil micromorphology",
+    "trace-fossil record",
+    "fossil assemblage",
+    "zircon oxygen isotopes"
   ],
   "exclusions": [
     "Do not reduce Earth systems to one magic cause.",
@@ -118,56 +312,250 @@
       "id": "episode-object",
       "label": "Episode object",
       "values": [
-        "a rock layer",
+        "a folded rock layer",
+        "a metamorphic mineral grain",
+        "matching fossil assemblages",
+        "seafloor magnetic stripes",
+        "a zircon age cluster",
+        "a rift-basin sediment sequence",
+        "a carbonate rock bed",
+        "fossil leaf stomata",
+        "a banded iron formation",
+        "a sulfur-isotope anomaly",
+        "a pillow-basalt sequence",
+        "an oxygen-bearing detrital zircon",
+        "a tonalite crust sample",
+        "an ancient zircon grain",
+        "a tropical dropstone",
+        "a cap-carbonate bed",
+        "a truncated bedrock surface",
+        "a detrital-zircon age gap",
+        "an Archean greenstone belt",
+        "an ancient apparent-polar-wander path",
+        "a radiating dyke swarm",
+        "a mercury-rich boundary layer",
+        "an Earth-Moon tungsten-isotope ratio",
+        "a lunar anorthosite sample",
+        "a magnetized zircon inclusion",
+        "a lava-flow polarity sequence",
+        "a rounded conglomerate",
+        "a preserved channel bar",
+        "a windblown loess layer",
+        "a fossil-pollen decline",
+        "a fossil root mat",
+        "a coalified tree trunk",
+        "a stack of basalt flows",
+        "a baked sediment contact",
+        "a marine limestone bed",
+        "a foreland-basin sediment fan",
+        "a rift-basin fault",
         "a fossil shoreline",
-        "a continental map",
-        "an ice core",
-        "a volcanic province",
-        "an isotope record",
-        "a river basin"
+        "an ophiolite belt",
+        "an accretionary prism",
+        "a sequence boundary",
+        "a fossil coral terrace",
+        "a benthic oxygen-isotope stack",
+        "an ice-core gas bubble",
+        "a cave stalagmite",
+        "a leaf-wax layer",
+        "a buried river gravel",
+        "an uplifted river terrace",
+        "a thick gypsum layer",
+        "a submerged river gorge",
+        "an Archean paleosol",
+        "a solar-analog spectrum",
+        "a boron-isotope ratio",
+        "a weathered paleosol horizon",
+        "a fossil root trace",
+        "a reef-limestone framework",
+        "a coral growth band",
+        "a water-altered zircon",
+        "sedimentary ripple marks"
       ]
     },
     {
       "id": "time-place-scope",
       "label": "Time and place",
       "values": [
-        "an Archean coastline",
-        "a Proterozoic ocean",
-        "a supercontinent interior",
+        "a Paleozoic collision belt",
+        "an eroded ancient orogen",
+        "the separated Gondwana margins",
+        "the Mid-Atlantic Ridge",
+        "dispersed Rodinia fragments",
+        "the breakup of Pangaea",
+        "a Phanerozoic continental shelf",
+        "a Cretaceous greenhouse interval",
+        "an Archean ocean basin",
+        "the Great Oxidation Event",
+        "the early Archean crust",
+        "the Hadean crust",
+        "an Archean craton",
+        "the Jack Hills",
+        "a Cryogenian seafloor",
+        "a postglacial continental shelf",
+        "the Grand Canyon",
+        "a Neoproterozoic continental interior",
+        "an early craton margin",
+        "a stabilized Archean craton",
+        "the Siberian Traps feeder system",
+        "a marine basin beside a flood-basalt province",
+        "a Hadean impact landscape",
+        "the lunar highlands",
+        "an Archean rock unit",
+        "an oceanic crust section",
+        "an Archean channel deposit",
+        "an ancient terrestrial basin",
+        "a drying continental interior",
+        "a contracting lake basin",
+        "a Devonian floodplain",
+        "the Gilboa forest",
+        "the Deccan volcanic province",
+        "the Columbia River Basalt province",
+        "the Tethyan Himalaya",
+        "the Himalayan foothills",
+        "the Triassic Newark basin",
         "a rifting seaway",
-        "a glacial world",
-        "a volcanic plateau",
-        "a modern landscape revealing deep time",
-        "a Hadean impact landscape"
+        "the Tethys suture",
+        "a Paleozoic suture zone",
+        "a Cretaceous continental shelf",
+        "a Pleistocene coastline",
+        "a Pleistocene seafloor",
+        "late-Pleistocene Antarctica",
+        "the South Asian monsoon belt",
+        "the Arabian Sea margin",
+        "the Colorado Plateau",
+        "the canyon rim",
+        "the Messinian Mediterranean basin",
+        "the Mediterranean margin",
+        "the early Earth surface",
+        "main-sequence stars of different ages",
+        "an Eocene forest",
+        "an ancient marine carbonate",
+        "a Silurian land surface",
+        "an Ordovician shelf sea",
+        "a Pleistocene reef terrace",
+        "an Archean basin"
       ]
     },
     {
       "id": "mechanism",
       "label": "Earth mechanism",
       "values": [
-        "plate collision",
-        "rift spreading",
-        "carbon burial",
-        "ocean circulation",
-        "orbital forcing",
-        "weathering feedback",
-        "volcanic outgassing",
+        "crustal shortening",
+        "isostatic rebound",
+        "continental separation",
+        "seafloor spreading",
+        "continental assembly",
+        "continental rifting",
+        "carbon burial and weathering",
+        "atmosphere-biosphere carbon exchange",
+        "dissolved iron oxidation",
+        "atmospheric oxygen accumulation",
+        "water-lava interaction",
+        "surface cooling and water condensation",
+        "crustal differentiation",
+        "crust formation and recycling",
+        "low-latitude glaciation",
+        "rapid deglaciation and carbon release",
+        "continental erosion",
+        "glacial denudation",
+        "incipient subduction",
+        "plate mobility",
+        "magma plumbing",
+        "volcanic gas release",
         "giant impact",
+        "magma-ocean crystallization",
         "core dynamo",
-        "impact debris cooling",
-        "field reversal record"
+        "geomagnetic reversal",
+        "sustained surface runoff",
+        "river incision and deposition",
+        "aridification",
+        "vegetation-climate feedback",
+        "deep rooting",
+        "canopy development",
+        "repeated fissure eruption",
+        "eruption-tempo recording",
+        "India-Asia collision",
+        "uplift-driven erosion",
+        "continental extension",
+        "ocean circulation",
+        "ocean closure by subduction",
+        "terrane collision",
+        "eustatic rise and fall",
+        "glacial water storage",
+        "orbital pacing",
+        "greenhouse-gas feedback",
+        "rainfall variability",
+        "land-sea thermal contrast",
+        "river incision",
+        "base-level change",
+        "restricted evaporation",
+        "catastrophic reflooding",
+        "climate compensation under a faint young Sun",
+        "stellar luminosity evolution",
+        "stomatal response to carbon dioxide",
+        "ocean acidity response to carbon dioxide",
+        "mineral weathering",
+        "biological soil formation",
+        "skeletal reef building",
+        "carbonate accretion",
+        "early hydrologic cycling",
+        "rainfall-driven runoff"
       ]
     },
     {
       "id": "evidence-lens",
       "label": "Evidence lens",
       "values": [
-        "rock record",
-        "isotope evidence",
+        "structural geology",
+        "thermochronology",
+        "fossil biogeography",
+        "marine magnetometer survey",
+        "geochronology",
+        "stratigraphic correlation",
+        "carbon-isotope record",
+        "proxy calibration",
+        "sedimentary geochemistry",
+        "isotope geochemistry",
+        "volcanic rock textures",
+        "zircon geochemistry",
+        "radiometric dating",
+        "stratigraphic position",
+        "stratigraphic contact",
+        "sediment provenance dating",
+        "metamorphic pressure-temperature record",
+        "paleomagnetic reconstruction",
+        "trace-element geochemistry",
+        "sample mineralogy",
+        "paleomagnetic measurement",
+        "magnetic stratigraphy",
+        "sedimentology",
+        "geomorphic mapping",
+        "grain-size analysis",
+        "palynology",
+        "paleosol analysis",
+        "fossil anatomy",
+        "argon-argon dating",
+        "paleomagnetic correlation",
+        "fossil stratigraphy",
+        "seismic stratigraphy",
         "fossil record",
-        "paleomagnetic evidence",
-        "sediment core",
-        "terrain mapping"
+        "rock petrology",
+        "uranium-thorium dating",
+        "foraminiferal geochemistry",
+        "ice-core chronology",
+        "oxygen-isotope record",
+        "biomarker analysis",
+        "cosmogenic-nuclide dating",
+        "drill-core stratigraphy",
+        "seismic imaging",
+        "paleosol geochemistry",
+        "stellar spectroscopy",
+        "plant-fossil calibration",
+        "soil micromorphology",
+        "trace-fossil record",
+        "fossil assemblage",
+        "zircon oxygen isotopes"
       ]
     }
   ],
@@ -185,33 +573,16 @@
       "subject": "the birth of mountain ranges",
       "tuples": [
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a supercontinent interior",
-          "mechanism": "plate collision",
-          "evidence_lens": "rock record"
+          "episode_object": "a folded rock layer",
+          "time_place_scope": "a Paleozoic collision belt",
+          "mechanism": "crustal shortening",
+          "evidence_lens": "structural geology"
         },
         {
-          "episode_object": "a continental map",
-          "time_place_scope": "a supercontinent interior",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "rock record"
-        }
-      ]
-    },
-    {
-      "subject": "the rise of the Himalayas",
-      "tuples": [
-        {
-          "episode_object": "a continental map",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "terrain mapping"
-        },
-        {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "plate collision",
-          "evidence_lens": "rock record"
+          "episode_object": "a metamorphic mineral grain",
+          "time_place_scope": "an eroded ancient orogen",
+          "mechanism": "isostatic rebound",
+          "evidence_lens": "thermochronology"
         }
       ]
     },
@@ -219,16 +590,16 @@
       "subject": "continental drift",
       "tuples": [
         {
-          "episode_object": "a continental map",
-          "time_place_scope": "a rifting seaway",
-          "mechanism": "rift spreading",
-          "evidence_lens": "paleomagnetic evidence"
+          "episode_object": "matching fossil assemblages",
+          "time_place_scope": "the separated Gondwana margins",
+          "mechanism": "continental separation",
+          "evidence_lens": "fossil biogeography"
         },
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a rifting seaway",
-          "mechanism": "plate collision",
-          "evidence_lens": "paleomagnetic evidence"
+          "episode_object": "seafloor magnetic stripes",
+          "time_place_scope": "the Mid-Atlantic Ridge",
+          "mechanism": "seafloor spreading",
+          "evidence_lens": "marine magnetometer survey"
         }
       ]
     },
@@ -236,16 +607,16 @@
       "subject": "supercontinents",
       "tuples": [
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a supercontinent interior",
-          "mechanism": "plate collision",
-          "evidence_lens": "rock record"
+          "episode_object": "a zircon age cluster",
+          "time_place_scope": "dispersed Rodinia fragments",
+          "mechanism": "continental assembly",
+          "evidence_lens": "geochronology"
         },
         {
-          "episode_object": "a continental map",
-          "time_place_scope": "a supercontinent interior",
-          "mechanism": "rift spreading",
-          "evidence_lens": "isotope evidence"
+          "episode_object": "a rift-basin sediment sequence",
+          "time_place_scope": "the breakup of Pangaea",
+          "mechanism": "continental rifting",
+          "evidence_lens": "stratigraphic correlation"
         }
       ]
     },
@@ -253,33 +624,16 @@
       "subject": "the carbon cycle",
       "tuples": [
         {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "carbon burial",
-          "evidence_lens": "isotope evidence"
+          "episode_object": "a carbonate rock bed",
+          "time_place_scope": "a Phanerozoic continental shelf",
+          "mechanism": "carbon burial and weathering",
+          "evidence_lens": "carbon-isotope record"
         },
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "isotope evidence"
-        }
-      ]
-    },
-    {
-      "subject": "ancient atmospheric carbon dioxide",
-      "tuples": [
-        {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "sediment core"
-        },
-        {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "carbon burial",
-          "evidence_lens": "sediment core"
+          "episode_object": "fossil leaf stomata",
+          "time_place_scope": "a Cretaceous greenhouse interval",
+          "mechanism": "atmosphere-biosphere carbon exchange",
+          "evidence_lens": "proxy calibration"
         }
       ]
     },
@@ -287,16 +641,16 @@
       "subject": "the oxygenation of Earth",
       "tuples": [
         {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "carbon burial",
-          "evidence_lens": "isotope evidence"
+          "episode_object": "a banded iron formation",
+          "time_place_scope": "an Archean ocean basin",
+          "mechanism": "dissolved iron oxidation",
+          "evidence_lens": "sedimentary geochemistry"
         },
         {
-          "episode_object": "a fossil shoreline",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "ocean circulation",
-          "evidence_lens": "isotope evidence"
+          "episode_object": "a sulfur-isotope anomaly",
+          "time_place_scope": "the Great Oxidation Event",
+          "mechanism": "atmospheric oxygen accumulation",
+          "evidence_lens": "isotope geochemistry"
         }
       ]
     },
@@ -304,16 +658,16 @@
       "subject": "the first global oceans",
       "tuples": [
         {
-          "episode_object": "a fossil shoreline",
-          "time_place_scope": "an Archean coastline",
-          "mechanism": "ocean circulation",
-          "evidence_lens": "fossil record"
+          "episode_object": "a pillow-basalt sequence",
+          "time_place_scope": "the early Archean crust",
+          "mechanism": "water-lava interaction",
+          "evidence_lens": "volcanic rock textures"
         },
         {
-          "episode_object": "an isotope record",
-          "time_place_scope": "an Archean coastline",
-          "mechanism": "carbon burial",
-          "evidence_lens": "fossil record"
+          "episode_object": "an oxygen-bearing detrital zircon",
+          "time_place_scope": "the Hadean crust",
+          "mechanism": "surface cooling and water condensation",
+          "evidence_lens": "zircon geochemistry"
         }
       ]
     },
@@ -321,33 +675,16 @@
       "subject": "the first continents",
       "tuples": [
         {
-          "episode_object": "a continental map",
-          "time_place_scope": "an Archean coastline",
-          "mechanism": "rift spreading",
-          "evidence_lens": "paleomagnetic evidence"
+          "episode_object": "a tonalite crust sample",
+          "time_place_scope": "an Archean craton",
+          "mechanism": "crustal differentiation",
+          "evidence_lens": "radiometric dating"
         },
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "an Archean coastline",
-          "mechanism": "plate collision",
-          "evidence_lens": "paleomagnetic evidence"
-        }
-      ]
-    },
-    {
-      "subject": "the origin of plate tectonics",
-      "tuples": [
-        {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a supercontinent interior",
-          "mechanism": "plate collision",
-          "evidence_lens": "rock record"
-        },
-        {
-          "episode_object": "a continental map",
-          "time_place_scope": "a supercontinent interior",
-          "mechanism": "rift spreading",
-          "evidence_lens": "rock record"
+          "episode_object": "an ancient zircon grain",
+          "time_place_scope": "the Jack Hills",
+          "mechanism": "crust formation and recycling",
+          "evidence_lens": "isotope geochemistry"
         }
       ]
     },
@@ -355,33 +692,16 @@
       "subject": "snowball Earth",
       "tuples": [
         {
-          "episode_object": "an ice core",
-          "time_place_scope": "a glacial world",
-          "mechanism": "carbon burial",
-          "evidence_lens": "isotope evidence"
+          "episode_object": "a tropical dropstone",
+          "time_place_scope": "a Cryogenian seafloor",
+          "mechanism": "low-latitude glaciation",
+          "evidence_lens": "stratigraphic position"
         },
         {
-          "episode_object": "a fossil shoreline",
-          "time_place_scope": "a glacial world",
-          "mechanism": "ocean circulation",
-          "evidence_lens": "isotope evidence"
-        }
-      ]
-    },
-    {
-      "subject": "ice-age cycles",
-      "tuples": [
-        {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "orbital forcing",
-          "evidence_lens": "sediment core"
-        },
-        {
-          "episode_object": "an ice core",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "ocean circulation",
-          "evidence_lens": "sediment core"
+          "episode_object": "a cap-carbonate bed",
+          "time_place_scope": "a postglacial continental shelf",
+          "mechanism": "rapid deglaciation and carbon release",
+          "evidence_lens": "carbon-isotope record"
         }
       ]
     },
@@ -389,33 +709,33 @@
       "subject": "the Great Unconformity",
       "tuples": [
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "rock record"
+          "episode_object": "a truncated bedrock surface",
+          "time_place_scope": "the Grand Canyon",
+          "mechanism": "continental erosion",
+          "evidence_lens": "stratigraphic contact"
         },
         {
-          "episode_object": "a river basin",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "carbon burial",
-          "evidence_lens": "rock record"
+          "episode_object": "a detrital-zircon age gap",
+          "time_place_scope": "a Neoproterozoic continental interior",
+          "mechanism": "glacial denudation",
+          "evidence_lens": "sediment provenance dating"
         }
       ]
     },
     {
-      "subject": "the first rivers",
+      "subject": "the origin of plate tectonics",
       "tuples": [
         {
-          "episode_object": "a river basin",
-          "time_place_scope": "an Archean coastline",
-          "mechanism": "carbon burial",
-          "evidence_lens": "terrain mapping"
+          "episode_object": "an Archean greenstone belt",
+          "time_place_scope": "an early craton margin",
+          "mechanism": "incipient subduction",
+          "evidence_lens": "metamorphic pressure-temperature record"
         },
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "an Archean coastline",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "terrain mapping"
+          "episode_object": "an ancient apparent-polar-wander path",
+          "time_place_scope": "a stabilized Archean craton",
+          "mechanism": "plate mobility",
+          "evidence_lens": "paleomagnetic reconstruction"
         }
       ]
     },
@@ -423,33 +743,16 @@
       "subject": "megavolcanic provinces",
       "tuples": [
         {
-          "episode_object": "a volcanic province",
-          "time_place_scope": "a volcanic plateau",
-          "mechanism": "volcanic outgassing",
-          "evidence_lens": "rock record"
+          "episode_object": "a radiating dyke swarm",
+          "time_place_scope": "the Siberian Traps feeder system",
+          "mechanism": "magma plumbing",
+          "evidence_lens": "radiometric dating"
         },
         {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a volcanic plateau",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "rock record"
-        }
-      ]
-    },
-    {
-      "subject": "massive flood basalts",
-      "tuples": [
-        {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "isotope evidence"
-        },
-        {
-          "episode_object": "a volcanic province",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "volcanic outgassing",
-          "evidence_lens": "isotope evidence"
+          "episode_object": "a mercury-rich boundary layer",
+          "time_place_scope": "a marine basin beside a flood-basalt province",
+          "mechanism": "volcanic gas release",
+          "evidence_lens": "trace-element geochemistry"
         }
       ]
     },
@@ -457,16 +760,16 @@
       "subject": "the birth of the Moon",
       "tuples": [
         {
-          "episode_object": "an isotope record",
+          "episode_object": "an Earth-Moon tungsten-isotope ratio",
           "time_place_scope": "a Hadean impact landscape",
           "mechanism": "giant impact",
-          "evidence_lens": "isotope evidence"
+          "evidence_lens": "isotope geochemistry"
         },
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a Hadean impact landscape",
-          "mechanism": "impact debris cooling",
-          "evidence_lens": "rock record"
+          "episode_object": "a lunar anorthosite sample",
+          "time_place_scope": "the lunar highlands",
+          "mechanism": "magma-ocean crystallization",
+          "evidence_lens": "sample mineralogy"
         }
       ]
     },
@@ -474,16 +777,33 @@
       "subject": "Earth's magnetic field",
       "tuples": [
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "an Archean coastline",
+          "episode_object": "a magnetized zircon inclusion",
+          "time_place_scope": "an Archean rock unit",
           "mechanism": "core dynamo",
-          "evidence_lens": "paleomagnetic evidence"
+          "evidence_lens": "paleomagnetic measurement"
         },
         {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "field reversal record",
-          "evidence_lens": "paleomagnetic evidence"
+          "episode_object": "a lava-flow polarity sequence",
+          "time_place_scope": "an oceanic crust section",
+          "mechanism": "geomagnetic reversal",
+          "evidence_lens": "magnetic stratigraphy"
+        }
+      ]
+    },
+    {
+      "subject": "the first rivers",
+      "tuples": [
+        {
+          "episode_object": "a rounded conglomerate",
+          "time_place_scope": "an Archean channel deposit",
+          "mechanism": "sustained surface runoff",
+          "evidence_lens": "sedimentology"
+        },
+        {
+          "episode_object": "a preserved channel bar",
+          "time_place_scope": "an ancient terrestrial basin",
+          "mechanism": "river incision and deposition",
+          "evidence_lens": "geomorphic mapping"
         }
       ]
     },
@@ -491,186 +811,16 @@
       "subject": "desertification",
       "tuples": [
         {
-          "episode_object": "a river basin",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "terrain mapping"
+          "episode_object": "a windblown loess layer",
+          "time_place_scope": "a drying continental interior",
+          "mechanism": "aridification",
+          "evidence_lens": "grain-size analysis"
         },
         {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "orbital forcing",
-          "evidence_lens": "terrain mapping"
-        }
-      ]
-    },
-    {
-      "subject": "the origin of soil",
-      "tuples": [
-        {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a supercontinent interior",
-          "mechanism": "carbon burial",
-          "evidence_lens": "sediment core"
-        },
-        {
-          "episode_object": "a river basin",
-          "time_place_scope": "a supercontinent interior",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "sediment core"
-        }
-      ]
-    },
-    {
-      "subject": "the opening of the Atlantic",
-      "tuples": [
-        {
-          "episode_object": "a continental map",
-          "time_place_scope": "a rifting seaway",
-          "mechanism": "rift spreading",
-          "evidence_lens": "paleomagnetic evidence"
-        },
-        {
-          "episode_object": "a fossil shoreline",
-          "time_place_scope": "a rifting seaway",
-          "mechanism": "ocean circulation",
-          "evidence_lens": "paleomagnetic evidence"
-        }
-      ]
-    },
-    {
-      "subject": "the closing of ancient oceans",
-      "tuples": [
-        {
-          "episode_object": "a fossil shoreline",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "ocean circulation",
-          "evidence_lens": "fossil record"
-        },
-        {
-          "episode_object": "a continental map",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "plate collision",
-          "evidence_lens": "fossil record"
-        }
-      ]
-    },
-    {
-      "subject": "sea-level change",
-      "tuples": [
-        {
-          "episode_object": "a fossil shoreline",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "ocean circulation",
-          "evidence_lens": "sediment core"
-        },
-        {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "orbital forcing",
-          "evidence_lens": "rock record"
-        }
-      ]
-    },
-    {
-      "subject": "monsoon systems",
-      "tuples": [
-        {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "orbital forcing",
-          "evidence_lens": "isotope evidence"
-        },
-        {
-          "episode_object": "a river basin",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "isotope evidence"
-        }
-      ]
-    },
-    {
-      "subject": "the formation of the Grand Canyon",
-      "tuples": [
-        {
-          "episode_object": "a river basin",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "terrain mapping"
-        },
-        {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "plate collision",
-          "evidence_lens": "terrain mapping"
-        }
-      ]
-    },
-    {
-      "subject": "the Mediterranean drying out",
-      "tuples": [
-        {
-          "episode_object": "a fossil shoreline",
-          "time_place_scope": "a rifting seaway",
-          "mechanism": "ocean circulation",
-          "evidence_lens": "sediment core"
-        },
-        {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a rifting seaway",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "sediment core"
-        }
-      ]
-    },
-    {
-      "subject": "the changing Sun",
-      "tuples": [
-        {
-          "episode_object": "an isotope record",
-          "time_place_scope": "an Archean coastline",
-          "mechanism": "orbital forcing",
-          "evidence_lens": "isotope evidence"
-        },
-        {
-          "episode_object": "a rock layer",
-          "time_place_scope": "an Archean coastline",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "isotope evidence"
-        }
-      ]
-    },
-    {
-      "subject": "the first rain",
-      "tuples": [
-        {
-          "episode_object": "a river basin",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "terrain mapping"
-        },
-        {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "volcanic outgassing",
-          "evidence_lens": "terrain mapping"
-        }
-      ]
-    },
-    {
-      "subject": "the creation of coral reefs",
-      "tuples": [
-        {
-          "episode_object": "a fossil shoreline",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "carbon burial",
-          "evidence_lens": "fossil record"
-        },
-        {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "ocean circulation",
-          "evidence_lens": "fossil record"
+          "episode_object": "a fossil-pollen decline",
+          "time_place_scope": "a contracting lake basin",
+          "mechanism": "vegetation-climate feedback",
+          "evidence_lens": "palynology"
         }
       ]
     },
@@ -678,16 +828,254 @@
       "subject": "the first forests",
       "tuples": [
         {
-          "episode_object": "a rock layer",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
-          "evidence_lens": "rock record"
+          "episode_object": "a fossil root mat",
+          "time_place_scope": "a Devonian floodplain",
+          "mechanism": "deep rooting",
+          "evidence_lens": "paleosol analysis"
         },
         {
-          "episode_object": "an isotope record",
-          "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "carbon burial",
-          "evidence_lens": "rock record"
+          "episode_object": "a coalified tree trunk",
+          "time_place_scope": "the Gilboa forest",
+          "mechanism": "canopy development",
+          "evidence_lens": "fossil anatomy"
+        }
+      ]
+    },
+    {
+      "subject": "massive flood basalts",
+      "tuples": [
+        {
+          "episode_object": "a stack of basalt flows",
+          "time_place_scope": "the Deccan volcanic province",
+          "mechanism": "repeated fissure eruption",
+          "evidence_lens": "argon-argon dating"
+        },
+        {
+          "episode_object": "a baked sediment contact",
+          "time_place_scope": "the Columbia River Basalt province",
+          "mechanism": "eruption-tempo recording",
+          "evidence_lens": "paleomagnetic correlation"
+        }
+      ]
+    },
+    {
+      "subject": "the rise of the Himalayas",
+      "tuples": [
+        {
+          "episode_object": "a marine limestone bed",
+          "time_place_scope": "the Tethyan Himalaya",
+          "mechanism": "India-Asia collision",
+          "evidence_lens": "fossil stratigraphy"
+        },
+        {
+          "episode_object": "a foreland-basin sediment fan",
+          "time_place_scope": "the Himalayan foothills",
+          "mechanism": "uplift-driven erosion",
+          "evidence_lens": "thermochronology"
+        }
+      ]
+    },
+    {
+      "subject": "the opening of the Atlantic",
+      "tuples": [
+        {
+          "episode_object": "a rift-basin fault",
+          "time_place_scope": "the Triassic Newark basin",
+          "mechanism": "continental extension",
+          "evidence_lens": "seismic stratigraphy"
+        },
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "a rifting seaway",
+          "mechanism": "ocean circulation",
+          "evidence_lens": "fossil record"
+        }
+      ]
+    },
+    {
+      "subject": "the closing of ancient oceans",
+      "tuples": [
+        {
+          "episode_object": "an ophiolite belt",
+          "time_place_scope": "the Tethys suture",
+          "mechanism": "ocean closure by subduction",
+          "evidence_lens": "rock petrology"
+        },
+        {
+          "episode_object": "an accretionary prism",
+          "time_place_scope": "a Paleozoic suture zone",
+          "mechanism": "terrane collision",
+          "evidence_lens": "structural geology"
+        }
+      ]
+    },
+    {
+      "subject": "sea-level change",
+      "tuples": [
+        {
+          "episode_object": "a sequence boundary",
+          "time_place_scope": "a Cretaceous continental shelf",
+          "mechanism": "eustatic rise and fall",
+          "evidence_lens": "seismic stratigraphy"
+        },
+        {
+          "episode_object": "a fossil coral terrace",
+          "time_place_scope": "a Pleistocene coastline",
+          "mechanism": "glacial water storage",
+          "evidence_lens": "uranium-thorium dating"
+        }
+      ]
+    },
+    {
+      "subject": "ice-age cycles",
+      "tuples": [
+        {
+          "episode_object": "a benthic oxygen-isotope stack",
+          "time_place_scope": "a Pleistocene seafloor",
+          "mechanism": "orbital pacing",
+          "evidence_lens": "foraminiferal geochemistry"
+        },
+        {
+          "episode_object": "an ice-core gas bubble",
+          "time_place_scope": "late-Pleistocene Antarctica",
+          "mechanism": "greenhouse-gas feedback",
+          "evidence_lens": "ice-core chronology"
+        }
+      ]
+    },
+    {
+      "subject": "monsoon systems",
+      "tuples": [
+        {
+          "episode_object": "a cave stalagmite",
+          "time_place_scope": "the South Asian monsoon belt",
+          "mechanism": "rainfall variability",
+          "evidence_lens": "oxygen-isotope record"
+        },
+        {
+          "episode_object": "a leaf-wax layer",
+          "time_place_scope": "the Arabian Sea margin",
+          "mechanism": "land-sea thermal contrast",
+          "evidence_lens": "biomarker analysis"
+        }
+      ]
+    },
+    {
+      "subject": "the formation of the Grand Canyon",
+      "tuples": [
+        {
+          "episode_object": "a buried river gravel",
+          "time_place_scope": "the Colorado Plateau",
+          "mechanism": "river incision",
+          "evidence_lens": "cosmogenic-nuclide dating"
+        },
+        {
+          "episode_object": "an uplifted river terrace",
+          "time_place_scope": "the canyon rim",
+          "mechanism": "base-level change",
+          "evidence_lens": "geomorphic mapping"
+        }
+      ]
+    },
+    {
+      "subject": "the Mediterranean drying out",
+      "tuples": [
+        {
+          "episode_object": "a thick gypsum layer",
+          "time_place_scope": "the Messinian Mediterranean basin",
+          "mechanism": "restricted evaporation",
+          "evidence_lens": "drill-core stratigraphy"
+        },
+        {
+          "episode_object": "a submerged river gorge",
+          "time_place_scope": "the Mediterranean margin",
+          "mechanism": "catastrophic reflooding",
+          "evidence_lens": "seismic imaging"
+        }
+      ]
+    },
+    {
+      "subject": "the changing Sun",
+      "tuples": [
+        {
+          "episode_object": "an Archean paleosol",
+          "time_place_scope": "the early Earth surface",
+          "mechanism": "climate compensation under a faint young Sun",
+          "evidence_lens": "paleosol geochemistry"
+        },
+        {
+          "episode_object": "a solar-analog spectrum",
+          "time_place_scope": "main-sequence stars of different ages",
+          "mechanism": "stellar luminosity evolution",
+          "evidence_lens": "stellar spectroscopy"
+        }
+      ]
+    },
+    {
+      "subject": "ancient atmospheric carbon dioxide",
+      "tuples": [
+        {
+          "episode_object": "fossil leaf stomata",
+          "time_place_scope": "an Eocene forest",
+          "mechanism": "stomatal response to carbon dioxide",
+          "evidence_lens": "plant-fossil calibration"
+        },
+        {
+          "episode_object": "a boron-isotope ratio",
+          "time_place_scope": "an ancient marine carbonate",
+          "mechanism": "ocean acidity response to carbon dioxide",
+          "evidence_lens": "isotope geochemistry"
+        }
+      ]
+    },
+    {
+      "subject": "the origin of soil",
+      "tuples": [
+        {
+          "episode_object": "a weathered paleosol horizon",
+          "time_place_scope": "a Silurian land surface",
+          "mechanism": "mineral weathering",
+          "evidence_lens": "soil micromorphology"
+        },
+        {
+          "episode_object": "a fossil root trace",
+          "time_place_scope": "a Devonian floodplain",
+          "mechanism": "biological soil formation",
+          "evidence_lens": "trace-fossil record"
+        }
+      ]
+    },
+    {
+      "subject": "the creation of coral reefs",
+      "tuples": [
+        {
+          "episode_object": "a reef-limestone framework",
+          "time_place_scope": "an Ordovician shelf sea",
+          "mechanism": "skeletal reef building",
+          "evidence_lens": "fossil assemblage"
+        },
+        {
+          "episode_object": "a coral growth band",
+          "time_place_scope": "a Pleistocene reef terrace",
+          "mechanism": "carbonate accretion",
+          "evidence_lens": "uranium-thorium dating"
+        }
+      ]
+    },
+    {
+      "subject": "the first rain",
+      "tuples": [
+        {
+          "episode_object": "a water-altered zircon",
+          "time_place_scope": "the Hadean crust",
+          "mechanism": "early hydrologic cycling",
+          "evidence_lens": "zircon oxygen isotopes"
+        },
+        {
+          "episode_object": "sedimentary ripple marks",
+          "time_place_scope": "an Archean basin",
+          "mechanism": "rainfall-driven runoff",
+          "evidence_lens": "sedimentology"
         }
       ]
     }

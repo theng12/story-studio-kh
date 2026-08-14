@@ -22,34 +22,54 @@
   ],
   "episode_objects": [
     "a feeding tool",
-    "a camouflage pattern",
+    "a lactation den",
     "a nest or den",
-    "a migration route",
+    "a courtship song repertoire",
+    "a camouflage pattern",
     "a predator defense",
-    "a courtship display"
+    "an egg mass in a temporary pond",
+    "a courtship display",
+    "concentrated urine and nasal moisture recovery",
+    "a migration route",
+    "a stopover feeding ground"
   ],
   "time_place_scopes": [
+    "a forest canopy",
+    "the first weeks after birth in a temperate woodland",
     "a breeding season",
+    "a breeding-season lek",
     "a desert waterhole",
+    "the first rains of breeding season",
     "a reef edge",
     "an abyssal plain",
-    "a forest canopy",
-    "a polar shoreline"
+    "a waterless desert summer",
+    "a polar shoreline",
+    "a seasonal flyway crossing"
   ],
   "mechanisms": [
     "energy conservation",
+    "parental investment",
+    "reproductive trade-off",
+    "sexual selection",
+    "thermoregulation",
     "predator avoidance",
     "sensory adaptation",
+    "developmental timing",
     "cooperation",
-    "thermoregulation",
-    "reproductive trade-off"
+    "water conservation",
+    "fuel replenishment"
   ],
   "evidence_lenses": [
     "field observation",
-    "comparative anatomy",
-    "tracking data",
+    "mother-offspring field study",
     "life-history study",
-    "ecological survey"
+    "mate-choice observation",
+    "comparative anatomy",
+    "ecological survey",
+    "larval survival survey",
+    "physiological measurement",
+    "tracking data",
+    "satellite tracking and body-mass sampling"
   ],
   "exclusions": [
     "Do not assign human intention or dialogue to animals.",
@@ -77,23 +97,33 @@
       "label": "Episode object",
       "values": [
         "a feeding tool",
-        "a camouflage pattern",
+        "a lactation den",
         "a nest or den",
-        "a migration route",
+        "a courtship song repertoire",
+        "a camouflage pattern",
         "a predator defense",
-        "a courtship display"
+        "an egg mass in a temporary pond",
+        "a courtship display",
+        "concentrated urine and nasal moisture recovery",
+        "a migration route",
+        "a stopover feeding ground"
       ]
     },
     {
       "id": "time-place-scope",
       "label": "Time and place",
       "values": [
+        "a forest canopy",
+        "the first weeks after birth in a temperate woodland",
         "a breeding season",
+        "a breeding-season lek",
         "a desert waterhole",
+        "the first rains of breeding season",
         "a reef edge",
         "an abyssal plain",
-        "a forest canopy",
-        "a polar shoreline"
+        "a waterless desert summer",
+        "a polar shoreline",
+        "a seasonal flyway crossing"
       ]
     },
     {
@@ -101,11 +131,16 @@
       "label": "Mechanism",
       "values": [
         "energy conservation",
+        "parental investment",
+        "reproductive trade-off",
+        "sexual selection",
+        "thermoregulation",
         "predator avoidance",
         "sensory adaptation",
+        "developmental timing",
         "cooperation",
-        "thermoregulation",
-        "reproductive trade-off"
+        "water conservation",
+        "fuel replenishment"
       ]
     },
     {
@@ -113,10 +148,15 @@
       "label": "Evidence lens",
       "values": [
         "field observation",
-        "comparative anatomy",
-        "tracking data",
+        "mother-offspring field study",
         "life-history study",
-        "ecological survey"
+        "mate-choice observation",
+        "comparative anatomy",
+        "ecological survey",
+        "larval survival survey",
+        "physiological measurement",
+        "tracking data",
+        "satellite tracking and body-mass sampling"
       ]
     }
   ],
@@ -140,10 +180,10 @@
           "evidence_lens": "field observation"
         },
         {
-          "episode_object": "a nest or den",
-          "time_place_scope": "a forest canopy",
-          "mechanism": "reproductive trade-off",
-          "evidence_lens": "field observation"
+          "episode_object": "a lactation den",
+          "time_place_scope": "the first weeks after birth in a temperate woodland",
+          "mechanism": "parental investment",
+          "evidence_lens": "mother-offspring field study"
         }
       ]
     },
@@ -157,10 +197,10 @@
           "evidence_lens": "life-history study"
         },
         {
-          "episode_object": "a courtship display",
-          "time_place_scope": "a breeding season",
-          "mechanism": "cooperation",
-          "evidence_lens": "life-history study"
+          "episode_object": "a courtship song repertoire",
+          "time_place_scope": "a breeding-season lek",
+          "mechanism": "sexual selection",
+          "evidence_lens": "mate-choice observation"
         }
       ]
     },
@@ -191,10 +231,10 @@
           "evidence_lens": "ecological survey"
         },
         {
-          "episode_object": "a camouflage pattern",
-          "time_place_scope": "a forest canopy",
-          "mechanism": "predator avoidance",
-          "evidence_lens": "ecological survey"
+          "episode_object": "an egg mass in a temporary pond",
+          "time_place_scope": "the first rains of breeding season",
+          "mechanism": "developmental timing",
+          "evidence_lens": "larval survival survey"
         }
       ]
     },
@@ -276,10 +316,10 @@
           "evidence_lens": "comparative anatomy"
         },
         {
-          "episode_object": "a camouflage pattern",
-          "time_place_scope": "a desert waterhole",
-          "mechanism": "energy conservation",
-          "evidence_lens": "comparative anatomy"
+          "episode_object": "concentrated urine and nasal moisture recovery",
+          "time_place_scope": "a waterless desert summer",
+          "mechanism": "water conservation",
+          "evidence_lens": "physiological measurement"
         }
       ]
     },
@@ -293,10 +333,10 @@
           "evidence_lens": "tracking data"
         },
         {
-          "episode_object": "a courtship display",
-          "time_place_scope": "a polar shoreline",
-          "mechanism": "reproductive trade-off",
-          "evidence_lens": "tracking data"
+          "episode_object": "a stopover feeding ground",
+          "time_place_scope": "a seasonal flyway crossing",
+          "mechanism": "fuel replenishment",
+          "evidence_lens": "satellite tracking and body-mass sampling"
         }
       ]
     }

@@ -35,36 +35,209 @@
     "professional mourner"
   ],
   "episode_objects": [
-    "an entry oath",
-    "a work tool",
-    "a uniform or marker",
-    "a wage or ration",
-    "a rank insignia",
-    "a mourning cloth"
+    "an execution sword",
+    "a municipal executioner badge",
+    "a wooden training sword",
+    "a barley ration bowl",
+    "a broad woodworking axe",
+    "a roll of wool caulking",
+    "a ring of household keys",
+    "a basket of floor rushes",
+    "a fool's bauble",
+    "a livery coat",
+    "a waxed beak mask",
+    "a vinegar-soaked sponge",
+    "a chimney climbing brush",
+    "a soot sack",
+    "a paired sword set",
+    "a rice-stipend ledger",
+    "an imperial relay tablet",
+    "a remount herd",
+    "a reed palette",
+    "a papyrus grain account",
+    "a marching pack",
+    "a wooden pay tablet",
+    "an indenture document",
+    "a carved practice piece",
+    "a tasting spoon",
+    "a sealed serving dish",
+    "a Fresnel lens",
+    "an oil measure",
+    "a hand-thrown harpoon",
+    "an iron try-pot",
+    "a counterweight trebuchet plan",
+    "a bundle of sapping timbers",
+    "a composite bow",
+    "a water-ration ledger",
+    "an oar bench",
+    "an ankle shackle",
+    "an iron mining pick",
+    "an oil safety lamp",
+    "a palace seal",
+    "a rank robe",
+    "a tray of movable type",
+    "a wooden press screw",
+    "a set of coach reins",
+    "a stamped waybill",
+    "a tally stick",
+    "a harvest labor roster",
+    "an offering table",
+    "a divination tablet",
+    "a mourning garment",
+    "a payment token"
   ],
   "time_place_scopes": [
-    "recruitment",
-    "training",
-    "ordinary duty",
-    "a first crisis",
-    "advancement",
-    "after a funeral"
+    "a city scaffold on sentencing day",
+    "a town gate district",
+    "a gladiator school drill yard",
+    "a Campanian barracks",
+    "a Norse boathouse",
+    "a coastal shipyard",
+    "a great hall before breakfast",
+    "a castle chamber after a feast",
+    "a royal feast day",
+    "a royal progress",
+    "an Italian city outbreak",
+    "a pesthouse ward",
+    "a narrow Victorian flue",
+    "an urban rooftop route",
+    "a castle guard rotation",
+    "a domain administration office",
+    "a steppe relay station",
+    "a long-distance yam route",
+    "a temple school",
+    "a granary audit",
+    "a frontier fort departure",
+    "a legion payday",
+    "an urban craft workshop",
+    "a market-town workshop",
+    "a palace banquet kitchen",
+    "a royal dining chamber",
+    "a lighthouse watch room at dusk",
+    "a storm-night lantern room",
+    "a whaleboat chase",
+    "a whaleship processing deck",
+    "a medieval siege camp",
+    "beneath a fortress wall",
+    "a desert caravan perimeter",
+    "an oasis route",
+    "a Mediterranean war galley",
+    "a port arsenal",
+    "an underground ore gallery",
+    "a deep mine shaft",
+    "an inner-court gate",
+    "an imperial promotion audience",
+    "a Renaissance print shop",
+    "a censorship inspection",
+    "a frontier mail route",
+    "a stage station",
+    "a manor court",
+    "the manorial harvest season",
+    "a dawn temple ritual",
+    "a festival preparation chamber",
+    "a funeral procession",
+    "a household after a funeral"
   ],
   "mechanisms": [
-    "institutional hierarchy",
-    "skill apprenticeship",
-    "material incentives",
-    "coercion and dependency",
-    "social status",
-    "occupational risk"
+    "fee-per-sentence labor",
+    "hereditary civic office",
+    "combat skill conditioning",
+    "diet-financed captive labor",
+    "lapstrake hull construction",
+    "watertight seam sealing",
+    "ranked household service",
+    "domestic sanitation labor",
+    "licensed satire",
+    "patronage insecurity",
+    "quarantine inspection",
+    "period miasma practice",
+    "coerced child labor",
+    "cumulative occupational exposure",
+    "feudal service obligation",
+    "retainer compensation",
+    "authorized relay logistics",
+    "horse rotation",
+    "hieratic writing training",
+    "administrative record keeping",
+    "standardized military logistics",
+    "pay deductions and bonuses",
+    "master-controlled training",
+    "graded skill progression",
+    "poison-risk ritual",
+    "controlled access to food",
+    "lamp and lens maintenance",
+    "fuel rationing",
+    "small-boat team coordination",
+    "blubber oil rendering",
+    "trajectory calibration",
+    "tunnel undermining",
+    "mobile convoy defense",
+    "shared risk allocation",
+    "forced synchronized labor",
+    "coercive confinement",
+    "manual ore extraction",
+    "ventilation-risk management",
+    "controlled access to the ruler",
+    "palace patronage network",
+    "hand type composition",
+    "licensed print control",
+    "horse-team management",
+    "passenger-and-mail economics",
+    "rent accounting",
+    "labor-obligation enforcement",
+    "scheduled ritual service",
+    "institutional religious authority",
+    "ritual performance of grief",
+    "paid lamentation labor"
   ],
   "evidence_lenses": [
-    "guild record",
+    "court roll",
+    "municipal ordinance",
+    "training-weapon archaeology",
+    "bone-isotope evidence",
+    "tool marks on ship timbers",
+    "excavated ship remains",
+    "household accounts",
+    "castle archaeology",
+    "court chronicle",
+    "payment roll",
+    "public-health ordinance",
+    "city medical records",
+    "parliamentary testimony",
+    "medical and census record",
+    "domain law",
+    "house records",
+    "imperial decree",
+    "traveler account",
+    "practice ostraca",
+    "surviving papyri",
+    "fort archaeology",
+    "Vindolanda tablets",
+    "guild ordinance",
+    "surviving craft artifact",
     "court account",
-    "material artifact",
-    "legal code",
-    "letter or diary",
-    "historical reconstruction"
+    "household ordinance",
+    "keeper logbook",
+    "lighthouse service records",
+    "ship log",
+    "industrial archaeology",
+    "military treatise",
+    "archaeological siege trench",
+    "merchant records",
+    "naval archaeology",
+    "legal record",
+    "tool-mark evidence",
+    "mine archaeology",
+    "official register",
+    "surviving incunabula",
+    "printer-guild record",
+    "travel diary",
+    "postal record",
+    "manorial accounts",
+    "temple inscription",
+    "archive tablet",
+    "funerary inscription",
+    "account text"
   ],
   "exclusions": [
     "Do not glamorize violence, coercion, exploitation, or dangerous work.",
@@ -77,48 +250,221 @@
       "id": "episode-object",
       "label": "Episode object",
       "values": [
-        "an entry oath",
-        "a work tool",
-        "a uniform or marker",
-        "a wage or ration",
-        "a rank insignia",
-        "a mourning cloth"
+        "an execution sword",
+        "a municipal executioner badge",
+        "a wooden training sword",
+        "a barley ration bowl",
+        "a broad woodworking axe",
+        "a roll of wool caulking",
+        "a ring of household keys",
+        "a basket of floor rushes",
+        "a fool's bauble",
+        "a livery coat",
+        "a waxed beak mask",
+        "a vinegar-soaked sponge",
+        "a chimney climbing brush",
+        "a soot sack",
+        "a paired sword set",
+        "a rice-stipend ledger",
+        "an imperial relay tablet",
+        "a remount herd",
+        "a reed palette",
+        "a papyrus grain account",
+        "a marching pack",
+        "a wooden pay tablet",
+        "an indenture document",
+        "a carved practice piece",
+        "a tasting spoon",
+        "a sealed serving dish",
+        "a Fresnel lens",
+        "an oil measure",
+        "a hand-thrown harpoon",
+        "an iron try-pot",
+        "a counterweight trebuchet plan",
+        "a bundle of sapping timbers",
+        "a composite bow",
+        "a water-ration ledger",
+        "an oar bench",
+        "an ankle shackle",
+        "an iron mining pick",
+        "an oil safety lamp",
+        "a palace seal",
+        "a rank robe",
+        "a tray of movable type",
+        "a wooden press screw",
+        "a set of coach reins",
+        "a stamped waybill",
+        "a tally stick",
+        "a harvest labor roster",
+        "an offering table",
+        "a divination tablet",
+        "a mourning garment",
+        "a payment token"
       ]
     },
     {
       "id": "time-place-scope",
       "label": "Life stage",
       "values": [
-        "recruitment",
-        "training",
-        "ordinary duty",
-        "a first crisis",
-        "advancement",
-        "after a funeral"
+        "a city scaffold on sentencing day",
+        "a town gate district",
+        "a gladiator school drill yard",
+        "a Campanian barracks",
+        "a Norse boathouse",
+        "a coastal shipyard",
+        "a great hall before breakfast",
+        "a castle chamber after a feast",
+        "a royal feast day",
+        "a royal progress",
+        "an Italian city outbreak",
+        "a pesthouse ward",
+        "a narrow Victorian flue",
+        "an urban rooftop route",
+        "a castle guard rotation",
+        "a domain administration office",
+        "a steppe relay station",
+        "a long-distance yam route",
+        "a temple school",
+        "a granary audit",
+        "a frontier fort departure",
+        "a legion payday",
+        "an urban craft workshop",
+        "a market-town workshop",
+        "a palace banquet kitchen",
+        "a royal dining chamber",
+        "a lighthouse watch room at dusk",
+        "a storm-night lantern room",
+        "a whaleboat chase",
+        "a whaleship processing deck",
+        "a medieval siege camp",
+        "beneath a fortress wall",
+        "a desert caravan perimeter",
+        "an oasis route",
+        "a Mediterranean war galley",
+        "a port arsenal",
+        "an underground ore gallery",
+        "a deep mine shaft",
+        "an inner-court gate",
+        "an imperial promotion audience",
+        "a Renaissance print shop",
+        "a censorship inspection",
+        "a frontier mail route",
+        "a stage station",
+        "a manor court",
+        "the manorial harvest season",
+        "a dawn temple ritual",
+        "a festival preparation chamber",
+        "a funeral procession",
+        "a household after a funeral"
       ]
     },
     {
       "id": "mechanism",
       "label": "Role mechanism",
       "values": [
-        "institutional hierarchy",
-        "skill apprenticeship",
-        "material incentives",
-        "coercion and dependency",
-        "social status",
-        "occupational risk"
+        "fee-per-sentence labor",
+        "hereditary civic office",
+        "combat skill conditioning",
+        "diet-financed captive labor",
+        "lapstrake hull construction",
+        "watertight seam sealing",
+        "ranked household service",
+        "domestic sanitation labor",
+        "licensed satire",
+        "patronage insecurity",
+        "quarantine inspection",
+        "period miasma practice",
+        "coerced child labor",
+        "cumulative occupational exposure",
+        "feudal service obligation",
+        "retainer compensation",
+        "authorized relay logistics",
+        "horse rotation",
+        "hieratic writing training",
+        "administrative record keeping",
+        "standardized military logistics",
+        "pay deductions and bonuses",
+        "master-controlled training",
+        "graded skill progression",
+        "poison-risk ritual",
+        "controlled access to food",
+        "lamp and lens maintenance",
+        "fuel rationing",
+        "small-boat team coordination",
+        "blubber oil rendering",
+        "trajectory calibration",
+        "tunnel undermining",
+        "mobile convoy defense",
+        "shared risk allocation",
+        "forced synchronized labor",
+        "coercive confinement",
+        "manual ore extraction",
+        "ventilation-risk management",
+        "controlled access to the ruler",
+        "palace patronage network",
+        "hand type composition",
+        "licensed print control",
+        "horse-team management",
+        "passenger-and-mail economics",
+        "rent accounting",
+        "labor-obligation enforcement",
+        "scheduled ritual service",
+        "institutional religious authority",
+        "ritual performance of grief",
+        "paid lamentation labor"
       ]
     },
     {
       "id": "evidence-lens",
       "label": "Evidence lens",
       "values": [
-        "guild record",
+        "court roll",
+        "municipal ordinance",
+        "training-weapon archaeology",
+        "bone-isotope evidence",
+        "tool marks on ship timbers",
+        "excavated ship remains",
+        "household accounts",
+        "castle archaeology",
+        "court chronicle",
+        "payment roll",
+        "public-health ordinance",
+        "city medical records",
+        "parliamentary testimony",
+        "medical and census record",
+        "domain law",
+        "house records",
+        "imperial decree",
+        "traveler account",
+        "practice ostraca",
+        "surviving papyri",
+        "fort archaeology",
+        "Vindolanda tablets",
+        "guild ordinance",
+        "surviving craft artifact",
         "court account",
-        "material artifact",
-        "legal code",
-        "letter or diary",
-        "historical reconstruction"
+        "household ordinance",
+        "keeper logbook",
+        "lighthouse service records",
+        "ship log",
+        "industrial archaeology",
+        "military treatise",
+        "archaeological siege trench",
+        "merchant records",
+        "naval archaeology",
+        "legal record",
+        "tool-mark evidence",
+        "mine archaeology",
+        "official register",
+        "surviving incunabula",
+        "printer-guild record",
+        "travel diary",
+        "postal record",
+        "manorial accounts",
+        "temple inscription",
+        "archive tablet",
+        "funerary inscription",
+        "account text"
       ]
     }
   ],
@@ -136,16 +482,16 @@
       "subject": "medieval executioner",
       "tuples": [
         {
-          "episode_object": "an entry oath",
-          "time_place_scope": "recruitment",
-          "mechanism": "coercion and dependency",
-          "evidence_lens": "legal code"
+          "episode_object": "an execution sword",
+          "time_place_scope": "a city scaffold on sentencing day",
+          "mechanism": "fee-per-sentence labor",
+          "evidence_lens": "court roll"
         },
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "recruitment",
-          "mechanism": "occupational risk",
-          "evidence_lens": "legal code"
+          "episode_object": "a municipal executioner badge",
+          "time_place_scope": "a town gate district",
+          "mechanism": "hereditary civic office",
+          "evidence_lens": "municipal ordinance"
         }
       ]
     },
@@ -153,16 +499,16 @@
       "subject": "Roman gladiator",
       "tuples": [
         {
-          "episode_object": "a uniform or marker",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
-          "evidence_lens": "material artifact"
+          "episode_object": "a wooden training sword",
+          "time_place_scope": "a gladiator school drill yard",
+          "mechanism": "combat skill conditioning",
+          "evidence_lens": "training-weapon archaeology"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "social status",
-          "evidence_lens": "material artifact"
+          "episode_object": "a barley ration bowl",
+          "time_place_scope": "a Campanian barracks",
+          "mechanism": "diet-financed captive labor",
+          "evidence_lens": "bone-isotope evidence"
         }
       ]
     },
@@ -170,16 +516,16 @@
       "subject": "Viking shipbuilder",
       "tuples": [
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "training",
-          "mechanism": "skill apprenticeship",
-          "evidence_lens": "material artifact"
+          "episode_object": "a broad woodworking axe",
+          "time_place_scope": "a Norse boathouse",
+          "mechanism": "lapstrake hull construction",
+          "evidence_lens": "tool marks on ship timbers"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "training",
-          "mechanism": "material incentives",
-          "evidence_lens": "guild record"
+          "episode_object": "a roll of wool caulking",
+          "time_place_scope": "a coastal shipyard",
+          "mechanism": "watertight seam sealing",
+          "evidence_lens": "excavated ship remains"
         }
       ]
     },
@@ -187,16 +533,16 @@
       "subject": "castle servant",
       "tuples": [
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "institutional hierarchy",
-          "evidence_lens": "court account"
+          "episode_object": "a ring of household keys",
+          "time_place_scope": "a great hall before breakfast",
+          "mechanism": "ranked household service",
+          "evidence_lens": "household accounts"
         },
         {
-          "episode_object": "a uniform or marker",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "coercion and dependency",
-          "evidence_lens": "court account"
+          "episode_object": "a basket of floor rushes",
+          "time_place_scope": "a castle chamber after a feast",
+          "mechanism": "domestic sanitation labor",
+          "evidence_lens": "castle archaeology"
         }
       ]
     },
@@ -204,16 +550,16 @@
       "subject": "court jester",
       "tuples": [
         {
-          "episode_object": "a uniform or marker",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "social status",
-          "evidence_lens": "court account"
+          "episode_object": "a fool's bauble",
+          "time_place_scope": "a royal feast day",
+          "mechanism": "licensed satire",
+          "evidence_lens": "court chronicle"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
-          "evidence_lens": "court account"
+          "episode_object": "a livery coat",
+          "time_place_scope": "a royal progress",
+          "mechanism": "patronage insecurity",
+          "evidence_lens": "payment roll"
         }
       ]
     },
@@ -221,16 +567,16 @@
       "subject": "plague doctor",
       "tuples": [
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "a first crisis",
-          "mechanism": "occupational risk",
-          "evidence_lens": "historical reconstruction"
+          "episode_object": "a waxed beak mask",
+          "time_place_scope": "an Italian city outbreak",
+          "mechanism": "quarantine inspection",
+          "evidence_lens": "public-health ordinance"
         },
         {
-          "episode_object": "a uniform or marker",
-          "time_place_scope": "a first crisis",
-          "mechanism": "social status",
-          "evidence_lens": "historical reconstruction"
+          "episode_object": "a vinegar-soaked sponge",
+          "time_place_scope": "a pesthouse ward",
+          "mechanism": "period miasma practice",
+          "evidence_lens": "city medical records"
         }
       ]
     },
@@ -238,16 +584,16 @@
       "subject": "Victorian chimney sweep",
       "tuples": [
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "training",
-          "mechanism": "coercion and dependency",
-          "evidence_lens": "material artifact"
+          "episode_object": "a chimney climbing brush",
+          "time_place_scope": "a narrow Victorian flue",
+          "mechanism": "coerced child labor",
+          "evidence_lens": "parliamentary testimony"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "training",
-          "mechanism": "occupational risk",
-          "evidence_lens": "material artifact"
+          "episode_object": "a soot sack",
+          "time_place_scope": "an urban rooftop route",
+          "mechanism": "cumulative occupational exposure",
+          "evidence_lens": "medical and census record"
         }
       ]
     },
@@ -255,16 +601,16 @@
       "subject": "samurai retainer",
       "tuples": [
         {
-          "episode_object": "a rank insignia",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "institutional hierarchy",
-          "evidence_lens": "legal code"
+          "episode_object": "a paired sword set",
+          "time_place_scope": "a castle guard rotation",
+          "mechanism": "feudal service obligation",
+          "evidence_lens": "domain law"
         },
         {
-          "episode_object": "an entry oath",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "social status",
-          "evidence_lens": "legal code"
+          "episode_object": "a rice-stipend ledger",
+          "time_place_scope": "a domain administration office",
+          "mechanism": "retainer compensation",
+          "evidence_lens": "house records"
         }
       ]
     },
@@ -272,16 +618,16 @@
       "subject": "Mongol messenger",
       "tuples": [
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
-          "evidence_lens": "letter or diary"
+          "episode_object": "an imperial relay tablet",
+          "time_place_scope": "a steppe relay station",
+          "mechanism": "authorized relay logistics",
+          "evidence_lens": "imperial decree"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "material incentives",
-          "evidence_lens": "guild record"
+          "episode_object": "a remount herd",
+          "time_place_scope": "a long-distance yam route",
+          "mechanism": "horse rotation",
+          "evidence_lens": "traveler account"
         }
       ]
     },
@@ -289,16 +635,16 @@
       "subject": "ancient Egyptian scribe",
       "tuples": [
         {
-          "episode_object": "an entry oath",
-          "time_place_scope": "training",
-          "mechanism": "skill apprenticeship",
-          "evidence_lens": "historical reconstruction"
+          "episode_object": "a reed palette",
+          "time_place_scope": "a temple school",
+          "mechanism": "hieratic writing training",
+          "evidence_lens": "practice ostraca"
         },
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "training",
-          "mechanism": "institutional hierarchy",
-          "evidence_lens": "historical reconstruction"
+          "episode_object": "a papyrus grain account",
+          "time_place_scope": "a granary audit",
+          "mechanism": "administrative record keeping",
+          "evidence_lens": "surviving papyri"
         }
       ]
     },
@@ -306,16 +652,16 @@
       "subject": "Roman legionary",
       "tuples": [
         {
-          "episode_object": "a uniform or marker",
-          "time_place_scope": "recruitment",
-          "mechanism": "institutional hierarchy",
-          "evidence_lens": "legal code"
+          "episode_object": "a marching pack",
+          "time_place_scope": "a frontier fort departure",
+          "mechanism": "standardized military logistics",
+          "evidence_lens": "fort archaeology"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "recruitment",
-          "mechanism": "material incentives",
-          "evidence_lens": "legal code"
+          "episode_object": "a wooden pay tablet",
+          "time_place_scope": "a legion payday",
+          "mechanism": "pay deductions and bonuses",
+          "evidence_lens": "Vindolanda tablets"
         }
       ]
     },
@@ -323,16 +669,16 @@
       "subject": "medieval guild apprentice",
       "tuples": [
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "training",
-          "mechanism": "skill apprenticeship",
-          "evidence_lens": "guild record"
+          "episode_object": "an indenture document",
+          "time_place_scope": "an urban craft workshop",
+          "mechanism": "master-controlled training",
+          "evidence_lens": "guild ordinance"
         },
         {
-          "episode_object": "an entry oath",
-          "time_place_scope": "training",
-          "mechanism": "coercion and dependency",
-          "evidence_lens": "guild record"
+          "episode_object": "a carved practice piece",
+          "time_place_scope": "a market-town workshop",
+          "mechanism": "graded skill progression",
+          "evidence_lens": "surviving craft artifact"
         }
       ]
     },
@@ -340,16 +686,16 @@
       "subject": "royal food taster",
       "tuples": [
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
+          "episode_object": "a tasting spoon",
+          "time_place_scope": "a palace banquet kitchen",
+          "mechanism": "poison-risk ritual",
           "evidence_lens": "court account"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "material incentives",
-          "evidence_lens": "court account"
+          "episode_object": "a sealed serving dish",
+          "time_place_scope": "a royal dining chamber",
+          "mechanism": "controlled access to food",
+          "evidence_lens": "household ordinance"
         }
       ]
     },
@@ -357,16 +703,16 @@
       "subject": "lighthouse keeper",
       "tuples": [
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "a first crisis",
-          "mechanism": "social status",
-          "evidence_lens": "letter or diary"
+          "episode_object": "a Fresnel lens",
+          "time_place_scope": "a lighthouse watch room at dusk",
+          "mechanism": "lamp and lens maintenance",
+          "evidence_lens": "keeper logbook"
         },
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "a first crisis",
-          "mechanism": "occupational risk",
-          "evidence_lens": "letter or diary"
+          "episode_object": "an oil measure",
+          "time_place_scope": "a storm-night lantern room",
+          "mechanism": "fuel rationing",
+          "evidence_lens": "lighthouse service records"
         }
       ]
     },
@@ -374,16 +720,16 @@
       "subject": "whaler",
       "tuples": [
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
-          "evidence_lens": "historical reconstruction"
+          "episode_object": "a hand-thrown harpoon",
+          "time_place_scope": "a whaleboat chase",
+          "mechanism": "small-boat team coordination",
+          "evidence_lens": "ship log"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "material incentives",
-          "evidence_lens": "historical reconstruction"
+          "episode_object": "an iron try-pot",
+          "time_place_scope": "a whaleship processing deck",
+          "mechanism": "blubber oil rendering",
+          "evidence_lens": "industrial archaeology"
         }
       ]
     },
@@ -391,16 +737,16 @@
       "subject": "siege engineer",
       "tuples": [
         {
-          "episode_object": "a rank insignia",
-          "time_place_scope": "a first crisis",
-          "mechanism": "material incentives",
-          "evidence_lens": "material artifact"
+          "episode_object": "a counterweight trebuchet plan",
+          "time_place_scope": "a medieval siege camp",
+          "mechanism": "trajectory calibration",
+          "evidence_lens": "military treatise"
         },
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "a first crisis",
-          "mechanism": "occupational risk",
-          "evidence_lens": "material artifact"
+          "episode_object": "a bundle of sapping timbers",
+          "time_place_scope": "beneath a fortress wall",
+          "mechanism": "tunnel undermining",
+          "evidence_lens": "archaeological siege trench"
         }
       ]
     },
@@ -408,16 +754,16 @@
       "subject": "caravan guard",
       "tuples": [
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
-          "evidence_lens": "letter or diary"
+          "episode_object": "a composite bow",
+          "time_place_scope": "a desert caravan perimeter",
+          "mechanism": "mobile convoy defense",
+          "evidence_lens": "traveler account"
         },
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "material incentives",
-          "evidence_lens": "letter or diary"
+          "episode_object": "a water-ration ledger",
+          "time_place_scope": "an oasis route",
+          "mechanism": "shared risk allocation",
+          "evidence_lens": "merchant records"
         }
       ]
     },
@@ -425,16 +771,16 @@
       "subject": "galley rower",
       "tuples": [
         {
-          "episode_object": "a uniform or marker",
-          "time_place_scope": "a first crisis",
-          "mechanism": "coercion and dependency",
-          "evidence_lens": "legal code"
+          "episode_object": "an oar bench",
+          "time_place_scope": "a Mediterranean war galley",
+          "mechanism": "forced synchronized labor",
+          "evidence_lens": "naval archaeology"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "a first crisis",
-          "mechanism": "occupational risk",
-          "evidence_lens": "legal code"
+          "episode_object": "an ankle shackle",
+          "time_place_scope": "a port arsenal",
+          "mechanism": "coercive confinement",
+          "evidence_lens": "legal record"
         }
       ]
     },
@@ -442,16 +788,16 @@
       "subject": "mine worker",
       "tuples": [
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
-          "evidence_lens": "material artifact"
+          "episode_object": "an iron mining pick",
+          "time_place_scope": "an underground ore gallery",
+          "mechanism": "manual ore extraction",
+          "evidence_lens": "tool-mark evidence"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "coercion and dependency",
-          "evidence_lens": "material artifact"
+          "episode_object": "an oil safety lamp",
+          "time_place_scope": "a deep mine shaft",
+          "mechanism": "ventilation-risk management",
+          "evidence_lens": "mine archaeology"
         }
       ]
     },
@@ -459,16 +805,16 @@
       "subject": "imperial eunuch",
       "tuples": [
         {
-          "episode_object": "a rank insignia",
-          "time_place_scope": "advancement",
-          "mechanism": "institutional hierarchy",
-          "evidence_lens": "court account"
+          "episode_object": "a palace seal",
+          "time_place_scope": "an inner-court gate",
+          "mechanism": "controlled access to the ruler",
+          "evidence_lens": "court chronicle"
         },
         {
-          "episode_object": "an entry oath",
-          "time_place_scope": "advancement",
-          "mechanism": "coercion and dependency",
-          "evidence_lens": "court account"
+          "episode_object": "a rank robe",
+          "time_place_scope": "an imperial promotion audience",
+          "mechanism": "palace patronage network",
+          "evidence_lens": "official register"
         }
       ]
     },
@@ -476,16 +822,16 @@
       "subject": "renaissance printer",
       "tuples": [
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "training",
-          "mechanism": "skill apprenticeship",
-          "evidence_lens": "material artifact"
+          "episode_object": "a tray of movable type",
+          "time_place_scope": "a Renaissance print shop",
+          "mechanism": "hand type composition",
+          "evidence_lens": "surviving incunabula"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "training",
-          "mechanism": "material incentives",
-          "evidence_lens": "material artifact"
+          "episode_object": "a wooden press screw",
+          "time_place_scope": "a censorship inspection",
+          "mechanism": "licensed print control",
+          "evidence_lens": "printer-guild record"
         }
       ]
     },
@@ -493,16 +839,16 @@
       "subject": "frontier stagecoach driver",
       "tuples": [
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "material incentives",
-          "evidence_lens": "letter or diary"
+          "episode_object": "a set of coach reins",
+          "time_place_scope": "a frontier mail route",
+          "mechanism": "horse-team management",
+          "evidence_lens": "travel diary"
         },
         {
-          "episode_object": "a work tool",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
-          "evidence_lens": "guild record"
+          "episode_object": "a stamped waybill",
+          "time_place_scope": "a stage station",
+          "mechanism": "passenger-and-mail economics",
+          "evidence_lens": "postal record"
         }
       ]
     },
@@ -510,16 +856,16 @@
       "subject": "manorial reeve",
       "tuples": [
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "institutional hierarchy",
-          "evidence_lens": "court account"
+          "episode_object": "a tally stick",
+          "time_place_scope": "a manor court",
+          "mechanism": "rent accounting",
+          "evidence_lens": "court roll"
         },
         {
-          "episode_object": "a rank insignia",
-          "time_place_scope": "ordinary duty",
-          "mechanism": "material incentives",
-          "evidence_lens": "court account"
+          "episode_object": "a harvest labor roster",
+          "time_place_scope": "the manorial harvest season",
+          "mechanism": "labor-obligation enforcement",
+          "evidence_lens": "manorial accounts"
         }
       ]
     },
@@ -527,16 +873,16 @@
       "subject": "temple priest",
       "tuples": [
         {
-          "episode_object": "an entry oath",
-          "time_place_scope": "advancement",
-          "mechanism": "social status",
-          "evidence_lens": "historical reconstruction"
+          "episode_object": "an offering table",
+          "time_place_scope": "a dawn temple ritual",
+          "mechanism": "scheduled ritual service",
+          "evidence_lens": "temple inscription"
         },
         {
-          "episode_object": "a rank insignia",
-          "time_place_scope": "advancement",
-          "mechanism": "institutional hierarchy",
-          "evidence_lens": "historical reconstruction"
+          "episode_object": "a divination tablet",
+          "time_place_scope": "a festival preparation chamber",
+          "mechanism": "institutional religious authority",
+          "evidence_lens": "archive tablet"
         }
       ]
     },
@@ -544,16 +890,16 @@
       "subject": "professional mourner",
       "tuples": [
         {
-          "episode_object": "a mourning cloth",
-          "time_place_scope": "after a funeral",
-          "mechanism": "social status",
-          "evidence_lens": "historical reconstruction"
+          "episode_object": "a mourning garment",
+          "time_place_scope": "a funeral procession",
+          "mechanism": "ritual performance of grief",
+          "evidence_lens": "funerary inscription"
         },
         {
-          "episode_object": "a wage or ration",
-          "time_place_scope": "after a funeral",
-          "mechanism": "institutional hierarchy",
-          "evidence_lens": "court account"
+          "episode_object": "a payment token",
+          "time_place_scope": "a household after a funeral",
+          "mechanism": "paid lamentation labor",
+          "evidence_lens": "account text"
         }
       ]
     }

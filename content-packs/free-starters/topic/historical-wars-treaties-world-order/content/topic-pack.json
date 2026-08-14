@@ -36,38 +36,210 @@
     "NATO enlargement"
   ],
   "episode_objects": [
-    "a treaty text",
-    "an alliance map",
+    "an alliance tribute list",
+    "a grain convoy manifest",
+    "an indemnity clause",
+    "a fleet replacement roster",
+    "a crusading vow charter",
+    "a port supply contract",
+    "a billeting order",
+    "a confessional treaty clause",
+    "a colonial alliance map",
     "a supply route",
-    "a diplomatic telegram",
-    "a ceasefire line",
-    "a civilian evacuation"
+    "a conscription register",
+    "a blockade customs ledger",
+    "a territorial protocol map",
+    "a diplomatic rank list",
+    "a field-hospital ledger",
+    "a telegraph dispatch",
+    "a railway mobilization timetable",
+    "a capitulation document",
+    "a trench ration ledger",
+    "a blockade shipping list",
+    "a reparations schedule",
+    "a mandate map",
+    "a civilian ration book",
+    "a rail logistics table",
+    "a conference protocol",
+    "an occupation-zone map",
+    "an armistice line map",
+    "a prisoner-exchange roster",
+    "a canal company share certificate",
+    "a United Nations ceasefire resolution",
+    "a reconnaissance photograph",
+    "a naval quarantine chart",
+    "a village pacification report",
+    "a draft lottery list",
+    "an airfield sortie board",
+    "a ceasefire boundary map",
+    "a convoy manifest",
+    "a resistance supply cache",
+    "an air-tasking order",
+    "an oil-sanctions ledger",
+    "a border-crossing permit",
+    "a party congress transcript",
+    "a territorial partition map",
+    "a power-sharing clause",
+    "a consent provision",
+    "a referendum ballot",
+    "an authorization resolution",
+    "a detention-policy memorandum",
+    "an accession protocol",
+    "a membership action plan"
   ],
   "time_place_scopes": [
-    "a prewar crisis",
-    "a wartime coalition",
-    "a peace conference",
-    "an occupied territory",
-    "a deterrence standoff",
-    "a postwar settlement"
+    "the Delian League before open war",
+    "the wartime Aegean",
+    "the western Mediterranean after defeat",
+    "a Mediterranean naval campaign",
+    "a Levantine campaign",
+    "a crusader-held coastal city",
+    "a German principality under occupation",
+    "the Westphalian negotiations",
+    "the global wartime coalition",
+    "a global wartime theater",
+    "continental Europe under mass mobilization",
+    "the Continental System",
+    "Vienna in 1814 and 1815",
+    "the congress negotiating rooms",
+    "the siege of Sevastopol",
+    "the Crimean campaign",
+    "the 1870 border mobilization",
+    "the siege of Paris",
+    "the Western Front",
+    "the wartime North Sea",
+    "Paris in 1919",
+    "the postwar imperial settlement",
+    "a wartime home front",
+    "a continental war economy",
+    "Crimea during the wartime conference of February 1945",
+    "the final months of the Second World War",
+    "the Panmunjom talks",
+    "the late-war negotiations",
+    "the 1956 canal nationalization",
+    "the international crisis of 1956",
+    "October 1962",
+    "the Caribbean confrontation",
+    "South Vietnam during counterinsurgency",
+    "the United States home front",
+    "June 1967",
+    "the immediate postwar occupation",
+    "a mountain supply corridor",
+    "a rural Afghan province",
+    "the 1991 coalition campaign",
+    "the prewar embargo",
+    "Central Europe in 1989",
+    "the late Soviet reform era",
+    "the 1995 Ohio negotiations",
+    "postwar Bosnia",
+    "the Belfast talks",
+    "Ireland in May 1998",
+    "the post-2001 coalition",
+    "the early counterterrorism campaign",
+    "post-Cold War Europe",
+    "an applicant state before accession"
   ],
   "mechanisms": [
-    "alliance commitment",
-    "deterrence failure",
-    "war aims",
-    "military logistics",
-    "home-front capacity",
-    "peace settlement",
-    "occupation and resistance",
-    "balance-of-power shift"
+    "resource extraction from allies",
+    "maritime supply pressure",
+    "war-finance extraction",
+    "naval replacement capacity",
+    "religious mobilization",
+    "maritime provisioning",
+    "army support by contribution",
+    "confessional compromise",
+    "imperial alliance coordination",
+    "imperial military logistics",
+    "state-directed manpower mobilization",
+    "economic warfare",
+    "territorial bargaining",
+    "great-power procedure",
+    "medical supply reform",
+    "accelerated war reporting",
+    "rail concentration of armies",
+    "political collapse after military defeat",
+    "industrial attrition",
+    "economic strangulation",
+    "enforcement bargaining",
+    "territorial redistribution",
+    "civilian resource mobilization",
+    "industrial transport coordination",
+    "postwar sphere bargaining",
+    "allied settlement planning",
+    "limited-war bargaining",
+    "repatriation bargaining",
+    "nationalization and intervention",
+    "multilateral pressure",
+    "coercive signaling",
+    "graduated escalation control",
+    "population-control strategy",
+    "unequal manpower mobilization",
+    "preemptive air campaigning",
+    "territorial leverage",
+    "occupation logistics",
+    "external support to insurgency",
+    "air-land coordination",
+    "economic coercion",
+    "regime-legitimacy collapse",
+    "elite institutional fragmentation",
+    "coercive mediation",
+    "institutional peace design",
+    "cross-community power sharing",
+    "popular ratification",
+    "open-ended military mandate",
+    "executive legal expansion",
+    "security-guarantee extension",
+    "institutional conditionality"
   ],
   "evidence_lenses": [
-    "diplomatic archive",
-    "military logistics record",
+    "inscriptional evidence",
+    "ancient historical account",
+    "treaty tradition",
+    "Polybian account",
+    "chronicle comparison",
+    "merchant archive",
+    "municipal archive",
     "treaty text",
-    "civilian testimony",
-    "demographic record",
-    "historical debate"
+    "diplomatic archive",
+    "quartermaster record",
+    "military archive",
+    "customs records",
+    "conference protocol",
+    "delegate correspondence",
+    "hospital records",
+    "press archive",
+    "general-staff records",
+    "official correspondence",
+    "quartermaster archive",
+    "naval records",
+    "treaty annex",
+    "League of Nations archive",
+    "social-history archive",
+    "military logistics record",
+    "diplomatic minutes",
+    "conference map archive",
+    "armistice record",
+    "Red Cross archive",
+    "company and state archive",
+    "United Nations record",
+    "declassified intelligence archive",
+    "naval operations record",
+    "government archive",
+    "public administrative record",
+    "military record",
+    "United Nations archive",
+    "material and oral history",
+    "coalition report",
+    "oral-history archive",
+    "political archive",
+    "agreement annex",
+    "constitutional text",
+    "agreement text",
+    "electoral record",
+    "legislative record",
+    "declassified legal archive",
+    "parliamentary record",
+    "alliance archive"
   ],
   "exclusions": [
     "Do not write battlefield spectacle in place of causation.",
@@ -94,50 +266,222 @@
       "id": "episode-object",
       "label": "Episode object",
       "values": [
-        "a treaty text",
-        "an alliance map",
+        "an alliance tribute list",
+        "a grain convoy manifest",
+        "an indemnity clause",
+        "a fleet replacement roster",
+        "a crusading vow charter",
+        "a port supply contract",
+        "a billeting order",
+        "a confessional treaty clause",
+        "a colonial alliance map",
         "a supply route",
-        "a diplomatic telegram",
-        "a ceasefire line",
-        "a civilian evacuation"
+        "a conscription register",
+        "a blockade customs ledger",
+        "a territorial protocol map",
+        "a diplomatic rank list",
+        "a field-hospital ledger",
+        "a telegraph dispatch",
+        "a railway mobilization timetable",
+        "a capitulation document",
+        "a trench ration ledger",
+        "a blockade shipping list",
+        "a reparations schedule",
+        "a mandate map",
+        "a civilian ration book",
+        "a rail logistics table",
+        "a conference protocol",
+        "an occupation-zone map",
+        "an armistice line map",
+        "a prisoner-exchange roster",
+        "a canal company share certificate",
+        "a United Nations ceasefire resolution",
+        "a reconnaissance photograph",
+        "a naval quarantine chart",
+        "a village pacification report",
+        "a draft lottery list",
+        "an airfield sortie board",
+        "a ceasefire boundary map",
+        "a convoy manifest",
+        "a resistance supply cache",
+        "an air-tasking order",
+        "an oil-sanctions ledger",
+        "a border-crossing permit",
+        "a party congress transcript",
+        "a territorial partition map",
+        "a power-sharing clause",
+        "a consent provision",
+        "a referendum ballot",
+        "an authorization resolution",
+        "a detention-policy memorandum",
+        "an accession protocol",
+        "a membership action plan"
       ]
     },
     {
       "id": "time-place-scope",
       "label": "Historical scope",
       "values": [
-        "a prewar crisis",
-        "a wartime coalition",
-        "a peace conference",
-        "an occupied territory",
-        "a deterrence standoff",
-        "a postwar settlement"
+        "the Delian League before open war",
+        "the wartime Aegean",
+        "the western Mediterranean after defeat",
+        "a Mediterranean naval campaign",
+        "a Levantine campaign",
+        "a crusader-held coastal city",
+        "a German principality under occupation",
+        "the Westphalian negotiations",
+        "the global wartime coalition",
+        "a global wartime theater",
+        "continental Europe under mass mobilization",
+        "the Continental System",
+        "Vienna in 1814 and 1815",
+        "the congress negotiating rooms",
+        "the siege of Sevastopol",
+        "the Crimean campaign",
+        "the 1870 border mobilization",
+        "the siege of Paris",
+        "the Western Front",
+        "the wartime North Sea",
+        "Paris in 1919",
+        "the postwar imperial settlement",
+        "a wartime home front",
+        "a continental war economy",
+        "Crimea during the wartime conference of February 1945",
+        "the final months of the Second World War",
+        "the Panmunjom talks",
+        "the late-war negotiations",
+        "the 1956 canal nationalization",
+        "the international crisis of 1956",
+        "October 1962",
+        "the Caribbean confrontation",
+        "South Vietnam during counterinsurgency",
+        "the United States home front",
+        "June 1967",
+        "the immediate postwar occupation",
+        "a mountain supply corridor",
+        "a rural Afghan province",
+        "the 1991 coalition campaign",
+        "the prewar embargo",
+        "Central Europe in 1989",
+        "the late Soviet reform era",
+        "the 1995 Ohio negotiations",
+        "postwar Bosnia",
+        "the Belfast talks",
+        "Ireland in May 1998",
+        "the post-2001 coalition",
+        "the early counterterrorism campaign",
+        "post-Cold War Europe",
+        "an applicant state before accession"
       ]
     },
     {
       "id": "mechanism",
       "label": "War and diplomacy mechanism",
       "values": [
-        "alliance commitment",
-        "deterrence failure",
-        "war aims",
-        "military logistics",
-        "home-front capacity",
-        "peace settlement",
-        "occupation and resistance",
-        "balance-of-power shift"
+        "resource extraction from allies",
+        "maritime supply pressure",
+        "war-finance extraction",
+        "naval replacement capacity",
+        "religious mobilization",
+        "maritime provisioning",
+        "army support by contribution",
+        "confessional compromise",
+        "imperial alliance coordination",
+        "imperial military logistics",
+        "state-directed manpower mobilization",
+        "economic warfare",
+        "territorial bargaining",
+        "great-power procedure",
+        "medical supply reform",
+        "accelerated war reporting",
+        "rail concentration of armies",
+        "political collapse after military defeat",
+        "industrial attrition",
+        "economic strangulation",
+        "enforcement bargaining",
+        "territorial redistribution",
+        "civilian resource mobilization",
+        "industrial transport coordination",
+        "postwar sphere bargaining",
+        "allied settlement planning",
+        "limited-war bargaining",
+        "repatriation bargaining",
+        "nationalization and intervention",
+        "multilateral pressure",
+        "coercive signaling",
+        "graduated escalation control",
+        "population-control strategy",
+        "unequal manpower mobilization",
+        "preemptive air campaigning",
+        "territorial leverage",
+        "occupation logistics",
+        "external support to insurgency",
+        "air-land coordination",
+        "economic coercion",
+        "regime-legitimacy collapse",
+        "elite institutional fragmentation",
+        "coercive mediation",
+        "institutional peace design",
+        "cross-community power sharing",
+        "popular ratification",
+        "open-ended military mandate",
+        "executive legal expansion",
+        "security-guarantee extension",
+        "institutional conditionality"
       ]
     },
     {
       "id": "evidence-lens",
       "label": "Evidence lens",
       "values": [
-        "diplomatic archive",
-        "military logistics record",
+        "inscriptional evidence",
+        "ancient historical account",
+        "treaty tradition",
+        "Polybian account",
+        "chronicle comparison",
+        "merchant archive",
+        "municipal archive",
         "treaty text",
-        "civilian testimony",
-        "demographic record",
-        "historical debate"
+        "diplomatic archive",
+        "quartermaster record",
+        "military archive",
+        "customs records",
+        "conference protocol",
+        "delegate correspondence",
+        "hospital records",
+        "press archive",
+        "general-staff records",
+        "official correspondence",
+        "quartermaster archive",
+        "naval records",
+        "treaty annex",
+        "League of Nations archive",
+        "social-history archive",
+        "military logistics record",
+        "diplomatic minutes",
+        "conference map archive",
+        "armistice record",
+        "Red Cross archive",
+        "company and state archive",
+        "United Nations record",
+        "declassified intelligence archive",
+        "naval operations record",
+        "government archive",
+        "public administrative record",
+        "military record",
+        "United Nations archive",
+        "material and oral history",
+        "coalition report",
+        "oral-history archive",
+        "political archive",
+        "agreement annex",
+        "constitutional text",
+        "agreement text",
+        "electoral record",
+        "legislative record",
+        "declassified legal archive",
+        "parliamentary record",
+        "alliance archive"
       ]
     }
   ],
@@ -157,16 +501,16 @@
       "subject": "the Peloponnesian War",
       "tuples": [
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a prewar crisis",
-          "mechanism": "alliance commitment",
-          "evidence_lens": "historical debate"
+          "episode_object": "an alliance tribute list",
+          "time_place_scope": "the Delian League before open war",
+          "mechanism": "resource extraction from allies",
+          "evidence_lens": "inscriptional evidence"
         },
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "a prewar crisis",
-          "mechanism": "military logistics",
-          "evidence_lens": "historical debate"
+          "episode_object": "a grain convoy manifest",
+          "time_place_scope": "the wartime Aegean",
+          "mechanism": "maritime supply pressure",
+          "evidence_lens": "ancient historical account"
         }
       ]
     },
@@ -174,16 +518,16 @@
       "subject": "the Punic Wars",
       "tuples": [
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "military logistics",
-          "evidence_lens": "military logistics record"
+          "episode_object": "an indemnity clause",
+          "time_place_scope": "the western Mediterranean after defeat",
+          "mechanism": "war-finance extraction",
+          "evidence_lens": "treaty tradition"
         },
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "alliance commitment",
-          "evidence_lens": "military logistics record"
+          "episode_object": "a fleet replacement roster",
+          "time_place_scope": "a Mediterranean naval campaign",
+          "mechanism": "naval replacement capacity",
+          "evidence_lens": "Polybian account"
         }
       ]
     },
@@ -191,16 +535,16 @@
       "subject": "the Crusades",
       "tuples": [
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "war aims",
-          "evidence_lens": "military logistics record"
+          "episode_object": "a crusading vow charter",
+          "time_place_scope": "a Levantine campaign",
+          "mechanism": "religious mobilization",
+          "evidence_lens": "chronicle comparison"
         },
         {
-          "episode_object": "a civilian evacuation",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "occupation and resistance",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a port supply contract",
+          "time_place_scope": "a crusader-held coastal city",
+          "mechanism": "maritime provisioning",
+          "evidence_lens": "merchant archive"
         }
       ]
     },
@@ -208,16 +552,16 @@
       "subject": "the Thirty Years' War",
       "tuples": [
         {
-          "episode_object": "a civilian evacuation",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "home-front capacity",
-          "evidence_lens": "civilian testimony"
+          "episode_object": "a billeting order",
+          "time_place_scope": "a German principality under occupation",
+          "mechanism": "army support by contribution",
+          "evidence_lens": "municipal archive"
         },
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "military logistics",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a confessional treaty clause",
+          "time_place_scope": "the Westphalian negotiations",
+          "mechanism": "confessional compromise",
+          "evidence_lens": "treaty text"
         }
       ]
     },
@@ -225,16 +569,16 @@
       "subject": "the Seven Years' War",
       "tuples": [
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "balance-of-power shift",
+          "episode_object": "a colonial alliance map",
+          "time_place_scope": "the global wartime coalition",
+          "mechanism": "imperial alliance coordination",
           "evidence_lens": "diplomatic archive"
         },
         {
-          "episode_object": "a diplomatic telegram",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "alliance commitment",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a supply route",
+          "time_place_scope": "a global wartime theater",
+          "mechanism": "imperial military logistics",
+          "evidence_lens": "quartermaster record"
         }
       ]
     },
@@ -242,16 +586,16 @@
       "subject": "the Napoleonic Wars",
       "tuples": [
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a conscription register",
+          "time_place_scope": "continental Europe under mass mobilization",
+          "mechanism": "state-directed manpower mobilization",
+          "evidence_lens": "military archive"
         },
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "military logistics",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a blockade customs ledger",
+          "time_place_scope": "the Continental System",
+          "mechanism": "economic warfare",
+          "evidence_lens": "customs records"
         }
       ]
     },
@@ -259,16 +603,16 @@
       "subject": "the Congress of Vienna",
       "tuples": [
         {
-          "episode_object": "a treaty text",
-          "time_place_scope": "a peace conference",
-          "mechanism": "peace settlement",
-          "evidence_lens": "treaty text"
+          "episode_object": "a territorial protocol map",
+          "time_place_scope": "Vienna in 1814 and 1815",
+          "mechanism": "territorial bargaining",
+          "evidence_lens": "conference protocol"
         },
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a peace conference",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a diplomatic rank list",
+          "time_place_scope": "the congress negotiating rooms",
+          "mechanism": "great-power procedure",
+          "evidence_lens": "delegate correspondence"
         }
       ]
     },
@@ -276,16 +620,16 @@
       "subject": "the Crimean War",
       "tuples": [
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a prewar crisis",
-          "mechanism": "alliance commitment",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a field-hospital ledger",
+          "time_place_scope": "the siege of Sevastopol",
+          "mechanism": "medical supply reform",
+          "evidence_lens": "hospital records"
         },
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "a prewar crisis",
-          "mechanism": "military logistics",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a telegraph dispatch",
+          "time_place_scope": "the Crimean campaign",
+          "mechanism": "accelerated war reporting",
+          "evidence_lens": "press archive"
         }
       ]
     },
@@ -293,16 +637,16 @@
       "subject": "the Franco-Prussian War",
       "tuples": [
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "a prewar crisis",
-          "mechanism": "military logistics",
-          "evidence_lens": "military logistics record"
+          "episode_object": "a railway mobilization timetable",
+          "time_place_scope": "the 1870 border mobilization",
+          "mechanism": "rail concentration of armies",
+          "evidence_lens": "general-staff records"
         },
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a prewar crisis",
-          "mechanism": "alliance commitment",
-          "evidence_lens": "military logistics record"
+          "episode_object": "a capitulation document",
+          "time_place_scope": "the siege of Paris",
+          "mechanism": "political collapse after military defeat",
+          "evidence_lens": "official correspondence"
         }
       ]
     },
@@ -310,16 +654,16 @@
       "subject": "the First World War",
       "tuples": [
         {
-          "episode_object": "a civilian evacuation",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "home-front capacity",
-          "evidence_lens": "demographic record"
+          "episode_object": "a trench ration ledger",
+          "time_place_scope": "the Western Front",
+          "mechanism": "industrial attrition",
+          "evidence_lens": "quartermaster archive"
         },
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "alliance commitment",
-          "evidence_lens": "demographic record"
+          "episode_object": "a blockade shipping list",
+          "time_place_scope": "the wartime North Sea",
+          "mechanism": "economic strangulation",
+          "evidence_lens": "naval records"
         }
       ]
     },
@@ -327,16 +671,16 @@
       "subject": "the Treaty of Versailles",
       "tuples": [
         {
-          "episode_object": "a treaty text",
-          "time_place_scope": "a peace conference",
-          "mechanism": "peace settlement",
-          "evidence_lens": "treaty text"
+          "episode_object": "a reparations schedule",
+          "time_place_scope": "Paris in 1919",
+          "mechanism": "enforcement bargaining",
+          "evidence_lens": "treaty annex"
         },
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a peace conference",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "military logistics record"
+          "episode_object": "a mandate map",
+          "time_place_scope": "the postwar imperial settlement",
+          "mechanism": "territorial redistribution",
+          "evidence_lens": "League of Nations archive"
         }
       ]
     },
@@ -344,15 +688,15 @@
       "subject": "the Second World War",
       "tuples": [
         {
-          "episode_object": "a civilian evacuation",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "occupation and resistance",
-          "evidence_lens": "civilian testimony"
+          "episode_object": "a civilian ration book",
+          "time_place_scope": "a wartime home front",
+          "mechanism": "civilian resource mobilization",
+          "evidence_lens": "social-history archive"
         },
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "military logistics",
+          "episode_object": "a rail logistics table",
+          "time_place_scope": "a continental war economy",
+          "mechanism": "industrial transport coordination",
           "evidence_lens": "military logistics record"
         }
       ]
@@ -361,16 +705,16 @@
       "subject": "the Yalta Conference",
       "tuples": [
         {
-          "episode_object": "a diplomatic telegram",
-          "time_place_scope": "a postwar settlement",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a conference protocol",
+          "time_place_scope": "Crimea during the wartime conference of February 1945",
+          "mechanism": "postwar sphere bargaining",
+          "evidence_lens": "diplomatic minutes"
         },
         {
-          "episode_object": "a treaty text",
-          "time_place_scope": "a postwar settlement",
-          "mechanism": "peace settlement",
-          "evidence_lens": "treaty text"
+          "episode_object": "an occupation-zone map",
+          "time_place_scope": "the final months of the Second World War",
+          "mechanism": "allied settlement planning",
+          "evidence_lens": "conference map archive"
         }
       ]
     },
@@ -378,16 +722,16 @@
       "subject": "the Korean War",
       "tuples": [
         {
-          "episode_object": "a ceasefire line",
-          "time_place_scope": "a deterrence standoff",
-          "mechanism": "deterrence failure",
-          "evidence_lens": "historical debate"
+          "episode_object": "an armistice line map",
+          "time_place_scope": "the Panmunjom talks",
+          "mechanism": "limited-war bargaining",
+          "evidence_lens": "armistice record"
         },
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "a deterrence standoff",
-          "mechanism": "military logistics",
-          "evidence_lens": "historical debate"
+          "episode_object": "a prisoner-exchange roster",
+          "time_place_scope": "the late-war negotiations",
+          "mechanism": "repatriation bargaining",
+          "evidence_lens": "Red Cross archive"
         }
       ]
     },
@@ -395,16 +739,16 @@
       "subject": "the Suez Crisis",
       "tuples": [
         {
-          "episode_object": "a diplomatic telegram",
-          "time_place_scope": "a deterrence standoff",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a canal company share certificate",
+          "time_place_scope": "the 1956 canal nationalization",
+          "mechanism": "nationalization and intervention",
+          "evidence_lens": "company and state archive"
         },
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a deterrence standoff",
-          "mechanism": "alliance commitment",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "a United Nations ceasefire resolution",
+          "time_place_scope": "the international crisis of 1956",
+          "mechanism": "multilateral pressure",
+          "evidence_lens": "United Nations record"
         }
       ]
     },
@@ -412,16 +756,16 @@
       "subject": "the Cuban Missile Crisis",
       "tuples": [
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a deterrence standoff",
-          "mechanism": "deterrence failure",
-          "evidence_lens": "historical debate"
+          "episode_object": "a reconnaissance photograph",
+          "time_place_scope": "October 1962",
+          "mechanism": "coercive signaling",
+          "evidence_lens": "declassified intelligence archive"
         },
         {
-          "episode_object": "a diplomatic telegram",
-          "time_place_scope": "a deterrence standoff",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "military logistics record"
+          "episode_object": "a naval quarantine chart",
+          "time_place_scope": "the Caribbean confrontation",
+          "mechanism": "graduated escalation control",
+          "evidence_lens": "naval operations record"
         }
       ]
     },
@@ -429,16 +773,16 @@
       "subject": "the Vietnam War",
       "tuples": [
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "occupation and resistance",
-          "evidence_lens": "civilian testimony"
+          "episode_object": "a village pacification report",
+          "time_place_scope": "South Vietnam during counterinsurgency",
+          "mechanism": "population-control strategy",
+          "evidence_lens": "government archive"
         },
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "alliance commitment",
-          "evidence_lens": "civilian testimony"
+          "episode_object": "a draft lottery list",
+          "time_place_scope": "the United States home front",
+          "mechanism": "unequal manpower mobilization",
+          "evidence_lens": "public administrative record"
         }
       ]
     },
@@ -446,16 +790,16 @@
       "subject": "the Six-Day War",
       "tuples": [
         {
-          "episode_object": "a ceasefire line",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "war aims",
-          "evidence_lens": "military logistics record"
+          "episode_object": "an airfield sortie board",
+          "time_place_scope": "June 1967",
+          "mechanism": "preemptive air campaigning",
+          "evidence_lens": "military record"
         },
         {
-          "episode_object": "a civilian evacuation",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "occupation and resistance",
-          "evidence_lens": "military logistics record"
+          "episode_object": "a ceasefire boundary map",
+          "time_place_scope": "the immediate postwar occupation",
+          "mechanism": "territorial leverage",
+          "evidence_lens": "United Nations archive"
         }
       ]
     },
@@ -463,16 +807,16 @@
       "subject": "the Soviet-Afghan War",
       "tuples": [
         {
-          "episode_object": "a civilian evacuation",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "occupation and resistance",
-          "evidence_lens": "civilian testimony"
+          "episode_object": "a convoy manifest",
+          "time_place_scope": "a mountain supply corridor",
+          "mechanism": "occupation logistics",
+          "evidence_lens": "military archive"
         },
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "military logistics",
-          "evidence_lens": "treaty text"
+          "episode_object": "a resistance supply cache",
+          "time_place_scope": "a rural Afghan province",
+          "mechanism": "external support to insurgency",
+          "evidence_lens": "material and oral history"
         }
       ]
     },
@@ -480,16 +824,16 @@
       "subject": "the Gulf War",
       "tuples": [
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "military logistics",
-          "evidence_lens": "military logistics record"
+          "episode_object": "an air-tasking order",
+          "time_place_scope": "the 1991 coalition campaign",
+          "mechanism": "air-land coordination",
+          "evidence_lens": "coalition report"
         },
         {
-          "episode_object": "a ceasefire line",
-          "time_place_scope": "a wartime coalition",
-          "mechanism": "occupation and resistance",
-          "evidence_lens": "military logistics record"
+          "episode_object": "an oil-sanctions ledger",
+          "time_place_scope": "the prewar embargo",
+          "mechanism": "economic coercion",
+          "evidence_lens": "United Nations record"
         }
       ]
     },
@@ -497,16 +841,16 @@
       "subject": "the breakup of the Cold War order",
       "tuples": [
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a postwar settlement",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "historical debate"
+          "episode_object": "a border-crossing permit",
+          "time_place_scope": "Central Europe in 1989",
+          "mechanism": "regime-legitimacy collapse",
+          "evidence_lens": "oral-history archive"
         },
         {
-          "episode_object": "a diplomatic telegram",
-          "time_place_scope": "a postwar settlement",
-          "mechanism": "deterrence failure",
-          "evidence_lens": "historical debate"
+          "episode_object": "a party congress transcript",
+          "time_place_scope": "the late Soviet reform era",
+          "mechanism": "elite institutional fragmentation",
+          "evidence_lens": "political archive"
         }
       ]
     },
@@ -514,16 +858,16 @@
       "subject": "the Dayton Agreement",
       "tuples": [
         {
-          "episode_object": "a treaty text",
-          "time_place_scope": "a peace conference",
-          "mechanism": "peace settlement",
-          "evidence_lens": "treaty text"
+          "episode_object": "a territorial partition map",
+          "time_place_scope": "the 1995 Ohio negotiations",
+          "mechanism": "coercive mediation",
+          "evidence_lens": "agreement annex"
         },
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a peace conference",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "treaty text"
+          "episode_object": "a power-sharing clause",
+          "time_place_scope": "postwar Bosnia",
+          "mechanism": "institutional peace design",
+          "evidence_lens": "constitutional text"
         }
       ]
     },
@@ -531,16 +875,16 @@
       "subject": "the Good Friday Agreement",
       "tuples": [
         {
-          "episode_object": "a treaty text",
-          "time_place_scope": "a peace conference",
-          "mechanism": "peace settlement",
-          "evidence_lens": "treaty text"
+          "episode_object": "a consent provision",
+          "time_place_scope": "the Belfast talks",
+          "mechanism": "cross-community power sharing",
+          "evidence_lens": "agreement text"
         },
         {
-          "episode_object": "a diplomatic telegram",
-          "time_place_scope": "a peace conference",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "treaty text"
+          "episode_object": "a referendum ballot",
+          "time_place_scope": "Ireland in May 1998",
+          "mechanism": "popular ratification",
+          "evidence_lens": "electoral record"
         }
       ]
     },
@@ -548,16 +892,16 @@
       "subject": "the War on Terror",
       "tuples": [
         {
-          "episode_object": "a civilian evacuation",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "occupation and resistance",
-          "evidence_lens": "civilian testimony"
+          "episode_object": "an authorization resolution",
+          "time_place_scope": "the post-2001 coalition",
+          "mechanism": "open-ended military mandate",
+          "evidence_lens": "legislative record"
         },
         {
-          "episode_object": "a supply route",
-          "time_place_scope": "an occupied territory",
-          "mechanism": "military logistics",
-          "evidence_lens": "civilian testimony"
+          "episode_object": "a detention-policy memorandum",
+          "time_place_scope": "the early counterterrorism campaign",
+          "mechanism": "executive legal expansion",
+          "evidence_lens": "declassified legal archive"
         }
       ]
     },
@@ -565,16 +909,16 @@
       "subject": "NATO enlargement",
       "tuples": [
         {
-          "episode_object": "an alliance map",
-          "time_place_scope": "a postwar settlement",
-          "mechanism": "alliance commitment",
-          "evidence_lens": "diplomatic archive"
+          "episode_object": "an accession protocol",
+          "time_place_scope": "post-Cold War Europe",
+          "mechanism": "security-guarantee extension",
+          "evidence_lens": "parliamentary record"
         },
         {
-          "episode_object": "a diplomatic telegram",
-          "time_place_scope": "a deterrence standoff",
-          "mechanism": "balance-of-power shift",
-          "evidence_lens": "historical debate"
+          "episode_object": "a membership action plan",
+          "time_place_scope": "an applicant state before accession",
+          "mechanism": "institutional conditionality",
+          "evidence_lens": "alliance archive"
         }
       ]
     }

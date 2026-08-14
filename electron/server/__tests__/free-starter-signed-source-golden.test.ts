@@ -319,7 +319,7 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
     assert.equal(topic.coverage_groups, undefined, `${topicSlug} must not use cross-subject coverage groups`)
     assert.equal(topic.coverage_profiles?.length, topic.subjects.length, `${topicSlug} requires one authored profile per subject`)
     const profilesBySubject = new Map(topic.coverage_profiles!.map(profile => [profile.subject, profile]))
-    const placeholder = /\b(?:a|an) (?:field|survival|geological|operating|case|historical|work) record (?:of|for|on)\b|\b(?:a )?second (?:ecological|survival|Earth|operating|social|historical|working|attention|practical|gentle) (?:pressure|strategy|process|constraint|condition|practice|rhythm) (?:on|for|affecting|in|shaping)\b/i
+    const placeholder = /\b(?:generic|placeholder|topic-specific|subject-specific)\b|\b(?:a|an) (?:field|survival|geological|operating|case|historical|work) record (?:of|for|on)\b|\b(?:a )?second (?:ecological|survival|Earth|operating|social|historical|working|attention|practical|gentle) (?:pressure|strategy|process|constraint|condition|practice|rhythm) (?:on|for|affecting|in|shaping)\b/i
     for (const value of [
       ...topic.episode_objects, ...topic.mechanisms,
       ...topic.coverage_profiles!.flatMap(profile => profile.tuples.flatMap(tuple => [tuple.episode_object, tuple.mechanism])),
@@ -368,10 +368,10 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
   assert.equal(samples.get('deep-time-earth-systems')?.['the birth of the Moon']?.['time-place-scope'], 'a Hadean impact landscape')
   assert.equal(samples.get('deep-time-earth-systems')?.['the birth of the Moon']?.mechanism, 'giant impact')
   assert.equal(samples.get('deep-time-earth-systems')?.["Earth's magnetic field"]?.mechanism, 'core dynamo')
-  assert.equal(samples.get('deep-time-earth-systems')?.['the opening of the Atlantic']?.['time-place-scope'], 'a rifting seaway')
-  assert.equal(samples.get('deep-time-earth-systems')?.['the opening of the Atlantic']?.mechanism, 'rift spreading')
-  assert.equal(samples.get('historical-wars-treaties-world-order')?.['the Yalta Conference']?.['time-place-scope'], 'a postwar settlement')
-  assert.equal(samples.get('historical-wars-treaties-world-order')?.['the Napoleonic Wars']?.['episode-object'], 'an alliance map')
+  assert.equal(samples.get('deep-time-earth-systems')?.['the opening of the Atlantic']?.['time-place-scope'], 'the Triassic Newark basin')
+  assert.equal(samples.get('deep-time-earth-systems')?.['the opening of the Atlantic']?.mechanism, 'continental extension')
+  assert.equal(samples.get('historical-wars-treaties-world-order')?.['the Yalta Conference']?.['time-place-scope'], 'Crimea during the wartime conference of February 1945')
+  assert.equal(samples.get('historical-wars-treaties-world-order')?.['the Napoleonic Wars']?.['episode-object'], 'a conscription register')
   assert.equal(samples.get('everyday-calm')?.['bedtime lamp ritual']?.['episode-object'], 'a desk lamp')
   assert.deepEqual(Object.fromEntries(['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'].map(key => [
     key, samples.get('everyday-calm')?.['rain at the window']?.[key],
@@ -381,12 +381,40 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
   assert.deepEqual(Object.fromEntries(['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'].map(key => [
     key, reservedSamples.get('everyday-calm')?.['rain at the window']?.[key],
   ])), {
-    'episode-object': 'a warm mug', 'time-place-scope': 'the hour before bed', mechanism: 'single-task attention', 'evidence-lens': 'non-medical boundary',
+    'episode-object': 'a raindrop on the pane', 'time-place-scope': 'a rainy afternoon indoors', mechanism: 'sound-pattern noticing', 'evidence-lens': 'sensory specificity',
   })
+  assert.deepEqual(Object.fromEntries(['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'].map(key => [
+    key, reservedSamples.get('deep-time-earth-systems')?.['the opening of the Atlantic']?.[key],
+  ])), {
+    'episode-object': 'a fossil shoreline', 'time-place-scope': 'a rifting seaway', mechanism: 'ocean circulation', 'evidence-lens': 'fossil record',
+  })
+  assert.equal(reservedSamples.get('historical-wars-treaties-world-order')?.["the Seven Years' War"]?.['episode-object'], 'a supply route')
+  assert.equal(reservedSamples.get('natural-world-animals')?.migration?.mechanism, 'fuel replenishment')
+  assert.equal(reservedSamples.get('night-journeys')?.["lantern keeper's evening round"]?.['episode-object'], 'a wick trimmer')
   assert.equal(samples.get('habits-momentum')?.["prepare tomorrow's shoes"]?.['episode-object'], 'a pair of shoes')
   assert.equal(samples.get('night-journeys')?.["bakery's early dough"]?.['episode-object'], 'a loaf of dough')
   assert.equal(samples.get('night-journeys')?.['teashop closing ritual']?.['episode-object'], 'a tea cup')
-  assert.equal(samples.get('pov-historical-occupations')?.['professional mourner']?.['episode-object'], 'a mourning cloth')
+  assert.equal(samples.get('pov-historical-occupations')?.['professional mourner']?.['episode-object'], 'a mourning garment')
+  assert.equal(samples.get('deep-time-earth-systems')?.['the Great Unconformity']?.mechanism, 'continental erosion')
+  assert.equal(samples.get('deep-time-earth-systems')?.['ice-age cycles']?.['time-place-scope'], 'a Pleistocene seafloor')
+  assert.equal(samples.get('deep-time-earth-systems')?.['the first rain']?.mechanism, 'early hydrologic cycling')
+  assert.equal(samples.get('deep-time-earth-systems')?.['the changing Sun']?.mechanism, 'climate compensation under a faint young Sun')
+  assert.equal(samples.get('deep-time-earth-systems')?.supercontinents?.mechanism, 'continental assembly')
+  assert.equal(reservedSamples.get('ancient-humans-survival')?.['finding safe drinking water']?.['episode-object'], 'a seep well dug beside a dry riverbed')
+  assert.equal(reservedSamples.get('ancient-humans-survival')?.['protecting fire']?.mechanism, 'ember insulation')
+  assert.equal(samples.get('pov-historical-occupations')?.['lighthouse keeper']?.['episode-object'], 'a Fresnel lens')
+  assert.equal(samples.get('ancient-humans-survival')?.['crossing dangerous rivers']?.['episode-object'], 'a braided-fiber safety line')
+  assert.equal(samples.get('ancient-humans-survival')?.['coping with parasites']?.mechanism, 'mechanical delousing')
+  assert.equal(samples.get('human-behavior-social-dynamics')?.boundaries?.['evidence-lens'], 'conversation sequence coding')
+  assert.equal(samples.get('human-behavior-social-dynamics')?.manipulation?.['episode-object'], 'contradictory written promises')
+  assert.equal(samples.get('everyday-calm')?.['waiting room chair']?.['time-place-scope'], 'a quiet waiting room')
+  assert.equal(samples.get('everyday-calm')?.['after-screen pause']?.['episode-object'], 'a powered-down screen')
+  assert.equal(samples.get('habits-momentum')?.['repeatable breakfast']?.['episode-object'], 'a prepared breakfast bowl')
+  assert.equal(samples.get('habits-momentum')?.['single-task timer']?.mechanism, 'task-boundary protection')
+  assert.equal(samples.get('night-journeys')?.['quiet ferry crossing']?.['episode-object'], 'a paper ferry ticket')
+  assert.equal(samples.get('night-journeys')?.['orchard basket sorting']?.['episode-object'], 'an orchard basket')
+  assert.equal(samples.get('night-journeys')?.['lighthouse window cleaning']?.['episode-object'], 'a lighthouse window pane')
+  assert.equal(samples.get('night-journeys')?.['observatory blanket folding']?.['time-place-scope'], 'an observatory dome before dawn')
 })
 
 test('tool-generated preview assets have honest reproducible publisher provenance', async () => {

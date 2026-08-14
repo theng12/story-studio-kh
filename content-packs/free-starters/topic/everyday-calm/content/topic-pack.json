@@ -25,37 +25,89 @@
     "rain at the window"
   ],
   "episode_objects": [
-    "a warm mug",
     "a window",
-    "a chair",
+    "a curtain edge",
+    "a warm mug",
+    "a cooling teacup",
     "a pair of shoes",
-    "a folded towel",
+    "a door key",
+    "a chair armrest",
+    "feet resting on the floor",
+    "a chair",
+    "a closed notebook",
     "a desk lamp",
+    "a chair back",
+    "a garden path",
+    "a rustling leaf",
     "a kitchen bowl",
-    "a garden path"
+    "a wooden chopping board",
+    "a folded towel",
+    "a shirt sleeve",
+    "a powered-down screen",
+    "a darkened monitor",
+    "a coat hook",
+    "an herb leaf",
+    "a written intention",
+    "a dimmer switch",
+    "a raindrop on the pane"
   ],
   "time_place_scopes": [
     "early morning",
-    "a workday transition",
+    "a room at sunrise",
+    "the breakfast table",
     "a short commute",
-    "a shared home",
+    "the home threshold",
+    "a quiet waiting room",
+    "a clinic waiting room",
+    "a workday transition",
+    "the minute between meetings",
+    "a desk in mid-afternoon",
     "a quiet outdoor path",
-    "the hour before bed"
+    "a neighborhood path",
+    "a shared home",
+    "an evening kitchen",
+    "a laundry table",
+    "the end of a long screen session",
+    "the end of a screen session",
+    "the home doorway",
+    "a shaded garden",
+    "the minutes before a difficult conversation",
+    "the minutes before a conversation",
+    "the hour before bed",
+    "a bedside at night",
+    "a rainy afternoon indoors"
   ],
   "mechanisms": [
     "sensory anchoring",
-    "breath pacing",
-    "posture noticing",
-    "gentle labeling",
+    "light noticing",
     "single-task attention",
-    "choice-based return"
+    "temperature noticing",
+    "choice-based return",
+    "transition cue",
+    "support-point awareness",
+    "gentle labeling",
+    "completion cue",
+    "posture noticing",
+    "choice-based range of motion",
+    "paced sensory scan",
+    "sound-and-texture attention",
+    "repetitive hand movement",
+    "distance-gaze shifting",
+    "distance refocusing",
+    "deliberate arrival",
+    "scent attention",
+    "breath pacing",
+    "values reminder",
+    "light-lowering cue",
+    "sound-pattern noticing",
+    "contact-point noticing"
   ],
   "evidence_lenses": [
+    "sensory specificity",
     "plain practice instruction",
+    "context fit",
     "listener comfort choice",
     "everyday accessibility",
-    "sensory specificity",
-    "context fit",
     "non-medical boundary"
   ],
   "exclusions": [
@@ -70,14 +122,31 @@
       "id": "episode-object",
       "label": "Episode object",
       "values": [
-        "a warm mug",
         "a window",
-        "a chair",
+        "a curtain edge",
+        "a warm mug",
+        "a cooling teacup",
         "a pair of shoes",
-        "a folded towel",
+        "a door key",
+        "a chair armrest",
+        "feet resting on the floor",
+        "a chair",
+        "a closed notebook",
         "a desk lamp",
+        "a chair back",
+        "a garden path",
+        "a rustling leaf",
         "a kitchen bowl",
-        "a garden path"
+        "a wooden chopping board",
+        "a folded towel",
+        "a shirt sleeve",
+        "a powered-down screen",
+        "a darkened monitor",
+        "a coat hook",
+        "an herb leaf",
+        "a written intention",
+        "a dimmer switch",
+        "a raindrop on the pane"
       ]
     },
     {
@@ -85,11 +154,29 @@
       "label": "Everyday setting",
       "values": [
         "early morning",
-        "a workday transition",
+        "a room at sunrise",
+        "the breakfast table",
         "a short commute",
-        "a shared home",
+        "the home threshold",
+        "a quiet waiting room",
+        "a clinic waiting room",
+        "a workday transition",
+        "the minute between meetings",
+        "a desk in mid-afternoon",
         "a quiet outdoor path",
-        "the hour before bed"
+        "a neighborhood path",
+        "a shared home",
+        "an evening kitchen",
+        "a laundry table",
+        "the end of a long screen session",
+        "the end of a screen session",
+        "the home doorway",
+        "a shaded garden",
+        "the minutes before a difficult conversation",
+        "the minutes before a conversation",
+        "the hour before bed",
+        "a bedside at night",
+        "a rainy afternoon indoors"
       ]
     },
     {
@@ -97,22 +184,39 @@
       "label": "Attention mechanism",
       "values": [
         "sensory anchoring",
-        "breath pacing",
-        "posture noticing",
-        "gentle labeling",
+        "light noticing",
         "single-task attention",
-        "choice-based return"
+        "temperature noticing",
+        "choice-based return",
+        "transition cue",
+        "support-point awareness",
+        "gentle labeling",
+        "completion cue",
+        "posture noticing",
+        "choice-based range of motion",
+        "paced sensory scan",
+        "sound-and-texture attention",
+        "repetitive hand movement",
+        "distance-gaze shifting",
+        "distance refocusing",
+        "deliberate arrival",
+        "scent attention",
+        "breath pacing",
+        "values reminder",
+        "light-lowering cue",
+        "sound-pattern noticing",
+        "contact-point noticing"
       ]
     },
     {
       "id": "evidence-lens",
       "label": "Practice lens",
       "values": [
+        "sensory specificity",
         "plain practice instruction",
+        "context fit",
         "listener comfort choice",
         "everyday accessibility",
-        "sensory specificity",
-        "context fit",
         "non-medical boundary"
       ]
     }
@@ -138,9 +242,9 @@
           "evidence_lens": "sensory specificity"
         },
         {
-          "episode_object": "a warm mug",
-          "time_place_scope": "early morning",
-          "mechanism": "breath pacing",
+          "episode_object": "a curtain edge",
+          "time_place_scope": "a room at sunrise",
+          "mechanism": "light noticing",
           "evidence_lens": "sensory specificity"
         }
       ]
@@ -155,9 +259,9 @@
           "evidence_lens": "plain practice instruction"
         },
         {
-          "episode_object": "a window",
-          "time_place_scope": "early morning",
-          "mechanism": "sensory anchoring",
+          "episode_object": "a cooling teacup",
+          "time_place_scope": "the breakfast table",
+          "mechanism": "temperature noticing",
           "evidence_lens": "plain practice instruction"
         }
       ]
@@ -172,9 +276,9 @@
           "evidence_lens": "context fit"
         },
         {
-          "episode_object": "a chair",
-          "time_place_scope": "a short commute",
-          "mechanism": "posture noticing",
+          "episode_object": "a door key",
+          "time_place_scope": "the home threshold",
+          "mechanism": "transition cue",
           "evidence_lens": "context fit"
         }
       ]
@@ -183,15 +287,15 @@
       "subject": "waiting room chair",
       "tuples": [
         {
-          "episode_object": "a chair",
-          "time_place_scope": "a workday transition",
-          "mechanism": "breath pacing",
+          "episode_object": "a chair armrest",
+          "time_place_scope": "a quiet waiting room",
+          "mechanism": "support-point awareness",
           "evidence_lens": "listener comfort choice"
         },
         {
-          "episode_object": "a window",
-          "time_place_scope": "a workday transition",
-          "mechanism": "sensory anchoring",
+          "episode_object": "feet resting on the floor",
+          "time_place_scope": "a clinic waiting room",
+          "mechanism": "contact-point noticing",
           "evidence_lens": "listener comfort choice"
         }
       ]
@@ -206,9 +310,9 @@
           "evidence_lens": "plain practice instruction"
         },
         {
-          "episode_object": "a desk lamp",
-          "time_place_scope": "a workday transition",
-          "mechanism": "posture noticing",
+          "episode_object": "a closed notebook",
+          "time_place_scope": "the minute between meetings",
+          "mechanism": "completion cue",
           "evidence_lens": "plain practice instruction"
         }
       ]
@@ -223,9 +327,9 @@
           "evidence_lens": "everyday accessibility"
         },
         {
-          "episode_object": "a chair",
-          "time_place_scope": "a workday transition",
-          "mechanism": "breath pacing",
+          "episode_object": "a chair back",
+          "time_place_scope": "a desk in mid-afternoon",
+          "mechanism": "choice-based range of motion",
           "evidence_lens": "everyday accessibility"
         }
       ]
@@ -240,9 +344,9 @@
           "evidence_lens": "sensory specificity"
         },
         {
-          "episode_object": "a pair of shoes",
-          "time_place_scope": "a quiet outdoor path",
-          "mechanism": "single-task attention",
+          "episode_object": "a rustling leaf",
+          "time_place_scope": "a neighborhood path",
+          "mechanism": "paced sensory scan",
           "evidence_lens": "sensory specificity"
         }
       ]
@@ -257,9 +361,9 @@
           "evidence_lens": "context fit"
         },
         {
-          "episode_object": "a warm mug",
-          "time_place_scope": "a shared home",
-          "mechanism": "sensory anchoring",
+          "episode_object": "a wooden chopping board",
+          "time_place_scope": "an evening kitchen",
+          "mechanism": "sound-and-texture attention",
           "evidence_lens": "context fit"
         }
       ]
@@ -274,9 +378,9 @@
           "evidence_lens": "everyday accessibility"
         },
         {
-          "episode_object": "a chair",
-          "time_place_scope": "a shared home",
-          "mechanism": "breath pacing",
+          "episode_object": "a shirt sleeve",
+          "time_place_scope": "a laundry table",
+          "mechanism": "repetitive hand movement",
           "evidence_lens": "everyday accessibility"
         }
       ]
@@ -285,15 +389,15 @@
       "subject": "after-screen pause",
       "tuples": [
         {
-          "episode_object": "a chair",
-          "time_place_scope": "a workday transition",
-          "mechanism": "breath pacing",
+          "episode_object": "a powered-down screen",
+          "time_place_scope": "the end of a long screen session",
+          "mechanism": "distance-gaze shifting",
           "evidence_lens": "listener comfort choice"
         },
         {
-          "episode_object": "a desk lamp",
-          "time_place_scope": "a workday transition",
-          "mechanism": "posture noticing",
+          "episode_object": "a darkened monitor",
+          "time_place_scope": "the end of a screen session",
+          "mechanism": "distance refocusing",
           "evidence_lens": "listener comfort choice"
         }
       ]
@@ -308,9 +412,9 @@
           "evidence_lens": "context fit"
         },
         {
-          "episode_object": "a chair",
-          "time_place_scope": "a short commute",
-          "mechanism": "sensory anchoring",
+          "episode_object": "a coat hook",
+          "time_place_scope": "the home doorway",
+          "mechanism": "deliberate arrival",
           "evidence_lens": "context fit"
         }
       ]
@@ -325,9 +429,9 @@
           "evidence_lens": "sensory specificity"
         },
         {
-          "episode_object": "a window",
-          "time_place_scope": "a quiet outdoor path",
-          "mechanism": "breath pacing",
+          "episode_object": "an herb leaf",
+          "time_place_scope": "a shaded garden",
+          "mechanism": "scent attention",
           "evidence_lens": "sensory specificity"
         }
       ]
@@ -336,15 +440,15 @@
       "subject": "before a difficult conversation",
       "tuples": [
         {
-          "episode_object": "a chair",
-          "time_place_scope": "a shared home",
-          "mechanism": "gentle labeling",
+          "episode_object": "feet resting on the floor",
+          "time_place_scope": "the minutes before a difficult conversation",
+          "mechanism": "breath pacing",
           "evidence_lens": "listener comfort choice"
         },
         {
-          "episode_object": "a warm mug",
-          "time_place_scope": "a shared home",
-          "mechanism": "breath pacing",
+          "episode_object": "a written intention",
+          "time_place_scope": "the minutes before a conversation",
+          "mechanism": "values reminder",
           "evidence_lens": "listener comfort choice"
         }
       ]
@@ -359,9 +463,9 @@
           "evidence_lens": "non-medical boundary"
         },
         {
-          "episode_object": "a chair",
-          "time_place_scope": "the hour before bed",
-          "mechanism": "posture noticing",
+          "episode_object": "a dimmer switch",
+          "time_place_scope": "a bedside at night",
+          "mechanism": "light-lowering cue",
           "evidence_lens": "non-medical boundary"
         }
       ]
@@ -376,10 +480,10 @@
           "evidence_lens": "sensory specificity"
         },
         {
-          "episode_object": "a warm mug",
-          "time_place_scope": "the hour before bed",
-          "mechanism": "single-task attention",
-          "evidence_lens": "non-medical boundary"
+          "episode_object": "a raindrop on the pane",
+          "time_place_scope": "a rainy afternoon indoors",
+          "mechanism": "sound-pattern noticing",
+          "evidence_lens": "sensory specificity"
         }
       ]
     }

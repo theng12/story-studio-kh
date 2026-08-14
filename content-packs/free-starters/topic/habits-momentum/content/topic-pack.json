@@ -26,37 +26,102 @@
   ],
   "episode_objects": [
     "a pair of shoes",
-    "a calendar",
+    "a weather-ready shoe choice",
     "a note card",
+    "a half-finished document with one next-step sentence",
+    "a calendar",
+    "a named calendar alert",
+    "an already-open document",
     "a phone shelf",
+    "a charging dock outside the workspace",
     "a water bottle",
+    "a refill mark on the bottle",
     "a desk tray",
+    "a cleared work surface",
+    "a prepared breakfast bowl",
+    "pre-portioned breakfast ingredients",
+    "an open-loop list",
+    "a commitments-and-capacity list",
+    "a bookmark",
+    "a book placed on the pillow",
     "a packed bag",
-    "a bookmark"
+    "a checklist clipped to the bag",
+    "a focus card beside the timer",
+    "a dedicated kitchen timer",
+    "walking shoes beside the dining chair",
+    "a dated checkmark grid"
   ],
   "time_place_scopes": [
     "the night before",
+    "the forecast check before bed",
     "the first five minutes of work",
-    "after a meal",
+    "the final minute of a work session",
+    "the scheduled transition into a task",
+    "the moment before focused work",
+    "a home workspace",
+    "one focused thirty-minute block",
+    "the interval between two meetings",
     "the end of a workday",
+    "the next morning's arrival",
+    "a weekday morning",
+    "the evening kitchen setup",
+    "the final five minutes of work",
     "a weekly planning session",
-    "a home workspace"
+    "the weekly calendar review",
+    "the transition into bedtime",
+    "the morning departure",
+    "the first focused work block",
+    "one twenty-five-minute focus block",
+    "after a meal",
+    "the minutes after dinner",
+    "the end-of-day review"
   ],
   "mechanisms": [
-    "cue design",
-    "friction reduction",
-    "next-action clarity",
     "environment setup",
+    "contingency preparation",
+    "next-action clarity",
+    "cognitive offloading",
+    "cue design",
+    "temporal cueing",
+    "friction reduction",
+    "activation-energy reduction",
+    "distance-based interruption control",
+    "visible progress feedback",
+    "restart-friction reduction",
+    "routine repetition",
+    "morning decision reduction",
+    "restart planning",
+    "prospective-memory offloading",
     "gentle tracking",
-    "restart planning"
+    "capacity matching",
+    "choice architecture",
+    "omission prevention",
+    "task-boundary protection",
+    "timeboxing",
+    "context chaining",
+    "completion feedback loop"
   ],
   "evidence_lenses": [
     "practical constraint",
+    "morning departure observation",
     "small experiment",
-    "accessibility consideration",
+    "next-morning restart observation",
     "time-bound observation",
+    "start-time adherence log",
+    "timed-start trial",
+    "accessibility consideration",
+    "notification-check comparison",
+    "simple intake tally",
     "trade-off check",
-    "listener choice"
+    "restart-time observation",
+    "seven-day breakfast diary",
+    "calendar reconciliation",
+    "listener choice",
+    "nights-read diary",
+    "forgotten-item log",
+    "interruption log",
+    "seven-day adherence log",
+    "weekly completion review"
   ],
   "exclusions": [
     "Do not frame inconsistency or rest as moral failure.",
@@ -71,13 +136,30 @@
       "label": "Routine object",
       "values": [
         "a pair of shoes",
-        "a calendar",
+        "a weather-ready shoe choice",
         "a note card",
+        "a half-finished document with one next-step sentence",
+        "a calendar",
+        "a named calendar alert",
+        "an already-open document",
         "a phone shelf",
+        "a charging dock outside the workspace",
         "a water bottle",
+        "a refill mark on the bottle",
         "a desk tray",
+        "a cleared work surface",
+        "a prepared breakfast bowl",
+        "pre-portioned breakfast ingredients",
+        "an open-loop list",
+        "a commitments-and-capacity list",
+        "a bookmark",
+        "a book placed on the pillow",
         "a packed bag",
-        "a bookmark"
+        "a checklist clipped to the bag",
+        "a focus card beside the timer",
+        "a dedicated kitchen timer",
+        "walking shoes beside the dining chair",
+        "a dated checkmark grid"
       ]
     },
     {
@@ -85,23 +167,57 @@
       "label": "Routine moment",
       "values": [
         "the night before",
+        "the forecast check before bed",
         "the first five minutes of work",
-        "after a meal",
+        "the final minute of a work session",
+        "the scheduled transition into a task",
+        "the moment before focused work",
+        "a home workspace",
+        "one focused thirty-minute block",
+        "the interval between two meetings",
         "the end of a workday",
+        "the next morning's arrival",
+        "a weekday morning",
+        "the evening kitchen setup",
+        "the final five minutes of work",
         "a weekly planning session",
-        "a home workspace"
+        "the weekly calendar review",
+        "the transition into bedtime",
+        "the morning departure",
+        "the first focused work block",
+        "one twenty-five-minute focus block",
+        "after a meal",
+        "the minutes after dinner",
+        "the end-of-day review"
       ]
     },
     {
       "id": "mechanism",
       "label": "Momentum mechanism",
       "values": [
-        "cue design",
-        "friction reduction",
-        "next-action clarity",
         "environment setup",
+        "contingency preparation",
+        "next-action clarity",
+        "cognitive offloading",
+        "cue design",
+        "temporal cueing",
+        "friction reduction",
+        "activation-energy reduction",
+        "distance-based interruption control",
+        "visible progress feedback",
+        "restart-friction reduction",
+        "routine repetition",
+        "morning decision reduction",
+        "restart planning",
+        "prospective-memory offloading",
         "gentle tracking",
-        "restart planning"
+        "capacity matching",
+        "choice architecture",
+        "omission prevention",
+        "task-boundary protection",
+        "timeboxing",
+        "context chaining",
+        "completion feedback loop"
       ]
     },
     {
@@ -109,11 +225,25 @@
       "label": "Practical lens",
       "values": [
         "practical constraint",
+        "morning departure observation",
         "small experiment",
-        "accessibility consideration",
+        "next-morning restart observation",
         "time-bound observation",
+        "start-time adherence log",
+        "timed-start trial",
+        "accessibility consideration",
+        "notification-check comparison",
+        "simple intake tally",
         "trade-off check",
-        "listener choice"
+        "restart-time observation",
+        "seven-day breakfast diary",
+        "calendar reconciliation",
+        "listener choice",
+        "nights-read diary",
+        "forgotten-item log",
+        "interruption log",
+        "seven-day adherence log",
+        "weekly completion review"
       ]
     }
   ],
@@ -138,10 +268,10 @@
           "evidence_lens": "practical constraint"
         },
         {
-          "episode_object": "a packed bag",
-          "time_place_scope": "the night before",
-          "mechanism": "friction reduction",
-          "evidence_lens": "small experiment"
+          "episode_object": "a weather-ready shoe choice",
+          "time_place_scope": "the forecast check before bed",
+          "mechanism": "contingency preparation",
+          "evidence_lens": "morning departure observation"
         }
       ]
     },
@@ -155,10 +285,10 @@
           "evidence_lens": "small experiment"
         },
         {
-          "episode_object": "a calendar",
-          "time_place_scope": "the first five minutes of work",
-          "mechanism": "cue design",
-          "evidence_lens": "small experiment"
+          "episode_object": "a half-finished document with one next-step sentence",
+          "time_place_scope": "the final minute of a work session",
+          "mechanism": "cognitive offloading",
+          "evidence_lens": "next-morning restart observation"
         }
       ]
     },
@@ -172,10 +302,10 @@
           "evidence_lens": "time-bound observation"
         },
         {
-          "episode_object": "a note card",
-          "time_place_scope": "the first five minutes of work",
-          "mechanism": "next-action clarity",
-          "evidence_lens": "time-bound observation"
+          "episode_object": "a named calendar alert",
+          "time_place_scope": "the scheduled transition into a task",
+          "mechanism": "temporal cueing",
+          "evidence_lens": "start-time adherence log"
         }
       ]
     },
@@ -189,10 +319,10 @@
           "evidence_lens": "small experiment"
         },
         {
-          "episode_object": "a desk tray",
-          "time_place_scope": "the first five minutes of work",
-          "mechanism": "environment setup",
-          "evidence_lens": "small experiment"
+          "episode_object": "an already-open document",
+          "time_place_scope": "the moment before focused work",
+          "mechanism": "activation-energy reduction",
+          "evidence_lens": "timed-start trial"
         }
       ]
     },
@@ -206,10 +336,10 @@
           "evidence_lens": "accessibility consideration"
         },
         {
-          "episode_object": "a desk tray",
-          "time_place_scope": "a home workspace",
-          "mechanism": "friction reduction",
-          "evidence_lens": "accessibility consideration"
+          "episode_object": "a charging dock outside the workspace",
+          "time_place_scope": "one focused thirty-minute block",
+          "mechanism": "distance-based interruption control",
+          "evidence_lens": "notification-check comparison"
         }
       ]
     },
@@ -223,10 +353,10 @@
           "evidence_lens": "practical constraint"
         },
         {
-          "episode_object": "a phone shelf",
-          "time_place_scope": "a home workspace",
-          "mechanism": "environment setup",
-          "evidence_lens": "practical constraint"
+          "episode_object": "a refill mark on the bottle",
+          "time_place_scope": "the interval between two meetings",
+          "mechanism": "visible progress feedback",
+          "evidence_lens": "simple intake tally"
         }
       ]
     },
@@ -240,10 +370,10 @@
           "evidence_lens": "trade-off check"
         },
         {
-          "episode_object": "a note card",
-          "time_place_scope": "the end of a workday",
-          "mechanism": "restart planning",
-          "evidence_lens": "trade-off check"
+          "episode_object": "a cleared work surface",
+          "time_place_scope": "the next morning's arrival",
+          "mechanism": "restart-friction reduction",
+          "evidence_lens": "restart-time observation"
         }
       ]
     },
@@ -251,16 +381,16 @@
       "subject": "repeatable breakfast",
       "tuples": [
         {
-          "episode_object": "a water bottle",
-          "time_place_scope": "the first five minutes of work",
-          "mechanism": "friction reduction",
+          "episode_object": "a prepared breakfast bowl",
+          "time_place_scope": "a weekday morning",
+          "mechanism": "routine repetition",
           "evidence_lens": "small experiment"
         },
         {
-          "episode_object": "a note card",
-          "time_place_scope": "the first five minutes of work",
-          "mechanism": "cue design",
-          "evidence_lens": "small experiment"
+          "episode_object": "pre-portioned breakfast ingredients",
+          "time_place_scope": "the evening kitchen setup",
+          "mechanism": "morning decision reduction",
+          "evidence_lens": "seven-day breakfast diary"
         }
       ]
     },
@@ -274,10 +404,10 @@
           "evidence_lens": "time-bound observation"
         },
         {
-          "episode_object": "a desk tray",
-          "time_place_scope": "the end of a workday",
-          "mechanism": "environment setup",
-          "evidence_lens": "time-bound observation"
+          "episode_object": "an open-loop list",
+          "time_place_scope": "the final five minutes of work",
+          "mechanism": "prospective-memory offloading",
+          "evidence_lens": "next-morning restart observation"
         }
       ]
     },
@@ -291,10 +421,10 @@
           "evidence_lens": "trade-off check"
         },
         {
-          "episode_object": "a note card",
-          "time_place_scope": "a weekly planning session",
-          "mechanism": "next-action clarity",
-          "evidence_lens": "trade-off check"
+          "episode_object": "a commitments-and-capacity list",
+          "time_place_scope": "the weekly calendar review",
+          "mechanism": "capacity matching",
+          "evidence_lens": "calendar reconciliation"
         }
       ]
     },
@@ -308,10 +438,10 @@
           "evidence_lens": "listener choice"
         },
         {
-          "episode_object": "a phone shelf",
-          "time_place_scope": "the night before",
-          "mechanism": "friction reduction",
-          "evidence_lens": "listener choice"
+          "episode_object": "a book placed on the pillow",
+          "time_place_scope": "the transition into bedtime",
+          "mechanism": "choice architecture",
+          "evidence_lens": "nights-read diary"
         }
       ]
     },
@@ -325,10 +455,10 @@
           "evidence_lens": "practical constraint"
         },
         {
-          "episode_object": "a calendar",
-          "time_place_scope": "the night before",
-          "mechanism": "environment setup",
-          "evidence_lens": "practical constraint"
+          "episode_object": "a checklist clipped to the bag",
+          "time_place_scope": "the morning departure",
+          "mechanism": "omission prevention",
+          "evidence_lens": "forgotten-item log"
         }
       ]
     },
@@ -336,16 +466,16 @@
       "subject": "single-task timer",
       "tuples": [
         {
-          "episode_object": "a desk tray",
-          "time_place_scope": "the first five minutes of work",
-          "mechanism": "gentle tracking",
+          "episode_object": "a focus card beside the timer",
+          "time_place_scope": "the first focused work block",
+          "mechanism": "task-boundary protection",
           "evidence_lens": "time-bound observation"
         },
         {
-          "episode_object": "a phone shelf",
-          "time_place_scope": "the first five minutes of work",
-          "mechanism": "friction reduction",
-          "evidence_lens": "time-bound observation"
+          "episode_object": "a dedicated kitchen timer",
+          "time_place_scope": "one twenty-five-minute focus block",
+          "mechanism": "timeboxing",
+          "evidence_lens": "interruption log"
         }
       ]
     },
@@ -359,10 +489,10 @@
           "evidence_lens": "accessibility consideration"
         },
         {
-          "episode_object": "a note card",
-          "time_place_scope": "after a meal",
-          "mechanism": "gentle tracking",
-          "evidence_lens": "accessibility consideration"
+          "episode_object": "walking shoes beside the dining chair",
+          "time_place_scope": "the minutes after dinner",
+          "mechanism": "context chaining",
+          "evidence_lens": "seven-day adherence log"
         }
       ]
     },
@@ -376,10 +506,10 @@
           "evidence_lens": "small experiment"
         },
         {
-          "episode_object": "a bookmark",
-          "time_place_scope": "the first five minutes of work",
-          "mechanism": "restart planning",
-          "evidence_lens": "listener choice"
+          "episode_object": "a dated checkmark grid",
+          "time_place_scope": "the end-of-day review",
+          "mechanism": "completion feedback loop",
+          "evidence_lens": "weekly completion review"
         }
       ]
     }

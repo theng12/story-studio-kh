@@ -20,35 +20,81 @@
     "repair after conflict"
   ],
   "episode_objects": [
+    "a direct refusal",
+    "a repeated request after a clear no",
     "an unanswered message",
-    "a request",
-    "a group chat",
-    "a disagreement",
+    "volunteering despite an already full workload",
     "a social cue",
-    "a repair attempt"
+    "speaking-time distribution",
+    "a disagreement",
+    "an issue repeatedly omitted from the agenda",
+    "contradictory written promises",
+    "a condition that changes after agreement",
+    "a repair attempt",
+    "a promise kept across repeated situations",
+    "a group chat",
+    "a curated achievement feed",
+    "a public answer given after unanimous peers",
+    "a reunion after a brief separation",
+    "a specific repair attempt",
+    "an apology followed by changed behavior"
   ],
   "time_place_scopes": [
-    "a first meeting",
-    "a recurring workplace interaction",
+    "a difficult conversation",
+    "a close relationship over several weeks",
     "a close relationship",
+    "a team meeting during a busy month",
+    "a first meeting",
+    "a small-group meeting",
+    "a recurring workplace interaction",
+    "successive workplace meetings",
+    "a recurring negotiation",
+    "a recurring negotiation in a close relationship",
+    "several months in a close relationship",
     "a public group setting",
-    "a stressful week",
-    "a difficult conversation"
+    "an evening social-media session",
+    "one small-group decision",
+    "repeated caregiver-child interactions",
+    "the weeks after a recurring conflict"
   ],
   "mechanisms": [
-    "threat appraisal",
+    "expectation setting",
+    "contingency learning around compliance",
     "reinforcement loop",
-    "attachment expectation",
-    "social learning",
+    "anticipated rejection",
     "status signaling",
-    "co-regulation"
+    "dominance signaling",
+    "threat appraisal",
+    "short-term anxiety relief",
+    "information asymmetry",
+    "goalpost shifting and intermittent reinforcement",
+    "co-regulation",
+    "reliability learning and prediction updating",
+    "upward comparison and selective attention",
+    "social learning",
+    "normative social influence",
+    "attachment expectation",
+    "relationship-expectation updating",
+    "reciprocal acknowledgement",
+    "accountability and reliability rebuilding"
   ],
   "evidence_lenses": [
-    "behavioral study",
-    "longitudinal research",
-    "clinical guidance",
+    "conversation sequence coding",
+    "behavioral sequence coding",
+    "self-report limitation",
+    "experience-sampling diary",
     "social psychology experiment",
-    "self-report limitation"
+    "coded group observation",
+    "behavioral study",
+    "longitudinal workplace observation",
+    "documented interaction sequence",
+    "longitudinal research",
+    "longitudinal dyadic study",
+    "experience-sampling study",
+    "controlled group experiment",
+    "longitudinal attachment observation",
+    "longitudinal relationship observation",
+    "longitudinal couple observation"
   ],
   "exclusions": [
     "Do not diagnose the viewer.",
@@ -73,47 +119,93 @@
       "id": "episode-object",
       "label": "Episode object",
       "values": [
+        "a direct refusal",
+        "a repeated request after a clear no",
         "an unanswered message",
-        "a request",
-        "a group chat",
-        "a disagreement",
+        "volunteering despite an already full workload",
         "a social cue",
-        "a repair attempt"
+        "speaking-time distribution",
+        "a disagreement",
+        "an issue repeatedly omitted from the agenda",
+        "contradictory written promises",
+        "a condition that changes after agreement",
+        "a repair attempt",
+        "a promise kept across repeated situations",
+        "a group chat",
+        "a curated achievement feed",
+        "a public answer given after unanimous peers",
+        "a reunion after a brief separation",
+        "a specific repair attempt",
+        "an apology followed by changed behavior"
       ]
     },
     {
       "id": "time-place-scope",
       "label": "Social context",
       "values": [
-        "a first meeting",
-        "a recurring workplace interaction",
+        "a difficult conversation",
+        "a close relationship over several weeks",
         "a close relationship",
+        "a team meeting during a busy month",
+        "a first meeting",
+        "a small-group meeting",
+        "a recurring workplace interaction",
+        "successive workplace meetings",
+        "a recurring negotiation",
+        "a recurring negotiation in a close relationship",
+        "several months in a close relationship",
         "a public group setting",
-        "a stressful week",
-        "a difficult conversation"
+        "an evening social-media session",
+        "one small-group decision",
+        "repeated caregiver-child interactions",
+        "the weeks after a recurring conflict"
       ]
     },
     {
       "id": "mechanism",
       "label": "Behavior mechanism",
       "values": [
-        "threat appraisal",
+        "expectation setting",
+        "contingency learning around compliance",
         "reinforcement loop",
-        "attachment expectation",
-        "social learning",
+        "anticipated rejection",
         "status signaling",
-        "co-regulation"
+        "dominance signaling",
+        "threat appraisal",
+        "short-term anxiety relief",
+        "information asymmetry",
+        "goalpost shifting and intermittent reinforcement",
+        "co-regulation",
+        "reliability learning and prediction updating",
+        "upward comparison and selective attention",
+        "social learning",
+        "normative social influence",
+        "attachment expectation",
+        "relationship-expectation updating",
+        "reciprocal acknowledgement",
+        "accountability and reliability rebuilding"
       ]
     },
     {
       "id": "evidence-lens",
       "label": "Evidence lens",
       "values": [
-        "behavioral study",
-        "longitudinal research",
-        "clinical guidance",
+        "conversation sequence coding",
+        "behavioral sequence coding",
+        "self-report limitation",
+        "experience-sampling diary",
         "social psychology experiment",
-        "self-report limitation"
+        "coded group observation",
+        "behavioral study",
+        "longitudinal workplace observation",
+        "documented interaction sequence",
+        "longitudinal research",
+        "longitudinal dyadic study",
+        "experience-sampling study",
+        "controlled group experiment",
+        "longitudinal attachment observation",
+        "longitudinal relationship observation",
+        "longitudinal couple observation"
       ]
     }
   ],
@@ -131,16 +223,16 @@
       "subject": "boundaries",
       "tuples": [
         {
-          "episode_object": "a request",
+          "episode_object": "a direct refusal",
           "time_place_scope": "a difficult conversation",
-          "mechanism": "threat appraisal",
-          "evidence_lens": "clinical guidance"
+          "mechanism": "expectation setting",
+          "evidence_lens": "conversation sequence coding"
         },
         {
-          "episode_object": "a disagreement",
-          "time_place_scope": "a difficult conversation",
-          "mechanism": "co-regulation",
-          "evidence_lens": "clinical guidance"
+          "episode_object": "a repeated request after a clear no",
+          "time_place_scope": "a close relationship over several weeks",
+          "mechanism": "contingency learning around compliance",
+          "evidence_lens": "behavioral sequence coding"
         }
       ]
     },
@@ -154,10 +246,10 @@
           "evidence_lens": "self-report limitation"
         },
         {
-          "episode_object": "a request",
-          "time_place_scope": "a close relationship",
-          "mechanism": "threat appraisal",
-          "evidence_lens": "self-report limitation"
+          "episode_object": "volunteering despite an already full workload",
+          "time_place_scope": "a team meeting during a busy month",
+          "mechanism": "anticipated rejection",
+          "evidence_lens": "experience-sampling diary"
         }
       ]
     },
@@ -171,10 +263,10 @@
           "evidence_lens": "social psychology experiment"
         },
         {
-          "episode_object": "a group chat",
-          "time_place_scope": "a first meeting",
-          "mechanism": "social learning",
-          "evidence_lens": "social psychology experiment"
+          "episode_object": "speaking-time distribution",
+          "time_place_scope": "a small-group meeting",
+          "mechanism": "dominance signaling",
+          "evidence_lens": "coded group observation"
         }
       ]
     },
@@ -188,10 +280,10 @@
           "evidence_lens": "behavioral study"
         },
         {
-          "episode_object": "a repair attempt",
-          "time_place_scope": "a recurring workplace interaction",
-          "mechanism": "co-regulation",
-          "evidence_lens": "behavioral study"
+          "episode_object": "an issue repeatedly omitted from the agenda",
+          "time_place_scope": "successive workplace meetings",
+          "mechanism": "short-term anxiety relief",
+          "evidence_lens": "longitudinal workplace observation"
         }
       ]
     },
@@ -199,16 +291,16 @@
       "subject": "manipulation",
       "tuples": [
         {
-          "episode_object": "a social cue",
-          "time_place_scope": "a stressful week",
-          "mechanism": "reinforcement loop",
-          "evidence_lens": "clinical guidance"
+          "episode_object": "contradictory written promises",
+          "time_place_scope": "a recurring negotiation",
+          "mechanism": "information asymmetry",
+          "evidence_lens": "documented interaction sequence"
         },
         {
-          "episode_object": "an unanswered message",
-          "time_place_scope": "a stressful week",
-          "mechanism": "threat appraisal",
-          "evidence_lens": "clinical guidance"
+          "episode_object": "a condition that changes after agreement",
+          "time_place_scope": "a recurring negotiation in a close relationship",
+          "mechanism": "goalpost shifting and intermittent reinforcement",
+          "evidence_lens": "documented interaction sequence"
         }
       ]
     },
@@ -222,10 +314,10 @@
           "evidence_lens": "longitudinal research"
         },
         {
-          "episode_object": "an unanswered message",
-          "time_place_scope": "a difficult conversation",
-          "mechanism": "attachment expectation",
-          "evidence_lens": "longitudinal research"
+          "episode_object": "a promise kept across repeated situations",
+          "time_place_scope": "several months in a close relationship",
+          "mechanism": "reliability learning and prediction updating",
+          "evidence_lens": "longitudinal dyadic study"
         }
       ]
     },
@@ -239,10 +331,10 @@
           "evidence_lens": "social psychology experiment"
         },
         {
-          "episode_object": "a social cue",
-          "time_place_scope": "a public group setting",
-          "mechanism": "reinforcement loop",
-          "evidence_lens": "social psychology experiment"
+          "episode_object": "a curated achievement feed",
+          "time_place_scope": "an evening social-media session",
+          "mechanism": "upward comparison and selective attention",
+          "evidence_lens": "experience-sampling study"
         }
       ]
     },
@@ -256,10 +348,10 @@
           "evidence_lens": "behavioral study"
         },
         {
-          "episode_object": "a group chat",
-          "time_place_scope": "a recurring workplace interaction",
-          "mechanism": "status signaling",
-          "evidence_lens": "behavioral study"
+          "episode_object": "a public answer given after unanimous peers",
+          "time_place_scope": "one small-group decision",
+          "mechanism": "normative social influence",
+          "evidence_lens": "controlled group experiment"
         }
       ]
     },
@@ -273,10 +365,10 @@
           "evidence_lens": "longitudinal research"
         },
         {
-          "episode_object": "a repair attempt",
-          "time_place_scope": "a close relationship",
-          "mechanism": "co-regulation",
-          "evidence_lens": "longitudinal research"
+          "episode_object": "a reunion after a brief separation",
+          "time_place_scope": "repeated caregiver-child interactions",
+          "mechanism": "relationship-expectation updating",
+          "evidence_lens": "longitudinal attachment observation"
         }
       ]
     },
@@ -284,16 +376,16 @@
       "subject": "repair after conflict",
       "tuples": [
         {
-          "episode_object": "a repair attempt",
+          "episode_object": "a specific repair attempt",
           "time_place_scope": "a difficult conversation",
-          "mechanism": "co-regulation",
-          "evidence_lens": "clinical guidance"
+          "mechanism": "reciprocal acknowledgement",
+          "evidence_lens": "longitudinal relationship observation"
         },
         {
-          "episode_object": "a disagreement",
-          "time_place_scope": "a difficult conversation",
-          "mechanism": "threat appraisal",
-          "evidence_lens": "clinical guidance"
+          "episode_object": "an apology followed by changed behavior",
+          "time_place_scope": "the weeks after a recurring conflict",
+          "mechanism": "accountability and reliability rebuilding",
+          "evidence_lens": "longitudinal couple observation"
         }
       ]
     }
