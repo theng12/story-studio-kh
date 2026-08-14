@@ -1,7 +1,7 @@
 {
   "name": "story-studio-kh",
   "productName": "Story Studio KH",
-  "version": "1.0.840",
+  "version": "1.0.841",
   "private": true,
   "description": "Story Studio KH — continuity-first video pipeline for YouTube channels. Research, scripts, voice, narration-timed scenes, optional motion, and assembly across scenes, listicle, and character-locked formats.",
   "author": "",
@@ -56,7 +56,7 @@
     "@types/node": "~22.0.0",
     "@types/supertest": "~7.2.0",
     "concurrently": "~9.1.0",
-    "electron": "~39.8.5",
+    "electron": "~43.4.0",
     "electron-builder": "~26.15.3",
     "eslint": "~10.2.1",
     "supertest": "~7.2.2",

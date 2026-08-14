@@ -43,4 +43,16 @@ describe('public desktop release gate', () => {
       assert.match(source, /path\.join\(electronDist, 'Electron\.app'\)/)
     }
   })
+
+  test('desktop runtime does not depend on the vulnerable extract-zip package', () => {
+    const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'))
+    const electron = lock.packages?.['node_modules/electron']
+
+    assert.ok(electron, 'package-lock.json must contain the Electron runtime')
+    assert.equal(electron.dependencies?.['extract-zip'], undefined)
+    assert.ok(
+      electron.dependencies?.['@electron-internal/extract-zip'],
+      'Electron must use its maintained internal archive extractor',
+    )
+  })
 })
