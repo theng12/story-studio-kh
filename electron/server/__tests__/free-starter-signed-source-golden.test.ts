@@ -319,6 +319,16 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
     assert.equal(topic.coverage_groups, undefined, `${topicSlug} must not use cross-subject coverage groups`)
     assert.equal(topic.coverage_profiles?.length, topic.subjects.length, `${topicSlug} requires one authored profile per subject`)
     const profilesBySubject = new Map(topic.coverage_profiles!.map(profile => [profile.subject, profile]))
+    const tupleKey = (tuple: { episode_object: string, time_place_scope: string, mechanism: string, evidence_lens: string }) =>
+      [tuple.episode_object, tuple.time_place_scope, tuple.mechanism, tuple.evidence_lens].join('|')
+    for (const profile of topic.coverage_profiles!) {
+      const alternate = profile.tuples[1]!
+      for (const other of topic.coverage_profiles!) {
+        if (other.subject === profile.subject) continue
+        assert.ok(!other.tuples.some(tuple => tupleKey(tuple) === tupleKey(alternate)),
+          `${topicSlug} ${profile.subject} profile alternative must be authored for that subject, not copied from ${other.subject}`)
+      }
+    }
     const niche = contentPackDocumentToNiche(formula)
     niche.activeTopicPacks = [contentPackDocumentToTopicPack(topic)]
     const first = planIdeaAssignments({ niche, count: advertisedCount, seed: `starter-profiles-${topicSlug}` }).slice(0, advertisedCount)

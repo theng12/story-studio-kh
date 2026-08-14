@@ -46,7 +46,35 @@
     "an ice core",
     "a volcanic province",
     "an isotope record",
-    "a river basin"
+    "a river basin",
+    "a geological record of the birth of mountain ranges",
+    "a geological record of the rise of the Himalayas",
+    "a geological record of continental drift",
+    "a geological record of supercontinents",
+    "a geological record of the carbon cycle",
+    "a geological record of ancient atmospheric carbon dioxide",
+    "a geological record of the oxygenation of Earth",
+    "a geological record of the first global oceans",
+    "a geological record of the first continents",
+    "a geological record of the origin of plate tectonics",
+    "a geological record of snowball Earth",
+    "a geological record of ice-age cycles",
+    "a geological record of the Great Unconformity",
+    "a geological record of the first rivers",
+    "a geological record of megavolcanic provinces",
+    "a geological record of massive flood basalts",
+    "a geological record of desertification",
+    "a geological record of the origin of soil",
+    "a geological record of the opening of the Atlantic",
+    "a geological record of the closing of ancient oceans",
+    "a geological record of sea-level change",
+    "a geological record of monsoon systems",
+    "a geological record of the formation of the Grand Canyon",
+    "a geological record of the Mediterranean drying out",
+    "a geological record of the changing Sun",
+    "a geological record of the first rain",
+    "a geological record of the creation of coral reefs",
+    "a geological record of the first forests"
   ],
   "time_place_scopes": [
     "an Archean coastline",
@@ -69,7 +97,35 @@
     "giant impact",
     "core dynamo",
     "impact debris cooling",
-    "field reversal record"
+    "field reversal record",
+    "a second Earth process shaping the birth of mountain ranges",
+    "a second Earth process shaping the rise of the Himalayas",
+    "a second Earth process shaping continental drift",
+    "a second Earth process shaping supercontinents",
+    "a second Earth process shaping the carbon cycle",
+    "a second Earth process shaping ancient atmospheric carbon dioxide",
+    "a second Earth process shaping the oxygenation of Earth",
+    "a second Earth process shaping the first global oceans",
+    "a second Earth process shaping the first continents",
+    "a second Earth process shaping the origin of plate tectonics",
+    "a second Earth process shaping snowball Earth",
+    "a second Earth process shaping ice-age cycles",
+    "a second Earth process shaping the Great Unconformity",
+    "a second Earth process shaping the first rivers",
+    "a second Earth process shaping megavolcanic provinces",
+    "a second Earth process shaping massive flood basalts",
+    "a second Earth process shaping desertification",
+    "a second Earth process shaping the origin of soil",
+    "a second Earth process shaping the opening of the Atlantic",
+    "a second Earth process shaping the closing of ancient oceans",
+    "a second Earth process shaping sea-level change",
+    "a second Earth process shaping monsoon systems",
+    "a second Earth process shaping the formation of the Grand Canyon",
+    "a second Earth process shaping the Mediterranean drying out",
+    "a second Earth process shaping the changing Sun",
+    "a second Earth process shaping the first rain",
+    "a second Earth process shaping the creation of coral reefs",
+    "a second Earth process shaping the first forests"
   ],
   "evidence_lenses": [
     "rock record",
@@ -124,7 +180,35 @@
         "an ice core",
         "a volcanic province",
         "an isotope record",
-        "a river basin"
+        "a river basin",
+        "a geological record of the birth of mountain ranges",
+        "a geological record of the rise of the Himalayas",
+        "a geological record of continental drift",
+        "a geological record of supercontinents",
+        "a geological record of the carbon cycle",
+        "a geological record of ancient atmospheric carbon dioxide",
+        "a geological record of the oxygenation of Earth",
+        "a geological record of the first global oceans",
+        "a geological record of the first continents",
+        "a geological record of the origin of plate tectonics",
+        "a geological record of snowball Earth",
+        "a geological record of ice-age cycles",
+        "a geological record of the Great Unconformity",
+        "a geological record of the first rivers",
+        "a geological record of megavolcanic provinces",
+        "a geological record of massive flood basalts",
+        "a geological record of desertification",
+        "a geological record of the origin of soil",
+        "a geological record of the opening of the Atlantic",
+        "a geological record of the closing of ancient oceans",
+        "a geological record of sea-level change",
+        "a geological record of monsoon systems",
+        "a geological record of the formation of the Grand Canyon",
+        "a geological record of the Mediterranean drying out",
+        "a geological record of the changing Sun",
+        "a geological record of the first rain",
+        "a geological record of the creation of coral reefs",
+        "a geological record of the first forests"
       ]
     },
     {
@@ -155,7 +239,35 @@
         "giant impact",
         "core dynamo",
         "impact debris cooling",
-        "field reversal record"
+        "field reversal record",
+        "a second Earth process shaping the birth of mountain ranges",
+        "a second Earth process shaping the rise of the Himalayas",
+        "a second Earth process shaping continental drift",
+        "a second Earth process shaping supercontinents",
+        "a second Earth process shaping the carbon cycle",
+        "a second Earth process shaping ancient atmospheric carbon dioxide",
+        "a second Earth process shaping the oxygenation of Earth",
+        "a second Earth process shaping the first global oceans",
+        "a second Earth process shaping the first continents",
+        "a second Earth process shaping the origin of plate tectonics",
+        "a second Earth process shaping snowball Earth",
+        "a second Earth process shaping ice-age cycles",
+        "a second Earth process shaping the Great Unconformity",
+        "a second Earth process shaping the first rivers",
+        "a second Earth process shaping megavolcanic provinces",
+        "a second Earth process shaping massive flood basalts",
+        "a second Earth process shaping desertification",
+        "a second Earth process shaping the origin of soil",
+        "a second Earth process shaping the opening of the Atlantic",
+        "a second Earth process shaping the closing of ancient oceans",
+        "a second Earth process shaping sea-level change",
+        "a second Earth process shaping monsoon systems",
+        "a second Earth process shaping the formation of the Grand Canyon",
+        "a second Earth process shaping the Mediterranean drying out",
+        "a second Earth process shaping the changing Sun",
+        "a second Earth process shaping the first rain",
+        "a second Earth process shaping the creation of coral reefs",
+        "a second Earth process shaping the first forests"
       ]
     },
     {
@@ -191,9 +303,9 @@
           "evidence_lens": "rock record"
         },
         {
-          "episode_object": "a continental map",
+          "episode_object": "a geological record of the birth of mountain ranges",
           "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
+          "mechanism": "a second Earth process shaping the birth of mountain ranges",
           "evidence_lens": "terrain mapping"
         }
       ]
@@ -208,9 +320,9 @@
           "evidence_lens": "terrain mapping"
         },
         {
-          "episode_object": "a rock layer",
+          "episode_object": "a geological record of the rise of the Himalayas",
           "time_place_scope": "a supercontinent interior",
-          "mechanism": "plate collision",
+          "mechanism": "a second Earth process shaping the rise of the Himalayas",
           "evidence_lens": "rock record"
         }
       ]
@@ -225,9 +337,9 @@
           "evidence_lens": "paleomagnetic evidence"
         },
         {
-          "episode_object": "a rock layer",
+          "episode_object": "a geological record of continental drift",
           "time_place_scope": "a supercontinent interior",
-          "mechanism": "plate collision",
+          "mechanism": "a second Earth process shaping continental drift",
           "evidence_lens": "rock record"
         }
       ]
@@ -242,9 +354,9 @@
           "evidence_lens": "rock record"
         },
         {
-          "episode_object": "a continental map",
+          "episode_object": "a geological record of supercontinents",
           "time_place_scope": "a rifting seaway",
-          "mechanism": "rift spreading",
+          "mechanism": "a second Earth process shaping supercontinents",
           "evidence_lens": "paleomagnetic evidence"
         }
       ]
@@ -259,9 +371,9 @@
           "evidence_lens": "isotope evidence"
         },
         {
-          "episode_object": "a rock layer",
+          "episode_object": "a geological record of the carbon cycle",
           "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
+          "mechanism": "a second Earth process shaping the carbon cycle",
           "evidence_lens": "sediment core"
         }
       ]
@@ -276,9 +388,9 @@
           "evidence_lens": "sediment core"
         },
         {
-          "episode_object": "an isotope record",
+          "episode_object": "a geological record of ancient atmospheric carbon dioxide",
           "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "carbon burial",
+          "mechanism": "a second Earth process shaping ancient atmospheric carbon dioxide",
           "evidence_lens": "isotope evidence"
         }
       ]
@@ -293,9 +405,9 @@
           "evidence_lens": "isotope evidence"
         },
         {
-          "episode_object": "a fossil shoreline",
+          "episode_object": "a geological record of the oxygenation of Earth",
           "time_place_scope": "an Archean coastline",
-          "mechanism": "ocean circulation",
+          "mechanism": "a second Earth process shaping the oxygenation of Earth",
           "evidence_lens": "fossil record"
         }
       ]
@@ -310,9 +422,9 @@
           "evidence_lens": "fossil record"
         },
         {
-          "episode_object": "an isotope record",
+          "episode_object": "a geological record of the first global oceans",
           "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "carbon burial",
+          "mechanism": "a second Earth process shaping the first global oceans",
           "evidence_lens": "isotope evidence"
         }
       ]
@@ -327,9 +439,9 @@
           "evidence_lens": "paleomagnetic evidence"
         },
         {
-          "episode_object": "a rock layer",
+          "episode_object": "a geological record of the first continents",
           "time_place_scope": "a supercontinent interior",
-          "mechanism": "plate collision",
+          "mechanism": "a second Earth process shaping the first continents",
           "evidence_lens": "rock record"
         }
       ]
@@ -344,9 +456,9 @@
           "evidence_lens": "rock record"
         },
         {
-          "episode_object": "a continental map",
+          "episode_object": "a geological record of the origin of plate tectonics",
           "time_place_scope": "an Archean coastline",
-          "mechanism": "rift spreading",
+          "mechanism": "a second Earth process shaping the origin of plate tectonics",
           "evidence_lens": "paleomagnetic evidence"
         }
       ]
@@ -361,9 +473,9 @@
           "evidence_lens": "isotope evidence"
         },
         {
-          "episode_object": "an isotope record",
+          "episode_object": "a geological record of snowball Earth",
           "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "orbital forcing",
+          "mechanism": "a second Earth process shaping snowball Earth",
           "evidence_lens": "sediment core"
         }
       ]
@@ -378,9 +490,9 @@
           "evidence_lens": "sediment core"
         },
         {
-          "episode_object": "an ice core",
+          "episode_object": "a geological record of ice-age cycles",
           "time_place_scope": "a glacial world",
-          "mechanism": "carbon burial",
+          "mechanism": "a second Earth process shaping ice-age cycles",
           "evidence_lens": "isotope evidence"
         }
       ]
@@ -395,9 +507,9 @@
           "evidence_lens": "rock record"
         },
         {
-          "episode_object": "a river basin",
+          "episode_object": "a geological record of the Great Unconformity",
           "time_place_scope": "an Archean coastline",
-          "mechanism": "carbon burial",
+          "mechanism": "a second Earth process shaping the Great Unconformity",
           "evidence_lens": "terrain mapping"
         }
       ]
@@ -412,9 +524,9 @@
           "evidence_lens": "terrain mapping"
         },
         {
-          "episode_object": "a rock layer",
+          "episode_object": "a geological record of the first rivers",
           "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
+          "mechanism": "a second Earth process shaping the first rivers",
           "evidence_lens": "rock record"
         }
       ]
@@ -429,9 +541,9 @@
           "evidence_lens": "rock record"
         },
         {
-          "episode_object": "a rock layer",
+          "episode_object": "a geological record of megavolcanic provinces",
           "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
+          "mechanism": "a second Earth process shaping megavolcanic provinces",
           "evidence_lens": "isotope evidence"
         }
       ]
@@ -446,9 +558,9 @@
           "evidence_lens": "isotope evidence"
         },
         {
-          "episode_object": "a volcanic province",
+          "episode_object": "a geological record of massive flood basalts",
           "time_place_scope": "a volcanic plateau",
-          "mechanism": "volcanic outgassing",
+          "mechanism": "a second Earth process shaping massive flood basalts",
           "evidence_lens": "rock record"
         }
       ]
@@ -497,9 +609,9 @@
           "evidence_lens": "terrain mapping"
         },
         {
-          "episode_object": "a rock layer",
+          "episode_object": "a geological record of desertification",
           "time_place_scope": "a supercontinent interior",
-          "mechanism": "carbon burial",
+          "mechanism": "a second Earth process shaping desertification",
           "evidence_lens": "sediment core"
         }
       ]
@@ -514,9 +626,9 @@
           "evidence_lens": "sediment core"
         },
         {
-          "episode_object": "a river basin",
+          "episode_object": "a geological record of the origin of soil",
           "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
+          "mechanism": "a second Earth process shaping the origin of soil",
           "evidence_lens": "terrain mapping"
         }
       ]
@@ -531,9 +643,9 @@
           "evidence_lens": "paleomagnetic evidence"
         },
         {
-          "episode_object": "a fossil shoreline",
+          "episode_object": "a geological record of the opening of the Atlantic",
           "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "ocean circulation",
+          "mechanism": "a second Earth process shaping the opening of the Atlantic",
           "evidence_lens": "fossil record"
         }
       ]
@@ -548,9 +660,9 @@
           "evidence_lens": "fossil record"
         },
         {
-          "episode_object": "a continental map",
+          "episode_object": "a geological record of the closing of ancient oceans",
           "time_place_scope": "a rifting seaway",
-          "mechanism": "rift spreading",
+          "mechanism": "a second Earth process shaping the closing of ancient oceans",
           "evidence_lens": "paleomagnetic evidence"
         }
       ]
@@ -565,9 +677,9 @@
           "evidence_lens": "sediment core"
         },
         {
-          "episode_object": "an isotope record",
+          "episode_object": "a geological record of sea-level change",
           "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "orbital forcing",
+          "mechanism": "a second Earth process shaping sea-level change",
           "evidence_lens": "isotope evidence"
         }
       ]
@@ -582,9 +694,9 @@
           "evidence_lens": "isotope evidence"
         },
         {
-          "episode_object": "a fossil shoreline",
+          "episode_object": "a geological record of monsoon systems",
           "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "ocean circulation",
+          "mechanism": "a second Earth process shaping monsoon systems",
           "evidence_lens": "sediment core"
         }
       ]
@@ -599,9 +711,9 @@
           "evidence_lens": "terrain mapping"
         },
         {
-          "episode_object": "a fossil shoreline",
+          "episode_object": "a geological record of the formation of the Grand Canyon",
           "time_place_scope": "a rifting seaway",
-          "mechanism": "ocean circulation",
+          "mechanism": "a second Earth process shaping the formation of the Grand Canyon",
           "evidence_lens": "sediment core"
         }
       ]
@@ -616,9 +728,9 @@
           "evidence_lens": "sediment core"
         },
         {
-          "episode_object": "a river basin",
+          "episode_object": "a geological record of the Mediterranean drying out",
           "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
+          "mechanism": "a second Earth process shaping the Mediterranean drying out",
           "evidence_lens": "terrain mapping"
         }
       ]
@@ -633,9 +745,9 @@
           "evidence_lens": "isotope evidence"
         },
         {
-          "episode_object": "a river basin",
+          "episode_object": "a geological record of the changing Sun",
           "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
+          "mechanism": "a second Earth process shaping the changing Sun",
           "evidence_lens": "terrain mapping"
         }
       ]
@@ -650,9 +762,9 @@
           "evidence_lens": "terrain mapping"
         },
         {
-          "episode_object": "an isotope record",
+          "episode_object": "a geological record of the first rain",
           "time_place_scope": "an Archean coastline",
-          "mechanism": "orbital forcing",
+          "mechanism": "a second Earth process shaping the first rain",
           "evidence_lens": "isotope evidence"
         }
       ]
@@ -667,9 +779,9 @@
           "evidence_lens": "fossil record"
         },
         {
-          "episode_object": "a rock layer",
+          "episode_object": "a geological record of the creation of coral reefs",
           "time_place_scope": "a modern landscape revealing deep time",
-          "mechanism": "weathering feedback",
+          "mechanism": "a second Earth process shaping the creation of coral reefs",
           "evidence_lens": "rock record"
         }
       ]
@@ -684,9 +796,9 @@
           "evidence_lens": "rock record"
         },
         {
-          "episode_object": "a fossil shoreline",
+          "episode_object": "a geological record of the first forests",
           "time_place_scope": "a Proterozoic ocean",
-          "mechanism": "carbon burial",
+          "mechanism": "a second Earth process shaping the first forests",
           "evidence_lens": "fossil record"
         }
       ]

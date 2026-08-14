@@ -57,7 +57,47 @@
     "a payroll roster",
     "a delivery truck",
     "a balance sheet",
-    "a piece of specialist equipment"
+    "a piece of specialist equipment",
+    "an operating record for coffee shop",
+    "an operating record for restaurant",
+    "an operating record for casino",
+    "an operating record for movie theater",
+    "an operating record for automobile workshop",
+    "an operating record for automated car wash",
+    "an operating record for clothing brand",
+    "an operating record for franchise restaurant",
+    "an operating record for Formula One team",
+    "an operating record for solar farm",
+    "an operating record for five-star hotel",
+    "an operating record for wedding venue",
+    "an operating record for martial arts club",
+    "an operating record for gym",
+    "an operating record for dental practice",
+    "an operating record for veterinary clinic",
+    "an operating record for private school",
+    "an operating record for daycare center",
+    "an operating record for funeral home",
+    "an operating record for private security company",
+    "an operating record for construction company",
+    "an operating record for warehouse",
+    "an operating record for laundromat",
+    "an operating record for self-storage facility",
+    "an operating record for supermarket",
+    "an operating record for convenience store",
+    "an operating record for airline",
+    "an operating record for shipping company",
+    "an operating record for data center",
+    "an operating record for software company",
+    "an operating record for game studio",
+    "an operating record for animation studio",
+    "an operating record for theme park",
+    "an operating record for nightclub",
+    "an operating record for food truck",
+    "an operating record for bakery",
+    "an operating record for brewery",
+    "an operating record for record label",
+    "an operating record for commercial farm",
+    "an operating record for recycling plant"
   ],
   "time_place_scopes": [
     "a launch month",
@@ -74,7 +114,47 @@
     "inventory turnover",
     "labor scheduling",
     "pricing power",
-    "cash conversion"
+    "cash conversion",
+    "a second operating constraint for coffee shop",
+    "a second operating constraint for restaurant",
+    "a second operating constraint for casino",
+    "a second operating constraint for movie theater",
+    "a second operating constraint for automobile workshop",
+    "a second operating constraint for automated car wash",
+    "a second operating constraint for clothing brand",
+    "a second operating constraint for franchise restaurant",
+    "a second operating constraint for Formula One team",
+    "a second operating constraint for solar farm",
+    "a second operating constraint for five-star hotel",
+    "a second operating constraint for wedding venue",
+    "a second operating constraint for martial arts club",
+    "a second operating constraint for gym",
+    "a second operating constraint for dental practice",
+    "a second operating constraint for veterinary clinic",
+    "a second operating constraint for private school",
+    "a second operating constraint for daycare center",
+    "a second operating constraint for funeral home",
+    "a second operating constraint for private security company",
+    "a second operating constraint for construction company",
+    "a second operating constraint for warehouse",
+    "a second operating constraint for laundromat",
+    "a second operating constraint for self-storage facility",
+    "a second operating constraint for supermarket",
+    "a second operating constraint for convenience store",
+    "a second operating constraint for airline",
+    "a second operating constraint for shipping company",
+    "a second operating constraint for data center",
+    "a second operating constraint for software company",
+    "a second operating constraint for game studio",
+    "a second operating constraint for animation studio",
+    "a second operating constraint for theme park",
+    "a second operating constraint for nightclub",
+    "a second operating constraint for food truck",
+    "a second operating constraint for bakery",
+    "a second operating constraint for brewery",
+    "a second operating constraint for record label",
+    "a second operating constraint for commercial farm",
+    "a second operating constraint for recycling plant"
   ],
   "evidence_lenses": [
     "public filings",
@@ -113,7 +193,47 @@
         "a payroll roster",
         "a delivery truck",
         "a balance sheet",
-        "a piece of specialist equipment"
+        "a piece of specialist equipment",
+        "an operating record for coffee shop",
+        "an operating record for restaurant",
+        "an operating record for casino",
+        "an operating record for movie theater",
+        "an operating record for automobile workshop",
+        "an operating record for automated car wash",
+        "an operating record for clothing brand",
+        "an operating record for franchise restaurant",
+        "an operating record for Formula One team",
+        "an operating record for solar farm",
+        "an operating record for five-star hotel",
+        "an operating record for wedding venue",
+        "an operating record for martial arts club",
+        "an operating record for gym",
+        "an operating record for dental practice",
+        "an operating record for veterinary clinic",
+        "an operating record for private school",
+        "an operating record for daycare center",
+        "an operating record for funeral home",
+        "an operating record for private security company",
+        "an operating record for construction company",
+        "an operating record for warehouse",
+        "an operating record for laundromat",
+        "an operating record for self-storage facility",
+        "an operating record for supermarket",
+        "an operating record for convenience store",
+        "an operating record for airline",
+        "an operating record for shipping company",
+        "an operating record for data center",
+        "an operating record for software company",
+        "an operating record for game studio",
+        "an operating record for animation studio",
+        "an operating record for theme park",
+        "an operating record for nightclub",
+        "an operating record for food truck",
+        "an operating record for bakery",
+        "an operating record for brewery",
+        "an operating record for record label",
+        "an operating record for commercial farm",
+        "an operating record for recycling plant"
       ]
     },
     {
@@ -138,7 +258,47 @@
         "inventory turnover",
         "labor scheduling",
         "pricing power",
-        "cash conversion"
+        "cash conversion",
+        "a second operating constraint for coffee shop",
+        "a second operating constraint for restaurant",
+        "a second operating constraint for casino",
+        "a second operating constraint for movie theater",
+        "a second operating constraint for automobile workshop",
+        "a second operating constraint for automated car wash",
+        "a second operating constraint for clothing brand",
+        "a second operating constraint for franchise restaurant",
+        "a second operating constraint for Formula One team",
+        "a second operating constraint for solar farm",
+        "a second operating constraint for five-star hotel",
+        "a second operating constraint for wedding venue",
+        "a second operating constraint for martial arts club",
+        "a second operating constraint for gym",
+        "a second operating constraint for dental practice",
+        "a second operating constraint for veterinary clinic",
+        "a second operating constraint for private school",
+        "a second operating constraint for daycare center",
+        "a second operating constraint for funeral home",
+        "a second operating constraint for private security company",
+        "a second operating constraint for construction company",
+        "a second operating constraint for warehouse",
+        "a second operating constraint for laundromat",
+        "a second operating constraint for self-storage facility",
+        "a second operating constraint for supermarket",
+        "a second operating constraint for convenience store",
+        "a second operating constraint for airline",
+        "a second operating constraint for shipping company",
+        "a second operating constraint for data center",
+        "a second operating constraint for software company",
+        "a second operating constraint for game studio",
+        "a second operating constraint for animation studio",
+        "a second operating constraint for theme park",
+        "a second operating constraint for nightclub",
+        "a second operating constraint for food truck",
+        "a second operating constraint for bakery",
+        "a second operating constraint for brewery",
+        "a second operating constraint for record label",
+        "a second operating constraint for commercial farm",
+        "a second operating constraint for recycling plant"
       ]
     },
     {
@@ -174,9 +334,9 @@
           "evidence_lens": "site observation"
         },
         {
-          "episode_object": "a payroll roster",
+          "episode_object": "an operating record for coffee shop",
           "time_place_scope": "a slow weekday",
-          "mechanism": "contribution margin",
+          "mechanism": "a second operating constraint for coffee shop",
           "evidence_lens": "operator interview"
         }
       ]
@@ -191,9 +351,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a point-of-sale counter",
+          "episode_object": "an operating record for restaurant",
           "time_place_scope": "a launch month",
-          "mechanism": "customer volume",
+          "mechanism": "a second operating constraint for restaurant",
           "evidence_lens": "site observation"
         }
       ]
@@ -208,9 +368,9 @@
           "evidence_lens": "public filings"
         },
         {
-          "episode_object": "a point-of-sale counter",
+          "episode_object": "an operating record for casino",
           "time_place_scope": "a slow weekday",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for casino",
           "evidence_lens": "industry benchmark"
         }
       ]
@@ -225,9 +385,9 @@
           "evidence_lens": "industry benchmark"
         },
         {
-          "episode_object": "a balance sheet",
+          "episode_object": "an operating record for movie theater",
           "time_place_scope": "a busy season",
-          "mechanism": "customer volume",
+          "mechanism": "a second operating constraint for movie theater",
           "evidence_lens": "public filings"
         }
       ]
@@ -242,9 +402,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a point-of-sale counter",
+          "episode_object": "an operating record for automobile workshop",
           "time_place_scope": "an expansion decision",
-          "mechanism": "pricing power",
+          "mechanism": "a second operating constraint for automobile workshop",
           "evidence_lens": "site observation"
         }
       ]
@@ -259,9 +419,9 @@
           "evidence_lens": "site observation"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for automated car wash",
           "time_place_scope": "a slow weekday",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for automated car wash",
           "evidence_lens": "operator interview"
         }
       ]
@@ -276,9 +436,9 @@
           "evidence_lens": "industry benchmark"
         },
         {
-          "episode_object": "a lease agreement",
+          "episode_object": "an operating record for clothing brand",
           "time_place_scope": "an expansion decision",
-          "mechanism": "cash conversion",
+          "mechanism": "a second operating constraint for clothing brand",
           "evidence_lens": "public filings"
         }
       ]
@@ -293,9 +453,9 @@
           "evidence_lens": "public filings"
         },
         {
-          "episode_object": "a delivery truck",
+          "episode_object": "an operating record for franchise restaurant",
           "time_place_scope": "a supply disruption",
-          "mechanism": "inventory turnover",
+          "mechanism": "a second operating constraint for franchise restaurant",
           "evidence_lens": "industry benchmark"
         }
       ]
@@ -310,9 +470,9 @@
           "evidence_lens": "public filings"
         },
         {
-          "episode_object": "a balance sheet",
+          "episode_object": "an operating record for Formula One team",
           "time_place_scope": "an expansion decision",
-          "mechanism": "cash conversion",
+          "mechanism": "a second operating constraint for Formula One team",
           "evidence_lens": "regulatory record"
         }
       ]
@@ -327,9 +487,9 @@
           "evidence_lens": "regulatory record"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for solar farm",
           "time_place_scope": "a financing renewal",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for solar farm",
           "evidence_lens": "public filings"
         }
       ]
@@ -344,9 +504,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a payroll roster",
+          "episode_object": "an operating record for five-star hotel",
           "time_place_scope": "a financing renewal",
-          "mechanism": "labor scheduling",
+          "mechanism": "a second operating constraint for five-star hotel",
           "evidence_lens": "industry benchmark"
         }
       ]
@@ -361,9 +521,9 @@
           "evidence_lens": "industry benchmark"
         },
         {
-          "episode_object": "a lease agreement",
+          "episode_object": "an operating record for wedding venue",
           "time_place_scope": "a busy season",
-          "mechanism": "pricing power",
+          "mechanism": "a second operating constraint for wedding venue",
           "evidence_lens": "operator interview"
         }
       ]
@@ -378,9 +538,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a point-of-sale counter",
+          "episode_object": "an operating record for martial arts club",
           "time_place_scope": "a slow weekday",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for martial arts club",
           "evidence_lens": "site observation"
         }
       ]
@@ -395,9 +555,9 @@
           "evidence_lens": "site observation"
         },
         {
-          "episode_object": "a payroll roster",
+          "episode_object": "an operating record for gym",
           "time_place_scope": "a busy season",
-          "mechanism": "customer volume",
+          "mechanism": "a second operating constraint for gym",
           "evidence_lens": "operator interview"
         }
       ]
@@ -412,9 +572,9 @@
           "evidence_lens": "industry benchmark"
         },
         {
-          "episode_object": "a payroll roster",
+          "episode_object": "an operating record for dental practice",
           "time_place_scope": "a busy season",
-          "mechanism": "labor scheduling",
+          "mechanism": "a second operating constraint for dental practice",
           "evidence_lens": "operator interview"
         }
       ]
@@ -429,9 +589,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for veterinary clinic",
           "time_place_scope": "a financing renewal",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for veterinary clinic",
           "evidence_lens": "industry benchmark"
         }
       ]
@@ -446,9 +606,9 @@
           "evidence_lens": "regulatory record"
         },
         {
-          "episode_object": "a lease agreement",
+          "episode_object": "an operating record for private school",
           "time_place_scope": "a busy season",
-          "mechanism": "pricing power",
+          "mechanism": "a second operating constraint for private school",
           "evidence_lens": "operator interview"
         }
       ]
@@ -463,9 +623,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a payroll roster",
+          "episode_object": "an operating record for daycare center",
           "time_place_scope": "a financing renewal",
-          "mechanism": "labor scheduling",
+          "mechanism": "a second operating constraint for daycare center",
           "evidence_lens": "regulatory record"
         }
       ]
@@ -480,9 +640,9 @@
           "evidence_lens": "regulatory record"
         },
         {
-          "episode_object": "a payroll roster",
+          "episode_object": "an operating record for funeral home",
           "time_place_scope": "a busy season",
-          "mechanism": "labor scheduling",
+          "mechanism": "a second operating constraint for funeral home",
           "evidence_lens": "operator interview"
         }
       ]
@@ -497,9 +657,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a lease agreement",
+          "episode_object": "an operating record for private security company",
           "time_place_scope": "a slow weekday",
-          "mechanism": "pricing power",
+          "mechanism": "a second operating constraint for private security company",
           "evidence_lens": "regulatory record"
         }
       ]
@@ -514,9 +674,9 @@
           "evidence_lens": "site observation"
         },
         {
-          "episode_object": "a delivery truck",
+          "episode_object": "an operating record for construction company",
           "time_place_scope": "an expansion decision",
-          "mechanism": "inventory turnover",
+          "mechanism": "a second operating constraint for construction company",
           "evidence_lens": "industry benchmark"
         }
       ]
@@ -531,9 +691,9 @@
           "evidence_lens": "industry benchmark"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for warehouse",
           "time_place_scope": "a supply disruption",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for warehouse",
           "evidence_lens": "site observation"
         }
       ]
@@ -548,9 +708,9 @@
           "evidence_lens": "public filings"
         },
         {
-          "episode_object": "a lease agreement",
+          "episode_object": "an operating record for laundromat",
           "time_place_scope": "an expansion decision",
-          "mechanism": "cash conversion",
+          "mechanism": "a second operating constraint for laundromat",
           "evidence_lens": "industry benchmark"
         }
       ]
@@ -565,9 +725,9 @@
           "evidence_lens": "industry benchmark"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for self-storage facility",
           "time_place_scope": "a financing renewal",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for self-storage facility",
           "evidence_lens": "public filings"
         }
       ]
@@ -582,9 +742,9 @@
           "evidence_lens": "site observation"
         },
         {
-          "episode_object": "a point-of-sale counter",
+          "episode_object": "an operating record for supermarket",
           "time_place_scope": "a slow weekday",
-          "mechanism": "customer volume",
+          "mechanism": "a second operating constraint for supermarket",
           "evidence_lens": "industry benchmark"
         }
       ]
@@ -599,9 +759,9 @@
           "evidence_lens": "industry benchmark"
         },
         {
-          "episode_object": "a delivery truck",
+          "episode_object": "an operating record for convenience store",
           "time_place_scope": "a supply disruption",
-          "mechanism": "inventory turnover",
+          "mechanism": "a second operating constraint for convenience store",
           "evidence_lens": "site observation"
         }
       ]
@@ -616,9 +776,9 @@
           "evidence_lens": "public filings"
         },
         {
-          "episode_object": "a delivery truck",
+          "episode_object": "an operating record for airline",
           "time_place_scope": "a supply disruption",
-          "mechanism": "cash conversion",
+          "mechanism": "a second operating constraint for airline",
           "evidence_lens": "regulatory record"
         }
       ]
@@ -633,9 +793,9 @@
           "evidence_lens": "regulatory record"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for shipping company",
           "time_place_scope": "a busy season",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for shipping company",
           "evidence_lens": "public filings"
         }
       ]
@@ -650,9 +810,9 @@
           "evidence_lens": "industry benchmark"
         },
         {
-          "episode_object": "a balance sheet",
+          "episode_object": "an operating record for data center",
           "time_place_scope": "a financing renewal",
-          "mechanism": "pricing power",
+          "mechanism": "a second operating constraint for data center",
           "evidence_lens": "public filings"
         }
       ]
@@ -667,9 +827,9 @@
           "evidence_lens": "public filings"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for software company",
           "time_place_scope": "an expansion decision",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for software company",
           "evidence_lens": "industry benchmark"
         }
       ]
@@ -684,9 +844,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for game studio",
           "time_place_scope": "an expansion decision",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for game studio",
           "evidence_lens": "industry benchmark"
         }
       ]
@@ -701,9 +861,9 @@
           "evidence_lens": "industry benchmark"
         },
         {
-          "episode_object": "a payroll roster",
+          "episode_object": "an operating record for animation studio",
           "time_place_scope": "a financing renewal",
-          "mechanism": "labor scheduling",
+          "mechanism": "a second operating constraint for animation studio",
           "evidence_lens": "operator interview"
         }
       ]
@@ -718,9 +878,9 @@
           "evidence_lens": "site observation"
         },
         {
-          "episode_object": "a payroll roster",
+          "episode_object": "an operating record for theme park",
           "time_place_scope": "a slow weekday",
-          "mechanism": "labor scheduling",
+          "mechanism": "a second operating constraint for theme park",
           "evidence_lens": "operator interview"
         }
       ]
@@ -735,9 +895,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a point-of-sale counter",
+          "episode_object": "an operating record for nightclub",
           "time_place_scope": "a busy season",
-          "mechanism": "customer volume",
+          "mechanism": "a second operating constraint for nightclub",
           "evidence_lens": "site observation"
         }
       ]
@@ -752,9 +912,9 @@
           "evidence_lens": "site observation"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for food truck",
           "time_place_scope": "a slow weekday",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for food truck",
           "evidence_lens": "operator interview"
         }
       ]
@@ -769,9 +929,9 @@
           "evidence_lens": "operator interview"
         },
         {
-          "episode_object": "a delivery truck",
+          "episode_object": "an operating record for bakery",
           "time_place_scope": "a busy season",
-          "mechanism": "inventory turnover",
+          "mechanism": "a second operating constraint for bakery",
           "evidence_lens": "site observation"
         }
       ]
@@ -786,9 +946,9 @@
           "evidence_lens": "regulatory record"
         },
         {
-          "episode_object": "a balance sheet",
+          "episode_object": "an operating record for brewery",
           "time_place_scope": "an expansion decision",
-          "mechanism": "pricing power",
+          "mechanism": "a second operating constraint for brewery",
           "evidence_lens": "public filings"
         }
       ]
@@ -803,9 +963,9 @@
           "evidence_lens": "public filings"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for record label",
           "time_place_scope": "a financing renewal",
-          "mechanism": "inventory turnover",
+          "mechanism": "a second operating constraint for record label",
           "evidence_lens": "regulatory record"
         }
       ]
@@ -820,9 +980,9 @@
           "evidence_lens": "regulatory record"
         },
         {
-          "episode_object": "a delivery truck",
+          "episode_object": "an operating record for commercial farm",
           "time_place_scope": "an expansion decision",
-          "mechanism": "capacity utilization",
+          "mechanism": "a second operating constraint for commercial farm",
           "evidence_lens": "site observation"
         }
       ]
@@ -837,9 +997,9 @@
           "evidence_lens": "site observation"
         },
         {
-          "episode_object": "a piece of specialist equipment",
+          "episode_object": "an operating record for recycling plant",
           "time_place_scope": "a supply disruption",
-          "mechanism": "inventory turnover",
+          "mechanism": "a second operating constraint for recycling plant",
           "evidence_lens": "regulatory record"
         }
       ]

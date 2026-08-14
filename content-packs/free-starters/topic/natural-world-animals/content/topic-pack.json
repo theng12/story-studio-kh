@@ -26,7 +26,17 @@
     "a nest or den",
     "a migration route",
     "a predator defense",
-    "a courtship display"
+    "a courtship display",
+    "a field record of mammals",
+    "a field record of birds",
+    "a field record of reptiles",
+    "a field record of amphibians",
+    "a field record of fish",
+    "a field record of cephalopods",
+    "a field record of crustaceans",
+    "a field record of deep-sea animals",
+    "a field record of desert animals",
+    "a field record of migration"
   ],
   "time_place_scopes": [
     "a breeding season",
@@ -42,7 +52,17 @@
     "sensory adaptation",
     "cooperation",
     "thermoregulation",
-    "reproductive trade-off"
+    "reproductive trade-off",
+    "a second ecological pressure on mammals",
+    "a second ecological pressure on birds",
+    "a second ecological pressure on reptiles",
+    "a second ecological pressure on amphibians",
+    "a second ecological pressure on fish",
+    "a second ecological pressure on cephalopods",
+    "a second ecological pressure on crustaceans",
+    "a second ecological pressure on deep-sea animals",
+    "a second ecological pressure on desert animals",
+    "a second ecological pressure on migration"
   ],
   "evidence_lenses": [
     "field observation",
@@ -81,7 +101,17 @@
         "a nest or den",
         "a migration route",
         "a predator defense",
-        "a courtship display"
+        "a courtship display",
+        "a field record of mammals",
+        "a field record of birds",
+        "a field record of reptiles",
+        "a field record of amphibians",
+        "a field record of fish",
+        "a field record of cephalopods",
+        "a field record of crustaceans",
+        "a field record of deep-sea animals",
+        "a field record of desert animals",
+        "a field record of migration"
       ]
     },
     {
@@ -105,7 +135,17 @@
         "sensory adaptation",
         "cooperation",
         "thermoregulation",
-        "reproductive trade-off"
+        "reproductive trade-off",
+        "a second ecological pressure on mammals",
+        "a second ecological pressure on birds",
+        "a second ecological pressure on reptiles",
+        "a second ecological pressure on amphibians",
+        "a second ecological pressure on fish",
+        "a second ecological pressure on cephalopods",
+        "a second ecological pressure on crustaceans",
+        "a second ecological pressure on deep-sea animals",
+        "a second ecological pressure on desert animals",
+        "a second ecological pressure on migration"
       ]
     },
     {
@@ -140,9 +180,9 @@
           "evidence_lens": "field observation"
         },
         {
-          "episode_object": "a nest or den",
+          "episode_object": "a field record of mammals",
           "time_place_scope": "a breeding season",
-          "mechanism": "reproductive trade-off",
+          "mechanism": "a second ecological pressure on mammals",
           "evidence_lens": "life-history study"
         }
       ]
@@ -157,9 +197,9 @@
           "evidence_lens": "life-history study"
         },
         {
-          "episode_object": "a feeding tool",
+          "episode_object": "a field record of birds",
           "time_place_scope": "a forest canopy",
-          "mechanism": "energy conservation",
+          "mechanism": "a second ecological pressure on birds",
           "evidence_lens": "field observation"
         }
       ]
@@ -174,9 +214,9 @@
           "evidence_lens": "comparative anatomy"
         },
         {
-          "episode_object": "a predator defense",
+          "episode_object": "a field record of reptiles",
           "time_place_scope": "a forest canopy",
-          "mechanism": "sensory adaptation",
+          "mechanism": "a second ecological pressure on reptiles",
           "evidence_lens": "ecological survey"
         }
       ]
@@ -191,9 +231,9 @@
           "evidence_lens": "ecological survey"
         },
         {
-          "episode_object": "a camouflage pattern",
+          "episode_object": "a field record of amphibians",
           "time_place_scope": "a desert waterhole",
-          "mechanism": "thermoregulation",
+          "mechanism": "a second ecological pressure on amphibians",
           "evidence_lens": "comparative anatomy"
         }
       ]
@@ -208,9 +248,9 @@
           "evidence_lens": "ecological survey"
         },
         {
-          "episode_object": "a camouflage pattern",
+          "episode_object": "a field record of fish",
           "time_place_scope": "an abyssal plain",
-          "mechanism": "predator avoidance",
+          "mechanism": "a second ecological pressure on fish",
           "evidence_lens": "comparative anatomy"
         }
       ]
@@ -225,9 +265,9 @@
           "evidence_lens": "comparative anatomy"
         },
         {
-          "episode_object": "a feeding tool",
+          "episode_object": "a field record of cephalopods",
           "time_place_scope": "a reef edge",
-          "mechanism": "sensory adaptation",
+          "mechanism": "a second ecological pressure on cephalopods",
           "evidence_lens": "ecological survey"
         }
       ]
@@ -242,9 +282,9 @@
           "evidence_lens": "field observation"
         },
         {
-          "episode_object": "a camouflage pattern",
+          "episode_object": "a field record of crustaceans",
           "time_place_scope": "an abyssal plain",
-          "mechanism": "energy conservation",
+          "mechanism": "a second ecological pressure on crustaceans",
           "evidence_lens": "ecological survey"
         }
       ]
@@ -259,9 +299,9 @@
           "evidence_lens": "ecological survey"
         },
         {
-          "episode_object": "a courtship display",
+          "episode_object": "a field record of deep-sea animals",
           "time_place_scope": "a reef edge",
-          "mechanism": "cooperation",
+          "mechanism": "a second ecological pressure on deep-sea animals",
           "evidence_lens": "field observation"
         }
       ]
@@ -276,9 +316,9 @@
           "evidence_lens": "comparative anatomy"
         },
         {
-          "episode_object": "a migration route",
+          "episode_object": "a field record of desert animals",
           "time_place_scope": "a polar shoreline",
-          "mechanism": "energy conservation",
+          "mechanism": "a second ecological pressure on desert animals",
           "evidence_lens": "tracking data"
         }
       ]
@@ -293,9 +333,9 @@
           "evidence_lens": "tracking data"
         },
         {
-          "episode_object": "a predator defense",
+          "episode_object": "a field record of migration",
           "time_place_scope": "a desert waterhole",
-          "mechanism": "thermoregulation",
+          "mechanism": "a second ecological pressure on migration",
           "evidence_lens": "comparative anatomy"
         }
       ]

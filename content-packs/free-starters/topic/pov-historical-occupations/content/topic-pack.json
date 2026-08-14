@@ -40,7 +40,31 @@
     "a uniform or marker",
     "a wage or ration",
     "a rank insignia",
-    "a mourning cloth"
+    "a mourning cloth",
+    "a work record of medieval executioner",
+    "a work record of Roman gladiator",
+    "a work record of Viking shipbuilder",
+    "a work record of castle servant",
+    "a work record of court jester",
+    "a work record of plague doctor",
+    "a work record of Victorian chimney sweep",
+    "a work record of samurai retainer",
+    "a work record of Mongol messenger",
+    "a work record of ancient Egyptian scribe",
+    "a work record of Roman legionary",
+    "a work record of medieval guild apprentice",
+    "a work record of royal food taster",
+    "a work record of lighthouse keeper",
+    "a work record of whaler",
+    "a work record of siege engineer",
+    "a work record of caravan guard",
+    "a work record of galley rower",
+    "a work record of mine worker",
+    "a work record of imperial eunuch",
+    "a work record of renaissance printer",
+    "a work record of frontier stagecoach driver",
+    "a work record of manorial reeve",
+    "a work record of temple priest"
   ],
   "time_place_scopes": [
     "recruitment",
@@ -56,7 +80,31 @@
     "material incentives",
     "coercion and dependency",
     "social status",
-    "occupational risk"
+    "occupational risk",
+    "a second working condition for medieval executioner",
+    "a second working condition for Roman gladiator",
+    "a second working condition for Viking shipbuilder",
+    "a second working condition for castle servant",
+    "a second working condition for court jester",
+    "a second working condition for plague doctor",
+    "a second working condition for Victorian chimney sweep",
+    "a second working condition for samurai retainer",
+    "a second working condition for Mongol messenger",
+    "a second working condition for ancient Egyptian scribe",
+    "a second working condition for Roman legionary",
+    "a second working condition for medieval guild apprentice",
+    "a second working condition for royal food taster",
+    "a second working condition for lighthouse keeper",
+    "a second working condition for whaler",
+    "a second working condition for siege engineer",
+    "a second working condition for caravan guard",
+    "a second working condition for galley rower",
+    "a second working condition for mine worker",
+    "a second working condition for imperial eunuch",
+    "a second working condition for renaissance printer",
+    "a second working condition for frontier stagecoach driver",
+    "a second working condition for manorial reeve",
+    "a second working condition for temple priest"
   ],
   "evidence_lenses": [
     "guild record",
@@ -82,7 +130,31 @@
         "a uniform or marker",
         "a wage or ration",
         "a rank insignia",
-        "a mourning cloth"
+        "a mourning cloth",
+        "a work record of medieval executioner",
+        "a work record of Roman gladiator",
+        "a work record of Viking shipbuilder",
+        "a work record of castle servant",
+        "a work record of court jester",
+        "a work record of plague doctor",
+        "a work record of Victorian chimney sweep",
+        "a work record of samurai retainer",
+        "a work record of Mongol messenger",
+        "a work record of ancient Egyptian scribe",
+        "a work record of Roman legionary",
+        "a work record of medieval guild apprentice",
+        "a work record of royal food taster",
+        "a work record of lighthouse keeper",
+        "a work record of whaler",
+        "a work record of siege engineer",
+        "a work record of caravan guard",
+        "a work record of galley rower",
+        "a work record of mine worker",
+        "a work record of imperial eunuch",
+        "a work record of renaissance printer",
+        "a work record of frontier stagecoach driver",
+        "a work record of manorial reeve",
+        "a work record of temple priest"
       ]
     },
     {
@@ -106,7 +178,31 @@
         "material incentives",
         "coercion and dependency",
         "social status",
-        "occupational risk"
+        "occupational risk",
+        "a second working condition for medieval executioner",
+        "a second working condition for Roman gladiator",
+        "a second working condition for Viking shipbuilder",
+        "a second working condition for castle servant",
+        "a second working condition for court jester",
+        "a second working condition for plague doctor",
+        "a second working condition for Victorian chimney sweep",
+        "a second working condition for samurai retainer",
+        "a second working condition for Mongol messenger",
+        "a second working condition for ancient Egyptian scribe",
+        "a second working condition for Roman legionary",
+        "a second working condition for medieval guild apprentice",
+        "a second working condition for royal food taster",
+        "a second working condition for lighthouse keeper",
+        "a second working condition for whaler",
+        "a second working condition for siege engineer",
+        "a second working condition for caravan guard",
+        "a second working condition for galley rower",
+        "a second working condition for mine worker",
+        "a second working condition for imperial eunuch",
+        "a second working condition for renaissance printer",
+        "a second working condition for frontier stagecoach driver",
+        "a second working condition for manorial reeve",
+        "a second working condition for temple priest"
       ]
     },
     {
@@ -142,9 +238,9 @@
           "evidence_lens": "legal code"
         },
         {
-          "episode_object": "a uniform or marker",
+          "episode_object": "a work record of medieval executioner",
           "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
+          "mechanism": "a second working condition for medieval executioner",
           "evidence_lens": "material artifact"
         }
       ]
@@ -159,9 +255,9 @@
           "evidence_lens": "material artifact"
         },
         {
-          "episode_object": "an entry oath",
+          "episode_object": "a work record of Roman gladiator",
           "time_place_scope": "recruitment",
-          "mechanism": "coercion and dependency",
+          "mechanism": "a second working condition for Roman gladiator",
           "evidence_lens": "legal code"
         }
       ]
@@ -176,9 +272,9 @@
           "evidence_lens": "material artifact"
         },
         {
-          "episode_object": "a wage or ration",
+          "episode_object": "a work record of Viking shipbuilder",
           "time_place_scope": "ordinary duty",
-          "mechanism": "institutional hierarchy",
+          "mechanism": "a second working condition for Viking shipbuilder",
           "evidence_lens": "court account"
         }
       ]
@@ -193,9 +289,9 @@
           "evidence_lens": "court account"
         },
         {
-          "episode_object": "a work tool",
+          "episode_object": "a work record of castle servant",
           "time_place_scope": "training",
-          "mechanism": "skill apprenticeship",
+          "mechanism": "a second working condition for castle servant",
           "evidence_lens": "material artifact"
         }
       ]
@@ -210,9 +306,9 @@
           "evidence_lens": "court account"
         },
         {
-          "episode_object": "a work tool",
+          "episode_object": "a work record of court jester",
           "time_place_scope": "a first crisis",
-          "mechanism": "occupational risk",
+          "mechanism": "a second working condition for court jester",
           "evidence_lens": "historical reconstruction"
         }
       ]
@@ -227,9 +323,9 @@
           "evidence_lens": "historical reconstruction"
         },
         {
-          "episode_object": "a uniform or marker",
+          "episode_object": "a work record of plague doctor",
           "time_place_scope": "ordinary duty",
-          "mechanism": "social status",
+          "mechanism": "a second working condition for plague doctor",
           "evidence_lens": "court account"
         }
       ]
@@ -244,9 +340,9 @@
           "evidence_lens": "material artifact"
         },
         {
-          "episode_object": "a rank insignia",
+          "episode_object": "a work record of Victorian chimney sweep",
           "time_place_scope": "ordinary duty",
-          "mechanism": "institutional hierarchy",
+          "mechanism": "a second working condition for Victorian chimney sweep",
           "evidence_lens": "legal code"
         }
       ]
@@ -261,9 +357,9 @@
           "evidence_lens": "legal code"
         },
         {
-          "episode_object": "a work tool",
+          "episode_object": "a work record of samurai retainer",
           "time_place_scope": "training",
-          "mechanism": "coercion and dependency",
+          "mechanism": "a second working condition for samurai retainer",
           "evidence_lens": "material artifact"
         }
       ]
@@ -278,9 +374,9 @@
           "evidence_lens": "letter or diary"
         },
         {
-          "episode_object": "an entry oath",
+          "episode_object": "a work record of Mongol messenger",
           "time_place_scope": "training",
-          "mechanism": "skill apprenticeship",
+          "mechanism": "a second working condition for Mongol messenger",
           "evidence_lens": "historical reconstruction"
         }
       ]
@@ -295,9 +391,9 @@
           "evidence_lens": "historical reconstruction"
         },
         {
-          "episode_object": "a work tool",
+          "episode_object": "a work record of ancient Egyptian scribe",
           "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
+          "mechanism": "a second working condition for ancient Egyptian scribe",
           "evidence_lens": "letter or diary"
         }
       ]
@@ -312,9 +408,9 @@
           "evidence_lens": "legal code"
         },
         {
-          "episode_object": "a work tool",
+          "episode_object": "a work record of Roman legionary",
           "time_place_scope": "training",
-          "mechanism": "skill apprenticeship",
+          "mechanism": "a second working condition for Roman legionary",
           "evidence_lens": "guild record"
         }
       ]
@@ -329,9 +425,9 @@
           "evidence_lens": "guild record"
         },
         {
-          "episode_object": "a uniform or marker",
+          "episode_object": "a work record of medieval guild apprentice",
           "time_place_scope": "recruitment",
-          "mechanism": "institutional hierarchy",
+          "mechanism": "a second working condition for medieval guild apprentice",
           "evidence_lens": "legal code"
         }
       ]
@@ -346,9 +442,9 @@
           "evidence_lens": "court account"
         },
         {
-          "episode_object": "a wage or ration",
+          "episode_object": "a work record of royal food taster",
           "time_place_scope": "a first crisis",
-          "mechanism": "social status",
+          "mechanism": "a second working condition for royal food taster",
           "evidence_lens": "letter or diary"
         }
       ]
@@ -363,9 +459,9 @@
           "evidence_lens": "letter or diary"
         },
         {
-          "episode_object": "a work tool",
+          "episode_object": "a work record of lighthouse keeper",
           "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
+          "mechanism": "a second working condition for lighthouse keeper",
           "evidence_lens": "court account"
         }
       ]
@@ -380,9 +476,9 @@
           "evidence_lens": "historical reconstruction"
         },
         {
-          "episode_object": "a rank insignia",
+          "episode_object": "a work record of whaler",
           "time_place_scope": "a first crisis",
-          "mechanism": "material incentives",
+          "mechanism": "a second working condition for whaler",
           "evidence_lens": "material artifact"
         }
       ]
@@ -397,9 +493,9 @@
           "evidence_lens": "material artifact"
         },
         {
-          "episode_object": "a work tool",
+          "episode_object": "a work record of siege engineer",
           "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
+          "mechanism": "a second working condition for siege engineer",
           "evidence_lens": "historical reconstruction"
         }
       ]
@@ -414,9 +510,9 @@
           "evidence_lens": "letter or diary"
         },
         {
-          "episode_object": "a uniform or marker",
+          "episode_object": "a work record of caravan guard",
           "time_place_scope": "a first crisis",
-          "mechanism": "coercion and dependency",
+          "mechanism": "a second working condition for caravan guard",
           "evidence_lens": "legal code"
         }
       ]
@@ -431,9 +527,9 @@
           "evidence_lens": "legal code"
         },
         {
-          "episode_object": "a wage or ration",
+          "episode_object": "a work record of galley rower",
           "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
+          "mechanism": "a second working condition for galley rower",
           "evidence_lens": "letter or diary"
         }
       ]
@@ -448,9 +544,9 @@
           "evidence_lens": "material artifact"
         },
         {
-          "episode_object": "a rank insignia",
+          "episode_object": "a work record of mine worker",
           "time_place_scope": "advancement",
-          "mechanism": "institutional hierarchy",
+          "mechanism": "a second working condition for mine worker",
           "evidence_lens": "court account"
         }
       ]
@@ -465,9 +561,9 @@
           "evidence_lens": "court account"
         },
         {
-          "episode_object": "a work tool",
+          "episode_object": "a work record of imperial eunuch",
           "time_place_scope": "ordinary duty",
-          "mechanism": "occupational risk",
+          "mechanism": "a second working condition for imperial eunuch",
           "evidence_lens": "material artifact"
         }
       ]
@@ -482,9 +578,9 @@
           "evidence_lens": "material artifact"
         },
         {
-          "episode_object": "a wage or ration",
+          "episode_object": "a work record of renaissance printer",
           "time_place_scope": "ordinary duty",
-          "mechanism": "material incentives",
+          "mechanism": "a second working condition for renaissance printer",
           "evidence_lens": "letter or diary"
         }
       ]
@@ -499,9 +595,9 @@
           "evidence_lens": "letter or diary"
         },
         {
-          "episode_object": "a work tool",
+          "episode_object": "a work record of frontier stagecoach driver",
           "time_place_scope": "training",
-          "mechanism": "skill apprenticeship",
+          "mechanism": "a second working condition for frontier stagecoach driver",
           "evidence_lens": "material artifact"
         }
       ]
@@ -516,9 +612,9 @@
           "evidence_lens": "court account"
         },
         {
-          "episode_object": "an entry oath",
+          "episode_object": "a work record of manorial reeve",
           "time_place_scope": "advancement",
-          "mechanism": "social status",
+          "mechanism": "a second working condition for manorial reeve",
           "evidence_lens": "historical reconstruction"
         }
       ]
@@ -533,9 +629,9 @@
           "evidence_lens": "historical reconstruction"
         },
         {
-          "episode_object": "a wage or ration",
+          "episode_object": "a work record of temple priest",
           "time_place_scope": "ordinary duty",
-          "mechanism": "institutional hierarchy",
+          "mechanism": "a second working condition for temple priest",
           "evidence_lens": "court account"
         }
       ]

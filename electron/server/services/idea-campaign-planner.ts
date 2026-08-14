@@ -198,7 +198,7 @@ export function planIdeaAssignments(options: {
   const axesForSubject = (subject: SubjectRow) => subject.packId
     ? [
       ...(axesByPack.get(subject.packId) || []).filter(axis => !(subject.coverageGroup || subject.coverageProfile) || !COHERENT_AXIS_IDS.has(axis.id)),
-      ...formulaAxes,
+      ...formulaAxes.filter(axis => !subject.coverageProfile || !COHERENT_AXIS_IDS.has(axis.id)),
     ]
     : axes
 

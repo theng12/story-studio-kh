@@ -41,7 +41,29 @@
     "a supply route",
     "a diplomatic telegram",
     "a ceasefire line",
-    "a civilian evacuation"
+    "a civilian evacuation",
+    "a historical record of the Peloponnesian War",
+    "a historical record of the Punic Wars",
+    "a historical record of the Crusades",
+    "a historical record of the Thirty Years' War",
+    "a historical record of the Napoleonic Wars",
+    "a historical record of the Congress of Vienna",
+    "a historical record of the Crimean War",
+    "a historical record of the Franco-Prussian War",
+    "a historical record of the First World War",
+    "a historical record of the Treaty of Versailles",
+    "a historical record of the Second World War",
+    "a historical record of the Korean War",
+    "a historical record of the Suez Crisis",
+    "a historical record of the Cuban Missile Crisis",
+    "a historical record of the Vietnam War",
+    "a historical record of the Six-Day War",
+    "a historical record of the Soviet-Afghan War",
+    "a historical record of the Gulf War",
+    "a historical record of the breakup of the Cold War order",
+    "a historical record of the Dayton Agreement",
+    "a historical record of the Good Friday Agreement",
+    "a historical record of the War on Terror"
   ],
   "time_place_scopes": [
     "a prewar crisis",
@@ -59,7 +81,29 @@
     "home-front capacity",
     "peace settlement",
     "occupation and resistance",
-    "balance-of-power shift"
+    "balance-of-power shift",
+    "a second historical force in the Peloponnesian War",
+    "a second historical force in the Punic Wars",
+    "a second historical force in the Crusades",
+    "a second historical force in the Thirty Years' War",
+    "a second historical force in the Napoleonic Wars",
+    "a second historical force in the Congress of Vienna",
+    "a second historical force in the Crimean War",
+    "a second historical force in the Franco-Prussian War",
+    "a second historical force in the First World War",
+    "a second historical force in the Treaty of Versailles",
+    "a second historical force in the Second World War",
+    "a second historical force in the Korean War",
+    "a second historical force in the Suez Crisis",
+    "a second historical force in the Cuban Missile Crisis",
+    "a second historical force in the Vietnam War",
+    "a second historical force in the Six-Day War",
+    "a second historical force in the Soviet-Afghan War",
+    "a second historical force in the Gulf War",
+    "a second historical force in the breakup of the Cold War order",
+    "a second historical force in the Dayton Agreement",
+    "a second historical force in the Good Friday Agreement",
+    "a second historical force in the War on Terror"
   ],
   "evidence_lenses": [
     "diplomatic archive",
@@ -99,7 +143,29 @@
         "a supply route",
         "a diplomatic telegram",
         "a ceasefire line",
-        "a civilian evacuation"
+        "a civilian evacuation",
+        "a historical record of the Peloponnesian War",
+        "a historical record of the Punic Wars",
+        "a historical record of the Crusades",
+        "a historical record of the Thirty Years' War",
+        "a historical record of the Napoleonic Wars",
+        "a historical record of the Congress of Vienna",
+        "a historical record of the Crimean War",
+        "a historical record of the Franco-Prussian War",
+        "a historical record of the First World War",
+        "a historical record of the Treaty of Versailles",
+        "a historical record of the Second World War",
+        "a historical record of the Korean War",
+        "a historical record of the Suez Crisis",
+        "a historical record of the Cuban Missile Crisis",
+        "a historical record of the Vietnam War",
+        "a historical record of the Six-Day War",
+        "a historical record of the Soviet-Afghan War",
+        "a historical record of the Gulf War",
+        "a historical record of the breakup of the Cold War order",
+        "a historical record of the Dayton Agreement",
+        "a historical record of the Good Friday Agreement",
+        "a historical record of the War on Terror"
       ]
     },
     {
@@ -125,7 +191,29 @@
         "home-front capacity",
         "peace settlement",
         "occupation and resistance",
-        "balance-of-power shift"
+        "balance-of-power shift",
+        "a second historical force in the Peloponnesian War",
+        "a second historical force in the Punic Wars",
+        "a second historical force in the Crusades",
+        "a second historical force in the Thirty Years' War",
+        "a second historical force in the Napoleonic Wars",
+        "a second historical force in the Congress of Vienna",
+        "a second historical force in the Crimean War",
+        "a second historical force in the Franco-Prussian War",
+        "a second historical force in the First World War",
+        "a second historical force in the Treaty of Versailles",
+        "a second historical force in the Second World War",
+        "a second historical force in the Korean War",
+        "a second historical force in the Suez Crisis",
+        "a second historical force in the Cuban Missile Crisis",
+        "a second historical force in the Vietnam War",
+        "a second historical force in the Six-Day War",
+        "a second historical force in the Soviet-Afghan War",
+        "a second historical force in the Gulf War",
+        "a second historical force in the breakup of the Cold War order",
+        "a second historical force in the Dayton Agreement",
+        "a second historical force in the Good Friday Agreement",
+        "a second historical force in the War on Terror"
       ]
     },
     {
@@ -163,9 +251,9 @@
           "evidence_lens": "historical debate"
         },
         {
-          "episode_object": "a supply route",
+          "episode_object": "a historical record of the Peloponnesian War",
           "time_place_scope": "a wartime coalition",
-          "mechanism": "military logistics",
+          "mechanism": "a second historical force in the Peloponnesian War",
           "evidence_lens": "military logistics record"
         }
       ]
@@ -180,9 +268,9 @@
           "evidence_lens": "military logistics record"
         },
         {
-          "episode_object": "an alliance map",
+          "episode_object": "a historical record of the Punic Wars",
           "time_place_scope": "a prewar crisis",
-          "mechanism": "alliance commitment",
+          "mechanism": "a second historical force in the Punic Wars",
           "evidence_lens": "historical debate"
         }
       ]
@@ -197,9 +285,9 @@
           "evidence_lens": "military logistics record"
         },
         {
-          "episode_object": "a civilian evacuation",
+          "episode_object": "a historical record of the Crusades",
           "time_place_scope": "an occupied territory",
-          "mechanism": "home-front capacity",
+          "mechanism": "a second historical force in the Crusades",
           "evidence_lens": "civilian testimony"
         }
       ]
@@ -214,9 +302,9 @@
           "evidence_lens": "civilian testimony"
         },
         {
-          "episode_object": "a supply route",
+          "episode_object": "a historical record of the Thirty Years' War",
           "time_place_scope": "a wartime coalition",
-          "mechanism": "war aims",
+          "mechanism": "a second historical force in the Thirty Years' War",
           "evidence_lens": "military logistics record"
         }
       ]
@@ -248,9 +336,9 @@
           "evidence_lens": "diplomatic archive"
         },
         {
-          "episode_object": "a supply route",
+          "episode_object": "a historical record of the Napoleonic Wars",
           "time_place_scope": "a wartime coalition",
-          "mechanism": "military logistics",
+          "mechanism": "a second historical force in the Napoleonic Wars",
           "evidence_lens": "military logistics record"
         }
       ]
@@ -265,9 +353,9 @@
           "evidence_lens": "treaty text"
         },
         {
-          "episode_object": "an alliance map",
+          "episode_object": "a historical record of the Congress of Vienna",
           "time_place_scope": "a prewar crisis",
-          "mechanism": "alliance commitment",
+          "mechanism": "a second historical force in the Congress of Vienna",
           "evidence_lens": "diplomatic archive"
         }
       ]
@@ -282,9 +370,9 @@
           "evidence_lens": "diplomatic archive"
         },
         {
-          "episode_object": "a treaty text",
+          "episode_object": "a historical record of the Crimean War",
           "time_place_scope": "a peace conference",
-          "mechanism": "peace settlement",
+          "mechanism": "a second historical force in the Crimean War",
           "evidence_lens": "treaty text"
         }
       ]
@@ -299,9 +387,9 @@
           "evidence_lens": "military logistics record"
         },
         {
-          "episode_object": "a civilian evacuation",
+          "episode_object": "a historical record of the Franco-Prussian War",
           "time_place_scope": "a wartime coalition",
-          "mechanism": "home-front capacity",
+          "mechanism": "a second historical force in the Franco-Prussian War",
           "evidence_lens": "demographic record"
         }
       ]
@@ -316,9 +404,9 @@
           "evidence_lens": "demographic record"
         },
         {
-          "episode_object": "a supply route",
+          "episode_object": "a historical record of the First World War",
           "time_place_scope": "a prewar crisis",
-          "mechanism": "military logistics",
+          "mechanism": "a second historical force in the First World War",
           "evidence_lens": "military logistics record"
         }
       ]
@@ -333,9 +421,9 @@
           "evidence_lens": "treaty text"
         },
         {
-          "episode_object": "a civilian evacuation",
+          "episode_object": "a historical record of the Treaty of Versailles",
           "time_place_scope": "an occupied territory",
-          "mechanism": "occupation and resistance",
+          "mechanism": "a second historical force in the Treaty of Versailles",
           "evidence_lens": "civilian testimony"
         }
       ]
@@ -350,9 +438,9 @@
           "evidence_lens": "civilian testimony"
         },
         {
-          "episode_object": "a treaty text",
+          "episode_object": "a historical record of the Second World War",
           "time_place_scope": "a peace conference",
-          "mechanism": "peace settlement",
+          "mechanism": "a second historical force in the Second World War",
           "evidence_lens": "treaty text"
         }
       ]
@@ -384,9 +472,9 @@
           "evidence_lens": "historical debate"
         },
         {
-          "episode_object": "a diplomatic telegram",
+          "episode_object": "a historical record of the Korean War",
           "time_place_scope": "a postwar settlement",
-          "mechanism": "balance-of-power shift",
+          "mechanism": "a second historical force in the Korean War",
           "evidence_lens": "diplomatic archive"
         }
       ]
@@ -401,9 +489,9 @@
           "evidence_lens": "diplomatic archive"
         },
         {
-          "episode_object": "an alliance map",
+          "episode_object": "a historical record of the Suez Crisis",
           "time_place_scope": "a deterrence standoff",
-          "mechanism": "deterrence failure",
+          "mechanism": "a second historical force in the Suez Crisis",
           "evidence_lens": "historical debate"
         }
       ]
@@ -418,9 +506,9 @@
           "evidence_lens": "historical debate"
         },
         {
-          "episode_object": "a diplomatic telegram",
+          "episode_object": "a historical record of the Cuban Missile Crisis",
           "time_place_scope": "a deterrence standoff",
-          "mechanism": "balance-of-power shift",
+          "mechanism": "a second historical force in the Cuban Missile Crisis",
           "evidence_lens": "diplomatic archive"
         }
       ]
@@ -435,9 +523,9 @@
           "evidence_lens": "civilian testimony"
         },
         {
-          "episode_object": "a ceasefire line",
+          "episode_object": "a historical record of the Vietnam War",
           "time_place_scope": "a wartime coalition",
-          "mechanism": "war aims",
+          "mechanism": "a second historical force in the Vietnam War",
           "evidence_lens": "military logistics record"
         }
       ]
@@ -452,9 +540,9 @@
           "evidence_lens": "military logistics record"
         },
         {
-          "episode_object": "a supply route",
+          "episode_object": "a historical record of the Six-Day War",
           "time_place_scope": "an occupied territory",
-          "mechanism": "occupation and resistance",
+          "mechanism": "a second historical force in the Six-Day War",
           "evidence_lens": "civilian testimony"
         }
       ]
@@ -469,9 +557,9 @@
           "evidence_lens": "civilian testimony"
         },
         {
-          "episode_object": "a supply route",
+          "episode_object": "a historical record of the Soviet-Afghan War",
           "time_place_scope": "a wartime coalition",
-          "mechanism": "military logistics",
+          "mechanism": "a second historical force in the Soviet-Afghan War",
           "evidence_lens": "military logistics record"
         }
       ]
@@ -486,9 +574,9 @@
           "evidence_lens": "military logistics record"
         },
         {
-          "episode_object": "a civilian evacuation",
+          "episode_object": "a historical record of the Gulf War",
           "time_place_scope": "an occupied territory",
-          "mechanism": "occupation and resistance",
+          "mechanism": "a second historical force in the Gulf War",
           "evidence_lens": "civilian testimony"
         }
       ]
@@ -503,9 +591,9 @@
           "evidence_lens": "historical debate"
         },
         {
-          "episode_object": "a treaty text",
+          "episode_object": "a historical record of the breakup of the Cold War order",
           "time_place_scope": "a peace conference",
-          "mechanism": "peace settlement",
+          "mechanism": "a second historical force in the breakup of the Cold War order",
           "evidence_lens": "treaty text"
         }
       ]
@@ -520,9 +608,9 @@
           "evidence_lens": "treaty text"
         },
         {
-          "episode_object": "an alliance map",
+          "episode_object": "a historical record of the Dayton Agreement",
           "time_place_scope": "a postwar settlement",
-          "mechanism": "balance-of-power shift",
+          "mechanism": "a second historical force in the Dayton Agreement",
           "evidence_lens": "historical debate"
         }
       ]
@@ -537,9 +625,9 @@
           "evidence_lens": "treaty text"
         },
         {
-          "episode_object": "a civilian evacuation",
+          "episode_object": "a historical record of the Good Friday Agreement",
           "time_place_scope": "an occupied territory",
-          "mechanism": "occupation and resistance",
+          "mechanism": "a second historical force in the Good Friday Agreement",
           "evidence_lens": "civilian testimony"
         }
       ]
@@ -554,9 +642,9 @@
           "evidence_lens": "civilian testimony"
         },
         {
-          "episode_object": "a treaty text",
+          "episode_object": "a historical record of the War on Terror",
           "time_place_scope": "a peace conference",
-          "mechanism": "peace settlement",
+          "mechanism": "a second historical force in the War on Terror",
           "evidence_lens": "treaty text"
         }
       ]

@@ -171,6 +171,31 @@ describe('Series Formula + Topic Pack campaign planning', () => {
     }
   })
 
+  test('a Topic profile remains atomic when the Formula declares identically named structural axes', () => {
+    const niche = {
+      id: 'profile-formula', name: 'Profile Formula', description: 'Formula axes must not overwrite profile records.', builtin: true, schemaVersion: 1 as const,
+      exampleTopics: [],
+      ideaAxes: [
+        { id: 'episode-object', label: 'Formula object', values: ['wrong Formula object'] },
+        { id: 'time-place-scope', label: 'Formula time', values: ['wrong Formula time'] },
+        { id: 'mechanism', label: 'Formula mechanism', values: ['wrong Formula mechanism'] },
+        { id: 'evidence-lens', label: 'Formula evidence', values: ['wrong Formula evidence'] },
+      ],
+      activeTopicPacks: [{
+        id: 'profile-pack', name: 'Profile Pack', description: 'Atomic profile fixture.', builtin: true, schemaVersion: 1 as const,
+        compatibleNicheIds: ['profile-formula'], subjects: ['a subject'], maxSiblingsPerSubject: 1,
+        coverageProfiles: [{ subject: 'a subject', tuples: [
+          { episodeObject: 'authored object', timePlaceScope: 'authored time', mechanism: 'authored mechanism', evidenceLens: 'authored evidence' },
+          { episodeObject: 'next object', timePlaceScope: 'next time', mechanism: 'next mechanism', evidenceLens: 'next evidence' },
+        ] }],
+      }],
+    }
+    const assignment = planIdeaAssignments({ niche, count: 1, seed: 'profile-formula' })[0]
+    assert.deepEqual(Object.fromEntries(['subject', 'episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'].map(key => [key, assignment?.dimensions[key]])), {
+      subject: 'a subject', 'episode-object': 'authored object', 'time-place-scope': 'authored time', mechanism: 'authored mechanism', 'evidence-lens': 'authored evidence',
+    })
+  })
+
   test('a schema-valid legacy Topic without coverage groups or idea axes still plans generically', () => {
     const niche = {
       id: 'legacy-topic-formula', name: 'Legacy Topic Formula', description: 'Compatibility fixture.', builtin: true, schemaVersion: 1 as const,

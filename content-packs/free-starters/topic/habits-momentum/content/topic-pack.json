@@ -32,7 +32,21 @@
     "a water bottle",
     "a desk tray",
     "a packed bag",
-    "a bookmark"
+    "a bookmark",
+    "a second practical cue for prepare tomorrow's shoes",
+    "a second practical cue for one-line next action",
+    "a second practical cue for calendar start cue",
+    "a second practical cue for two-minute opening step",
+    "a second practical cue for phone parking spot",
+    "a second practical cue for visible water bottle",
+    "a second practical cue for workspace reset",
+    "a second practical cue for repeatable breakfast",
+    "a second practical cue for evening shutdown note",
+    "a second practical cue for weekly planning block",
+    "a second practical cue for reading bookmark",
+    "a second practical cue for ready-to-go bag",
+    "a second practical cue for single-task timer",
+    "a second practical cue for habit after a meal"
   ],
   "time_place_scopes": [
     "the night before",
@@ -48,7 +62,21 @@
     "next-action clarity",
     "environment setup",
     "gentle tracking",
-    "restart planning"
+    "restart planning",
+    "a second practical process for prepare tomorrow's shoes",
+    "a second practical process for one-line next action",
+    "a second practical process for calendar start cue",
+    "a second practical process for two-minute opening step",
+    "a second practical process for phone parking spot",
+    "a second practical process for visible water bottle",
+    "a second practical process for workspace reset",
+    "a second practical process for repeatable breakfast",
+    "a second practical process for evening shutdown note",
+    "a second practical process for weekly planning block",
+    "a second practical process for reading bookmark",
+    "a second practical process for ready-to-go bag",
+    "a second practical process for single-task timer",
+    "a second practical process for habit after a meal"
   ],
   "evidence_lenses": [
     "practical constraint",
@@ -77,7 +105,21 @@
         "a water bottle",
         "a desk tray",
         "a packed bag",
-        "a bookmark"
+        "a bookmark",
+        "a second practical cue for prepare tomorrow's shoes",
+        "a second practical cue for one-line next action",
+        "a second practical cue for calendar start cue",
+        "a second practical cue for two-minute opening step",
+        "a second practical cue for phone parking spot",
+        "a second practical cue for visible water bottle",
+        "a second practical cue for workspace reset",
+        "a second practical cue for repeatable breakfast",
+        "a second practical cue for evening shutdown note",
+        "a second practical cue for weekly planning block",
+        "a second practical cue for reading bookmark",
+        "a second practical cue for ready-to-go bag",
+        "a second practical cue for single-task timer",
+        "a second practical cue for habit after a meal"
       ]
     },
     {
@@ -101,7 +143,21 @@
         "next-action clarity",
         "environment setup",
         "gentle tracking",
-        "restart planning"
+        "restart planning",
+        "a second practical process for prepare tomorrow's shoes",
+        "a second practical process for one-line next action",
+        "a second practical process for calendar start cue",
+        "a second practical process for two-minute opening step",
+        "a second practical process for phone parking spot",
+        "a second practical process for visible water bottle",
+        "a second practical process for workspace reset",
+        "a second practical process for repeatable breakfast",
+        "a second practical process for evening shutdown note",
+        "a second practical process for weekly planning block",
+        "a second practical process for reading bookmark",
+        "a second practical process for ready-to-go bag",
+        "a second practical process for single-task timer",
+        "a second practical process for habit after a meal"
       ]
     },
     {
@@ -138,9 +194,9 @@
           "evidence_lens": "practical constraint"
         },
         {
-          "episode_object": "a note card",
+          "episode_object": "a second practical cue for prepare tomorrow's shoes",
           "time_place_scope": "the first five minutes of work",
-          "mechanism": "next-action clarity",
+          "mechanism": "a second practical process for prepare tomorrow's shoes",
           "evidence_lens": "small experiment"
         }
       ]
@@ -155,9 +211,9 @@
           "evidence_lens": "small experiment"
         },
         {
-          "episode_object": "a pair of shoes",
+          "episode_object": "a second practical cue for one-line next action",
           "time_place_scope": "the night before",
-          "mechanism": "environment setup",
+          "mechanism": "a second practical process for one-line next action",
           "evidence_lens": "practical constraint"
         }
       ]
@@ -172,9 +228,9 @@
           "evidence_lens": "time-bound observation"
         },
         {
-          "episode_object": "a note card",
+          "episode_object": "a second practical cue for calendar start cue",
           "time_place_scope": "the first five minutes of work",
-          "mechanism": "friction reduction",
+          "mechanism": "a second practical process for calendar start cue",
           "evidence_lens": "small experiment"
         }
       ]
@@ -189,9 +245,9 @@
           "evidence_lens": "small experiment"
         },
         {
-          "episode_object": "a calendar",
+          "episode_object": "a second practical cue for two-minute opening step",
           "time_place_scope": "the first five minutes of work",
-          "mechanism": "cue design",
+          "mechanism": "a second practical process for two-minute opening step",
           "evidence_lens": "time-bound observation"
         }
       ]
@@ -206,9 +262,9 @@
           "evidence_lens": "accessibility consideration"
         },
         {
-          "episode_object": "a water bottle",
+          "episode_object": "a second practical cue for phone parking spot",
           "time_place_scope": "a home workspace",
-          "mechanism": "cue design",
+          "mechanism": "a second practical process for phone parking spot",
           "evidence_lens": "practical constraint"
         }
       ]
@@ -223,9 +279,9 @@
           "evidence_lens": "practical constraint"
         },
         {
-          "episode_object": "a phone shelf",
+          "episode_object": "a second practical cue for visible water bottle",
           "time_place_scope": "a home workspace",
-          "mechanism": "environment setup",
+          "mechanism": "a second practical process for visible water bottle",
           "evidence_lens": "accessibility consideration"
         }
       ]
@@ -240,9 +296,9 @@
           "evidence_lens": "trade-off check"
         },
         {
-          "episode_object": "a water bottle",
+          "episode_object": "a second practical cue for workspace reset",
           "time_place_scope": "the first five minutes of work",
-          "mechanism": "friction reduction",
+          "mechanism": "a second practical process for workspace reset",
           "evidence_lens": "small experiment"
         }
       ]
@@ -257,9 +313,9 @@
           "evidence_lens": "small experiment"
         },
         {
-          "episode_object": "a desk tray",
+          "episode_object": "a second practical cue for repeatable breakfast",
           "time_place_scope": "the end of a workday",
-          "mechanism": "environment setup",
+          "mechanism": "a second practical process for repeatable breakfast",
           "evidence_lens": "trade-off check"
         }
       ]
@@ -274,9 +330,9 @@
           "evidence_lens": "time-bound observation"
         },
         {
-          "episode_object": "a calendar",
+          "episode_object": "a second practical cue for evening shutdown note",
           "time_place_scope": "a weekly planning session",
-          "mechanism": "gentle tracking",
+          "mechanism": "a second practical process for evening shutdown note",
           "evidence_lens": "trade-off check"
         }
       ]
@@ -291,9 +347,9 @@
           "evidence_lens": "trade-off check"
         },
         {
-          "episode_object": "a note card",
+          "episode_object": "a second practical cue for weekly planning block",
           "time_place_scope": "the end of a workday",
-          "mechanism": "restart planning",
+          "mechanism": "a second practical process for weekly planning block",
           "evidence_lens": "time-bound observation"
         }
       ]
@@ -308,9 +364,9 @@
           "evidence_lens": "listener choice"
         },
         {
-          "episode_object": "a packed bag",
+          "episode_object": "a second practical cue for reading bookmark",
           "time_place_scope": "the night before",
-          "mechanism": "friction reduction",
+          "mechanism": "a second practical process for reading bookmark",
           "evidence_lens": "practical constraint"
         }
       ]
@@ -325,9 +381,9 @@
           "evidence_lens": "practical constraint"
         },
         {
-          "episode_object": "a bookmark",
+          "episode_object": "a second practical cue for ready-to-go bag",
           "time_place_scope": "the night before",
-          "mechanism": "cue design",
+          "mechanism": "a second practical process for ready-to-go bag",
           "evidence_lens": "listener choice"
         }
       ]
@@ -342,9 +398,9 @@
           "evidence_lens": "time-bound observation"
         },
         {
-          "episode_object": "a water bottle",
+          "episode_object": "a second practical cue for single-task timer",
           "time_place_scope": "after a meal",
-          "mechanism": "cue design",
+          "mechanism": "a second practical process for single-task timer",
           "evidence_lens": "accessibility consideration"
         }
       ]
@@ -359,9 +415,9 @@
           "evidence_lens": "accessibility consideration"
         },
         {
-          "episode_object": "a desk tray",
+          "episode_object": "a second practical cue for habit after a meal",
           "time_place_scope": "the first five minutes of work",
-          "mechanism": "gentle tracking",
+          "mechanism": "a second practical process for habit after a meal",
           "evidence_lens": "time-bound observation"
         }
       ]

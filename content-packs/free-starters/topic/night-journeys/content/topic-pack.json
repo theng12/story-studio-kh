@@ -38,7 +38,17 @@
     "a shell catalog",
     "a shell pouch",
     "a tea cup",
-    "a tea tray"
+    "a tea tray",
+    "a quiet detail from lantern keeper's evening round",
+    "a quiet detail from moonlit garden watering",
+    "a quiet detail from library book return",
+    "a quiet detail from candle maker's last pour",
+    "a quiet detail from quiet ferry crossing",
+    "a quiet detail from snowy cottage mending",
+    "a quiet detail from orchard basket sorting",
+    "a quiet detail from lighthouse window cleaning",
+    "a quiet detail from observatory blanket folding",
+    "a quiet detail from village letter delivery"
   ],
   "time_place_scopes": [
     "blue-hour village",
@@ -56,7 +66,17 @@
     "gentle sorting",
     "small repair",
     "weather noticing",
-    "soft homecoming"
+    "soft homecoming",
+    "a second gentle rhythm for lantern keeper's evening round",
+    "a second gentle rhythm for moonlit garden watering",
+    "a second gentle rhythm for library book return",
+    "a second gentle rhythm for candle maker's last pour",
+    "a second gentle rhythm for quiet ferry crossing",
+    "a second gentle rhythm for snowy cottage mending",
+    "a second gentle rhythm for orchard basket sorting",
+    "a second gentle rhythm for lighthouse window cleaning",
+    "a second gentle rhythm for observatory blanket folding",
+    "a second gentle rhythm for village letter delivery"
   ],
   "evidence_lenses": [
     "low-arousal pacing",
@@ -91,7 +111,17 @@
         "a shell catalog",
         "a shell pouch",
         "a tea cup",
-        "a tea tray"
+        "a tea tray",
+        "a quiet detail from lantern keeper's evening round",
+        "a quiet detail from moonlit garden watering",
+        "a quiet detail from library book return",
+        "a quiet detail from candle maker's last pour",
+        "a quiet detail from quiet ferry crossing",
+        "a quiet detail from snowy cottage mending",
+        "a quiet detail from orchard basket sorting",
+        "a quiet detail from lighthouse window cleaning",
+        "a quiet detail from observatory blanket folding",
+        "a quiet detail from village letter delivery"
       ]
     },
     {
@@ -117,7 +147,17 @@
         "gentle sorting",
         "small repair",
         "weather noticing",
-        "soft homecoming"
+        "soft homecoming",
+        "a second gentle rhythm for lantern keeper's evening round",
+        "a second gentle rhythm for moonlit garden watering",
+        "a second gentle rhythm for library book return",
+        "a second gentle rhythm for candle maker's last pour",
+        "a second gentle rhythm for quiet ferry crossing",
+        "a second gentle rhythm for snowy cottage mending",
+        "a second gentle rhythm for orchard basket sorting",
+        "a second gentle rhythm for lighthouse window cleaning",
+        "a second gentle rhythm for observatory blanket folding",
+        "a second gentle rhythm for village letter delivery"
       ]
     },
     {
@@ -154,9 +194,9 @@
           "evidence_lens": "quiet setting detail"
         },
         {
-          "episode_object": "a watering can",
+          "episode_object": "a quiet detail from lantern keeper's evening round",
           "time_place_scope": "moonlit garden",
-          "mechanism": "repetitive tending",
+          "mechanism": "a second gentle rhythm for lantern keeper's evening round",
           "evidence_lens": "completed small task"
         }
       ]
@@ -171,9 +211,9 @@
           "evidence_lens": "completed small task"
         },
         {
-          "episode_object": "a lantern",
+          "episode_object": "a quiet detail from moonlit garden watering",
           "time_place_scope": "blue-hour village",
-          "mechanism": "slow walking",
+          "mechanism": "a second gentle rhythm for moonlit garden watering",
           "evidence_lens": "quiet setting detail"
         }
       ]
@@ -188,9 +228,9 @@
           "evidence_lens": "sensory continuity"
         },
         {
-          "episode_object": "a beeswax candle",
+          "episode_object": "a quiet detail from library book return",
           "time_place_scope": "blue-hour village",
-          "mechanism": "small repair",
+          "mechanism": "a second gentle rhythm for library book return",
           "evidence_lens": "completed small task"
         }
       ]
@@ -205,9 +245,9 @@
           "evidence_lens": "completed small task"
         },
         {
-          "episode_object": "a library book",
+          "episode_object": "a quiet detail from candle maker's last pour",
           "time_place_scope": "warm library",
-          "mechanism": "slow walking",
+          "mechanism": "a second gentle rhythm for candle maker's last pour",
           "evidence_lens": "sensory continuity"
         }
       ]
@@ -222,9 +262,9 @@
           "evidence_lens": "calm transition"
         },
         {
-          "episode_object": "a wool blanket",
+          "episode_object": "a quiet detail from quiet ferry crossing",
           "time_place_scope": "snow-softened cottage",
-          "mechanism": "small repair",
+          "mechanism": "a second gentle rhythm for quiet ferry crossing",
           "evidence_lens": "completed small task"
         }
       ]
@@ -239,9 +279,9 @@
           "evidence_lens": "completed small task"
         },
         {
-          "episode_object": "a folded map",
+          "episode_object": "a quiet detail from snowy cottage mending",
           "time_place_scope": "quiet harbor",
-          "mechanism": "weather noticing",
+          "mechanism": "a second gentle rhythm for snowy cottage mending",
           "evidence_lens": "calm transition"
         }
       ]
@@ -256,9 +296,9 @@
           "evidence_lens": "completed small task"
         },
         {
-          "episode_object": "a lantern",
+          "episode_object": "a quiet detail from orchard basket sorting",
           "time_place_scope": "quiet harbor",
-          "mechanism": "weather noticing",
+          "mechanism": "a second gentle rhythm for orchard basket sorting",
           "evidence_lens": "quiet setting detail"
         }
       ]
@@ -273,9 +313,9 @@
           "evidence_lens": "quiet setting detail"
         },
         {
-          "episode_object": "a seed packet",
+          "episode_object": "a quiet detail from lighthouse window cleaning",
           "time_place_scope": "blue-hour village",
-          "mechanism": "gentle sorting",
+          "mechanism": "a second gentle rhythm for lighthouse window cleaning",
           "evidence_lens": "completed small task"
         }
       ]
@@ -324,9 +364,9 @@
           "evidence_lens": "rest-oriented ending"
         },
         {
-          "episode_object": "a letter",
+          "episode_object": "a quiet detail from observatory blanket folding",
           "time_place_scope": "blue-hour village",
-          "mechanism": "slow walking",
+          "mechanism": "a second gentle rhythm for observatory blanket folding",
           "evidence_lens": "calm transition"
         }
       ]
@@ -341,9 +381,9 @@
           "evidence_lens": "calm transition"
         },
         {
-          "episode_object": "a wool blanket",
+          "episode_object": "a quiet detail from village letter delivery",
           "time_place_scope": "snow-softened cottage",
-          "mechanism": "gentle sorting",
+          "mechanism": "a second gentle rhythm for village letter delivery",
           "evidence_lens": "rest-oriented ending"
         }
       ]
