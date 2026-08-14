@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+  "publisher_id": "com.storystudio",
+  "key_id": "com.storystudio.key.archival-ledger",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First independently signed States, Revolutions & Collapse Topic component.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.archival-ledger.states-revolutions-collapse",
+    "family": "com.storystudio.family.topic.archival-ledger.states-revolutions-collapse"
+  }
+}

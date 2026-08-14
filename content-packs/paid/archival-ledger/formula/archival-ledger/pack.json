@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.archival-ledger",
+  "publisher_id": "com.storystudio",
+  "key_id": "com.storystudio.key.archival-ledger",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First independently signed Archival Ledger Formula component.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.formula.archival-ledger",
+    "family": "com.storystudio.family.formula.archival-ledger"
+  }
+}
