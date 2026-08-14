@@ -115,10 +115,7 @@
             <span class="network-dot" aria-hidden="true" />
             <span>{{ networkOnline ? 'Story Studio online' : 'Story Studio unavailable' }}</span>
           </div>
-          <NuxtLink to="/usage" class="credit-card" aria-label="Credit balances" :title="usageError || 'Open GenStudio usage'">
-            <span>GenStudio</span>
-            <strong>{{ creditSummary }}</strong>
-          </NuxtLink>
+          <GenStudioStandingStrip />
         </footer>
       </aside>
 
@@ -150,13 +147,6 @@ const { jobs, stats, startPolling: startJobPolling, stopPolling: stopJobPolling 
 const { niches } = useNiches()
 const { refreshReadiness } = useNotifications()
 const { online: networkOnline, queueSyncFailed: networkQueueSyncFailed } = useNetworkStatus()
-const {
-  genstudioCredits,
-  genstudioConfigured,
-  usageError,
-  startPolling: startCreditPolling,
-  stopPolling: stopCreditPolling,
-} = useCredits()
 const { get: apiGet } = useApi()
 
 const visualSource = ref<VisualSource>('narrated-scenes')
@@ -179,12 +169,6 @@ const productionPathName = computed(() => {
   }
 })
 const activeJobCount = computed(() => Number(stats.value.running || 0) + Number(stats.value.queued || 0))
-const creditSummary = computed(() => {
-  if (!genstudioConfigured.value) return 'Set up'
-  if (genstudioCredits.value === null) return 'Unavailable'
-  return `${genstudioCredits.value.toLocaleString()} credits`
-})
-
 function isJobsScope(scope: 'project' | 'all'): boolean {
   if (!route.path.endsWith('/jobs')) return false
   return scope === 'all' ? route.query.scope === 'all' : route.query.scope !== 'all'
@@ -260,7 +244,6 @@ watch(slug, async currentSlug => {
   if (!currentSlug) return
   await loadProject(currentSlug)
   startJobPolling(currentSlug)
-  startCreditPolling(currentSlug)
   void refreshReadiness(currentSlug)
   void loadVisualSource()
 }, { immediate: true })
@@ -276,7 +259,6 @@ onMounted(() => document.addEventListener('keydown', onDocumentKeydown))
 onUnmounted(() => {
   document.removeEventListener('keydown', onDocumentKeydown)
   stopJobPolling()
-  stopCreditPolling()
 })
 </script>
 
@@ -421,8 +403,7 @@ onUnmounted(() => {
   padding: 10px;
   border-top: 1px solid var(--border);
 }
-.network-status,
-.credit-card {
+.network-status {
   display: flex;
   min-height: 32px;
   align-items: center;
@@ -436,9 +417,6 @@ onUnmounted(() => {
 .network-status { justify-content: flex-start; }
 .network-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--error); }
 .network-status.online .network-dot { background: var(--success); }
-.credit-card { border: 1px solid var(--border); }
-.credit-card:hover { background: var(--bg-hover); color: var(--text-primary); }
-.credit-card strong { color: var(--text-primary); font-weight: 650; }
 
 .main-content {
   min-width: 0;

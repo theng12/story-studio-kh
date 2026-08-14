@@ -23,6 +23,9 @@
         </button>
       </div>
     </header>
+    <div class="account-standing">
+      <GenStudioStandingStrip class="default-standing-strip" />
+    </div>
     <main id="main-content" class="page-content" tabindex="-1">
       <slot />
     </main>
@@ -102,6 +105,14 @@ function openWhatsNew() { _whatsNew.open() }
   color: var(--text-muted);
   font-size: var(--font-xs);
 }
+
+.account-standing {
+  flex: 0 0 auto;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.default-standing-strip { width: min(100%, 620px); margin-left: auto; }
 
 .page-content {
   flex: 1;

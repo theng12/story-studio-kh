@@ -5,19 +5,39 @@ import { useApi } from './useApi.js'
 export const DEFAULT_CREDIT_POLL_MS = 30_000
 
 const genstudioCredits = ref<number | null>(null)
+export interface GenStudioServiceTier {
+  code: string
+  display_name: string
+  threshold_cents: number
+  paid_concurrency_limit: number
+  max_queued_jobs: number
+  generation_submissions_per_minute: number
+  max_api_keys: number
+}
+export interface GenStudioServiceTierStanding {
+  current: GenStudioServiceTier
+  ladder: GenStudioServiceTier
+  floor?: GenStudioServiceTier | null
+  overridden: boolean
+  lifetime_paid_cents: number
+  next_tier: GenStudioServiceTier | null
+  cents_to_next_tier: number | null
+}
+const genstudioTier = ref<GenStudioServiceTierStanding | null>(null)
+const genstudioActiveLanes = ref<number | null>(null)
+const genstudioLaneLimit = ref<number | null>(null)
 const genstudioConfigured = ref(false)
 const usageError = ref('')
 const isRefreshing = ref(false)
 const pollIntervalMs = ref(DEFAULT_CREDIT_POLL_MS)
 let creditInterval: ReturnType<typeof setInterval> | null = null
-let currentSlug: string | null = null
+const pollingConsumers = new Set<symbol>()
 let creditRequest: Promise<void> | null = null
 
 export function useCredits() {
   const { get } = useApi()
 
-  async function fetchHealth(slug: string): Promise<void> {
-    if (!slug || slug === 'undefined') return
+  async function fetchHealth(): Promise<void> {
     if (creditRequest) return creditRequest
     creditRequest = (async () => {
       isRefreshing.value = true
@@ -26,14 +46,32 @@ export function useCredits() {
         genstudioConfigured.value = keys.providers.some(row => row.providerId === 'genstudio' && row.hasKey)
         if (!genstudioConfigured.value) {
           genstudioCredits.value = null
+          genstudioTier.value = null
+          genstudioActiveLanes.value = null
+          genstudioLaneLimit.value = null
           usageError.value = 'Scoped GenStudio key is not configured.'
           return
         }
-        const usage = await get<{ overview: { credit_balance: number } }>('/app-settings/genstudio/usage')
+        const usage = await get<{ overview: {
+          credit_balance: number
+          paid_active_jobs?: number
+          paid_concurrency_limit?: number
+          service_tier?: GenStudioServiceTierStanding
+        } }>('/app-settings/genstudio/usage')
         genstudioCredits.value = usage.overview.credit_balance
+        genstudioTier.value = usage.overview.service_tier || null
+        genstudioActiveLanes.value = Number.isInteger(usage.overview.paid_active_jobs)
+          ? usage.overview.paid_active_jobs as number
+          : null
+        genstudioLaneLimit.value = Number.isInteger(usage.overview.paid_concurrency_limit)
+          ? usage.overview.paid_concurrency_limit as number
+          : null
         usageError.value = ''
       } catch (error: any) {
         genstudioCredits.value = null
+        genstudioTier.value = null
+        genstudioActiveLanes.value = null
+        genstudioLaneLimit.value = null
         usageError.value = error?.data?.detail || error?.message || 'Authoritative GenStudio credit balance unavailable.'
       } finally {
         isRefreshing.value = false
@@ -46,27 +84,42 @@ export function useCredits() {
     }
   }
 
-  function startPolling(slug: string, intervalMs = DEFAULT_CREDIT_POLL_MS): void {
-    stopPolling()
-    currentSlug = slug
-    pollIntervalMs.value = intervalMs
-    void fetchHealth(slug)
-    creditInterval = setInterval(() => { void fetchHealth(slug) }, intervalMs)
+  function startPolling(intervalMs = DEFAULT_CREDIT_POLL_MS): () => void {
+    const consumer = Symbol('genstudio-account-standing')
+    pollingConsumers.add(consumer)
+    if (!creditInterval) {
+      pollIntervalMs.value = intervalMs
+      void fetchHealth()
+      creditInterval = setInterval(() => { void fetchHealth() }, intervalMs)
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      pollingConsumers.delete(consumer)
+      if (pollingConsumers.size === 0) clearPollingInterval()
+    }
+  }
+
+  function clearPollingInterval(): void {
+    if (creditInterval) clearInterval(creditInterval)
+    creditInterval = null
   }
 
   function stopPolling(): void {
-    if (creditInterval) clearInterval(creditInterval)
-    creditInterval = null
-    currentSlug = null
+    pollingConsumers.clear()
+    clearPollingInterval()
   }
 
   async function refreshNow(): Promise<void> {
-    if (!currentSlug) return
-    await fetchHealth(currentSlug)
+    await fetchHealth()
   }
 
   return {
     genstudioCredits: readonly(genstudioCredits),
+    genstudioTier: readonly(genstudioTier),
+    genstudioActiveLanes: readonly(genstudioActiveLanes),
+    genstudioLaneLimit: readonly(genstudioLaneLimit),
     genstudioConfigured: readonly(genstudioConfigured),
     usageError: readonly(usageError),
     isRefreshing: readonly(isRefreshing),

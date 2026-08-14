@@ -8,7 +8,6 @@ test('the dashboard footer keeps only operational status and usage', () => {
   assert.match(dashboard, /<footer class="sidebar-credits" aria-label="Story Studio status">/)
   assert.match(dashboard, /Story Studio online/)
   assert.doesNotMatch(dashboard, /All systems online/)
-  assert.match(dashboard, /class="credit-card" aria-label="Credit balances"/)
-  assert.match(dashboard, /to="\/usage"/)
+  assert.match(dashboard, /<GenStudioStandingStrip/)
   assert.doesNotMatch(dashboard, /release-card|What’s new|buildDateLabel|copyVersion/)
 })
