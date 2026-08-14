@@ -19,10 +19,51 @@ import type { Niche, ProjectMeta, TopicPack } from '../models/types.js'
 type GoldenCatalog = {
   hidden_mechanics_history: Record<string, unknown>
   deep_time_documentary: Record<string, unknown>
+  free_starter_source_catalog: Record<string, unknown>
   user_override_precedence: Record<string, unknown>
 }
 
 const GOLDEN_URL = new URL('./fixtures/content-packs/current-catalog-golden.json', import.meta.url)
+
+const FREE_STARTER_FORMULA_IDS = [
+  'animals',
+  'ancient-humans',
+  'deep-time-documentary',
+  'business-economics',
+  'psychology',
+  'history-narration',
+  'pov-life',
+  'mindfulness',
+  'motivation',
+  'sleep',
+]
+const FREE_STARTER_TOPIC_PACK_IDS = [
+  'natural-world-animals',
+  'ancient-humans-survival',
+  'deep-time-earth-systems',
+  'economics-businesses',
+  'human-behavior-social-dynamics',
+  'historical-wars-treaties-world-order',
+  'pov-historical-occupations',
+]
+const FREE_STARTER_STYLE_IDS = [
+  'builtin-waxy-outline-cartoon',
+  'builtin-prehistoric-stick-cartoon',
+  'builtin-paleo-documentary-tableau',
+  'builtin-hand-drawn-editorial-diagram',
+  'builtin-minimal-stick-figure-explainer',
+  'builtin-sepia-ink-wash',
+  'builtin-cinematic-photoreal',
+  'builtin-watercolor-storybook',
+  'builtin-flat-vector-explainer',
+]
+const FREE_STARTER_RECIPE_IDS = [
+  'curiosity-question-cartoon',
+  'documentary-label-tableau',
+  'annotated-business-board',
+  'centered-hero-headline',
+  'portrait-block-right',
+]
 
 let tempData: Awaited<ReturnType<typeof useTempDataDir>>
 let nicheLoader: typeof import('../services/niche-loader.js')
@@ -57,6 +98,16 @@ function promptHash(value: string | undefined): string | null {
   return value === undefined ? null : sha256(value)
 }
 
+function withoutUndefined(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutUndefined)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .filter(([, entry]) => entry !== undefined)
+      .map(([key, entry]) => [key, withoutUndefined(entry)]))
+  }
+  return value
+}
+
 function topicPackFacts(pack: TopicPack): Record<string, unknown> {
   return {
     id: pack.id,
@@ -75,7 +126,7 @@ function topicPackFacts(pack: TopicPack): Record<string, unknown> {
 
 function formulaFacts(formula: Niche): Record<string, unknown> {
   const scriptStructure = formula.scriptStructure || {}
-  return {
+  return withoutUndefined({
     id: formula.id,
     name: formula.name,
     formula_family: formula.formulaFamily,
@@ -146,7 +197,26 @@ function formulaFacts(formula: Niche): Record<string, unknown> {
       motion_profile: scriptStructure.motionProfile,
     })),
     default_thumbnail_template_id: formula.defaultThumbnailTemplateId || null,
-  }
+  }) as Record<string, unknown>
+}
+
+function visualStyleFacts(style: { id: string; name: string; data: { style_bible: string; negative_prompt: string } }): Record<string, unknown> {
+  return withoutUndefined({
+    id: style.id,
+    name: style.name,
+    style_bible_sha256: sha256(style.data.style_bible),
+    negative_prompt_sha256: sha256(style.data.negative_prompt),
+  }) as Record<string, unknown>
+}
+
+function thumbnailRecipeFacts(template: NonNullable<Awaited<ReturnType<typeof thumbnailTemplateLoader.loadTemplate>>>): Record<string, unknown> {
+  return withoutUndefined({
+    id: template.id,
+    name: template.name,
+    title_mode: template.recipe?.titleMode,
+    layout: template.recipe?.layout,
+    recipe_sha256: sha256(canonicalJson(template.recipe ?? null)),
+  }) as Record<string, unknown>
 }
 
 async function readGolden(): Promise<GoldenCatalog> {
@@ -225,6 +295,29 @@ test('current catalog retains stable prompt facts and selected defaults through 
   }
   assert.deepEqual(observedHiddenMechanics, golden.hidden_mechanics_history)
   assert.deepEqual(observedDeepTime, golden.deep_time_documentary)
+})
+
+test('free Starter Kit source components retain effective legacy prompt, style, and recipe facts', async () => {
+  const golden = await readGolden()
+  const builtInStyles = await loadBuiltInStyles()
+  const formulas = await Promise.all(FREE_STARTER_FORMULA_IDS.map(id => nicheLoader.getEffectiveNicheFor(projectFor(id))))
+  const topics = await Promise.all(FREE_STARTER_TOPIC_PACK_IDS.map(id => topicPackLoader.loadTopicPack(id)))
+  const recipes = await Promise.all(FREE_STARTER_RECIPE_IDS.map(id => thumbnailTemplateLoader.loadTemplate(id)))
+  const styles = FREE_STARTER_STYLE_IDS.map(id => builtInStyles.find(style => style.id === id))
+
+  assert.ok(formulas.every(Boolean), 'every approved Starter Kit Formula must retain an effective legacy source')
+  assert.ok(topics.every(Boolean), 'every migrated Starter Kit Topic Pack must retain its legacy source')
+  assert.ok(recipes.every(Boolean), 'every migrated Starter Kit Thumbnail Recipe must retain its legacy source')
+  assert.ok(styles.every(Boolean), 'every approved Starter Kit Style must retain its legacy source')
+
+  const observed = {
+    formulas: formulas.map(formula => formulaFacts(formula!)),
+    topics: topics.map(topic => topicPackFacts(topic!)),
+    styles: styles.map(style => visualStyleFacts(style!)),
+    recipes: recipes.map(recipe => thumbnailRecipeFacts(recipe!)),
+    blocked_recipe_sources: ['prehistoric-discovery', 'dreamscape-story-window'],
+  }
+  assert.deepEqual(observed, golden.free_starter_source_catalog)
 })
 
 test('current user niche overrides retain precedence over formula defaults', async () => {
