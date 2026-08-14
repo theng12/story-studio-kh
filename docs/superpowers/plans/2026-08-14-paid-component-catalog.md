@@ -157,11 +157,14 @@ Compare all eight sources against the reviewed monolith and approved identities.
 **Files:**
 - Create: `content-packs/paid/archival-ledger/kit/archival-ledger/pack.json`
 - Create: `scripts/content-packs/__tests__/archival-ledger-coordination.test.mjs`
+- Modify: `electron/server/content-packs/schemas.ts`
+- Modify: `electron/server/__tests__/content-pack-contract.test.ts`
 - Modify: `electron/server/__tests__/idea-campaign-planner.test.ts`
 
 **Interfaces:**
 - Consumes: Task 2's eight exact `1.0.0` packs and Free Starter plan's bundle-only schema.
 - Produces coordination pack `com.storystudio.pack.kit.archival-ledger`, bundle `com.storystudio.bundle.archival-ledger`, family `com.storystudio.family.kit.archival-ledger`.
+- Generalizes the narrow bundle-only composition cardinality from exactly four members to exactly one Formula, one or more Topics, exactly one Visual Style, and exactly one Thumbnail Recipe. Every member remains external with one exact dependency, and unused dependencies remain forbidden. Four-member Starter Kits therefore remain valid without weakening normal manifests.
 
 - [ ] **Step 1: Write failing coordination and coverage tests**
 
@@ -171,6 +174,8 @@ assert.equal(coordination.files.length, 0)
 assert.equal(coordination.dependencies.length, 8)
 assert.deepEqual(coordination.bundles[0].components.map(row => row.pack_id), expectedPackIds)
 ```
+
+Add contract regressions that accept five Topic components while rejecting zero Topics, duplicate/missing Formula, duplicate/missing Style, duplicate/missing Recipe, internal members, inexact/missing dependencies, and unused dependencies.
 
 ```ts
 assert.equal(assignments.length, 500)
