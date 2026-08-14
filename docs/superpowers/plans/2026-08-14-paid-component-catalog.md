@@ -68,16 +68,9 @@ STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 \
 
 Expected: all focused reviewed tests pass.
 
-- [ ] **Step 3: Add a regression that forbids stocking the monolithic identity**
+- [ ] **Step 3: Record the monolith as source-only until Task 2 has a real registry**
 
-```js
-test('the reviewed monolith is source material, not the paid release registry', () => {
-  assert.notEqual(sourceManifest.pack_id, 'com.storystudio.pack.kit.archival-ledger')
-  assert.equal(paidRegistry.some(row => row.packId === 'com.storystudio.pack.archival-ledger'), false)
-})
-```
-
-Run the new test RED before Task 2 creates the component registry.
+Document in the task report that `com.storystudio.pack.archival-ledger` is reviewed source material only. Do not create a fake/dormant paid registry or commit an intentionally failing test merely to express the future boundary; Task 2 adds the meaningful registry-backed regression when the eight real component sources exist.
 
 - [ ] **Step 4: Commit the integration boundary**
 
@@ -124,9 +117,10 @@ assert.equal(componentSources.every(source => source.manifest.version === '1.0.0
 assert.equal(componentSources.every(source => source.documents.length === 1), true)
 assert.equal(topicSources.reduce((sum, source) => sum + source.document.subjects.length, 0), 125)
 assert.equal(canonicalHash(splitDocuments), canonicalHash(reviewedMonolithDocuments))
+assert.equal(paidRegistry.some(row => row.packId === 'com.storystudio.pack.archival-ledger'), false)
 ```
 
-Permit only identity/compatibility-reference changes required by the split; compare prompt, subject, axes, style, recipe, and preview hashes exactly.
+Permit only identity/compatibility-reference changes required by the split; compare prompt, subject, axes, style, recipe, and preview hashes exactly. The paid registry assertion must inspect the actual Task 2 component registry and prove the reviewed monolithic pack identity is never stockable; do not test against an empty fixture.
 
 - [ ] **Step 2: Run and verify RED**
 
