@@ -172,6 +172,13 @@ export function contentPackDocumentToTopicPack(document: TopicDocument): TopicPa
     subjects: [...document.subjects],
     maxSiblingsPerSubject: document.max_siblings_per_subject,
     ideaAxes: mapIdeaAxes(document.idea_axes),
+    coverageGroups: document.coverage_groups?.map(group => ({
+      subjects: [...group.subjects],
+      episodeObjects: [...group.episode_objects],
+      timePlaceScopes: [...group.time_place_scopes],
+      mechanisms: [...group.mechanisms],
+      evidenceLenses: [...group.evidence_lenses],
+    })),
     exampleTopics: document.example_topics ? [...document.example_topics] : undefined,
     promptContext: document.prompt_context,
     vocabulary: mapVocabulary(document.vocabulary),

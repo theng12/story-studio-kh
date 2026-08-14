@@ -125,6 +125,13 @@ describe('Series Formula + Topic Pack campaign planning', () => {
         { id: 'mechanism', label: 'Mechanism', values: values.map(value => `mechanism-${value}`) },
         { id: 'evidence-lens', label: 'Evidence lens', values: values.map(value => `evidence-${value}`) },
       ],
+      coverageGroups: [{
+        subjects: values.map(value => `subject-${value}`),
+        episodeObjects: values.map(value => `object-${value}`),
+        timePlaceScopes: values.map(value => `place-${value}`),
+        mechanisms: values.map(value => `mechanism-${value}`),
+        evidenceLenses: values.map(value => `evidence-${value}`),
+      }],
     }
     const niche = {
       id: 'tuple-formula', name: 'Tuple Formula', description: 'A deterministic tuple fixture.', builtin: true, schemaVersion: 1 as const,
@@ -132,6 +139,7 @@ describe('Series Formula + Topic Pack campaign planning', () => {
       activeTopicPacks: [pack],
     }
     const first = planIdeaAssignments({ niche, count: 8, seed: 'tuple-coverage' }).slice(0, 8)
+    assert.deepEqual(first.map(item => item.dimensions.subject), values.map(value => `subject-${value}`))
     assert.deepEqual(first.map(item => item.dimensions['episode-object']), values.map(value => `object-${value}`))
     assert.deepEqual(first.map(item => item.dimensions['time-place-scope']), values.map(value => `place-${value}`))
     assert.deepEqual(first.map(item => item.dimensions.mechanism), values.map(value => `mechanism-${value}`))
@@ -142,7 +150,7 @@ describe('Series Formula + Topic Pack campaign planning', () => {
       assert.deepEqual(Object.fromEntries([
         'subject', 'episode-object', 'time-place-scope', 'mechanism', 'evidence-lens',
       ].map(key => [key, dimensions[key]])), {
-        subject: dimensions.subject,
+        subject: `subject-${value}`,
         'episode-object': `object-${value}`,
         'time-place-scope': `place-${value}`,
         mechanism: `mechanism-${value}`,
@@ -154,6 +162,13 @@ describe('Series Formula + Topic Pack campaign planning', () => {
     }).slice(0, 8)
     assert.equal(reserved.length, 8)
     assert.ok(reserved.every(item => !new Set(first.map(firstItem => firstItem.fingerprint)).has(item.fingerprint)))
+    const firstBySubject = new Map(first.map(item => [item.dimensions.subject, item.dimensions]))
+    for (const assignment of reserved) {
+      const prior = firstBySubject.get(assignment.dimensions.subject)
+      assert.ok(prior)
+      assert.notEqual(assignment.dimensions['episode-object'], prior['episode-object'])
+      assert.notEqual(assignment.dimensions.mechanism, prior.mechanism)
+    }
   })
 
   test('all three requested formula families have compatible built-in packs', async () => {

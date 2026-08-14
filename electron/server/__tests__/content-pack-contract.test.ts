@@ -437,6 +437,33 @@ describe('Content Pack v1 contracts', () => {
     assert.equal(parsed.idea_axes?.[0]?.id, 'financial-mechanism')
   })
 
+  test('requires coherent Topic coverage groups to partition subjects and use declared tuple values', () => {
+    const topic = {
+      ...documents['topic-pack'],
+      subjects: ['Ledger', 'Harbor'], episode_objects: ['a ledger', 'a cargo manifest'],
+      time_place_scopes: ['a tax office', 'a port'], mechanisms: ['record keeping', 'cargo scheduling'],
+      evidence_lenses: ['administrative record', 'shipping record'],
+      coverage_groups: [{
+        subjects: ['Ledger', 'Harbor'], episode_objects: ['a ledger', 'a cargo manifest'],
+        time_place_scopes: ['a tax office', 'a port'], mechanisms: ['record keeping', 'cargo scheduling'],
+        evidence_lenses: ['administrative record', 'shipping record'],
+      }],
+    }
+    assert.equal(parseContentPackDocument('topic-pack', topic).kind, 'topic-pack')
+    assert.throws(() => parseContentPackDocument('topic-pack', {
+      ...topic, coverage_groups: [{ ...topic.coverage_groups[0], subjects: ['Ledger', 'Unknown'] }],
+    }), /coverage group subject|exactly one/i)
+    assert.throws(() => parseContentPackDocument('topic-pack', {
+      ...topic, coverage_groups: [{ ...topic.coverage_groups[0], episode_objects: ['a ledger', 'an invented object'] }],
+    }), /coverage group episode_objects/i)
+    assert.throws(() => parseContentPackDocument('topic-pack', {
+      ...topic, coverage_groups: [topic.coverage_groups[0], topic.coverage_groups[0]],
+    }), /exactly one/i)
+    assert.throws(() => parseContentPackDocument('topic-pack', {
+      ...topic, coverage_groups: [{ ...topic.coverage_groups[0], mechanisms: ['record keeping', 'record keeping'] }],
+    }), /structurally distinct/i)
+  })
+
   test('treats a channel kit as a manifest bundle reference rather than a content document', () => {
     assert.equal(ContentPackBundleSchema.parse(manifest.bundles[0]).kind, 'channel-kit')
     assert.throws(() => ContentPackDocumentSchema.parse({ ...manifest.bundles[0], schema_version: 1 }), /kind/i)

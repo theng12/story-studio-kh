@@ -297,6 +297,60 @@ test('every advertised Starter count covers every declared Topic axis within its
   }
 })
 
+test('Starter coverage groups keep each campaign tuple semantic and every reserved sibling structurally new', async () => {
+  const samples = new Map<string, Record<string, Record<string, string>>>()
+  for (const [formulaSlug, topicSlug, advertisedCount] of ADVERTISED_COVERAGE) {
+    const formula = await sourceJson('formula', formulaSlug)
+    const topic = await sourceJson('topic', topicSlug)
+    assert.equal(formula.kind, 'series-formula')
+    assert.equal(topic.kind, 'topic-pack')
+    assert.ok(topic.coverage_groups?.length, `${topicSlug} requires authored coverage groups`)
+    const groupsBySubject = new Map<string, NonNullable<typeof topic.coverage_groups>[number]>()
+    for (const group of topic.coverage_groups) {
+      for (const subject of group.subjects) {
+        assert.equal(groupsBySubject.has(subject), false, `${topicSlug} must not assign ${subject} to two groups`)
+        groupsBySubject.set(subject, group)
+      }
+    }
+    assert.deepEqual(new Set(groupsBySubject.keys()), new Set(topic.subjects), `${topicSlug} must group every subject once`)
+    const niche = contentPackDocumentToNiche(formula)
+    niche.activeTopicPacks = [contentPackDocumentToTopicPack(topic)]
+    const first = planIdeaAssignments({ niche, count: advertisedCount, seed: `starter-groups-${topicSlug}` }).slice(0, advertisedCount)
+    const checkpoint = planIdeaAssignments({ niche, count: advertisedCount, seed: `starter-groups-${topicSlug}` }).slice(0, advertisedCount)
+    assert.deepEqual(checkpoint, first, `${topicSlug} coverage must be checkpoint deterministic`)
+    const firstBySubject = new Map(first.map(assignment => [assignment.dimensions.subject, assignment.dimensions]))
+    for (const assignment of first) {
+      const group = groupsBySubject.get(assignment.dimensions.subject)
+      assert.ok(group, `${topicSlug} assignment subject must have a group`)
+      assert.ok(group.episode_objects.includes(assignment.dimensions['episode-object']))
+      assert.ok(group.time_place_scopes.includes(assignment.dimensions['time-place-scope']))
+      assert.ok(group.mechanisms.includes(assignment.dimensions.mechanism))
+      assert.ok(group.evidence_lenses.includes(assignment.dimensions['evidence-lens']))
+    }
+    const second = planIdeaAssignments({
+      niche, count: advertisedCount, seed: `starter-groups-${topicSlug}-next`, usedFingerprints: first.map(assignment => assignment.fingerprint),
+    }).slice(0, advertisedCount)
+    assert.equal(second.length, advertisedCount, `${topicSlug} must fail closed rather than repeat a structural sibling`)
+    for (const assignment of second) {
+      const prior = firstBySubject.get(assignment.dimensions.subject)
+      assert.ok(prior, `${topicSlug} second campaign must preserve subject coverage`)
+      assert.notEqual(assignment.dimensions['episode-object'], prior['episode-object'], `${topicSlug} sibling must change episode object`)
+      assert.notEqual(assignment.dimensions.mechanism, prior.mechanism, `${topicSlug} sibling must change mechanism`)
+    }
+    samples.set(topicSlug, Object.fromEntries(first.map(assignment => [assignment.dimensions.subject, assignment.dimensions])))
+  }
+  assert.deepEqual(Object.fromEntries(['subject', 'episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'].map(key => [
+    key, samples.get('natural-world-animals')?.amphibians?.[key],
+  ])), {
+    subject: 'amphibians', 'episode-object': 'a predator defense', 'time-place-scope': 'a forest canopy', mechanism: 'sensory adaptation', 'evidence-lens': 'ecological survey',
+  })
+  assert.equal(samples.get('deep-time-earth-systems')?.['the opening of the Atlantic']?.['time-place-scope'], 'a rifting seaway')
+  assert.equal(samples.get('deep-time-earth-systems')?.['the opening of the Atlantic']?.mechanism, 'rift spreading')
+  assert.equal(samples.get('historical-wars-treaties-world-order')?.['the Yalta Conference']?.['time-place-scope'], 'a postwar settlement')
+  assert.equal(samples.get('everyday-calm')?.['bedtime lamp ritual']?.['episode-object'], 'a desk lamp')
+  assert.equal(samples.get('habits-momentum')?.["prepare tomorrow's shoes"]?.['episode-object'], 'a pair of shoes')
+})
+
 test('tool-generated preview assets have honest reproducible publisher provenance', async () => {
   const markdown = await readFile(resolve(FREE_STARTERS, 'ASSET-PROVENANCE.md'), 'utf8')
   const match = markdown.match(/<!-- free-starter-preview-provenance\n([\s\S]*?)\n-->/)

@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import type { Niche, TopicPack } from '../models/types.js'
+import type { Niche, TopicCoverageGroup, TopicPack } from '../models/types.js'
 
 export interface IdeaAssignment {
   idea_key: string
@@ -72,6 +72,39 @@ function stableScore(seed: string, value: string): string {
   return createHash('sha256').update(`${seed}|${value}`).digest('hex')
 }
 
+const COHERENT_AXIS_IDS = new Set(['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'])
+
+type SubjectRow = {
+  value: string
+  packId?: string
+  coverageGroup?: TopicCoverageGroup
+  coverageSubjectIndex?: number
+}
+
+function coherentTuple(subject: SubjectRow, round: number): Record<string, string> | undefined {
+  const group = subject.coverageGroup
+  if (!group || subject.coverageSubjectIndex === undefined) return undefined
+  const index = (subject.coverageSubjectIndex + round) % group.episodeObjects.length
+  return {
+    'episode-object': group.episodeObjects[index]!,
+    'time-place-scope': group.timePlaceScopes[index]!,
+    mechanism: group.mechanisms[index]!,
+    'evidence-lens': group.evidenceLenses[index]!,
+  }
+}
+
+function usedStructuralPairs(used: Set<string>, nicheId: string, subject: SubjectRow): Array<{ episodeObject: string, mechanism: string }> {
+  if (!subject.packId) return []
+  const prefix = `${nicheId}|${subject.packId}|`
+  const subjectPart = `|subject=${slug(subject.value)}`
+  return [...used].flatMap((fingerprint) => {
+    if (!fingerprint.startsWith(prefix) || !fingerprint.includes(subjectPart)) return []
+    const episodeObject = /(?:^|\|)episode-object=([^|]+)/.exec(fingerprint)?.[1]
+    const mechanism = /(?:^|\|)mechanism=([^|]+)/.exec(fingerprint)?.[1]
+    return episodeObject && mechanism ? [{ episodeObject, mechanism }] : []
+  })
+}
+
 /**
  * Build a large deterministic pool of conceptual assignments before any LLM
  * call. Exact fingerprints are reserved from structured dimensions, so a
@@ -88,11 +121,23 @@ export function planIdeaAssignments(options: {
   const used = new Set(options.usedFingerprints || [])
   const packs: TopicPack[] = niche.activeTopicPacks || []
 
-  const subjectRows: Array<{ value: string; packId?: string }> = []
+  const subjectRows: SubjectRow[] = []
   if (packs.length) {
     for (const pack of packs) {
       for (const subject of unique(pack.subjects)) {
-        subjectRows.push({ value: subject, packId: pack.id })
+        const matches = (pack.coverageGroups || []).flatMap(group => {
+          const index = group.subjects.indexOf(subject)
+          return index === -1 ? [] : [{ group, index }]
+        })
+        if (pack.coverageGroups?.length && matches.length !== 1) {
+          throw new Error(`Topic Pack ${pack.id} cannot plan ${subject}: every subject requires exactly one coverage group`)
+        }
+        subjectRows.push({
+          value: subject,
+          packId: pack.id,
+          coverageGroup: matches[0]?.group,
+          coverageSubjectIndex: matches[0]?.index,
+        })
       }
     }
   } else {
@@ -135,8 +180,11 @@ export function planIdeaAssignments(options: {
       .filter(axis => axis.values?.length)
       .map(axis => ({ ...axis, values: unique(axis.values) })),
   ]))
-  const axesForSubject = (subject: { packId?: string }) => subject.packId
-    ? [...(axesByPack.get(subject.packId) || []), ...formulaAxes]
+  const axesForSubject = (subject: SubjectRow) => subject.packId
+    ? [
+      ...(axesByPack.get(subject.packId) || []).filter(axis => !subject.coverageGroup || !COHERENT_AXIS_IDS.has(axis.id)),
+      ...formulaAxes,
+    ]
     : axes
 
   const targetPoolSize = Math.max(options.count * 4, options.count + 40)
@@ -145,7 +193,7 @@ export function planIdeaAssignments(options: {
   const primaryRank = new Map<string, number>()
 
   const reserveCandidate = (
-    subject: { value: string; packId?: string },
+    subject: SubjectRow,
     dimensions: Record<string, string>,
   ): IdeaAssignment | null => {
     const parts = [
@@ -169,24 +217,15 @@ export function planIdeaAssignments(options: {
     return candidate
   }
 
-  // Topic authors declare the four coverage axes as a coherent episode tuple.
-  // Reserve one diagonal tuple per subject before the general Cartesian pool:
-  // this reaches every declared axis value even when max_siblings_per_subject
-  // later permits only one candidate for each subject. The seed determines the
-  // subject-to-tuple pairing, while the ordinal alignment keeps its object,
-  // setting, mechanism, and evidence lens together.
-  const rankedSubjects = [...subjectRows].sort((left, right) => stableScore(
-    seed,
-    `${left.packId || 'formula'}|${left.value}`,
-  ).localeCompare(stableScore(seed, `${right.packId || 'formula'}|${right.value}`)))
-  const rankByPack = new Map<string, number>()
-  for (const [rank, subject] of rankedSubjects.entries()) {
+  // Coverage groups are authored semantic lanes, not independent axes. Keep
+  // each subject paired to its authored tuple before any seeded ordering or
+  // bounded reserve can select it; later rounds rotate the whole tuple.
+  for (const [rank, subject] of subjectRows.entries()) {
     if (!subject.packId) continue
-    const packRank = rankByPack.get(subject.packId) || 0
-    rankByPack.set(subject.packId, packRank + 1)
     const dimensions: Record<string, string> = { subject: subject.value }
+    Object.assign(dimensions, coherentTuple(subject, 0))
     for (const axis of axesForSubject(subject)) {
-      dimensions[axis.id] = axis.values[packRank % axis.values.length]!
+      dimensions[axis.id] = axis.values[rank % axis.values.length]!
     }
     const primary = reserveCandidate(subject, dimensions)
     if (primary) primaryRank.set(primary.fingerprint, rank)
@@ -199,7 +238,8 @@ export function planIdeaAssignments(options: {
   const totalCombinations = Math.min(1_000_000, subjectRows.reduce((total, subject) => {
     const combinationsForSubject = axesForSubject(subject)
       .reduce((product, axis) => Math.min(1_000_000, product * axis.values.length), 1)
-    return Math.min(1_000_000, total + combinationsForSubject)
+    const tupleCount = subject.coverageGroup?.episodeObjects.length || 1
+    return Math.min(1_000_000, total + combinationsForSubject * tupleCount)
   }, 0))
   const maxRounds = Math.min(
     totalCombinations,
@@ -209,6 +249,10 @@ export function planIdeaAssignments(options: {
     const subject = subjectRows[index % subjectRows.length]!
     const dimensions: Record<string, string> = { subject: subject.value }
     let combinationIndex = Math.floor(index / subjectRows.length)
+    if (subject.coverageGroup) {
+      Object.assign(dimensions, coherentTuple(subject, combinationIndex))
+      combinationIndex = Math.floor(combinationIndex / subject.coverageGroup.episodeObjects.length)
+    }
     axesForSubject(subject).forEach((axis) => {
       dimensions[axis.id] = axis.values[combinationIndex % axis.values.length]!
       combinationIndex = Math.floor(combinationIndex / axis.values.length)
@@ -217,7 +261,8 @@ export function planIdeaAssignments(options: {
   }
 
   const siblingCounts = new Map<string, number>()
-  return candidates
+  const siblingStructures = new Map<string, Array<{ episodeObject: string, mechanism: string }>>()
+  const assignments = candidates
     .sort((a, b) => {
       const leftRank = primaryRank.get(a.fingerprint)
       const rightRank = primaryRank.get(b.fingerprint)
@@ -233,11 +278,25 @@ export function planIdeaAssignments(options: {
       const limit = pack?.maxSiblingsPerSubject
       if (!limit) return true
       const key = `${candidate.topic_pack_id}|${candidate.dimensions.subject}`
+      const episodeObject = candidate.dimensions['episode-object']
+      const mechanism = candidate.dimensions.mechanism
+      const priorStructures = siblingStructures.get(key) || usedStructuralPairs(
+        used,
+        niche.id,
+        subjectRows.find(subject => subject.packId === candidate.topic_pack_id && subject.value === candidate.dimensions.subject)!,
+      )
+      if (episodeObject && mechanism && priorStructures.some(prior =>
+        prior.episodeObject === slug(episodeObject) || prior.mechanism === slug(mechanism))) return false
       const next = (siblingCounts.get(key) || 0) + 1
       if (next > limit) return false
       siblingCounts.set(key, next)
+      siblingStructures.set(key, [...priorStructures, { episodeObject: slug(episodeObject), mechanism: slug(mechanism) }])
       return true
     })
+  if (packs.some(pack => pack.coverageGroups?.length) && assignments.length < options.count) {
+    throw new Error('Topic Pack coverage groups cannot plan the requested campaign without repeating an episode object or mechanism')
+  }
+  return assignments
 }
 
 export function assignmentSummary(assignment: IdeaAssignment): string {

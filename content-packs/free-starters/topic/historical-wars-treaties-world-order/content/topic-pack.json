@@ -69,6 +69,21 @@
     "demographic record",
     "historical debate"
   ],
+  "coverage_groups": [
+    {"subjects":["the Peloponnesian War","the Punic Wars"],"episode_objects":["an alliance map","a supply route"],"time_place_scopes":["a prewar crisis","a wartime coalition"],"mechanisms":["alliance commitment","military logistics"],"evidence_lenses":["historical debate","military logistics record"]},
+    {"subjects":["the Crusades","the Thirty Years' War"],"episode_objects":["a supply route","a civilian evacuation"],"time_place_scopes":["a wartime coalition","an occupied territory"],"mechanisms":["war aims","home-front capacity"],"evidence_lenses":["military logistics record","civilian testimony"]},
+    {"subjects":["the Seven Years' War","the Napoleonic Wars"],"episode_objects":["an alliance map","a diplomatic telegram"],"time_place_scopes":["a wartime coalition","a deterrence standoff"],"mechanisms":["balance-of-power shift","military logistics"],"evidence_lenses":["diplomatic archive","military logistics record"]},
+    {"subjects":["the Congress of Vienna","the Crimean War"],"episode_objects":["a treaty text","an alliance map"],"time_place_scopes":["a peace conference","a prewar crisis"],"mechanisms":["peace settlement","alliance commitment"],"evidence_lenses":["treaty text","diplomatic archive"]},
+    {"subjects":["the Franco-Prussian War","the First World War"],"episode_objects":["a supply route","a civilian evacuation"],"time_place_scopes":["a prewar crisis","a wartime coalition"],"mechanisms":["military logistics","home-front capacity"],"evidence_lenses":["military logistics record","demographic record"]},
+    {"subjects":["the Treaty of Versailles","the Second World War"],"episode_objects":["a treaty text","a civilian evacuation"],"time_place_scopes":["a peace conference","an occupied territory"],"mechanisms":["peace settlement","occupation and resistance"],"evidence_lenses":["treaty text","civilian testimony"]},
+    {"subjects":["the Yalta Conference","the Korean War"],"episode_objects":["a diplomatic telegram","a ceasefire line"],"time_place_scopes":["a postwar settlement","a deterrence standoff"],"mechanisms":["balance-of-power shift","deterrence failure"],"evidence_lenses":["diplomatic archive","historical debate"]},
+    {"subjects":["the Suez Crisis","the Cuban Missile Crisis"],"episode_objects":["a diplomatic telegram","an alliance map"],"time_place_scopes":["a deterrence standoff","a deterrence standoff"],"mechanisms":["balance-of-power shift","deterrence failure"],"evidence_lenses":["diplomatic archive","historical debate"]},
+    {"subjects":["the Vietnam War","the Six-Day War"],"episode_objects":["a supply route","a ceasefire line"],"time_place_scopes":["an occupied territory","a wartime coalition"],"mechanisms":["occupation and resistance","war aims"],"evidence_lenses":["civilian testimony","military logistics record"]},
+    {"subjects":["the Soviet-Afghan War","the Gulf War"],"episode_objects":["a civilian evacuation","a supply route"],"time_place_scopes":["an occupied territory","a wartime coalition"],"mechanisms":["occupation and resistance","military logistics"],"evidence_lenses":["civilian testimony","military logistics record"]},
+    {"subjects":["the breakup of the Cold War order","the Dayton Agreement"],"episode_objects":["an alliance map","a treaty text"],"time_place_scopes":["a postwar settlement","a peace conference"],"mechanisms":["balance-of-power shift","peace settlement"],"evidence_lenses":["historical debate","treaty text"]},
+    {"subjects":["the Good Friday Agreement","the War on Terror"],"episode_objects":["a treaty text","a civilian evacuation"],"time_place_scopes":["a peace conference","an occupied territory"],"mechanisms":["peace settlement","occupation and resistance"],"evidence_lenses":["treaty text","civilian testimony"]},
+    {"subjects":["NATO enlargement"],"episode_objects":["an alliance map","a diplomatic telegram"],"time_place_scopes":["a postwar settlement","a deterrence standoff"],"mechanisms":["alliance commitment","balance-of-power shift"],"evidence_lenses":["diplomatic archive","historical debate"]}
+  ],
   "exclusions": [
     "Do not write battlefield spectacle in place of causation.",
     "Do not treat a treaty as the only cause of a later conflict."

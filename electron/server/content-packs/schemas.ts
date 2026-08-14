@@ -48,6 +48,13 @@ const IdeaAxisSchema = z.object({
   label: safeText(120),
   values: textList(300),
 }).strict()
+const CoverageGroupSchema = z.object({
+  subjects: textList(1000),
+  episode_objects: textList(300),
+  time_place_scopes: textList(300),
+  mechanisms: textList(300),
+  evidence_lenses: textList(300),
+}).strict()
 const VocabularySchema = z.object({
   mood: z.array(safeText(80)).max(50).optional(),
   theme: z.array(safeText(80)).max(50).optional(),
@@ -208,6 +215,7 @@ const TopicPackDocumentSchema = z.object({
   max_siblings_per_subject: z.number().int().min(1).max(20),
   prompt_context: safeText(MAX_TEXT),
   idea_axes: z.array(IdeaAxisSchema).max(20).optional(),
+  coverage_groups: z.array(CoverageGroupSchema).min(1).max(1000).optional(),
   example_topics: z.array(safeText(1000)).max(200).optional(),
   vocabulary: VocabularySchema.optional(),
   youtube_tags_hint: z.array(safeText(80)).max(80).optional(),
@@ -258,6 +266,50 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
   VisualStyleDocumentSchema,
   ThumbnailRecipeDocumentSchema,
 ]).superRefine((document, ctx) => {
+  if (document.kind === 'topic-pack') {
+    const groups = document.coverage_groups
+    if (!groups) return
+    const declared = {
+      episode_objects: new Set(document.episode_objects),
+      time_place_scopes: new Set(document.time_place_scopes),
+      mechanisms: new Set(document.mechanisms),
+      evidence_lenses: new Set(document.evidence_lenses),
+    }
+    const memberships = new Map(document.subjects.map(subject => [subject, 0]))
+    for (const [groupIndex, group] of groups.entries()) {
+      const tupleLength = group.episode_objects.length
+      for (const key of ['time_place_scopes', 'mechanisms', 'evidence_lenses'] as const) {
+        if (group[key].length !== tupleLength || tupleLength < 2) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverage_groups', groupIndex, key], message: 'coverage group tuple lanes must have the same length and at least two entries' })
+        }
+      }
+      for (const key of ['episode_objects', 'mechanisms'] as const) {
+        if (new Set(group[key]).size !== tupleLength) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverage_groups', groupIndex, key], message: 'coverage group episode objects and mechanisms must make every tuple structurally distinct' })
+        }
+      }
+      for (const [subjectIndex, subject] of group.subjects.entries()) {
+        if (!memberships.has(subject)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverage_groups', groupIndex, 'subjects', subjectIndex], message: 'coverage group subject must be declared by the Topic Pack' })
+          continue
+        }
+        memberships.set(subject, (memberships.get(subject) || 0) + 1)
+      }
+      for (const key of ['episode_objects', 'time_place_scopes', 'mechanisms', 'evidence_lenses'] as const) {
+        for (const [valueIndex, value] of group[key].entries()) {
+          if (!declared[key].has(value)) {
+            ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverage_groups', groupIndex, key, valueIndex], message: `coverage group ${key} must be declared by the Topic Pack` })
+          }
+        }
+      }
+    }
+    for (const [subject, count] of memberships) {
+      if (count !== 1) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverage_groups'], message: `subject ${subject} must belong to exactly one usable coverage group` })
+      }
+    }
+    return
+  }
   if (document.kind !== 'series-formula') return
   const { script_structure: structure } = document
   const [minChapters, maxChapters] = structure.chapter_count_range

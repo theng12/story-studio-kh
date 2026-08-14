@@ -735,6 +735,14 @@ export interface FormulaProductionKit {
   episodeProfiles?: FormulaEpisodeProfile[]
 }
 
+export interface TopicCoverageGroup {
+  subjects: string[]
+  episodeObjects: string[]
+  timePlaceScopes: string[]
+  mechanisms: string[]
+  evidenceLenses: string[]
+}
+
 export interface TopicPack {
   id: string
   name: string
@@ -754,6 +762,8 @@ export interface TopicPack {
   maxSiblingsPerSubject?: number
   /** Secondary dimensions composed with the primary subject. */
   ideaAxes?: IdeaAxis[]
+  /** Authored coherent tuple lanes for subject-level campaign coverage. */
+  coverageGroups?: TopicCoverageGroup[]
   /** Strong examples appended to the Series Formula's example bar. */
   exampleTopics?: string[]
   /** Prompt context appended after the Series Formula's dominant voice. */

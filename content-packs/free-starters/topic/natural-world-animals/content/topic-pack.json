@@ -51,6 +51,13 @@
     "life-history study",
     "ecological survey"
   ],
+  "coverage_groups": [
+    {"subjects":["mammals","birds"],"episode_objects":["a feeding tool","a nest or den"],"time_place_scopes":["a forest canopy","a breeding season"],"mechanisms":["energy conservation","reproductive trade-off"],"evidence_lenses":["field observation","life-history study"]},
+    {"subjects":["reptiles","amphibians"],"episode_objects":["a camouflage pattern","a predator defense"],"time_place_scopes":["a desert waterhole","a forest canopy"],"mechanisms":["thermoregulation","sensory adaptation"],"evidence_lenses":["comparative anatomy","ecological survey"]},
+    {"subjects":["fish","cephalopods"],"episode_objects":["a feeding tool","a camouflage pattern"],"time_place_scopes":["a reef edge","an abyssal plain"],"mechanisms":["sensory adaptation","predator avoidance"],"evidence_lenses":["ecological survey","comparative anatomy"]},
+    {"subjects":["crustaceans","deep-sea animals"],"episode_objects":["a courtship display","a camouflage pattern"],"time_place_scopes":["a reef edge","an abyssal plain"],"mechanisms":["cooperation","energy conservation"],"evidence_lenses":["field observation","ecological survey"]},
+    {"subjects":["desert animals","migration"],"episode_objects":["a predator defense","a migration route"],"time_place_scopes":["a desert waterhole","a polar shoreline"],"mechanisms":["thermoregulation","energy conservation"],"evidence_lenses":["comparative anatomy","tracking data"]}
+  ],
   "exclusions": [
     "Do not assign human intention or dialogue to animals.",
     "Do not make unsupported danger claims."
