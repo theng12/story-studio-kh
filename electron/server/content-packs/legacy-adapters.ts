@@ -179,6 +179,13 @@ export function contentPackDocumentToTopicPack(document: TopicDocument): TopicPa
       mechanisms: [...group.mechanisms],
       evidenceLenses: [...group.evidence_lenses],
     })),
+    coverageProfiles: document.coverage_profiles?.map(profile => ({
+      subject: profile.subject,
+      tuples: profile.tuples.map(tuple => ({
+        episodeObject: tuple.episode_object, timePlaceScope: tuple.time_place_scope,
+        mechanism: tuple.mechanism, evidenceLens: tuple.evidence_lens,
+      })),
+    })),
     exampleTopics: document.example_topics ? [...document.example_topics] : undefined,
     promptContext: document.prompt_context,
     vocabulary: mapVocabulary(document.vocabulary),

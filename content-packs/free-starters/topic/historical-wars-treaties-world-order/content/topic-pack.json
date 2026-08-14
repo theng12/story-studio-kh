@@ -69,21 +69,6 @@
     "demographic record",
     "historical debate"
   ],
-  "coverage_groups": [
-    {"subjects":["the Peloponnesian War","the Punic Wars"],"episode_objects":["an alliance map","a supply route"],"time_place_scopes":["a prewar crisis","a wartime coalition"],"mechanisms":["alliance commitment","military logistics"],"evidence_lenses":["historical debate","military logistics record"]},
-    {"subjects":["the Crusades","the Thirty Years' War"],"episode_objects":["a supply route","a civilian evacuation"],"time_place_scopes":["a wartime coalition","an occupied territory"],"mechanisms":["war aims","home-front capacity"],"evidence_lenses":["military logistics record","civilian testimony"]},
-    {"subjects":["the Seven Years' War","the Napoleonic Wars"],"episode_objects":["an alliance map","a diplomatic telegram"],"time_place_scopes":["a wartime coalition","a deterrence standoff"],"mechanisms":["balance-of-power shift","military logistics"],"evidence_lenses":["diplomatic archive","military logistics record"]},
-    {"subjects":["the Congress of Vienna","the Crimean War"],"episode_objects":["a treaty text","an alliance map"],"time_place_scopes":["a peace conference","a prewar crisis"],"mechanisms":["peace settlement","alliance commitment"],"evidence_lenses":["treaty text","diplomatic archive"]},
-    {"subjects":["the Franco-Prussian War","the First World War"],"episode_objects":["a supply route","a civilian evacuation"],"time_place_scopes":["a prewar crisis","a wartime coalition"],"mechanisms":["military logistics","home-front capacity"],"evidence_lenses":["military logistics record","demographic record"]},
-    {"subjects":["the Treaty of Versailles","the Second World War"],"episode_objects":["a treaty text","a civilian evacuation"],"time_place_scopes":["a peace conference","an occupied territory"],"mechanisms":["peace settlement","occupation and resistance"],"evidence_lenses":["treaty text","civilian testimony"]},
-    {"subjects":["the Yalta Conference","the Korean War"],"episode_objects":["a diplomatic telegram","a ceasefire line"],"time_place_scopes":["a postwar settlement","a deterrence standoff"],"mechanisms":["balance-of-power shift","deterrence failure"],"evidence_lenses":["diplomatic archive","historical debate"]},
-    {"subjects":["the Suez Crisis","the Cuban Missile Crisis"],"episode_objects":["a diplomatic telegram","an alliance map"],"time_place_scopes":["a deterrence standoff","a deterrence standoff"],"mechanisms":["balance-of-power shift","deterrence failure"],"evidence_lenses":["diplomatic archive","historical debate"]},
-    {"subjects":["the Vietnam War","the Six-Day War"],"episode_objects":["a supply route","a ceasefire line"],"time_place_scopes":["an occupied territory","a wartime coalition"],"mechanisms":["occupation and resistance","war aims"],"evidence_lenses":["civilian testimony","military logistics record"]},
-    {"subjects":["the Soviet-Afghan War","the Gulf War"],"episode_objects":["a civilian evacuation","a supply route"],"time_place_scopes":["an occupied territory","a wartime coalition"],"mechanisms":["occupation and resistance","military logistics"],"evidence_lenses":["civilian testimony","military logistics record"]},
-    {"subjects":["the breakup of the Cold War order","the Dayton Agreement"],"episode_objects":["an alliance map","a treaty text"],"time_place_scopes":["a postwar settlement","a peace conference"],"mechanisms":["balance-of-power shift","peace settlement"],"evidence_lenses":["historical debate","treaty text"]},
-    {"subjects":["the Good Friday Agreement","the War on Terror"],"episode_objects":["a treaty text","a civilian evacuation"],"time_place_scopes":["a peace conference","an occupied territory"],"mechanisms":["peace settlement","occupation and resistance"],"evidence_lenses":["treaty text","civilian testimony"]},
-    {"subjects":["NATO enlargement"],"episode_objects":["an alliance map","a diplomatic telegram"],"time_place_scopes":["a postwar settlement","a deterrence standoff"],"mechanisms":["alliance commitment","balance-of-power shift"],"evidence_lenses":["diplomatic archive","historical debate"]}
-  ],
   "exclusions": [
     "Do not write battlefield spectacle in place of causation.",
     "Do not treat a treaty as the only cause of a later conflict."
@@ -166,5 +151,432 @@
   "compatibility_rules": [
     "Use with History Explained or Hidden Mechanics History.",
     "Keep political objectives, resources, diplomacy, logistics, and civilian consequences in view."
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "the Peloponnesian War",
+      "tuples": [
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a prewar crisis",
+          "mechanism": "alliance commitment",
+          "evidence_lens": "historical debate"
+        },
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "military logistics",
+          "evidence_lens": "military logistics record"
+        }
+      ]
+    },
+    {
+      "subject": "the Punic Wars",
+      "tuples": [
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "military logistics",
+          "evidence_lens": "military logistics record"
+        },
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a prewar crisis",
+          "mechanism": "alliance commitment",
+          "evidence_lens": "historical debate"
+        }
+      ]
+    },
+    {
+      "subject": "the Crusades",
+      "tuples": [
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "war aims",
+          "evidence_lens": "military logistics record"
+        },
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "home-front capacity",
+          "evidence_lens": "civilian testimony"
+        }
+      ]
+    },
+    {
+      "subject": "the Thirty Years' War",
+      "tuples": [
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "home-front capacity",
+          "evidence_lens": "civilian testimony"
+        },
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "war aims",
+          "evidence_lens": "military logistics record"
+        }
+      ]
+    },
+    {
+      "subject": "the Seven Years' War",
+      "tuples": [
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "balance-of-power shift",
+          "evidence_lens": "diplomatic archive"
+        },
+        {
+          "episode_object": "a diplomatic telegram",
+          "time_place_scope": "a deterrence standoff",
+          "mechanism": "military logistics",
+          "evidence_lens": "military logistics record"
+        }
+      ]
+    },
+    {
+      "subject": "the Napoleonic Wars",
+      "tuples": [
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "balance-of-power shift",
+          "evidence_lens": "diplomatic archive"
+        },
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "military logistics",
+          "evidence_lens": "military logistics record"
+        }
+      ]
+    },
+    {
+      "subject": "the Congress of Vienna",
+      "tuples": [
+        {
+          "episode_object": "a treaty text",
+          "time_place_scope": "a peace conference",
+          "mechanism": "peace settlement",
+          "evidence_lens": "treaty text"
+        },
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a prewar crisis",
+          "mechanism": "alliance commitment",
+          "evidence_lens": "diplomatic archive"
+        }
+      ]
+    },
+    {
+      "subject": "the Crimean War",
+      "tuples": [
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a prewar crisis",
+          "mechanism": "alliance commitment",
+          "evidence_lens": "diplomatic archive"
+        },
+        {
+          "episode_object": "a treaty text",
+          "time_place_scope": "a peace conference",
+          "mechanism": "peace settlement",
+          "evidence_lens": "treaty text"
+        }
+      ]
+    },
+    {
+      "subject": "the Franco-Prussian War",
+      "tuples": [
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "a prewar crisis",
+          "mechanism": "military logistics",
+          "evidence_lens": "military logistics record"
+        },
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "home-front capacity",
+          "evidence_lens": "demographic record"
+        }
+      ]
+    },
+    {
+      "subject": "the First World War",
+      "tuples": [
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "home-front capacity",
+          "evidence_lens": "demographic record"
+        },
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "a prewar crisis",
+          "mechanism": "military logistics",
+          "evidence_lens": "military logistics record"
+        }
+      ]
+    },
+    {
+      "subject": "the Treaty of Versailles",
+      "tuples": [
+        {
+          "episode_object": "a treaty text",
+          "time_place_scope": "a peace conference",
+          "mechanism": "peace settlement",
+          "evidence_lens": "treaty text"
+        },
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "occupation and resistance",
+          "evidence_lens": "civilian testimony"
+        }
+      ]
+    },
+    {
+      "subject": "the Second World War",
+      "tuples": [
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "occupation and resistance",
+          "evidence_lens": "civilian testimony"
+        },
+        {
+          "episode_object": "a treaty text",
+          "time_place_scope": "a peace conference",
+          "mechanism": "peace settlement",
+          "evidence_lens": "treaty text"
+        }
+      ]
+    },
+    {
+      "subject": "the Yalta Conference",
+      "tuples": [
+        {
+          "episode_object": "a diplomatic telegram",
+          "time_place_scope": "a postwar settlement",
+          "mechanism": "balance-of-power shift",
+          "evidence_lens": "diplomatic archive"
+        },
+        {
+          "episode_object": "a treaty text",
+          "time_place_scope": "a postwar settlement",
+          "mechanism": "peace settlement",
+          "evidence_lens": "treaty text"
+        }
+      ]
+    },
+    {
+      "subject": "the Korean War",
+      "tuples": [
+        {
+          "episode_object": "a ceasefire line",
+          "time_place_scope": "a deterrence standoff",
+          "mechanism": "deterrence failure",
+          "evidence_lens": "historical debate"
+        },
+        {
+          "episode_object": "a diplomatic telegram",
+          "time_place_scope": "a postwar settlement",
+          "mechanism": "balance-of-power shift",
+          "evidence_lens": "diplomatic archive"
+        }
+      ]
+    },
+    {
+      "subject": "the Suez Crisis",
+      "tuples": [
+        {
+          "episode_object": "a diplomatic telegram",
+          "time_place_scope": "a deterrence standoff",
+          "mechanism": "balance-of-power shift",
+          "evidence_lens": "diplomatic archive"
+        },
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a deterrence standoff",
+          "mechanism": "deterrence failure",
+          "evidence_lens": "historical debate"
+        }
+      ]
+    },
+    {
+      "subject": "the Cuban Missile Crisis",
+      "tuples": [
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a deterrence standoff",
+          "mechanism": "deterrence failure",
+          "evidence_lens": "historical debate"
+        },
+        {
+          "episode_object": "a diplomatic telegram",
+          "time_place_scope": "a deterrence standoff",
+          "mechanism": "balance-of-power shift",
+          "evidence_lens": "diplomatic archive"
+        }
+      ]
+    },
+    {
+      "subject": "the Vietnam War",
+      "tuples": [
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "occupation and resistance",
+          "evidence_lens": "civilian testimony"
+        },
+        {
+          "episode_object": "a ceasefire line",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "war aims",
+          "evidence_lens": "military logistics record"
+        }
+      ]
+    },
+    {
+      "subject": "the Six-Day War",
+      "tuples": [
+        {
+          "episode_object": "a ceasefire line",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "war aims",
+          "evidence_lens": "military logistics record"
+        },
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "occupation and resistance",
+          "evidence_lens": "civilian testimony"
+        }
+      ]
+    },
+    {
+      "subject": "the Soviet-Afghan War",
+      "tuples": [
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "occupation and resistance",
+          "evidence_lens": "civilian testimony"
+        },
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "military logistics",
+          "evidence_lens": "military logistics record"
+        }
+      ]
+    },
+    {
+      "subject": "the Gulf War",
+      "tuples": [
+        {
+          "episode_object": "a supply route",
+          "time_place_scope": "a wartime coalition",
+          "mechanism": "military logistics",
+          "evidence_lens": "military logistics record"
+        },
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "occupation and resistance",
+          "evidence_lens": "civilian testimony"
+        }
+      ]
+    },
+    {
+      "subject": "the breakup of the Cold War order",
+      "tuples": [
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a postwar settlement",
+          "mechanism": "balance-of-power shift",
+          "evidence_lens": "historical debate"
+        },
+        {
+          "episode_object": "a treaty text",
+          "time_place_scope": "a peace conference",
+          "mechanism": "peace settlement",
+          "evidence_lens": "treaty text"
+        }
+      ]
+    },
+    {
+      "subject": "the Dayton Agreement",
+      "tuples": [
+        {
+          "episode_object": "a treaty text",
+          "time_place_scope": "a peace conference",
+          "mechanism": "peace settlement",
+          "evidence_lens": "treaty text"
+        },
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a postwar settlement",
+          "mechanism": "balance-of-power shift",
+          "evidence_lens": "historical debate"
+        }
+      ]
+    },
+    {
+      "subject": "the Good Friday Agreement",
+      "tuples": [
+        {
+          "episode_object": "a treaty text",
+          "time_place_scope": "a peace conference",
+          "mechanism": "peace settlement",
+          "evidence_lens": "treaty text"
+        },
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "occupation and resistance",
+          "evidence_lens": "civilian testimony"
+        }
+      ]
+    },
+    {
+      "subject": "the War on Terror",
+      "tuples": [
+        {
+          "episode_object": "a civilian evacuation",
+          "time_place_scope": "an occupied territory",
+          "mechanism": "occupation and resistance",
+          "evidence_lens": "civilian testimony"
+        },
+        {
+          "episode_object": "a treaty text",
+          "time_place_scope": "a peace conference",
+          "mechanism": "peace settlement",
+          "evidence_lens": "treaty text"
+        }
+      ]
+    },
+    {
+      "subject": "NATO enlargement",
+      "tuples": [
+        {
+          "episode_object": "an alliance map",
+          "time_place_scope": "a postwar settlement",
+          "mechanism": "alliance commitment",
+          "evidence_lens": "diplomatic archive"
+        },
+        {
+          "episode_object": "a diplomatic telegram",
+          "time_place_scope": "a deterrence standoff",
+          "mechanism": "balance-of-power shift",
+          "evidence_lens": "historical debate"
+        }
+      ]
+    }
   ]
 }

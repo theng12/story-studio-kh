@@ -114,7 +114,7 @@ describe('Series Formula + Topic Pack campaign planning', () => {
     assert.equal(new Set(generic.map(item => item.fingerprint)).size, 100)
   })
 
-  test('topic-owned coverage axes rotate as coherent tuples before sibling reservations', () => {
+  test('topic-owned per-subject profiles rotate whole coherent tuples before sibling reservations', () => {
     const values = Array.from({ length: 8 }, (_, index) => String(index + 1))
     const pack = {
       id: 'tuple-pack', name: 'Tuple Pack', description: 'A deterministic tuple fixture.', builtin: true, schemaVersion: 1 as const,
@@ -125,13 +125,13 @@ describe('Series Formula + Topic Pack campaign planning', () => {
         { id: 'mechanism', label: 'Mechanism', values: values.map(value => `mechanism-${value}`) },
         { id: 'evidence-lens', label: 'Evidence lens', values: values.map(value => `evidence-${value}`) },
       ],
-      coverageGroups: [{
-        subjects: values.map(value => `subject-${value}`),
-        episodeObjects: values.map(value => `object-${value}`),
-        timePlaceScopes: values.map(value => `place-${value}`),
-        mechanisms: values.map(value => `mechanism-${value}`),
-        evidenceLenses: values.map(value => `evidence-${value}`),
-      }],
+      coverageProfiles: values.map(value => ({
+        subject: `subject-${value}`,
+        tuples: [
+          { episodeObject: `object-${value}`, timePlaceScope: `place-${value}`, mechanism: `mechanism-${value}`, evidenceLens: `evidence-${value}` },
+          { episodeObject: `object-${value}-next`, timePlaceScope: `place-${value}-next`, mechanism: `mechanism-${value}-next`, evidenceLens: `evidence-${value}-next` },
+        ],
+      })),
     }
     const niche = {
       id: 'tuple-formula', name: 'Tuple Formula', description: 'A deterministic tuple fixture.', builtin: true, schemaVersion: 1 as const,

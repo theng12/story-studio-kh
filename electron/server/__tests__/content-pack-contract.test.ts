@@ -437,31 +437,36 @@ describe('Content Pack v1 contracts', () => {
     assert.equal(parsed.idea_axes?.[0]?.id, 'financial-mechanism')
   })
 
-  test('requires coherent Topic coverage groups to partition subjects and use declared tuple values', () => {
+  test('requires coherent per-subject Topic coverage profiles to partition subjects and use declared tuple values', () => {
     const topic = {
       ...documents['topic-pack'],
       subjects: ['Ledger', 'Harbor'], episode_objects: ['a ledger', 'a cargo manifest'],
       time_place_scopes: ['a tax office', 'a port'], mechanisms: ['record keeping', 'cargo scheduling'],
       evidence_lenses: ['administrative record', 'shipping record'],
-      coverage_groups: [{
-        subjects: ['Ledger', 'Harbor'], episode_objects: ['a ledger', 'a cargo manifest'],
-        time_place_scopes: ['a tax office', 'a port'], mechanisms: ['record keeping', 'cargo scheduling'],
-        evidence_lenses: ['administrative record', 'shipping record'],
-      }],
+      coverage_profiles: [
+        { subject: 'Ledger', tuples: [
+          { episode_object: 'a ledger', time_place_scope: 'a tax office', mechanism: 'record keeping', evidence_lens: 'administrative record' },
+          { episode_object: 'a cargo manifest', time_place_scope: 'a port', mechanism: 'cargo scheduling', evidence_lens: 'shipping record' },
+        ] },
+        { subject: 'Harbor', tuples: [
+          { episode_object: 'a cargo manifest', time_place_scope: 'a port', mechanism: 'cargo scheduling', evidence_lens: 'shipping record' },
+          { episode_object: 'a ledger', time_place_scope: 'a tax office', mechanism: 'record keeping', evidence_lens: 'administrative record' },
+        ] },
+      ],
     }
     assert.equal(parseContentPackDocument('topic-pack', topic).kind, 'topic-pack')
     assert.throws(() => parseContentPackDocument('topic-pack', {
-      ...topic, coverage_groups: [{ ...topic.coverage_groups[0], subjects: ['Ledger', 'Unknown'] }],
-    }), /coverage group subject|exactly one/i)
+      ...topic, coverage_profiles: [{ ...topic.coverage_profiles[0], subject: 'Unknown' }],
+    }), /coverage profile subject|exactly one/i)
     assert.throws(() => parseContentPackDocument('topic-pack', {
-      ...topic, coverage_groups: [{ ...topic.coverage_groups[0], episode_objects: ['a ledger', 'an invented object'] }],
-    }), /coverage group episode_objects/i)
+      ...topic, coverage_profiles: [{ ...topic.coverage_profiles[0], tuples: [{ ...topic.coverage_profiles[0].tuples[0], episode_object: 'an invented object' }] }],
+    }), /coverage profile episode_object/i)
     assert.throws(() => parseContentPackDocument('topic-pack', {
-      ...topic, coverage_groups: [topic.coverage_groups[0], topic.coverage_groups[0]],
+      ...topic, coverage_profiles: [topic.coverage_profiles[0], { ...topic.coverage_profiles[0], subject: 'Ledger' }],
     }), /exactly one/i)
     assert.throws(() => parseContentPackDocument('topic-pack', {
-      ...topic, coverage_groups: [{ ...topic.coverage_groups[0], mechanisms: ['record keeping', 'record keeping'] }],
-    }), /structurally distinct/i)
+      ...topic, coverage_profiles: [{ ...topic.coverage_profiles[0], tuples: [topic.coverage_profiles[0].tuples[0], { ...topic.coverage_profiles[0].tuples[1], mechanism: 'record keeping' }] }],
+    }), /must each change episode object and mechanism/i)
   })
 
   test('treats a channel kit as a manifest bundle reference rather than a content document', () => {

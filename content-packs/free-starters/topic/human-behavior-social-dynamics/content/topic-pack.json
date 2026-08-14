@@ -50,13 +50,6 @@
     "social psychology experiment",
     "self-report limitation"
   ],
-  "coverage_groups": [
-    {"subjects":["boundaries","people-pleasing"],"episode_objects":["a request","an unanswered message"],"time_place_scopes":["a difficult conversation","a close relationship"],"mechanisms":["threat appraisal","reinforcement loop"],"evidence_lenses":["clinical guidance","self-report limitation"]},
-    {"subjects":["status","conflict avoidance"],"episode_objects":["a social cue","a disagreement"],"time_place_scopes":["a first meeting","a recurring workplace interaction"],"mechanisms":["status signaling","threat appraisal"],"evidence_lenses":["social psychology experiment","behavioral study"]},
-    {"subjects":["manipulation","trust"],"episode_objects":["a social cue","a repair attempt"],"time_place_scopes":["a stressful week","a difficult conversation"],"mechanisms":["reinforcement loop","co-regulation"],"evidence_lenses":["clinical guidance","longitudinal research"]},
-    {"subjects":["social comparison","group conformity"],"episode_objects":["a group chat","a social cue"],"time_place_scopes":["a public group setting","a recurring workplace interaction"],"mechanisms":["status signaling","social learning"],"evidence_lenses":["social psychology experiment","behavioral study"]},
-    {"subjects":["attachment","repair after conflict"],"episode_objects":["an unanswered message","a repair attempt"],"time_place_scopes":["a close relationship","a difficult conversation"],"mechanisms":["attachment expectation","co-regulation"],"evidence_lenses":["longitudinal research","clinical guidance"]}
-  ],
   "exclusions": [
     "Do not diagnose the viewer.",
     "Do not present manipulation as a game or a dark truth."
@@ -132,5 +125,177 @@
   "compatibility_rules": [
     "Use with the Human Behavior Formula.",
     "Keep the selected behavior, context, and response evidence-aware and non-diagnostic."
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "boundaries",
+      "tuples": [
+        {
+          "episode_object": "a request",
+          "time_place_scope": "a difficult conversation",
+          "mechanism": "threat appraisal",
+          "evidence_lens": "clinical guidance"
+        },
+        {
+          "episode_object": "an unanswered message",
+          "time_place_scope": "a close relationship",
+          "mechanism": "reinforcement loop",
+          "evidence_lens": "self-report limitation"
+        }
+      ]
+    },
+    {
+      "subject": "people-pleasing",
+      "tuples": [
+        {
+          "episode_object": "an unanswered message",
+          "time_place_scope": "a close relationship",
+          "mechanism": "reinforcement loop",
+          "evidence_lens": "self-report limitation"
+        },
+        {
+          "episode_object": "a request",
+          "time_place_scope": "a difficult conversation",
+          "mechanism": "threat appraisal",
+          "evidence_lens": "clinical guidance"
+        }
+      ]
+    },
+    {
+      "subject": "status",
+      "tuples": [
+        {
+          "episode_object": "a social cue",
+          "time_place_scope": "a first meeting",
+          "mechanism": "status signaling",
+          "evidence_lens": "social psychology experiment"
+        },
+        {
+          "episode_object": "a disagreement",
+          "time_place_scope": "a recurring workplace interaction",
+          "mechanism": "threat appraisal",
+          "evidence_lens": "behavioral study"
+        }
+      ]
+    },
+    {
+      "subject": "conflict avoidance",
+      "tuples": [
+        {
+          "episode_object": "a disagreement",
+          "time_place_scope": "a recurring workplace interaction",
+          "mechanism": "threat appraisal",
+          "evidence_lens": "behavioral study"
+        },
+        {
+          "episode_object": "a social cue",
+          "time_place_scope": "a first meeting",
+          "mechanism": "status signaling",
+          "evidence_lens": "social psychology experiment"
+        }
+      ]
+    },
+    {
+      "subject": "manipulation",
+      "tuples": [
+        {
+          "episode_object": "a social cue",
+          "time_place_scope": "a stressful week",
+          "mechanism": "reinforcement loop",
+          "evidence_lens": "clinical guidance"
+        },
+        {
+          "episode_object": "a repair attempt",
+          "time_place_scope": "a difficult conversation",
+          "mechanism": "co-regulation",
+          "evidence_lens": "longitudinal research"
+        }
+      ]
+    },
+    {
+      "subject": "trust",
+      "tuples": [
+        {
+          "episode_object": "a repair attempt",
+          "time_place_scope": "a difficult conversation",
+          "mechanism": "co-regulation",
+          "evidence_lens": "longitudinal research"
+        },
+        {
+          "episode_object": "a social cue",
+          "time_place_scope": "a stressful week",
+          "mechanism": "reinforcement loop",
+          "evidence_lens": "clinical guidance"
+        }
+      ]
+    },
+    {
+      "subject": "social comparison",
+      "tuples": [
+        {
+          "episode_object": "a group chat",
+          "time_place_scope": "a public group setting",
+          "mechanism": "status signaling",
+          "evidence_lens": "social psychology experiment"
+        },
+        {
+          "episode_object": "a social cue",
+          "time_place_scope": "a recurring workplace interaction",
+          "mechanism": "social learning",
+          "evidence_lens": "behavioral study"
+        }
+      ]
+    },
+    {
+      "subject": "group conformity",
+      "tuples": [
+        {
+          "episode_object": "a social cue",
+          "time_place_scope": "a recurring workplace interaction",
+          "mechanism": "social learning",
+          "evidence_lens": "behavioral study"
+        },
+        {
+          "episode_object": "a group chat",
+          "time_place_scope": "a public group setting",
+          "mechanism": "status signaling",
+          "evidence_lens": "social psychology experiment"
+        }
+      ]
+    },
+    {
+      "subject": "attachment",
+      "tuples": [
+        {
+          "episode_object": "an unanswered message",
+          "time_place_scope": "a close relationship",
+          "mechanism": "attachment expectation",
+          "evidence_lens": "longitudinal research"
+        },
+        {
+          "episode_object": "a repair attempt",
+          "time_place_scope": "a difficult conversation",
+          "mechanism": "co-regulation",
+          "evidence_lens": "clinical guidance"
+        }
+      ]
+    },
+    {
+      "subject": "repair after conflict",
+      "tuples": [
+        {
+          "episode_object": "a repair attempt",
+          "time_place_scope": "a difficult conversation",
+          "mechanism": "co-regulation",
+          "evidence_lens": "clinical guidance"
+        },
+        {
+          "episode_object": "an unanswered message",
+          "time_place_scope": "a close relationship",
+          "mechanism": "attachment expectation",
+          "evidence_lens": "longitudinal research"
+        }
+      ]
+    }
   ]
 }

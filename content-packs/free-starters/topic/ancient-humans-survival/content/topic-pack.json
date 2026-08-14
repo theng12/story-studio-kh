@@ -62,18 +62,6 @@
     "ethnographic comparison",
     "paleoenvironmental reconstruction"
   ],
-  "coverage_groups": [
-    {"subjects":["surviving winter","staying warm without houses"],"episode_objects":["a hearth","a hide shelter"],"time_place_scopes":["an Ice Age winter camp","a rock shelter at night"],"mechanisms":["fire management","material repair"],"evidence_lenses":["archaeological traces","experimental archaeology"]},
-    {"subjects":["finding safe drinking water","crossing dangerous rivers"],"episode_objects":["a water source","a stone blade"],"time_place_scopes":["a dry-season savanna","a river crossing"],"mechanisms":["risk avoidance","social learning"],"evidence_lenses":["paleoenvironmental reconstruction","ethnographic comparison"]},
-    {"subjects":["treating injuries","living without medicine"],"episode_objects":["a wound dressing","a stone blade"],"time_place_scopes":["a rock shelter at night","a seasonal migration route"],"mechanisms":["material repair","social learning"],"evidence_lenses":["skeletal evidence","experimental archaeology"]},
-    {"subjects":["sleeping near predators","defending a camp"],"episode_objects":["a hide shelter","a stone blade"],"time_place_scopes":["a rock shelter at night","an Ice Age winter camp"],"mechanisms":["risk avoidance","shared labor"],"evidence_lenses":["ethnographic comparison","archaeological traces"]},
-    {"subjects":["enduring drought","surviving famine"],"episode_objects":["a water source","a food cache"],"time_place_scopes":["a dry-season savanna","a seasonal migration route"],"mechanisms":["seasonal mobility","food preservation"],"evidence_lenses":["paleoenvironmental reconstruction","archaeological traces"]},
-    {"subjects":["protecting fire","avoiding food poisoning"],"episode_objects":["a hearth","a food cache"],"time_place_scopes":["an Ice Age winter camp","a dry-season savanna"],"mechanisms":["fire management","food preservation"],"evidence_lenses":["archaeological traces","experimental archaeology"]},
-    {"subjects":["surviving childbirth","raising infants while moving"],"episode_objects":["a wound dressing","a child carrier"],"time_place_scopes":["a rock shelter at night","a seasonal migration route"],"mechanisms":["social learning","seasonal mobility"],"evidence_lenses":["skeletal evidence","ethnographic comparison"]},
-    {"subjects":["escaping wildfires","coping with parasites"],"episode_objects":["a water source","a wound dressing"],"time_place_scopes":["a burned grassland","a dry-season savanna"],"mechanisms":["risk avoidance","material repair"],"evidence_lenses":["paleoenvironmental reconstruction","skeletal evidence"]},
-    {"subjects":["preserving food","navigating without maps"],"episode_objects":["a food cache","a stone blade"],"time_place_scopes":["an Ice Age winter camp","a seasonal migration route"],"mechanisms":["food preservation","social learning"],"evidence_lenses":["archaeological traces","ethnographic comparison"]},
-    {"subjects":["surviving extreme heat","recovering after a hunt"],"episode_objects":["a water source","a wound dressing"],"time_place_scopes":["a dry-season savanna","a rock shelter at night"],"mechanisms":["seasonal mobility","material repair"],"evidence_lenses":["paleoenvironmental reconstruction","skeletal evidence"]}
-  ],
   "exclusions": [
     "Do not generalize one culture or era as all ancient humans.",
     "Do not turn uncertainty into fantasy certainty."
@@ -139,5 +127,347 @@
   "compatibility_rules": [
     "Use only with the Ancient Humans Formula.",
     "Name the evidence boundary and avoid universal claims about people, time, or place."
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "surviving winter",
+      "tuples": [
+        {
+          "episode_object": "a hearth",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "fire management",
+          "evidence_lens": "archaeological traces"
+        },
+        {
+          "episode_object": "a hide shelter",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "material repair",
+          "evidence_lens": "experimental archaeology"
+        }
+      ]
+    },
+    {
+      "subject": "staying warm without houses",
+      "tuples": [
+        {
+          "episode_object": "a hide shelter",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "material repair",
+          "evidence_lens": "experimental archaeology"
+        },
+        {
+          "episode_object": "a hearth",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "fire management",
+          "evidence_lens": "archaeological traces"
+        }
+      ]
+    },
+    {
+      "subject": "finding safe drinking water",
+      "tuples": [
+        {
+          "episode_object": "a water source",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "risk avoidance",
+          "evidence_lens": "paleoenvironmental reconstruction"
+        },
+        {
+          "episode_object": "a stone blade",
+          "time_place_scope": "a river crossing",
+          "mechanism": "social learning",
+          "evidence_lens": "ethnographic comparison"
+        }
+      ]
+    },
+    {
+      "subject": "crossing dangerous rivers",
+      "tuples": [
+        {
+          "episode_object": "a stone blade",
+          "time_place_scope": "a river crossing",
+          "mechanism": "social learning",
+          "evidence_lens": "ethnographic comparison"
+        },
+        {
+          "episode_object": "a water source",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "risk avoidance",
+          "evidence_lens": "paleoenvironmental reconstruction"
+        }
+      ]
+    },
+    {
+      "subject": "treating injuries",
+      "tuples": [
+        {
+          "episode_object": "a wound dressing",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "material repair",
+          "evidence_lens": "skeletal evidence"
+        },
+        {
+          "episode_object": "a stone blade",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "social learning",
+          "evidence_lens": "experimental archaeology"
+        }
+      ]
+    },
+    {
+      "subject": "living without medicine",
+      "tuples": [
+        {
+          "episode_object": "a stone blade",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "social learning",
+          "evidence_lens": "experimental archaeology"
+        },
+        {
+          "episode_object": "a wound dressing",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "material repair",
+          "evidence_lens": "skeletal evidence"
+        }
+      ]
+    },
+    {
+      "subject": "sleeping near predators",
+      "tuples": [
+        {
+          "episode_object": "a hide shelter",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "risk avoidance",
+          "evidence_lens": "ethnographic comparison"
+        },
+        {
+          "episode_object": "a stone blade",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "shared labor",
+          "evidence_lens": "archaeological traces"
+        }
+      ]
+    },
+    {
+      "subject": "defending a camp",
+      "tuples": [
+        {
+          "episode_object": "a stone blade",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "shared labor",
+          "evidence_lens": "archaeological traces"
+        },
+        {
+          "episode_object": "a hide shelter",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "risk avoidance",
+          "evidence_lens": "ethnographic comparison"
+        }
+      ]
+    },
+    {
+      "subject": "enduring drought",
+      "tuples": [
+        {
+          "episode_object": "a water source",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "paleoenvironmental reconstruction"
+        },
+        {
+          "episode_object": "a food cache",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "food preservation",
+          "evidence_lens": "archaeological traces"
+        }
+      ]
+    },
+    {
+      "subject": "surviving famine",
+      "tuples": [
+        {
+          "episode_object": "a food cache",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "food preservation",
+          "evidence_lens": "archaeological traces"
+        },
+        {
+          "episode_object": "a water source",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "paleoenvironmental reconstruction"
+        }
+      ]
+    },
+    {
+      "subject": "protecting fire",
+      "tuples": [
+        {
+          "episode_object": "a hearth",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "fire management",
+          "evidence_lens": "archaeological traces"
+        },
+        {
+          "episode_object": "a food cache",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "food preservation",
+          "evidence_lens": "experimental archaeology"
+        }
+      ]
+    },
+    {
+      "subject": "avoiding food poisoning",
+      "tuples": [
+        {
+          "episode_object": "a food cache",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "food preservation",
+          "evidence_lens": "experimental archaeology"
+        },
+        {
+          "episode_object": "a hearth",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "fire management",
+          "evidence_lens": "archaeological traces"
+        }
+      ]
+    },
+    {
+      "subject": "surviving childbirth",
+      "tuples": [
+        {
+          "episode_object": "a wound dressing",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "social learning",
+          "evidence_lens": "skeletal evidence"
+        },
+        {
+          "episode_object": "a child carrier",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "ethnographic comparison"
+        }
+      ]
+    },
+    {
+      "subject": "raising infants while moving",
+      "tuples": [
+        {
+          "episode_object": "a child carrier",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "ethnographic comparison"
+        },
+        {
+          "episode_object": "a wound dressing",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "social learning",
+          "evidence_lens": "skeletal evidence"
+        }
+      ]
+    },
+    {
+      "subject": "escaping wildfires",
+      "tuples": [
+        {
+          "episode_object": "a water source",
+          "time_place_scope": "a burned grassland",
+          "mechanism": "risk avoidance",
+          "evidence_lens": "paleoenvironmental reconstruction"
+        },
+        {
+          "episode_object": "a wound dressing",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "material repair",
+          "evidence_lens": "skeletal evidence"
+        }
+      ]
+    },
+    {
+      "subject": "coping with parasites",
+      "tuples": [
+        {
+          "episode_object": "a wound dressing",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "material repair",
+          "evidence_lens": "skeletal evidence"
+        },
+        {
+          "episode_object": "a water source",
+          "time_place_scope": "a burned grassland",
+          "mechanism": "risk avoidance",
+          "evidence_lens": "paleoenvironmental reconstruction"
+        }
+      ]
+    },
+    {
+      "subject": "preserving food",
+      "tuples": [
+        {
+          "episode_object": "a food cache",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "food preservation",
+          "evidence_lens": "archaeological traces"
+        },
+        {
+          "episode_object": "a stone blade",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "social learning",
+          "evidence_lens": "ethnographic comparison"
+        }
+      ]
+    },
+    {
+      "subject": "navigating without maps",
+      "tuples": [
+        {
+          "episode_object": "a stone blade",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "social learning",
+          "evidence_lens": "ethnographic comparison"
+        },
+        {
+          "episode_object": "a food cache",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "food preservation",
+          "evidence_lens": "archaeological traces"
+        }
+      ]
+    },
+    {
+      "subject": "surviving extreme heat",
+      "tuples": [
+        {
+          "episode_object": "a water source",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "paleoenvironmental reconstruction"
+        },
+        {
+          "episode_object": "a wound dressing",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "material repair",
+          "evidence_lens": "skeletal evidence"
+        }
+      ]
+    },
+    {
+      "subject": "recovering after a hunt",
+      "tuples": [
+        {
+          "episode_object": "a wound dressing",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "material repair",
+          "evidence_lens": "skeletal evidence"
+        },
+        {
+          "episode_object": "a water source",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "paleoenvironmental reconstruction"
+        }
+      ]
+    }
   ]
 }

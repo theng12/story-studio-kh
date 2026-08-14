@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import type { Niche, TopicCoverageGroup, TopicPack } from '../models/types.js'
+import type { Niche, TopicCoverageGroup, TopicCoverageProfile, TopicPack } from '../models/types.js'
 
 export interface IdeaAssignment {
   idea_key: string
@@ -79,9 +79,19 @@ type SubjectRow = {
   packId?: string
   coverageGroup?: TopicCoverageGroup
   coverageSubjectIndex?: number
+  coverageProfile?: TopicCoverageProfile
 }
 
 function coherentTuple(subject: SubjectRow, round: number): Record<string, string> | undefined {
+  if (subject.coverageProfile) {
+    const tuple = subject.coverageProfile.tuples[round % subject.coverageProfile.tuples.length]!
+    return {
+      'episode-object': tuple.episodeObject,
+      'time-place-scope': tuple.timePlaceScope,
+      mechanism: tuple.mechanism,
+      'evidence-lens': tuple.evidenceLens,
+    }
+  }
   const group = subject.coverageGroup
   if (!group || subject.coverageSubjectIndex === undefined) return undefined
   const index = (subject.coverageSubjectIndex + round) % group.episodeObjects.length
@@ -125,11 +135,15 @@ export function planIdeaAssignments(options: {
   if (packs.length) {
     for (const pack of packs) {
       for (const subject of unique(pack.subjects)) {
+        const profile = pack.coverageProfiles?.find(candidate => candidate.subject === subject)
         const matches = (pack.coverageGroups || []).flatMap(group => {
           const index = group.subjects.indexOf(subject)
           return index === -1 ? [] : [{ group, index }]
         })
-        if (pack.coverageGroups?.length && matches.length !== 1) {
+        if (pack.coverageProfiles?.length && !profile) {
+          throw new Error(`Topic Pack ${pack.id} cannot plan ${subject}: every subject requires exactly one coverage profile`)
+        }
+        if (!profile && pack.coverageGroups?.length && matches.length !== 1) {
           throw new Error(`Topic Pack ${pack.id} cannot plan ${subject}: every subject requires exactly one coverage group`)
         }
         subjectRows.push({
@@ -137,6 +151,7 @@ export function planIdeaAssignments(options: {
           packId: pack.id,
           coverageGroup: matches[0]?.group,
           coverageSubjectIndex: matches[0]?.index,
+          coverageProfile: profile,
         })
       }
     }
@@ -182,7 +197,7 @@ export function planIdeaAssignments(options: {
   ]))
   const axesForSubject = (subject: SubjectRow) => subject.packId
     ? [
-      ...(axesByPack.get(subject.packId) || []).filter(axis => !subject.coverageGroup || !COHERENT_AXIS_IDS.has(axis.id)),
+      ...(axesByPack.get(subject.packId) || []).filter(axis => !(subject.coverageGroup || subject.coverageProfile) || !COHERENT_AXIS_IDS.has(axis.id)),
       ...formulaAxes,
     ]
     : axes
@@ -217,9 +232,10 @@ export function planIdeaAssignments(options: {
     return candidate
   }
 
-  // Coverage groups are authored semantic lanes, not independent axes. Keep
-  // each subject paired to its authored tuple before any seeded ordering or
-  // bounded reserve can select it; later rounds rotate the whole tuple.
+  // Coverage profiles are authored semantic records, not independently
+  // combinable axes. Keep each subject paired to its complete tuple before
+  // any seeded ordering or bounded reserve can select it; later rounds rotate
+  // the whole record.
   for (const [rank, subject] of subjectRows.entries()) {
     if (!subject.packId) continue
     const dimensions: Record<string, string> = { subject: subject.value }
@@ -238,7 +254,7 @@ export function planIdeaAssignments(options: {
   const totalCombinations = Math.min(1_000_000, subjectRows.reduce((total, subject) => {
     const combinationsForSubject = axesForSubject(subject)
       .reduce((product, axis) => Math.min(1_000_000, product * axis.values.length), 1)
-    const tupleCount = subject.coverageGroup?.episodeObjects.length || 1
+    const tupleCount = subject.coverageProfile?.tuples.length || subject.coverageGroup?.episodeObjects.length || 1
     return Math.min(1_000_000, total + combinationsForSubject * tupleCount)
   }, 0))
   const maxRounds = Math.min(
@@ -249,9 +265,9 @@ export function planIdeaAssignments(options: {
     const subject = subjectRows[index % subjectRows.length]!
     const dimensions: Record<string, string> = { subject: subject.value }
     let combinationIndex = Math.floor(index / subjectRows.length)
-    if (subject.coverageGroup) {
+    if (subject.coverageGroup || subject.coverageProfile) {
       Object.assign(dimensions, coherentTuple(subject, combinationIndex))
-      combinationIndex = Math.floor(combinationIndex / subject.coverageGroup.episodeObjects.length)
+      combinationIndex = Math.floor(combinationIndex / (subject.coverageProfile?.tuples.length || subject.coverageGroup!.episodeObjects.length))
     }
     axesForSubject(subject).forEach((axis) => {
       dimensions[axis.id] = axis.values[combinationIndex % axis.values.length]!
@@ -294,8 +310,8 @@ export function planIdeaAssignments(options: {
       }
       return true
     })
-  if (packs.some(pack => pack.coverageGroups?.length) && assignments.length < options.count) {
-    throw new Error('Topic Pack coverage groups cannot plan the requested campaign without repeating an episode object or mechanism')
+  if (packs.some(pack => pack.coverageGroups?.length || pack.coverageProfiles?.length) && assignments.length < options.count) {
+    throw new Error('Topic Pack coverage profiles cannot plan the requested campaign without repeating an episode object or mechanism')
   }
   return assignments
 }

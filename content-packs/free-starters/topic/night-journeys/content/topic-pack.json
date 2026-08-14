@@ -1,15 +1,403 @@
 {
-  "kind": "topic-pack", "schema_version": 1, "id": "com.storystudio.topic.night-journeys", "name": "Night Journeys", "description": "Fifteen low-arousal story settings where one gentle character tends, carries, mends, or returns.",
-  "compatible_formula_ids": ["com.storystudio.formula.sleep-story"],
-  "subjects": ["lantern keeper's evening round", "moonlit garden watering", "library book return", "candle maker's last pour", "quiet ferry crossing", "snowy cottage mending", "orchard basket sorting", "lighthouse window cleaning", "riverside map folding", "bakery's early dough", "observatory blanket folding", "village letter delivery", "teashop closing ritual", "seaside shell catalog", "greenhouse seed tending"],
-  "episode_objects": ["a lantern", "a watering can", "a library book", "a beeswax candle", "a folded map", "a wool blanket", "a letter", "a seed packet"],
-  "time_place_scopes": ["blue-hour village", "moonlit garden", "quiet harbor", "snow-softened cottage", "warm library", "rainy greenhouse"],
-  "mechanisms": ["repetitive tending", "slow walking", "gentle sorting", "small repair", "weather noticing", "soft homecoming"],
-  "evidence_lenses": ["low-arousal pacing", "sensory continuity", "completed small task", "quiet setting detail", "calm transition", "rest-oriented ending"],
-  "coverage_groups": [{"subjects":["lantern keeper's evening round","moonlit garden watering"],"episode_objects":["a lantern","a watering can"],"time_place_scopes":["blue-hour village","moonlit garden"],"mechanisms":["slow walking","repetitive tending"],"evidence_lenses":["quiet setting detail","completed small task"]},{"subjects":["library book return","candle maker's last pour"],"episode_objects":["a library book","a beeswax candle"],"time_place_scopes":["warm library","blue-hour village"],"mechanisms":["slow walking","small repair"],"evidence_lenses":["sensory continuity","completed small task"]},{"subjects":["quiet ferry crossing","snowy cottage mending"],"episode_objects":["a folded map","a wool blanket"],"time_place_scopes":["quiet harbor","snow-softened cottage"],"mechanisms":["weather noticing","small repair"],"evidence_lenses":["calm transition","completed small task"]},{"subjects":["orchard basket sorting","lighthouse window cleaning"],"episode_objects":["a seed packet","a lantern"],"time_place_scopes":["blue-hour village","quiet harbor"],"mechanisms":["gentle sorting","weather noticing"],"evidence_lenses":["completed small task","quiet setting detail"]},{"subjects":["riverside map folding","bakery's early dough"],"episode_objects":["a folded map","a beeswax candle"],"time_place_scopes":["quiet harbor","blue-hour village"],"mechanisms":["gentle sorting","repetitive tending"],"evidence_lenses":["sensory continuity","low-arousal pacing"]},{"subjects":["observatory blanket folding","village letter delivery"],"episode_objects":["a wool blanket","a letter"],"time_place_scopes":["snow-softened cottage","blue-hour village"],"mechanisms":["gentle sorting","slow walking"],"evidence_lenses":["rest-oriented ending","calm transition"]},{"subjects":["teashop closing ritual","seaside shell catalog"],"episode_objects":["a beeswax candle","a seed packet"],"time_place_scopes":["warm library","quiet harbor"],"mechanisms":["soft homecoming","gentle sorting"],"evidence_lenses":["rest-oriented ending","quiet setting detail"]},{"subjects":["greenhouse seed tending"],"episode_objects":["a seed packet","a watering can"],"time_place_scopes":["rainy greenhouse","moonlit garden"],"mechanisms":["repetitive tending","weather noticing"],"evidence_lenses":["low-arousal pacing","sensory continuity"]}],
-  "exclusions": ["No graphic or startling incidents, countdowns, unresolved endings, or sudden sound cues.", "Do not introduce a mystery that asks the listener to stay alert.", "Do not use a threatening antagonist, chase, conflict, or time pressure."],
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.night-journeys",
+  "name": "Night Journeys",
+  "description": "Fifteen low-arousal story settings where one gentle character tends, carries, mends, or returns.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-story"
+  ],
+  "subjects": [
+    "lantern keeper's evening round",
+    "moonlit garden watering",
+    "library book return",
+    "candle maker's last pour",
+    "quiet ferry crossing",
+    "snowy cottage mending",
+    "orchard basket sorting",
+    "lighthouse window cleaning",
+    "riverside map folding",
+    "bakery's early dough",
+    "observatory blanket folding",
+    "village letter delivery",
+    "teashop closing ritual",
+    "seaside shell catalog",
+    "greenhouse seed tending"
+  ],
+  "episode_objects": [
+    "a lantern",
+    "a watering can",
+    "a library book",
+    "a beeswax candle",
+    "a folded map",
+    "a wool blanket",
+    "a letter",
+    "a seed packet",
+    "a loaf of dough",
+    "a baking tray",
+    "a shell catalog",
+    "a shell pouch",
+    "a tea cup",
+    "a tea tray"
+  ],
+  "time_place_scopes": [
+    "blue-hour village",
+    "moonlit garden",
+    "quiet harbor",
+    "snow-softened cottage",
+    "warm library",
+    "rainy greenhouse",
+    "a bakery before dawn",
+    "a teashop at closing"
+  ],
+  "mechanisms": [
+    "repetitive tending",
+    "slow walking",
+    "gentle sorting",
+    "small repair",
+    "weather noticing",
+    "soft homecoming"
+  ],
+  "evidence_lenses": [
+    "low-arousal pacing",
+    "sensory continuity",
+    "completed small task",
+    "quiet setting detail",
+    "calm transition",
+    "rest-oriented ending"
+  ],
+  "exclusions": [
+    "No graphic or startling incidents, countdowns, unresolved endings, or sudden sound cues.",
+    "Do not introduce a mystery that asks the listener to stay alert.",
+    "Do not use a threatening antagonist, chase, conflict, or time pressure."
+  ],
   "max_siblings_per_subject": 1,
   "prompt_context": "Build a low-arousal story around one calm setting, one gentle character, and one completed small task or journey. Let scenes settle; never escalate the listener's attention.",
-  "idea_axes": [{"id": "episode-object", "label": "Story object", "values": ["a lantern", "a watering can", "a library book", "a beeswax candle", "a folded map", "a wool blanket", "a letter", "a seed packet"]}, {"id": "time-place-scope", "label": "Quiet setting", "values": ["blue-hour village", "moonlit garden", "quiet harbor", "snow-softened cottage", "warm library", "rainy greenhouse"]}, {"id": "mechanism", "label": "Calm story movement", "values": ["repetitive tending", "slow walking", "gentle sorting", "small repair", "weather noticing", "soft homecoming"]}, {"id": "evidence-lens", "label": "Sleep-story lens", "values": ["low-arousal pacing", "sensory continuity", "completed small task", "quiet setting detail", "calm transition", "rest-oriented ending"]}],
-  "tags": ["sleep story", "bedtime story", "night journey"], "compatibility_rules": ["Use only with the Sleep Story Formula.", "Keep one quiet character, one setting, and one soothing through-line.", "Every chapter must preserve low-arousal pacing and move toward rest."]
+  "idea_axes": [
+    {
+      "id": "episode-object",
+      "label": "Story object",
+      "values": [
+        "a lantern",
+        "a watering can",
+        "a library book",
+        "a beeswax candle",
+        "a folded map",
+        "a wool blanket",
+        "a letter",
+        "a seed packet",
+        "a loaf of dough",
+        "a baking tray",
+        "a shell catalog",
+        "a shell pouch",
+        "a tea cup",
+        "a tea tray"
+      ]
+    },
+    {
+      "id": "time-place-scope",
+      "label": "Quiet setting",
+      "values": [
+        "blue-hour village",
+        "moonlit garden",
+        "quiet harbor",
+        "snow-softened cottage",
+        "warm library",
+        "rainy greenhouse",
+        "a bakery before dawn",
+        "a teashop at closing"
+      ]
+    },
+    {
+      "id": "mechanism",
+      "label": "Calm story movement",
+      "values": [
+        "repetitive tending",
+        "slow walking",
+        "gentle sorting",
+        "small repair",
+        "weather noticing",
+        "soft homecoming"
+      ]
+    },
+    {
+      "id": "evidence-lens",
+      "label": "Sleep-story lens",
+      "values": [
+        "low-arousal pacing",
+        "sensory continuity",
+        "completed small task",
+        "quiet setting detail",
+        "calm transition",
+        "rest-oriented ending"
+      ]
+    }
+  ],
+  "tags": [
+    "sleep story",
+    "bedtime story",
+    "night journey"
+  ],
+  "compatibility_rules": [
+    "Use only with the Sleep Story Formula.",
+    "Keep one quiet character, one setting, and one soothing through-line.",
+    "Every chapter must preserve low-arousal pacing and move toward rest."
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "lantern keeper's evening round",
+      "tuples": [
+        {
+          "episode_object": "a lantern",
+          "time_place_scope": "blue-hour village",
+          "mechanism": "slow walking",
+          "evidence_lens": "quiet setting detail"
+        },
+        {
+          "episode_object": "a watering can",
+          "time_place_scope": "moonlit garden",
+          "mechanism": "repetitive tending",
+          "evidence_lens": "completed small task"
+        }
+      ]
+    },
+    {
+      "subject": "moonlit garden watering",
+      "tuples": [
+        {
+          "episode_object": "a watering can",
+          "time_place_scope": "moonlit garden",
+          "mechanism": "repetitive tending",
+          "evidence_lens": "completed small task"
+        },
+        {
+          "episode_object": "a lantern",
+          "time_place_scope": "blue-hour village",
+          "mechanism": "slow walking",
+          "evidence_lens": "quiet setting detail"
+        }
+      ]
+    },
+    {
+      "subject": "library book return",
+      "tuples": [
+        {
+          "episode_object": "a library book",
+          "time_place_scope": "warm library",
+          "mechanism": "slow walking",
+          "evidence_lens": "sensory continuity"
+        },
+        {
+          "episode_object": "a beeswax candle",
+          "time_place_scope": "blue-hour village",
+          "mechanism": "small repair",
+          "evidence_lens": "completed small task"
+        }
+      ]
+    },
+    {
+      "subject": "candle maker's last pour",
+      "tuples": [
+        {
+          "episode_object": "a beeswax candle",
+          "time_place_scope": "blue-hour village",
+          "mechanism": "small repair",
+          "evidence_lens": "completed small task"
+        },
+        {
+          "episode_object": "a library book",
+          "time_place_scope": "warm library",
+          "mechanism": "slow walking",
+          "evidence_lens": "sensory continuity"
+        }
+      ]
+    },
+    {
+      "subject": "quiet ferry crossing",
+      "tuples": [
+        {
+          "episode_object": "a folded map",
+          "time_place_scope": "quiet harbor",
+          "mechanism": "weather noticing",
+          "evidence_lens": "calm transition"
+        },
+        {
+          "episode_object": "a wool blanket",
+          "time_place_scope": "snow-softened cottage",
+          "mechanism": "small repair",
+          "evidence_lens": "completed small task"
+        }
+      ]
+    },
+    {
+      "subject": "snowy cottage mending",
+      "tuples": [
+        {
+          "episode_object": "a wool blanket",
+          "time_place_scope": "snow-softened cottage",
+          "mechanism": "small repair",
+          "evidence_lens": "completed small task"
+        },
+        {
+          "episode_object": "a folded map",
+          "time_place_scope": "quiet harbor",
+          "mechanism": "weather noticing",
+          "evidence_lens": "calm transition"
+        }
+      ]
+    },
+    {
+      "subject": "orchard basket sorting",
+      "tuples": [
+        {
+          "episode_object": "a seed packet",
+          "time_place_scope": "blue-hour village",
+          "mechanism": "gentle sorting",
+          "evidence_lens": "completed small task"
+        },
+        {
+          "episode_object": "a lantern",
+          "time_place_scope": "quiet harbor",
+          "mechanism": "weather noticing",
+          "evidence_lens": "quiet setting detail"
+        }
+      ]
+    },
+    {
+      "subject": "lighthouse window cleaning",
+      "tuples": [
+        {
+          "episode_object": "a lantern",
+          "time_place_scope": "quiet harbor",
+          "mechanism": "weather noticing",
+          "evidence_lens": "quiet setting detail"
+        },
+        {
+          "episode_object": "a seed packet",
+          "time_place_scope": "blue-hour village",
+          "mechanism": "gentle sorting",
+          "evidence_lens": "completed small task"
+        }
+      ]
+    },
+    {
+      "subject": "riverside map folding",
+      "tuples": [
+        {
+          "episode_object": "a folded map",
+          "time_place_scope": "quiet harbor",
+          "mechanism": "gentle sorting",
+          "evidence_lens": "sensory continuity"
+        },
+        {
+          "episode_object": "a beeswax candle",
+          "time_place_scope": "blue-hour village",
+          "mechanism": "repetitive tending",
+          "evidence_lens": "low-arousal pacing"
+        }
+      ]
+    },
+    {
+      "subject": "bakery's early dough",
+      "tuples": [
+        {
+          "episode_object": "a loaf of dough",
+          "time_place_scope": "a bakery before dawn",
+          "mechanism": "repetitive tending",
+          "evidence_lens": "low-arousal pacing"
+        },
+        {
+          "episode_object": "a baking tray",
+          "time_place_scope": "a bakery before dawn",
+          "mechanism": "small repair",
+          "evidence_lens": "sensory continuity"
+        }
+      ]
+    },
+    {
+      "subject": "observatory blanket folding",
+      "tuples": [
+        {
+          "episode_object": "a wool blanket",
+          "time_place_scope": "snow-softened cottage",
+          "mechanism": "gentle sorting",
+          "evidence_lens": "rest-oriented ending"
+        },
+        {
+          "episode_object": "a letter",
+          "time_place_scope": "blue-hour village",
+          "mechanism": "slow walking",
+          "evidence_lens": "calm transition"
+        }
+      ]
+    },
+    {
+      "subject": "village letter delivery",
+      "tuples": [
+        {
+          "episode_object": "a letter",
+          "time_place_scope": "blue-hour village",
+          "mechanism": "slow walking",
+          "evidence_lens": "calm transition"
+        },
+        {
+          "episode_object": "a wool blanket",
+          "time_place_scope": "snow-softened cottage",
+          "mechanism": "gentle sorting",
+          "evidence_lens": "rest-oriented ending"
+        }
+      ]
+    },
+    {
+      "subject": "teashop closing ritual",
+      "tuples": [
+        {
+          "episode_object": "a tea cup",
+          "time_place_scope": "a teashop at closing",
+          "mechanism": "soft homecoming",
+          "evidence_lens": "rest-oriented ending"
+        },
+        {
+          "episode_object": "a tea tray",
+          "time_place_scope": "a teashop at closing",
+          "mechanism": "gentle sorting",
+          "evidence_lens": "quiet setting detail"
+        }
+      ]
+    },
+    {
+      "subject": "seaside shell catalog",
+      "tuples": [
+        {
+          "episode_object": "a shell catalog",
+          "time_place_scope": "quiet harbor",
+          "mechanism": "gentle sorting",
+          "evidence_lens": "quiet setting detail"
+        },
+        {
+          "episode_object": "a shell pouch",
+          "time_place_scope": "quiet harbor",
+          "mechanism": "soft homecoming",
+          "evidence_lens": "rest-oriented ending"
+        }
+      ]
+    },
+    {
+      "subject": "greenhouse seed tending",
+      "tuples": [
+        {
+          "episode_object": "a seed packet",
+          "time_place_scope": "rainy greenhouse",
+          "mechanism": "repetitive tending",
+          "evidence_lens": "low-arousal pacing"
+        },
+        {
+          "episode_object": "a watering can",
+          "time_place_scope": "moonlit garden",
+          "mechanism": "weather noticing",
+          "evidence_lens": "sensory continuity"
+        }
+      ]
+    }
+  ]
 }

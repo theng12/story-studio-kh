@@ -55,7 +55,8 @@
     "a rifting seaway",
     "a glacial world",
     "a volcanic plateau",
-    "a modern landscape revealing deep time"
+    "a modern landscape revealing deep time",
+    "a Hadean impact landscape"
   ],
   "mechanisms": [
     "plate collision",
@@ -64,7 +65,11 @@
     "ocean circulation",
     "orbital forcing",
     "weathering feedback",
-    "volcanic outgassing"
+    "volcanic outgassing",
+    "giant impact",
+    "core dynamo",
+    "impact debris cooling",
+    "field reversal record"
   ],
   "evidence_lenses": [
     "rock record",
@@ -73,23 +78,6 @@
     "paleomagnetic evidence",
     "sediment core",
     "terrain mapping"
-  ],
-  "coverage_groups": [
-    {"subjects":["the birth of mountain ranges","the rise of the Himalayas"],"episode_objects":["a rock layer","a continental map"],"time_place_scopes":["a supercontinent interior","a modern landscape revealing deep time"],"mechanisms":["plate collision","weathering feedback"],"evidence_lenses":["rock record","terrain mapping"]},
-    {"subjects":["continental drift","supercontinents"],"episode_objects":["a continental map","a rock layer"],"time_place_scopes":["a rifting seaway","a supercontinent interior"],"mechanisms":["rift spreading","plate collision"],"evidence_lenses":["paleomagnetic evidence","rock record"]},
-    {"subjects":["the carbon cycle","ancient atmospheric carbon dioxide"],"episode_objects":["an isotope record","a rock layer"],"time_place_scopes":["a Proterozoic ocean","a modern landscape revealing deep time"],"mechanisms":["carbon burial","weathering feedback"],"evidence_lenses":["isotope evidence","sediment core"]},
-    {"subjects":["the oxygenation of Earth","the first global oceans"],"episode_objects":["an isotope record","a fossil shoreline"],"time_place_scopes":["a Proterozoic ocean","an Archean coastline"],"mechanisms":["carbon burial","ocean circulation"],"evidence_lenses":["isotope evidence","fossil record"]},
-    {"subjects":["the first continents","the origin of plate tectonics"],"episode_objects":["a continental map","a rock layer"],"time_place_scopes":["an Archean coastline","a supercontinent interior"],"mechanisms":["rift spreading","plate collision"],"evidence_lenses":["paleomagnetic evidence","rock record"]},
-    {"subjects":["snowball Earth","ice-age cycles"],"episode_objects":["an ice core","an isotope record"],"time_place_scopes":["a glacial world","a Proterozoic ocean"],"mechanisms":["carbon burial","orbital forcing"],"evidence_lenses":["isotope evidence","sediment core"]},
-    {"subjects":["the Great Unconformity","the first rivers"],"episode_objects":["a rock layer","a river basin"],"time_place_scopes":["a modern landscape revealing deep time","an Archean coastline"],"mechanisms":["weathering feedback","carbon burial"],"evidence_lenses":["rock record","terrain mapping"]},
-    {"subjects":["megavolcanic provinces","massive flood basalts"],"episode_objects":["a volcanic province","a rock layer"],"time_place_scopes":["a volcanic plateau","a modern landscape revealing deep time"],"mechanisms":["volcanic outgassing","weathering feedback"],"evidence_lenses":["rock record","isotope evidence"]},
-    {"subjects":["the birth of the Moon","Earth's magnetic field"],"episode_objects":["a rock layer","an isotope record"],"time_place_scopes":["an Archean coastline","a Proterozoic ocean"],"mechanisms":["plate collision","ocean circulation"],"evidence_lenses":["rock record","paleomagnetic evidence"]},
-    {"subjects":["desertification","the origin of soil"],"episode_objects":["a river basin","a rock layer"],"time_place_scopes":["a modern landscape revealing deep time","a supercontinent interior"],"mechanisms":["weathering feedback","carbon burial"],"evidence_lenses":["terrain mapping","sediment core"]},
-    {"subjects":["the opening of the Atlantic","the closing of ancient oceans"],"episode_objects":["a continental map","a fossil shoreline"],"time_place_scopes":["a rifting seaway","a Proterozoic ocean"],"mechanisms":["rift spreading","ocean circulation"],"evidence_lenses":["paleomagnetic evidence","fossil record"]},
-    {"subjects":["sea-level change","monsoon systems"],"episode_objects":["a fossil shoreline","an isotope record"],"time_place_scopes":["a Proterozoic ocean","a modern landscape revealing deep time"],"mechanisms":["ocean circulation","orbital forcing"],"evidence_lenses":["sediment core","isotope evidence"]},
-    {"subjects":["the formation of the Grand Canyon","the Mediterranean drying out"],"episode_objects":["a river basin","a fossil shoreline"],"time_place_scopes":["a modern landscape revealing deep time","a rifting seaway"],"mechanisms":["weathering feedback","ocean circulation"],"evidence_lenses":["terrain mapping","sediment core"]},
-    {"subjects":["the changing Sun","the first rain"],"episode_objects":["an isotope record","a river basin"],"time_place_scopes":["an Archean coastline","a modern landscape revealing deep time"],"mechanisms":["orbital forcing","weathering feedback"],"evidence_lenses":["isotope evidence","terrain mapping"]},
-    {"subjects":["the creation of coral reefs","the first forests"],"episode_objects":["a fossil shoreline","a rock layer"],"time_place_scopes":["a Proterozoic ocean","a modern landscape revealing deep time"],"mechanisms":["carbon burial","weathering feedback"],"evidence_lenses":["fossil record","rock record"]}
   ],
   "exclusions": [
     "Do not reduce Earth systems to one magic cause.",
@@ -149,7 +137,8 @@
         "a rifting seaway",
         "a glacial world",
         "a volcanic plateau",
-        "a modern landscape revealing deep time"
+        "a modern landscape revealing deep time",
+        "a Hadean impact landscape"
       ]
     },
     {
@@ -162,7 +151,11 @@
         "ocean circulation",
         "orbital forcing",
         "weathering feedback",
-        "volcanic outgassing"
+        "volcanic outgassing",
+        "giant impact",
+        "core dynamo",
+        "impact debris cooling",
+        "field reversal record"
       ]
     },
     {
@@ -186,5 +179,517 @@
   "compatibility_rules": [
     "Use only with the Deep Time Documentary Formula.",
     "Keep mechanism, evidence, and stated uncertainty in every assignment."
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "the birth of mountain ranges",
+      "tuples": [
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a supercontinent interior",
+          "mechanism": "plate collision",
+          "evidence_lens": "rock record"
+        },
+        {
+          "episode_object": "a continental map",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "terrain mapping"
+        }
+      ]
+    },
+    {
+      "subject": "the rise of the Himalayas",
+      "tuples": [
+        {
+          "episode_object": "a continental map",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "terrain mapping"
+        },
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a supercontinent interior",
+          "mechanism": "plate collision",
+          "evidence_lens": "rock record"
+        }
+      ]
+    },
+    {
+      "subject": "continental drift",
+      "tuples": [
+        {
+          "episode_object": "a continental map",
+          "time_place_scope": "a rifting seaway",
+          "mechanism": "rift spreading",
+          "evidence_lens": "paleomagnetic evidence"
+        },
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a supercontinent interior",
+          "mechanism": "plate collision",
+          "evidence_lens": "rock record"
+        }
+      ]
+    },
+    {
+      "subject": "supercontinents",
+      "tuples": [
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a supercontinent interior",
+          "mechanism": "plate collision",
+          "evidence_lens": "rock record"
+        },
+        {
+          "episode_object": "a continental map",
+          "time_place_scope": "a rifting seaway",
+          "mechanism": "rift spreading",
+          "evidence_lens": "paleomagnetic evidence"
+        }
+      ]
+    },
+    {
+      "subject": "the carbon cycle",
+      "tuples": [
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "carbon burial",
+          "evidence_lens": "isotope evidence"
+        },
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "sediment core"
+        }
+      ]
+    },
+    {
+      "subject": "ancient atmospheric carbon dioxide",
+      "tuples": [
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "sediment core"
+        },
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "carbon burial",
+          "evidence_lens": "isotope evidence"
+        }
+      ]
+    },
+    {
+      "subject": "the oxygenation of Earth",
+      "tuples": [
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "carbon burial",
+          "evidence_lens": "isotope evidence"
+        },
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "an Archean coastline",
+          "mechanism": "ocean circulation",
+          "evidence_lens": "fossil record"
+        }
+      ]
+    },
+    {
+      "subject": "the first global oceans",
+      "tuples": [
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "an Archean coastline",
+          "mechanism": "ocean circulation",
+          "evidence_lens": "fossil record"
+        },
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "carbon burial",
+          "evidence_lens": "isotope evidence"
+        }
+      ]
+    },
+    {
+      "subject": "the first continents",
+      "tuples": [
+        {
+          "episode_object": "a continental map",
+          "time_place_scope": "an Archean coastline",
+          "mechanism": "rift spreading",
+          "evidence_lens": "paleomagnetic evidence"
+        },
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a supercontinent interior",
+          "mechanism": "plate collision",
+          "evidence_lens": "rock record"
+        }
+      ]
+    },
+    {
+      "subject": "the origin of plate tectonics",
+      "tuples": [
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a supercontinent interior",
+          "mechanism": "plate collision",
+          "evidence_lens": "rock record"
+        },
+        {
+          "episode_object": "a continental map",
+          "time_place_scope": "an Archean coastline",
+          "mechanism": "rift spreading",
+          "evidence_lens": "paleomagnetic evidence"
+        }
+      ]
+    },
+    {
+      "subject": "snowball Earth",
+      "tuples": [
+        {
+          "episode_object": "an ice core",
+          "time_place_scope": "a glacial world",
+          "mechanism": "carbon burial",
+          "evidence_lens": "isotope evidence"
+        },
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "orbital forcing",
+          "evidence_lens": "sediment core"
+        }
+      ]
+    },
+    {
+      "subject": "ice-age cycles",
+      "tuples": [
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "orbital forcing",
+          "evidence_lens": "sediment core"
+        },
+        {
+          "episode_object": "an ice core",
+          "time_place_scope": "a glacial world",
+          "mechanism": "carbon burial",
+          "evidence_lens": "isotope evidence"
+        }
+      ]
+    },
+    {
+      "subject": "the Great Unconformity",
+      "tuples": [
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "rock record"
+        },
+        {
+          "episode_object": "a river basin",
+          "time_place_scope": "an Archean coastline",
+          "mechanism": "carbon burial",
+          "evidence_lens": "terrain mapping"
+        }
+      ]
+    },
+    {
+      "subject": "the first rivers",
+      "tuples": [
+        {
+          "episode_object": "a river basin",
+          "time_place_scope": "an Archean coastline",
+          "mechanism": "carbon burial",
+          "evidence_lens": "terrain mapping"
+        },
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "rock record"
+        }
+      ]
+    },
+    {
+      "subject": "megavolcanic provinces",
+      "tuples": [
+        {
+          "episode_object": "a volcanic province",
+          "time_place_scope": "a volcanic plateau",
+          "mechanism": "volcanic outgassing",
+          "evidence_lens": "rock record"
+        },
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "isotope evidence"
+        }
+      ]
+    },
+    {
+      "subject": "massive flood basalts",
+      "tuples": [
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "isotope evidence"
+        },
+        {
+          "episode_object": "a volcanic province",
+          "time_place_scope": "a volcanic plateau",
+          "mechanism": "volcanic outgassing",
+          "evidence_lens": "rock record"
+        }
+      ]
+    },
+    {
+      "subject": "the birth of the Moon",
+      "tuples": [
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a Hadean impact landscape",
+          "mechanism": "giant impact",
+          "evidence_lens": "isotope evidence"
+        },
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a Hadean impact landscape",
+          "mechanism": "impact debris cooling",
+          "evidence_lens": "rock record"
+        }
+      ]
+    },
+    {
+      "subject": "Earth's magnetic field",
+      "tuples": [
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "an Archean coastline",
+          "mechanism": "core dynamo",
+          "evidence_lens": "paleomagnetic evidence"
+        },
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "field reversal record",
+          "evidence_lens": "paleomagnetic evidence"
+        }
+      ]
+    },
+    {
+      "subject": "desertification",
+      "tuples": [
+        {
+          "episode_object": "a river basin",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "terrain mapping"
+        },
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a supercontinent interior",
+          "mechanism": "carbon burial",
+          "evidence_lens": "sediment core"
+        }
+      ]
+    },
+    {
+      "subject": "the origin of soil",
+      "tuples": [
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a supercontinent interior",
+          "mechanism": "carbon burial",
+          "evidence_lens": "sediment core"
+        },
+        {
+          "episode_object": "a river basin",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "terrain mapping"
+        }
+      ]
+    },
+    {
+      "subject": "the opening of the Atlantic",
+      "tuples": [
+        {
+          "episode_object": "a continental map",
+          "time_place_scope": "a rifting seaway",
+          "mechanism": "rift spreading",
+          "evidence_lens": "paleomagnetic evidence"
+        },
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "ocean circulation",
+          "evidence_lens": "fossil record"
+        }
+      ]
+    },
+    {
+      "subject": "the closing of ancient oceans",
+      "tuples": [
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "ocean circulation",
+          "evidence_lens": "fossil record"
+        },
+        {
+          "episode_object": "a continental map",
+          "time_place_scope": "a rifting seaway",
+          "mechanism": "rift spreading",
+          "evidence_lens": "paleomagnetic evidence"
+        }
+      ]
+    },
+    {
+      "subject": "sea-level change",
+      "tuples": [
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "ocean circulation",
+          "evidence_lens": "sediment core"
+        },
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "orbital forcing",
+          "evidence_lens": "isotope evidence"
+        }
+      ]
+    },
+    {
+      "subject": "monsoon systems",
+      "tuples": [
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "orbital forcing",
+          "evidence_lens": "isotope evidence"
+        },
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "ocean circulation",
+          "evidence_lens": "sediment core"
+        }
+      ]
+    },
+    {
+      "subject": "the formation of the Grand Canyon",
+      "tuples": [
+        {
+          "episode_object": "a river basin",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "terrain mapping"
+        },
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "a rifting seaway",
+          "mechanism": "ocean circulation",
+          "evidence_lens": "sediment core"
+        }
+      ]
+    },
+    {
+      "subject": "the Mediterranean drying out",
+      "tuples": [
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "a rifting seaway",
+          "mechanism": "ocean circulation",
+          "evidence_lens": "sediment core"
+        },
+        {
+          "episode_object": "a river basin",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "terrain mapping"
+        }
+      ]
+    },
+    {
+      "subject": "the changing Sun",
+      "tuples": [
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "an Archean coastline",
+          "mechanism": "orbital forcing",
+          "evidence_lens": "isotope evidence"
+        },
+        {
+          "episode_object": "a river basin",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "terrain mapping"
+        }
+      ]
+    },
+    {
+      "subject": "the first rain",
+      "tuples": [
+        {
+          "episode_object": "a river basin",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "terrain mapping"
+        },
+        {
+          "episode_object": "an isotope record",
+          "time_place_scope": "an Archean coastline",
+          "mechanism": "orbital forcing",
+          "evidence_lens": "isotope evidence"
+        }
+      ]
+    },
+    {
+      "subject": "the creation of coral reefs",
+      "tuples": [
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "carbon burial",
+          "evidence_lens": "fossil record"
+        },
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "rock record"
+        }
+      ]
+    },
+    {
+      "subject": "the first forests",
+      "tuples": [
+        {
+          "episode_object": "a rock layer",
+          "time_place_scope": "a modern landscape revealing deep time",
+          "mechanism": "weathering feedback",
+          "evidence_lens": "rock record"
+        },
+        {
+          "episode_object": "a fossil shoreline",
+          "time_place_scope": "a Proterozoic ocean",
+          "mechanism": "carbon burial",
+          "evidence_lens": "fossil record"
+        }
+      ]
+    }
   ]
 }

@@ -743,6 +743,18 @@ export interface TopicCoverageGroup {
   evidenceLenses: string[]
 }
 
+export interface TopicCoverageTuple {
+  episodeObject: string
+  timePlaceScope: string
+  mechanism: string
+  evidenceLens: string
+}
+
+export interface TopicCoverageProfile {
+  subject: string
+  tuples: TopicCoverageTuple[]
+}
+
 export interface TopicPack {
   id: string
   name: string
@@ -764,6 +776,8 @@ export interface TopicPack {
   ideaAxes?: IdeaAxis[]
   /** Authored coherent tuple lanes for subject-level campaign coverage. */
   coverageGroups?: TopicCoverageGroup[]
+  /** Complete authored coherent tuples for one subject, ordered for reservation. */
+  coverageProfiles?: TopicCoverageProfile[]
   /** Strong examples appended to the Series Formula's example bar. */
   exampleTopics?: string[]
   /** Prompt context appended after the Series Formula's dominant voice. */

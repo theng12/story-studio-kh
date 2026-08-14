@@ -55,6 +55,16 @@ const CoverageGroupSchema = z.object({
   mechanisms: textList(300),
   evidence_lenses: textList(300),
 }).strict()
+const CoverageTupleSchema = z.object({
+  episode_object: safeText(1000),
+  time_place_scope: safeText(1000),
+  mechanism: safeText(1000),
+  evidence_lens: safeText(1000),
+}).strict()
+const CoverageProfileSchema = z.object({
+  subject: safeText(1000),
+  tuples: z.array(CoverageTupleSchema).min(2).max(50),
+}).strict()
 const VocabularySchema = z.object({
   mood: z.array(safeText(80)).max(50).optional(),
   theme: z.array(safeText(80)).max(50).optional(),
@@ -216,6 +226,7 @@ const TopicPackDocumentSchema = z.object({
   prompt_context: safeText(MAX_TEXT),
   idea_axes: z.array(IdeaAxisSchema).max(20).optional(),
   coverage_groups: z.array(CoverageGroupSchema).min(1).max(1000).optional(),
+  coverage_profiles: z.array(CoverageProfileSchema).min(1).max(1000).optional(),
   example_topics: z.array(safeText(1000)).max(200).optional(),
   vocabulary: VocabularySchema.optional(),
   youtube_tags_hint: z.array(safeText(80)).max(80).optional(),
@@ -268,6 +279,38 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
 ]).superRefine((document, ctx) => {
   if (document.kind === 'topic-pack') {
     const groups = document.coverage_groups
+    const profiles = document.coverage_profiles
+    if (profiles) {
+      const memberships = new Map(document.subjects.map(subject => [subject, 0]))
+      const declared = {
+        episode_object: new Set(document.episode_objects), time_place_scope: new Set(document.time_place_scopes),
+        mechanism: new Set(document.mechanisms), evidence_lens: new Set(document.evidence_lenses),
+      }
+      for (const [profileIndex, profile] of profiles.entries()) {
+        if (!memberships.has(profile.subject)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverage_profiles', profileIndex, 'subject'], message: 'coverage profile subject must be declared by the Topic Pack' })
+        } else {
+          memberships.set(profile.subject, (memberships.get(profile.subject) || 0) + 1)
+        }
+        const objects = new Set<string>()
+        const mechanisms = new Set<string>()
+        for (const [tupleIndex, tuple] of profile.tuples.entries()) {
+          for (const key of ['episode_object', 'time_place_scope', 'mechanism', 'evidence_lens'] as const) {
+            if (!declared[key].has(tuple[key])) {
+              ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverage_profiles', profileIndex, 'tuples', tupleIndex, key], message: `coverage profile ${key} must be declared by the Topic Pack` })
+            }
+          }
+          objects.add(tuple.episode_object)
+          mechanisms.add(tuple.mechanism)
+        }
+        if (objects.size !== profile.tuples.length || mechanisms.size !== profile.tuples.length) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverage_profiles', profileIndex, 'tuples'], message: 'coverage profile tuples must each change episode object and mechanism' })
+        }
+      }
+      for (const [subject, count] of memberships) {
+        if (count !== 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverage_profiles'], message: `subject ${subject} must have exactly one coverage profile` })
+      }
+    }
     if (!groups) return
     const declared = {
       episode_objects: new Set(document.episode_objects),

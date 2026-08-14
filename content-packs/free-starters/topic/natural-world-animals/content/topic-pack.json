@@ -51,13 +51,6 @@
     "life-history study",
     "ecological survey"
   ],
-  "coverage_groups": [
-    {"subjects":["mammals","birds"],"episode_objects":["a feeding tool","a nest or den"],"time_place_scopes":["a forest canopy","a breeding season"],"mechanisms":["energy conservation","reproductive trade-off"],"evidence_lenses":["field observation","life-history study"]},
-    {"subjects":["reptiles","amphibians"],"episode_objects":["a camouflage pattern","a predator defense"],"time_place_scopes":["a desert waterhole","a forest canopy"],"mechanisms":["thermoregulation","sensory adaptation"],"evidence_lenses":["comparative anatomy","ecological survey"]},
-    {"subjects":["fish","cephalopods"],"episode_objects":["a feeding tool","a camouflage pattern"],"time_place_scopes":["a reef edge","an abyssal plain"],"mechanisms":["sensory adaptation","predator avoidance"],"evidence_lenses":["ecological survey","comparative anatomy"]},
-    {"subjects":["crustaceans","deep-sea animals"],"episode_objects":["a courtship display","a camouflage pattern"],"time_place_scopes":["a reef edge","an abyssal plain"],"mechanisms":["cooperation","energy conservation"],"evidence_lenses":["field observation","ecological survey"]},
-    {"subjects":["desert animals","migration"],"episode_objects":["a predator defense","a migration route"],"time_place_scopes":["a desert waterhole","a polar shoreline"],"mechanisms":["thermoregulation","energy conservation"],"evidence_lenses":["comparative anatomy","tracking data"]}
-  ],
   "exclusions": [
     "Do not assign human intention or dialogue to animals.",
     "Do not make unsupported danger claims."
@@ -135,5 +128,177 @@
   "compatibility_rules": [
     "Use with the Natural World Formula or Counted Explainer.",
     "Keep the selected subject, mechanism, and ecosystem materially connected."
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "mammals",
+      "tuples": [
+        {
+          "episode_object": "a feeding tool",
+          "time_place_scope": "a forest canopy",
+          "mechanism": "energy conservation",
+          "evidence_lens": "field observation"
+        },
+        {
+          "episode_object": "a nest or den",
+          "time_place_scope": "a breeding season",
+          "mechanism": "reproductive trade-off",
+          "evidence_lens": "life-history study"
+        }
+      ]
+    },
+    {
+      "subject": "birds",
+      "tuples": [
+        {
+          "episode_object": "a nest or den",
+          "time_place_scope": "a breeding season",
+          "mechanism": "reproductive trade-off",
+          "evidence_lens": "life-history study"
+        },
+        {
+          "episode_object": "a feeding tool",
+          "time_place_scope": "a forest canopy",
+          "mechanism": "energy conservation",
+          "evidence_lens": "field observation"
+        }
+      ]
+    },
+    {
+      "subject": "reptiles",
+      "tuples": [
+        {
+          "episode_object": "a camouflage pattern",
+          "time_place_scope": "a desert waterhole",
+          "mechanism": "thermoregulation",
+          "evidence_lens": "comparative anatomy"
+        },
+        {
+          "episode_object": "a predator defense",
+          "time_place_scope": "a forest canopy",
+          "mechanism": "sensory adaptation",
+          "evidence_lens": "ecological survey"
+        }
+      ]
+    },
+    {
+      "subject": "amphibians",
+      "tuples": [
+        {
+          "episode_object": "a predator defense",
+          "time_place_scope": "a forest canopy",
+          "mechanism": "sensory adaptation",
+          "evidence_lens": "ecological survey"
+        },
+        {
+          "episode_object": "a camouflage pattern",
+          "time_place_scope": "a desert waterhole",
+          "mechanism": "thermoregulation",
+          "evidence_lens": "comparative anatomy"
+        }
+      ]
+    },
+    {
+      "subject": "fish",
+      "tuples": [
+        {
+          "episode_object": "a feeding tool",
+          "time_place_scope": "a reef edge",
+          "mechanism": "sensory adaptation",
+          "evidence_lens": "ecological survey"
+        },
+        {
+          "episode_object": "a camouflage pattern",
+          "time_place_scope": "an abyssal plain",
+          "mechanism": "predator avoidance",
+          "evidence_lens": "comparative anatomy"
+        }
+      ]
+    },
+    {
+      "subject": "cephalopods",
+      "tuples": [
+        {
+          "episode_object": "a camouflage pattern",
+          "time_place_scope": "an abyssal plain",
+          "mechanism": "predator avoidance",
+          "evidence_lens": "comparative anatomy"
+        },
+        {
+          "episode_object": "a feeding tool",
+          "time_place_scope": "a reef edge",
+          "mechanism": "sensory adaptation",
+          "evidence_lens": "ecological survey"
+        }
+      ]
+    },
+    {
+      "subject": "crustaceans",
+      "tuples": [
+        {
+          "episode_object": "a courtship display",
+          "time_place_scope": "a reef edge",
+          "mechanism": "cooperation",
+          "evidence_lens": "field observation"
+        },
+        {
+          "episode_object": "a camouflage pattern",
+          "time_place_scope": "an abyssal plain",
+          "mechanism": "energy conservation",
+          "evidence_lens": "ecological survey"
+        }
+      ]
+    },
+    {
+      "subject": "deep-sea animals",
+      "tuples": [
+        {
+          "episode_object": "a camouflage pattern",
+          "time_place_scope": "an abyssal plain",
+          "mechanism": "energy conservation",
+          "evidence_lens": "ecological survey"
+        },
+        {
+          "episode_object": "a courtship display",
+          "time_place_scope": "a reef edge",
+          "mechanism": "cooperation",
+          "evidence_lens": "field observation"
+        }
+      ]
+    },
+    {
+      "subject": "desert animals",
+      "tuples": [
+        {
+          "episode_object": "a predator defense",
+          "time_place_scope": "a desert waterhole",
+          "mechanism": "thermoregulation",
+          "evidence_lens": "comparative anatomy"
+        },
+        {
+          "episode_object": "a migration route",
+          "time_place_scope": "a polar shoreline",
+          "mechanism": "energy conservation",
+          "evidence_lens": "tracking data"
+        }
+      ]
+    },
+    {
+      "subject": "migration",
+      "tuples": [
+        {
+          "episode_object": "a migration route",
+          "time_place_scope": "a polar shoreline",
+          "mechanism": "energy conservation",
+          "evidence_lens": "tracking data"
+        },
+        {
+          "episode_object": "a predator defense",
+          "time_place_scope": "a desert waterhole",
+          "mechanism": "thermoregulation",
+          "evidence_lens": "comparative anatomy"
+        }
+      ]
+    }
   ]
 }

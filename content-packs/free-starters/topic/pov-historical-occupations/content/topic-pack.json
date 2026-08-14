@@ -40,7 +40,7 @@
     "a uniform or marker",
     "a wage or ration",
     "a rank insignia",
-    "a record of injury or retirement"
+    "a mourning cloth"
   ],
   "time_place_scopes": [
     "recruitment",
@@ -48,7 +48,7 @@
     "ordinary duty",
     "a first crisis",
     "advancement",
-    "retirement or downfall"
+    "after a funeral"
   ],
   "mechanisms": [
     "institutional hierarchy",
@@ -66,21 +66,6 @@
     "letter or diary",
     "historical reconstruction"
   ],
-  "coverage_groups": [
-    {"subjects":["medieval executioner","Roman gladiator"],"episode_objects":["an entry oath","a uniform or marker"],"time_place_scopes":["recruitment","ordinary duty"],"mechanisms":["coercion and dependency","occupational risk"],"evidence_lenses":["legal code","material artifact"]},
-    {"subjects":["Viking shipbuilder","castle servant"],"episode_objects":["a work tool","a wage or ration"],"time_place_scopes":["training","ordinary duty"],"mechanisms":["skill apprenticeship","institutional hierarchy"],"evidence_lenses":["material artifact","court account"]},
-    {"subjects":["court jester","plague doctor"],"episode_objects":["a uniform or marker","a work tool"],"time_place_scopes":["ordinary duty","a first crisis"],"mechanisms":["social status","occupational risk"],"evidence_lenses":["court account","historical reconstruction"]},
-    {"subjects":["Victorian chimney sweep","samurai retainer"],"episode_objects":["a work tool","a rank insignia"],"time_place_scopes":["training","ordinary duty"],"mechanisms":["coercion and dependency","institutional hierarchy"],"evidence_lenses":["material artifact","legal code"]},
-    {"subjects":["Mongol messenger","ancient Egyptian scribe"],"episode_objects":["a work tool","an entry oath"],"time_place_scopes":["ordinary duty","training"],"mechanisms":["occupational risk","skill apprenticeship"],"evidence_lenses":["letter or diary","historical reconstruction"]},
-    {"subjects":["Roman legionary","medieval guild apprentice"],"episode_objects":["a uniform or marker","a work tool"],"time_place_scopes":["recruitment","training"],"mechanisms":["institutional hierarchy","skill apprenticeship"],"evidence_lenses":["legal code","guild record"]},
-    {"subjects":["royal food taster","lighthouse keeper"],"episode_objects":["a work tool","a wage or ration"],"time_place_scopes":["ordinary duty","a first crisis"],"mechanisms":["occupational risk","social status"],"evidence_lenses":["court account","letter or diary"]},
-    {"subjects":["whaler","siege engineer"],"episode_objects":["a work tool","a rank insignia"],"time_place_scopes":["ordinary duty","a first crisis"],"mechanisms":["occupational risk","material incentives"],"evidence_lenses":["historical reconstruction","material artifact"]},
-    {"subjects":["caravan guard","galley rower"],"episode_objects":["a wage or ration","a uniform or marker"],"time_place_scopes":["ordinary duty","a first crisis"],"mechanisms":["occupational risk","coercion and dependency"],"evidence_lenses":["letter or diary","legal code"]},
-    {"subjects":["mine worker","imperial eunuch"],"episode_objects":["a work tool","a rank insignia"],"time_place_scopes":["ordinary duty","advancement"],"mechanisms":["occupational risk","institutional hierarchy"],"evidence_lenses":["material artifact","court account"]},
-    {"subjects":["renaissance printer","frontier stagecoach driver"],"episode_objects":["a work tool","a wage or ration"],"time_place_scopes":["training","ordinary duty"],"mechanisms":["skill apprenticeship","material incentives"],"evidence_lenses":["material artifact","letter or diary"]},
-    {"subjects":["manorial reeve","temple priest"],"episode_objects":["a wage or ration","an entry oath"],"time_place_scopes":["ordinary duty","advancement"],"mechanisms":["institutional hierarchy","social status"],"evidence_lenses":["court account","historical reconstruction"]},
-    {"subjects":["professional mourner"],"episode_objects":["a record of injury or retirement","a uniform or marker"],"time_place_scopes":["retirement or downfall","ordinary duty"],"mechanisms":["occupational risk","social status"],"evidence_lenses":["historical reconstruction","letter or diary"]}
-  ],
   "exclusions": [
     "Do not glamorize violence, coercion, exploitation, or dangerous work.",
     "Do not turn the role into a costume tour or unsupported roleplay."
@@ -97,7 +82,7 @@
         "a uniform or marker",
         "a wage or ration",
         "a rank insignia",
-        "a record of injury or retirement"
+        "a mourning cloth"
       ]
     },
     {
@@ -109,7 +94,7 @@
         "ordinary duty",
         "a first crisis",
         "advancement",
-        "retirement or downfall"
+        "after a funeral"
       ]
     },
     {
@@ -145,5 +130,432 @@
   "compatibility_rules": [
     "Use with POV: Your Life As.",
     "Keep role, period, routine, hierarchy, incentives, and risk materially connected."
+  ],
+  "coverage_profiles": [
+    {
+      "subject": "medieval executioner",
+      "tuples": [
+        {
+          "episode_object": "an entry oath",
+          "time_place_scope": "recruitment",
+          "mechanism": "coercion and dependency",
+          "evidence_lens": "legal code"
+        },
+        {
+          "episode_object": "a uniform or marker",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "material artifact"
+        }
+      ]
+    },
+    {
+      "subject": "Roman gladiator",
+      "tuples": [
+        {
+          "episode_object": "a uniform or marker",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "material artifact"
+        },
+        {
+          "episode_object": "an entry oath",
+          "time_place_scope": "recruitment",
+          "mechanism": "coercion and dependency",
+          "evidence_lens": "legal code"
+        }
+      ]
+    },
+    {
+      "subject": "Viking shipbuilder",
+      "tuples": [
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "training",
+          "mechanism": "skill apprenticeship",
+          "evidence_lens": "material artifact"
+        },
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "court account"
+        }
+      ]
+    },
+    {
+      "subject": "castle servant",
+      "tuples": [
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "court account"
+        },
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "training",
+          "mechanism": "skill apprenticeship",
+          "evidence_lens": "material artifact"
+        }
+      ]
+    },
+    {
+      "subject": "court jester",
+      "tuples": [
+        {
+          "episode_object": "a uniform or marker",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "social status",
+          "evidence_lens": "court account"
+        },
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "a first crisis",
+          "mechanism": "occupational risk",
+          "evidence_lens": "historical reconstruction"
+        }
+      ]
+    },
+    {
+      "subject": "plague doctor",
+      "tuples": [
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "a first crisis",
+          "mechanism": "occupational risk",
+          "evidence_lens": "historical reconstruction"
+        },
+        {
+          "episode_object": "a uniform or marker",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "social status",
+          "evidence_lens": "court account"
+        }
+      ]
+    },
+    {
+      "subject": "Victorian chimney sweep",
+      "tuples": [
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "training",
+          "mechanism": "coercion and dependency",
+          "evidence_lens": "material artifact"
+        },
+        {
+          "episode_object": "a rank insignia",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "legal code"
+        }
+      ]
+    },
+    {
+      "subject": "samurai retainer",
+      "tuples": [
+        {
+          "episode_object": "a rank insignia",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "legal code"
+        },
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "training",
+          "mechanism": "coercion and dependency",
+          "evidence_lens": "material artifact"
+        }
+      ]
+    },
+    {
+      "subject": "Mongol messenger",
+      "tuples": [
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "letter or diary"
+        },
+        {
+          "episode_object": "an entry oath",
+          "time_place_scope": "training",
+          "mechanism": "skill apprenticeship",
+          "evidence_lens": "historical reconstruction"
+        }
+      ]
+    },
+    {
+      "subject": "ancient Egyptian scribe",
+      "tuples": [
+        {
+          "episode_object": "an entry oath",
+          "time_place_scope": "training",
+          "mechanism": "skill apprenticeship",
+          "evidence_lens": "historical reconstruction"
+        },
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "letter or diary"
+        }
+      ]
+    },
+    {
+      "subject": "Roman legionary",
+      "tuples": [
+        {
+          "episode_object": "a uniform or marker",
+          "time_place_scope": "recruitment",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "legal code"
+        },
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "training",
+          "mechanism": "skill apprenticeship",
+          "evidence_lens": "guild record"
+        }
+      ]
+    },
+    {
+      "subject": "medieval guild apprentice",
+      "tuples": [
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "training",
+          "mechanism": "skill apprenticeship",
+          "evidence_lens": "guild record"
+        },
+        {
+          "episode_object": "a uniform or marker",
+          "time_place_scope": "recruitment",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "legal code"
+        }
+      ]
+    },
+    {
+      "subject": "royal food taster",
+      "tuples": [
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "court account"
+        },
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "a first crisis",
+          "mechanism": "social status",
+          "evidence_lens": "letter or diary"
+        }
+      ]
+    },
+    {
+      "subject": "lighthouse keeper",
+      "tuples": [
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "a first crisis",
+          "mechanism": "social status",
+          "evidence_lens": "letter or diary"
+        },
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "court account"
+        }
+      ]
+    },
+    {
+      "subject": "whaler",
+      "tuples": [
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "historical reconstruction"
+        },
+        {
+          "episode_object": "a rank insignia",
+          "time_place_scope": "a first crisis",
+          "mechanism": "material incentives",
+          "evidence_lens": "material artifact"
+        }
+      ]
+    },
+    {
+      "subject": "siege engineer",
+      "tuples": [
+        {
+          "episode_object": "a rank insignia",
+          "time_place_scope": "a first crisis",
+          "mechanism": "material incentives",
+          "evidence_lens": "material artifact"
+        },
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "historical reconstruction"
+        }
+      ]
+    },
+    {
+      "subject": "caravan guard",
+      "tuples": [
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "letter or diary"
+        },
+        {
+          "episode_object": "a uniform or marker",
+          "time_place_scope": "a first crisis",
+          "mechanism": "coercion and dependency",
+          "evidence_lens": "legal code"
+        }
+      ]
+    },
+    {
+      "subject": "galley rower",
+      "tuples": [
+        {
+          "episode_object": "a uniform or marker",
+          "time_place_scope": "a first crisis",
+          "mechanism": "coercion and dependency",
+          "evidence_lens": "legal code"
+        },
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "letter or diary"
+        }
+      ]
+    },
+    {
+      "subject": "mine worker",
+      "tuples": [
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "material artifact"
+        },
+        {
+          "episode_object": "a rank insignia",
+          "time_place_scope": "advancement",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "court account"
+        }
+      ]
+    },
+    {
+      "subject": "imperial eunuch",
+      "tuples": [
+        {
+          "episode_object": "a rank insignia",
+          "time_place_scope": "advancement",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "court account"
+        },
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "occupational risk",
+          "evidence_lens": "material artifact"
+        }
+      ]
+    },
+    {
+      "subject": "renaissance printer",
+      "tuples": [
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "training",
+          "mechanism": "skill apprenticeship",
+          "evidence_lens": "material artifact"
+        },
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "material incentives",
+          "evidence_lens": "letter or diary"
+        }
+      ]
+    },
+    {
+      "subject": "frontier stagecoach driver",
+      "tuples": [
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "material incentives",
+          "evidence_lens": "letter or diary"
+        },
+        {
+          "episode_object": "a work tool",
+          "time_place_scope": "training",
+          "mechanism": "skill apprenticeship",
+          "evidence_lens": "material artifact"
+        }
+      ]
+    },
+    {
+      "subject": "manorial reeve",
+      "tuples": [
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "court account"
+        },
+        {
+          "episode_object": "an entry oath",
+          "time_place_scope": "advancement",
+          "mechanism": "social status",
+          "evidence_lens": "historical reconstruction"
+        }
+      ]
+    },
+    {
+      "subject": "temple priest",
+      "tuples": [
+        {
+          "episode_object": "an entry oath",
+          "time_place_scope": "advancement",
+          "mechanism": "social status",
+          "evidence_lens": "historical reconstruction"
+        },
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "ordinary duty",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "court account"
+        }
+      ]
+    },
+    {
+      "subject": "professional mourner",
+      "tuples": [
+        {
+          "episode_object": "a mourning cloth",
+          "time_place_scope": "after a funeral",
+          "mechanism": "social status",
+          "evidence_lens": "historical reconstruction"
+        },
+        {
+          "episode_object": "a wage or ration",
+          "time_place_scope": "after a funeral",
+          "mechanism": "institutional hierarchy",
+          "evidence_lens": "court account"
+        }
+      ]
+    }
   ]
 }
