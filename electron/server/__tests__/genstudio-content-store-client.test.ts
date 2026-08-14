@@ -69,6 +69,11 @@ function product(overrides: Record<string, unknown> = {}) {
   }
 }
 
+const SHOWCASE_VIDEOS = [
+  { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: 'Full example', description: 'A complete walkthrough.' },
+  { url: 'https://www.youtube.com/shorts=dQw4w9WgXcQ', title: 'Invalid', description: '' },
+] as const
+
 function signedQuote(overrides: Record<string, unknown> = {}) {
   return {
     typ: 'genstudio.content.quote.v1',
@@ -201,6 +206,42 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
     assert.equal(parsed.currentRelease?.raw.value.future_release_fact, 'kept')
     assert.deepEqual(parsed.currentRelease?.componentSummary.value.future_component_fact, { nested: true })
     assert.equal(parsed.bundleComponents[0].raw.value.future_component_fact, 'kept')
+  })
+
+  test('parses canonical showcase videos in order and defaults a pre-1.7 product or owned row to none', () => {
+    const videos = [SHOWCASE_VIDEOS[0], {
+      url: 'https://youtu.be/9bZkp7q19f0', title: 'Short example', description: '',
+    }]
+    const parsed = parseContentStoreCatalog({ products: [product({ showcase_videos: videos }), product({ product_id: 'cprod_old' })] })
+    assert.deepEqual(parsed.products[0].showcaseVideos, videos)
+    assert.deepEqual(parsed.products[1].showcaseVideos, [])
+
+    const account = parseContentStoreAccount({
+      account_id: 'acct_a', content_account_id: 'acct_a', available_credits: 5300,
+      content_spendable_credits: 5000,
+      owned: [{
+        entitlement_family: 'com.storystudio.test', product_id: 'cprod_a', title: 'Test Formula',
+        kind: 'series_formula', granted_at: '2026-08-13T21:04:11Z', purchase_id: null,
+        current_release: null, showcase_videos: videos,
+      }],
+    })
+    assert.deepEqual(account.owned[0].showcaseVideos, videos)
+  })
+
+  test('rejects non-canonical or unsafe showcase video metadata and more than 12 entries', () => {
+    assert.throws(() => parseContentStoreCatalog({ products: [product({ showcase_videos: [SHOWCASE_VIDEOS[1]] })] }), /showcase|url/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [product({ showcase_videos: [{
+      url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', title: '<b>markup</b>', description: '',
+    }] })] }), /showcase|title|plain/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [product({ showcase_videos: [{
+      url: 'https://youtu.be/dQw4w9WgXcQ', title: 'Not  canonical', description: '',
+    }] })] }), /showcase|title|canonical|plain/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [product({ showcase_videos: [{
+      url: 'https://youtu.be/dQw4w9WgXcQ', title: 'Example', description: '', unexpected: true,
+    }] })] }), /showcase|exactly|unexpected/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [product({
+      showcase_videos: Array.from({ length: 13 }, () => SHOWCASE_VIDEOS[0]),
+    })] }), /showcase|12/i)
   })
 
   test('reads account ownership and uses the published content-spendable balance independently', () => {

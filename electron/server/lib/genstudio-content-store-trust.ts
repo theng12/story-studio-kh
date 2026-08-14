@@ -5,6 +5,7 @@ import {
   type CanonicalJsonObject,
   type GenStudioContentDownloadGrant,
   type GenStudioContentPublicKey,
+  type GenStudioContentSigningKey,
   type GenStudioContentPurchase,
   type GenStudioContentReceipt,
   type GenStudioContentReceipts,
@@ -12,8 +13,10 @@ import {
 
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex')
 
-function assertMatchingKey(publicKey: GenStudioContentPublicKey, keyId: string, field: string): void {
-  if (keyId !== publicKey.keyId) throw new Error(`${field} key_id does not match the trusted Content Store public key`)
+function matchingKey(publicKey: GenStudioContentPublicKey, keyId: string, field: string): GenStudioContentSigningKey {
+  const key = publicKey.keys.find(candidate => candidate.keyId === keyId)
+  if (!key) throw new Error(`${field} key_id does not match a trusted Content Store public key`)
+  return key
 }
 
 function verifySignature(
@@ -24,7 +27,8 @@ function verifySignature(
   field: string,
 ): void {
   if (payload.value.typ !== expectedType) throw new Error(`${field} has the wrong signed payload type`)
-  if (payload.value.key_id !== publicKey.keyId) throw new Error(`${field} key_id does not match the trusted Content Store public key`)
+  const keyId = typeof payload.value.key_id === 'string' ? payload.value.key_id : ''
+  const signingKey = matchingKey(publicKey, keyId, field)
   const currentPayload = canonicalizeContentStoreObject(payload.value)
   if (currentPayload.canonicalJson !== payload.canonicalJson) {
     throw new Error(`${field} canonical payload changed after parsing`)
@@ -34,7 +38,7 @@ function verifySignature(
     throw new Error(`${field} signature is not canonical 64-byte base64`)
   }
   const key = createPublicKey({
-    key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(publicKey.publicKeyBytes)]),
+    key: Buffer.concat([ED25519_SPKI_PREFIX, Buffer.from(signingKey.publicKeyBytes)]),
     format: 'der',
     type: 'spki',
   })
@@ -57,7 +61,7 @@ export function verifyContentStoreRestore(
   }
   verifyContentStoreRestoreReceipt(publicKey, receipts.restoreReceipt, expectedAccountId)
   for (const [index, receipt] of receipts.purchaseReceipts.entries()) {
-    assertMatchingKey(publicKey, receipt.keyId, `Purchase receipt ${index}`)
+    matchingKey(publicKey, receipt.keyId, `Purchase receipt ${index}`)
     verifySignature(
       publicKey,
       receipt.signedReceipt,
@@ -76,7 +80,7 @@ export function verifyContentStoreRestoreReceipt(
   if (typeof expectedAccountId !== 'string' || expectedAccountId.length === 0) {
     throw new TypeError('Expected Content Store account id is required')
   }
-  assertMatchingKey(publicKey, receipt.keyId, 'Restore receipt')
+  matchingKey(publicKey, receipt.keyId, 'Restore receipt')
   verifySignature(
     publicKey,
     receipt.signedReceipt,
@@ -97,7 +101,7 @@ export function verifyContentStorePurchase(
   expectedAccountId: string,
 ): CanonicalJsonObject {
   if (purchase.accountId !== expectedAccountId) throw new Error('Content Store purchase belongs to a different account')
-  assertMatchingKey(publicKey, purchase.receipt.keyId, 'Purchase receipt')
+  matchingKey(publicKey, purchase.receipt.keyId, 'Purchase receipt')
   verifySignature(
     publicKey,
     purchase.receipt.signedReceipt,
@@ -128,7 +132,8 @@ export function verifyContentStoreDownloadGrant(
   expected: ExpectedContentDownload,
   now = new Date(),
 ): void {
-  assertMatchingKey(publicKey, grant.keyId, 'Download grant')
+  const signingKey = matchingKey(publicKey, grant.keyId, 'Download grant')
+  if (!signingKey.current) throw new Error('Download grant must use the current key; retired keys are verify-only for receipts')
   verifySignature(
     publicKey,
     grant.signedGrant,

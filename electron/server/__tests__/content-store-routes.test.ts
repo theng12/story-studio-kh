@@ -105,6 +105,10 @@ describe('Content Store commerce routes', () => {
     assert.equal(installed.body.install.version, '1.0.0')
     assert.equal(mock.contentDownloadPostCount, 1)
     assert.equal(mock.contentArchiveGetCount, 1)
+    const downloadRequest = mock.requests.find(row => row.path === '/v1/content/downloads')
+    assert.deepEqual(JSON.parse(downloadRequest?.bodyText || '{}'), {
+      entitlement_family: 'com.storystudio.family.free-recovery-test', version: '1.0.0',
+    })
     const archiveRequest = mock.requests.find(row => row.path.startsWith('/v1/content/archives/'))
     assert.equal(archiveRequest?.authorization, '')
     const state = await readContentPackState()

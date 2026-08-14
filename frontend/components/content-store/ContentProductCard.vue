@@ -17,6 +17,16 @@
 
     <p class="product-summary">{{ product.summary }}</p>
 
+    <section v-if="showcaseVideos.length" class="showcase-videos" aria-label="Example videos">
+      <strong>Watch example videos</strong>
+      <ul>
+        <li v-for="video in showcaseVideos" :key="video.url">
+          <a :href="video.url" target="_blank" rel="noopener noreferrer">{{ video.title }}</a>
+          <p v-if="video.description">{{ video.description }}</p>
+        </li>
+      </ul>
+    </section>
+
     <dl class="product-facts">
       <div><dt>Publisher</dt><dd>{{ product.publisherId }}</dd></div>
       <div><dt>Published price</dt><dd>{{ product.free ? 'Free' : `${formatCredits(product.creditPrice)} credits` }}</dd></div>
@@ -84,6 +94,10 @@ const kindLabel = computed(() => ({
   niche_bundle: 'Niche Bundle',
 })[props.product.kind])
 
+const showcaseVideos = computed(() => props.ownership?.showcaseVideos?.length
+  ? props.ownership.showcaseVideos
+  : props.product.showcaseVideos)
+
 const ownedStatus = computed(() => {
   if (!props.ownership) return 'Owned in GenStudio.'
   if (props.ownership.receiptVerification !== 'verified') {
@@ -131,6 +145,10 @@ h2 { max-width: 100%; margin-top: 2px; overflow-wrap: anywhere; word-break: brea
 .bundle-summary li { display: flex; justify-content: space-between; gap: 12px; color: var(--text-secondary); }
 .bundle-summary li span:last-child { flex: 0 0 auto; font-size: var(--font-xs); }
 .bundle-summary p { margin-top: 8px; color: var(--accent); }
+.showcase-videos { display: grid; gap: 8px; padding: 12px; border-radius: var(--radius-md); background: var(--bg-tertiary); }
+.showcase-videos ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.showcase-videos a { color: var(--accent); overflow-wrap: anywhere; }
+.showcase-videos p { margin: 2px 0 0; color: var(--text-muted); font-size: var(--font-xs); overflow-wrap: anywhere; }
 .compatibility-message { padding: 12px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); }
 .compatibility-message strong { display: block; color: var(--warning); }
 .product-action { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 14px; margin-top: auto; padding-top: 14px; border-top: 1px solid var(--border); }

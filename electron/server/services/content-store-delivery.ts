@@ -4,8 +4,11 @@ import {
   getGenStudioContentPublicKey,
   getGenStudioContentReceipts,
   issueGenStudioContentDownload,
+  listGenStudioOwnedContentReleases,
   type GenStudioContentAccount,
   type GenStudioContentPublicKey,
+  type GenStudioOwnedContentRelease,
+  type GenStudioOwnedContentReleases,
   type GenStudioContentReceipts,
   type GenStudioContentRelease,
   type GenStudioContentRestoreEntitlement,
@@ -68,12 +71,16 @@ async function fetchVerifiedOwnership(): Promise<{
   if (receipts.accountId !== account.accountId || receipts.contentAccountId !== account.contentAccountId) {
     throw new ContentStoreLocalError(409, 'CONTENT_STORE_ACCOUNT_MISMATCH', 'GenStudio returned ownership for a different account.')
   }
+  const restoreSigningKey = publicKey.keys.find(key => key.keyId === receipts.restoreReceipt.keyId)
+  if (!restoreSigningKey) {
+    throw new ContentStoreLocalError(409, 'CONTENT_STORE_SIGNING_KEY_MISSING', 'GenStudio did not publish the restore receipt signing key.')
+  }
   await recordVerifiedContentRestore({
     account_id: receipts.accountId,
     content_account_id: receipts.contentAccountId,
     genstudio_origin: await currentGenStudioOrigin(),
-    key_id: publicKey.keyId,
-    public_key_base64: publicKey.publicKeyBase64,
+    key_id: restoreSigningKey.keyId,
+    public_key_base64: restoreSigningKey.publicKeyBase64,
     receipt_canonical_json: receipts.restoreReceipt.signedReceipt.canonicalJson,
     receipt_signature: receipts.restoreReceipt.receiptSignature,
     verified_at: new Date().toISOString(),
@@ -94,6 +101,59 @@ interface DeliveryContext {
   policy: Awaited<ReturnType<typeof getFirstPartyContentPackVerificationPolicy>>
   completed: Map<string, ContentPackInstallResult>
   visiting: Set<string>
+  releaseHistories: Map<string, GenStudioOwnedContentReleases>
+}
+
+interface OwnedReleaseLookupContext {
+  apiKey: string
+  receipts: GenStudioContentReceipts
+  releaseHistories: Map<string, GenStudioOwnedContentReleases>
+}
+
+async function ownedReleaseHistory(
+  entitlement: GenStudioContentRestoreEntitlement,
+  context: OwnedReleaseLookupContext,
+): Promise<GenStudioOwnedContentReleases> {
+  let history = context.releaseHistories.get(entitlement.entitlementFamily)
+  if (!history) {
+    history = await listGenStudioOwnedContentReleases(context.apiKey, entitlement.entitlementFamily)
+    if (history.entitlementFamily !== entitlement.entitlementFamily
+      || history.entitlementId !== entitlement.entitlementId
+      || history.productId !== entitlement.productId
+      || history.title !== entitlement.title
+      || history.kind !== entitlement.kind
+      || history.publisherId !== entitlement.publisherId
+      || history.grantedAt !== entitlement.grantedAt
+      || history.retired !== entitlement.retired
+      || history.currentReleaseId !== (entitlement.currentRelease?.releaseId ?? null)) {
+      throw new ContentStoreLocalError(
+        409,
+        'CONTENT_PACK_OWNED_RELEASE_MISMATCH',
+        'GenStudio returned release history for different verified ownership.',
+      )
+    }
+    context.releaseHistories.set(entitlement.entitlementFamily, history)
+  }
+  return history
+}
+
+export async function resolveOwnedContentStoreDependency(
+  context: OwnedReleaseLookupContext,
+  packId: string,
+  version: string,
+): Promise<{ entitlement: GenStudioContentRestoreEntitlement; release: GenStudioOwnedContentRelease }> {
+  const candidates = [...context.receipts.entitlements].sort((left, right) =>
+    Number(right.currentRelease?.packId === packId) - Number(left.currentRelease?.packId === packId))
+  for (const entitlement of candidates) {
+    const history = await ownedReleaseHistory(entitlement, context)
+    const release = history.releases.find(candidate => candidate.packId === packId && candidate.version === version)
+    if (release) return { entitlement, release }
+  }
+  throw new ContentStoreLocalError(
+    409,
+    'CONTENT_PACK_DEPENDENCY_NOT_OWNED',
+    `This pack requires owned dependency ${packId}@${version}, but that exact release is not in the verified GenStudio library.`,
+  )
 }
 
 function releaseKey(release: GenStudioContentRelease): string {
@@ -120,10 +180,10 @@ async function alreadyInstalled(
 
 async function installOwnedEntitlement(
   entitlement: GenStudioContentRestoreEntitlement,
+  release: GenStudioContentRelease,
   context: DeliveryContext,
 ): Promise<ContentPackInstallResult> {
-  const release = entitlement.currentRelease
-  if (!release || !entitlement.downloadAvailable || !release.archiveAvailable) {
+  if (!release.archiveAvailable) {
     throw new ContentStoreLocalError(409, 'CONTENT_PACK_ARCHIVE_UNAVAILABLE', 'This owned pack has no downloadable release right now.')
   }
   if (release.archiveBytes > STORY_CONTENT_PACK_MAX_BYTES) {
@@ -158,7 +218,10 @@ async function installOwnedEntitlement(
 
   context.visiting.add(key)
   try {
-    const grant = await issueGenStudioContentDownload(context.apiKey, release.releaseId)
+    const grant = await issueGenStudioContentDownload(context.apiKey, {
+      entitlementFamily: entitlement.entitlementFamily,
+      version: release.version,
+    })
     verifyContentStoreDownloadGrant(context.publicKey, grant, {
       accountId: context.account.accountId,
       productId: entitlement.productId,
@@ -178,16 +241,8 @@ async function installOwnedEntitlement(
       throw new ContentStoreLocalError(409, 'CONTENT_PACK_REMOTE_IDENTITY_MISMATCH', 'The downloaded signed pack identity does not match the owned release.')
     }
     for (const dependency of verified.manifest.dependencies ?? []) {
-      const dependencyEntitlement = context.receipts.entitlements.find(row =>
-        row.currentRelease?.packId === dependency.pack_id && row.currentRelease.version === dependency.version)
-      if (!dependencyEntitlement) {
-        throw new ContentStoreLocalError(
-          409,
-          'CONTENT_PACK_DEPENDENCY_NOT_OWNED',
-          `This pack requires owned dependency ${dependency.pack_id}@${dependency.version}, but GenStudio did not include that exact release in the verified library.`,
-        )
-      }
-      await installOwnedEntitlement(dependencyEntitlement, context)
+      const ownedDependency = await resolveOwnedContentStoreDependency(context, dependency.pack_id, dependency.version)
+      await installOwnedEntitlement(ownedDependency.entitlement, ownedDependency.release, context)
     }
     const installed = await installContentPack({
       archiveBytes,
@@ -212,11 +267,13 @@ export async function installOwnedContentStoreRelease(releaseId: string): Promis
   if (!entitlement) {
     throw new ContentStoreLocalError(404, 'CONTENT_PACK_NOT_OWNED', 'The active GenStudio account does not own this release.')
   }
-  const install = await installOwnedEntitlement(entitlement, {
+  const release = entitlement.currentRelease!
+  const install = await installOwnedEntitlement(entitlement, release, {
     ...verified,
     policy: await getFirstPartyContentPackVerificationPolicy(),
     completed: new Map(),
     visiting: new Set(),
+    releaseHistories: new Map(),
   })
   return { install, overview: await loadContentStoreOverview() }
 }

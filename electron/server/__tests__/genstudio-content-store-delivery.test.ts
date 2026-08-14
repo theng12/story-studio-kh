@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 
 import {
@@ -7,11 +8,13 @@ import {
   getGenStudioContentPublicKey,
   getGenStudioContentReceipts,
   issueGenStudioContentDownload,
+  listGenStudioOwnedContentReleases,
   parseContentStoreCatalog,
   parseContentStoreDownloadGrant,
   parseContentStorePurchase,
   parseContentStorePublicKey,
   parseContentStoreReceipts,
+  parseOwnedContentReleases,
 } from '../lib/genstudio-content-store.js'
 import {
   verifyContentStoreDownloadGrant,
@@ -19,6 +22,7 @@ import {
   verifyContentStoreRestore,
   verifyContentStoreRestoreReceipt,
 } from '../lib/genstudio-content-store-trust.js'
+import { resolveOwnedContentStoreDependency } from '../services/content-store-delivery.js'
 import { useTempDataDir } from './_helpers.js'
 
 const HASH = 'a'.repeat(64)
@@ -26,6 +30,9 @@ const KEY_ID = 'content-store-test-1'
 const keyPair = generateKeyPairSync('ed25519')
 const publicDer = keyPair.publicKey.export({ format: 'der', type: 'spki' })
 const PUBLIC_KEY_BASE64 = publicDer.subarray(publicDer.byteLength - 32).toString('base64')
+const historicalKeyPair = generateKeyPairSync('ed25519')
+const historicalPublicDer = historicalKeyPair.publicKey.export({ format: 'der', type: 'spki' })
+const HISTORICAL_KEY_BASE64 = historicalPublicDer.subarray(historicalPublicDer.byteLength - 32).toString('base64')
 
 function recursivelyCanonical(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
@@ -36,6 +43,10 @@ function recursivelyCanonical(value: unknown): string {
 
 function signature(payload: Record<string, unknown>): string {
   return sign(null, Buffer.from(recursivelyCanonical(payload), 'utf8'), keyPair.privateKey).toString('base64')
+}
+
+function historicalSignature(payload: Record<string, unknown>): string {
+  return sign(null, Buffer.from(recursivelyCanonical(payload), 'utf8'), historicalKeyPair.privateKey).toString('base64')
 }
 
 function publicKey(overrides: Record<string, unknown> = {}) {
@@ -159,6 +170,21 @@ function grant(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function ownedReleases(overrides: Record<string, unknown> = {}) {
+  return {
+    entitlement_family: 'com.storystudio.test', entitlement_id: 'cent_a', product_id: 'cprod_a',
+    title: 'Test Formula', kind: 'series_formula', publisher_id: 'com.storystudio',
+    granted_at: '2026-08-14T09:12:44Z', retired: false, current_release_id: 'crel_b',
+    releases: [
+      release({ release_id: 'crel_b', version: '2.0.0', archive_available: true,
+        state: 'published', published_at: '2026-08-14T10:00:00Z', current: true }),
+      release({ release_id: 'crel_a', version: '1.0.0', archive_available: true,
+        state: 'withdrawn', published_at: '2026-07-14T10:00:00Z', current: false }),
+    ],
+    ...overrides,
+  }
+}
+
 describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
   test('defaults archive_available to false and preserves a published true value', () => {
     const base = {
@@ -192,6 +218,65 @@ describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
     })), /payload_types/i)
   })
 
+  test('parses the current-first keyring and verifies historical receipts by their signed key id', () => {
+    const keyring = parseContentStorePublicKey(publicKey({ keys: [
+      { key_id: KEY_ID, algorithm: 'ed25519', public_key_base64: PUBLIC_KEY_BASE64, current: true },
+      { key_id: 'content-store-test-old', algorithm: 'ed25519', public_key_base64: HISTORICAL_KEY_BASE64, current: false },
+    ] }))
+    assert.deepEqual(keyring.keys.map(key => [key.keyId, key.current]), [
+      [KEY_ID, true], ['content-store-test-old', false],
+    ])
+
+    const response = receipts()
+    const historical = purchasePayload({ key_id: 'content-store-test-old' })
+    response.purchase_receipts[0] = {
+      purchase_id: 'cpur_a', receipt: historical, receipt_signature: historicalSignature(historical),
+      key_id: 'content-store-test-old', credits_charged: 250, created_at: '2026-08-14T09:12:44Z',
+    }
+    verifyContentStoreRestore(keyring, parseContentStoreReceipts(response), 'acct_a')
+  })
+
+  test('caches the key that signed the restore receipt instead of assuming the current key', async () => {
+    const source = await readFile(new URL('../services/content-store-delivery.ts', import.meta.url), 'utf8')
+    assert.match(source, /keys\.find\([^\n]+restoreReceipt\.keyId/)
+    assert.match(source, /key_id: restoreSigningKey\.keyId/)
+    assert.match(source, /public_key_base64: restoreSigningKey\.publicKeyBase64/)
+  })
+
+  test('fails closed on unknown receipt keys and malformed keyring current-key invariants', () => {
+    const validKeys = [
+      { key_id: KEY_ID, algorithm: 'ed25519', public_key_base64: PUBLIC_KEY_BASE64, current: true },
+      { key_id: 'content-store-test-old', algorithm: 'ed25519', public_key_base64: HISTORICAL_KEY_BASE64, current: false },
+    ]
+    const keyring = parseContentStorePublicKey(publicKey({ keys: validKeys }))
+    const response = receipts()
+    const unknown = purchasePayload({ key_id: 'unknown-key' })
+    response.purchase_receipts[0] = {
+      purchase_id: 'cpur_a', receipt: unknown, receipt_signature: signature(unknown), key_id: 'unknown-key',
+      credits_charged: 250, created_at: '2026-08-14T09:12:44Z',
+    }
+    assert.throws(() => verifyContentStoreRestore(keyring, parseContentStoreReceipts(response), 'acct_a'), /unknown|key_id|trusted/i)
+    assert.throws(() => parseContentStorePublicKey(publicKey({ keys: [...validKeys].reverse() })), /current|first/i)
+    assert.throws(() => parseContentStorePublicKey(publicKey({ keys: validKeys.map(key => ({ ...key, current: false })) })), /current/i)
+    assert.throws(() => parseContentStorePublicKey(publicKey({ keys: [validKeys[0], validKeys[0]] })), /duplicate|key_id/i)
+  })
+
+  test('keeps retired keys verify-only and refuses a new download grant signed by one', () => {
+    const keyring = parseContentStorePublicKey(publicKey({ keys: [
+      { key_id: KEY_ID, algorithm: 'ed25519', public_key_base64: PUBLIC_KEY_BASE64, current: true },
+      { key_id: 'content-store-test-old', algorithm: 'ed25519', public_key_base64: HISTORICAL_KEY_BASE64, current: false },
+    ] }))
+    const payload = grantPayload({ key_id: 'content-store-test-old' })
+    const parsed = parseContentStoreDownloadGrant(grant({
+      grant: payload, grant_signature: historicalSignature(payload), key_id: 'content-store-test-old',
+    }))
+    assert.throws(() => verifyContentStoreDownloadGrant(keyring, parsed, {
+      accountId: 'acct_a', productId: 'cprod_a', entitlementFamily: 'com.storystudio.test',
+      releaseId: 'crel_a', packId: 'com.storystudio.test', version: '1.0.0',
+      archiveSha256: HASH, archiveBytes: 18,
+    }, new Date('2026-08-14T10:10:00Z')), /current|retired|verify-only/i)
+  })
+
   test('verifies restore and original purchase receipts against the owning account', () => {
     const key = parseContentStorePublicKey(publicKey())
     const parsed = parseContentStoreReceipts(receipts())
@@ -206,6 +291,18 @@ describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
       receipt: { ...original.restore_receipt.receipt as Record<string, unknown>, future_fact: 'tampered' },
     } }))
     assert.throws(() => verifyContentStoreRestore(key, tampered, 'acct_a'), /signature|match|entitlement/i)
+  })
+
+  test('parses canonical entitlement showcase videos and defaults a pre-1.7 entitlement to none', () => {
+    const video = {
+      url: 'https://www.youtube.com/shorts/dQw4w9WgXcQ', title: 'A vertical example', description: 'Published by GenStudio.',
+    }
+    const withVideo = receipts()
+    ;(withVideo.entitlements as Array<Record<string, unknown>>)[0] = {
+      ...withVideo.entitlements[0], showcase_videos: [video],
+    }
+    assert.deepEqual(parseContentStoreReceipts(withVideo).entitlements[0].showcaseVideos, [video])
+    assert.deepEqual(parseContentStoreReceipts(receipts()).entitlements[0].showcaseVideos, [])
   })
 
   test('re-canonicalises parsed receipt values at verification time', () => {
@@ -280,6 +377,17 @@ describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
     }))
     assert.equal(upstreamValid.archiveBytes, upstreamBytes)
   })
+
+  test('parses owned published and withdrawn releases without inventing unreleased states', () => {
+    const parsed = parseOwnedContentReleases(ownedReleases())
+    assert.equal(parsed.currentReleaseId, 'crel_b')
+    assert.deepEqual(parsed.releases.map(item => [item.version, item.state, item.current]), [
+      ['2.0.0', 'published', true], ['1.0.0', 'withdrawn', false],
+    ])
+    assert.throws(() => parseOwnedContentReleases(ownedReleases({
+      releases: [release({ ...ownedReleases().releases[0], state: 'draft' })],
+    })), /state|published|withdrawn/i)
+  })
 })
 
 describe('GenStudio Content Store 1.6 delivery client', () => {
@@ -303,18 +411,25 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
       calls.push({ url: String(input), init })
       if (String(input).endsWith('/public-key')) return Response.json(publicKey())
       if (String(input).endsWith('/receipts')) return Response.json(receipts())
+      if (String(input).includes('/entitlements/')) return Response.json(ownedReleases())
       return Response.json(grant())
     }
     await getGenStudioContentPublicKey('gsk_test')
     await getGenStudioContentReceipts('gsk_test')
-    await issueGenStudioContentDownload('gsk_test', 'crel_a')
+    await listGenStudioOwnedContentReleases('gsk_test', 'com.storystudio.test/family')
+    await issueGenStudioContentDownload('gsk_test', {
+      entitlementFamily: 'com.storystudio.test/family', version: '1.0.0',
+    })
     assert.deepEqual(calls.map(call => [call.url, call.init?.method]), [
       ['http://127.0.0.1:8000/v1/content/public-key', 'GET'],
       ['http://127.0.0.1:8000/v1/content/receipts', 'GET'],
+      ['http://127.0.0.1:8000/v1/content/entitlements/com.storystudio.test%2Ffamily/releases', 'GET'],
       ['http://127.0.0.1:8000/v1/content/downloads', 'POST'],
     ])
     for (const call of calls) assert.equal((call.init?.headers as Record<string, string>).Authorization, 'Bearer gsk_test')
-    assert.equal(calls[2].init?.body, JSON.stringify({ release_id: 'crel_a' }))
+    assert.equal(calls[3].init?.body, JSON.stringify({
+      entitlement_family: 'com.storystudio.test/family', version: '1.0.0',
+    }))
   })
 
   test('fetches the opaque archive without an API key and verifies exact bytes', async () => {
@@ -334,6 +449,33 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
       { archiveSha256: digest, archiveBytes: archive.byteLength },
     )
     assert.deepEqual(Buffer.from(bytes), archive)
+  })
+
+  test('resolves an exact historical or withdrawn dependency only through an owned family history', async () => {
+    const calls: string[] = []
+    globalThis.fetch = async input => {
+      calls.push(String(input))
+      return Response.json(ownedReleases({
+        current_release_id: 'crel_a',
+        releases: [
+          release({ release_id: 'crel_a', version: '1.0.0', archive_available: true,
+            state: 'published', published_at: '2026-08-14T10:00:00Z', current: true }),
+          release({ release_id: 'crel_old', version: '0.9.0', archive_available: true,
+            state: 'withdrawn', published_at: '2026-07-14T10:00:00Z', current: false }),
+        ],
+      }))
+    }
+    const resolved = await resolveOwnedContentStoreDependency({
+      apiKey: 'gsk_test', receipts: parseContentStoreReceipts(receipts()), releaseHistories: new Map(),
+    }, 'com.storystudio.test', '0.9.0')
+    assert.equal(resolved.entitlement.entitlementFamily, 'com.storystudio.test')
+    assert.equal(resolved.release.version, '0.9.0')
+    assert.equal(resolved.release.state, 'withdrawn')
+    assert.deepEqual(calls, ['http://127.0.0.1:8000/v1/content/entitlements/com.storystudio.test/releases'])
+
+    await assert.rejects(resolveOwnedContentStoreDependency({
+      apiKey: 'gsk_test', receipts: parseContentStoreReceipts(receipts()), releaseHistories: new Map(),
+    }, 'com.storystudio.missing', '1.0.0'), /not own|dependency/i)
   })
 
   test('rejects non-HTTP and embedded-credential archive URLs before fetch', async () => {

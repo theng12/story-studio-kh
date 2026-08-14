@@ -324,6 +324,11 @@ describe('Content Store renderer contract', () => {
     assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|portal URL/i)
     assert.match(page, /Restore purchases/)
     assert.match(card, /Install on this Mac/)
+    assert.match(card, /showcaseVideos/)
+    assert.match(card, /Watch example videos/)
+    assert.match(card, /target="_blank"/)
+    assert.match(card, /rel="noopener noreferrer"/)
+    assert.doesNotMatch(card, /iframe|v-html/)
   })
 
   test('describes account ownership and local install truth separately', () => {

@@ -228,6 +228,7 @@ function publicProduct(product: GenStudioContentProduct): PublicContentProduct {
       owned: component.owned,
     })),
     ownedComponentCreditValue: product.ownedComponentCreditValue,
+    showcaseVideos: product.showcaseVideos,
   }
 }
 
@@ -249,6 +250,7 @@ async function publicAccount(
       grantedAt: owned.grantedAt,
       purchaseId: owned.purchaseId,
       currentRelease: owned.currentRelease ? publicRelease(owned.currentRelease) : null,
+      showcaseVideos: owned.showcaseVideos,
       receiptVerification: verifiedFamilies.has(owned.entitlementFamily) ? 'verified' as const : 'unverified' as const,
       downloadAvailable: owned.currentRelease?.archiveAvailable === true,
       ...installStates[index]!,

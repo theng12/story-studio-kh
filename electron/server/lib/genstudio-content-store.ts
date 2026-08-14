@@ -49,6 +49,26 @@ export interface GenStudioContentRelease {
   raw: CanonicalJsonObject
 }
 
+export interface GenStudioOwnedContentRelease extends GenStudioContentRelease {
+  state: 'published' | 'withdrawn'
+  publishedAt: string | null
+  current: boolean
+}
+
+export interface GenStudioOwnedContentReleases {
+  entitlementFamily: string
+  entitlementId: string
+  productId: string
+  title: string
+  kind: GenStudioContentProductKind
+  publisherId: string
+  grantedAt: string
+  retired: boolean
+  currentReleaseId: string | null
+  releases: GenStudioOwnedContentRelease[]
+  raw: CanonicalJsonObject
+}
+
 export interface GenStudioContentBundleComponent {
   productId: string
   entitlementFamily: string
@@ -57,6 +77,12 @@ export interface GenStudioContentBundleComponent {
   componentCreditValue: number
   owned: boolean
   raw: CanonicalJsonObject
+}
+
+export interface GenStudioShowcaseVideo {
+  url: string
+  title: string
+  description: string
 }
 
 export interface GenStudioContentProduct {
@@ -77,6 +103,7 @@ export interface GenStudioContentProduct {
   compatibilityReason: string | null
   bundleComponents: GenStudioContentBundleComponent[]
   ownedComponentCreditValue: number
+  showcaseVideos: GenStudioShowcaseVideo[]
   raw: CanonicalJsonObject
 }
 
@@ -88,6 +115,7 @@ export interface GenStudioOwnedContent {
   grantedAt: string
   purchaseId: string | null
   currentRelease: GenStudioContentRelease | null
+  showcaseVideos: GenStudioShowcaseVideo[]
   raw: CanonicalJsonObject
 }
 
@@ -151,11 +179,16 @@ export interface GenStudioContentPurchase {
   raw: CanonicalJsonObject
 }
 
-export interface GenStudioContentPublicKey {
+export interface GenStudioContentSigningKey {
   keyId: string
   algorithm: 'ed25519'
   publicKeyBase64: string
   publicKeyBytes: Uint8Array
+  current: boolean
+}
+
+export interface GenStudioContentPublicKey extends GenStudioContentSigningKey {
+  keys: GenStudioContentSigningKey[]
   payloadTypes: string[]
   canonicalization: typeof CONTENT_STORE_CANONICALIZATION
   raw: CanonicalJsonObject
@@ -179,6 +212,7 @@ export interface GenStudioContentRestoreEntitlement {
   retired: boolean
   currentRelease: GenStudioContentRelease | null
   downloadAvailable: boolean
+  showcaseVideos: GenStudioShowcaseVideo[]
   raw: CanonicalJsonObject
 }
 
@@ -403,6 +437,36 @@ function parseOptionalRelease(value: unknown, field: string): GenStudioContentRe
   return value === null ? null : parseRelease(value, field)
 }
 
+function parseShowcaseVideos(value: unknown, field: string): GenStudioShowcaseVideo[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`)
+  if (value.length > 12) throw new Error(`${field} must contain at most 12 videos`)
+  const isCanonicalPlainText = (text: string): boolean => text === text.trim().split(/\s+/u).join(' ')
+    && ![...text].some(character => character === '<' || character === '>'
+      || (character !== ' ' && /[\p{C}\p{Z}]/u.test(character)))
+  return value.map((entry, index) => {
+    const row = plainObject(entry, `${field}[${index}]`)
+    if (Object.keys(row).sort().join(',') !== 'description,title,url') {
+      throw new Error(`${field}[${index}] must contain exactly url, title, and description`)
+    }
+    const url = text(row, 'url')
+    const title = text(row, 'title')
+    const description = typeof row.description === 'string'
+      ? row.description
+      : (() => { throw new Error(`${field}[${index}].description must be a string`) })()
+    if (!/^https:\/\/(?:www\.youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)[A-Za-z0-9_-]{11}$/.test(url)) {
+      throw new Error(`${field}[${index}].url is not a canonical YouTube URL`)
+    }
+    if ([...title].length > 160 || !isCanonicalPlainText(title)) {
+      throw new Error(`${field}[${index}].title must be 1-160 characters of plain text`)
+    }
+    if ([...description].length > 500 || !isCanonicalPlainText(description)) {
+      throw new Error(`${field}[${index}].description must be at most 500 characters of plain text`)
+    }
+    return { url, title, description }
+  })
+}
+
 function parseProduct(value: unknown): GenStudioContentProduct {
   const raw = canonicalizeContentStoreObject(value)
   const row = raw.value
@@ -439,6 +503,7 @@ function parseProduct(value: unknown): GenStudioContentProduct {
       }
     }),
     ownedComponentCreditValue: uint(row, 'owned_component_credit_value'),
+    showcaseVideos: parseShowcaseVideos(row.showcase_videos, 'showcase_videos'),
     raw,
   }
 }
@@ -462,6 +527,7 @@ export function parseContentStoreAccount(value: unknown): GenStudioContentAccoun
         grantedAt: text(owned, 'granted_at'),
         purchaseId: nullableText(owned, 'purchase_id'),
         currentRelease: parseOptionalRelease(owned.current_release, 'owned.current_release'),
+        showcaseVideos: parseShowcaseVideos(owned.showcase_videos, 'owned.showcase_videos'),
         raw: ownedRaw,
       }
     }),
@@ -607,11 +673,48 @@ export function parseContentStorePublicKey(value: unknown): GenStudioContentPubl
     throw new Error('Content Store public-key payload_types must exactly match the published signed payload types')
   }
   const publicKeyBase64 = text(row, 'public_key_base64')
+  const keyId = text(row, 'key_id')
+  const parseKey = (value: unknown, field: string): GenStudioContentSigningKey => {
+    const key = plainObject(value, field)
+    const keyAlgorithm = text(key, 'algorithm')
+    if (keyAlgorithm !== 'ed25519') throw new Error(`${field}.algorithm must be ed25519`)
+    const keyBase64 = text(key, 'public_key_base64')
+    return {
+      keyId: text(key, 'key_id'),
+      algorithm: keyAlgorithm,
+      publicKeyBase64: keyBase64,
+      publicKeyBytes: strictBase64(keyBase64, `${field}.public_key_base64`, 32),
+      current: bool(key, 'current'),
+    }
+  }
+  const keys: GenStudioContentSigningKey[] = row.keys === undefined
+    ? [{
+        keyId,
+        algorithm,
+        publicKeyBase64,
+        publicKeyBytes: strictBase64(publicKeyBase64, 'public_key_base64', 32),
+        current: true,
+      }]
+    : (() => {
+        if (!Array.isArray(row.keys) || row.keys.length === 0) throw new Error('Content Store public-key keys must be a non-empty array')
+        const parsed = row.keys.map((key, index) => parseKey(key, `keys[${index}]`))
+        if (new Set(parsed.map(key => key.keyId)).size !== parsed.length) throw new Error('Content Store public-key keys contains a duplicate key_id')
+        if (parsed.filter(key => key.current).length !== 1 || !parsed[0]?.current) {
+          throw new Error('Content Store public-key keys must contain exactly one current key, first')
+        }
+        const current = parsed[0]
+        if (current.keyId !== keyId || current.algorithm !== algorithm || current.publicKeyBase64 !== publicKeyBase64) {
+          throw new Error('Content Store public-key top-level fields must match the current key')
+        }
+        return parsed
+      })()
   return {
-    keyId: text(row, 'key_id'),
+    keyId,
     algorithm,
     publicKeyBase64,
     publicKeyBytes: strictBase64(publicKeyBase64, 'public_key_base64', 32),
+    current: true,
+    keys,
     payloadTypes,
     canonicalization,
     raw,
@@ -703,6 +806,7 @@ export function parseContentStoreReceipts(value: unknown): GenStudioContentRecei
         retired: bool(entitlement, 'retired'),
         currentRelease,
         downloadAvailable,
+        showcaseVideos: parseShowcaseVideos(entitlement.showcase_videos, `entitlements[${index}].showcase_videos`),
         raw: entitlementRaw,
       }
     }),
@@ -710,6 +814,46 @@ export function parseContentStoreReceipts(value: unknown): GenStudioContentRecei
   }
   assertRestoreCoherence(result)
   return result
+}
+
+export function parseOwnedContentReleases(value: unknown): GenStudioOwnedContentReleases {
+  const raw = canonicalizeContentStoreObject(value)
+  const row = raw.value
+  const currentReleaseId = nullableText(row, 'current_release_id')
+  const releases = array(row, 'releases').map((value, index): GenStudioOwnedContentRelease => {
+    const release = parseRelease(value, `releases[${index}]`)
+    const source = release.raw.value
+    const state = text(source, 'state')
+    if (state !== 'published' && state !== 'withdrawn') {
+      throw new Error(`releases[${index}].state must be published or withdrawn`)
+    }
+    const publishedAt = source.published_at === null ? null : isoInstant(source, 'published_at')
+    return { ...release, state, publishedAt, current: bool(source, 'current') }
+  })
+  if (new Set(releases.map(release => release.releaseId)).size !== releases.length) {
+    throw new Error('Owned release history contains a duplicate release_id')
+  }
+  if (new Set(releases.map(release => release.version)).size !== releases.length) {
+    throw new Error('Owned release history contains a duplicate version')
+  }
+  const current = releases.filter(release => release.current)
+  if ((currentReleaseId === null && current.length !== 0)
+    || (currentReleaseId !== null && (current.length !== 1 || current[0]?.releaseId !== currentReleaseId))) {
+    throw new Error('Owned release history current release does not match current_release_id')
+  }
+  return {
+    entitlementFamily: text(row, 'entitlement_family'),
+    entitlementId: text(row, 'entitlement_id'),
+    productId: text(row, 'product_id'),
+    title: text(row, 'title'),
+    kind: kind(row),
+    publisherId: text(row, 'publisher_id'),
+    grantedAt: isoInstant(row, 'granted_at'),
+    retired: bool(row, 'retired'),
+    currentReleaseId,
+    releases,
+    raw,
+  }
 }
 
 export function parseContentStoreDownloadGrant(value: unknown): GenStudioContentDownloadGrant {
@@ -929,6 +1073,23 @@ export async function getGenStudioContentReceipts(apiKey: string): Promise<GenSt
   })
 }
 
+export async function listGenStudioOwnedContentReleases(
+  apiKey: string,
+  entitlementFamily: string,
+): Promise<GenStudioOwnedContentReleases> {
+  assertApiKey(apiKey)
+  if (typeof entitlementFamily !== 'string' || entitlementFamily.length === 0) {
+    throw new TypeError('entitlement family is required')
+  }
+  return requestOnce({
+    method: 'GET',
+    path: `/v1/content/entitlements/${encodeURIComponent(entitlementFamily)}/releases`,
+    apiKey,
+    timeoutMs: 12_000,
+    parse: parseOwnedContentReleases,
+  })
+}
+
 export async function listGenStudioContentProducts(
   apiKey: string,
   storyVersion: string,
@@ -985,13 +1146,23 @@ export async function purchaseGenStudioContentProduct(
 
 export async function issueGenStudioContentDownload(
   apiKey: string,
-  releaseId: string,
+  target: { releaseId: string } | { entitlementFamily: string; version: string },
 ): Promise<GenStudioContentDownloadGrant> {
   assertApiKey(apiKey)
-  if (typeof releaseId !== 'string' || releaseId.length === 0) throw new TypeError('release_id is required')
+  let body: { release_id: string } | { entitlement_family: string; version: string }
+  if ('releaseId' in target) {
+    if (typeof target.releaseId !== 'string' || target.releaseId.length === 0) throw new TypeError('release_id is required')
+    body = { release_id: target.releaseId }
+  } else {
+    if (typeof target.entitlementFamily !== 'string' || target.entitlementFamily.length === 0) {
+      throw new TypeError('entitlement_family is required')
+    }
+    if (typeof target.version !== 'string' || target.version.length === 0) throw new TypeError('version is required')
+    body = { entitlement_family: target.entitlementFamily, version: target.version }
+  }
   return requestOnce({
     method: 'POST', path: '/v1/content/downloads', apiKey, timeoutMs: 12_000,
-    body: JSON.stringify({ release_id: releaseId }),
+    body: JSON.stringify(body),
     parse: parseContentStoreDownloadGrant,
   })
 }

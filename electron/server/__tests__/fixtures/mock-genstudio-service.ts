@@ -276,7 +276,8 @@ function normalizeScenario(
 function requiredScope(pathname: string, method: string): MockGenStudioScope | null {
   if (pathname === '/v1/content/account' || pathname === '/v1/content/products'
     || pathname === '/v1/content/quotes' || pathname === '/v1/content/public-key'
-    || pathname === '/v1/content/receipts' || pathname === '/v1/content/downloads') return 'content:read'
+    || pathname === '/v1/content/receipts' || pathname === '/v1/content/downloads'
+    || /^\/v1\/content\/entitlements\/[^/]+\/releases$/.test(pathname)) return 'content:read'
   if (pathname === '/v1/content/purchases') return 'content:purchase'
   if (pathname === '/v1/models' || pathname === '/v1/chat/models'
     || pathname === '/v1/video/models' || pathname === '/v1/videos/models') {
@@ -542,6 +543,7 @@ export class MockGenStudioService {
       granted_at: '2026-08-14T09:12:44Z',
       purchase_id: null,
       current_release: product.current_release,
+      showcase_videos: product.showcase_videos || [],
     }))
     return {
       account_id: accountId,
@@ -567,6 +569,7 @@ export class MockGenStudioService {
       retired: product.retired === true,
       current_release: product.current_release,
       download_available: Boolean((product.current_release as Record<string, unknown> | null)?.archive_available),
+      showcase_videos: product.showcase_videos || [],
     }))
     const signedEntitlements = entitlements.map(item => ({
       entitlement_family: item.entitlement_family,
@@ -620,9 +623,42 @@ export class MockGenStudioService {
     }
   }
 
+  private contentOwnedReleasesBody(request: IncomingMessage, entitlementFamily: string): Record<string, unknown> {
+    const owned = this.contentProducts.filter(product => product.owned === true)
+    const index = owned.findIndex(product => product.entitlement_family === entitlementFamily)
+    const product = owned[index]
+    if (!product) throw Object.assign(new Error('not entitled'), { mockStatus: 404, mockCode: 'not_entitled' })
+    const release = product.current_release as Record<string, unknown> | null
+    return {
+      entitlement_family: product.entitlement_family,
+      entitlement_id: `cent_restore_${index + 1}`,
+      product_id: product.product_id,
+      title: product.title,
+      kind: product.kind,
+      publisher_id: product.publisher_id,
+      granted_at: '2026-08-14T09:12:44Z',
+      retired: product.retired === true,
+      current_release_id: release?.release_id || null,
+      releases: release ? [{
+        ...release,
+        state: 'published',
+        published_at: '2026-08-14T09:12:44Z',
+        current: true,
+      }] : [],
+    }
+  }
+
   private contentDownloadBody(request: IncomingMessage, body: Buffer): Record<string, unknown> {
-    const releaseId = String(parseJson(body).release_id || '')
-    const product = this.contentProducts.find(entry => (entry.current_release as Record<string, unknown> | null)?.release_id === releaseId)
+    const input = parseJson(body)
+    const releaseId = String(input.release_id || '')
+    const entitlementFamily = String(input.entitlement_family || '')
+    const version = String(input.version || '')
+    const product = this.contentProducts.find(entry => {
+      const release = entry.current_release as Record<string, unknown> | null
+      return releaseId
+        ? release?.release_id === releaseId
+        : entry.entitlement_family === entitlementFamily && release?.version === version
+    })
     if (!product || product.owned !== true) throw Object.assign(new Error('not entitled'), { mockStatus: 404, mockCode: 'not_entitled' })
     const release = product.current_release as Record<string, unknown>
     if (!release.archive_available || !this.contentArchives.has(String(release.archive_sha256))) {
@@ -980,6 +1016,16 @@ export class MockGenStudioService {
       }
       if (method === 'GET' && url.pathname === '/v1/content/receipts') {
         json(response, 200, this.contentReceiptsBody(request))
+        return
+      }
+      const ownedReleasesMatch = url.pathname.match(/^\/v1\/content\/entitlements\/([^/]+)\/releases$/)
+      if (method === 'GET' && ownedReleasesMatch) {
+        try {
+          json(response, 200, this.contentOwnedReleasesBody(request, decodeURIComponent(ownedReleasesMatch[1]!)))
+        } catch (error) {
+          const shaped = error as Error & { mockStatus?: number; mockCode?: string }
+          json(response, shaped.mockStatus || 500, { code: shaped.mockCode, detail: shaped.message })
+        }
         return
       }
       if (method === 'POST' && url.pathname === '/v1/content/downloads') {

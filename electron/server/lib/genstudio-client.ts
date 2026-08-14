@@ -1367,6 +1367,9 @@ export interface GenStudioVideoResult {
 }
 
 export interface GenStudioAccountOverview {
+  app_links: {
+    billing: string | null
+  }
   credit_balance: number
   credits_used_30d: number
   subscription_plan_name: string
@@ -1399,6 +1402,16 @@ function objectRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined
+}
+
+function parseBillingAppLink(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password ? value : null
+  } catch {
+    return null
+  }
 }
 
 function parseServiceTier(value: unknown): GenStudioServiceTier | undefined {
@@ -4076,6 +4089,7 @@ async function readAccountJson<T>(apiKey: string, pathName: string): Promise<T> 
 /** Lightweight authoritative account status used by the usage surfaces. */
 export async function getGenStudioAccountOverview(apiKey: string): Promise<GenStudioAccountOverview> {
   const {
+    app_links,
     credit_balance,
     credits_used_30d,
     subscription_plan_name,
@@ -4097,6 +4111,9 @@ export async function getGenStudioAccountOverview(apiKey: string): Promise<GenSt
   const burstCeiling = positiveInteger(burst_concurrency_ceiling)
   const tierStanding = parseServiceTierStanding(service_tier)
   return {
+    app_links: {
+      billing: parseBillingAppLink(objectRecord(app_links)?.billing),
+    },
     credit_balance,
     credits_used_30d,
     subscription_plan_name,

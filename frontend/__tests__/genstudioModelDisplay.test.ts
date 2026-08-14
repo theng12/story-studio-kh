@@ -96,6 +96,14 @@ test('Jobs and Usage resolve catalog names instead of printing dispatch ids', ()
   assert.match(usage, /Tier standing/)
   assert.match(usage, /tierHeading\(snapshot\.overview\.service_tier\.current\)/)
   assert.match(usage, /paid_active_jobs.*paid_concurrency_limit/s)
+    assert.match(usage, /snapshot\.overview\.app_links\.billing/)
+    assert.ok(
+      usage.indexOf('snapshot.overview.app_links.billing') < usage.indexOf('<section v-if="snapshot.overview.service_tier"'),
+      'billing action must not depend on service-tier metadata',
+    )
+  assert.match(usage, /target="_blank"[^>]*rel="noopener noreferrer"/)
+  assert.match(usage, /Billing is not available on this GenStudio deployment/)
+  assert.doesNotMatch(usage, /will link directly|localhost.*billing|GenStudioUrl/i)
   assert.doesNotMatch(usage, /Current plan|Manage plan · coming soon/)
   assert.match(usage, /<NuxtLink to="\/" class="btn btn-secondary btn-sm">← Back to projects<\/NuxtLink>/)
   assert.doesNotMatch(usage, /<small>\{\{\s*job\.model_id\s*\}\}<\/small>/)

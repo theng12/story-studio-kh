@@ -1028,6 +1028,66 @@ test('GenStudio preserves valid 0.94 capacity display facts from account overvie
   }
 })
 
+test('GenStudio preserves the published opaque billing link from account overview', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json({
+      credit_balance: 0,
+      credits_used_30d: 0,
+      subscription_plan_name: 'Mekong Studio',
+      paid_concurrency_limit: 2,
+      paid_active_jobs: 0,
+      paid_queued_jobs: 0,
+      max_queued_jobs: 25,
+      generation_submissions_per_minute: 10,
+      total_jobs: 0,
+      active_jobs: 0,
+      completed_jobs: 0,
+      failed_jobs: 0,
+      available_assets: 0,
+      next_asset_expiration: null,
+      app_links: { billing: 'https://app.genstudio.example/?workspace=billing&return=%2Fcredits' },
+    })
+
+    const overview = await getGenStudioAccountOverview('scoped-key')
+
+    assert.deepEqual(overview.app_links, {
+      billing: 'https://app.genstudio.example/?workspace=billing&return=%2Fcredits',
+    })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('GenStudio keeps a published null billing link unavailable', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    globalThis.fetch = async () => Response.json({
+      credit_balance: 0,
+      credits_used_30d: 0,
+      subscription_plan_name: 'Mekong Studio',
+      paid_concurrency_limit: 2,
+      paid_active_jobs: 0,
+      paid_queued_jobs: 0,
+      max_queued_jobs: 25,
+      generation_submissions_per_minute: 10,
+      total_jobs: 0,
+      active_jobs: 0,
+      completed_jobs: 0,
+      failed_jobs: 0,
+      available_assets: 0,
+      next_asset_expiration: null,
+      app_links: { billing: null },
+    })
+
+    const overview = await getGenStudioAccountOverview('scoped-key')
+
+    assert.deepEqual(overview.app_links, { billing: null })
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('GenStudio omits malformed 0.94 capacity display facts from account overview', async () => {
   const originalFetch = globalThis.fetch
   try {

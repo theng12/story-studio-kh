@@ -29,6 +29,12 @@ export interface ContentStoreBundleComponent {
   owned: boolean
 }
 
+export interface ContentStoreShowcaseVideo {
+  url: string
+  title: string
+  description: string
+}
+
 export interface ContentStoreProduct {
   productId: string
   entitlementFamily: string
@@ -47,6 +53,7 @@ export interface ContentStoreProduct {
   compatibilityReason: string | null
   bundleComponents: ContentStoreBundleComponent[]
   ownedComponentCreditValue: number
+  showcaseVideos: ContentStoreShowcaseVideo[]
 }
 
 export interface ContentStoreAccount {
@@ -62,6 +69,7 @@ export interface ContentStoreAccount {
     grantedAt: string
     purchaseId: string | null
     currentRelease: ContentStoreRelease | null
+    showcaseVideos: ContentStoreShowcaseVideo[]
     receiptVerification: 'verified' | 'unverified'
     downloadAvailable: boolean
     installState: 'not_installed' | 'installed_current' | 'installed_other_version' | 'update_available' | 'unavailable'
