@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs/promises'
 
 import type { CreateProjectRequest, JobType, ProjectMeta, UpdateConfigRequest } from '../models/types.js'
@@ -41,6 +42,24 @@ export interface ContentPackUpgradePlan {
   affected_generation_types: JobType[]
 }
 
+export interface LegacyContentMigrationSelection {
+  kind: ContentPackItemKind
+  from_id: string
+  to_id: string
+  to: ContentPackVersionRef
+}
+
+/**
+ * A preview is deliberately separate from the mutation. The exact archive
+ * references make the customer-visible review meaningful and prevent a
+ * later discovery change from turning a legacy migration into an upgrade.
+ */
+export interface LegacyContentMigrationPlan {
+  project_slug: string
+  preview_id: string
+  selections: LegacyContentMigrationSelection[]
+}
+
 export interface ContentPackProjectPinOptions extends ContentPackRegistryOptions {
   paths?: ContentPackRuntimePaths
   hooks?: {
@@ -56,6 +75,55 @@ export interface ProjectContentSelectionUpdate {
 }
 
 type SignedSelection = Awaited<ReturnType<typeof resolveSignedSelections>>[number]
+
+const HIDDEN_MECHANICS_MIGRATION_TARGETS = {
+  formula: {
+    from: 'hidden-mechanics-history',
+    to: 'com.storystudio.formula.archival-ledger',
+    pack_id: 'com.storystudio.pack.formula.archival-ledger',
+    kind: 'series-formula',
+  },
+  topics: {
+    'historical-states-revolutions-collapse': {
+      to: 'com.storystudio.topic.archival-ledger.states-revolutions-collapse',
+      pack_id: 'com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse',
+    },
+    'historical-money-debt-financial-institutions': {
+      to: 'com.storystudio.topic.archival-ledger.money-debt-financial-institutions',
+      pack_id: 'com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions',
+    },
+    'historical-empires-trade-extraction': {
+      to: 'com.storystudio.topic.archival-ledger.empires-trade-extraction',
+      pack_id: 'com.storystudio.pack.topic.archival-ledger.empires-trade-extraction',
+    },
+    'historical-wars-treaties-world-order': {
+      to: 'com.storystudio.topic.archival-ledger.wars-treaties-world-order',
+      pack_id: 'com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order',
+    },
+    'historical-infrastructure-commodities-corporate-power': {
+      to: 'com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power',
+      pack_id: 'com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power',
+    },
+  },
+  style: {
+    from: 'builtin-archival-documentary-reconstruction',
+    to: 'com.storystudio.style.archival-documentary-reconstruction',
+    pack_id: 'com.storystudio.pack.style.archival-documentary-reconstruction',
+    kind: 'visual-style',
+  },
+  recipe: {
+    from: 'archival-map-investigation',
+    to: 'com.storystudio.thumbnail.archival-map-investigation',
+    pack_id: 'com.storystudio.pack.thumbnail.archival-map-investigation',
+    kind: 'thumbnail-recipe',
+  },
+} as const
+
+/**
+ * Preview capabilities are intentionally process-local and one-time. A restart
+ * requires a fresh review instead of accepting a stale or caller-edited plan.
+ */
+const legacyMigrationPreviews = new Map<string, LegacyContentMigrationPlan>()
 
 function applyContentSelections(
   project: ProjectMeta,
@@ -396,6 +464,187 @@ export async function createProjectWithContentSelections(
       ...(Object.keys(versions).length ? { content_pack_versions: versions } : {}),
       ...(Object.keys(items).length ? { content_pack_items: items } : {}),
     })
+  })
+}
+
+async function resolveLegacyMigrationSelection(
+  fromId: string,
+  target: { to_id: string; pack_id: string; kind: ContentPackItemKind },
+  options: ContentPackProjectPinOptions,
+): Promise<LegacyContentMigrationSelection> {
+  const entry = await resolveCatalogItem(target.to_id, undefined, options)
+  if (!entry?.pack || entry.value.kind !== target.kind || entry.pack.pack_id !== target.pack_id) {
+    throw Object.assign(new Error(`Exact migration target is unavailable: ${target.to_id}`), { statusCode: 409, expose: true })
+  }
+  return { kind: target.kind, from_id: fromId, to_id: target.to_id, to: { ...entry.pack } }
+}
+
+type LegacyHiddenMechanicsTarget = {
+  from_id: string
+  to_id: string
+  pack_id: string
+  kind: ContentPackItemKind
+}
+
+function legacyHiddenMechanicsTargetsFor(project: ProjectMeta): LegacyHiddenMechanicsTarget[] {
+  if (project.niche_id !== HIDDEN_MECHANICS_MIGRATION_TARGETS.formula.from) {
+    throw Object.assign(new Error('Project does not select the legacy Hidden Mechanics Formula.'), { statusCode: 409, expose: true })
+  }
+  const targets: LegacyHiddenMechanicsTarget[] = [{
+    from_id: HIDDEN_MECHANICS_MIGRATION_TARGETS.formula.from,
+    to_id: HIDDEN_MECHANICS_MIGRATION_TARGETS.formula.to,
+    pack_id: HIDDEN_MECHANICS_MIGRATION_TARGETS.formula.pack_id,
+    kind: HIDDEN_MECHANICS_MIGRATION_TARGETS.formula.kind,
+  }]
+  for (const legacyTopicId of project.topic_pack_ids ?? []) {
+    const target = HIDDEN_MECHANICS_MIGRATION_TARGETS.topics[legacyTopicId as keyof typeof HIDDEN_MECHANICS_MIGRATION_TARGETS.topics]
+    if (!target) {
+      throw Object.assign(new Error(`Project selects a Topic Pack outside the legacy Hidden Mechanics migration: ${legacyTopicId}`), {
+        statusCode: 409,
+        expose: true,
+      })
+    }
+    targets.push({ from_id: legacyTopicId, to_id: target.to, pack_id: target.pack_id, kind: 'topic-pack' })
+  }
+  if (project.active_style_preset_id) {
+    if (project.active_style_preset_id !== HIDDEN_MECHANICS_MIGRATION_TARGETS.style.from) {
+      throw Object.assign(new Error(`Project selects a Style outside the legacy Hidden Mechanics migration: ${project.active_style_preset_id}`), {
+        statusCode: 409,
+        expose: true,
+      })
+    }
+    targets.push({
+      from_id: project.active_style_preset_id,
+      to_id: HIDDEN_MECHANICS_MIGRATION_TARGETS.style.to,
+      pack_id: HIDDEN_MECHANICS_MIGRATION_TARGETS.style.pack_id,
+      kind: HIDDEN_MECHANICS_MIGRATION_TARGETS.style.kind,
+    })
+  }
+  if (project.thumbnail_template_id) {
+    if (project.thumbnail_template_id !== HIDDEN_MECHANICS_MIGRATION_TARGETS.recipe.from) {
+      throw Object.assign(new Error(`Project selects a Recipe outside the legacy Hidden Mechanics migration: ${project.thumbnail_template_id}`), {
+        statusCode: 409,
+        expose: true,
+      })
+    }
+    targets.push({
+      from_id: project.thumbnail_template_id,
+      to_id: HIDDEN_MECHANICS_MIGRATION_TARGETS.recipe.to,
+      pack_id: HIDDEN_MECHANICS_MIGRATION_TARGETS.recipe.pack_id,
+      kind: HIDDEN_MECHANICS_MIGRATION_TARGETS.recipe.kind,
+    })
+  }
+  return targets
+}
+
+async function planLegacyHiddenMechanicsMigrationLocked(
+  slug: string,
+  options: ContentPackProjectPinOptions,
+): Promise<LegacyContentMigrationPlan> {
+  const project = await projectManager.readProjectMetaConsistently(slug)
+  if (!project) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+  const selections = await Promise.all(legacyHiddenMechanicsTargetsFor(project)
+    .map(target => resolveLegacyMigrationSelection(target.from_id, target, options)))
+  const plan = { project_slug: project.slug, preview_id: randomUUID(), selections }
+  legacyMigrationPreviews.set(plan.preview_id, structuredClone(plan))
+  return plan
+}
+
+function isRecordedLegacyMigrationPlan(
+  candidate: LegacyContentMigrationPlan,
+  recorded: LegacyContentMigrationPlan | undefined,
+): boolean {
+  if (!recorded) return false
+  return candidate.project_slug === recorded.project_slug
+    && candidate.preview_id === recorded.preview_id
+    && candidate.selections.length === recorded.selections.length
+    && candidate.selections.every((selection, index) => {
+      const expected = recorded.selections[index]
+      return selection.kind === expected?.kind
+        && selection.from_id === expected.from_id
+        && selection.to_id === expected.to_id
+        && selection.to.pack_id === expected.to.pack_id
+        && selection.to.version === expected.to.version
+        && selection.to.archive_sha256 === expected.to.archive_sha256
+    })
+}
+
+/**
+ * Read-only HMH migration preview. This is never called by startup or normal
+ * catalog discovery: a project changes only when the caller explicitly asks
+ * for the companion apply function after reviewing this exact plan.
+ */
+export async function planLegacyHiddenMechanicsMigration(
+  slug: string,
+  options: ContentPackProjectPinOptions = {},
+): Promise<LegacyContentMigrationPlan> {
+  return withContentPackCoordinationLock(pathsFor(options), () => planLegacyHiddenMechanicsMigrationLocked(slug, options))
+}
+
+/** Apply the exact targets returned by the explicit HMH migration preview. */
+export async function applyLegacyHiddenMechanicsMigration(
+  slug: string,
+  plan: LegacyContentMigrationPlan,
+  options: ContentPackProjectPinOptions = {},
+): Promise<LegacyContentMigrationPlan> {
+  return withContentPackCoordinationLock(pathsFor(options), async () => {
+    const recorded = legacyMigrationPreviews.get(plan.preview_id)
+    if (!isRecordedLegacyMigrationPlan(plan, recorded) || plan.project_slug !== slug) {
+      throw Object.assign(new Error('Legacy Hidden Mechanics migration preview is not recognized. Review the current project before applying it.'), { statusCode: 409, expose: true })
+    }
+    const current = await projectManager.readProjectMetaConsistently(slug)
+    if (!current) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+    const expected = legacyHiddenMechanicsTargetsFor(current)
+    if (plan.selections.length !== expected.length || plan.selections.some((selection, index) => {
+      const target = expected[index]
+      return !target
+        || selection.kind !== target.kind
+        || selection.from_id !== target.from_id
+        || selection.to_id !== target.to_id
+        || selection.to.pack_id !== target.pack_id
+    })) {
+      throw Object.assign(new Error('Project selections changed since the legacy Hidden Mechanics migration preview.'), { statusCode: 409, expose: true })
+    }
+    for (const selection of plan.selections) {
+      const resolved = await resolveCatalogItem(selection.to_id, selection.to, options)
+      if (!resolved?.pack || resolved.value.kind !== selection.kind) {
+        throw Object.assign(new Error(`Exact migration target is unavailable: ${selection.to_id}`), { statusCode: 409, expose: true })
+      }
+    }
+    const selected = new Map(plan.selections.map(selection => [selection.to_id, selection]))
+    const formula = selected.get(HIDDEN_MECHANICS_MIGRATION_TARGETS.formula.to)
+    if (!formula) throw new Error('Legacy Hidden Mechanics migration has no Formula target')
+    const topicIds = plan.selections
+      .filter(selection => selection.kind === 'topic-pack')
+      .map(selection => selection.to_id)
+    const style = plan.selections.find(selection => selection.kind === 'visual-style')
+    const recipe = plan.selections.find(selection => selection.kind === 'thumbnail-recipe')
+    await options.hooks?.beforeProjectWrite?.()
+    const updated = await projectManager.updateConfigAndProjectMetaConsistently(slug, {
+      ...(style ? { active_style_preset_id: style.to_id } : {}),
+      ...(recipe ? { thumbnail_template_id: recipe.to_id } : {}),
+    }, project => {
+      project.niche_id = formula.to_id
+      project.topic_pack_ids = topicIds
+      if (style) project.active_style_preset_id = style.to_id
+      if (recipe) project.thumbnail_template_id = recipe.to_id
+      const supersededIds = new Set(plan.selections.flatMap(selection => [selection.from_id, selection.to_id]))
+      const items = Object.fromEntries(Object.entries(project.content_pack_items ?? {})
+        .filter(([id]) => !supersededIds.has(id)))
+      Object.assign(items, Object.fromEntries(plan.selections.map(selection => [selection.to_id, {
+        pack_id: selection.to.pack_id,
+        kind: selection.kind,
+      }])))
+      const referencedPacks = new Set(Object.values(items).map(item => item.pack_id))
+      const versions = Object.fromEntries(Object.entries(project.content_pack_versions ?? {})
+        .filter(([packId]) => referencedPacks.has(packId)))
+      for (const selection of plan.selections) versions[selection.to.pack_id] = selection.to.version
+      project.content_pack_items = items
+      project.content_pack_versions = versions
+    })
+    if (!updated) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+    legacyMigrationPreviews.delete(plan.preview_id)
+    return plan
   })
 }
 

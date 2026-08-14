@@ -270,7 +270,13 @@ describe('exact project Content Pack pins', () => {
     await applyProjectContentUpgrade(project.slug, PACK_ID, '1.1.0', options)
     assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.1.0')
     await applyProjectContentUpgrade(project.slug, PACK_ID, '1.0.0', options)
-    assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.0.0')
+    const rolledBack = await projectManager.getProject(project.slug)
+    assert.equal(rolledBack?.content_pack_versions?.[PACK_ID], '1.0.0')
+    assert.ok(rolledBack)
+    assert.equal((await resolveProjectContentPins(rolledBack, options))[0]?.archive_sha256,
+      v1.archive_sha256,
+      'an explicit rollback must restore the retained exact bytes, not rediscover a current release',
+    )
   })
 
   test('reports exact missing requirements and blocks only job types that consume them', async () => {

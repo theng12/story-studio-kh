@@ -378,6 +378,17 @@ test('current user niche overrides retain precedence over formula defaults', asy
   assert.deepEqual(observed, golden.user_override_precedence)
 })
 
+test('legacy Hidden Mechanics IDs remain independently resolvable before an explicit component migration', async () => {
+  const [formula, topic, recipe] = await Promise.all([
+    nicheLoader.loadNiche('hidden-mechanics-history'),
+    topicPackLoader.loadTopicPack('historical-states-revolutions-collapse'),
+    thumbnailTemplateLoader.loadTemplate('archival-map-investigation'),
+  ])
+  assert.equal(formula?.id, 'hidden-mechanics-history')
+  assert.equal(topic?.id, 'historical-states-revolutions-collapse')
+  assert.equal(recipe?.id, 'archival-map-investigation')
+})
+
 test('isolated golden catalog baseline is not taken from user shadow entries', async () => {
   const golden = await readGolden()
   const builtinNichePath = join(nicheLoader.BUILTIN_NICHES_DIR, 'hidden-mechanics-history.json')

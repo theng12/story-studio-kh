@@ -91,6 +91,18 @@ function options(paths: Awaited<ReturnType<typeof isolated>>) {
 }
 
 describe('Content Pack lifecycle', () => {
+  test('refuses different signed bytes under an installed exact version', async () => {
+    const paths = await isolated()
+    const firstArchive = await buildArchive({ styleSuffix: ' first immutable bytes' })
+    const mutatedSameVersion = await buildArchive({ styleSuffix: ' mutated immutable bytes' })
+    await installContentPack(request(firstArchive), options(paths))
+
+    await assert.rejects(
+      installContentPack(request(mutatedSameVersion), options(paths)),
+      /immutable|hash/i,
+    )
+  })
+
   test('keeps disabled packs available to exact installed-version resolution', async () => {
     const paths = await isolated()
     await installContentPack(request(await buildArchive()), options(paths))
