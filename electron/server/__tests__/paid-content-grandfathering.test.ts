@@ -212,6 +212,34 @@ test('an explicit migration rejects a stale preview rather than replacing a late
   assert.equal(current?.content_pack_versions, undefined)
 })
 
+test('revalidates the project inside the write lock when a concurrent edit lands before apply', async () => {
+  const { options } = await isolated()
+  const project = await projectManager.createProject({
+    name: 'Locked HMH Migration',
+    niche_id: LEGACY.formula,
+    topic_pack_ids: [LEGACY.topics[0]],
+  })
+  await installComponentizedArchivalFixture(options)
+  const preview = await planLegacyHiddenMechanicsMigration(project.slug, options)
+
+  await assert.rejects(
+    applyLegacyHiddenMechanicsMigration(project.slug, preview, {
+      ...options,
+      hooks: {
+        beforeProjectWrite: async () => {
+          await projectManager.mutateProjectMetaConsistently(project.slug, meta => {
+            meta.topic_pack_ids = [LEGACY.topics[1]]
+          })
+        },
+      },
+    }),
+    /selections changed since.*preview/i,
+  )
+  const current = await projectManager.readProjectMetaConsistently(project.slug)
+  assert.deepEqual(current?.topic_pack_ids, [LEGACY.topics[1]])
+  assert.equal(current?.content_pack_versions, undefined)
+})
+
 test('an explicit migration rejects a tampered preview version and archive hash', async () => {
   const { options } = await isolated()
   const project = await projectManager.createProject({

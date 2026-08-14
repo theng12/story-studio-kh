@@ -19,6 +19,9 @@ const MAX_SOURCE_JSON_BYTES = 1024 * 1024
 const MAX_SOURCE_RASTER_BYTES = 15 * 1024 * 1024
 const MIN_APP_VERSION_TOKEN = '{{MIN_APP_VERSION}}'
 const KEY_ID_TOKEN = '{{KEY_ID}}'
+const SOURCE_ONLY_MONOLITH_PACK_IDS = new Set([
+  'com.storystudio.pack.archival-ledger',
+])
 
 function fail(message) {
   throw new Error(`Content Pack publisher error: ${message}`)
@@ -306,6 +309,9 @@ async function loadSourceManifest(sourceDirectory, onSourceEnumerated, onBeforeS
     sourceManifest = JSON.parse(sourceManifestBytes.toString('utf8'))
   } catch (error) {
     fail(`pack.json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (SOURCE_ONLY_MONOLITH_PACK_IDS.has(sourceManifest.pack_id)) {
+    fail('source-only monolith cannot be built, signed, or stocked; build independently signed components and their Channel Kit coordinator')
   }
   sourceManifest = substituteReleaseInputs(sourceManifest, releaseInputs)
   const contentRecords = source.files.filter(file => file.relativePath.startsWith('content/'))

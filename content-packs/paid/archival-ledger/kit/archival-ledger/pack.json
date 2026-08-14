@@ -6,7 +6,7 @@
   "version": "1.0.0",
   "min_app_version": "{{MIN_APP_VERSION}}",
   "lifecycle": "active",
-  "changelog": "Coordinates the independently signed Archival Ledger Channel Kit components.",
+  "changelog": "The Channel Kit coordinates the independently signed Formula, five Topic Packs, Style, and Thumbnail Recipe into 500+ evidence-led historical documentary directions.",
   "entitlement": {
     "sku": "com.storystudio.sku.kit.archival-ledger",
     "family": "com.storystudio.family.kit.archival-ledger"

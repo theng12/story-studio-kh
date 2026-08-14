@@ -592,19 +592,6 @@ export async function applyLegacyHiddenMechanicsMigration(
     if (!isRecordedLegacyMigrationPlan(plan, recorded) || plan.project_slug !== slug) {
       throw Object.assign(new Error('Legacy Hidden Mechanics migration preview is not recognized. Review the current project before applying it.'), { statusCode: 409, expose: true })
     }
-    const current = await projectManager.readProjectMetaConsistently(slug)
-    if (!current) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
-    const expected = legacyHiddenMechanicsTargetsFor(current)
-    if (plan.selections.length !== expected.length || plan.selections.some((selection, index) => {
-      const target = expected[index]
-      return !target
-        || selection.kind !== target.kind
-        || selection.from_id !== target.from_id
-        || selection.to_id !== target.to_id
-        || selection.to.pack_id !== target.pack_id
-    })) {
-      throw Object.assign(new Error('Project selections changed since the legacy Hidden Mechanics migration preview.'), { statusCode: 409, expose: true })
-    }
     for (const selection of plan.selections) {
       const resolved = await resolveCatalogItem(selection.to_id, selection.to, options)
       if (!resolved?.pack || resolved.value.kind !== selection.kind) {
@@ -624,6 +611,20 @@ export async function applyLegacyHiddenMechanicsMigration(
       ...(style ? { active_style_preset_id: style.to_id } : {}),
       ...(recipe ? { thumbnail_template_id: recipe.to_id } : {}),
     }, project => {
+      // This callback holds the project metadata/config locks. Re-read the
+      // selected legacy inputs here, after the test seam and immediately
+      // before writes, so a concurrent customer edit can never be overwritten.
+      const expected = legacyHiddenMechanicsTargetsFor(project)
+      if (plan.selections.length !== expected.length || plan.selections.some((selection, index) => {
+        const target = expected[index]
+        return !target
+          || selection.kind !== target.kind
+          || selection.from_id !== target.from_id
+          || selection.to_id !== target.to_id
+          || selection.to.pack_id !== target.pack_id
+      })) {
+        throw Object.assign(new Error('Project selections changed since the legacy Hidden Mechanics migration preview.'), { statusCode: 409, expose: true })
+      }
       project.niche_id = formula.to_id
       project.topic_pack_ids = topicIds
       if (style) project.active_style_preset_id = style.to_id

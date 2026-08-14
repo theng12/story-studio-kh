@@ -4,7 +4,7 @@
   "id": "com.storystudio.formula.archival-ledger",
   "name": "Archival Ledger",
   "description": "Long-form historical documentaries that reconstruct how major outcomes came about: the institutions, material pressures, financial arrangements, alliances, decisions, and contingencies beneath a familiar event. Each episode tests a popular simple account against the record without turning historical disagreement into manufactured contrarianism.",
-  "channel_promise": "Build an evidence-led history documentary channel from 500+ distinct episode directions, with the research posture, script structure, visual language, and thumbnail grammar already aligned.",
+  "channel_promise": "Establish an evidence-led historical-causality Formula with a research posture, script structure, and narration contract for long-form documentaries.",
   "audience": "Customers who want measured, long-form historical investigations without rebuilding a channel format for every episode.",
   "formula_family": "Evidence & systems",
   "tagline": "Debt → Power",
@@ -14,12 +14,6 @@
     "forbidden_patterns": ["Imagine you are there", "You won't believe", "Watch what happens next", "history's best kept secret", "the truth THEY hid", "historians got everything wrong", "invented quotations", "false certainty"],
     "required_habits": ["Separate evidence, inference, and interpretation in plain language.", "Name the institutions and mechanisms connecting conditions to outcomes.", "Use dates, places, groups, and material constraints precisely.", "Treat disagreement proportionately; a popular simplification is not proof of a scholarly cover-up.", "Vary chapter openings among evidence, place, decision, process, or consequence."],
     "closing_policy": "Close the historical inquiry with its best-supported causal account and remaining uncertainty; never manufacture a final reveal or sequel tease."
-  },
-  "production_kit": {
-    "id": "archival-ledger-production-kit",
-    "label": "Archival Ledger Production Kit",
-    "description": "One reusable channel system binding historical-causality Formula to evidence-led Topic Packs, archival documentary reconstruction art direction, and archival map investigation thumbnail grammar.",
-    "recommended_visual_style_id": "com.storystudio.style.archival-documentary-reconstruction"
   },
   "narrative_rules": ["Treat every episode as a causal reconstruction, not a claim that one hidden fact explains history.", "Separate documentary record, reasonable inference, and genuinely contested interpretation."],
   "title_rules": ["Name one specific historical outcome, transformation, crisis, settlement, or institutional change.", "Do not assert a hidden conspiracy, false consensus, or that historians are universally wrong."],

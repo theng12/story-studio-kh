@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync } from 'node:crypto'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -12,7 +12,9 @@ import { buildContentPack, validateContentPack } from '../lib.mjs'
 const REVIEWED_SOURCE = new URL('../../../content-packs/archival-ledger/', import.meta.url)
 const PAID_SOURCE = new URL('../../../content-packs/paid/archival-ledger/', import.meta.url)
 const COMPONENT_REGISTRY = new URL('../../../content-packs/paid/archival-ledger/registry.mjs', import.meta.url)
+const PREVIEW_PROVENANCE = new URL('../../../content-packs/paid/archival-ledger/PREVIEW-PROVENANCE.md', import.meta.url)
 const RELEASE_VERSION = '2.3.4'
+const COMPONENT_SOURCE_KINDS = ['formula', 'topic', 'style', 'thumbnail']
 
 const COMPONENTS = [
   {
@@ -73,6 +75,30 @@ function sourceDirectory(component) {
   return new URL(`${component.kind}/${component.slug}/`, PAID_SOURCE)
 }
 
+async function discoverComponentSourceDirectories(root = PAID_SOURCE.pathname) {
+  const discovered = []
+  for (const kind of COMPONENT_SOURCE_KINDS) {
+    const entries = await readdir(join(root, kind), { withFileTypes: true }).catch(error => {
+      if (error?.code === 'ENOENT') return []
+      throw error
+    })
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      try {
+        await readFile(join(root, kind, entry.name, 'pack.json'), 'utf8')
+        discovered.push(`${kind}/${entry.name}`)
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error
+      }
+    }
+  }
+  return discovered.sort()
+}
+
+function assertRegistryCoversEveryComponentSource(registry, discovered) {
+  assert.deepEqual([...registry.map(row => row.sourceDirectory)].sort(), discovered)
+}
+
 async function readJson(url, label) {
   try {
     return JSON.parse(await readFile(url, 'utf8'))
@@ -103,7 +129,6 @@ test('Archival Ledger has eight independently stockable component sources with e
     `reviewed ${component.document}`,
   )))
 
-  assert.equal(componentSources.length, 8)
   assert.equal(componentSources.every(source => source.manifest.version === '1.0.0'), true)
   assert.equal(componentSources.every(source => source.documents.length === 1), true)
   assert.equal(componentSources.every(source => source.manifest.min_app_version === '{{MIN_APP_VERSION}}'), true)
@@ -126,7 +151,15 @@ test('Archival Ledger has eight independently stockable component sources with e
   assert.equal(componentSources.filter(source => source.component.kind === 'style').every(source => source.assets.length === 1), true)
   assert.equal(componentSources.filter(source => source.component.kind === 'thumbnail').every(source => source.assets.length === 3), true)
   assert.equal(componentSources.filter(source => source.component.kind === 'topic').reduce((sum, source) => sum + source.document.subjects.length, 0), 125)
-  assert.equal(canonicalHash(componentSources.map(source => source.document)), canonicalHash(reviewedMonolithDocuments))
+  assert.equal(canonicalHash(componentSources.map(source => {
+    if (source.component.kind !== 'formula') return source.document
+    const { channel_promise, production_kit, ...document } = source.document
+    return document
+  })), canonicalHash(reviewedMonolithDocuments.map(document => {
+    if (document.kind !== 'series-formula') return document
+    const { channel_promise, production_kit, ...formula } = document
+    return formula
+  })))
 
   for (const source of componentSources) {
     for (const asset of source.assets) {
@@ -137,7 +170,6 @@ test('Archival Ledger has eight independently stockable component sources with e
   }
 
   const { paidComponentRegistry } = await import(COMPONENT_REGISTRY)
-  assert.equal(paidComponentRegistry.length, 8)
   assert.deepEqual(paidComponentRegistry, COMPONENTS.map(component => ({
     packId: component.packId,
     itemId: component.itemId,
@@ -148,7 +180,42 @@ test('Archival Ledger has eight independently stockable component sources with e
     sourceDirectory: `${component.kind}/${component.slug}`,
   })))
   assert.equal(paidComponentRegistry.some(row => row.packId === 'com.storystudio.pack.archival-ledger'), false)
-  assert.deepEqual(paidComponentRegistry.map(row => row.sourceDirectory), COMPONENTS.map(component => `${component.kind}/${component.slug}`))
+  assertRegistryCoversEveryComponentSource(paidComponentRegistry, await discoverComponentSourceDirectories())
+})
+
+test('a ninth paid component source cannot be omitted from the registry', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'archival-ledger-component-inventory-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  for (const directory of ['formula/archival-ledger', 'topic/ninth-component']) {
+    await mkdir(join(root, directory), { recursive: true })
+    await writeFile(join(root, directory, 'pack.json'), '{}')
+  }
+  const discovered = await discoverComponentSourceDirectories(root)
+  assert.throws(
+    () => assertRegistryCoversEveryComponentSource([{ sourceDirectory: 'formula/archival-ledger' }], discovered),
+    /topic\/ninth-component/,
+  )
+})
+
+test('the standalone Formula promises formula behavior; the Channel Kit carries the whole-channel promise', async () => {
+  const formula = await readJson(new URL('formula/archival-ledger/content/series-formula.json', PAID_SOURCE), 'formula')
+  const kit = await readJson(new URL('kit/archival-ledger/pack.json', PAID_SOURCE), 'Channel Kit')
+  assert.doesNotMatch(formula.channel_promise, /500\+|topic|visual|thumbnail|kit/i)
+  assert.equal(formula.production_kit, undefined)
+  for (const term of ['500+', 'Topic', 'Style', 'Thumbnail']) assert.match(kit.changelog, new RegExp(term, 'i'))
+})
+
+test('legacy preview bytes have recorded provenance without an invented license claim', async () => {
+  const evidence = await readFile(PREVIEW_PROVENANCE, 'utf8')
+  for (const hash of [
+    'f314283a43c106a44aea6cd779ba7c67e23ba0a357b4c7c0db41dbae126e38b5',
+    '47c4e35e83e7fd6a44c82adb0543b4a23a609cc311214df9a71b5666f13288ca',
+    '8bb88f199fd9517cdcdd397d175117ec868348d3add20ad2aa14180e9f517c05',
+    'ed81d317e34cb74606fae2d0770bfbf33613eaba97ea2bd1e1f5b380ff21d24d',
+  ]) assert.match(evidence, new RegExp(hash))
+  assert.match(evidence, /badbf3814452dd624d1247c42e4226a5a6efdb79/)
+  assert.match(evidence, /1578dcd85e8408e9e721994c45d6cf73d506d782/)
+  assert.match(evidence, /Neither those commits nor the available repository handoff evidence grants a\s+separate preview-asset license/i)
 })
 
 test('each Archival Ledger component source builds deterministically and validates with an ephemeral key', async () => {

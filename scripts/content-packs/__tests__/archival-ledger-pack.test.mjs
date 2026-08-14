@@ -5,12 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import JSZip from 'jszip'
+import { buildContentPack } from '../lib.mjs'
 
-import { buildContentPack, validateContentPack } from '../lib.mjs'
-
-const REPOSITORY_ROOT = new URL('../../../..', import.meta.url)
 const SOURCE_DIRECTORY = new URL('../../../content-packs/archival-ledger/', import.meta.url)
+const PUBLISHER_README = new URL('../README.md', import.meta.url)
 const HMH_FORMULA = new URL('../../../electron/server/niches/hidden-mechanics-history.json', import.meta.url)
 const HMH_STYLE = new URL('../../../frontend/composables/useBuiltInStyles.ts', import.meta.url)
 const HMH_RECIPE = new URL('../../../electron/server/thumbnail-templates/archival-map-investigation.json', import.meta.url)
@@ -27,7 +25,6 @@ const VERSION = '1.0.0'
 const FORMULA_ID = 'com.storystudio.formula.archival-ledger'
 const STYLE_ID = 'com.storystudio.style.archival-documentary-reconstruction'
 const RECIPE_ID = 'com.storystudio.thumbnail.archival-map-investigation'
-const RELEASE_VERSION = '2.3.4'
 const TOPIC_IDS = [
   'com.storystudio.topic.archival-ledger.states-revolutions-collapse',
   'com.storystudio.topic.archival-ledger.money-debt-financial-institutions',
@@ -159,55 +156,22 @@ test('Archival Ledger preserves the effective HMH prompt, topic, style, and thum
   assert.match(styleSource, new RegExp(documents['visual-style.json'].negative_prompt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
 })
 
-test('Archival Ledger builds deterministically and verifies with an ephemeral publisher key', async (t) => {
+test('the retired Archival Ledger monolith cannot be built, signed, or documented as stock', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'archival-ledger-pack-'))
   t.after(() => rm(root, { recursive: true, force: true }))
-  const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+  const { privateKey } = generateKeyPairSync('ed25519')
   const privateKeyPath = join(root, 'ephemeral-private.pem')
-  const publicKeyPath = join(root, 'ephemeral-public.pem')
   const firstPath = join(root, 'archival-ledger-first.sspack')
-  const secondPath = join(root, 'archival-ledger-second.sspack')
   await writeFile(privateKeyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }))
-  await writeFile(publicKeyPath, publicKey.export({ type: 'spki', format: 'pem' }))
 
   await assert.rejects(
     buildContentPack({ sourceDirectory: SOURCE_DIRECTORY.pathname, privateKeyPath, outputPath: firstPath }),
-    /MIN_APP_VERSION|min app version/i,
+    /source-only.*cannot be built, signed, or stocked/i,
   )
-  const first = await buildContentPack({ sourceDirectory: SOURCE_DIRECTORY.pathname, privateKeyPath, outputPath: firstPath, minAppVersion: RELEASE_VERSION })
-  const second = await buildContentPack({ sourceDirectory: SOURCE_DIRECTORY.pathname, privateKeyPath, outputPath: secondPath, minAppVersion: RELEASE_VERSION })
-  const verified = await validateContentPack({
-    archivePath: firstPath,
-    keyId: 'com.storystudio.key.archival-ledger',
-    publisherId: 'com.storystudio',
-    publicKeyPath,
-  })
-  const archive = await JSZip.loadAsync(await readFile(firstPath))
-
-  assert.equal(first.packId, PACK_ID)
-  assert.equal(first.version, VERSION)
-  assert.equal(JSON.parse(await archive.file('manifest.json').async('text')).min_app_version, RELEASE_VERSION)
-  assert.equal(first.sha256, second.sha256)
-  assert.deepEqual(await readFile(firstPath), await readFile(secondPath))
-  assert.deepEqual(verified, {
-    packId: first.packId,
-    version: first.version,
-    sha256: first.sha256,
-  })
-  assert.deepEqual(Object.keys(archive.files), [
-    'manifest.json',
-    'signature.ed25519',
-    'assets/archival-documentary-reconstruction.webp',
-    'assets/archival-map-investigation-1.webp',
-    'assets/archival-map-investigation-2.webp',
-    'assets/archival-map-investigation-3.webp',
-    'content/series-formula.json',
-    'content/thumbnail-recipe.json',
-    'content/topic-empires-trade-extraction.json',
-    'content/topic-infrastructure-commodities-corporate-power.json',
-    'content/topic-money-debt-financial-institutions.json',
-    'content/topic-states-revolutions-collapse.json',
-    'content/topic-wars-treaties-world-order.json',
-    'content/visual-style.json',
-  ])
+  const documentation = await readFile(PUBLISHER_README, 'utf8')
+  assert.match(documentation, /content-packs\/archival-ledger[^\n]*source-only/i)
+  assert.match(documentation, /never sign or stock/i)
+  assert.doesNotMatch(documentation, /content-pack:build -- \.\/content-packs\/archival-ledger\s*\\/)
+  assert.match(documentation, /content-packs\/paid\/archival-ledger\/formula\/archival-ledger/i)
+  assert.match(documentation, /content-packs\/paid\/archival-ledger\/kit\/archival-ledger/i)
 })

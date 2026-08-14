@@ -104,21 +104,33 @@ content and assets.
 
 ### Release-parameterized sources
 
-`Archival Ledger` deliberately uses `{{MIN_APP_VERSION}}` in its source
-`min_app_version`: its signed fields and planner behavior must ship in the same forthcoming Story
-Studio release. Final integrators—not pack authors—choose that release version and must pass the
-identical value to the builder:
+`content-packs/archival-ledger` is a source-only historical parity reference for Archival Ledger.
+Never sign or stock that retired monolith. Its former combined Formula, Topic, Style, and Recipe
+content must remain a review reference only; the publisher rejects it before an archive is made.
+
+Build each independently signed component source, then the Channel Kit coordinator that references
+their exact versions. These release-parameterized sources deliberately use `{{MIN_APP_VERSION}}`:
+final integrators—not pack authors—choose the shared Story Studio release version and pass that
+identical value to each build.
 
 ```bash
-npm run content-pack:build -- ./content-packs/archival-ledger \
-  --private-key ./keys/com.storystudio.archival-ledger.private.pem \
+npm run content-pack:build -- ./content-packs/paid/archival-ledger/formula/archival-ledger \
+  --private-key ./keys/component.private.pem \
   --min-app-version "$FINAL_STORY_STUDIO_RELEASE_VERSION" \
-  --output ./dist/archival-ledger-1.0.0.sspack
+  --output ./dist/formula-archival-ledger-1.0.0.sspack
+
+npm run content-pack:build -- ./content-packs/paid/archival-ledger/kit/archival-ledger \
+  --private-key ./keys/component.private.pem \
+  --min-app-version "$FINAL_STORY_STUDIO_RELEASE_VERSION" \
+  --output ./dist/kit-archival-ledger-1.0.0.sspack
 ```
 
-The builder refuses to build a release-parameterized source without that explicit value, and
-refuses this override for ordinary sources. Set it only after the combined runtime release that
-contains the pack's schema, adapter, thumbnail, and planner support has an agreed version.
+The same component path pattern applies to all eight component roots under
+`content-packs/paid/archival-ledger/{formula,topic,style,thumbnail}/`, with the coordinator at
+`content-packs/paid/archival-ledger/kit/archival-ledger`. The builder refuses a
+release-parameterized source without that explicit value, and refuses this override for ordinary
+sources. Set it only after the combined runtime release that contains the pack's schema, adapter,
+thumbnail, and planner support has an agreed version.
 
 ## Validate
 
