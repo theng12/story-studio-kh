@@ -44,7 +44,7 @@
         generate-label="Generate all missing"
         loading-label="Queuing…"
         :generate-loading="bulkQueuing || reviewJobActive || isRendering"
-        :generate-disabled="!canBulkGenerate"
+        :generate-disabled="!canBulkGenerate || reviewJobActive"
         :generate-status="bulkStatus"
         @generate="generateAllMissing"
       />
@@ -207,7 +207,7 @@
           <button
             v-if="isContinuity && selectedCount > 0"
             class="btn btn-sm btn-primary"
-            :disabled="!form.model || continuityRendering || isRendering"
+            :disabled="!form.model || continuityRendering || reviewJobActive"
             @click="regenerateSelected"
             title="Re-render the selected scenes in one durable GenStudio batch."
           >
@@ -241,7 +241,7 @@
           <button
             v-if="isContinuity && stats.with_image > 0 && stats.approved < stats.total_scenes"
             class="btn btn-sm btn-ghost"
-            :disabled="!form.model || continuityRendering || isRendering"
+            :disabled="!form.model || continuityRendering || reviewJobActive"
             @click="regenerateUnapproved"
             title="Re-render every not-yet-approved scene in one durable GenStudio batch."
           >
@@ -277,9 +277,13 @@
 
       <!-- v1.0.231 — live render banner. Shows while a render job for this
            episode is active, with overall progress + the current scene. -->
-      <div v-if="isRendering" class="review-render-banner mt-2">
+      <div v-if="activeRenderJob" class="review-render-banner mt-2">
         <span class="review-spinner" aria-hidden="true" />
-        <span>
+        <span v-if="isRenderPaused">
+          Paused — awaiting explicit Resume.
+          <span class="text-muted">{{ hasSettlingProviderWork ? ' Accepted provider work is still settling; no new submissions will start.' : ' No new submissions will start until you resume.' }}</span>
+        </span>
+        <span v-else>
           Rendering with GenStudio
           <template v-if="batchInFlight.size"> — {{ batchInFlight.size }} scene{{ batchInFlight.size === 1 ? '' : 's' }} in flight</template>
           <template v-if="renderProgress != null"> · {{ renderProgress }}% done</template>
@@ -289,13 +293,22 @@
           <span class="review-render-fill" :style="{ width: renderProgress + '%' }" />
         </span>
         <button
-          v-if="activeContinuityRenderJob"
+          v-if="isRenderPaused && activeContinuityRenderJob"
           type="button"
           class="review-stop-btn"
           :disabled="cancelingRender"
-          @click="cancelActiveRender"
-          title="Stop the active batch. Finished scene images stay on disk; Generate all missing resumes only unresolved scenes."
-        >{{ cancelingRender ? 'Stopping…' : 'Stop render' }}</button>
+          @click="resumeActiveRender"
+          title="Resume explicitly. Story Studio audits saved files and submits only missing scenes."
+        >{{ cancelingRender ? 'Resuming…' : 'Resume' }}</button>
+        <button
+          v-for="control in sceneRenderControls(activeContinuityRenderJob)"
+          :key="control.action"
+          type="button"
+          class="review-stop-btn"
+          :disabled="cancelingRender || !control.enabled"
+          :title="control.reason"
+          @click="runSceneRenderControl(activeContinuityRenderJob, control)"
+        >{{ cancelingRender ? 'Working…' : control.label }}</button>
       </div>
 
       <!-- Plan-health banner. Missing and duplicated prompts are blocking work;
@@ -413,7 +426,7 @@
           <div class="review-actions-cell">
             <button
               class="btn btn-sm btn-secondary"
-              :disabled="!form.model || regeneratingId === scene.id"
+              :disabled="!form.model || regeneratingId === scene.id || reviewJobActive"
               @click="generateOne(scene)"
               :title="!form.model ? 'Pick a model in the Render settings first' : 'Generate or regenerate this scene image with GenStudio'"
             >
@@ -563,7 +576,7 @@ const slug = computed(() => route.params.slug as string)
 // (continuity chain / per-scene regen), so it needs the image-model picker,
 // not the LLM ModelSelector that used to be here.
 const { config } = useProject()
-const { get, post, put, del } = useApi()
+const { get, post, put } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { updateEpisode: updateCachedEpisode, revalidateAfterMutation } = useEpisodes(slug)
@@ -1077,6 +1090,7 @@ async function loadReview(): Promise<void> {
 
 // ── Actions ─────────────────────────────────────────────────────────
 async function generateOne(scene: ReviewScene): Promise<void> {
+  if (reviewJobActive.value) return
   if (!sceneInputsComplete.value) {
     showError('Complete subtitles and repair every missing or duplicated prompt before rendering images.')
     return
@@ -1197,7 +1211,7 @@ async function uploadClipOne(scene: ReviewScene): Promise<void> {
 }
 
 async function generateAllMissing(): Promise<void> {
-  if (!canBulkGenerate.value) return
+  if (!canBulkGenerate.value || reviewJobActive.value) return
   const ep = episodeId.value
   bulkQueuingEpisode.value = ep
   try {
@@ -1234,6 +1248,7 @@ async function loadContinuityFlag(): Promise<void> {
 }
 
 async function renderContinuity(opts: { sceneIds?: string[] } = {}): Promise<void> {
+  if (reviewJobActive.value) return
   if (!sceneInputsComplete.value) {
     showError('Complete subtitles and repair every missing or duplicated prompt before rendering images.')
     return
@@ -1273,29 +1288,30 @@ const activeRenderJob = computed(() => {
   const code = episodeId.value
   if (!code) return null
   const fromReview = activeRenderJobFromReview.value
-  if (fromReview && fromReview.episode_id === code && (fromReview.status === 'running' || fromReview.status === 'queued')) {
+  if (fromReview && fromReview.episode_id === code && ['running', 'queued', 'paused'].includes(fromReview.status)) {
     return fromReview
   }
   return (jobs.value || []).find((j: any) =>
     j.episode_id === code
     && ['continuity_render', 'scene_images_batch', 'images', 'scene_images', 'thumb_images'].includes(j.type)
-    && (j.status === 'running' || j.status === 'queued'),
+    && ['running', 'queued', 'paused'].includes(j.status),
   ) || null
 })
 const activeContinuityRenderJob = computed(() => {
   const code = episodeId.value
   if (!code) return null
   const fromReview = activeRenderJobFromReview.value
-  if (fromReview && fromReview.episode_id === code && ['continuity_render', 'scene_images_batch'].includes(fromReview.type) && (fromReview.status === 'running' || fromReview.status === 'queued')) {
+  if (fromReview && fromReview.episode_id === code && ['continuity_render', 'scene_images_batch'].includes(fromReview.type) && ['running', 'queued', 'paused'].includes(fromReview.status)) {
     return fromReview
   }
   return (jobs.value || []).find((j: any) =>
     j.episode_id === code
     && ['continuity_render', 'scene_images_batch'].includes(j.type)
-    && (j.status === 'running' || j.status === 'queued'),
+    && ['running', 'queued', 'paused'].includes(j.status),
   ) || null
 })
-const isRendering = computed(() => !!activeRenderJob.value)
+const isRenderPaused = computed(() => activeRenderJob.value?.status === 'paused')
+const isRendering = computed(() => !!activeRenderJob.value && !isRenderPaused.value)
 const renderProgress = computed<number | null>(() => {
   const p = (activeRenderJob.value as any)?.progress
   return typeof p === 'number' ? p : null
@@ -1311,20 +1327,47 @@ function isSceneGenerating(scene: ReviewScene): boolean {
   return batchInFlight.value.has(scene.scene_index)
 }
 
-async function cancelActiveRender(): Promise<void> {
+const sceneRenderControls = (job: any): any[] => {
+  if (!job) return []
+  return (job.controls?.length ? job.controls : (job.control ? [job.control] : []))
+    .filter((control: any) => control.action === 'pause-submissions'
+      || control.action === 'cancel-before-submit' || control.action === 'stop-local' || control.action === 'request-remote-cancel')
+}
+const hasSettlingProviderWork = computed(() => {
   const job = activeContinuityRenderJob.value as any
-  if (!job?.job_id) return
-  const label = job.status === 'queued' ? 'queued render' : 'active render'
-  if (!await ask({ title: 'Stop scene render?', message: `Stop this ${label}? Finished scene images stay on disk, and you can resume later.`, confirmLabel: 'Stop render', danger: true })) return
+  return (job?.genstudio_jobs || []).some((entry: any) => !['done', 'error', 'cancelled', 'succeeded', 'failed'].includes(entry.state) && entry.cancelled !== true)
+    || Object.values(job?.remote_cancellations || {}).some((entry: any) => ['queued', 'submitting', 'requested', 'reconciling', 'unknown'].includes(entry.status))
+})
+
+async function runSceneRenderControl(job: any, control: any): Promise<void> {
+  if (!job?.job_id || !control?.enabled || cancelingRender.value) return
+  const isCancellation = control.action === 'cancel-before-submit' || control.action === 'stop-local' || control.action === 'request-remote-cancel'
+  const action = control.action === 'pause-submissions' ? 'pause' : (isCancellation ? 'cancel' : null)
+  if (!action) return
+  if (!await ask({ title: control.label, message: control.reason, confirmLabel: control.label, danger: isCancellation })) return
   cancelingRender.value = true
   try {
-    await del(`/projects/${slug.value}/jobs/${job.job_id}`)
-    success('Scene image batch stopped. Completed images were kept.')
-    activeRenderJobFromReview.value = null
+    await post(`/projects/${slug.value}/jobs/${job.job_id}/${action}`, {})
+    success(`${control.label} requested. ${control.reason}`)
     cacheBuster.value = Date.now()
     await loadReview()
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Failed to stop render')
+    showError(e?.data?.detail || e?.message || `Failed to ${control.label.toLowerCase()}`)
+  } finally {
+    cancelingRender.value = false
+  }
+}
+
+async function resumeActiveRender(): Promise<void> {
+  const job = activeContinuityRenderJob.value as any
+  if (!job?.job_id || cancelingRender.value) return
+  cancelingRender.value = true
+  try {
+    await post(`/projects/${slug.value}/jobs/${job.job_id}/resume`, {})
+    success('Scene render resumed. Saved files are audited; only missing scenes can be submitted.')
+    await loadReview()
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Failed to resume scene render')
   } finally {
     cancelingRender.value = false
   }
@@ -1365,6 +1408,7 @@ async function pollUntilAllPresent(ep: string): Promise<void> {
     await new Promise(r => setTimeout(r, 4000))
     if (episodeId.value !== ep) return  // switched away — stop
     await loadReview()
+    if (activeRenderJob.value?.status === 'paused') return
     cacheBuster.value = Date.now()
     if (stats.value && stats.value.with_image >= stats.value.total_scenes) return
   }

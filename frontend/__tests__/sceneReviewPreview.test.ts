@@ -70,6 +70,20 @@ describe('Scene Review image preview', () => {
     assert.match(sceneReviewSource, /\.review-thumb-overlay\s*{[\s\S]*pointer-events:\s*none;/)
   })
 
+  test('scene render controls use server-classified pause or cancellation and retain paused ownership', () => {
+    assert.match(sceneReviewSource, /const sceneRenderControls = \(job: any\)/)
+    assert.match(sceneReviewSource, /control\.action === 'pause-submissions'/)
+    assert.match(sceneReviewSource, /control\.action === 'cancel-before-submit' \|\| control\.action === 'stop-local' \|\| control\.action === 'request-remote-cancel'/)
+    assert.match(sceneReviewSource, /const action = control\.action === 'pause-submissions' \? 'pause' : \(isCancellation \? 'cancel' : null\)/)
+    assert.match(sceneReviewSource, /post\(`\/projects\/\$\{slug\.value\}\/jobs\/\$\{job\.job_id\}\/\$\{action\}`, \{\}\)/)
+    assert.doesNotMatch(sceneReviewSource, /del\(`\/projects\/\$\{slug\.value\}\/jobs\/\$\{job\.job_id\}`\)/)
+    assert.match(sceneReviewSource, /Paused — awaiting explicit Resume/)
+    assert.match(sceneReviewSource, /\/projects\/\$\{slug\.value\}\/jobs\/\$\{job\.job_id\}\/resume/)
+    assert.match(sceneReviewSource, /\['running', 'queued', 'paused'\]/)
+    assert.ok((sceneReviewSource.match(/if \(reviewJobActive\.value\) return/g) || []).length >= 2)
+    assert.match(sceneReviewSource, /if \(activeRenderJob\.value\?\.status === 'paused'\) return/)
+  })
+
   test('the preview is teleported above the clipped dashboard', () => {
     assert.match(sceneReviewSource, /<Teleport to="body">[\s\S]*class="sr-lightbox"/)
     assert.match(sceneReviewSource, /\.sr-lightbox\s*{[\s\S]*z-index:\s*10000;/)

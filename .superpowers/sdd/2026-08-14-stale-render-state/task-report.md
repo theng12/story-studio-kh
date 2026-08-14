@@ -14,10 +14,25 @@ that the owning queue job was still active.
   `in_flight`; it never deletes or edits rendered images.
 - A terminal-history removal/clear performs the same display-state cleanup.
 - Active status includes `job_id`; Scene Review displays it only when that
-  exact queued/running batch remains active. Older terminal history cannot
-  deactivate a newer batch's marker for the same episode.
+  exact queued/running batch remains active. A paused owner remains visible
+  and retains the duplicate-submission lock, but no longer runs the active
+  five-minute image poll.
 - Resume behavior is unchanged: the existing image audit and missing-only
   selection continue to preserve valid files and submit only missing work.
+
+## Follow-up control and race correction
+
+- Scene Review no longer sends `DELETE /jobs/:id` for a live render. It reads
+  the server-provided control classification and sends only `POST /pause` for
+  "Pause new submissions" or `POST /cancel` for an eligible cancellation.
+  The UI names those actions separately and exposes explicit Resume for a
+  paused owner.
+- Every Scene Review image entry point stays locked while the owner is queued,
+  running, or paused. A resume remains explicit; completed images are still
+  preserved and the existing missing-only audit remains authoritative.
+- The sidecar writer and ownership-checked cleanup now share the atomic-store
+  per-file lock and atomic write. A deterministic interleaving regression
+  proves an old cleanup cannot overwrite a newer batch marker.
 
 ## Safety boundary
 
@@ -27,12 +42,17 @@ deletion. Tests use temporary local projects and no provider calls.
 
 ## Verification
 
-- RED then GREEN: `scene-render-status.test.ts` (6 tests covering reader
-  ownership, terminal, active, newer-batch protection, restart, and removal).
-- `job-cancel.test.ts` + `job-queue-persistence-retention.test.ts`: 37 pass.
-- `job-queue-stale-running-persist.test.ts` + focused new tests: 7 pass.
-- `scene-image-batch-selection.test.ts`: 3 pass.
-- `npm run typecheck:electron`: pass.
-- `npm run lint`: pass with the repository's pre-existing warnings; full lint
-  cannot satisfy zero warnings (1,721 baseline warnings). The new helper
-  passes zero-warning lint and `git diff --check` passes.
+- RED then GREEN: `scene-render-status.test.ts` now covers terminal, restart,
+  removal, paused-owner visibility, and the deterministic serialized race.
+- Local mock-only control/queue/state suites: `job-cancel.test.ts`,
+  `job-queue.test.ts`, and `scene-render-status.test.ts` — 74 pass.
+- Focused frontend suites: `sceneReviewPreview.test.ts` and `useJobs.test.ts`
+  — 22 pass.
+- Both `npm run typecheck:electron` and `npm --prefix frontend run typecheck`
+  completed in the local toolchain; `npm run lint` and `git diff --check` were
+  also run.
+
+## Release gate
+
+Version remains `1.0.841`. Mandatory release metadata is intentionally
+deferred until independent re-review returns GO.

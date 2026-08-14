@@ -210,6 +210,28 @@ describe('useJobs — SSE transport', () => {
   })
 })
 
+describe('useJobs — episode ownership', () => {
+  test('a paused scene batch remains an active owner and keeps Generate locked', () => {
+    reset('paused-owner-project')
+    const { isJobActiveFor } = useJobs()
+    FakeEventSource.last!.fire('snapshot', mkSnapshot([
+      mkJob({
+        job_id: 'paused-scene-batch',
+        project_slug: 'paused-owner-project',
+        episode_id: 'EP-PAUSED',
+        type: 'continuity_render',
+        status: 'paused',
+      }),
+    ]))
+
+    assert.equal(
+      isJobActiveFor('EP-PAUSED', ['continuity_render']),
+      true,
+      'a paused owner must retain the duplicate-submission lock until explicit resume or cancellation',
+    )
+  })
+})
+
 describe('image repair completion notices', () => {
   test('does not claim success when no image was recovered', () => {
     const notice = jobCompletionNotice(mkJob({

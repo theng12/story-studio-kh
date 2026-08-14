@@ -218,7 +218,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       activeJob = (await jq.getJobs(slug)).find((j: any) =>
         j.episode_id === episodeId
         && (j.type === 'continuity_render' || j.type === 'scene_images_batch')
-        && (j.status === 'running' || j.status === 'queued')
+        && (j.status === 'running' || j.status === 'queued' || j.status === 'paused')
       ) || null
     } catch {
       // Job metadata is non-critical for this endpoint. A stale/legacy job
@@ -226,7 +226,7 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       activeJob = null
     }
 
-    // A sidecar is only live when it names the same queue-owned batch. This
+    // A sidecar is only live when it names the same queue-owned render. This
     // protects Scene Review from a marker left behind by a crash or cleared
     // terminal history; the queue remains the source of truth for activity.
     let renderStatus: any = null

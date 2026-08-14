@@ -36,7 +36,7 @@ import {
 import { GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
-import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
+import { deactivateSceneRenderStatus, RENDER_STATUS_FILENAME, writeSceneRenderStatus } from '../services/scene-render-status.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -229,15 +229,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const cancelledSceneIds = new Set<string>()
   const successfulSceneIds = new Set<string>()
 
-  // Live status sidecar — written before each render, cleared when the job ends.
-  // Serialise writes so concurrent batch workers never interleave partial JSON.
+  // Live status sidecar — shared serialization prevents terminal cleanup from
+  // overwriting a newer render marker after it has checked ownership.
   const statusPath = path.join(paths.episode_dir, RENDER_STATUS_FILENAME)
-  let statusChain: Promise<void> = Promise.resolve()
-  const writeStatus = (s: Record<string, unknown>): Promise<void> => {
-    statusChain = statusChain.then(async () => {
-      try { await fs.writeFile(statusPath, JSON.stringify(s, null, 2), 'utf-8') } catch { /* best-effort */ }
-    })
-    return statusChain
+  const writeStatus = async (s: Record<string, unknown>): Promise<void> => {
+    try { await writeSceneRenderStatus(statusPath, s) } catch { /* display-only best effort */ }
   }
 
   // Persist a rendered image_path back to scene_plan.json. Serialised through a
@@ -566,7 +562,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       if (fatalError) throw fatalError
     } finally {
       clearInterval(stallTimer)
-      await writeStatus({ active: false, updated_at: new Date().toISOString() })
+      await deactivateSceneRenderStatus(job.project_slug, episode_id, job.job_id).catch(() => {})
     }
 
     job.output_dir = outDir

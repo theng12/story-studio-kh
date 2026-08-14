@@ -319,7 +319,7 @@ function stopTransport() {
 }
 
 /**
- * Is there an in-flight (queued or running) job for this episode?
+ * Is there a queue-owned (queued, running, or paused) job for this episode?
  *
  * Pass `types` to narrow to specific JobType values (e.g. ['scene_images']);
  * omit to match ANY job type. The `jobs` ref only ever holds the CURRENT
@@ -339,7 +339,7 @@ function isJobActiveFor(episodeId: string | null | undefined, types?: readonly s
   const typeSet = types && types.length ? new Set(types) : null
   return jobs.value.some(j =>
     j.episode_id === episodeId &&
-    (j.status === 'queued' || j.status === 'running') &&
+    (j.status === 'queued' || j.status === 'running' || j.status === 'paused') &&
     (!typeSet || typeSet.has(j.type)),
   )
 }

@@ -1,4 +1,4 @@
-import { after, before, describe, test } from 'node:test'
+import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import path from 'node:path'
@@ -11,6 +11,8 @@ let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
 let jq: typeof import('../services/job-queue.js')
 let resolveEpisodePathsByCode: typeof import('../services/utils.js')['resolveEpisodePathsByCode']
+let deactivateSceneRenderStatus: typeof import('../services/scene-render-status.js')['deactivateSceneRenderStatus']
+let writeSceneRenderStatus: typeof import('../services/scene-render-status.js')['writeSceneRenderStatus']
 
 before(async () => {
   const temp = await useTempDataDir()
@@ -18,6 +20,7 @@ before(async () => {
   pm = await import('../services/project-manager.js')
   jq = await import('../services/job-queue.js')
   ;({ resolveEpisodePathsByCode } = await import('../services/utils.js'))
+  ;({ deactivateSceneRenderStatus, writeSceneRenderStatus } = await import('../services/scene-render-status.js'))
 })
 
 after(async () => { await cleanup() })
@@ -153,6 +156,46 @@ describe('Scene render status lifecycle', () => {
     assert.equal(status.job_id, 'newer-render-batch')
   })
 
+  test('serializes an old cleanup behind its ownership check so it cannot overwrite a newer marker', async () => {
+    const project = await pm.createProject({ name: 'Serialized render marker' })
+    const episodeId = 'EP007'
+    const { statusFile } = await writeActiveRenderStatus(project.slug, episodeId)
+    await fs.writeFile(statusFile, JSON.stringify({ active: true, job_id: 'old-render-batch', in_flight: [2] }, null, 2))
+
+    let releaseRead!: () => void
+    const readReleased = new Promise<void>(resolve => { releaseRead = resolve })
+    let observedOldRead!: () => void
+    const oldReadObserved = new Promise<void>(resolve => { observedOldRead = resolve })
+    const realReadFile = fs.readFile.bind(fs)
+    let holdOldRead = true
+    const readMock = mock.method(fs, 'readFile', async (file: any, ...args: any[]) => {
+      if (holdOldRead && String(file) === statusFile) {
+        holdOldRead = false
+        observedOldRead()
+        await readReleased
+      }
+      return realReadFile(file, ...args as [])
+    })
+    try {
+      const staleCleanup = deactivateSceneRenderStatus(project.slug, episodeId, 'old-render-batch')
+      await oldReadObserved
+      const newerWriter = writeSceneRenderStatus(statusFile, {
+        active: true,
+        job_id: 'new-render-batch',
+        in_flight: [3],
+      })
+      releaseRead()
+      await Promise.all([staleCleanup, newerWriter])
+    } finally {
+      readMock.mock.restore()
+    }
+
+    const status = JSON.parse(await fs.readFile(statusFile, 'utf-8'))
+    assert.equal(status.active, true)
+    assert.equal(status.job_id, 'new-render-batch')
+    assert.deepEqual(status.in_flight, [3])
+  })
+
   test('restart terminalization deactivates an interrupted render marker', async () => {
     const project = await pm.createProject({ name: 'Restarted render marker' })
     const episodeId = 'EP003'
@@ -164,6 +207,26 @@ describe('Scene render status lifecycle', () => {
 
     assert.equal(restored.find(job => job.episode_id === episodeId)?.status, 'error')
     assert.equal((await waitForInactive(statusFile)).active, false)
+  })
+
+  test('Scene Review keeps a paused render owner visible while its live marker is inactive', async () => {
+    const project = await pm.createProject({ name: 'Paused Scene Review owner' })
+    const episodeId = 'EP008'
+    const paths = await resolveEpisodePathsByCode(project.slug, episodeId)
+    await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+      scenes: [{ id: 'scene-001', scene_index: 1, visual_prompt: 'A paused scene.' }],
+    }))
+    const paused = renderJob(project.slug, episodeId, 'paused')
+    await jq.checkpointJobState(paused)
+    const { router } = await import('../routes/scene-review.js')
+    const app = express()
+    app.use('/api', router)
+
+    const review = await request(app).get(`/api/projects/${project.slug}/scene-review/${episodeId}`).expect(200)
+    assert.equal(review.body.active_render_job?.job_id, paused.job_id)
+    assert.equal(review.body.active_render_job?.status, 'paused')
+    assert.equal(review.body.render_status, null)
   })
 
   test('removing terminal render history deactivates a leftover marker', async () => {
