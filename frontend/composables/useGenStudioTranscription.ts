@@ -2,6 +2,7 @@ import { useApi } from './useApi.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
+import { formatCredits, unpublishedCost, type CreditDisplay } from '../utils/genstudio-credit-cost.js'
 
 export interface GenStudioTranscriptionModel {
   id: string
@@ -51,19 +52,28 @@ export interface GenStudioTranscriptionModel {
  * the rate into a total (the quote at submission is the only real figure).
  */
 export function describeTranscriptionRate(model: {
+  display_name?: string
   credits_per_second?: number
   minimum_credits?: number
-}): string {
+}): CreditDisplay {
   const rate = typeof model.credits_per_second === 'number' && Number.isFinite(model.credits_per_second)
+    && model.credits_per_second > 0
     ? model.credits_per_second
     : null
-  if (rate === null) return 'rate not published'
+  if (rate === null) return unpublishedCost(model.display_name || 'This transcription model')
   const floor = typeof model.minimum_credits === 'number' && Number.isFinite(model.minimum_credits)
     && model.minimum_credits > 0
     ? model.minimum_credits
     : null
-  const rateText = `${rate} credits/second`
-  return floor === null ? rateText : `${rateText}, minimum ${floor}`
+  const text = `${formatCredits(rate)} / second`
+    + (floor === null ? '' : ` · minimum ${formatCredits(floor)} per request`)
+  return {
+    text,
+    basis: 'rate',
+    title: `GenStudio publishes ${formatCredits(rate)} per second for ${model.display_name || 'this transcription model'}`
+      + (floor === null ? '.' : `, with a minimum of ${formatCredits(floor)} per request.`)
+      + ' The final charge depends on the audio submitted and is reported by GenStudio on the finished job.',
+  }
 }
 
 // Module-level: one shared, TTL-governed transcription catalog for every
@@ -92,6 +102,7 @@ export function useGenStudioTranscriptionModels() {
   )
   const ready = computed(() => selectedModel.value?.available === true && selectedModel.value?.locked !== true)
   const options = computed(() => models.value.map((model) => {
+    const rate = describeTranscriptionRate(model)
     return {
       id: model.id,
       label: model.display_name,
@@ -101,10 +112,12 @@ export function useGenStudioTranscriptionModels() {
       group: model.provider || 'Transcription models',
       provider: model.provider || '',
       // Honest about a gap: an unpublished language is missing data, not
-      // "multilingual" and not a blank that reads as a value.
-      // Same for the rate: no published rate reads as "not published", never
-      // as free. A model priced at 0 credits genuinely is free and says so.
-      meta: [model.language || 'language not published', describeTranscriptionRate(model)].join(' · '),
+      // "multilingual" and not a blank that reads as a value. The separate
+      // price row carries the rate and its minimum without conflating them
+      // with the language contract.
+      meta: model.language || 'language not published',
+      price: rate.text,
+      priceTitle: rate.title,
       description: model.qualification_only
         ? 'Available for qualified accounts.'
         : 'Available for transcription.',

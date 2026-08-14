@@ -19,6 +19,8 @@ import {
   describeQuotedCost,
   describeQuotedTotal,
   describeActualCost,
+  describeVideoModelRate,
+  describeWebResearchRate,
 } from '../utils/genstudio-credit-cost.js'
 
 const ONE_K_16_9 = { resolution: '1K', aspect_ratio: '16:9', width: 1920, height: 1080, is_default: true, credits_per_image: 4 }
@@ -194,6 +196,38 @@ test('chat shows a rate and refuses to invent a total', () => {
   assert.match(display.title, /no up-front total/)
   // A rate is never presented as an amount that will be charged.
   assert.doesNotMatch(display.text, /Estimate|Total/i)
+})
+
+test('video model selection summarizes the complete published variant rate range', () => {
+  const display = describeVideoModelRate({
+    display_name: 'Motion Lite',
+    variants: [
+      { duration_seconds: 5, resolution: '720p', credits_per_video: 4, minimum_credits: 1 },
+      { duration_seconds: 10, resolution: '1080p', credits_per_video: 12, minimum_credits: 2 },
+    ],
+  })
+  assert.equal(display.basis, 'rate')
+  assert.equal(display.text, '4–12 credits / clip by duration and resolution')
+  assert.match(display.title, /exact published rate for the duration and resolution you choose/)
+
+  const missing = describeVideoModelRate({
+    display_name: 'Unpriced Motion',
+    variants: [{ duration_seconds: 5, resolution: '720p' }],
+  })
+  assert.equal(missing.basis, 'unpublished')
+  assert.match(missing.text, /not reported/i)
+})
+
+test('web research selection states published request and search rates without deriving a total', () => {
+  const display = describeWebResearchRate({
+    display_name: 'Researcher',
+    credits_per_request: 2,
+    credits_per_search: 0.5,
+  })
+  assert.equal(display.basis, 'rate')
+  assert.equal(display.text, '2 credits / request · 0.5 credits / search')
+  assert.match(display.title, /no up-front total/)
+  assert.equal(describeWebResearchRate({ display_name: 'Unknown' }).basis, 'unpublished')
 })
 
 test('quotes and actuals are labelled as such, and a missing actual is not reconstructed', () => {

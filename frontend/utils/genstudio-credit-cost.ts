@@ -300,6 +300,69 @@ export function describeVideoVariantRate(variant: {
   }
 }
 
+/**
+ * Per-clip rate summary for choosing a VIDEO MODEL before its duration and
+ * resolution variant. As with image output sizes, a range is only honest when
+ * every published variant has a published price; the variant selector then
+ * shows the exact row that will be submitted.
+ */
+export function describeVideoModelRate(model: {
+  display_name?: string
+  variants?: Array<{
+    credits_per_video?: number | null
+  }>
+} | null | undefined): CreditDisplay {
+  const label = model?.display_name || 'This video model'
+  const variants = Array.isArray(model?.variants) ? model.variants : []
+  if (!variants.length) return unpublishedCost(label)
+
+  const prices = variants.map(variant => publishedNumber(variant.credits_per_video))
+  if (prices.some(price => price === null)) return unpublishedCost(label)
+
+  const minimum = Math.min(...prices as number[])
+  const maximum = Math.max(...prices as number[])
+  const text = minimum === maximum
+    ? `${formatCredits(minimum)} / clip`
+    : `${formatCredits(minimum).replace(/ credits?$/, '')}–${formatCredits(maximum)} / clip by duration and resolution`
+  return {
+    text,
+    basis: 'rate',
+    title: minimum === maximum
+      ? `GenStudio publishes ${formatCredits(minimum)} per clip for every listed duration and resolution for ${label}. `
+        + 'The variant selector shows that row’s published per-request minimum.'
+      : `GenStudio publishes rates from ${formatCredits(minimum)} to ${formatCredits(maximum)} per clip for ${label}, depending on duration and resolution. `
+        + 'The variant selector shows the exact published rate for the duration and resolution you choose, including its per-request minimum.',
+  }
+}
+
+/**
+ * Web research has two independently published rates. The provider chooses
+ * how many searches a run makes, so these stay rates rather than a locally
+ * multiplied total.
+ */
+export function describeWebResearchRate(model: {
+  display_name?: string
+  credits_per_request?: number | null
+  credits_per_search?: number | null
+} | null | undefined): CreditDisplay {
+  const label = model?.display_name || 'This web-research model'
+  const perRequest = publishedNumber(model?.credits_per_request)
+  const perSearch = publishedNumber(model?.credits_per_search)
+  if (perRequest === null && perSearch === null) return unpublishedCost(label)
+
+  const rates = [
+    perRequest === null ? '' : `${formatCredits(perRequest)} / request`,
+    perSearch === null ? '' : `${formatCredits(perSearch)} / search`,
+  ].filter(Boolean)
+  return {
+    text: rates.join(' · '),
+    basis: perRequest === 0 && perSearch === 0 ? 'free' : 'rate',
+    title: `GenStudio publishes ${rates.join(' and ')} for ${label}. `
+      + 'The provider decides how many searches to make, so there is no up-front total. '
+      + 'GenStudio reports the actual charge on the finished job.',
+  }
+}
+
 /** TTS rate. A `/v1/tts/quotes` figure supersedes this — label that a quote. */
 export function describeVoiceRate(model: {
   display_name?: string

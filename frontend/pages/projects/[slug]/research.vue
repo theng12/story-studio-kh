@@ -534,6 +534,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
 import { resolveResearchModelForRun, type ResearchMode } from '~/utils/research-model-selection'
+import { describeWebResearchRate } from '~/utils/genstudio-credit-cost'
 import {
   MODEL_KNOWLEDGE_CLAIM_NOTE,
   MODEL_KNOWLEDGE_NOTICE,
@@ -739,12 +740,7 @@ const selectedWebModel = computed<WebResearchModel | null>(() =>
  */
 const webModelMenuOptions = computed(() => webModels.value.map((model) => {
   const facts: string[] = []
-  if (typeof model.credits_per_request === 'number') {
-    facts.push(`${model.credits_per_request} credit${model.credits_per_request === 1 ? '' : 's'} per request`)
-  }
-  if (typeof model.credits_per_search === 'number') {
-    facts.push(`${model.credits_per_search} credit${model.credits_per_search === 1 ? '' : 's'} per search`)
-  }
+  const rate = describeWebResearchRate(model)
   if (typeof model.max_web_searches === 'number' && model.max_web_searches > 0) {
     facts.push(`up to ${model.max_web_searches} searches per run`)
   }
@@ -753,6 +749,8 @@ const webModelMenuOptions = computed(() => webModels.value.map((model) => {
     label: model.display_name,
     group: 'GenStudio KH',
     meta: facts.join(' · '),
+    price: rate.text,
+    priceTitle: rate.title,
     badges: [
       ...(model.returns_citations ? [{ label: 'Cites sources', tone: 'info' as const }] : []),
       ...(model.supports_domain_filters ? [{ label: 'Domain filters', tone: 'neutral' as const }] : []),

@@ -188,6 +188,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
+import { describeVideoModelRate } from '~/utils/genstudio-credit-cost'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Motion Review')
@@ -307,6 +308,7 @@ const i2vModels = computed(() => {
     .filter(model => model.modes.includes('image-to-video'))
     .map((model) => {
       const variant = cheapestVariant(model.variants)
+      const rate = describeVideoModelRate(model)
       // An enforced limit has to be visible at the point of choosing.
       const noVariant = 'No published length or resolution'
       // Only a published `true` is disclosed. `false` and `null` (GenStudio
@@ -319,6 +321,8 @@ const i2vModels = computed(() => {
         // Named once, by the group heading. `VideoModelResponse` publishes no
         // provider, so no `provider` is set and none is guessed from the id.
         group: 'GenStudio KH',
+        price: rate.text,
+        priceTitle: rate.title,
         meta: variant
           ? `${variant.duration_seconds}s at ${variant.resolution} — ${variant.credits_per_video} credits`
           : noVariant,

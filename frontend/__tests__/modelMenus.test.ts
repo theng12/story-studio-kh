@@ -142,7 +142,7 @@ describe('shared model menus', () => {
     assert.doesNotMatch(appSettings, /provider_id:\s*(?!.*req\.params)/)
   })
 
-  test('LLM, image, and TTS menus show GenStudio-published rates through the shared price row', () => {
+  test('every priced ModelMenu modality maps its published rate through the shared price row', () => {
     assert.match(modelSelector, /describeChatRate/)
     assert.match(modelSelector, /price:\s*rate\.text/)
     assert.match(modelSelector, /priceTitle:\s*rate\.title/)
@@ -152,6 +152,15 @@ describe('shared model menus', () => {
     assert.match(imagePicker, /describeImageModelRate/)
     assert.match(imagePicker, /price:\s*rate\.text/)
     assert.match(imagePicker, /priceTitle:\s*rate\.title/)
+    assert.match(modelSurfaces.motion, /describeVideoModelRate/)
+    assert.match(modelSurfaces.motion, /price:\s*rate\.text/)
+    assert.match(modelSurfaces.motion, /priceTitle:\s*rate\.title/)
+    assert.match(transcriptionCatalog, /describeTranscriptionRate/)
+    assert.match(transcriptionCatalog, /price:\s*rate\.text/)
+    assert.match(transcriptionCatalog, /priceTitle:\s*rate\.title/)
+    assert.match(modelSurfaces.research, /describeWebResearchRate/)
+    assert.match(modelSurfaces.research, /price:\s*rate\.text/)
+    assert.match(modelSurfaces.research, /priceTitle:\s*rate\.title/)
   })
 
   test('thumbnail generator enables reference guidance only for qualified GenStudio models', () => {
