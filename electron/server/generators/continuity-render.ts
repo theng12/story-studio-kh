@@ -36,6 +36,7 @@ import {
 import { GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
+import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
 
 interface ContinuityRenderParams {
   episode_id: string
@@ -78,9 +79,6 @@ function defaultCfg(): ContinuityCfg {
     negative_prompt: '',
   }
 }
-
-/** Live render-status sidecar for Scene Review progress. */
-export const RENDER_STATUS_FILENAME = '.render_status.json'
 
 export async function runContinuityRenderJob(job: Job): Promise<void> {
   const params = job.params as ContinuityRenderParams
@@ -308,6 +306,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     }
     const pushStatus = () => writeStatus({
       active: true,
+      job_id: job.job_id,
       mode: 'batch',
       provider: imageProvider.meta.name,
       model,

@@ -9,6 +9,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { EventEmitter } from 'events'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
+import { deactivateSceneRenderStatus } from './scene-render-status.js'
 import { boundGenStudioRequestPreviews, pendingGenStudioEntryId } from '../lib/genstudio-request-preview.js'
 import { AsyncLocalStorage } from 'async_hooks'
 import type { ChildProcess } from 'child_process'
@@ -930,6 +931,11 @@ async function persistJob(job: Job): Promise<void> {
 
     await writeJsonAtomic(p, data)
   })
+  const settled = TERMINAL_JOB_STATUSES.has(job.status)
+    || (job.status === 'paused' && !hasUnsettledProviderEvidence(job))
+  if (job.type === 'continuity_render' && settled) {
+    await deactivateSceneRenderStatus(job.project_slug, job.episode_id, job.job_id).catch(() => {})
+  }
 }
 
 /**
@@ -2280,6 +2286,9 @@ export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   if (!job || job.project_slug !== projectSlug) return false
   if (!TERMINAL_JOB_STATUSES.has(job.status) || hasUnsettledProviderEvidence(job)) return false
   jobs.delete(jobId)
+  if (job.type === 'continuity_render') {
+    void deactivateSceneRenderStatus(job.project_slug, job.episode_id, job.job_id).catch(() => {})
+  }
   emitCleared(projectSlug, [jobId])
   void persistProjectSnapshot(projectSlug).catch(() => {})
   return true
@@ -2289,13 +2298,18 @@ export async function clearFinished(projectSlug: string): Promise<number> {
   await loadPersistedJobs(projectSlug)
   let count = 0
   const clearedIds: string[] = []
+  const clearedSceneRenderJobs: Array<Pick<Job, 'episode_id' | 'job_id'>> = []
   for (const [id, job] of jobs.entries()) {
     if (job.project_slug === projectSlug && ['done', 'error', 'cancelled'].includes(job.status) && !hasUnsettledProviderEvidence(job)) {
       jobs.delete(id)
       clearedIds.push(id)
+      if (job.type === 'continuity_render') clearedSceneRenderJobs.push(job)
       count++
     }
   }
+  void Promise.all(clearedSceneRenderJobs.map(job => (
+    deactivateSceneRenderStatus(projectSlug, job.episode_id, job.job_id).catch(() => {})
+  )))
   if (count > 0) emitCleared(projectSlug, clearedIds)
   // Clearing history is a UI housekeeping action, not an asset mutation.
   // Return as soon as memory + SSE are updated; persist the compact snapshot

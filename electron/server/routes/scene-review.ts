@@ -38,6 +38,7 @@ import {
 } from '../services/scene-timeline-integrity.js'
 import { inspectSceneReviewCompletion } from '../services/scene-review-completion.js'
 import type { JobType, SceneClipVariantSelection, ScenePlan } from '../models/types.js'
+import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
 
 export const router = Router()
 
@@ -212,18 +213,6 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       }
     }
 
-    // v1.0.233 — live render status (which scene + reference images are being
-    // fed into the model right now). Null/inactive when no render is running.
-    let renderStatus: any = null
-    try {
-      const { RENDER_STATUS_FILENAME } = await import('../generators/continuity-render.js')
-      const statusPath = path.join(paths.episode_dir, RENDER_STATUS_FILENAME)
-      if (existsSync(statusPath)) {
-        const s = JSON.parse(await fs.readFile(statusPath, 'utf-8'))
-        if (s?.active) renderStatus = s
-      }
-    } catch { /* no status / unreadable — leave null */ }
-
     let activeJob: any = null
     try {
       activeJob = (await jq.getJobs(slug)).find((j: any) =>
@@ -235,6 +224,20 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
       // Job metadata is non-critical for this endpoint. A stale/legacy job
       // record must not prevent Scene Review from loading the saved plan.
       activeJob = null
+    }
+
+    // A sidecar is only live when it names the same queue-owned batch. This
+    // protects Scene Review from a marker left behind by a crash or cleared
+    // terminal history; the queue remains the source of truth for activity.
+    let renderStatus: any = null
+    if (activeJob) {
+      try {
+        const statusPath = path.join(paths.episode_dir, RENDER_STATUS_FILENAME)
+        if (existsSync(statusPath)) {
+          const s = JSON.parse(await fs.readFile(statusPath, 'utf-8'))
+          if (s?.active && s.job_id === activeJob.job_id) renderStatus = s
+        }
+      } catch { /* no status / unreadable — leave null */ }
     }
 
     // v1.0.474 — surface the per-project animation duration floor so external
