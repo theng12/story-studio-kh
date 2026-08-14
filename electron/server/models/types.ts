@@ -1218,7 +1218,7 @@ export interface ThumbnailRecipeProfile {
   headlineGuidance?: string
   defaultTextStyle?: string
   defaultFontStyle?: string
-  defaultTextPosition?: 'top' | 'center' | 'bottom'
+  defaultTextPosition?: 'top' | 'center' | 'bottom' | 'bottom-left'
   /** Reusable editorial headline shapes shown in the catalog. */
   headlineFormats?: string[]
   /** Optional visual-language hint; never replaces the project art style. */

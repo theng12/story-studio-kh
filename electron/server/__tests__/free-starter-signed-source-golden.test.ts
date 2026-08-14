@@ -87,17 +87,11 @@ function assertContainsEvery<T>(actual: T[] | undefined, expected: T[] | undefin
   for (const value of expected || []) assert.ok(actual?.some(candidate => isDeepStrictEqual(candidate, value)), `${label} must retain ${JSON.stringify(value)}`)
 }
 
-function verticalTextPosition(value: string | undefined): 'top' | 'center' | 'bottom' | undefined {
-  if (!value) return undefined
-  if (value.startsWith('top')) return 'top'
-  if (value.startsWith('bottom')) return 'bottom'
-  return 'center'
-}
-
 function recipePromptFacts(recipe: NonNullable<Awaited<ReturnType<typeof loadTemplate>>>['recipe']) {
   return {
     layout: recipe?.layout,
     conceptGuidance: recipe?.conceptGuidance,
+    compositionRules: recipe?.compositionRules,
     requiredElements: recipe?.requiredElements,
     avoid: recipe?.avoid,
     titleMode: recipe?.titleMode,
@@ -105,9 +99,20 @@ function recipePromptFacts(recipe: NonNullable<Awaited<ReturnType<typeof loadTem
     headlineGuidance: recipe?.headlineGuidance,
     defaultTextStyle: recipe?.defaultTextStyle,
     defaultFontStyle: recipe?.defaultFontStyle,
-    defaultTextPosition: verticalTextPosition(recipe?.defaultTextPosition),
+    defaultTextPosition: recipe?.defaultTextPosition,
     headlineFormats: recipe?.headlineFormats,
     visualStyleGuidance: recipe?.visualStyleGuidance,
+  }
+}
+
+function productionKitFacts(value: ReturnType<typeof contentPackDocumentToNiche>['productionKit']) {
+  if (!value) return undefined
+  return {
+    ...value,
+    recommendedVisualStyleId: value.recommendedVisualStyleId?.replace(/^(?:com\.storystudio\.style\.|builtin-)/, ''),
+    episodeProfiles: value.episodeProfiles?.map(profile => Object.fromEntries(
+      Object.entries(profile).filter(([, field]) => field !== undefined),
+    )),
   }
 }
 
@@ -143,13 +148,16 @@ function formulaPromptFacts(value: ReturnType<typeof contentPackDocumentToNiche>
     formulaFamily: value.formulaFamily,
     perspectivePolicy: value.perspectivePolicy,
     narrativeQualityContract: value.narrativeQualityContract,
+    openingProfile: value.openingProfile,
     metadataProfile: value.metadataProfile,
+    productionKit: productionKitFacts(value.productionKit),
     exampleTopics: value.exampleTopics,
     defaultTopicPackIds: normalizeIds(value.defaultTopicPackIds),
     compatibleTopicPackIds: normalizeIds(value.compatibleTopicPackIds),
     ideaAxes: value.ideaAxes,
     vocabulary: value.vocabulary,
     audienceHint: value.audienceHint,
+    youtubeTagsHint: value.youtubeTagsHint,
     ideaSystemPromptRole: value.ideaSystemPromptRole,
     ideaGuidanceText: value.ideaGuidanceText,
     scriptContext: value.scriptContext,

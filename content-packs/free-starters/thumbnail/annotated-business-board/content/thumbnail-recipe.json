@@ -16,6 +16,12 @@
   "aspect_ratio": "16:9",
   "title_mode": "ai",
   "composition_guidance": "Build an instantly readable visual economics board. Show one recognizable business, company, facility, or operating system as the large central hero; use a few surrounding representative objects to reveal how it earns, spends, and operates.",
+  "composition_rules": [
+    "Reserve the full upper quarter as clean title space and render the exact episode headline there in large bold uppercase black lettering.",
+    "Use exactly one large central hero subject in the lower two-thirds, with a clear silhouette at mobile size.",
+    "Place six to eight small supporting objects around the hero in a balanced diagram-like perimeter; communicate ideas through objects, not written callouts.",
+    "Keep the background warm off-white with clean dark ink outlines, restrained natural colors, and generous breathing room."
+  ],
   "required_elements": [
     "one central business, location, or operational hero",
     "a small perimeter of representative cost, revenue, labor, supply, or customer objects",

@@ -32,6 +32,7 @@ test('thumbnail prompts can choose a catalog recipe without replacing visual art
   assert.match(page, /renders the exact episode title directly in the thumbnail/i)
   assert.match(page, /short, truthful curiosity hook/i)
   assert.match(page, /thumbnailHeadlineMode/)
+  assert.match(page, /<option value="bottom-left">Bottom left<\/option>/i)
 })
 
 test('curiosity-question cartoon ships original examples and recipe-owned short-hook rules', () => {

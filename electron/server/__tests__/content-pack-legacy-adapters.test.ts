@@ -25,6 +25,7 @@ function formulaDocument(): Extract<ContentPackDocument, { kind: 'series-formula
       required_habits: ['Name the institution.'], closing_policy: 'Return to the evidence.',
     },
     opening_profile: { id: 'consequence-first', label: 'Consequence first', description: 'Start with the result.' },
+    youtube_tags_hint: ['evidence documentary'],
     metadata_profile: {
       id: 'evidence-youtube', label: 'Evidence package', description: 'A factual summary.',
       description_section_ids: ['hook', 'hashtags'], title_mode: 'use_idea_title',
@@ -89,9 +90,9 @@ function recipeDocument(): Extract<ContentPackDocument, { kind: 'thumbnail-recip
   const document = parseContentPackDocument('thumbnail-recipe', {
     kind: 'thumbnail-recipe', schema_version: 1, id: RECIPE_ID, name: 'Evidence Desk', description: 'A restrained evidence composition.',
     layout: 'hero', category: 'Documentary', tags: ['archive', 'evidence'], aspect_ratio: '16:9', title_mode: 'ai',
-    composition_guidance: 'Place one primary document centrally.', required_elements: ['One document'], avoid_elements: ['Collage clutter'],
+    composition_guidance: 'Place one primary document centrally.', composition_rules: ['Reserve the lower-left for the exact label.'], required_elements: ['One document'], avoid_elements: ['Collage clutter'],
     headline_mode: 'curiosity-hook', headline_guidance: 'Use three concrete words.', default_text_style: 'Warm ivory.',
-    default_font_style: 'Condensed serif.', default_text_position: 'top', headline_formats: ['THE HIDDEN LEDGER'],
+    default_font_style: 'Condensed serif.', default_text_position: 'bottom-left', headline_formats: ['THE HIDDEN LEDGER'],
     visual_style_guidance: 'Restrained archival realism.', preview_assets: ['assets/recipe.png'], compatible_formula_ids: [FORMULA_ID],
   })
   assert.equal(document.kind, 'thumbnail-recipe')
@@ -120,6 +121,7 @@ describe('Content Pack legacy adapters', () => {
     assert.equal(niche.scriptStructure?.motionProfile?.id, 'ambient-documentary')
     assert.equal(niche.recencyAvoidance?.strategyId, 'scripture-references')
     assert.ok(niche.recencyAvoidance?.extractPatterns.length)
+    assert.deepEqual(niche.youtubeTagsHint, ['evidence documentary'])
     assert.deepEqual(niche.productionKit?.episodeProfiles?.[0], {
       id: 'institution', label: 'Institution', description: 'A bounded institution.', ideaAxisValue: 'Institution',
       titleSuffix: 'Explained', forbiddenTitleSuffixes: ['Revealed'], narratorStyleId: 'archivist',
@@ -145,10 +147,10 @@ describe('Content Pack legacy adapters', () => {
     assert.equal(recipe.aspectRatio, '16:9')
     assert.deepEqual(recipe.previewImages, ['/api/content-packs/com.storystudio.test.pack/1.0.0/assets/abc'])
     assert.deepEqual(recipe.recipe, {
-      layout: 'hero', conceptGuidance: 'Place one primary document centrally.', compositionRules: undefined,
+      layout: 'hero', conceptGuidance: 'Place one primary document centrally.', compositionRules: ['Reserve the lower-left for the exact label.'],
       requiredElements: ['One document'], avoid: ['Collage clutter'], titleMode: 'ai', headlineMode: 'curiosity-hook',
       headlineGuidance: 'Use three concrete words.', defaultTextStyle: 'Warm ivory.', defaultFontStyle: 'Condensed serif.',
-      defaultTextPosition: 'top', headlineFormats: ['THE HIDDEN LEDGER'], visualStyleGuidance: 'Restrained archival realism.',
+      defaultTextPosition: 'bottom-left', headlineFormats: ['THE HIDDEN LEDGER'], visualStyleGuidance: 'Restrained archival realism.',
     })
     assert.equal('provider' in recipe, false)
   })

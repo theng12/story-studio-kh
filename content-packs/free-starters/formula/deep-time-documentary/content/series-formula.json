@@ -6,6 +6,7 @@
   "description": "Feature-length, evidence-led documentaries about the changing Earth: prehistoric life, ancient oceans, climates, landforms, extinctions, and human origins. Episodes are calm and immersive enough for late-night listening, but remain precise about what is known, inferred, debated, or speculative.",
   "channel_promise": "Planet → Transformation",
   "audience": "Listeners who want calm, precise, long-form natural-history documentaries.",
+  "youtube_tags_hint": ["deep time", "Earth history", "natural history documentary", "prehistoric Earth", "paleontology", "geology documentary", "science for sleep", "long documentary"],
   "formula_family": "Evidence & systems",
   "tagline": "The long, quiet history of a changing planet.",
   "perspective_policy": "Third-person evidence-led documentary narration. Address the Earth system, organism, place, and evidence—not a generic viewer avatar.",
@@ -51,23 +52,30 @@
   "production_kit": {
     "id": "deep-time-documentary-kit",
     "label": "Deep-Time Documentary Production Kit",
-    "description": "A reusable long-form deep-time Formula with calm visual pacing.",
+    "description": "One reusable channel system binding the deep-time Formula to its Topic Packs, Paleo Documentary Tableau art direction, Ambient Documentary Motion, documentary-label thumbnail grammar, and two automatically assigned episode lanes.",
     "recommended_visual_style_id": "com.storystudio.style.paleo-documentary-tableau",
     "episode_profiles": [
       {
         "id": "deep-rest",
         "label": "Deep Rest Documentary",
-        "description": "Factual late-night listening with gentle openings and long holds.",
+        "description": "A two-to-three-hour factual documentary with the softest delivery, gentler openings, and long settled visual holds for late-night listening or sleep.",
         "idea_axis_value": "deep rest documentary",
         "title_suffix": " | Documentary for Sleep",
-        "narrator_style_id": "deep-rest"
+        "narrator_style_id": "deep-rest",
+        "title_policy": "End the YouTube title with “| Documentary for Sleep”.",
+        "thumbnail_policy": "Prefer the exact two-line label “DOCUMENTARY / FOR SLEEP” unless a shorter factual time or subject label is materially clearer.",
+        "metadata_policy": "Describe the episode as calm long-form listening without promising therapy, guaranteed sleep, or invented certainty."
       },
       {
         "id": "immersive",
         "label": "Immersive Documentary",
-        "description": "Patient documentary without a sleep label.",
+        "description": "A long, patient natural-history documentary that can carry stronger mysteries, catastrophes, and clearly labelled counterfactuals without presenting itself as sleep content.",
         "idea_axis_value": "immersive documentary",
-        "narrator_style_id": "natural-history"
+        "forbidden_title_suffixes": [" | Documentary for Sleep", "Documentary for Sleep"],
+        "narrator_style_id": "natural-history",
+        "title_policy": "Do not append a sleep label. Use the precise factual or clearly speculative episode title.",
+        "thumbnail_policy": "Use a truthful two-to-five-word factual label that complements rather than repeats the YouTube title.",
+        "metadata_policy": "Emphasize the central evidence, process, and uncertainty; do not call the episode sleep content."
       }
     ]
   },

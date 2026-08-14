@@ -48,7 +48,7 @@ interface ThumbnailRecipe {
   recipe?: {
     defaultTextStyle?: string
     defaultFontStyle?: string
-    defaultTextPosition?: 'top' | 'center' | 'bottom'
+    defaultTextPosition?: 'top' | 'center' | 'bottom' | 'bottom-left'
     conceptGuidance?: string
     headlineMode?: 'episode-title' | 'curiosity-hook'
   }

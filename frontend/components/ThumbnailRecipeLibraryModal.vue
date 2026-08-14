@@ -109,7 +109,7 @@ interface ThumbnailRecipe {
     headlineMode?: 'episode-title' | 'curiosity-hook'
     defaultTextStyle?: string
     defaultFontStyle?: string
-    defaultTextPosition?: 'top' | 'center' | 'bottom'
+    defaultTextPosition?: 'top' | 'center' | 'bottom' | 'bottom-left'
     headlineFormats?: string[]
     conceptGuidance?: string
   }

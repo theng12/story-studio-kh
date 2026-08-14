@@ -518,6 +518,7 @@
               <option value="center">Center</option>
               <option value="top">Top</option>
               <option value="bottom">Bottom</option>
+              <option value="bottom-left">Bottom left</option>
             </select>
           </div>
           <div class="form-group">
@@ -777,6 +778,7 @@
             <option value="top">Top</option>
             <option value="center">Center</option>
             <option value="bottom">Bottom</option>
+            <option value="bottom-left">Bottom left</option>
           </select>
         </div>
       </div>
@@ -1489,7 +1491,7 @@ type SelectedThumbnailRecipe = {
   recipe?: {
     defaultTextStyle?: string
     defaultFontStyle?: string
-    defaultTextPosition?: 'top' | 'center' | 'bottom'
+    defaultTextPosition?: 'top' | 'center' | 'bottom' | 'bottom-left'
     conceptGuidance?: string
     headlineMode?: 'episode-title' | 'curiosity-hook'
   }
