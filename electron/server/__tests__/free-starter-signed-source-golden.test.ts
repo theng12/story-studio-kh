@@ -334,6 +334,14 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
           `${topicSlug} ${profile.subject} profile alternative must be authored for that subject, not copied from ${other.subject}`)
       }
     }
+    if (topicSlug === 'economics-businesses') {
+      assert.equal(new Set(topic.coverage_profiles!.map(profile => profile.tuples[0]!.episode_object)).size, advertisedCount,
+        'Business campaign one requires one concrete subject-authored episode object per business')
+      for (const genericObject of ['a point-of-sale counter', 'a lease agreement', 'a balance sheet', 'a payroll roster', 'a piece of specialist equipment', 'a delivery truck']) {
+        assert.ok(!topic.coverage_profiles!.some(profile => profile.tuples.some(tuple => tuple.episode_object === genericObject)),
+          `Business profiles must not use the reusable placeholder ${genericObject}`)
+      }
+    }
     const niche = contentPackDocumentToNiche(formula)
     niche.activeTopicPacks = [contentPackDocumentToTopicPack(topic)]
     const first = planIdeaAssignments({ niche, count: advertisedCount, seed: `starter-profiles-${topicSlug}` }).slice(0, advertisedCount)
@@ -360,11 +368,62 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
       assert.notEqual(assignment.dimensions['episode-object'], prior['episode-object'], `${topicSlug} sibling must change episode object`)
       assert.notEqual(assignment.dimensions.mechanism, prior.mechanism, `${topicSlug} sibling must change mechanism`)
     }
+    assert.throws(() => planIdeaAssignments({
+      niche,
+      count: advertisedCount,
+      seed: `starter-profiles-${topicSlug}-exhausted`,
+      usedFingerprints: [...first, ...second].map(assignment => assignment.fingerprint),
+    }), /cannot plan the requested campaign without repeating an episode object or mechanism/,
+    `${topicSlug} must fail closed after both authored subject profiles are reserved`)
     samples.set(topicSlug, Object.fromEntries(first.map(assignment => [assignment.dimensions.subject, assignment.dimensions])))
     reservedSamples.set(topicSlug, Object.fromEntries(second.map(assignment => [assignment.dimensions.subject, assignment.dimensions])))
   }
-  assert.equal(samples.get('natural-world-animals')?.amphibians?.['time-place-scope'], 'a forest canopy')
-  assert.equal(samples.get('natural-world-animals')?.amphibians?.mechanism, 'sensory adaptation')
+  assert.equal(samples.get('natural-world-animals')?.amphibians?.['time-place-scope'], 'the first rains in a woodland pond')
+  assert.equal(samples.get('natural-world-animals')?.amphibians?.['episode-object'], 'an egg mass at a pond edge')
+  assert.equal(samples.get('natural-world-animals')?.amphibians?.mechanism, 'moisture-dependent breeding')
+  assert.equal(samples.get('natural-world-animals')?.birds?.['episode-object'], 'a woven nest cup')
+  assert.equal(samples.get('natural-world-animals')?.reptiles?.['episode-object'], 'a sun-warmed basking rock')
+  assert.equal(reservedSamples.get('natural-world-animals')?.reptiles?.['episode-object'], 'a tail-shedding injury scar')
+  assert.equal(samples.get('natural-world-animals')?.crustaceans?.mechanism, 'visual courtship and rival signaling')
+  assert.equal(reservedSamples.get('natural-world-animals')?.crustaceans?.mechanism, 'sentinel-foraging cooperation')
+  assert.equal(samples.get('natural-world-animals')?.fish?.['episode-object'], 'a parrotfish pharyngeal jaw')
+  assert.equal(reservedSamples.get('natural-world-animals')?.cephalopods?.['episode-object'], 'a coconut-shell shelter')
+  assert.equal(samples.get('natural-world-animals')?.['deep-sea animals']?.['episode-object'], 'an anglerfish bioluminescent lure')
+  assert.equal(samples.get('natural-world-animals')?.['desert animals']?.mechanism, 'vascular heat dissipation')
+  assert.equal(samples.get('natural-world-animals')?.migration?.mechanism, 'geomagnetic navigation')
+  assert.equal(samples.get('ancient-humans-survival')?.['living without medicine']?.['episode-object'], 'a birch-bark wound dressing')
+  assert.equal(reservedSamples.get('ancient-humans-survival')?.['living without medicine']?.['episode-object'], 'a healed trepanation opening')
+  assert.equal(samples.get('ancient-humans-survival')?.['surviving childbirth']?.mechanism, 'birth-position adaptation to pelvic constraints')
+  assert.equal(samples.get('ancient-humans-survival')?.['navigating without maps']?.mechanism, 'landmark-sequence route learning')
+  assert.equal(samples.get('ancient-humans-survival')?.['avoiding food poisoning']?.['episode-object'], 'a charred cooking hearth')
+  assert.equal(samples.get('ancient-humans-survival')?.['staying warm without houses']?.['episode-object'], 'a bone awl and stitched hide panel')
+  assert.equal(samples.get('ancient-humans-survival')?.['defending a camp']?.mechanism, 'coordinated watch and deterrence')
+  assert.equal(samples.get('ancient-humans-survival')?.['preserving food']?.['episode-object'], 'a stone-lined storage pit')
+  assert.equal(samples.get('ancient-humans-survival')?.['recovering after a hunt']?.mechanism, 'shared provisioning during recovery')
+  assert.equal(samples.get('everyday-calm')?.['desk-side stretch']?.['episode-object'], 'the edge of a desk')
+  assert.equal(samples.get('everyday-calm')?.['after-screen pause']?.['episode-object'], 'a powered-down screen')
+  assert.equal(samples.get('everyday-calm')?.['bedtime lamp ritual']?.mechanism, 'single-task closing ritual')
+  assert.equal(samples.get('everyday-calm')?.['rain at the window']?.['episode-object'], 'a rain-streaked window')
+  assert.equal(samples.get('everyday-calm')?.['arrival after a commute']?.['episode-object'], 'a transit card placed on a hallway shelf')
+  assert.equal(samples.get('everyday-calm')?.['homecoming threshold']?.['episode-object'], 'a doormat beneath both feet')
+  assert.equal(samples.get('everyday-calm')?.['five-senses walk']?.mechanism, 'paced five-sense scan')
+  assert.equal(reservedSamples.get('everyday-calm')?.['quiet garden moment']?.['episode-object'], 'a sun-warmed stone bench')
+  assert.equal(reservedSamples.get('night-journeys')?.['moonlit garden watering']?.['episode-object'], 'a clay watering jar')
+  assert.equal(samples.get('night-journeys')?.['riverside map folding']?.['time-place-scope'], 'a table beside an open riverside window')
+  assert.equal(samples.get('night-journeys')?.['teashop closing ritual']?.mechanism, 'rinsing the last cup')
+  assert.equal(samples.get('night-journeys')?.['greenhouse seed tending']?.['episode-object'], 'a wooden seed dibber')
+  assert.equal(reservedSamples.get('night-journeys')?.['orchard basket sorting']?.mechanism, 'labeling full crates by variety')
+  assert.equal(reservedSamples.get('night-journeys')?.['lighthouse window cleaning']?.mechanism, 'drying condensation from the window seals')
+  assert.equal(reservedSamples.get('night-journeys')?.['observatory blanket folding']?.['episode-object'], 'a canvas blanket strap')
+  assert.equal(reservedSamples.get('pov-historical-occupations')?.['Roman gladiator']?.mechanism, 'institutional rationing for arena trainees')
+  assert.equal(reservedSamples.get('pov-historical-occupations')?.['mine worker']?.mechanism, 'firedamp detection by flame behavior')
+  assert.equal(samples.get('pov-historical-occupations')?.['galley rower']?.['time-place-scope'], 'a fifth-century BCE Athenian trireme during fleet service')
+  assert.equal(samples.get('pov-historical-occupations')?.['medieval executioner']?.['time-place-scope'], 'a fifteenth-century Nuremberg city scaffold')
+  assert.equal(samples.get('human-behavior-social-dynamics')?.['people-pleasing']?.mechanism, 'anticipated disapproval after declining')
+  assert.equal(reservedSamples.get('human-behavior-social-dynamics')?.manipulation?.['evidence-lens'], 'versioned agreement history with intent left unassigned')
+  assert.equal(samples.get('economics-businesses')?.['private school']?.['episode-object'], 'an enrollment-and-tuition roster')
+  assert.equal(samples.get('economics-businesses')?.['veterinary clinic']?.['episode-object'], 'a procedure-and-room schedule')
+  assert.equal(samples.get('economics-businesses')?.['food truck']?.['episode-object'], 'a commissary rental invoice')
   assert.equal(samples.get('deep-time-earth-systems')?.['the birth of the Moon']?.['time-place-scope'], 'a Hadean impact landscape')
   assert.equal(samples.get('deep-time-earth-systems')?.['the birth of the Moon']?.mechanism, 'giant impact')
   assert.equal(samples.get('deep-time-earth-systems')?.["Earth's magnetic field"]?.mechanism, 'core dynamo')
@@ -372,11 +431,11 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
   assert.equal(samples.get('deep-time-earth-systems')?.['the opening of the Atlantic']?.mechanism, 'continental extension')
   assert.equal(samples.get('historical-wars-treaties-world-order')?.['the Yalta Conference']?.['time-place-scope'], 'Crimea during the wartime conference of February 1945')
   assert.equal(samples.get('historical-wars-treaties-world-order')?.['the Napoleonic Wars']?.['episode-object'], 'a conscription register')
-  assert.equal(samples.get('everyday-calm')?.['bedtime lamp ritual']?.['episode-object'], 'a desk lamp')
+  assert.equal(samples.get('everyday-calm')?.['bedtime lamp ritual']?.['episode-object'], 'a shaded bedside lamp')
   assert.deepEqual(Object.fromEntries(['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'].map(key => [
     key, samples.get('everyday-calm')?.['rain at the window']?.[key],
   ])), {
-    'episode-object': 'a window', 'time-place-scope': 'the hour before bed', mechanism: 'sensory anchoring', 'evidence-lens': 'sensory specificity',
+    'episode-object': 'a rain-streaked window', 'time-place-scope': 'a quiet room during an afternoon shower', mechanism: 'steady sound-pattern attention', 'evidence-lens': 'sensory specificity',
   })
   assert.deepEqual(Object.fromEntries(['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'].map(key => [
     key, reservedSamples.get('everyday-calm')?.['rain at the window']?.[key],
@@ -393,7 +452,7 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
   assert.equal(reservedSamples.get('night-journeys')?.["lantern keeper's evening round"]?.['episode-object'], 'a wick trimmer')
   assert.equal(samples.get('habits-momentum')?.["prepare tomorrow's shoes"]?.['episode-object'], 'a pair of shoes')
   assert.equal(samples.get('night-journeys')?.["bakery's early dough"]?.['episode-object'], 'a loaf of dough')
-  assert.equal(samples.get('night-journeys')?.['teashop closing ritual']?.['episode-object'], 'a tea cup')
+  assert.equal(samples.get('night-journeys')?.['teashop closing ritual']?.['episode-object'], 'a cooling teacup')
   assert.equal(samples.get('pov-historical-occupations')?.['professional mourner']?.['episode-object'], 'a mourning garment')
   assert.equal(samples.get('deep-time-earth-systems')?.['the Great Unconformity']?.mechanism, 'continental erosion')
   assert.equal(samples.get('deep-time-earth-systems')?.['ice-age cycles']?.['time-place-scope'], 'a Pleistocene seafloor')
@@ -406,7 +465,7 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
   assert.equal(samples.get('ancient-humans-survival')?.['crossing dangerous rivers']?.['episode-object'], 'a braided-fiber safety line')
   assert.equal(samples.get('ancient-humans-survival')?.['coping with parasites']?.mechanism, 'mechanical delousing')
   assert.equal(samples.get('human-behavior-social-dynamics')?.boundaries?.['evidence-lens'], 'conversation sequence coding')
-  assert.equal(samples.get('human-behavior-social-dynamics')?.manipulation?.['episode-object'], 'contradictory written promises')
+  assert.equal(samples.get('human-behavior-social-dynamics')?.manipulation?.['episode-object'], 'decision-relevant terms omitted from a written offer')
   assert.equal(samples.get('everyday-calm')?.['waiting room chair']?.['time-place-scope'], 'a quiet waiting room')
   assert.equal(samples.get('everyday-calm')?.['after-screen pause']?.['episode-object'], 'a powered-down screen')
   assert.equal(samples.get('habits-momentum')?.['repeatable breakfast']?.['episode-object'], 'a prepared breakfast bowl')

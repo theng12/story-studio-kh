@@ -52,136 +52,329 @@
     "recycling plant"
   ],
   "episode_objects": [
-    "a point-of-sale counter",
+    "an espresso-machine hour meter",
     "a daily milk-and-bean waste sheet",
-    "a payroll roster",
+    "a kitchen ticket rail",
     "a table-turn report",
-    "a balance sheet",
+    "a bank of slot machines",
     "a gaming-floor hold report",
+    "an auditorium seating plan",
     "a concession basket receipt",
-    "a piece of specialist equipment",
+    "a diagnostic scanner",
     "a repair-order time ticket",
-    "a delivery truck",
-    "a lease agreement",
+    "a conveyor uptime meter",
+    "a water-reclamation filter service log",
+    "a fabric purchase order",
+    "a seasonal inventory aging report",
+    "a franchisor operations manual",
     "a franchise royalty statement",
+    "a race-car spare-parts crate",
+    "a sponsor installment schedule",
+    "an inverter output meter",
+    "a panel-cleaning route sheet",
+    "a room-rate grid",
+    "a housekeeping room-assignment board",
+    "a room-and-staff setup sheet",
     "a booking-and-deposit calendar",
+    "a belt-class attendance sheet",
     "a membership renewal cohort",
+    "an access-card scan log",
     "a membership cancellation cohort",
+    "a dental-chair schedule",
     "an insurance remittance ledger",
+    "a procedure-and-room schedule",
+    "a diagnostic-analyzer maintenance contract",
+    "an enrollment-and-tuition roster",
     "an enrollment-and-deposit schedule",
+    "a licensed room-capacity chart",
+    "a child-attendance billing ledger",
+    "a hearse schedule",
     "a prepaid funeral trust agreement",
+    "a patrol-route roster",
+    "a client contract renewal cohort",
+    "an excavator schedule",
     "a progress-payment certificate",
+    "a pallet-slot map",
+    "an order-pick path heatmap",
+    "a washer coin meter",
     "a water-and-electricity meter bill",
+    "a unit-lease ledger",
+    "a delinquent-unit auction ledger",
+    "a refrigerated shelf",
     "a shelf-stockout log",
+    "a shelf-restock sheet",
+    "a cooler electricity submeter",
+    "an aircraft seat map",
     "a crew-pairing schedule",
+    "a vessel sailing schedule",
     "a container-booking rate sheet",
+    "a server-rack power strip",
     "a power-capacity contract",
+    "a customer-retention cohort",
     "a cloud bill beside unit-usage metrics",
+    "a sprint burn chart",
     "a publisher milestone-payment schedule",
+    "a shot-tracking board",
+    "a render-farm queue report",
+    "a ride-maintenance window",
     "a ride queue-and-throughput log",
+    "an entrance occupancy clicker",
+    "a beverage-waste and pour-cost sheet",
+    "a commissary rental invoice",
     "a location-permit calendar",
+    "a proofing cabinet",
+    "a flour-and-butter waste sheet",
+    "a fermentation tank",
     "a distributor invoice and keg-return log",
+    "a master-recording budget",
     "an artist royalty statement",
-    "a grain-storage and forward-sale contract"
+    "a combine-harvester schedule",
+    "a grain-storage and forward-sale contract",
+    "an inbound contamination ticket",
+    "a commodity-bale sales invoice"
   ],
   "time_place_scopes": [
-    "a launch month",
+    "the morning rush",
     "a slow weekday after launch",
-    "a slow weekday",
+    "a dinner service",
     "a Friday dinner service",
-    "a busy season",
+    "an ordinary weekday floor",
     "a peak holiday weekend",
+    "a weekday-to-weekend run",
     "an opening weekend",
+    "a daily service-bay schedule",
     "a fully booked weekday",
-    "an expansion decision",
-    "a supply disruption",
+    "a weekend traffic peak",
+    "a dry summer operating month",
+    "the preseason sourcing window",
+    "the end of a fashion season",
+    "a quarterly operating cycle",
     "a mature unit's operating quarter",
-    "a financing renewal",
+    "a race weekend",
+    "a race season with delayed payments",
+    "a sunny production month",
+    "a dusty summer month",
+    "a holiday weekend",
+    "a sold-out holiday weekend",
+    "a fully booked event weekend",
     "the peak wedding season",
+    "an evening class cycle",
     "the month after an introductory course",
+    "an ordinary membership month",
     "January through March",
+    "a normal clinical day",
     "one monthly billing cycle",
+    "a busy appointment day",
+    "a month of mixed laboratory tests",
+    "a school-year budget",
     "the admissions season",
+    "a normal weekday",
+    "one monthly subsidy cycle",
+    "a month of irregular demand",
     "an annual reporting cycle",
+    "an overnight service contract",
+    "an annual contract-renewal quarter",
+    "an active project phase",
     "a major project milestone",
+    "a peak fulfillment week",
+    "a holiday fulfillment week",
+    "a weekend peak",
     "one summer billing month",
+    "an ordinary rental month",
+    "a month after tenant arrears",
+    "a normal trading week",
     "a week-long supply disruption",
+    "an overnight shift",
+    "a hot summer billing month",
+    "a peak travel season",
     "a week of weather disruption",
+    "a normal trade lane",
     "a port disruption",
+    "an active data hall",
     "a new-hall expansion decision",
+    "an annual renewal cycle",
     "a high-growth quarter",
+    "a milestone production phase",
     "a delayed launch month",
+    "a production sprint",
+    "the final delivery month",
+    "the off-season",
     "a peak holiday day",
+    "a Saturday night",
+    "a Saturday night event",
+    "the morning before service",
     "a weekday lunch rush",
+    "the before-dawn shift",
+    "a pre-dawn production shift",
+    "a monthly production cycle",
     "a seasonal sales quarter",
+    "an album release campaign",
     "a release recoupment window",
-    "the post-harvest selling season"
+    "the harvest window",
+    "the post-harvest selling season",
+    "a normal sorting shift",
+    "a quarter of recovered-material price swings"
   ],
   "mechanisms": [
-    "customer volume",
+    "fixed-capacity throughput",
     "waste-cost control",
-    "contribution margin",
+    "order-throughput coordination",
     "seat turnover",
+    "floor-capacity utilization",
     "house-edge realization",
-    "capacity utilization",
+    "fixed-capacity yield",
     "concession margin",
+    "technician specialization",
     "billed-hour capture",
-    "pricing power",
-    "inventory turnover",
-    "cash conversion",
+    "wash-line throughput",
+    "wash-water recovery and reuse",
+    "minimum-order inventory risk",
+    "markdown timing and stock clearance",
+    "process standardization",
     "royalty and advertising-fund load",
-    "labor scheduling",
+    "trackside inventory logistics",
+    "sponsorship cash-flow timing",
+    "capacity-factor performance",
+    "soiling-loss recovery",
+    "room-yield management",
+    "room-turn labor scheduling",
+    "bundled-service margin",
     "advance deposits and cancellation exposure",
+    "instructor-capacity planning",
     "member retention and churn",
+    "peak-and-off-peak utilization",
     "cohort retention",
+    "procedure-mix capacity",
     "payer mix and collection lag",
+    "case-mix capacity",
+    "test-volume utilization of fixed equipment",
+    "tuition-funded fixed capacity",
     "seat utilization and tuition collection",
+    "staff-to-child ratio planning",
+    "subsidy reimbursement lag",
+    "standby-capacity planning",
     "pre-need financing and working capital",
+    "coverage-density planning",
+    "client retention and churn",
+    "equipment utilization",
     "retainage and working-capital gap",
+    "storage-density planning",
+    "warehouse travel-time reduction",
+    "machine utilization",
     "utility cost per wash cycle",
+    "occupancy turnover",
+    "delinquency recovery",
+    "perishable inventory turnover",
     "substitution and lost sales",
+    "fast inventory rotation",
+    "refrigeration energy per sales dollar",
+    "load-factor pricing",
     "duty-time constraint management",
+    "network-capacity allocation",
     "spot-rate pricing",
+    "power-capacity utilization",
     "reserved-power economics",
+    "subscription churn",
     "gross-margin leverage",
+    "creative labor scheduling",
     "recoupment and burn runway",
+    "pipeline handoffs",
+    "compute bottleneck management",
+    "capacity downtime management",
     "bottleneck throughput",
+    "capacity-and-cover revenue",
+    "bar gross-margin control",
+    "fixed-base cost allocation",
     "site selection and demand density",
+    "fermentation timing",
+    "batch yield and ingredient-waste control",
+    "tank turnover",
     "channel margin and working capital",
+    "advance financing",
     "recoupment waterfall",
-    "selling timing and commodity-price risk"
+    "machinery utilization",
+    "selling timing and commodity-price risk",
+    "material-recovery yield",
+    "recovered-material pricing"
   ],
   "evidence_lenses": [
-    "site observation",
+    "hourly sales and machine logs",
     "owner cost records",
-    "operator interview",
+    "ticket-time and sales logs",
     "reservation and point-of-sale logs",
-    "public filings",
+    "gaming-floor observation",
     "gaming commission filings",
-    "industry benchmark",
+    "box-office reports",
     "exhibitor earnings and transaction data",
+    "repair-order records",
     "repair orders and technician time logs",
+    "equipment and sales logs",
+    "water-meter and maintenance records",
+    "supplier invoices",
+    "inventory and sales records",
+    "franchise disclosure documents",
     "franchise disclosure document",
-    "regulatory record",
+    "team financial filings",
+    "team accounts and sponsor contracts",
+    "grid production data",
+    "production data before and after cleaning",
+    "rate and occupancy data",
+    "staffing and occupancy records",
+    "operator cost records",
     "operator booking records",
+    "attendance records",
     "membership billing records",
+    "check-in data",
     "operator billing records",
+    "appointment records",
     "practice financial records",
+    "practice records",
+    "maintenance invoices and test counts",
     "audited school accounts",
+    "childcare licensing records",
+    "attendance and billing records",
+    "operator and licensing records",
     "funeral-trust regulatory filings",
+    "guard service logs",
+    "contracts and invoice records",
+    "job-cost ledger",
     "contract and cash-flow records",
+    "warehouse-management data",
+    "warehouse-management scan data",
+    "cycle-meter data",
     "utility invoices and meter readings",
+    "facility lease records",
+    "rental and auction records",
+    "scanner and waste data",
     "scanner and replenishment data",
+    "utility and scanner records",
+    "transport statistics",
     "regulatory operations data",
+    "carrier filings",
     "freight indexes and carrier filings",
+    "utility and uptime records",
     "utility and lease disclosures",
+    "company filings",
     "company filings and billing records",
+    "developer postmortems",
     "publisher contract and financial report",
+    "production reports",
+    "render logs and production records",
+    "inspection records",
     "attendance and operations reports",
+    "licensing and sales records",
+    "inventory and point-of-sale records",
     "permit and point-of-sale logs",
+    "production logs",
+    "ingredient and bake records",
+    "brew and excise records",
     "excise and distributor records",
+    "artist contract",
     "artist contract and royalty statements",
-    "farm budgets and market data"
+    "farm budgets",
+    "farm budgets and market data",
+    "facility operations data",
+    "weighbridge and sales records"
   ],
   "exclusions": [
     "Do not promise profitability or personal financial outcomes.",
@@ -208,148 +401,341 @@
       "id": "episode-object",
       "label": "Episode object",
       "values": [
-        "a point-of-sale counter",
+        "an espresso-machine hour meter",
         "a daily milk-and-bean waste sheet",
-        "a payroll roster",
+        "a kitchen ticket rail",
         "a table-turn report",
-        "a balance sheet",
+        "a bank of slot machines",
         "a gaming-floor hold report",
+        "an auditorium seating plan",
         "a concession basket receipt",
-        "a piece of specialist equipment",
+        "a diagnostic scanner",
         "a repair-order time ticket",
-        "a delivery truck",
-        "a lease agreement",
+        "a conveyor uptime meter",
+        "a water-reclamation filter service log",
+        "a fabric purchase order",
+        "a seasonal inventory aging report",
+        "a franchisor operations manual",
         "a franchise royalty statement",
+        "a race-car spare-parts crate",
+        "a sponsor installment schedule",
+        "an inverter output meter",
+        "a panel-cleaning route sheet",
+        "a room-rate grid",
+        "a housekeeping room-assignment board",
+        "a room-and-staff setup sheet",
         "a booking-and-deposit calendar",
+        "a belt-class attendance sheet",
         "a membership renewal cohort",
+        "an access-card scan log",
         "a membership cancellation cohort",
+        "a dental-chair schedule",
         "an insurance remittance ledger",
+        "a procedure-and-room schedule",
+        "a diagnostic-analyzer maintenance contract",
+        "an enrollment-and-tuition roster",
         "an enrollment-and-deposit schedule",
+        "a licensed room-capacity chart",
+        "a child-attendance billing ledger",
+        "a hearse schedule",
         "a prepaid funeral trust agreement",
+        "a patrol-route roster",
+        "a client contract renewal cohort",
+        "an excavator schedule",
         "a progress-payment certificate",
+        "a pallet-slot map",
+        "an order-pick path heatmap",
+        "a washer coin meter",
         "a water-and-electricity meter bill",
+        "a unit-lease ledger",
+        "a delinquent-unit auction ledger",
+        "a refrigerated shelf",
         "a shelf-stockout log",
+        "a shelf-restock sheet",
+        "a cooler electricity submeter",
+        "an aircraft seat map",
         "a crew-pairing schedule",
+        "a vessel sailing schedule",
         "a container-booking rate sheet",
+        "a server-rack power strip",
         "a power-capacity contract",
+        "a customer-retention cohort",
         "a cloud bill beside unit-usage metrics",
+        "a sprint burn chart",
         "a publisher milestone-payment schedule",
+        "a shot-tracking board",
+        "a render-farm queue report",
+        "a ride-maintenance window",
         "a ride queue-and-throughput log",
+        "an entrance occupancy clicker",
+        "a beverage-waste and pour-cost sheet",
+        "a commissary rental invoice",
         "a location-permit calendar",
+        "a proofing cabinet",
+        "a flour-and-butter waste sheet",
+        "a fermentation tank",
         "a distributor invoice and keg-return log",
+        "a master-recording budget",
         "an artist royalty statement",
-        "a grain-storage and forward-sale contract"
+        "a combine-harvester schedule",
+        "a grain-storage and forward-sale contract",
+        "an inbound contamination ticket",
+        "a commodity-bale sales invoice"
       ]
     },
     {
       "id": "time-place-scope",
       "label": "Operating moment",
       "values": [
-        "a launch month",
+        "the morning rush",
         "a slow weekday after launch",
-        "a slow weekday",
+        "a dinner service",
         "a Friday dinner service",
-        "a busy season",
+        "an ordinary weekday floor",
         "a peak holiday weekend",
+        "a weekday-to-weekend run",
         "an opening weekend",
+        "a daily service-bay schedule",
         "a fully booked weekday",
-        "an expansion decision",
-        "a supply disruption",
+        "a weekend traffic peak",
+        "a dry summer operating month",
+        "the preseason sourcing window",
+        "the end of a fashion season",
+        "a quarterly operating cycle",
         "a mature unit's operating quarter",
-        "a financing renewal",
+        "a race weekend",
+        "a race season with delayed payments",
+        "a sunny production month",
+        "a dusty summer month",
+        "a holiday weekend",
+        "a sold-out holiday weekend",
+        "a fully booked event weekend",
         "the peak wedding season",
+        "an evening class cycle",
         "the month after an introductory course",
+        "an ordinary membership month",
         "January through March",
+        "a normal clinical day",
         "one monthly billing cycle",
+        "a busy appointment day",
+        "a month of mixed laboratory tests",
+        "a school-year budget",
         "the admissions season",
+        "a normal weekday",
+        "one monthly subsidy cycle",
+        "a month of irregular demand",
         "an annual reporting cycle",
+        "an overnight service contract",
+        "an annual contract-renewal quarter",
+        "an active project phase",
         "a major project milestone",
+        "a peak fulfillment week",
+        "a holiday fulfillment week",
+        "a weekend peak",
         "one summer billing month",
+        "an ordinary rental month",
+        "a month after tenant arrears",
+        "a normal trading week",
         "a week-long supply disruption",
+        "an overnight shift",
+        "a hot summer billing month",
+        "a peak travel season",
         "a week of weather disruption",
+        "a normal trade lane",
         "a port disruption",
+        "an active data hall",
         "a new-hall expansion decision",
+        "an annual renewal cycle",
         "a high-growth quarter",
+        "a milestone production phase",
         "a delayed launch month",
+        "a production sprint",
+        "the final delivery month",
+        "the off-season",
         "a peak holiday day",
+        "a Saturday night",
+        "a Saturday night event",
+        "the morning before service",
         "a weekday lunch rush",
+        "the before-dawn shift",
+        "a pre-dawn production shift",
+        "a monthly production cycle",
         "a seasonal sales quarter",
+        "an album release campaign",
         "a release recoupment window",
-        "the post-harvest selling season"
+        "the harvest window",
+        "the post-harvest selling season",
+        "a normal sorting shift",
+        "a quarter of recovered-material price swings"
       ]
     },
     {
       "id": "mechanism",
       "label": "Business mechanism",
       "values": [
-        "customer volume",
+        "fixed-capacity throughput",
         "waste-cost control",
-        "contribution margin",
+        "order-throughput coordination",
         "seat turnover",
+        "floor-capacity utilization",
         "house-edge realization",
-        "capacity utilization",
+        "fixed-capacity yield",
         "concession margin",
+        "technician specialization",
         "billed-hour capture",
-        "pricing power",
-        "inventory turnover",
-        "cash conversion",
+        "wash-line throughput",
+        "wash-water recovery and reuse",
+        "minimum-order inventory risk",
+        "markdown timing and stock clearance",
+        "process standardization",
         "royalty and advertising-fund load",
-        "labor scheduling",
+        "trackside inventory logistics",
+        "sponsorship cash-flow timing",
+        "capacity-factor performance",
+        "soiling-loss recovery",
+        "room-yield management",
+        "room-turn labor scheduling",
+        "bundled-service margin",
         "advance deposits and cancellation exposure",
+        "instructor-capacity planning",
         "member retention and churn",
+        "peak-and-off-peak utilization",
         "cohort retention",
+        "procedure-mix capacity",
         "payer mix and collection lag",
+        "case-mix capacity",
+        "test-volume utilization of fixed equipment",
+        "tuition-funded fixed capacity",
         "seat utilization and tuition collection",
+        "staff-to-child ratio planning",
+        "subsidy reimbursement lag",
+        "standby-capacity planning",
         "pre-need financing and working capital",
+        "coverage-density planning",
+        "client retention and churn",
+        "equipment utilization",
         "retainage and working-capital gap",
+        "storage-density planning",
+        "warehouse travel-time reduction",
+        "machine utilization",
         "utility cost per wash cycle",
+        "occupancy turnover",
+        "delinquency recovery",
+        "perishable inventory turnover",
         "substitution and lost sales",
+        "fast inventory rotation",
+        "refrigeration energy per sales dollar",
+        "load-factor pricing",
         "duty-time constraint management",
+        "network-capacity allocation",
         "spot-rate pricing",
+        "power-capacity utilization",
         "reserved-power economics",
+        "subscription churn",
         "gross-margin leverage",
+        "creative labor scheduling",
         "recoupment and burn runway",
+        "pipeline handoffs",
+        "compute bottleneck management",
+        "capacity downtime management",
         "bottleneck throughput",
+        "capacity-and-cover revenue",
+        "bar gross-margin control",
+        "fixed-base cost allocation",
         "site selection and demand density",
+        "fermentation timing",
+        "batch yield and ingredient-waste control",
+        "tank turnover",
         "channel margin and working capital",
+        "advance financing",
         "recoupment waterfall",
-        "selling timing and commodity-price risk"
+        "machinery utilization",
+        "selling timing and commodity-price risk",
+        "material-recovery yield",
+        "recovered-material pricing"
       ]
     },
     {
       "id": "evidence-lens",
       "label": "Evidence lens",
       "values": [
-        "site observation",
+        "hourly sales and machine logs",
         "owner cost records",
-        "operator interview",
+        "ticket-time and sales logs",
         "reservation and point-of-sale logs",
-        "public filings",
+        "gaming-floor observation",
         "gaming commission filings",
-        "industry benchmark",
+        "box-office reports",
         "exhibitor earnings and transaction data",
+        "repair-order records",
         "repair orders and technician time logs",
+        "equipment and sales logs",
+        "water-meter and maintenance records",
+        "supplier invoices",
+        "inventory and sales records",
+        "franchise disclosure documents",
         "franchise disclosure document",
-        "regulatory record",
+        "team financial filings",
+        "team accounts and sponsor contracts",
+        "grid production data",
+        "production data before and after cleaning",
+        "rate and occupancy data",
+        "staffing and occupancy records",
+        "operator cost records",
         "operator booking records",
+        "attendance records",
         "membership billing records",
+        "check-in data",
         "operator billing records",
+        "appointment records",
         "practice financial records",
+        "practice records",
+        "maintenance invoices and test counts",
         "audited school accounts",
+        "childcare licensing records",
+        "attendance and billing records",
+        "operator and licensing records",
         "funeral-trust regulatory filings",
+        "guard service logs",
+        "contracts and invoice records",
+        "job-cost ledger",
         "contract and cash-flow records",
+        "warehouse-management data",
+        "warehouse-management scan data",
+        "cycle-meter data",
         "utility invoices and meter readings",
+        "facility lease records",
+        "rental and auction records",
+        "scanner and waste data",
         "scanner and replenishment data",
+        "utility and scanner records",
+        "transport statistics",
         "regulatory operations data",
+        "carrier filings",
         "freight indexes and carrier filings",
+        "utility and uptime records",
         "utility and lease disclosures",
+        "company filings",
         "company filings and billing records",
+        "developer postmortems",
         "publisher contract and financial report",
+        "production reports",
+        "render logs and production records",
+        "inspection records",
         "attendance and operations reports",
+        "licensing and sales records",
+        "inventory and point-of-sale records",
         "permit and point-of-sale logs",
+        "production logs",
+        "ingredient and bake records",
+        "brew and excise records",
         "excise and distributor records",
+        "artist contract",
         "artist contract and royalty statements",
-        "farm budgets and market data"
+        "farm budgets",
+        "farm budgets and market data",
+        "facility operations data",
+        "weighbridge and sales records"
       ]
     }
   ],
@@ -368,10 +754,10 @@
       "subject": "coffee shop",
       "tuples": [
         {
-          "episode_object": "a point-of-sale counter",
-          "time_place_scope": "a launch month",
-          "mechanism": "customer volume",
-          "evidence_lens": "site observation"
+          "episode_object": "an espresso-machine hour meter",
+          "time_place_scope": "the morning rush",
+          "mechanism": "fixed-capacity throughput",
+          "evidence_lens": "hourly sales and machine logs"
         },
         {
           "episode_object": "a daily milk-and-bean waste sheet",
@@ -385,10 +771,10 @@
       "subject": "restaurant",
       "tuples": [
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "contribution margin",
-          "evidence_lens": "operator interview"
+          "episode_object": "a kitchen ticket rail",
+          "time_place_scope": "a dinner service",
+          "mechanism": "order-throughput coordination",
+          "evidence_lens": "ticket-time and sales logs"
         },
         {
           "episode_object": "a table-turn report",
@@ -402,10 +788,10 @@
       "subject": "casino",
       "tuples": [
         {
-          "episode_object": "a balance sheet",
-          "time_place_scope": "a busy season",
-          "mechanism": "customer volume",
-          "evidence_lens": "public filings"
+          "episode_object": "a bank of slot machines",
+          "time_place_scope": "an ordinary weekday floor",
+          "mechanism": "floor-capacity utilization",
+          "evidence_lens": "gaming-floor observation"
         },
         {
           "episode_object": "a gaming-floor hold report",
@@ -419,10 +805,10 @@
       "subject": "movie theater",
       "tuples": [
         {
-          "episode_object": "a point-of-sale counter",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "an auditorium seating plan",
+          "time_place_scope": "a weekday-to-weekend run",
+          "mechanism": "fixed-capacity yield",
+          "evidence_lens": "box-office reports"
         },
         {
           "episode_object": "a concession basket receipt",
@@ -436,10 +822,10 @@
       "subject": "automobile workshop",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "operator interview"
+          "episode_object": "a diagnostic scanner",
+          "time_place_scope": "a daily service-bay schedule",
+          "mechanism": "technician specialization",
+          "evidence_lens": "repair-order records"
         },
         {
           "episode_object": "a repair-order time ticket",
@@ -453,16 +839,16 @@
       "subject": "automated car wash",
       "tuples": [
         {
-          "episode_object": "a point-of-sale counter",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "pricing power",
-          "evidence_lens": "site observation"
+          "episode_object": "a conveyor uptime meter",
+          "time_place_scope": "a weekend traffic peak",
+          "mechanism": "wash-line throughput",
+          "evidence_lens": "equipment and sales logs"
         },
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "site observation"
+          "episode_object": "a water-reclamation filter service log",
+          "time_place_scope": "a dry summer operating month",
+          "mechanism": "wash-water recovery and reuse",
+          "evidence_lens": "water-meter and maintenance records"
         }
       ]
     },
@@ -470,16 +856,16 @@
       "subject": "clothing brand",
       "tuples": [
         {
-          "episode_object": "a delivery truck",
-          "time_place_scope": "a supply disruption",
-          "mechanism": "inventory turnover",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a fabric purchase order",
+          "time_place_scope": "the preseason sourcing window",
+          "mechanism": "minimum-order inventory risk",
+          "evidence_lens": "supplier invoices"
         },
         {
-          "episode_object": "a balance sheet",
-          "time_place_scope": "a supply disruption",
-          "mechanism": "cash conversion",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a seasonal inventory aging report",
+          "time_place_scope": "the end of a fashion season",
+          "mechanism": "markdown timing and stock clearance",
+          "evidence_lens": "inventory and sales records"
         }
       ]
     },
@@ -487,10 +873,10 @@
       "subject": "franchise restaurant",
       "tuples": [
         {
-          "episode_object": "a lease agreement",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "cash conversion",
-          "evidence_lens": "public filings"
+          "episode_object": "a franchisor operations manual",
+          "time_place_scope": "a quarterly operating cycle",
+          "mechanism": "process standardization",
+          "evidence_lens": "franchise disclosure documents"
         },
         {
           "episode_object": "a franchise royalty statement",
@@ -504,16 +890,16 @@
       "subject": "Formula One team",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a financing renewal",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "public filings"
+          "episode_object": "a race-car spare-parts crate",
+          "time_place_scope": "a race weekend",
+          "mechanism": "trackside inventory logistics",
+          "evidence_lens": "team financial filings"
         },
         {
-          "episode_object": "a balance sheet",
-          "time_place_scope": "a financing renewal",
-          "mechanism": "cash conversion",
-          "evidence_lens": "public filings"
+          "episode_object": "a sponsor installment schedule",
+          "time_place_scope": "a race season with delayed payments",
+          "mechanism": "sponsorship cash-flow timing",
+          "evidence_lens": "team accounts and sponsor contracts"
         }
       ]
     },
@@ -521,16 +907,16 @@
       "subject": "solar farm",
       "tuples": [
         {
-          "episode_object": "a balance sheet",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "cash conversion",
-          "evidence_lens": "regulatory record"
+          "episode_object": "an inverter output meter",
+          "time_place_scope": "a sunny production month",
+          "mechanism": "capacity-factor performance",
+          "evidence_lens": "grid production data"
         },
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "regulatory record"
+          "episode_object": "a panel-cleaning route sheet",
+          "time_place_scope": "a dusty summer month",
+          "mechanism": "soiling-loss recovery",
+          "evidence_lens": "production data before and after cleaning"
         }
       ]
     },
@@ -538,16 +924,16 @@
       "subject": "five-star hotel",
       "tuples": [
         {
-          "episode_object": "a lease agreement",
-          "time_place_scope": "a busy season",
-          "mechanism": "pricing power",
-          "evidence_lens": "operator interview"
+          "episode_object": "a room-rate grid",
+          "time_place_scope": "a holiday weekend",
+          "mechanism": "room-yield management",
+          "evidence_lens": "rate and occupancy data"
         },
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a busy season",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a housekeeping room-assignment board",
+          "time_place_scope": "a sold-out holiday weekend",
+          "mechanism": "room-turn labor scheduling",
+          "evidence_lens": "staffing and occupancy records"
         }
       ]
     },
@@ -555,10 +941,10 @@
       "subject": "wedding venue",
       "tuples": [
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a financing renewal",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a room-and-staff setup sheet",
+          "time_place_scope": "a fully booked event weekend",
+          "mechanism": "bundled-service margin",
+          "evidence_lens": "operator cost records"
         },
         {
           "episode_object": "a booking-and-deposit calendar",
@@ -572,10 +958,10 @@
       "subject": "martial arts club",
       "tuples": [
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a busy season",
-          "mechanism": "customer volume",
-          "evidence_lens": "operator interview"
+          "episode_object": "a belt-class attendance sheet",
+          "time_place_scope": "an evening class cycle",
+          "mechanism": "instructor-capacity planning",
+          "evidence_lens": "attendance records"
         },
         {
           "episode_object": "a membership renewal cohort",
@@ -589,10 +975,10 @@
       "subject": "gym",
       "tuples": [
         {
-          "episode_object": "a point-of-sale counter",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "site observation"
+          "episode_object": "an access-card scan log",
+          "time_place_scope": "an ordinary membership month",
+          "mechanism": "peak-and-off-peak utilization",
+          "evidence_lens": "check-in data"
         },
         {
           "episode_object": "a membership cancellation cohort",
@@ -606,10 +992,10 @@
       "subject": "dental practice",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a financing renewal",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a dental-chair schedule",
+          "time_place_scope": "a normal clinical day",
+          "mechanism": "procedure-mix capacity",
+          "evidence_lens": "appointment records"
         },
         {
           "episode_object": "an insurance remittance ledger",
@@ -623,16 +1009,16 @@
       "subject": "veterinary clinic",
       "tuples": [
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a busy season",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "operator interview"
+          "episode_object": "a procedure-and-room schedule",
+          "time_place_scope": "a busy appointment day",
+          "mechanism": "case-mix capacity",
+          "evidence_lens": "practice records"
         },
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a busy season",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "operator interview"
+          "episode_object": "a diagnostic-analyzer maintenance contract",
+          "time_place_scope": "a month of mixed laboratory tests",
+          "mechanism": "test-volume utilization of fixed equipment",
+          "evidence_lens": "maintenance invoices and test counts"
         }
       ]
     },
@@ -640,10 +1026,10 @@
       "subject": "private school",
       "tuples": [
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a financing renewal",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "regulatory record"
+          "episode_object": "an enrollment-and-tuition roster",
+          "time_place_scope": "a school-year budget",
+          "mechanism": "tuition-funded fixed capacity",
+          "evidence_lens": "audited school accounts"
         },
         {
           "episode_object": "an enrollment-and-deposit schedule",
@@ -657,16 +1043,16 @@
       "subject": "daycare center",
       "tuples": [
         {
-          "episode_object": "a lease agreement",
-          "time_place_scope": "a busy season",
-          "mechanism": "pricing power",
-          "evidence_lens": "operator interview"
+          "episode_object": "a licensed room-capacity chart",
+          "time_place_scope": "a normal weekday",
+          "mechanism": "staff-to-child ratio planning",
+          "evidence_lens": "childcare licensing records"
         },
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a busy season",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "regulatory record"
+          "episode_object": "a child-attendance billing ledger",
+          "time_place_scope": "one monthly subsidy cycle",
+          "mechanism": "subsidy reimbursement lag",
+          "evidence_lens": "attendance and billing records"
         }
       ]
     },
@@ -674,10 +1060,10 @@
       "subject": "funeral home",
       "tuples": [
         {
-          "episode_object": "a lease agreement",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "pricing power",
-          "evidence_lens": "regulatory record"
+          "episode_object": "a hearse schedule",
+          "time_place_scope": "a month of irregular demand",
+          "mechanism": "standby-capacity planning",
+          "evidence_lens": "operator and licensing records"
         },
         {
           "episode_object": "a prepaid funeral trust agreement",
@@ -691,16 +1077,16 @@
       "subject": "private security company",
       "tuples": [
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a busy season",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "operator interview"
+          "episode_object": "a patrol-route roster",
+          "time_place_scope": "an overnight service contract",
+          "mechanism": "coverage-density planning",
+          "evidence_lens": "guard service logs"
         },
         {
-          "episode_object": "a balance sheet",
-          "time_place_scope": "a busy season",
-          "mechanism": "contribution margin",
-          "evidence_lens": "operator interview"
+          "episode_object": "a client contract renewal cohort",
+          "time_place_scope": "an annual contract-renewal quarter",
+          "mechanism": "client retention and churn",
+          "evidence_lens": "contracts and invoice records"
         }
       ]
     },
@@ -708,10 +1094,10 @@
       "subject": "construction company",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a supply disruption",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "site observation"
+          "episode_object": "an excavator schedule",
+          "time_place_scope": "an active project phase",
+          "mechanism": "equipment utilization",
+          "evidence_lens": "job-cost ledger"
         },
         {
           "episode_object": "a progress-payment certificate",
@@ -725,16 +1111,16 @@
       "subject": "warehouse",
       "tuples": [
         {
-          "episode_object": "a delivery truck",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "inventory turnover",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a pallet-slot map",
+          "time_place_scope": "a peak fulfillment week",
+          "mechanism": "storage-density planning",
+          "evidence_lens": "warehouse-management data"
         },
         {
-          "episode_object": "a lease agreement",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "an order-pick path heatmap",
+          "time_place_scope": "a holiday fulfillment week",
+          "mechanism": "warehouse travel-time reduction",
+          "evidence_lens": "warehouse-management scan data"
         }
       ]
     },
@@ -742,10 +1128,10 @@
       "subject": "laundromat",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a financing renewal",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "public filings"
+          "episode_object": "a washer coin meter",
+          "time_place_scope": "a weekend peak",
+          "mechanism": "machine utilization",
+          "evidence_lens": "cycle-meter data"
         },
         {
           "episode_object": "a water-and-electricity meter bill",
@@ -759,16 +1145,16 @@
       "subject": "self-storage facility",
       "tuples": [
         {
-          "episode_object": "a lease agreement",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "cash conversion",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a unit-lease ledger",
+          "time_place_scope": "an ordinary rental month",
+          "mechanism": "occupancy turnover",
+          "evidence_lens": "facility lease records"
         },
         {
-          "episode_object": "a balance sheet",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "pricing power",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a delinquent-unit auction ledger",
+          "time_place_scope": "a month after tenant arrears",
+          "mechanism": "delinquency recovery",
+          "evidence_lens": "rental and auction records"
         }
       ]
     },
@@ -776,10 +1162,10 @@
       "subject": "supermarket",
       "tuples": [
         {
-          "episode_object": "a delivery truck",
-          "time_place_scope": "a supply disruption",
-          "mechanism": "inventory turnover",
-          "evidence_lens": "site observation"
+          "episode_object": "a refrigerated shelf",
+          "time_place_scope": "a normal trading week",
+          "mechanism": "perishable inventory turnover",
+          "evidence_lens": "scanner and waste data"
         },
         {
           "episode_object": "a shelf-stockout log",
@@ -793,16 +1179,16 @@
       "subject": "convenience store",
       "tuples": [
         {
-          "episode_object": "a point-of-sale counter",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "customer volume",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a shelf-restock sheet",
+          "time_place_scope": "an overnight shift",
+          "mechanism": "fast inventory rotation",
+          "evidence_lens": "scanner and replenishment data"
         },
         {
-          "episode_object": "a delivery truck",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "inventory turnover",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a cooler electricity submeter",
+          "time_place_scope": "a hot summer billing month",
+          "mechanism": "refrigeration energy per sales dollar",
+          "evidence_lens": "utility and scanner records"
         }
       ]
     },
@@ -810,10 +1196,10 @@
       "subject": "airline",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a busy season",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "public filings"
+          "episode_object": "an aircraft seat map",
+          "time_place_scope": "a peak travel season",
+          "mechanism": "load-factor pricing",
+          "evidence_lens": "transport statistics"
         },
         {
           "episode_object": "a crew-pairing schedule",
@@ -827,10 +1213,10 @@
       "subject": "shipping company",
       "tuples": [
         {
-          "episode_object": "a delivery truck",
-          "time_place_scope": "a supply disruption",
-          "mechanism": "cash conversion",
-          "evidence_lens": "regulatory record"
+          "episode_object": "a vessel sailing schedule",
+          "time_place_scope": "a normal trade lane",
+          "mechanism": "network-capacity allocation",
+          "evidence_lens": "carrier filings"
         },
         {
           "episode_object": "a container-booking rate sheet",
@@ -844,10 +1230,10 @@
       "subject": "data center",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a server-rack power strip",
+          "time_place_scope": "an active data hall",
+          "mechanism": "power-capacity utilization",
+          "evidence_lens": "utility and uptime records"
         },
         {
           "episode_object": "a power-capacity contract",
@@ -861,10 +1247,10 @@
       "subject": "software company",
       "tuples": [
         {
-          "episode_object": "a balance sheet",
-          "time_place_scope": "a financing renewal",
-          "mechanism": "pricing power",
-          "evidence_lens": "public filings"
+          "episode_object": "a customer-retention cohort",
+          "time_place_scope": "an annual renewal cycle",
+          "mechanism": "subscription churn",
+          "evidence_lens": "company filings"
         },
         {
           "episode_object": "a cloud bill beside unit-usage metrics",
@@ -878,10 +1264,10 @@
       "subject": "game studio",
       "tuples": [
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a financing renewal",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "operator interview"
+          "episode_object": "a sprint burn chart",
+          "time_place_scope": "a milestone production phase",
+          "mechanism": "creative labor scheduling",
+          "evidence_lens": "developer postmortems"
         },
         {
           "episode_object": "a publisher milestone-payment schedule",
@@ -895,16 +1281,16 @@
       "subject": "animation studio",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a shot-tracking board",
+          "time_place_scope": "a production sprint",
+          "mechanism": "pipeline handoffs",
+          "evidence_lens": "production reports"
         },
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a render-farm queue report",
+          "time_place_scope": "the final delivery month",
+          "mechanism": "compute bottleneck management",
+          "evidence_lens": "render logs and production records"
         }
       ]
     },
@@ -912,10 +1298,10 @@
       "subject": "theme park",
       "tuples": [
         {
-          "episode_object": "a point-of-sale counter",
-          "time_place_scope": "a busy season",
-          "mechanism": "customer volume",
-          "evidence_lens": "site observation"
+          "episode_object": "a ride-maintenance window",
+          "time_place_scope": "the off-season",
+          "mechanism": "capacity downtime management",
+          "evidence_lens": "inspection records"
         },
         {
           "episode_object": "a ride queue-and-throughput log",
@@ -929,16 +1315,16 @@
       "subject": "nightclub",
       "tuples": [
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "operator interview"
+          "episode_object": "an entrance occupancy clicker",
+          "time_place_scope": "a Saturday night",
+          "mechanism": "capacity-and-cover revenue",
+          "evidence_lens": "licensing and sales records"
         },
         {
-          "episode_object": "a point-of-sale counter",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "customer volume",
-          "evidence_lens": "operator interview"
+          "episode_object": "a beverage-waste and pour-cost sheet",
+          "time_place_scope": "a Saturday night event",
+          "mechanism": "bar gross-margin control",
+          "evidence_lens": "inventory and point-of-sale records"
         }
       ]
     },
@@ -946,10 +1332,10 @@
       "subject": "food truck",
       "tuples": [
         {
-          "episode_object": "a delivery truck",
-          "time_place_scope": "a busy season",
-          "mechanism": "inventory turnover",
-          "evidence_lens": "site observation"
+          "episode_object": "a commissary rental invoice",
+          "time_place_scope": "the morning before service",
+          "mechanism": "fixed-base cost allocation",
+          "evidence_lens": "operator cost records"
         },
         {
           "episode_object": "a location-permit calendar",
@@ -963,16 +1349,16 @@
       "subject": "bakery",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "operator interview"
+          "episode_object": "a proofing cabinet",
+          "time_place_scope": "the before-dawn shift",
+          "mechanism": "fermentation timing",
+          "evidence_lens": "production logs"
         },
         {
-          "episode_object": "a payroll roster",
-          "time_place_scope": "a slow weekday",
-          "mechanism": "labor scheduling",
-          "evidence_lens": "industry benchmark"
+          "episode_object": "a flour-and-butter waste sheet",
+          "time_place_scope": "a pre-dawn production shift",
+          "mechanism": "batch yield and ingredient-waste control",
+          "evidence_lens": "ingredient and bake records"
         }
       ]
     },
@@ -980,10 +1366,10 @@
       "subject": "brewery",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a financing renewal",
-          "mechanism": "inventory turnover",
-          "evidence_lens": "regulatory record"
+          "episode_object": "a fermentation tank",
+          "time_place_scope": "a monthly production cycle",
+          "mechanism": "tank turnover",
+          "evidence_lens": "brew and excise records"
         },
         {
           "episode_object": "a distributor invoice and keg-return log",
@@ -997,10 +1383,10 @@
       "subject": "record label",
       "tuples": [
         {
-          "episode_object": "a balance sheet",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "pricing power",
-          "evidence_lens": "public filings"
+          "episode_object": "a master-recording budget",
+          "time_place_scope": "an album release campaign",
+          "mechanism": "advance financing",
+          "evidence_lens": "artist contract"
         },
         {
           "episode_object": "an artist royalty statement",
@@ -1014,10 +1400,10 @@
       "subject": "commercial farm",
       "tuples": [
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "a supply disruption",
-          "mechanism": "inventory turnover",
-          "evidence_lens": "regulatory record"
+          "episode_object": "a combine-harvester schedule",
+          "time_place_scope": "the harvest window",
+          "mechanism": "machinery utilization",
+          "evidence_lens": "farm budgets"
         },
         {
           "episode_object": "a grain-storage and forward-sale contract",
@@ -1031,16 +1417,16 @@
       "subject": "recycling plant",
       "tuples": [
         {
-          "episode_object": "a delivery truck",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "capacity utilization",
-          "evidence_lens": "site observation"
+          "episode_object": "an inbound contamination ticket",
+          "time_place_scope": "a normal sorting shift",
+          "mechanism": "material-recovery yield",
+          "evidence_lens": "facility operations data"
         },
         {
-          "episode_object": "a piece of specialist equipment",
-          "time_place_scope": "an expansion decision",
-          "mechanism": "inventory turnover",
-          "evidence_lens": "site observation"
+          "episode_object": "a commodity-bale sales invoice",
+          "time_place_scope": "a quarter of recovered-material price swings",
+          "mechanism": "recovered-material pricing",
+          "evidence_lens": "weighbridge and sales records"
         }
       ]
     }

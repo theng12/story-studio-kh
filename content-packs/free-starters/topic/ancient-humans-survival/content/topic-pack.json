@@ -32,93 +32,135 @@
   "episode_objects": [
     "a hearth",
     "a food cache",
-    "a hide shelter",
+    "a bone awl and stitched hide panel",
     "a water source",
     "a seep well dug beside a dry riverbed",
     "a braided-fiber safety line",
     "a low-water ford",
     "a wound dressing",
     "a healed long-bone fracture",
-    "a stone blade",
+    "a birch-bark wound dressing",
+    "a healed trepanation opening",
+    "a hide shelter",
+    "a ring of stone-tipped spears",
+    "a perimeter hearth",
     "an ostrich-eggshell water flask",
     "split marrow bones",
     "banked embers beneath hearth ash",
-    "a birth canal reconstructed from a fossil pelvis",
+    "a charred cooking hearth",
+    "a smoke-darkened drying rack",
+    "a fossil maternal pelvis",
+    "a newborn cranial cast",
     "a child carrier",
     "an infant enamel isotope sequence",
     "an unburned river corridor",
     "a fine-toothed bone comb",
     "a burned grass-bedding layer",
+    "a stone-lined storage pit",
+    "a chain of repeated hearth sites",
     "a distant-source obsidian flake",
     "a hide-and-brush shade screen",
+    "a healed forearm fracture",
     "a shared marrow-rich meal"
   ],
   "time_place_scopes": [
     "an Ice Age winter camp",
+    "a wind-exposed winter camp",
     "a rock shelter at night",
     "a dry-season savanna",
     "the late dry season on an open savanna",
     "a high-water seasonal crossing",
     "the recession after a seasonal flood",
     "months of recovery at a base camp",
-    "a seasonal migration route",
+    "a woodland base camp after a cutting injury",
+    "months of recovery at a settled camp",
+    "a camp perimeter at dusk",
+    "an overnight base camp",
     "an arid interior travel route",
+    "a seasonal migration route",
     "a lean-season camp",
     "an overnight winter camp",
-    "a Pleistocene birth within a small camp",
+    "a warm-season carcass-processing camp",
+    "a humid late-summer camp",
+    "labor within a small Pleistocene camp",
+    "a Pleistocene birth attended by campmates",
     "repeated seasonal camp moves",
     "a burned grassland",
     "a fast-moving grassland fire",
     "a long-occupied base camp",
     "a repeatedly occupied rock shelter",
+    "an autumn base camp",
+    "a late-summer processing camp",
+    "a river-to-pass migration corridor",
     "a route reused across seasons",
     "a midday arid-zone camp",
+    "weeks of reduced mobility at a base camp",
     "the post-hunt return to base camp"
   ],
   "mechanisms": [
     "fire management",
     "food preservation",
-    "material repair",
+    "hide sewing and draft sealing",
     "risk avoidance",
     "sediment filtration and source selection",
     "coordinated river crossing",
     "route timing",
+    "material repair",
     "group provisioning during convalescence",
-    "social learning",
-    "shared labor",
+    "wound covering and antimicrobial plant use",
+    "cranial intervention and extended group care",
+    "coordinated watch and deterrence",
+    "firelight predator deterrence",
     "seasonal mobility",
     "water transport and storage",
     "intensive carcass processing",
     "ember insulation",
+    "heat treatment of meat",
+    "smoke drying and moisture reduction",
+    "birth-position adaptation to pelvic constraints",
     "cooperative birth assistance",
     "cooperative provisioning and weaning",
     "landscape escape-route selection",
     "mechanical delousing",
     "bedding replacement and smoke control",
+    "cool dry storage",
+    "landmark-sequence route learning",
     "landmark memory and exchange networks",
     "activity scheduling and shade cooling",
+    "shared provisioning during recovery",
     "caloric recovery and group provisioning"
   ],
   "evidence_lenses": [
     "archaeological traces",
     "experimental archaeology",
+    "awl use-wear and shelter experiments",
     "paleoenvironmental reconstruction",
     "paleohydrology and ethnographic comparison",
     "fiber use-wear and fluvial reconstruction",
     "fluvial landscape reconstruction",
     "skeletal evidence",
     "skeletal pathology",
+    "residue analysis and experimental archaeology",
     "ethnographic comparison",
+    "artifact spatial pattern and ethnographic comparison",
+    "hearth distribution and carnivore traces",
     "eggshell residues and artifact distribution",
     "zooarchaeological fracture patterns",
     "combustion sediment and experimental archaeology",
+    "burned-bone and experimental-cooking evidence",
+    "food-residue and experimental archaeology",
     "comparative pelvic anatomy",
+    "neonatal anatomy and primate-behavior comparison",
     "dental isotope analysis",
     "charcoal record and paleoenvironmental reconstruction",
     "microscopic wear and residue",
     "charred plant remains and sediment micromorphology",
+    "pit archaeology and botanical residues",
+    "food residues and experimental archaeology",
+    "site-distribution and least-cost-path analysis",
     "geochemical sourcing",
     "experimental archaeology and site-use patterns",
+    "skeletal pathology and activity reconstruction",
     "faunal remains and spatial distribution"
   ],
   "exclusions": [
@@ -134,25 +176,35 @@
       "values": [
         "a hearth",
         "a food cache",
-        "a hide shelter",
+        "a bone awl and stitched hide panel",
         "a water source",
         "a seep well dug beside a dry riverbed",
         "a braided-fiber safety line",
         "a low-water ford",
         "a wound dressing",
         "a healed long-bone fracture",
-        "a stone blade",
+        "a birch-bark wound dressing",
+        "a healed trepanation opening",
+        "a hide shelter",
+        "a ring of stone-tipped spears",
+        "a perimeter hearth",
         "an ostrich-eggshell water flask",
         "split marrow bones",
         "banked embers beneath hearth ash",
-        "a birth canal reconstructed from a fossil pelvis",
+        "a charred cooking hearth",
+        "a smoke-darkened drying rack",
+        "a fossil maternal pelvis",
+        "a newborn cranial cast",
         "a child carrier",
         "an infant enamel isotope sequence",
         "an unburned river corridor",
         "a fine-toothed bone comb",
         "a burned grass-bedding layer",
+        "a stone-lined storage pit",
+        "a chain of repeated hearth sites",
         "a distant-source obsidian flake",
         "a hide-and-brush shade screen",
+        "a healed forearm fracture",
         "a shared marrow-rich meal"
       ]
     },
@@ -161,24 +213,36 @@
       "label": "Time and place",
       "values": [
         "an Ice Age winter camp",
+        "a wind-exposed winter camp",
         "a rock shelter at night",
         "a dry-season savanna",
         "the late dry season on an open savanna",
         "a high-water seasonal crossing",
         "the recession after a seasonal flood",
         "months of recovery at a base camp",
-        "a seasonal migration route",
+        "a woodland base camp after a cutting injury",
+        "months of recovery at a settled camp",
+        "a camp perimeter at dusk",
+        "an overnight base camp",
         "an arid interior travel route",
+        "a seasonal migration route",
         "a lean-season camp",
         "an overnight winter camp",
-        "a Pleistocene birth within a small camp",
+        "a warm-season carcass-processing camp",
+        "a humid late-summer camp",
+        "labor within a small Pleistocene camp",
+        "a Pleistocene birth attended by campmates",
         "repeated seasonal camp moves",
         "a burned grassland",
         "a fast-moving grassland fire",
         "a long-occupied base camp",
         "a repeatedly occupied rock shelter",
+        "an autumn base camp",
+        "a late-summer processing camp",
+        "a river-to-pass migration corridor",
         "a route reused across seasons",
         "a midday arid-zone camp",
+        "weeks of reduced mobility at a base camp",
         "the post-hunt return to base camp"
       ]
     },
@@ -188,25 +252,34 @@
       "values": [
         "fire management",
         "food preservation",
-        "material repair",
+        "hide sewing and draft sealing",
         "risk avoidance",
         "sediment filtration and source selection",
         "coordinated river crossing",
         "route timing",
+        "material repair",
         "group provisioning during convalescence",
-        "social learning",
-        "shared labor",
+        "wound covering and antimicrobial plant use",
+        "cranial intervention and extended group care",
+        "coordinated watch and deterrence",
+        "firelight predator deterrence",
         "seasonal mobility",
         "water transport and storage",
         "intensive carcass processing",
         "ember insulation",
+        "heat treatment of meat",
+        "smoke drying and moisture reduction",
+        "birth-position adaptation to pelvic constraints",
         "cooperative birth assistance",
         "cooperative provisioning and weaning",
         "landscape escape-route selection",
         "mechanical delousing",
         "bedding replacement and smoke control",
+        "cool dry storage",
+        "landmark-sequence route learning",
         "landmark memory and exchange networks",
         "activity scheduling and shade cooling",
+        "shared provisioning during recovery",
         "caloric recovery and group provisioning"
       ]
     },
@@ -216,23 +289,34 @@
       "values": [
         "archaeological traces",
         "experimental archaeology",
+        "awl use-wear and shelter experiments",
         "paleoenvironmental reconstruction",
         "paleohydrology and ethnographic comparison",
         "fiber use-wear and fluvial reconstruction",
         "fluvial landscape reconstruction",
         "skeletal evidence",
         "skeletal pathology",
+        "residue analysis and experimental archaeology",
         "ethnographic comparison",
+        "artifact spatial pattern and ethnographic comparison",
+        "hearth distribution and carnivore traces",
         "eggshell residues and artifact distribution",
         "zooarchaeological fracture patterns",
         "combustion sediment and experimental archaeology",
+        "burned-bone and experimental-cooking evidence",
+        "food-residue and experimental archaeology",
         "comparative pelvic anatomy",
+        "neonatal anatomy and primate-behavior comparison",
         "dental isotope analysis",
         "charcoal record and paleoenvironmental reconstruction",
         "microscopic wear and residue",
         "charred plant remains and sediment micromorphology",
+        "pit archaeology and botanical residues",
+        "food residues and experimental archaeology",
+        "site-distribution and least-cost-path analysis",
         "geochemical sourcing",
         "experimental archaeology and site-use patterns",
+        "skeletal pathology and activity reconstruction",
         "faunal remains and spatial distribution"
       ]
     }
@@ -268,10 +352,10 @@
       "subject": "staying warm without houses",
       "tuples": [
         {
-          "episode_object": "a hide shelter",
-          "time_place_scope": "a rock shelter at night",
-          "mechanism": "material repair",
-          "evidence_lens": "experimental archaeology"
+          "episode_object": "a bone awl and stitched hide panel",
+          "time_place_scope": "a wind-exposed winter camp",
+          "mechanism": "hide sewing and draft sealing",
+          "evidence_lens": "awl use-wear and shelter experiments"
         },
         {
           "episode_object": "a hearth",
@@ -336,16 +420,16 @@
       "subject": "living without medicine",
       "tuples": [
         {
-          "episode_object": "a stone blade",
-          "time_place_scope": "a seasonal migration route",
-          "mechanism": "social learning",
-          "evidence_lens": "experimental archaeology"
+          "episode_object": "a birch-bark wound dressing",
+          "time_place_scope": "a woodland base camp after a cutting injury",
+          "mechanism": "wound covering and antimicrobial plant use",
+          "evidence_lens": "residue analysis and experimental archaeology"
         },
         {
-          "episode_object": "a wound dressing",
-          "time_place_scope": "a seasonal migration route",
-          "mechanism": "material repair",
-          "evidence_lens": "experimental archaeology"
+          "episode_object": "a healed trepanation opening",
+          "time_place_scope": "months of recovery at a settled camp",
+          "mechanism": "cranial intervention and extended group care",
+          "evidence_lens": "skeletal pathology"
         }
       ]
     },
@@ -370,16 +454,16 @@
       "subject": "defending a camp",
       "tuples": [
         {
-          "episode_object": "a stone blade",
-          "time_place_scope": "an Ice Age winter camp",
-          "mechanism": "shared labor",
-          "evidence_lens": "archaeological traces"
+          "episode_object": "a ring of stone-tipped spears",
+          "time_place_scope": "a camp perimeter at dusk",
+          "mechanism": "coordinated watch and deterrence",
+          "evidence_lens": "artifact spatial pattern and ethnographic comparison"
         },
         {
-          "episode_object": "a hearth",
-          "time_place_scope": "an Ice Age winter camp",
-          "mechanism": "risk avoidance",
-          "evidence_lens": "archaeological traces"
+          "episode_object": "a perimeter hearth",
+          "time_place_scope": "an overnight base camp",
+          "mechanism": "firelight predator deterrence",
+          "evidence_lens": "hearth distribution and carnivore traces"
         }
       ]
     },
@@ -438,16 +522,16 @@
       "subject": "avoiding food poisoning",
       "tuples": [
         {
-          "episode_object": "a food cache",
-          "time_place_scope": "a dry-season savanna",
-          "mechanism": "food preservation",
-          "evidence_lens": "experimental archaeology"
+          "episode_object": "a charred cooking hearth",
+          "time_place_scope": "a warm-season carcass-processing camp",
+          "mechanism": "heat treatment of meat",
+          "evidence_lens": "burned-bone and experimental-cooking evidence"
         },
         {
-          "episode_object": "a hearth",
-          "time_place_scope": "a dry-season savanna",
-          "mechanism": "fire management",
-          "evidence_lens": "experimental archaeology"
+          "episode_object": "a smoke-darkened drying rack",
+          "time_place_scope": "a humid late-summer camp",
+          "mechanism": "smoke drying and moisture reduction",
+          "evidence_lens": "food-residue and experimental archaeology"
         }
       ]
     },
@@ -455,16 +539,16 @@
       "subject": "surviving childbirth",
       "tuples": [
         {
-          "episode_object": "a wound dressing",
-          "time_place_scope": "a rock shelter at night",
-          "mechanism": "social learning",
-          "evidence_lens": "skeletal evidence"
+          "episode_object": "a fossil maternal pelvis",
+          "time_place_scope": "labor within a small Pleistocene camp",
+          "mechanism": "birth-position adaptation to pelvic constraints",
+          "evidence_lens": "comparative pelvic anatomy"
         },
         {
-          "episode_object": "a birth canal reconstructed from a fossil pelvis",
-          "time_place_scope": "a Pleistocene birth within a small camp",
+          "episode_object": "a newborn cranial cast",
+          "time_place_scope": "a Pleistocene birth attended by campmates",
           "mechanism": "cooperative birth assistance",
-          "evidence_lens": "comparative pelvic anatomy"
+          "evidence_lens": "neonatal anatomy and primate-behavior comparison"
         }
       ]
     },
@@ -523,16 +607,16 @@
       "subject": "preserving food",
       "tuples": [
         {
-          "episode_object": "a food cache",
-          "time_place_scope": "an Ice Age winter camp",
-          "mechanism": "food preservation",
-          "evidence_lens": "archaeological traces"
+          "episode_object": "a stone-lined storage pit",
+          "time_place_scope": "an autumn base camp",
+          "mechanism": "cool dry storage",
+          "evidence_lens": "pit archaeology and botanical residues"
         },
         {
-          "episode_object": "a hearth",
-          "time_place_scope": "an Ice Age winter camp",
-          "mechanism": "fire management",
-          "evidence_lens": "experimental archaeology"
+          "episode_object": "a smoke-darkened drying rack",
+          "time_place_scope": "a late-summer processing camp",
+          "mechanism": "smoke drying and moisture reduction",
+          "evidence_lens": "food residues and experimental archaeology"
         }
       ]
     },
@@ -540,10 +624,10 @@
       "subject": "navigating without maps",
       "tuples": [
         {
-          "episode_object": "a stone blade",
-          "time_place_scope": "a seasonal migration route",
-          "mechanism": "social learning",
-          "evidence_lens": "ethnographic comparison"
+          "episode_object": "a chain of repeated hearth sites",
+          "time_place_scope": "a river-to-pass migration corridor",
+          "mechanism": "landmark-sequence route learning",
+          "evidence_lens": "site-distribution and least-cost-path analysis"
         },
         {
           "episode_object": "a distant-source obsidian flake",
@@ -574,10 +658,10 @@
       "subject": "recovering after a hunt",
       "tuples": [
         {
-          "episode_object": "a wound dressing",
-          "time_place_scope": "a rock shelter at night",
-          "mechanism": "material repair",
-          "evidence_lens": "skeletal evidence"
+          "episode_object": "a healed forearm fracture",
+          "time_place_scope": "weeks of reduced mobility at a base camp",
+          "mechanism": "shared provisioning during recovery",
+          "evidence_lens": "skeletal pathology and activity reconstruction"
         },
         {
           "episode_object": "a shared marrow-rich meal",

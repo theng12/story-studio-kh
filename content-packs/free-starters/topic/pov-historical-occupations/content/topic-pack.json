@@ -36,7 +36,7 @@
   ],
   "episode_objects": [
     "an execution sword",
-    "a municipal executioner badge",
+    "an executioner's house by Nuremberg's outer gate",
     "a wooden training sword",
     "a barley ration bowl",
     "a broad woodworking axe",
@@ -72,7 +72,7 @@
     "an oar bench",
     "an ankle shackle",
     "an iron mining pick",
-    "an oil safety lamp",
+    "a flame safety lamp",
     "a palace seal",
     "a rank robe",
     "a tray of movable type",
@@ -87,10 +87,10 @@
     "a payment token"
   ],
   "time_place_scopes": [
-    "a city scaffold on sentencing day",
-    "a town gate district",
+    "a fifteenth-century Nuremberg city scaffold",
+    "late-fifteenth-century Nuremberg",
     "a gladiator school drill yard",
-    "a Campanian barracks",
+    "a Campanian barracks after training",
     "a Norse boathouse",
     "a coastal shipyard",
     "a great hall before breakfast",
@@ -121,10 +121,10 @@
     "beneath a fortress wall",
     "a desert caravan perimeter",
     "an oasis route",
-    "a Mediterranean war galley",
-    "a port arsenal",
+    "a fifth-century BCE Athenian trireme during fleet service",
+    "a sixteenth-century Venetian penal galley in port",
     "an underground ore gallery",
-    "a deep mine shaft",
+    "a methane-prone coal gallery",
     "an inner-court gate",
     "an imperial promotion audience",
     "a Renaissance print shop",
@@ -139,10 +139,10 @@
     "a household after a funeral"
   ],
   "mechanisms": [
-    "fee-per-sentence labor",
-    "hereditary civic office",
+    "fee-paid municipal sentence execution",
+    "residential segregation tied to civic office",
     "combat skill conditioning",
-    "diet-financed captive labor",
+    "institutional rationing for arena trainees",
     "lapstrake hull construction",
     "watertight seam sealing",
     "ranked household service",
@@ -173,10 +173,10 @@
     "tunnel undermining",
     "mobile convoy defense",
     "shared risk allocation",
-    "forced synchronized labor",
-    "coercive confinement",
+    "paid synchronized rowing under naval discipline",
+    "court-sentenced forced rowing",
     "manual ore extraction",
-    "ventilation-risk management",
+    "firedamp detection by flame behavior",
     "controlled access to the ruler",
     "palace patronage network",
     "hand type composition",
@@ -191,10 +191,10 @@
     "paid lamentation labor"
   ],
   "evidence_lenses": [
-    "court roll",
-    "municipal ordinance",
+    "Nuremberg council payment records",
+    "Nuremberg city ordinances and tax rolls",
     "training-weapon archaeology",
-    "bone-isotope evidence",
+    "bone-isotope and archaeobotanical evidence",
     "tool marks on ship timbers",
     "excavated ship remains",
     "household accounts",
@@ -224,15 +224,16 @@
     "military treatise",
     "archaeological siege trench",
     "merchant records",
-    "naval archaeology",
-    "legal record",
+    "Athenian naval accounts and ship archaeology",
+    "Venetian sentencing and arsenal records",
     "tool-mark evidence",
-    "mine archaeology",
+    "mining manuals and lamp archaeology",
     "official register",
     "surviving incunabula",
     "printer-guild record",
     "travel diary",
     "postal record",
+    "court roll",
     "manorial accounts",
     "temple inscription",
     "archive tablet",
@@ -251,7 +252,7 @@
       "label": "Episode object",
       "values": [
         "an execution sword",
-        "a municipal executioner badge",
+        "an executioner's house by Nuremberg's outer gate",
         "a wooden training sword",
         "a barley ration bowl",
         "a broad woodworking axe",
@@ -287,7 +288,7 @@
         "an oar bench",
         "an ankle shackle",
         "an iron mining pick",
-        "an oil safety lamp",
+        "a flame safety lamp",
         "a palace seal",
         "a rank robe",
         "a tray of movable type",
@@ -306,10 +307,10 @@
       "id": "time-place-scope",
       "label": "Life stage",
       "values": [
-        "a city scaffold on sentencing day",
-        "a town gate district",
+        "a fifteenth-century Nuremberg city scaffold",
+        "late-fifteenth-century Nuremberg",
         "a gladiator school drill yard",
-        "a Campanian barracks",
+        "a Campanian barracks after training",
         "a Norse boathouse",
         "a coastal shipyard",
         "a great hall before breakfast",
@@ -340,10 +341,10 @@
         "beneath a fortress wall",
         "a desert caravan perimeter",
         "an oasis route",
-        "a Mediterranean war galley",
-        "a port arsenal",
+        "a fifth-century BCE Athenian trireme during fleet service",
+        "a sixteenth-century Venetian penal galley in port",
         "an underground ore gallery",
-        "a deep mine shaft",
+        "a methane-prone coal gallery",
         "an inner-court gate",
         "an imperial promotion audience",
         "a Renaissance print shop",
@@ -362,10 +363,10 @@
       "id": "mechanism",
       "label": "Role mechanism",
       "values": [
-        "fee-per-sentence labor",
-        "hereditary civic office",
+        "fee-paid municipal sentence execution",
+        "residential segregation tied to civic office",
         "combat skill conditioning",
-        "diet-financed captive labor",
+        "institutional rationing for arena trainees",
         "lapstrake hull construction",
         "watertight seam sealing",
         "ranked household service",
@@ -396,10 +397,10 @@
         "tunnel undermining",
         "mobile convoy defense",
         "shared risk allocation",
-        "forced synchronized labor",
-        "coercive confinement",
+        "paid synchronized rowing under naval discipline",
+        "court-sentenced forced rowing",
         "manual ore extraction",
-        "ventilation-risk management",
+        "firedamp detection by flame behavior",
         "controlled access to the ruler",
         "palace patronage network",
         "hand type composition",
@@ -418,10 +419,10 @@
       "id": "evidence-lens",
       "label": "Evidence lens",
       "values": [
-        "court roll",
-        "municipal ordinance",
+        "Nuremberg council payment records",
+        "Nuremberg city ordinances and tax rolls",
         "training-weapon archaeology",
-        "bone-isotope evidence",
+        "bone-isotope and archaeobotanical evidence",
         "tool marks on ship timbers",
         "excavated ship remains",
         "household accounts",
@@ -451,15 +452,16 @@
         "military treatise",
         "archaeological siege trench",
         "merchant records",
-        "naval archaeology",
-        "legal record",
+        "Athenian naval accounts and ship archaeology",
+        "Venetian sentencing and arsenal records",
         "tool-mark evidence",
-        "mine archaeology",
+        "mining manuals and lamp archaeology",
         "official register",
         "surviving incunabula",
         "printer-guild record",
         "travel diary",
         "postal record",
+        "court roll",
         "manorial accounts",
         "temple inscription",
         "archive tablet",
@@ -483,15 +485,15 @@
       "tuples": [
         {
           "episode_object": "an execution sword",
-          "time_place_scope": "a city scaffold on sentencing day",
-          "mechanism": "fee-per-sentence labor",
-          "evidence_lens": "court roll"
+          "time_place_scope": "a fifteenth-century Nuremberg city scaffold",
+          "mechanism": "fee-paid municipal sentence execution",
+          "evidence_lens": "Nuremberg council payment records"
         },
         {
-          "episode_object": "a municipal executioner badge",
-          "time_place_scope": "a town gate district",
-          "mechanism": "hereditary civic office",
-          "evidence_lens": "municipal ordinance"
+          "episode_object": "an executioner's house by Nuremberg's outer gate",
+          "time_place_scope": "late-fifteenth-century Nuremberg",
+          "mechanism": "residential segregation tied to civic office",
+          "evidence_lens": "Nuremberg city ordinances and tax rolls"
         }
       ]
     },
@@ -506,9 +508,9 @@
         },
         {
           "episode_object": "a barley ration bowl",
-          "time_place_scope": "a Campanian barracks",
-          "mechanism": "diet-financed captive labor",
-          "evidence_lens": "bone-isotope evidence"
+          "time_place_scope": "a Campanian barracks after training",
+          "mechanism": "institutional rationing for arena trainees",
+          "evidence_lens": "bone-isotope and archaeobotanical evidence"
         }
       ]
     },
@@ -772,15 +774,15 @@
       "tuples": [
         {
           "episode_object": "an oar bench",
-          "time_place_scope": "a Mediterranean war galley",
-          "mechanism": "forced synchronized labor",
-          "evidence_lens": "naval archaeology"
+          "time_place_scope": "a fifth-century BCE Athenian trireme during fleet service",
+          "mechanism": "paid synchronized rowing under naval discipline",
+          "evidence_lens": "Athenian naval accounts and ship archaeology"
         },
         {
           "episode_object": "an ankle shackle",
-          "time_place_scope": "a port arsenal",
-          "mechanism": "coercive confinement",
-          "evidence_lens": "legal record"
+          "time_place_scope": "a sixteenth-century Venetian penal galley in port",
+          "mechanism": "court-sentenced forced rowing",
+          "evidence_lens": "Venetian sentencing and arsenal records"
         }
       ]
     },
@@ -794,10 +796,10 @@
           "evidence_lens": "tool-mark evidence"
         },
         {
-          "episode_object": "an oil safety lamp",
-          "time_place_scope": "a deep mine shaft",
-          "mechanism": "ventilation-risk management",
-          "evidence_lens": "mine archaeology"
+          "episode_object": "a flame safety lamp",
+          "time_place_scope": "a methane-prone coal gallery",
+          "mechanism": "firedamp detection by flame behavior",
+          "evidence_lens": "mining manuals and lamp archaeology"
         }
       ]
     },

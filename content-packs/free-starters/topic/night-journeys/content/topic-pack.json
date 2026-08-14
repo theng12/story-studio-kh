@@ -27,8 +27,8 @@
   "episode_objects": [
     "a lantern",
     "a wick trimmer",
-    "a watering can",
-    "a rain gauge",
+    "a long-spout watering can",
+    "a clay watering jar",
     "a library book",
     "a wooden return cart",
     "a beeswax candle",
@@ -40,27 +40,27 @@
     "an orchard basket",
     "a labeled apple crate",
     "a lighthouse window pane",
-    "a chamois cloth",
-    "a folded map",
+    "a linen drying cloth",
+    "a river-chart map",
     "a ribbon map tie",
     "a loaf of dough",
     "a sourdough starter crock",
     "a folded wool blanket",
-    "a star chart",
+    "a canvas blanket strap",
     "a letter",
     "a leather mail satchel",
-    "a tea cup",
-    "a copper kettle lid",
+    "a cooling teacup",
+    "a stack of porcelain cups",
     "a shell catalog",
     "a handwritten specimen label",
-    "a seed packet",
+    "a wooden seed dibber",
     "a seedling tray"
   ],
   "time_place_scopes": [
     "blue-hour village",
     "the lamp room at dusk",
-    "moonlit garden",
     "a moonlit kitchen garden",
+    "a moonlit herb bed",
     "warm library",
     "a library at closing",
     "a candle workshop after the last pour",
@@ -70,55 +70,64 @@
     "snow-softened cottage",
     "a snow-softened cottage",
     "an autumn orchard shed",
+    "an autumn orchard shed at closing",
     "the lantern room at dusk",
-    "a lighthouse lantern room",
-    "quiet harbor",
-    "a riverside inn",
+    "a lighthouse lantern room after rain",
+    "a table beside an open riverside window",
+    "a riverside inn at closing",
     "a bakery before dawn",
     "an observatory dome before dawn",
     "an observatory dome at closing",
     "a village lane at dusk",
-    "a teashop at closing",
     "an empty teashop at closing",
+    "the counter after the last customer",
+    "quiet harbor",
     "a seaside study at dusk",
-    "rainy greenhouse",
+    "a greenhouse potting bench in rain",
     "a rainy greenhouse"
   ],
   "mechanisms": [
     "slow walking",
     "careful wick trimming",
-    "repetitive tending",
-    "gentle weather checking",
+    "slow root-zone watering",
+    "measured bed-by-bed watering",
     "shelving by call number",
     "final mold filling",
+    "slow wax cooling",
     "gentle transit",
     "measured docking",
     "small repair",
     "repetitive stitching",
     "sorting fruit by ripeness",
-    "sorting by ripeness",
+    "labeling full crates by variety",
     "circular glass cleaning",
-    "circular pane cleaning",
-    "gentle sorting",
-    "careful refolding",
+    "drying condensation from the window seals",
+    "crease-by-crease map folding",
+    "tying the folded route packet",
+    "repetitive tending",
     "slow fermentation",
     "repetitive folding",
-    "quiet cataloging",
+    "rolling and fastening the spare blanket",
     "unhurried delivery",
-    "soft homecoming",
-    "washing and stacking",
+    "rinsing the last cup",
+    "nested cup stacking",
+    "gentle sorting",
     "cataloging by shape",
-    "misting seedlings",
-    "slow wax cooling"
+    "pressing shallow planting holes",
+    "misting seedlings"
   ],
   "evidence_lenses": [
     "quiet setting detail",
     "procedural quiet detail",
+    "rhythmic sound and motion",
     "completed small task",
     "sensory continuity",
     "calm transition",
+    "paper-and-river sound continuity",
     "low-arousal pacing",
-    "rest-oriented ending"
+    "rest-oriented ending",
+    "ceramic-and-water sound detail",
+    "quiet procedural detail"
   ],
   "exclusions": [
     "No graphic or startling incidents, countdowns, unresolved endings, or sudden sound cues.",
@@ -134,8 +143,8 @@
       "values": [
         "a lantern",
         "a wick trimmer",
-        "a watering can",
-        "a rain gauge",
+        "a long-spout watering can",
+        "a clay watering jar",
         "a library book",
         "a wooden return cart",
         "a beeswax candle",
@@ -147,20 +156,20 @@
         "an orchard basket",
         "a labeled apple crate",
         "a lighthouse window pane",
-        "a chamois cloth",
-        "a folded map",
+        "a linen drying cloth",
+        "a river-chart map",
         "a ribbon map tie",
         "a loaf of dough",
         "a sourdough starter crock",
         "a folded wool blanket",
-        "a star chart",
+        "a canvas blanket strap",
         "a letter",
         "a leather mail satchel",
-        "a tea cup",
-        "a copper kettle lid",
+        "a cooling teacup",
+        "a stack of porcelain cups",
         "a shell catalog",
         "a handwritten specimen label",
-        "a seed packet",
+        "a wooden seed dibber",
         "a seedling tray"
       ]
     },
@@ -170,8 +179,8 @@
       "values": [
         "blue-hour village",
         "the lamp room at dusk",
-        "moonlit garden",
         "a moonlit kitchen garden",
+        "a moonlit herb bed",
         "warm library",
         "a library at closing",
         "a candle workshop after the last pour",
@@ -181,18 +190,20 @@
         "snow-softened cottage",
         "a snow-softened cottage",
         "an autumn orchard shed",
+        "an autumn orchard shed at closing",
         "the lantern room at dusk",
-        "a lighthouse lantern room",
-        "quiet harbor",
-        "a riverside inn",
+        "a lighthouse lantern room after rain",
+        "a table beside an open riverside window",
+        "a riverside inn at closing",
         "a bakery before dawn",
         "an observatory dome before dawn",
         "an observatory dome at closing",
         "a village lane at dusk",
-        "a teashop at closing",
         "an empty teashop at closing",
+        "the counter after the last customer",
+        "quiet harbor",
         "a seaside study at dusk",
-        "rainy greenhouse",
+        "a greenhouse potting bench in rain",
         "a rainy greenhouse"
       ]
     },
@@ -202,29 +213,32 @@
       "values": [
         "slow walking",
         "careful wick trimming",
-        "repetitive tending",
-        "gentle weather checking",
+        "slow root-zone watering",
+        "measured bed-by-bed watering",
         "shelving by call number",
         "final mold filling",
+        "slow wax cooling",
         "gentle transit",
         "measured docking",
         "small repair",
         "repetitive stitching",
         "sorting fruit by ripeness",
-        "sorting by ripeness",
+        "labeling full crates by variety",
         "circular glass cleaning",
-        "circular pane cleaning",
-        "gentle sorting",
-        "careful refolding",
+        "drying condensation from the window seals",
+        "crease-by-crease map folding",
+        "tying the folded route packet",
+        "repetitive tending",
         "slow fermentation",
         "repetitive folding",
-        "quiet cataloging",
+        "rolling and fastening the spare blanket",
         "unhurried delivery",
-        "soft homecoming",
-        "washing and stacking",
+        "rinsing the last cup",
+        "nested cup stacking",
+        "gentle sorting",
         "cataloging by shape",
-        "misting seedlings",
-        "slow wax cooling"
+        "pressing shallow planting holes",
+        "misting seedlings"
       ]
     },
     {
@@ -233,11 +247,15 @@
       "values": [
         "quiet setting detail",
         "procedural quiet detail",
+        "rhythmic sound and motion",
         "completed small task",
         "sensory continuity",
         "calm transition",
+        "paper-and-river sound continuity",
         "low-arousal pacing",
-        "rest-oriented ending"
+        "rest-oriented ending",
+        "ceramic-and-water sound detail",
+        "quiet procedural detail"
       ]
     }
   ],
@@ -273,16 +291,16 @@
       "subject": "moonlit garden watering",
       "tuples": [
         {
-          "episode_object": "a watering can",
-          "time_place_scope": "moonlit garden",
-          "mechanism": "repetitive tending",
-          "evidence_lens": "completed small task"
+          "episode_object": "a long-spout watering can",
+          "time_place_scope": "a moonlit kitchen garden",
+          "mechanism": "slow root-zone watering",
+          "evidence_lens": "rhythmic sound and motion"
         },
         {
-          "episode_object": "a rain gauge",
-          "time_place_scope": "a moonlit kitchen garden",
-          "mechanism": "gentle weather checking",
-          "evidence_lens": "sensory continuity"
+          "episode_object": "a clay watering jar",
+          "time_place_scope": "a moonlit herb bed",
+          "mechanism": "measured bed-by-bed watering",
+          "evidence_lens": "completed small task"
         }
       ]
     },
@@ -365,8 +383,8 @@
         },
         {
           "episode_object": "a labeled apple crate",
-          "time_place_scope": "an autumn orchard shed",
-          "mechanism": "sorting by ripeness",
+          "time_place_scope": "an autumn orchard shed at closing",
+          "mechanism": "labeling full crates by variety",
           "evidence_lens": "completed small task"
         }
       ]
@@ -381,9 +399,9 @@
           "evidence_lens": "quiet setting detail"
         },
         {
-          "episode_object": "a chamois cloth",
-          "time_place_scope": "a lighthouse lantern room",
-          "mechanism": "circular pane cleaning",
+          "episode_object": "a linen drying cloth",
+          "time_place_scope": "a lighthouse lantern room after rain",
+          "mechanism": "drying condensation from the window seals",
           "evidence_lens": "quiet setting detail"
         }
       ]
@@ -392,16 +410,16 @@
       "subject": "riverside map folding",
       "tuples": [
         {
-          "episode_object": "a folded map",
-          "time_place_scope": "quiet harbor",
-          "mechanism": "gentle sorting",
-          "evidence_lens": "sensory continuity"
+          "episode_object": "a river-chart map",
+          "time_place_scope": "a table beside an open riverside window",
+          "mechanism": "crease-by-crease map folding",
+          "evidence_lens": "paper-and-river sound continuity"
         },
         {
           "episode_object": "a ribbon map tie",
-          "time_place_scope": "a riverside inn",
-          "mechanism": "careful refolding",
-          "evidence_lens": "sensory continuity"
+          "time_place_scope": "a riverside inn at closing",
+          "mechanism": "tying the folded route packet",
+          "evidence_lens": "completed small task"
         }
       ]
     },
@@ -432,10 +450,10 @@
           "evidence_lens": "rest-oriented ending"
         },
         {
-          "episode_object": "a star chart",
+          "episode_object": "a canvas blanket strap",
           "time_place_scope": "an observatory dome at closing",
-          "mechanism": "quiet cataloging",
-          "evidence_lens": "rest-oriented ending"
+          "mechanism": "rolling and fastening the spare blanket",
+          "evidence_lens": "completed small task"
         }
       ]
     },
@@ -460,16 +478,16 @@
       "subject": "teashop closing ritual",
       "tuples": [
         {
-          "episode_object": "a tea cup",
-          "time_place_scope": "a teashop at closing",
-          "mechanism": "soft homecoming",
-          "evidence_lens": "rest-oriented ending"
+          "episode_object": "a cooling teacup",
+          "time_place_scope": "an empty teashop at closing",
+          "mechanism": "rinsing the last cup",
+          "evidence_lens": "ceramic-and-water sound detail"
         },
         {
-          "episode_object": "a copper kettle lid",
-          "time_place_scope": "an empty teashop at closing",
-          "mechanism": "washing and stacking",
-          "evidence_lens": "rest-oriented ending"
+          "episode_object": "a stack of porcelain cups",
+          "time_place_scope": "the counter after the last customer",
+          "mechanism": "nested cup stacking",
+          "evidence_lens": "completed small task"
         }
       ]
     },
@@ -494,10 +512,10 @@
       "subject": "greenhouse seed tending",
       "tuples": [
         {
-          "episode_object": "a seed packet",
-          "time_place_scope": "rainy greenhouse",
-          "mechanism": "repetitive tending",
-          "evidence_lens": "low-arousal pacing"
+          "episode_object": "a wooden seed dibber",
+          "time_place_scope": "a greenhouse potting bench in rain",
+          "mechanism": "pressing shallow planting holes",
+          "evidence_lens": "quiet procedural detail"
         },
         {
           "episode_object": "a seedling tray",

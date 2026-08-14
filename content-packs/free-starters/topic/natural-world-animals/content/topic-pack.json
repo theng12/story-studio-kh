@@ -21,54 +21,91 @@
     "migration"
   ],
   "episode_objects": [
-    "a feeding tool",
+    "a chimpanzee termite-fishing probe",
     "a lactation den",
-    "a nest or den",
+    "a woven nest cup",
     "a courtship song repertoire",
-    "a camouflage pattern",
-    "a predator defense",
+    "a sun-warmed basking rock",
+    "a tail-shedding injury scar",
+    "an egg mass at a pond edge",
     "an egg mass in a temporary pond",
-    "a courtship display",
+    "a parrotfish pharyngeal jaw",
+    "a cleaner-wrasse station",
+    "a chromatophore-rich mantle",
+    "a coconut-shell shelter",
+    "a fiddler crab's enlarged claw",
+    "a snapping shrimp's shared burrow entrance",
+    "an anglerfish bioluminescent lure",
+    "a vent tube worm's red plume",
+    "a jackrabbit's heat-radiating ears",
     "concentrated urine and nasal moisture recovery",
-    "a migration route",
+    "a magnetic orientation cage",
     "a stopover feeding ground"
   ],
   "time_place_scopes": [
-    "a forest canopy",
+    "a forest-floor termite mound",
     "the first weeks after birth in a temperate woodland",
-    "a breeding season",
+    "a temperate breeding territory",
     "a breeding-season lek",
-    "a desert waterhole",
+    "a cool desert morning",
+    "a predator encounter at a desert waterhole",
+    "the first rains in a woodland pond",
     "the first rains of breeding season",
-    "a reef edge",
-    "an abyssal plain",
+    "a coral-reef grazing patch",
+    "a reef cleaning territory",
+    "a rocky reef during a predator approach",
+    "a shallow seafloor",
+    "an intertidal mudflat in breeding season",
+    "a goby-shrimp burrow on a reef flat",
+    "bathypelagic darkness",
+    "an active hydrothermal-vent chimney",
+    "a hot desert afternoon",
     "a waterless desert summer",
-    "a polar shoreline",
+    "a migratory songbird stopover",
     "a seasonal flyway crossing"
   ],
   "mechanisms": [
-    "energy conservation",
+    "extractive tool use",
     "parental investment",
-    "reproductive trade-off",
+    "nest-site selection",
     "sexual selection",
-    "thermoregulation",
-    "predator avoidance",
-    "sensory adaptation",
+    "behavioral thermoregulation",
+    "defensive autotomy",
+    "moisture-dependent breeding",
     "developmental timing",
-    "cooperation",
+    "algal grazing and bioerosion",
+    "mutualistic parasite removal",
+    "dynamic camouflage",
+    "tool-assisted shelter construction",
+    "visual courtship and rival signaling",
+    "sentinel-foraging cooperation",
+    "light-based prey attraction",
+    "chemosynthetic symbiosis",
+    "vascular heat dissipation",
     "water conservation",
+    "geomagnetic navigation",
     "fuel replenishment"
   ],
   "evidence_lenses": [
-    "field observation",
+    "long-term field observation",
     "mother-offspring field study",
-    "life-history study",
+    "nest-monitoring study",
     "mate-choice observation",
-    "comparative anatomy",
-    "ecological survey",
+    "thermal-camera observation",
+    "mark-recapture field study",
+    "egg and larval survey",
     "larval survival survey",
+    "bite-scar and gut-content survey",
+    "field manipulation",
+    "high-speed behavior recording",
+    "diver field observation",
+    "mate-choice field observation",
+    "paired-species field observation",
+    "ROV observation and stomach-content analysis",
+    "tissue-isotope and microbiome analysis",
+    "thermal-imaging study",
     "physiological measurement",
-    "tracking data",
+    "controlled orientation experiment",
     "satellite tracking and body-mass sampling"
   ],
   "exclusions": [
@@ -96,16 +133,25 @@
       "id": "episode-object",
       "label": "Episode object",
       "values": [
-        "a feeding tool",
+        "a chimpanzee termite-fishing probe",
         "a lactation den",
-        "a nest or den",
+        "a woven nest cup",
         "a courtship song repertoire",
-        "a camouflage pattern",
-        "a predator defense",
+        "a sun-warmed basking rock",
+        "a tail-shedding injury scar",
+        "an egg mass at a pond edge",
         "an egg mass in a temporary pond",
-        "a courtship display",
+        "a parrotfish pharyngeal jaw",
+        "a cleaner-wrasse station",
+        "a chromatophore-rich mantle",
+        "a coconut-shell shelter",
+        "a fiddler crab's enlarged claw",
+        "a snapping shrimp's shared burrow entrance",
+        "an anglerfish bioluminescent lure",
+        "a vent tube worm's red plume",
+        "a jackrabbit's heat-radiating ears",
         "concentrated urine and nasal moisture recovery",
-        "a migration route",
+        "a magnetic orientation cage",
         "a stopover feeding ground"
       ]
     },
@@ -113,16 +159,25 @@
       "id": "time-place-scope",
       "label": "Time and place",
       "values": [
-        "a forest canopy",
+        "a forest-floor termite mound",
         "the first weeks after birth in a temperate woodland",
-        "a breeding season",
+        "a temperate breeding territory",
         "a breeding-season lek",
-        "a desert waterhole",
+        "a cool desert morning",
+        "a predator encounter at a desert waterhole",
+        "the first rains in a woodland pond",
         "the first rains of breeding season",
-        "a reef edge",
-        "an abyssal plain",
+        "a coral-reef grazing patch",
+        "a reef cleaning territory",
+        "a rocky reef during a predator approach",
+        "a shallow seafloor",
+        "an intertidal mudflat in breeding season",
+        "a goby-shrimp burrow on a reef flat",
+        "bathypelagic darkness",
+        "an active hydrothermal-vent chimney",
+        "a hot desert afternoon",
         "a waterless desert summer",
-        "a polar shoreline",
+        "a migratory songbird stopover",
         "a seasonal flyway crossing"
       ]
     },
@@ -130,16 +185,25 @@
       "id": "mechanism",
       "label": "Mechanism",
       "values": [
-        "energy conservation",
+        "extractive tool use",
         "parental investment",
-        "reproductive trade-off",
+        "nest-site selection",
         "sexual selection",
-        "thermoregulation",
-        "predator avoidance",
-        "sensory adaptation",
+        "behavioral thermoregulation",
+        "defensive autotomy",
+        "moisture-dependent breeding",
         "developmental timing",
-        "cooperation",
+        "algal grazing and bioerosion",
+        "mutualistic parasite removal",
+        "dynamic camouflage",
+        "tool-assisted shelter construction",
+        "visual courtship and rival signaling",
+        "sentinel-foraging cooperation",
+        "light-based prey attraction",
+        "chemosynthetic symbiosis",
+        "vascular heat dissipation",
         "water conservation",
+        "geomagnetic navigation",
         "fuel replenishment"
       ]
     },
@@ -147,15 +211,25 @@
       "id": "evidence-lens",
       "label": "Evidence lens",
       "values": [
-        "field observation",
+        "long-term field observation",
         "mother-offspring field study",
-        "life-history study",
+        "nest-monitoring study",
         "mate-choice observation",
-        "comparative anatomy",
-        "ecological survey",
+        "thermal-camera observation",
+        "mark-recapture field study",
+        "egg and larval survey",
         "larval survival survey",
+        "bite-scar and gut-content survey",
+        "field manipulation",
+        "high-speed behavior recording",
+        "diver field observation",
+        "mate-choice field observation",
+        "paired-species field observation",
+        "ROV observation and stomach-content analysis",
+        "tissue-isotope and microbiome analysis",
+        "thermal-imaging study",
         "physiological measurement",
-        "tracking data",
+        "controlled orientation experiment",
         "satellite tracking and body-mass sampling"
       ]
     }
@@ -174,10 +248,10 @@
       "subject": "mammals",
       "tuples": [
         {
-          "episode_object": "a feeding tool",
-          "time_place_scope": "a forest canopy",
-          "mechanism": "energy conservation",
-          "evidence_lens": "field observation"
+          "episode_object": "a chimpanzee termite-fishing probe",
+          "time_place_scope": "a forest-floor termite mound",
+          "mechanism": "extractive tool use",
+          "evidence_lens": "long-term field observation"
         },
         {
           "episode_object": "a lactation den",
@@ -191,10 +265,10 @@
       "subject": "birds",
       "tuples": [
         {
-          "episode_object": "a nest or den",
-          "time_place_scope": "a breeding season",
-          "mechanism": "reproductive trade-off",
-          "evidence_lens": "life-history study"
+          "episode_object": "a woven nest cup",
+          "time_place_scope": "a temperate breeding territory",
+          "mechanism": "nest-site selection",
+          "evidence_lens": "nest-monitoring study"
         },
         {
           "episode_object": "a courtship song repertoire",
@@ -208,16 +282,16 @@
       "subject": "reptiles",
       "tuples": [
         {
-          "episode_object": "a camouflage pattern",
-          "time_place_scope": "a desert waterhole",
-          "mechanism": "thermoregulation",
-          "evidence_lens": "comparative anatomy"
+          "episode_object": "a sun-warmed basking rock",
+          "time_place_scope": "a cool desert morning",
+          "mechanism": "behavioral thermoregulation",
+          "evidence_lens": "thermal-camera observation"
         },
         {
-          "episode_object": "a predator defense",
-          "time_place_scope": "a desert waterhole",
-          "mechanism": "predator avoidance",
-          "evidence_lens": "comparative anatomy"
+          "episode_object": "a tail-shedding injury scar",
+          "time_place_scope": "a predator encounter at a desert waterhole",
+          "mechanism": "defensive autotomy",
+          "evidence_lens": "mark-recapture field study"
         }
       ]
     },
@@ -225,10 +299,10 @@
       "subject": "amphibians",
       "tuples": [
         {
-          "episode_object": "a predator defense",
-          "time_place_scope": "a forest canopy",
-          "mechanism": "sensory adaptation",
-          "evidence_lens": "ecological survey"
+          "episode_object": "an egg mass at a pond edge",
+          "time_place_scope": "the first rains in a woodland pond",
+          "mechanism": "moisture-dependent breeding",
+          "evidence_lens": "egg and larval survey"
         },
         {
           "episode_object": "an egg mass in a temporary pond",
@@ -242,16 +316,16 @@
       "subject": "fish",
       "tuples": [
         {
-          "episode_object": "a feeding tool",
-          "time_place_scope": "a reef edge",
-          "mechanism": "sensory adaptation",
-          "evidence_lens": "ecological survey"
+          "episode_object": "a parrotfish pharyngeal jaw",
+          "time_place_scope": "a coral-reef grazing patch",
+          "mechanism": "algal grazing and bioerosion",
+          "evidence_lens": "bite-scar and gut-content survey"
         },
         {
-          "episode_object": "a camouflage pattern",
-          "time_place_scope": "a reef edge",
-          "mechanism": "predator avoidance",
-          "evidence_lens": "ecological survey"
+          "episode_object": "a cleaner-wrasse station",
+          "time_place_scope": "a reef cleaning territory",
+          "mechanism": "mutualistic parasite removal",
+          "evidence_lens": "field manipulation"
         }
       ]
     },
@@ -259,16 +333,16 @@
       "subject": "cephalopods",
       "tuples": [
         {
-          "episode_object": "a camouflage pattern",
-          "time_place_scope": "an abyssal plain",
-          "mechanism": "predator avoidance",
-          "evidence_lens": "comparative anatomy"
+          "episode_object": "a chromatophore-rich mantle",
+          "time_place_scope": "a rocky reef during a predator approach",
+          "mechanism": "dynamic camouflage",
+          "evidence_lens": "high-speed behavior recording"
         },
         {
-          "episode_object": "a feeding tool",
-          "time_place_scope": "an abyssal plain",
-          "mechanism": "sensory adaptation",
-          "evidence_lens": "comparative anatomy"
+          "episode_object": "a coconut-shell shelter",
+          "time_place_scope": "a shallow seafloor",
+          "mechanism": "tool-assisted shelter construction",
+          "evidence_lens": "diver field observation"
         }
       ]
     },
@@ -276,16 +350,16 @@
       "subject": "crustaceans",
       "tuples": [
         {
-          "episode_object": "a courtship display",
-          "time_place_scope": "a reef edge",
-          "mechanism": "cooperation",
-          "evidence_lens": "field observation"
+          "episode_object": "a fiddler crab's enlarged claw",
+          "time_place_scope": "an intertidal mudflat in breeding season",
+          "mechanism": "visual courtship and rival signaling",
+          "evidence_lens": "mate-choice field observation"
         },
         {
-          "episode_object": "a predator defense",
-          "time_place_scope": "a reef edge",
-          "mechanism": "predator avoidance",
-          "evidence_lens": "field observation"
+          "episode_object": "a snapping shrimp's shared burrow entrance",
+          "time_place_scope": "a goby-shrimp burrow on a reef flat",
+          "mechanism": "sentinel-foraging cooperation",
+          "evidence_lens": "paired-species field observation"
         }
       ]
     },
@@ -293,16 +367,16 @@
       "subject": "deep-sea animals",
       "tuples": [
         {
-          "episode_object": "a camouflage pattern",
-          "time_place_scope": "an abyssal plain",
-          "mechanism": "energy conservation",
-          "evidence_lens": "ecological survey"
+          "episode_object": "an anglerfish bioluminescent lure",
+          "time_place_scope": "bathypelagic darkness",
+          "mechanism": "light-based prey attraction",
+          "evidence_lens": "ROV observation and stomach-content analysis"
         },
         {
-          "episode_object": "a feeding tool",
-          "time_place_scope": "an abyssal plain",
-          "mechanism": "sensory adaptation",
-          "evidence_lens": "ecological survey"
+          "episode_object": "a vent tube worm's red plume",
+          "time_place_scope": "an active hydrothermal-vent chimney",
+          "mechanism": "chemosynthetic symbiosis",
+          "evidence_lens": "tissue-isotope and microbiome analysis"
         }
       ]
     },
@@ -310,10 +384,10 @@
       "subject": "desert animals",
       "tuples": [
         {
-          "episode_object": "a predator defense",
-          "time_place_scope": "a desert waterhole",
-          "mechanism": "thermoregulation",
-          "evidence_lens": "comparative anatomy"
+          "episode_object": "a jackrabbit's heat-radiating ears",
+          "time_place_scope": "a hot desert afternoon",
+          "mechanism": "vascular heat dissipation",
+          "evidence_lens": "thermal-imaging study"
         },
         {
           "episode_object": "concentrated urine and nasal moisture recovery",
@@ -327,10 +401,10 @@
       "subject": "migration",
       "tuples": [
         {
-          "episode_object": "a migration route",
-          "time_place_scope": "a polar shoreline",
-          "mechanism": "energy conservation",
-          "evidence_lens": "tracking data"
+          "episode_object": "a magnetic orientation cage",
+          "time_place_scope": "a migratory songbird stopover",
+          "mechanism": "geomagnetic navigation",
+          "evidence_lens": "controlled orientation experiment"
         },
         {
           "episode_object": "a stopover feeding ground",
