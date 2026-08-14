@@ -3,15 +3,16 @@
  *
  * ── The rule ────────────────────────────────────────────────────────────────
  * A GenStudio language product may be used for evidence-backed ("Search the
- * web") research ONLY when it passes ALL SIX published conditions, which are
+ * web") research ONLY when it passes ALL SEVEN published conditions, which are
  * GenStudio's own picker filter, in its order:
  *
  *   1. available                        — the product is usable at all
- *   2. !qualification_only              — it is customer-live, not internal review
- *   3. supports_web_search              — it can search
- *   4. returns_citations                — it reports what it read
- *   5. citation_format === 'structured' — those citations are machine-readable
- *   6. research_qualified               — GenStudio has qualified it for research
+ *   2. !locked                          — this account may use it
+ *   3. !qualification_only              — it is customer-live, not internal review
+ *   4. supports_web_search              — it can search
+ *   5. returns_citations                — it reports what it read
+ *   6. citation_format === 'structured' — those citations are machine-readable
+ *   7. research_qualified               — GenStudio has qualified it for research
  *
  * Condition 2 is DEFENSIVE. GenStudio states it should never publish a
  * research-qualified product that is also qualification-only, so this should
@@ -57,7 +58,7 @@ export const WEB_MODE_CATALOG_UNAVAILABLE_REASON =
   'Could not check which models can search the web — the GenStudio catalog was unreachable. '
   + 'Model-knowledge research still works.'
 
-/** The six published conditions, one per entry, so a caller (or a test) can
+/** The seven published conditions, one per entry, so a caller (or a test) can
  *  ask WHICH condition excluded a product rather than only that it failed. */
 export const WEB_RESEARCH_CONDITIONS: ReadonlyArray<{
   readonly id: string
@@ -81,7 +82,7 @@ export const WEB_RESEARCH_CONDITIONS: ReadonlyArray<{
   { id: 'research_qualified', label: 'qualified by GenStudio for research', test: m => m.research_qualified === true },
 ]
 
-/** Does this product pass ALL six conditions? Capability only. */
+/** Does this product pass ALL seven conditions? Capability only. */
 export function isWebResearchQualified(model: GenStudioChatModel): boolean {
   return WEB_RESEARCH_CONDITIONS.every(condition => condition.test(model))
 }

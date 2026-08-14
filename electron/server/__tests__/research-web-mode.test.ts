@@ -62,7 +62,7 @@ const isolatedDataDir = await useTempDataDir()
 after(() => isolatedDataDir.cleanup())
 
 // ── Catalogue fixtures ──────────────────────────────────────────────────
-// A model that passes ALL SIX conditions. Every exclusion test below starts
+// A model that passes ALL SEVEN conditions. Every exclusion test below starts
 // from this and breaks exactly one condition, so a test can never pass because
 // two things were wrong at once.
 function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioChatModel {
@@ -122,7 +122,7 @@ function unqualifiedCatalog(): GenStudioChatModel[] {
 }
 
 describe('web research capability filter', () => {
-  it('accepts a model that passes all six published conditions', () => {
+  it('accepts a model that passes all seven published conditions', () => {
     assert.equal(isWebResearchQualified(qualifiedModel()), true)
     assert.deepEqual(failedWebResearchConditions(qualifiedModel()), [])
   })
@@ -130,6 +130,7 @@ describe('web research capability filter', () => {
   it('excludes a model on EACH condition independently', () => {
     const breakers: Array<[string, Partial<GenStudioChatModel>]> = [
       ['available', { available: false }],
+      ['account_unlocked', { locked: true, lock_reason: 'requires_paid_account' }],
       ['qualification_only', { qualification_only: true }],
       ['supports_web_search', { supports_web_search: false }],
       ['returns_citations', { returns_citations: false }],
