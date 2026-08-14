@@ -207,7 +207,6 @@ const SeriesFormulaDocumentSchema = z.object({
   metadata_title_style_hint: safeText(1000).optional(),
   metadata_title_hook_rules: z.array(safeText(1000)).max(60).optional(),
   metadata_tags_hook_rules: z.array(safeText(1000)).max(60).optional(),
-  youtube_tags_hint: z.array(safeText(80)).max(80).optional(),
   metadata_description: MetadataDescriptionSchema.optional(),
   recency_avoidance: RecencyAvoidanceSchema.optional(),
   creative_profiles: z.array(z.enum(['narrative', 'balanced', 'editorial', 'spiritual', 'abstract'])).min(1).max(5).optional(),
