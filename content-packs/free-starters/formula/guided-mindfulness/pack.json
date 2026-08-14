@@ -1,0 +1,10 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "entitlement": {"sku": "com.storystudio.sku.formula.guided-mindfulness", "family": "com.storystudio.family.formula.guided-mindfulness"}
+}

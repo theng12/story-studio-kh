@@ -1,0 +1,14 @@
+{
+  "kind": "topic-pack", "schema_version": 1, "id": "com.storystudio.topic.everyday-calm", "name": "Everyday Calm", "description": "Fifteen ordinary moments that can hold a brief, optional practice of attention.",
+  "compatible_formula_ids": ["com.storystudio.formula.guided-mindfulness"],
+  "subjects": ["morning window pause", "first sip of tea", "arrival after a commute", "waiting room chair", "between-task reset", "desk-side stretch", "five-senses walk", "meal preparation", "laundry folding", "after-screen pause", "homecoming threshold", "quiet garden moment", "before a difficult conversation", "bedtime lamp ritual", "rain at the window"],
+  "episode_objects": ["a warm mug", "a window", "a chair", "a pair of shoes", "a folded towel", "a desk lamp", "a kitchen bowl", "a garden path"],
+  "time_place_scopes": ["early morning", "a workday transition", "a short commute", "a shared home", "a quiet outdoor path", "the hour before bed"],
+  "mechanisms": ["sensory anchoring", "breath pacing", "posture noticing", "gentle labeling", "single-task attention", "choice-based return"],
+  "evidence_lenses": ["plain practice instruction", "listener comfort choice", "everyday accessibility", "sensory specificity", "context fit", "non-medical boundary"],
+  "exclusions": ["Do not assign clinical labels or promise to resolve a condition.", "Do not make the listener continue a practice that feels unsuitable.", "Do not turn a pause into a productivity demand."],
+  "max_siblings_per_subject": 1,
+  "prompt_context": "Offer one optional, ordinary practice at a time. Name concrete sensory anchors, allow adaptation, and make no medical or transformational claim.",
+  "idea_axes": [{"id": "episode-object", "label": "Episode object", "values": ["a warm mug", "a window", "a chair", "a pair of shoes", "a folded towel", "a desk lamp", "a kitchen bowl", "a garden path"]}, {"id": "time-place-scope", "label": "Everyday setting", "values": ["early morning", "a workday transition", "a short commute", "a shared home", "a quiet outdoor path", "the hour before bed"]}, {"id": "mechanism", "label": "Attention mechanism", "values": ["sensory anchoring", "breath pacing", "posture noticing", "gentle labeling", "single-task attention", "choice-based return"]}, {"id": "evidence-lens", "label": "Practice lens", "values": ["plain practice instruction", "listener comfort choice", "everyday accessibility", "sensory specificity", "context fit", "non-medical boundary"]}],
+  "tags": ["mindfulness", "everyday calm", "gentle practice"], "compatibility_rules": ["Use only with the Guided Mindfulness Formula.", "Keep the selected subject concrete, optional, and non-medical.", "Use one practice mechanism and one everyday setting per episode."]
+}

@@ -1,0 +1,14 @@
+{
+  "kind": "topic-pack", "schema_version": 1, "id": "com.storystudio.topic.habits-momentum", "name": "Habits & Momentum", "description": "Fifteen specific routine frictions and small, repeatable ways to make a chosen action easier to begin.",
+  "compatible_formula_ids": ["com.storystudio.formula.practical-motivation"],
+  "subjects": ["prepare tomorrow's shoes", "one-line next action", "calendar start cue", "two-minute opening step", "phone parking spot", "visible water bottle", "workspace reset", "repeatable breakfast", "evening shutdown note", "weekly planning block", "reading bookmark", "ready-to-go bag", "single-task timer", "habit after a meal", "small completion log"],
+  "episode_objects": ["a pair of shoes", "a calendar", "a note card", "a phone shelf", "a water bottle", "a desk tray", "a packed bag", "a bookmark"],
+  "time_place_scopes": ["the night before", "the first five minutes of work", "after a meal", "the end of a workday", "a weekly planning session", "a home workspace"],
+  "mechanisms": ["cue design", "friction reduction", "next-action clarity", "environment setup", "gentle tracking", "restart planning"],
+  "evidence_lenses": ["practical constraint", "small experiment", "accessibility consideration", "time-bound observation", "trade-off check", "listener choice"],
+  "exclusions": ["Do not frame inconsistency or rest as moral failure.", "Do not use coercive or domination language.", "Do not promise identity, income, status, or productivity outcomes."],
+  "max_siblings_per_subject": 1,
+  "prompt_context": "Approach momentum as a small environmental and planning problem. Offer a bounded experiment, acknowledge constraints, and leave the listener free to adjust or decline it.",
+  "idea_axes": [{"id": "episode-object", "label": "Routine object", "values": ["a pair of shoes", "a calendar", "a note card", "a phone shelf", "a water bottle", "a desk tray", "a packed bag", "a bookmark"]}, {"id": "time-place-scope", "label": "Routine moment", "values": ["the night before", "the first five minutes of work", "after a meal", "the end of a workday", "a weekly planning session", "a home workspace"]}, {"id": "mechanism", "label": "Momentum mechanism", "values": ["cue design", "friction reduction", "next-action clarity", "environment setup", "gentle tracking", "restart planning"]}, {"id": "evidence-lens", "label": "Practical lens", "values": ["practical constraint", "small experiment", "accessibility consideration", "time-bound observation", "trade-off check", "listener choice"]}],
+  "tags": ["habits", "momentum", "practical motivation"], "compatibility_rules": ["Use only with the Practical Motivation Formula.", "Keep every episode to one concrete routine friction and one bounded experiment.", "Frame progress as adjustable practice, never a test of worth."]
+}

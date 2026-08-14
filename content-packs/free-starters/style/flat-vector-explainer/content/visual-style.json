@@ -1,0 +1,7 @@
+{
+  "kind": "visual-style", "schema_version": 1, "id": "com.storystudio.style.flat-vector-explainer", "name": "Flat Vector Explainer", "description": "Clean flat-vector infographic look with bold shapes, a limited palette, crisp lines, and generous negative space.",
+  "category": "Explainer", "tags": ["vector", "infographic", "flat", "modern", "educational"],
+  "style_bible": "clean flat vector illustration, bold simple geometric shapes, limited modern palette of three to four colours, no gradients, crisp even line weights, generous negative space, friendly explainer-video aesthetic, balanced flat lighting, clear readable silhouettes, minimal detail",
+  "negative_prompt": "photorealism, 3D render, painterly brushwork, texture, gradients, film grain, busy clutter, realistic shading, sketchy lines",
+  "preview_assets": ["assets/flat-vector-explainer.webp"], "compatible_formula_ids": ["com.storystudio.formula.practical-motivation"]
+}

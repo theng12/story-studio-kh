@@ -1,0 +1,7 @@
+{
+  "kind": "visual-style", "schema_version": 1, "id": "com.storystudio.style.watercolor-storybook", "name": "Watercolor Storybook", "description": "Soft children’s-book watercolor with gentle washes, rounded shapes, warm color, and cozy breathing room.",
+  "category": "Illustration", "tags": ["watercolor", "storybook", "children", "cozy", "painted"],
+  "style_bible": "soft watercolor storybook illustration, gentle layered washes, visible paper grain, warm inviting palette, rounded friendly shapes, light pencil underdrawing, soft diffuse lighting, whimsical cozy mood, hand-painted picture-book aesthetic, delicate colour bleeds, airy negative space",
+  "negative_prompt": "photorealism, 3D render, harsh contrast, neon colours, hard vector edges, gritty texture, horror, heavy black outlines",
+  "preview_assets": ["assets/watercolor-storybook.webp"], "compatible_formula_ids": ["com.storystudio.formula.guided-mindfulness", "com.storystudio.formula.sleep-story"]
+}
