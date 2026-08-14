@@ -280,17 +280,18 @@ export function planIdeaAssignments(options: {
       const key = `${candidate.topic_pack_id}|${candidate.dimensions.subject}`
       const episodeObject = candidate.dimensions['episode-object']
       const mechanism = candidate.dimensions.mechanism
-      const priorStructures = siblingStructures.get(key) || usedStructuralPairs(
-        used,
-        niche.id,
-        subjectRows.find(subject => subject.packId === candidate.topic_pack_id && subject.value === candidate.dimensions.subject)!,
-      )
+      const subject = subjectRows.find(row => row.packId === candidate.topic_pack_id && row.value === candidate.dimensions.subject)
+      const priorStructures = subject && episodeObject && mechanism
+        ? siblingStructures.get(key) || usedStructuralPairs(used, niche.id, subject)
+        : []
       if (episodeObject && mechanism && priorStructures.some(prior =>
         prior.episodeObject === slug(episodeObject) || prior.mechanism === slug(mechanism))) return false
       const next = (siblingCounts.get(key) || 0) + 1
       if (next > limit) return false
       siblingCounts.set(key, next)
-      siblingStructures.set(key, [...priorStructures, { episodeObject: slug(episodeObject), mechanism: slug(mechanism) }])
+      if (episodeObject && mechanism) {
+        siblingStructures.set(key, [...priorStructures, { episodeObject: slug(episodeObject), mechanism: slug(mechanism) }])
+      }
       return true
     })
   if (packs.some(pack => pack.coverageGroups?.length) && assignments.length < options.count) {

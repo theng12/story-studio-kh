@@ -171,6 +171,20 @@ describe('Series Formula + Topic Pack campaign planning', () => {
     }
   })
 
+  test('a schema-valid legacy Topic without coverage groups or idea axes still plans generically', () => {
+    const niche = {
+      id: 'legacy-topic-formula', name: 'Legacy Topic Formula', description: 'Compatibility fixture.', builtin: true, schemaVersion: 1 as const,
+      exampleTopics: [],
+      activeTopicPacks: [{
+        id: 'legacy-topic', name: 'Legacy Topic', description: 'No authored tuple fields.', builtin: true, schemaVersion: 1 as const,
+        compatibleNicheIds: ['legacy-topic-formula'], subjects: ['a ledger'], maxSiblingsPerSubject: 1,
+      }],
+    }
+    const assignments = planIdeaAssignments({ niche, count: 1, seed: 'legacy-topic' })
+    assert.equal(assignments.length, 1)
+    assert.equal(assignments[0]?.dimensions.subject, 'a ledger')
+  })
+
   test('all three requested formula families have compatible built-in packs', async () => {
     const packs = await listTopicPacks()
     const compatible = (formulaId: string) =>
