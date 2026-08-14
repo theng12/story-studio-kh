@@ -319,6 +319,11 @@ test('Starter profiles keep each campaign tuple authored, atomic, deterministic,
     assert.equal(topic.coverage_groups, undefined, `${topicSlug} must not use cross-subject coverage groups`)
     assert.equal(topic.coverage_profiles?.length, topic.subjects.length, `${topicSlug} requires one authored profile per subject`)
     const profilesBySubject = new Map(topic.coverage_profiles!.map(profile => [profile.subject, profile]))
+    const placeholder = /\b(?:a|an) (?:field|survival|geological|operating|case|historical|work) record (?:of|for|on)\b|\b(?:a )?second (?:ecological|survival|Earth|operating|social|historical|working|attention|practical|gentle) (?:pressure|strategy|process|constraint|condition|practice|rhythm) (?:on|for|affecting|in|shaping)\b/i
+    for (const value of [
+      ...topic.episode_objects, ...topic.mechanisms,
+      ...topic.coverage_profiles!.flatMap(profile => profile.tuples.flatMap(tuple => [tuple.episode_object, tuple.mechanism])),
+    ]) assert.doesNotMatch(value, placeholder, `${topicSlug} must use a real authored object or mechanism rather than a subject-echo placeholder`)
     const tupleKey = (tuple: { episode_object: string, time_place_scope: string, mechanism: string, evidence_lens: string }) =>
       [tuple.episode_object, tuple.time_place_scope, tuple.mechanism, tuple.evidence_lens].join('|')
     for (const profile of topic.coverage_profiles!) {

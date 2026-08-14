@@ -25,17 +25,7 @@
     "a group chat",
     "a disagreement",
     "a social cue",
-    "a repair attempt",
-    "a case record on boundaries",
-    "a case record on people-pleasing",
-    "a case record on status",
-    "a case record on conflict avoidance",
-    "a case record on manipulation",
-    "a case record on trust",
-    "a case record on social comparison",
-    "a case record on group conformity",
-    "a case record on attachment",
-    "a case record on repair after conflict"
+    "a repair attempt"
   ],
   "time_place_scopes": [
     "a first meeting",
@@ -51,17 +41,7 @@
     "attachment expectation",
     "social learning",
     "status signaling",
-    "co-regulation",
-    "a second social process affecting boundaries",
-    "a second social process affecting people-pleasing",
-    "a second social process affecting status",
-    "a second social process affecting conflict avoidance",
-    "a second social process affecting manipulation",
-    "a second social process affecting trust",
-    "a second social process affecting social comparison",
-    "a second social process affecting group conformity",
-    "a second social process affecting attachment",
-    "a second social process affecting repair after conflict"
+    "co-regulation"
   ],
   "evidence_lenses": [
     "behavioral study",
@@ -98,17 +78,7 @@
         "a group chat",
         "a disagreement",
         "a social cue",
-        "a repair attempt",
-        "a case record on boundaries",
-        "a case record on people-pleasing",
-        "a case record on status",
-        "a case record on conflict avoidance",
-        "a case record on manipulation",
-        "a case record on trust",
-        "a case record on social comparison",
-        "a case record on group conformity",
-        "a case record on attachment",
-        "a case record on repair after conflict"
+        "a repair attempt"
       ]
     },
     {
@@ -132,17 +102,7 @@
         "attachment expectation",
         "social learning",
         "status signaling",
-        "co-regulation",
-        "a second social process affecting boundaries",
-        "a second social process affecting people-pleasing",
-        "a second social process affecting status",
-        "a second social process affecting conflict avoidance",
-        "a second social process affecting manipulation",
-        "a second social process affecting trust",
-        "a second social process affecting social comparison",
-        "a second social process affecting group conformity",
-        "a second social process affecting attachment",
-        "a second social process affecting repair after conflict"
+        "co-regulation"
       ]
     },
     {
@@ -177,10 +137,10 @@
           "evidence_lens": "clinical guidance"
         },
         {
-          "episode_object": "a case record on boundaries",
-          "time_place_scope": "a close relationship",
-          "mechanism": "a second social process affecting boundaries",
-          "evidence_lens": "self-report limitation"
+          "episode_object": "a disagreement",
+          "time_place_scope": "a difficult conversation",
+          "mechanism": "co-regulation",
+          "evidence_lens": "clinical guidance"
         }
       ]
     },
@@ -194,10 +154,10 @@
           "evidence_lens": "self-report limitation"
         },
         {
-          "episode_object": "a case record on people-pleasing",
-          "time_place_scope": "a difficult conversation",
-          "mechanism": "a second social process affecting people-pleasing",
-          "evidence_lens": "clinical guidance"
+          "episode_object": "a request",
+          "time_place_scope": "a close relationship",
+          "mechanism": "threat appraisal",
+          "evidence_lens": "self-report limitation"
         }
       ]
     },
@@ -211,10 +171,10 @@
           "evidence_lens": "social psychology experiment"
         },
         {
-          "episode_object": "a case record on status",
-          "time_place_scope": "a recurring workplace interaction",
-          "mechanism": "a second social process affecting status",
-          "evidence_lens": "behavioral study"
+          "episode_object": "a group chat",
+          "time_place_scope": "a first meeting",
+          "mechanism": "social learning",
+          "evidence_lens": "social psychology experiment"
         }
       ]
     },
@@ -228,10 +188,10 @@
           "evidence_lens": "behavioral study"
         },
         {
-          "episode_object": "a case record on conflict avoidance",
-          "time_place_scope": "a first meeting",
-          "mechanism": "a second social process affecting conflict avoidance",
-          "evidence_lens": "social psychology experiment"
+          "episode_object": "a repair attempt",
+          "time_place_scope": "a recurring workplace interaction",
+          "mechanism": "co-regulation",
+          "evidence_lens": "behavioral study"
         }
       ]
     },
@@ -245,10 +205,10 @@
           "evidence_lens": "clinical guidance"
         },
         {
-          "episode_object": "a case record on manipulation",
-          "time_place_scope": "a difficult conversation",
-          "mechanism": "a second social process affecting manipulation",
-          "evidence_lens": "longitudinal research"
+          "episode_object": "an unanswered message",
+          "time_place_scope": "a stressful week",
+          "mechanism": "threat appraisal",
+          "evidence_lens": "clinical guidance"
         }
       ]
     },
@@ -262,10 +222,10 @@
           "evidence_lens": "longitudinal research"
         },
         {
-          "episode_object": "a case record on trust",
-          "time_place_scope": "a stressful week",
-          "mechanism": "a second social process affecting trust",
-          "evidence_lens": "clinical guidance"
+          "episode_object": "an unanswered message",
+          "time_place_scope": "a difficult conversation",
+          "mechanism": "attachment expectation",
+          "evidence_lens": "longitudinal research"
         }
       ]
     },
@@ -279,10 +239,10 @@
           "evidence_lens": "social psychology experiment"
         },
         {
-          "episode_object": "a case record on social comparison",
-          "time_place_scope": "a recurring workplace interaction",
-          "mechanism": "a second social process affecting social comparison",
-          "evidence_lens": "behavioral study"
+          "episode_object": "a social cue",
+          "time_place_scope": "a public group setting",
+          "mechanism": "reinforcement loop",
+          "evidence_lens": "social psychology experiment"
         }
       ]
     },
@@ -296,10 +256,10 @@
           "evidence_lens": "behavioral study"
         },
         {
-          "episode_object": "a case record on group conformity",
-          "time_place_scope": "a public group setting",
-          "mechanism": "a second social process affecting group conformity",
-          "evidence_lens": "social psychology experiment"
+          "episode_object": "a group chat",
+          "time_place_scope": "a recurring workplace interaction",
+          "mechanism": "status signaling",
+          "evidence_lens": "behavioral study"
         }
       ]
     },
@@ -313,10 +273,10 @@
           "evidence_lens": "longitudinal research"
         },
         {
-          "episode_object": "a case record on attachment",
-          "time_place_scope": "a difficult conversation",
-          "mechanism": "a second social process affecting attachment",
-          "evidence_lens": "clinical guidance"
+          "episode_object": "a repair attempt",
+          "time_place_scope": "a close relationship",
+          "mechanism": "co-regulation",
+          "evidence_lens": "longitudinal research"
         }
       ]
     },
@@ -330,10 +290,10 @@
           "evidence_lens": "clinical guidance"
         },
         {
-          "episode_object": "a case record on repair after conflict",
-          "time_place_scope": "a close relationship",
-          "mechanism": "a second social process affecting repair after conflict",
-          "evidence_lens": "longitudinal research"
+          "episode_object": "a disagreement",
+          "time_place_scope": "a difficult conversation",
+          "mechanism": "threat appraisal",
+          "evidence_lens": "clinical guidance"
         }
       ]
     }

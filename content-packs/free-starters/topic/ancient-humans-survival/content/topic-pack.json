@@ -36,27 +36,7 @@
     "a water source",
     "a food cache",
     "a child carrier",
-    "a wound dressing",
-    "a survival record of surviving winter",
-    "a survival record of staying warm without houses",
-    "a survival record of finding safe drinking water",
-    "a survival record of crossing dangerous rivers",
-    "a survival record of treating injuries",
-    "a survival record of living without medicine",
-    "a survival record of sleeping near predators",
-    "a survival record of defending a camp",
-    "a survival record of enduring drought",
-    "a survival record of surviving famine",
-    "a survival record of protecting fire",
-    "a survival record of avoiding food poisoning",
-    "a survival record of surviving childbirth",
-    "a survival record of raising infants while moving",
-    "a survival record of escaping wildfires",
-    "a survival record of coping with parasites",
-    "a survival record of preserving food",
-    "a survival record of navigating without maps",
-    "a survival record of surviving extreme heat",
-    "a survival record of recovering after a hunt"
+    "a wound dressing"
   ],
   "time_place_scopes": [
     "an Ice Age winter camp",
@@ -73,27 +53,7 @@
     "material repair",
     "food preservation",
     "risk avoidance",
-    "social learning",
-    "a second survival strategy for surviving winter",
-    "a second survival strategy for staying warm without houses",
-    "a second survival strategy for finding safe drinking water",
-    "a second survival strategy for crossing dangerous rivers",
-    "a second survival strategy for treating injuries",
-    "a second survival strategy for living without medicine",
-    "a second survival strategy for sleeping near predators",
-    "a second survival strategy for defending a camp",
-    "a second survival strategy for enduring drought",
-    "a second survival strategy for surviving famine",
-    "a second survival strategy for protecting fire",
-    "a second survival strategy for avoiding food poisoning",
-    "a second survival strategy for surviving childbirth",
-    "a second survival strategy for raising infants while moving",
-    "a second survival strategy for escaping wildfires",
-    "a second survival strategy for coping with parasites",
-    "a second survival strategy for preserving food",
-    "a second survival strategy for navigating without maps",
-    "a second survival strategy for surviving extreme heat",
-    "a second survival strategy for recovering after a hunt"
+    "social learning"
   ],
   "evidence_lenses": [
     "archaeological traces",
@@ -119,27 +79,7 @@
         "a water source",
         "a food cache",
         "a child carrier",
-        "a wound dressing",
-        "a survival record of surviving winter",
-        "a survival record of staying warm without houses",
-        "a survival record of finding safe drinking water",
-        "a survival record of crossing dangerous rivers",
-        "a survival record of treating injuries",
-        "a survival record of living without medicine",
-        "a survival record of sleeping near predators",
-        "a survival record of defending a camp",
-        "a survival record of enduring drought",
-        "a survival record of surviving famine",
-        "a survival record of protecting fire",
-        "a survival record of avoiding food poisoning",
-        "a survival record of surviving childbirth",
-        "a survival record of raising infants while moving",
-        "a survival record of escaping wildfires",
-        "a survival record of coping with parasites",
-        "a survival record of preserving food",
-        "a survival record of navigating without maps",
-        "a survival record of surviving extreme heat",
-        "a survival record of recovering after a hunt"
+        "a wound dressing"
       ]
     },
     {
@@ -164,27 +104,7 @@
         "material repair",
         "food preservation",
         "risk avoidance",
-        "social learning",
-        "a second survival strategy for surviving winter",
-        "a second survival strategy for staying warm without houses",
-        "a second survival strategy for finding safe drinking water",
-        "a second survival strategy for crossing dangerous rivers",
-        "a second survival strategy for treating injuries",
-        "a second survival strategy for living without medicine",
-        "a second survival strategy for sleeping near predators",
-        "a second survival strategy for defending a camp",
-        "a second survival strategy for enduring drought",
-        "a second survival strategy for surviving famine",
-        "a second survival strategy for protecting fire",
-        "a second survival strategy for avoiding food poisoning",
-        "a second survival strategy for surviving childbirth",
-        "a second survival strategy for raising infants while moving",
-        "a second survival strategy for escaping wildfires",
-        "a second survival strategy for coping with parasites",
-        "a second survival strategy for preserving food",
-        "a second survival strategy for navigating without maps",
-        "a second survival strategy for surviving extreme heat",
-        "a second survival strategy for recovering after a hunt"
+        "social learning"
       ]
     },
     {
@@ -219,9 +139,9 @@
           "evidence_lens": "archaeological traces"
         },
         {
-          "episode_object": "a survival record of surviving winter",
-          "time_place_scope": "a rock shelter at night",
-          "mechanism": "a second survival strategy for surviving winter",
+          "episode_object": "a food cache",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "food preservation",
           "evidence_lens": "experimental archaeology"
         }
       ]
@@ -236,10 +156,10 @@
           "evidence_lens": "experimental archaeology"
         },
         {
-          "episode_object": "a survival record of staying warm without houses",
-          "time_place_scope": "an Ice Age winter camp",
-          "mechanism": "a second survival strategy for staying warm without houses",
-          "evidence_lens": "archaeological traces"
+          "episode_object": "a hearth",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "fire management",
+          "evidence_lens": "experimental archaeology"
         }
       ]
     },
@@ -253,10 +173,10 @@
           "evidence_lens": "paleoenvironmental reconstruction"
         },
         {
-          "episode_object": "a survival record of finding safe drinking water",
-          "time_place_scope": "a river crossing",
-          "mechanism": "a second survival strategy for finding safe drinking water",
-          "evidence_lens": "ethnographic comparison"
+          "episode_object": "a hearth",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "fire management",
+          "evidence_lens": "paleoenvironmental reconstruction"
         }
       ]
     },
@@ -270,10 +190,10 @@
           "evidence_lens": "ethnographic comparison"
         },
         {
-          "episode_object": "a survival record of crossing dangerous rivers",
-          "time_place_scope": "a dry-season savanna",
-          "mechanism": "a second survival strategy for crossing dangerous rivers",
-          "evidence_lens": "paleoenvironmental reconstruction"
+          "episode_object": "a water source",
+          "time_place_scope": "a river crossing",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "ethnographic comparison"
         }
       ]
     },
@@ -287,10 +207,10 @@
           "evidence_lens": "skeletal evidence"
         },
         {
-          "episode_object": "a survival record of treating injuries",
-          "time_place_scope": "a seasonal migration route",
-          "mechanism": "a second survival strategy for treating injuries",
-          "evidence_lens": "experimental archaeology"
+          "episode_object": "a stone blade",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "social learning",
+          "evidence_lens": "skeletal evidence"
         }
       ]
     },
@@ -304,10 +224,10 @@
           "evidence_lens": "experimental archaeology"
         },
         {
-          "episode_object": "a survival record of living without medicine",
-          "time_place_scope": "a rock shelter at night",
-          "mechanism": "a second survival strategy for living without medicine",
-          "evidence_lens": "skeletal evidence"
+          "episode_object": "a wound dressing",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "material repair",
+          "evidence_lens": "experimental archaeology"
         }
       ]
     },
@@ -321,10 +241,10 @@
           "evidence_lens": "ethnographic comparison"
         },
         {
-          "episode_object": "a survival record of sleeping near predators",
-          "time_place_scope": "an Ice Age winter camp",
-          "mechanism": "a second survival strategy for sleeping near predators",
-          "evidence_lens": "archaeological traces"
+          "episode_object": "a hearth",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "fire management",
+          "evidence_lens": "ethnographic comparison"
         }
       ]
     },
@@ -338,10 +258,10 @@
           "evidence_lens": "archaeological traces"
         },
         {
-          "episode_object": "a survival record of defending a camp",
-          "time_place_scope": "a rock shelter at night",
-          "mechanism": "a second survival strategy for defending a camp",
-          "evidence_lens": "ethnographic comparison"
+          "episode_object": "a hearth",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "risk avoidance",
+          "evidence_lens": "archaeological traces"
         }
       ]
     },
@@ -355,10 +275,10 @@
           "evidence_lens": "paleoenvironmental reconstruction"
         },
         {
-          "episode_object": "a survival record of enduring drought",
-          "time_place_scope": "a seasonal migration route",
-          "mechanism": "a second survival strategy for enduring drought",
-          "evidence_lens": "archaeological traces"
+          "episode_object": "a food cache",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "food preservation",
+          "evidence_lens": "paleoenvironmental reconstruction"
         }
       ]
     },
@@ -372,10 +292,10 @@
           "evidence_lens": "archaeological traces"
         },
         {
-          "episode_object": "a survival record of surviving famine",
-          "time_place_scope": "a dry-season savanna",
-          "mechanism": "a second survival strategy for surviving famine",
-          "evidence_lens": "paleoenvironmental reconstruction"
+          "episode_object": "a stone blade",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "archaeological traces"
         }
       ]
     },
@@ -389,10 +309,10 @@
           "evidence_lens": "archaeological traces"
         },
         {
-          "episode_object": "a survival record of protecting fire",
-          "time_place_scope": "a dry-season savanna",
-          "mechanism": "a second survival strategy for protecting fire",
-          "evidence_lens": "experimental archaeology"
+          "episode_object": "a hide shelter",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "risk avoidance",
+          "evidence_lens": "archaeological traces"
         }
       ]
     },
@@ -406,10 +326,10 @@
           "evidence_lens": "experimental archaeology"
         },
         {
-          "episode_object": "a survival record of avoiding food poisoning",
-          "time_place_scope": "an Ice Age winter camp",
-          "mechanism": "a second survival strategy for avoiding food poisoning",
-          "evidence_lens": "archaeological traces"
+          "episode_object": "a hearth",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "fire management",
+          "evidence_lens": "experimental archaeology"
         }
       ]
     },
@@ -423,10 +343,10 @@
           "evidence_lens": "skeletal evidence"
         },
         {
-          "episode_object": "a survival record of surviving childbirth",
-          "time_place_scope": "a seasonal migration route",
-          "mechanism": "a second survival strategy for surviving childbirth",
-          "evidence_lens": "ethnographic comparison"
+          "episode_object": "a child carrier",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "shared labor",
+          "evidence_lens": "skeletal evidence"
         }
       ]
     },
@@ -440,10 +360,10 @@
           "evidence_lens": "ethnographic comparison"
         },
         {
-          "episode_object": "a survival record of raising infants while moving",
-          "time_place_scope": "a rock shelter at night",
-          "mechanism": "a second survival strategy for raising infants while moving",
-          "evidence_lens": "skeletal evidence"
+          "episode_object": "a food cache",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "shared labor",
+          "evidence_lens": "ethnographic comparison"
         }
       ]
     },
@@ -457,10 +377,10 @@
           "evidence_lens": "paleoenvironmental reconstruction"
         },
         {
-          "episode_object": "a survival record of escaping wildfires",
-          "time_place_scope": "a dry-season savanna",
-          "mechanism": "a second survival strategy for escaping wildfires",
-          "evidence_lens": "skeletal evidence"
+          "episode_object": "a food cache",
+          "time_place_scope": "a burned grassland",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "paleoenvironmental reconstruction"
         }
       ]
     },
@@ -474,10 +394,10 @@
           "evidence_lens": "skeletal evidence"
         },
         {
-          "episode_object": "a survival record of coping with parasites",
-          "time_place_scope": "a burned grassland",
-          "mechanism": "a second survival strategy for coping with parasites",
-          "evidence_lens": "paleoenvironmental reconstruction"
+          "episode_object": "a hearth",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "fire management",
+          "evidence_lens": "skeletal evidence"
         }
       ]
     },
@@ -491,10 +411,10 @@
           "evidence_lens": "archaeological traces"
         },
         {
-          "episode_object": "a survival record of preserving food",
-          "time_place_scope": "a seasonal migration route",
-          "mechanism": "a second survival strategy for preserving food",
-          "evidence_lens": "ethnographic comparison"
+          "episode_object": "a hearth",
+          "time_place_scope": "an Ice Age winter camp",
+          "mechanism": "fire management",
+          "evidence_lens": "experimental archaeology"
         }
       ]
     },
@@ -508,10 +428,10 @@
           "evidence_lens": "ethnographic comparison"
         },
         {
-          "episode_object": "a survival record of navigating without maps",
-          "time_place_scope": "an Ice Age winter camp",
-          "mechanism": "a second survival strategy for navigating without maps",
-          "evidence_lens": "archaeological traces"
+          "episode_object": "a water source",
+          "time_place_scope": "a seasonal migration route",
+          "mechanism": "seasonal mobility",
+          "evidence_lens": "ethnographic comparison"
         }
       ]
     },
@@ -525,10 +445,10 @@
           "evidence_lens": "paleoenvironmental reconstruction"
         },
         {
-          "episode_object": "a survival record of surviving extreme heat",
-          "time_place_scope": "a rock shelter at night",
-          "mechanism": "a second survival strategy for surviving extreme heat",
-          "evidence_lens": "skeletal evidence"
+          "episode_object": "a hide shelter",
+          "time_place_scope": "a dry-season savanna",
+          "mechanism": "risk avoidance",
+          "evidence_lens": "paleoenvironmental reconstruction"
         }
       ]
     },
@@ -542,10 +462,10 @@
           "evidence_lens": "skeletal evidence"
         },
         {
-          "episode_object": "a survival record of recovering after a hunt",
-          "time_place_scope": "a dry-season savanna",
-          "mechanism": "a second survival strategy for recovering after a hunt",
-          "evidence_lens": "paleoenvironmental reconstruction"
+          "episode_object": "a food cache",
+          "time_place_scope": "a rock shelter at night",
+          "mechanism": "shared labor",
+          "evidence_lens": "skeletal evidence"
         }
       ]
     }
