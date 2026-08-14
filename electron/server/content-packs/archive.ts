@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { inflateRawSync } from 'node:zlib'
 import sharp from 'sharp'
 
-import { parseContentPackDocument, parseContentPackManifest } from './schemas.js'
+import { isBundleOnlyCoordinationManifest, parseContentPackDocument, parseContentPackManifest } from './schemas.js'
 import { verifyEd25519Signature } from './signature.js'
 import type { ContentPackDocument, ContentPackManifest } from './types.js'
 
@@ -333,6 +333,9 @@ export async function verifyContentPackArchive(
 
   const declaredPaths = new Set(manifest.files.map(file => file.path))
   const admittedPaths = new Set(['manifest.json', 'signature.ed25519', ...declaredPaths])
+  if (isBundleOnlyCoordinationManifest(manifest) && entries.some(entry => entry.path.startsWith('content/') || entry.path.startsWith('assets/'))) {
+    fail('bundle-only coordination archives must not contain content or assets')
+  }
   if (entries.length !== admittedPaths.size) fail('archive contains duplicate or undeclared entries')
   for (const entry of entries) if (!admittedPaths.has(entry.path)) fail(`undeclared archive entry: ${JSON.stringify(entry.path)}`)
 

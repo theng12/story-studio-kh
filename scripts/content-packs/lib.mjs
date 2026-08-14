@@ -7,7 +7,7 @@ import JSZip from 'jszip'
 import { register } from 'tsx/esm/api'
 
 const unregisterTsx = register()
-const [{ ContentPackDocumentSchema, ContentPackManifestSchema }, { verifyContentPackArchive }] = await Promise.all([
+const [{ ContentPackDocumentSchema, ContentPackManifestSchema, isBundleOnlyCoordinationManifest }, { verifyContentPackArchive }] = await Promise.all([
   import('../../electron/server/content-packs/schemas.ts'),
   import('../../electron/server/content-packs/archive.ts'),
 ])
@@ -17,6 +17,8 @@ const FIXED_ARCHIVE_DATE = new Date('1980-01-01T00:00:00.000Z')
 const SOURCE_ROOT_ENTRIES = new Set(['pack.json', 'content', 'assets'])
 const MAX_SOURCE_JSON_BYTES = 1024 * 1024
 const MAX_SOURCE_RASTER_BYTES = 15 * 1024 * 1024
+const MIN_APP_VERSION_TOKEN = '{{MIN_APP_VERSION}}'
+const KEY_ID_TOKEN = '{{KEY_ID}}'
 
 function fail(message) {
   throw new Error(`Content Pack publisher error: ${message}`)
@@ -198,7 +200,6 @@ async function collectSourceFiles(sourceDirectory) {
   if (!packJson) fail('source directory requires a regular pack.json')
   files.sort((left, right) => comparePaths(left.relativePath, right.relativePath))
   for (const file of files) if (!mimeForPath(file.relativePath)) fail(`unsupported source file: ${file.relativePath}`)
-  if (!files.some(file => file.relativePath.startsWith('content/'))) fail('source directory requires at least one content JSON document')
   return { root, packJson, files, records }
 }
 
@@ -264,7 +265,21 @@ function sourceManifestToArchiveManifest(sourceManifest, items, files) {
   }
 }
 
-async function loadSourceManifest(sourceDirectory, onSourceEnumerated, onBeforeSourceRead) {
+function substituteReleaseInputs(sourceManifest, { minAppVersion, keyId }) {
+  if (!sourceManifest || typeof sourceManifest !== 'object' || Array.isArray(sourceManifest)) return sourceManifest
+  const manifest = { ...sourceManifest }
+  if (manifest.min_app_version === MIN_APP_VERSION_TOKEN) {
+    if (!minAppVersion) fail(`pack.json ${MIN_APP_VERSION_TOKEN} requires minAppVersion`)
+    manifest.min_app_version = minAppVersion
+  }
+  if (manifest.key_id === KEY_ID_TOKEN) {
+    if (!keyId) fail(`pack.json ${KEY_ID_TOKEN} requires keyId`)
+    manifest.key_id = keyId
+  }
+  return manifest
+}
+
+async function loadSourceManifest(sourceDirectory, onSourceEnumerated, onBeforeSourceRead, releaseInputs) {
   const source = await collectSourceFiles(sourceDirectory)
   await onSourceEnumerated?.(source)
   await assertSourceStable(source)
@@ -275,8 +290,16 @@ async function loadSourceManifest(sourceDirectory, onSourceEnumerated, onBeforeS
   } catch (error) {
     fail(`pack.json is not valid JSON: ${error instanceof Error ? error.message : String(error)}`)
   }
+  sourceManifest = substituteReleaseInputs(sourceManifest, releaseInputs)
+  const contentRecords = source.files.filter(file => file.relativePath.startsWith('content/'))
+  if (contentRecords.length === 0) {
+    const manifest = sourceManifestToArchiveManifest(sourceManifest, [], [])
+    if (!isBundleOnlyCoordinationManifest(manifest)) fail('source directory requires at least one content JSON document')
+    if (source.files.length !== 0) fail('bundle-only coordination sources must not contain content or assets')
+    return { root: source.root, manifest, files: [] }
+  }
   const contents = []
-  for (const file of source.files.filter(file => file.relativePath.startsWith('content/'))) {
+  for (const file of contentRecords) {
     const bytes = await snapshotSourceFile(file, onBeforeSourceRead)
     let document
     try {
@@ -345,14 +368,14 @@ async function writeOutput(path, bytes) {
   }
 }
 
-export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath, onSourceEnumerated, onBeforeSourceRead, onBeforeOutputCommit }) {
+export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath, minAppVersion, keyId, onSourceEnumerated, onBeforeSourceRead, onBeforeOutputCommit }) {
   if (!sourceDirectory || !privateKeyPath || !outputPath) fail('source directory, private key, and output path are required')
   const sourcePath = resolve(sourceDirectory)
   const privateKey = resolve(privateKeyPath)
   const output = resolve(outputPath)
   await assertOutputSeparatedFromInputs(sourcePath, privateKey, output)
   const privateKeyObject = parsePrivateKey(await readFile(privateKey, 'utf8'))
-  const source = await loadSourceManifest(sourcePath, onSourceEnumerated, onBeforeSourceRead)
+  const source = await loadSourceManifest(sourcePath, onSourceEnumerated, onBeforeSourceRead, { minAppVersion, keyId })
   const manifestBytes = Buffer.from(canonicalJson(source.manifest), 'utf8')
   const signatureBytes = sign(null, manifestBytes, privateKeyObject)
   const archiveBytes = await deterministicArchive(manifestBytes, signatureBytes, source.files)

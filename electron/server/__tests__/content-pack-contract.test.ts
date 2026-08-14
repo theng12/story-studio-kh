@@ -6,6 +6,7 @@ import {
   ContentPackBundleSchema,
   ContentPackDocumentSchema,
   ContentPackManifestSchema,
+  isBundleOnlyCoordinationManifest,
   parseContentPackDocument,
   parseContentPackManifest,
 } from '../content-packs/schemas.js'
@@ -70,6 +71,35 @@ const manifest = {
     { path: 'content/thumbnail-recipe.json', sha256: SHA256, bytes: 100, mime: 'application/json' },
     { path: 'assets/style-preview.webp', sha256: SHA256, bytes: 100, mime: 'image/webp' },
   ],
+} as const
+
+const bundleOnlyManifest = {
+  ...manifest,
+  pack_id: 'com.storystudio.bundle.free-starter',
+  version: '1.0.0',
+  entitlement: {
+    sku: 'com.storystudio.sku.free-starter',
+    family: 'com.storystudio.family.free-starter',
+  },
+  items: [],
+  files: [],
+  dependencies: [
+    { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0' },
+    { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0' },
+    { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0' },
+    { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0' },
+  ],
+  bundles: [{
+    id: 'com.storystudio.bundle.free-starter',
+    kind: 'channel-kit',
+    name: 'Free Starter Channel Kit',
+    components: [
+      { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0', item_id: 'com.storystudio.formula.free-starter', kind: 'series-formula' },
+      { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter', kind: 'topic-pack' },
+      { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0', item_id: 'com.storystudio.style.free-starter', kind: 'visual-style' },
+      { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0', item_id: 'com.storystudio.thumbnail.free-starter', kind: 'thumbnail-recipe' },
+    ],
+  }],
 } as const
 
 const documents = {
@@ -175,6 +205,64 @@ describe('Content Pack v1 contracts', () => {
       'series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe',
     ])
     assert.equal(ContentPackManifestSchema.parse(manifest).version, '1.2.3')
+  })
+
+  test('accepts only one empty coordination bundle with a complete external closure', () => {
+    const parsed = parseContentPackManifest(bundleOnlyManifest)
+    assert.equal(parsed.items.length, 0)
+    assert.equal(parsed.files.length, 0)
+    assert.equal(isBundleOnlyCoordinationManifest(parsed), true)
+    assert.deepEqual(new Set(parsed.bundles[0]!.components.map(row => row.kind)),
+      new Set(['series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe']))
+  })
+
+  test('keeps empty items or files invalid outside the one bundle-only coordination shape', () => {
+    assertRejected({ ...manifest, items: [] }, /items|empty|content/i)
+    assertRejected({ ...manifest, files: [] }, /files|empty|content/i)
+    assertRejected({ ...bundleOnlyManifest, bundles: [] }, /bundle/i)
+    assertRejected({ ...bundleOnlyManifest, bundles: [bundleOnlyManifest.bundles[0], bundleOnlyManifest.bundles[0]] }, /one|bundle/i)
+    assertRejected({
+      ...bundleOnlyManifest,
+      bundles: [{
+        ...bundleOnlyManifest.bundles[0],
+        components: [{ ...bundleOnlyManifest.bundles[0].components[0], pack_id: bundleOnlyManifest.pack_id }, ...bundleOnlyManifest.bundles[0].components.slice(1)],
+      }],
+    }, /external|same-pack/i)
+  })
+
+  test('requires the coordination bundle to contain exactly one external Formula, Topic Pack, Style, and Recipe with an exact used dependency each', () => {
+    assertRejected({
+      ...bundleOnlyManifest,
+      dependencies: bundleOnlyManifest.dependencies.slice(1),
+    }, /dependency/i)
+    assertRejected({
+      ...bundleOnlyManifest,
+      dependencies: [...bundleOnlyManifest.dependencies, { pack_id: 'com.storystudio.unused.free-starter', version: '1.0.0' }],
+    }, /unused|dependenc/i)
+    assertRejected({
+      ...bundleOnlyManifest,
+      bundles: [{ ...bundleOnlyManifest.bundles[0], components: bundleOnlyManifest.bundles[0].components.slice(0, 3) }],
+    }, /Style|Recipe|component/i)
+    assertRejected({
+      ...bundleOnlyManifest,
+      bundles: [{
+        ...bundleOnlyManifest.bundles[0],
+        components: [
+          ...bundleOnlyManifest.bundles[0].components.slice(0, 3),
+          { ...bundleOnlyManifest.bundles[0].components[2], item_id: 'com.storystudio.style.second-free-starter' },
+        ],
+      }],
+    }, /exactly|unique|kind/i)
+    assertRejected({
+      ...bundleOnlyManifest,
+      bundles: [{
+        ...bundleOnlyManifest.bundles[0],
+        components: [
+          ...bundleOnlyManifest.bundles[0].components.slice(0, 3),
+          { ...bundleOnlyManifest.bundles[0].components[3], item_id: bundleOnlyManifest.bundles[0].components[2].item_id },
+        ],
+      }],
+    }, /unique/i)
   })
 
   test('accepts one strict document of every initial content kind', () => {

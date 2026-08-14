@@ -47,6 +47,48 @@ interface ArchiveOptions {
   assetBytes?: Uint8Array
 }
 
+async function buildBundleOnlyArchive(extraEntries: Array<{ path: string; bytes: Uint8Array }> = []) {
+  const keyPair = generateKeyPairSync('ed25519')
+  const manifestBytes = Buffer.from(JSON.stringify({
+    pack_format: 1,
+    pack_id: 'com.storystudio.bundle.free-starter',
+    publisher_id: PUBLISHER_ID,
+    key_id: KEY_ID,
+    version: '1.0.0',
+    min_app_version: '1.0.0',
+    lifecycle: 'active',
+    entitlement: { sku: 'com.storystudio.sku.free-starter', family: 'com.storystudio.family.free-starter' },
+    dependencies: [
+      { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0' },
+      { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0' },
+      { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0' },
+      { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0' },
+    ],
+    items: [],
+    files: [],
+    bundles: [{
+      id: 'com.storystudio.bundle.free-starter',
+      kind: 'channel-kit',
+      name: 'Free Starter Channel Kit',
+      components: [
+        { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0', item_id: 'com.storystudio.formula.free-starter', kind: 'series-formula' },
+        { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter', kind: 'topic-pack' },
+        { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0', item_id: 'com.storystudio.style.free-starter', kind: 'visual-style' },
+        { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0', item_id: 'com.storystudio.thumbnail.free-starter', kind: 'thumbnail-recipe' },
+      ],
+    }],
+  }), 'utf8')
+  const signature = sign(null, manifestBytes, keyPair.privateKey)
+  const zip = new JSZip()
+  zip.file('manifest.json', manifestBytes, { createFolders: false })
+  zip.file('signature.ed25519', signature, { createFolders: false })
+  for (const entry of extraEntries) zip.file(entry.path, entry.bytes, { createFolders: false })
+  return {
+    archiveBytes: await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' }),
+    publicKeyPem: keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+  }
+}
+
 async function buildArchive(options: ArchiveOptions = {}) {
   const assetPath = options.assetPath ?? 'assets/preview.png'
   const visualStyleBytes = Buffer.from(JSON.stringify(visualStyleDocument(options.previewAssetPath ?? assetPath)), 'utf8')
@@ -263,6 +305,18 @@ describe('immutable content-pack archive verification', () => {
     assert.deepEqual(Buffer.from(verified.manifestBytes), archive.manifestBytes)
     assert.equal(verified.documents.get('com.storystudio.style.test')?.kind, 'visual-style')
     assert.deepEqual(Buffer.from(verified.files.get('assets/preview.png') ?? []), PNG_1PX)
+  })
+
+  test('accepts a signed bundle-only archive but rejects every in-pack content or asset entry', async () => {
+    const archive = await buildBundleOnlyArchive()
+    const verified = await verifyContentPackArchive(archive.archiveBytes, policy(archive.publicKeyPem))
+    assert.equal(verified.manifest.items.length, 0)
+    assert.equal(verified.files.size, 0)
+
+    for (const path of ['content/formula.json', 'assets/preview.png']) {
+      const invalid = await buildBundleOnlyArchive([{ path, bytes: Buffer.from('must not be admitted') }])
+      await assert.rejects(verifyContentPackArchive(invalid.archiveBytes, policy(invalid.publicKeyPem)), /undeclared|content|asset/i)
+    }
   })
 
   test('binds the detached signature to the exact raw manifest bytes', async () => {

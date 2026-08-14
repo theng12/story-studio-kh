@@ -65,6 +65,47 @@ async function writeSource(root, { config = {}, document = {}, extras = [] } = {
   return source
 }
 
+async function writeBundleOnlySource(root, { config = {}, entries = [] } = {}) {
+  const source = join(root, 'bundle-only-source')
+  await mkdir(source, { recursive: true })
+  await writeFile(join(source, 'pack.json'), JSON.stringify({
+    pack_format: 1,
+    pack_id: 'com.storystudio.bundle.free-starter',
+    publisher_id: 'com.storystudio',
+    key_id: '{{KEY_ID}}',
+    version: '1.0.0',
+    min_app_version: '{{MIN_APP_VERSION}}',
+    lifecycle: 'active',
+    entitlement: {
+      sku: 'com.storystudio.sku.free-starter',
+      family: 'com.storystudio.family.free-starter',
+    },
+    dependencies: [
+      { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0' },
+      { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0' },
+      { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0' },
+      { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0' },
+    ],
+    bundles: [{
+      id: 'com.storystudio.bundle.free-starter',
+      kind: 'channel-kit',
+      name: 'Free Starter Channel Kit',
+      components: [
+        { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0', item_id: 'com.storystudio.formula.free-starter', kind: 'series-formula' },
+        { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter', kind: 'topic-pack' },
+        { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0', item_id: 'com.storystudio.style.free-starter', kind: 'visual-style' },
+        { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0', item_id: 'com.storystudio.thumbnail.free-starter', kind: 'thumbnail-recipe' },
+      ],
+    }],
+    ...config,
+  }), 'utf8')
+  for (const [relativePath, bytes] of entries) {
+    await mkdir(join(source, relativePath, '..'), { recursive: true })
+    await writeFile(join(source, relativePath), bytes)
+  }
+  return source
+}
+
 async function makeFixture() {
   const root = await mkdtemp(join(tmpdir(), 'story-content-pack-cli-'))
   const { privateKey, publicKey } = generateKeyPairSync('ed25519')
@@ -127,6 +168,80 @@ test('build-pack accepts the deliberate private-key environment path and refuses
     env: { STORY_CONTENT_PACK_PRIVATE_KEY_PATH: fixture.privateKeyPath },
   })
   assert.equal(built.status, 0, built.stderr)
+})
+
+test('buildContentPack signs only a complete token-resolved bundle-only coordination source with the supplied key identity', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const source = await writeBundleOnlySource(fixture.root)
+  const output = join(fixture.root, 'bundle-only.sspack')
+  const { buildContentPack, validateContentPack } = await import('../lib.mjs')
+
+  await assert.rejects(
+    buildContentPack({ sourceDirectory: source, privateKeyPath: fixture.privateKeyPath, outputPath: output }),
+    /MIN_APP_VERSION|KEY_ID|semantic version|qualified/i,
+  )
+  await assert.rejects(readFile(output), /ENOENT/)
+  await assert.rejects(
+    buildContentPack({
+      sourceDirectory: source,
+      privateKeyPath: fixture.privateKeyPath,
+      outputPath: output,
+      minAppVersion: '1.0.0',
+      keyId: 'com.someoneelse.key.free-starter',
+    }),
+    /publisher namespace/i,
+  )
+  const result = await buildContentPack({
+    sourceDirectory: source,
+    privateKeyPath: fixture.privateKeyPath,
+    outputPath: output,
+    minAppVersion: '1.0.0',
+    keyId: 'com.storystudio.key.free-starter',
+  })
+  assert.equal(result.packId, 'com.storystudio.bundle.free-starter')
+  const archive = await JSZip.loadAsync(await readFile(output))
+  const signedManifest = JSON.parse(await archive.file('manifest.json').async('text'))
+  assert.equal(signedManifest.key_id, 'com.storystudio.key.free-starter')
+  assert.equal(signedManifest.min_app_version, '1.0.0')
+  await validateContentPack({
+    archivePath: output,
+    keyId: 'com.storystudio.key.free-starter',
+    publisherId: 'com.storystudio',
+    publicKeyPath: fixture.publicKeyPath,
+  })
+  const wrongPublicKeyPath = join(fixture.root, 'wrong-publisher-public.pem')
+  const { publicKey: wrongPublicKey } = generateKeyPairSync('ed25519')
+  await writeFile(wrongPublicKeyPath, wrongPublicKey.export({ type: 'spki', format: 'pem' }))
+  await assert.rejects(
+    validateContentPack({
+      archivePath: output,
+      keyId: 'com.storystudio.key.free-starter',
+      publisherId: 'com.storystudio',
+      publicKeyPath: wrongPublicKeyPath,
+    }),
+    /signature/i,
+  )
+})
+
+test('buildContentPack refuses content or assets in a bundle-only source', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const { buildContentPack } = await import('../lib.mjs')
+  for (const [relativePath, bytes] of [['content/formula.json', '{}'], ['assets/preview.png', PNG_1PX]]) {
+    const source = await writeBundleOnlySource(fixture.root, { entries: [[relativePath, bytes]] })
+    await assert.rejects(
+      buildContentPack({
+        sourceDirectory: source,
+        privateKeyPath: fixture.privateKeyPath,
+        outputPath: join(fixture.root, `${relativePath.replace('/', '-')}.sspack`),
+        minAppVersion: '1.0.0',
+        keyId: 'com.storystudio.key.free-starter',
+      }),
+      /bundle|content|file|asset/i,
+    )
+    await rm(source, { recursive: true })
+  }
 })
 
 test('build-pack refuses a secret-bearing content source and writes no archive', async (t) => {

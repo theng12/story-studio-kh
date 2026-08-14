@@ -24,6 +24,37 @@ WebP files. Symlinks, scripts, SVG, HTML, CSS, fonts, and extra files are reject
 complete manifest, and signs its canonical JSON bytes. The pack, key, entitlement, bundle, and
 document IDs must fall within the stated publisher namespace; in-pack paths are not namespace IDs.
 
+## Bundle-only coordination packs
+
+A Channel Kit may coordinate exactly one Formula, Topic Pack, Style, and Thumbnail Recipe from
+exact external dependencies. This is the only source shape permitted without `content/`:
+it must contain just `pack.json`, derive empty `items` and `files`, declare one Channel Kit, and
+carry no in-pack content or assets. Every component must be external and every dependency must
+be used by an exact component reference.
+
+For a release build, the two whole-value placeholders below may be resolved only with explicit
+`buildContentPack()` arguments. The builder does not expand templates in any other field.
+
+```json
+{
+  "key_id": "{{KEY_ID}}",
+  "min_app_version": "{{MIN_APP_VERSION}}"
+}
+```
+
+```js
+await buildContentPack({
+  sourceDirectory: './free-starter-kit',
+  privateKeyPath: './keys/publisher.private.pem',
+  outputPath: './dist/free-starter-1.0.0.sspack',
+  keyId: 'com.storystudio.key.primary',
+  minAppVersion: '1.0.0',
+})
+```
+
+The private key remains path-only and in memory; neither key material nor arbitrary template
+values are written to the archive or command output.
+
 Published identity is immutable: a `(pack_id, exact version, archive SHA-256)` tuple is permanent.
 Any byte change—including a preview image, document, manifest field, or signature—requires a new
 exact pack version. Never rebuild and republish different bytes under an existing version.

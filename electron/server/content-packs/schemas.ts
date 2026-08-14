@@ -403,9 +403,9 @@ export const ContentPackManifestSchema = z.object({
   }).strict(),
   dependencies: z.array(ContentPackDependencySchema).max(100).optional(),
   successor_pack_id: qualifiedId.optional(),
-  items: z.array(ContentPackItemDescriptorSchema).min(1).max(100),
+  items: z.array(ContentPackItemDescriptorSchema).max(100),
   bundles: z.array(ContentPackBundleSchema).max(20).default([]),
-  files: z.array(ContentPackFileSchema).min(1).max(256),
+  files: z.array(ContentPackFileSchema).max(256),
 }).strict().superRefine((manifest, ctx) => {
   const withinPublisher = (id: string) => id.startsWith(`${manifest.publisher_id}.`)
   const assertUnique = (values: string[], path: Array<string | number>, label: string) => {
@@ -413,6 +413,35 @@ export const ContentPackManifestSchema = z.object({
     for (const [index, value] of values.entries()) {
       if (seen.has(value)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [...path, index], message: `${label} must be unique` })
       seen.add(value)
+    }
+  }
+  const bundleOnly = isBundleOnlyCoordinationManifest(manifest)
+  if (!bundleOnly) {
+    if (manifest.items.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'normal content packs require at least one item' })
+    }
+    if (manifest.files.length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['files'], message: 'normal content packs require at least one file' })
+    }
+  } else {
+    if (manifest.bundles.length !== 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles'], message: 'bundle-only coordination packs require exactly one Channel Kit bundle' })
+    }
+    const components = manifest.bundles[0]?.components ?? []
+    const requiredKinds = new Set<ContentPackItemKind>(['series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe'])
+    const kinds = new Set(components.map(component => component.kind))
+    if (components.length !== requiredKinds.size || kinds.size !== requiredKinds.size || [...requiredKinds].some(kind => !kinds.has(kind))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', 0, 'components'], message: 'bundle-only coordination packs require exactly one Formula, Topic Pack, Style, and Recipe component' })
+    }
+    for (const [index, component] of components.entries()) {
+      if (component.pack_id === manifest.pack_id) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', 0, 'components', index], message: 'bundle-only coordination components must be external' })
+      }
+    }
+    for (const [index, dependency] of (manifest.dependencies ?? []).entries()) {
+      if (!components.some(component => component.pack_id === dependency.pack_id && component.version === dependency.version)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dependencies', index], message: 'bundle-only coordination dependencies must be used by an exact component reference' })
+      }
     }
   }
   if (!withinPublisher(manifest.pack_id)) {
@@ -482,6 +511,10 @@ export const ContentPackManifestSchema = z.object({
     }
   }
 })
+
+export function isBundleOnlyCoordinationManifest(manifest: ContentPackManifest): boolean {
+  return manifest.items.length === 0 && manifest.files.length === 0
+}
 
 export function parseContentPackManifest(input: unknown): ContentPackManifest {
   return ContentPackManifestSchema.parse(input)
