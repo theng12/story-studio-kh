@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import os from 'node:os'
 
 const [mode, ...args] = process.argv.slice(2)
 
@@ -31,6 +32,18 @@ if (mode === 'cleanup') {
   await fs.writeFile(startedFile, 'started')
   await writeSceneRenderStatus(statusPath, { active: true, job_id: 'new-render-batch', in_flight: [3] })
   await fs.writeFile(doneFile, 'done')
+  process.exitCode = 0
+} else if (mode === 'live-stale-lock') {
+  const [lockPath, readyFile, releaseFile] = args
+  await fs.writeFile(lockPath, JSON.stringify({
+    created_at_ms: Date.now() - 31_000,
+    hostname: os.hostname(),
+    pid: process.pid,
+    token: 'live-owner',
+  }))
+  await fs.writeFile(readyFile, 'ready')
+  await waitForFile(releaseFile)
+  await fs.unlink(lockPath).catch(() => {})
   process.exitCode = 0
 } else {
   throw new Error(`Unknown scene render status worker mode: ${mode}`)

@@ -34,16 +34,20 @@ that the owning queue job was still active.
   per-file lock and atomic write. A deterministic interleaving regression
   proves an old cleanup cannot overwrite a newer batch marker.
 
-## Second re-review correction
+## Cross-process locking correction
 
-- The sidecar critical section now adds a short-lived, owner-checked atomic
-  lock directory around the existing in-process lock and atomic JSON rename.
-  A stale lock is atomically moved aside before cleanup; an owner only removes
-  its own marker, and lock acquisition times out closed rather than writing
-  over an unproven owner.
+- The sidecar critical section uses the project’s existing atomic lock-file
+  pattern: exclusive publish, an owner token, and a recovery guard. A stale
+  lock is recoverable only after its local PID is old and OS-proven dead; live,
+  corrupt, foreign-host, and otherwise unknown owners fail closed. Recovery
+  re-checks ownership while holding the non-stealable guard, and release only
+  unlinks its exact owner record.
 - A genuine two-`tsx`-process test pauses an old cleanup after its read while
   a newer writer attempts to update the same status file. The newer writer
   waits, then the final marker remains active for the newer job.
+- A second two-process regression gives a live owner an old timestamp. The
+  contender remains blocked until that owner releases; it cannot replace the
+  live owner solely because the marker is old.
 - Paused ownership no longer drives `Queuing…` or a spinner. The paused banner
   stays explicit with Resume, in-flight thumbnail spinners stop, and empty or
   preview regeneration controls are visibly disabled until the owner settles,
@@ -60,12 +64,10 @@ deletion. Tests use temporary local projects and no provider calls.
 - RED then GREEN: `scene-render-status.test.ts` now covers terminal, restart,
   removal, paused-owner visibility, and the deterministic serialized race.
 - Local mock-only control/queue/state suites: `job-cancel.test.ts`,
-  `job-queue.test.ts`, and `scene-render-status.test.ts` — 74 pass.
+  `job-queue.test.ts`, and `scene-render-status.test.ts` — 77 pass, including
+  both genuine cross-process ownership regressions.
 - Focused frontend suites: `sceneReviewPreview.test.ts` and `useJobs.test.ts`
   — 23 pass.
-- Second re-review race/control/state suite: `job-cancel.test.ts`,
-  `job-queue.test.ts`, and `scene-render-status.test.ts` — 76 pass, including
-  the cross-process regression.
 - Both `npm run typecheck:electron` and `npm --prefix frontend run typecheck`
   completed in the local toolchain; `npm run lint` and `git diff --check` were
   also run.

@@ -1,6 +1,7 @@
 import { after, before, describe, mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
@@ -253,16 +254,43 @@ describe('Scene render status lifecycle', () => {
     const episodeId = 'EP010'
     const { statusFile } = await writeActiveRenderStatus(project.slug, episodeId)
     const lockPath = `${statusFile}.lock`
-    await fs.mkdir(lockPath)
-    await fs.writeFile(path.join(lockPath, 'owner'), 'crashed-owner')
-    const staleAt = new Date(Date.now() - 31_000)
-    await fs.utimes(lockPath, staleAt, staleAt)
+    await fs.writeFile(lockPath, JSON.stringify({
+      created_at_ms: Date.now() - 31_000,
+      hostname: os.hostname(),
+      pid: 999_999_999,
+      token: 'crashed-owner',
+    }))
 
     await writeSceneRenderStatus(statusFile, { active: true, job_id: 'recovered-render-batch', in_flight: [4] })
 
     const status = JSON.parse(await fs.readFile(statusFile, 'utf-8'))
     assert.equal(status.job_id, 'recovered-render-batch')
     assert.equal(await fs.access(lockPath).then(() => true, () => false), false)
+  })
+
+  test('does not reclaim a stale-looking lock while its cross-process owner is alive', async () => {
+    const project = await pm.createProject({ name: 'Live stale render marker lock' })
+    const episodeId = 'EP011'
+    const { statusFile } = await writeActiveRenderStatus(project.slug, episodeId)
+    const lockPath = `${statusFile}.lock`
+    const readyFile = `${statusFile}.live-lock-ready`
+    const releaseFile = `${statusFile}.live-lock-release`
+    const writerStartedFile = `${statusFile}.live-lock-writer-started`
+    const writerDoneFile = `${statusFile}.live-lock-writer-done`
+
+    const liveOwner = runStatusProcess(['live-stale-lock', lockPath, readyFile, releaseFile])
+    let writer: Promise<void> | undefined
+    try {
+      assert.equal(await waitForFile(readyFile), true, 'live owner must hold a stale-looking lock')
+      writer = runStatusProcess(['write', statusFile, writerStartedFile, writerDoneFile])
+      assert.equal(await waitForFile(writerStartedFile), true, 'writer must begin while the owner is alive')
+      assert.equal(await waitForFile(writerDoneFile, 250), false, 'writer must not take over a live owner merely because its lock is old')
+    } finally {
+      await fs.writeFile(releaseFile, 'release').catch(() => {})
+      await liveOwner.catch(() => {})
+      await writer?.catch(() => {})
+    }
+    assert.equal(JSON.parse(await fs.readFile(statusFile, 'utf-8')).job_id, 'new-render-batch')
   })
 
   test('restart terminalization deactivates an interrupted render marker', async () => {
