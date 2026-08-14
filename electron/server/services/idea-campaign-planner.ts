@@ -136,12 +136,61 @@ export function planIdeaAssignments(options: {
       .map(axis => ({ ...axis, values: unique(axis.values) })),
   ]))
   const axesForSubject = (subject: { packId?: string }) => subject.packId
-    ? [...formulaAxes, ...(axesByPack.get(subject.packId) || [])]
+    ? [...(axesByPack.get(subject.packId) || []), ...formulaAxes]
     : axes
 
   const targetPoolSize = Math.max(options.count * 4, options.count + 40)
   const candidates: IdeaAssignment[] = []
   const seen = new Set<string>()
+  const primaryRank = new Map<string, number>()
+
+  const reserveCandidate = (
+    subject: { value: string; packId?: string },
+    dimensions: Record<string, string>,
+  ): IdeaAssignment | null => {
+    const parts = [
+      niche.id,
+      subject.packId || 'formula',
+      ...Object.entries(dimensions)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => `${slug(key)}=${slug(value)}`),
+    ]
+    const fingerprint = parts.join('|')
+    if (used.has(fingerprint) || seen.has(fingerprint)) return null
+    seen.add(fingerprint)
+    const digest = createHash('sha1').update(fingerprint).digest('hex').slice(0, 12)
+    const candidate = {
+      idea_key: `idea-${digest}`,
+      fingerprint,
+      topic_pack_id: subject.packId,
+      dimensions,
+    }
+    candidates.push(candidate)
+    return candidate
+  }
+
+  // Topic authors declare the four coverage axes as a coherent episode tuple.
+  // Reserve one diagonal tuple per subject before the general Cartesian pool:
+  // this reaches every declared axis value even when max_siblings_per_subject
+  // later permits only one candidate for each subject. The seed determines the
+  // subject-to-tuple pairing, while the ordinal alignment keeps its object,
+  // setting, mechanism, and evidence lens together.
+  const rankedSubjects = [...subjectRows].sort((left, right) => stableScore(
+    seed,
+    `${left.packId || 'formula'}|${left.value}`,
+  ).localeCompare(stableScore(seed, `${right.packId || 'formula'}|${right.value}`)))
+  const rankByPack = new Map<string, number>()
+  for (const [rank, subject] of rankedSubjects.entries()) {
+    if (!subject.packId) continue
+    const packRank = rankByPack.get(subject.packId) || 0
+    rankByPack.set(subject.packId, packRank + 1)
+    const dimensions: Record<string, string> = { subject: subject.value }
+    for (const axis of axesForSubject(subject)) {
+      dimensions[axis.id] = axis.values[packRank % axis.values.length]!
+    }
+    const primary = reserveCandidate(subject, dimensions)
+    if (primary) primaryRank.set(primary.fingerprint, rank)
+  }
 
   // Enumerate the Cartesian space with mixed-radix counters, but stop once we
   // have a bounded reserve pool. This guarantees every conceptual combination
@@ -164,28 +213,21 @@ export function planIdeaAssignments(options: {
       dimensions[axis.id] = axis.values[combinationIndex % axis.values.length]!
       combinationIndex = Math.floor(combinationIndex / axis.values.length)
     })
-    const parts = [
-      niche.id,
-      subject.packId || 'formula',
-      ...Object.entries(dimensions)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([key, value]) => `${slug(key)}=${slug(value)}`),
-    ]
-    const fingerprint = parts.join('|')
-    if (used.has(fingerprint) || seen.has(fingerprint)) continue
-    seen.add(fingerprint)
-    const digest = createHash('sha1').update(fingerprint).digest('hex').slice(0, 12)
-    candidates.push({
-      idea_key: `idea-${digest}`,
-      fingerprint,
-      topic_pack_id: subject.packId,
-      dimensions,
-    })
+    reserveCandidate(subject, dimensions)
   }
 
   const siblingCounts = new Map<string, number>()
   return candidates
-    .sort((a, b) => stableScore(seed, a.fingerprint).localeCompare(stableScore(seed, b.fingerprint)))
+    .sort((a, b) => {
+      const leftRank = primaryRank.get(a.fingerprint)
+      const rightRank = primaryRank.get(b.fingerprint)
+      if (leftRank !== undefined || rightRank !== undefined) {
+        if (leftRank === undefined) return 1
+        if (rightRank === undefined) return -1
+        return leftRank - rightRank
+      }
+      return stableScore(seed, a.fingerprint).localeCompare(stableScore(seed, b.fingerprint))
+    })
     .filter((candidate) => {
       const pack = candidate.topic_pack_id ? packs.find(entry => entry.id === candidate.topic_pack_id) : undefined
       const limit = pack?.maxSiblingsPerSubject

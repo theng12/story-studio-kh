@@ -107,6 +107,15 @@ test('wave one Formula sources carry legacy loader decoration as authored schema
   }
 })
 
+test('Natural World compatibility prose names every declared Formula', async () => {
+  const topic = await readJson(new URL('topic/natural-world-animals/content/topic-pack.json', WAVE))
+  assert.deepEqual(topic.compatible_formula_ids, [
+    'com.storystudio.formula.natural-world-explained',
+    'com.storystudio.formula.listicle-explainer',
+  ])
+  assert.match(topic.compatibility_rules.join(' '), /Natural World Formula.*Counted Explainer/i)
+})
+
 test('offline assignments cover each advertised Topic deterministically with meaningful fingerprints', async () => {
   const unregister = register()
   const { contentPackDocumentToNiche, contentPackDocumentToTopicPack } = await import(new URL('../../../electron/server/content-packs/legacy-adapters.ts', import.meta.url))

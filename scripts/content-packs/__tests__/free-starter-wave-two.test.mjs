@@ -58,6 +58,16 @@ test('wars Topic remains compatible with both the new History Formula and Hidden
   assert.match(wars.prompt_context, /diplomacy, political objectives, resources, alliances, logistics, and civilian consequences/)
 })
 
+test('Businesses compatibility prose names every declared Formula', async () => {
+  const businesses = await json('topic/economics-businesses/content/topic-pack.json')
+  assert.deepEqual(businesses.compatible_formula_ids, [
+    'com.storystudio.formula.economics-of',
+    'com.storystudio.formula.pov-hustle',
+    'com.storystudio.formula.listicle-explainer',
+  ])
+  assert.match(businesses.compatibility_rules.join(' '), /Business Economics.*Build Under Constraints.*Counted Explainer/i)
+})
+
 test('approved wave two preview bytes remain unchanged and every unblocked source builds deterministically', async t => {
   const temporary = await mkdtemp(join(tmpdir(), 'story-wave-two-'))
   t.after(() => rm(temporary, { recursive: true, force: true }))

@@ -267,7 +267,7 @@ test('signed Recipe sources preserve representable legacy rendering guidance', a
   }
 })
 
-test('every advertised Starter count has unique subject, episode object, time/place, and mechanism assignments within its sibling ceiling', async () => {
+test('every advertised Starter count covers every declared Topic axis within its sibling ceiling', async () => {
   for (const [formulaSlug, topicSlug, advertisedCount] of ADVERTISED_COVERAGE) {
     const formula = await sourceJson('formula', formulaSlug)
     const topic = await sourceJson('topic', topicSlug)
@@ -277,13 +277,17 @@ test('every advertised Starter count has unique subject, episode object, time/pl
     niche.activeTopicPacks = [contentPackDocumentToTopicPack(topic)]
     const assignments = planIdeaAssignments({ niche, count: advertisedCount, seed: `free-starter-coverage-${topicSlug}` }).slice(0, advertisedCount)
     assert.equal(assignments.length, advertisedCount, `${topicSlug} must fill its advertised coverage`)
-    const structural = assignments.map(assignment => [
-      assignment.dimensions.subject,
-      assignment.dimensions['episode-object'],
-      assignment.dimensions['time-place-scope'],
-      assignment.dimensions.mechanism,
-    ].join('|'))
-    assert.equal(new Set(structural).size, advertisedCount, `${topicSlug} must not use formula-only axes to disguise a duplicate concept`)
+    for (const axisId of ['subject', 'episode-object', 'time-place-scope', 'mechanism', 'evidence-lens']) {
+      const declared: string[] | undefined = axisId === 'subject'
+        ? topic.subjects
+        : topic.idea_axes?.find((axis: { id: string }) => axis.id === axisId)?.values
+      assert.ok(declared?.length, `${topicSlug} must declare ${axisId}`)
+      assert.deepEqual(
+        new Set(assignments.map(assignment => assignment.dimensions[axisId])),
+        new Set(declared),
+        `${topicSlug} must rotate every declared ${axisId} instead of hiding coverage behind subject concatenation`,
+      )
+    }
     const siblings = new Map<string, number>()
     for (const assignment of assignments) {
       const subject = assignment.dimensions.subject
