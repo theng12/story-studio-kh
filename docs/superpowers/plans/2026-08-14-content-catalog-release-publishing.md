@@ -40,7 +40,7 @@
 
 **Interfaces:**
 - Consumes: current `origin/main`, known approved heads above, plus independently GO-reviewed heads produced by the Catalog Experience, Free Starter, and Paid Catalog plans.
-- Produces a manifest recording `base_sha`, ordered `included_sha`, review evidence, conflicts/resolutions, and excluded optional work.
+- Produces a manifest recording, for every feature branch, `base_sha`, `head_sha`, the complete ordered `included_sha` range, review evidence, conflicts/resolutions, and excluded optional work.
 
 - [ ] **Step 1: Verify clean inputs and record immutable heads**
 
@@ -50,7 +50,7 @@ git status --short
 git rev-parse origin/main codex/genstudio-111-adoption codex/archival-ledger-pack codex/fix-stale-render-state
 ```
 
-Expected: clean integration worktree and known heads matching the reviewed reports. Resolve future heads with `git rev-parse codex/content-store-catalog-experience codex/free-starter-channel-kits codex/paid-component-catalog` and write those exact hashes to the manifest before cherry-picking.
+Expected: clean integration worktree and known heads matching the reviewed reports. Resolve every future branch's reviewed base and head from its SDD ledger/report, verify that the recorded base is an ancestor of the head, reject merge commits in the range, and write the full oldest-first commit list to the manifest before cherry-picking. A branch name or tip commit by itself is not sufficient evidence because each plan produces multiple task commits.
 
 - [ ] **Step 2: Create the integration branch and cherry-pick in dependency order**
 
@@ -60,13 +60,24 @@ git cherry-pick 35eb3942c0090925065d7268acb979105f77c086
 git cherry-pick 2acf4168a9e51a3a38a5b6dfbbe32eeb7be60b1e
 ```
 
-Then cherry-pick the reviewed bundle-schema/publisher, catalog-experience, free-kit, Archival componentization/paid-catalog heads in that order. Cherry-pick `b6143164...` only if its GO evidence and focused tests satisfy the global constraint. Do not duplicate `18e6bbe0` if the paid-catalog head already contains it.
+Then cherry-pick the reviewed bundle-schema/publisher, catalog-experience, free-kit, Archival componentization/paid-catalog commit ranges in that order. Cherry-pick `b6143164...` only if its GO evidence and focused tests satisfy the global constraint. Do not duplicate `18e6bbe0` if the paid-catalog range already contains it.
 
 ```bash
-git cherry-pick "$(git rev-parse codex/content-store-catalog-experience)"
-git cherry-pick "$(git rev-parse codex/free-starter-channel-kits)"
-git cherry-pick "$(git rev-parse codex/paid-component-catalog)"
+apply_reviewed_range() {
+  feature_base="$1"
+  feature_head="$2"
+  git merge-base --is-ancestor "$feature_base" "$feature_head"
+  test -z "$(git rev-list --merges "$feature_base..$feature_head")"
+  git rev-list --reverse --topo-order "$feature_base..$feature_head" |
+    while IFS= read -r commit; do git cherry-pick "$commit"; done
+}
+
+apply_reviewed_range "$CATALOG_EXPERIENCE_BASE" "$CATALOG_EXPERIENCE_HEAD"
+apply_reviewed_range "$FREE_STARTER_BASE" "$FREE_STARTER_HEAD"
+apply_reviewed_range "$PAID_CATALOG_BASE" "$PAID_CATALOG_HEAD"
 ```
+
+Expected: every SHA listed in the manifest is applied exactly once. After each range, compare the resulting tree for that feature's owned paths against its reviewed head; stop on an omitted task commit, unexpected merge, or duplicate patch.
 
 - [ ] **Step 3: Run post-integration conflict tests**
 
