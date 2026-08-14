@@ -102,26 +102,35 @@ describe('Series Formula + Topic Pack campaign planning', () => {
   })
 
   test('Archival Ledger reserves 500 distinct pack-driven assignments with no more than four siblings per subject', async () => {
-    const source = new URL('../../../content-packs/archival-ledger/content/', import.meta.url)
+    const source = new URL('../../../content-packs/paid/archival-ledger/', import.meta.url)
     const formulaDocument = parseContentPackDocument('series-formula', JSON.parse(
-      await readFile(new URL('series-formula.json', source), 'utf8'),
+      await readFile(new URL('formula/archival-ledger/content/series-formula.json', source), 'utf8'),
     )) as Extract<ContentPackDocument, { kind: 'series-formula' }>
     const formula = contentPackDocumentToNiche(formulaDocument)
     const topicFiles = [
-      'topic-states-revolutions-collapse.json',
-      'topic-money-debt-financial-institutions.json',
-      'topic-empires-trade-extraction.json',
-      'topic-wars-treaties-world-order.json',
-      'topic-infrastructure-commodities-corporate-power.json',
+      'topic/states-revolutions-collapse/content/topic-states-revolutions-collapse.json',
+      'topic/money-debt-financial-institutions/content/topic-money-debt-financial-institutions.json',
+      'topic/empires-trade-extraction/content/topic-empires-trade-extraction.json',
+      'topic/wars-treaties-world-order/content/topic-wars-treaties-world-order.json',
+      'topic/infrastructure-commodities-corporate-power/content/topic-infrastructure-commodities-corporate-power.json',
     ]
     const packs = await Promise.all(topicFiles.map(async file => contentPackDocumentToTopicPack(
       parseContentPackDocument('topic-pack', JSON.parse(await readFile(new URL(file, source), 'utf8'))) as Extract<ContentPackDocument, { kind: 'topic-pack' }>,
     )))
-    const assignments = planIdeaAssignments({
+    const reserved = planIdeaAssignments({
       niche: { ...formula, activeTopicPacks: packs },
       count: 500,
       seed: 'archival-ledger-five-hundred',
-    }).slice(0, 500)
+    }).slice(0, 250)
+    const assignments = [
+      ...reserved,
+      ...planIdeaAssignments({
+        niche: { ...formula, activeTopicPacks: packs },
+        count: 500,
+        usedFingerprints: reserved.map(assignment => assignment.fingerprint),
+        seed: 'archival-ledger-five-hundred-after-reservation',
+      }).slice(0, 500),
+    ]
     const bySubject = new Map<string, typeof assignments>()
     for (const assignment of assignments) {
       const subject = assignment.dimensions.subject

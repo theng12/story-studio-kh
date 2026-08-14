@@ -230,7 +230,36 @@ describe('Content Pack v1 contracts', () => {
     }, /external|same-pack/i)
   })
 
-  test('requires the coordination bundle to contain exactly one external Formula, Topic Pack, Style, and Recipe with an exact used dependency each', () => {
+  test('requires the coordination bundle to contain one external Formula, one or more Topic Packs, one Style, and one Recipe with exact used dependencies', () => {
+    const fiveTopicBundleOnlyManifest = {
+      ...bundleOnlyManifest,
+      dependencies: [
+        bundleOnlyManifest.dependencies[0],
+        bundleOnlyManifest.dependencies[1],
+        { pack_id: 'com.storystudio.topic.free-starter-second', version: '1.0.0' },
+        { pack_id: 'com.storystudio.topic.free-starter-third', version: '1.0.0' },
+        { pack_id: 'com.storystudio.topic.free-starter-fourth', version: '1.0.0' },
+        { pack_id: 'com.storystudio.topic.free-starter-fifth', version: '1.0.0' },
+        bundleOnlyManifest.dependencies[2],
+        bundleOnlyManifest.dependencies[3],
+      ],
+      bundles: [{
+        ...bundleOnlyManifest.bundles[0],
+        components: [
+          bundleOnlyManifest.bundles[0].components[0],
+          bundleOnlyManifest.bundles[0].components[1],
+          { pack_id: 'com.storystudio.topic.free-starter-second', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter-second', kind: 'topic-pack' },
+          { pack_id: 'com.storystudio.topic.free-starter-third', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter-third', kind: 'topic-pack' },
+          { pack_id: 'com.storystudio.topic.free-starter-fourth', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter-fourth', kind: 'topic-pack' },
+          { pack_id: 'com.storystudio.topic.free-starter-fifth', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter-fifth', kind: 'topic-pack' },
+          bundleOnlyManifest.bundles[0].components[2],
+          bundleOnlyManifest.bundles[0].components[3],
+        ],
+      }],
+    }
+
+    assert.equal(parseContentPackManifest(fiveTopicBundleOnlyManifest).bundles[0]!.components.length, 8,
+      'bundle-only coordination must admit all five independent Topic Packs')
     assertRejected({
       ...bundleOnlyManifest,
       dependencies: bundleOnlyManifest.dependencies.slice(1),
@@ -245,6 +274,14 @@ describe('Content Pack v1 contracts', () => {
     }, /Style|Recipe|component/i)
     assertRejected({
       ...bundleOnlyManifest,
+      bundles: [{ ...bundleOnlyManifest.bundles[0], components: bundleOnlyManifest.bundles[0].components.slice(1) }],
+    }, /Formula|component/i)
+    assertRejected({
+      ...bundleOnlyManifest,
+      bundles: [{ ...bundleOnlyManifest.bundles[0], components: bundleOnlyManifest.bundles[0].components.filter(component => component.kind !== 'topic-pack') }],
+    }, /Topic|component/i)
+    assertRejected({
+      ...bundleOnlyManifest,
       bundles: [{
         ...bundleOnlyManifest.bundles[0],
         components: [
@@ -252,7 +289,27 @@ describe('Content Pack v1 contracts', () => {
           { ...bundleOnlyManifest.bundles[0].components[2], item_id: 'com.storystudio.style.second-free-starter' },
         ],
       }],
-    }, /exactly|unique|kind/i)
+    }, /Formula|exactly|unique|kind/i)
+    assertRejected({
+      ...bundleOnlyManifest,
+      bundles: [{
+        ...bundleOnlyManifest.bundles[0],
+        components: [
+          ...bundleOnlyManifest.bundles[0].components,
+          { ...bundleOnlyManifest.bundles[0].components[2], item_id: 'com.storystudio.style.second-free-starter' },
+        ],
+      }],
+    }, /Style|exactly|unique|kind/i)
+    assertRejected({
+      ...bundleOnlyManifest,
+      bundles: [{
+        ...bundleOnlyManifest.bundles[0],
+        components: [
+          ...bundleOnlyManifest.bundles[0].components,
+          { ...bundleOnlyManifest.bundles[0].components[3], item_id: 'com.storystudio.thumbnail.second-free-starter' },
+        ],
+      }],
+    }, /Recipe|exactly|unique|kind/i)
     assertRejected({
       ...bundleOnlyManifest,
       bundles: [{

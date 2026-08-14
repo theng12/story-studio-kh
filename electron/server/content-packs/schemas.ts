@@ -526,10 +526,9 @@ export const ContentPackManifestSchema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles'], message: 'bundle-only coordination packs require exactly one Channel Kit bundle' })
     }
     const components = manifest.bundles[0]?.components ?? []
-    const requiredKinds = new Set<ContentPackItemKind>(['series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe'])
-    const kinds = new Set(components.map(component => component.kind))
-    if (components.length !== requiredKinds.size || kinds.size !== requiredKinds.size || [...requiredKinds].some(kind => !kinds.has(kind))) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', 0, 'components'], message: 'bundle-only coordination packs require exactly one Formula, Topic Pack, Style, and Recipe component' })
+    const count = (kind: ContentPackItemKind) => components.filter(component => component.kind === kind).length
+    if (count('series-formula') !== 1 || count('topic-pack') < 1 || count('visual-style') !== 1 || count('thumbnail-recipe') !== 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', 0, 'components'], message: 'bundle-only coordination packs require exactly one Formula, at least one Topic Pack, exactly one Style, and exactly one Recipe component' })
     }
     for (const [index, component] of components.entries()) {
       if (component.pack_id === manifest.pack_id) {

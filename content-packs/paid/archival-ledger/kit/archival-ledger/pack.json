@@ -1,0 +1,41 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.kit.archival-ledger",
+  "publisher_id": "com.storystudio",
+  "key_id": "com.storystudio.key.archival-ledger",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Coordinates the independently signed Archival Ledger Channel Kit components.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.kit.archival-ledger",
+    "family": "com.storystudio.family.kit.archival-ledger"
+  },
+  "dependencies": [
+    { "pack_id": "com.storystudio.pack.formula.archival-ledger", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.thumbnail.archival-map-investigation", "version": "1.0.0" }
+  ],
+  "bundles": [
+    {
+      "id": "com.storystudio.bundle.archival-ledger",
+      "kind": "channel-kit",
+      "name": "Archival Ledger",
+      "components": [
+        { "pack_id": "com.storystudio.pack.formula.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.formula.archival-ledger", "kind": "series-formula" },
+        { "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.empires-trade-extraction", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction", "version": "1.0.0", "item_id": "com.storystudio.style.archival-documentary-reconstruction", "kind": "visual-style" },
+        { "pack_id": "com.storystudio.pack.thumbnail.archival-map-investigation", "version": "1.0.0", "item_id": "com.storystudio.thumbnail.archival-map-investigation", "kind": "thumbnail-recipe" }
+      ]
+    }
+  ]
+}
