@@ -17,6 +17,8 @@
  * to fail with a real error than block forever.
  */
 
+import { isServerMode } from './useServerMode'
+
 export interface ApiOptions {
   headers?: Record<string, string>
   /** Bypass the shared read cache for an explicit refresh/verification. */
@@ -172,10 +174,14 @@ function waitForBootReady(): Promise<void> {
  *      first redirect; subsequent 401s become no-ops.
  */
 let _redirectingToLogin = false
-function handleAuthExpired(path: string): void {
+function handleAuthExpired(path: string, error: any): void {
   if (_redirectingToLogin) return
   if (typeof window === 'undefined') return
   if (path.startsWith('/auth/')) return
+  if (!isServerMode()) return
+  const data = error?.data || error?.response?._data || {}
+  if (data.code) return
+  if (data.detail !== 'Authentication required' && data.detail !== 'Invalid or expired session') return
   // Normalize trailing slash. Browsers report `/login/` after express.static's
   // directory-redirect, but the SPA's canonical login URL is `/login`.
   const currentPath = window.location.pathname.replace(/\/+$/, '') || '/'
@@ -315,7 +321,7 @@ export function useApi() {
       // so per-component error handling sees it; the navigation just
       // happens out-of-band.
       if (err?.response?.status === 401 || err?.status === 401) {
-        handleAuthExpired(path)
+        handleAuthExpired(path, err)
       }
       throw err
     }

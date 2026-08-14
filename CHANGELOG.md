@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.839
+
+- Fixed Content Store scope refusals being mistaken for expired Story Studio web sessions.
+- Keeps the Content Store page open so a missing `content:read` scope shows its truthful Settings guidance instead of returning to Channels.
+- Preserves the real remote-session login redirect while ignoring account-key scope responses in both desktop and server modes.
+
 ## v1.0.838
 
 - Added GenStudio-published per-image pricing to every image-model row before selection.
