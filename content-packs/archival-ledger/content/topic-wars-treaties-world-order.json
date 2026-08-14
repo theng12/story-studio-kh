@@ -1,0 +1,14 @@
+{
+  "kind": "topic-pack", "schema_version": 1, "id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order", "name": "Wars, Treaties & World Order", "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
+  "compatible_formula_ids": ["com.storystudio.formula.archival-ledger"],
+  "subjects": ["the Peloponnesian War", "the Punic Wars", "the Crusades", "the Thirty Years' War", "the Seven Years' War", "the Napoleonic Wars", "the Congress of Vienna", "the Crimean War", "the Franco-Prussian War", "the First World War", "the Treaty of Versailles", "the Second World War", "the Yalta Conference", "the Korean War", "the Suez Crisis", "the Cuban Missile Crisis", "the Vietnam War", "the Six-Day War", "the Soviet-Afghan War", "the Gulf War", "the breakup of the Cold War order", "the Dayton Agreement", "the Good Friday Agreement", "the War on Terror", "NATO enlargement"],
+  "episode_objects": ["alliance system", "war aim", "peace settlement", "diplomatic conference", "occupation regime", "deterrence crisis", "logistics network", "civilian home front"],
+  "time_place_scopes": ["named conflict theatre", "treaty negotiation", "regional balance of power", "international order"],
+  "mechanisms": ["alliance commitment", "deterrence failure", "war aims", "military logistics", "home-front capacity", "peace settlement", "occupation and resistance", "balance-of-power shift"],
+  "evidence_lenses": ["diplomatic correspondence", "military logistics", "treaty texts", "civilian records", "international archives"],
+  "exclusions": ["battlefield spectacle in place of causation", "treaty as the only cause", "inevitable war narrative"],
+  "max_siblings_per_subject": 4,
+  "prompt_context": "Explain wars and settlements through diplomacy, political objectives, resources, alliances, logistics, and civilian consequences. Do not write battlefield spectacle in place of causation, or treat a treaty as the only cause of a later conflict.",
+  "idea_axes": [{"id": "world-order-lens", "label": "War and diplomacy lens", "values": ["alliance commitment", "deterrence failure", "war aims", "military logistics", "home-front capacity", "peace settlement", "occupation and resistance", "balance-of-power shift"]}],
+  "tags": ["war history", "diplomacy", "treaties", "world order", "geopolitics"]
+}

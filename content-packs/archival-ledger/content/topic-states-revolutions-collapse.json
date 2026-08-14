@@ -1,0 +1,14 @@
+{
+  "kind": "topic-pack", "schema_version": 1, "id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse", "name": "States, Revolutions & Collapse", "description": "State formation and breakdown, revolutions, civil wars, reforms, independence movements, and constitutional turning points.",
+  "compatible_formula_ids": ["com.storystudio.formula.archival-ledger"],
+  "subjects": ["the fall of the Roman Republic", "the fall of the Western Roman Empire", "the Protestant Reformation", "the English Civil War", "the Glorious Revolution", "the American Revolution", "the French Revolution", "the Haitian Revolution", "the Revolutions of 1848", "the Meiji Restoration", "the Taiping Rebellion", "the American Civil War", "the unification of Germany", "the unification of Italy", "the Russian Revolution", "the collapse of the Ottoman Empire", "the Chinese Revolution", "Indian independence", "the Cuban Revolution", "the Iranian Revolution", "the fall of apartheid", "German reunification", "the collapse of the Soviet Union", "the breakup of Yugoslavia", "the Arab Spring"],
+  "episode_objects": ["constitutional settlement", "administrative order", "elite coalition", "mass movement", "fiscal regime", "military command", "independence declaration", "state institution"],
+  "time_place_scopes": ["named polity and turning point", "regional revolutionary sequence", "imperial borderland", "capital and provincial centres"],
+  "mechanisms": ["legitimacy crisis", "elite split", "mass mobilization", "constitutional conflict", "administrative failure", "regional secession", "reform that accelerated change", "state violence and backlash"],
+  "evidence_lenses": ["constitutional texts", "administrative records", "contemporary correspondence", "demographic evidence", "historiographical debate"],
+  "exclusions": ["hero biography as a sole explanation", "inevitable national character", "unsupported revolutionary conspiracy"],
+  "max_siblings_per_subject": 4,
+  "prompt_context": "Cover specific transformations of states and political orders. Explain the institutional arrangements, social coalitions, fiscal pressures, and sequence of decisions; avoid reducing revolutions or collapse to one heroic leader or one inevitable national character.",
+  "idea_axes": [{"id": "state-change", "label": "State-change lens", "values": ["legitimacy crisis", "elite split", "mass mobilization", "constitutional conflict", "administrative failure", "regional secession", "reform that accelerated change", "state violence and backlash"]}],
+  "tags": ["states", "revolutions", "collapse", "civil wars", "political change"]
+}

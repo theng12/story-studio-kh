@@ -1,0 +1,31 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.archival-ledger",
+  "publisher_id": "com.storystudio",
+  "key_id": "com.storystudio.key.archival-ledger",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First self-contained Archival Ledger history documentary production system.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.archival-ledger",
+    "family": "com.storystudio.family.archival-ledger"
+  },
+  "bundles": [
+    {
+      "id": "com.storystudio.bundle.archival-ledger",
+      "kind": "channel-kit",
+      "name": "Archival Ledger",
+      "components": [
+        { "pack_id": "com.storystudio.pack.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.formula.archival-ledger", "kind": "series-formula" },
+        { "pack_id": "com.storystudio.pack.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.empires-trade-extraction", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power", "kind": "topic-pack" },
+        { "pack_id": "com.storystudio.pack.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.style.archival-documentary-reconstruction", "kind": "visual-style" },
+        { "pack_id": "com.storystudio.pack.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.thumbnail.archival-map-investigation", "kind": "thumbnail-recipe" }
+      ]
+    }
+  ]
+}

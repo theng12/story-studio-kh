@@ -3,6 +3,10 @@ import assert from 'node:assert/strict'
 import { composeNicheWithTopicPacks, listNiches, loadNiche } from '../services/niche-loader.js'
 import { planIdeaAssignments } from '../services/idea-campaign-planner.js'
 import { listTopicPacks } from '../services/topic-pack-loader.js'
+import { contentPackDocumentToNiche, contentPackDocumentToTopicPack } from '../content-packs/legacy-adapters.js'
+import { parseContentPackDocument } from '../content-packs/schemas.js'
+import type { ContentPackDocument } from '../content-packs/types.js'
+import { readFile } from 'node:fs/promises'
 import { useTempDataDir } from './_helpers.js'
 /**
  * Claim an isolated data dir before anything runs.
@@ -95,6 +99,79 @@ describe('Series Formula + Topic Pack campaign planning', () => {
       'large campaigns should distribute across every compatible lane')
     assert.ok(assignments.every(item => item.dimensions['causal-mechanism']))
     assert.ok(assignments.every(item => item.dimensions['evidence-posture']))
+  })
+
+  test('Archival Ledger reserves 500 distinct pack-driven assignments with no more than four siblings per subject', async () => {
+    const source = new URL('../../../content-packs/archival-ledger/content/', import.meta.url)
+    const formulaDocument = parseContentPackDocument('series-formula', JSON.parse(
+      await readFile(new URL('series-formula.json', source), 'utf8'),
+    )) as Extract<ContentPackDocument, { kind: 'series-formula' }>
+    const formula = contentPackDocumentToNiche(formulaDocument)
+    const topicFiles = [
+      'topic-states-revolutions-collapse.json',
+      'topic-money-debt-financial-institutions.json',
+      'topic-empires-trade-extraction.json',
+      'topic-wars-treaties-world-order.json',
+      'topic-infrastructure-commodities-corporate-power.json',
+    ]
+    const packs = await Promise.all(topicFiles.map(async file => contentPackDocumentToTopicPack(
+      parseContentPackDocument('topic-pack', JSON.parse(await readFile(new URL(file, source), 'utf8'))) as Extract<ContentPackDocument, { kind: 'topic-pack' }>,
+    )))
+    const assignments = planIdeaAssignments({
+      niche: { ...formula, activeTopicPacks: packs },
+      count: 500,
+      seed: 'archival-ledger-five-hundred',
+    }).slice(0, 500)
+    const bySubject = new Map<string, typeof assignments>()
+    for (const assignment of assignments) {
+      const subject = assignment.dimensions.subject
+      bySubject.set(subject, [...(bySubject.get(subject) || []), assignment])
+      assert.ok(assignment.dimensions['episode-object'])
+      assert.ok(assignment.dimensions['time-place-scope'])
+      assert.ok(assignment.dimensions.mechanism)
+      assert.ok(assignment.dimensions['evidence-lens'])
+    }
+
+    assert.equal(assignments.length, 500)
+    assert.equal(new Set(assignments.map(assignment => assignment.fingerprint)).size, 500)
+    assert.equal(bySubject.size, 125)
+    assert.ok([...bySubject.values()].every(siblings => siblings.length === 4))
+    for (const siblings of bySubject.values()) {
+      for (const dimension of ['episode-object', 'time-place-scope', 'mechanism']) {
+        assert.equal(new Set(siblings.map(assignment => assignment.dimensions[dimension])).size, 4,
+          `${siblings[0]!.dimensions.subject} has four distinct ${dimension} values`)
+      }
+    }
+  })
+
+  test('pack sibling limits include assignments already reserved by an earlier campaign', () => {
+    const niche = {
+      id: 'pack-driven-limit', name: 'Pack driven limit', description: 'A planner fixture.', builtin: true, schemaVersion: 1 as const,
+      exampleTopics: [],
+      activeTopicPacks: [{
+        id: 'pack-driven-limit-topic', name: 'One subject', description: 'A bounded fixture.', builtin: true, schemaVersion: 1 as const,
+        compatibleNicheIds: ['pack-driven-limit'], subjects: ['the only subject'],
+        episodeObjects: ['institution', 'document', 'policy', 'transaction', 'faction'],
+        timePlaceScopes: ['the capital', 'the provinces', 'the port', 'the frontier', 'the court'],
+        mechanisms: ['fiscal pressure', 'credit constraint', 'logistics failure', 'elite coalition', 'trade leverage'],
+        evidenceLenses: ['records', 'letters', 'maps', 'ledgers', 'treaties'],
+        maxSiblingsPerSubject: 4,
+      }],
+    }
+    const first = planIdeaAssignments({ niche, count: 4, seed: 'first-reservation' }).slice(0, 2)
+    const second = planIdeaAssignments({
+      niche,
+      count: 4,
+      usedFingerprints: first.map(assignment => assignment.fingerprint),
+      seed: 'second-reservation',
+    }).slice(0, 4)
+
+    assert.equal(first.length, 2)
+    assert.equal(second.length, 2)
+    for (const dimension of ['episode-object', 'time-place-scope', 'mechanism']) {
+      assert.equal(new Set([...first, ...second].map(assignment => assignment.dimensions[dimension])).size, 4,
+        `reservations retain four independent ${dimension} values`)
+    }
   })
 
   test('a generic formula can still reserve 100 conceptual slots', () => {

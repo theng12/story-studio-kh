@@ -8,6 +8,24 @@ export interface IdeaAssignment {
   dimensions: Record<string, string>
 }
 
+type SubjectRow = {
+  value: string
+  packId?: string
+  planningAxes: Array<{ id: string; label: string; values: string[] }>
+  coverageGroup?: TopicCoverageGroup
+  coverageSubjectIndex?: number
+  coverageProfile?: TopicCoverageProfile
+}
+
+const PACK_PLANNING_FIELDS = [
+  ['episode-object', 'Episode object', 'episodeObjects'],
+  ['time-place-scope', 'Time and place', 'timePlaceScopes'],
+  ['mechanism', 'Mechanism', 'mechanisms'],
+  ['evidence-lens', 'Evidence lens', 'evidenceLenses'],
+] as const
+
+const MATERIAL_SIBLING_DIMENSIONS = ['episode-object', 'time-place-scope', 'mechanism'] as const
+
 const UNIVERSAL_COVERAGE_ANGLES = [
   'hidden system',
   'daily reality',
@@ -74,14 +92,6 @@ function stableScore(seed: string, value: string): string {
 
 const COHERENT_AXIS_IDS = new Set(['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'])
 
-type SubjectRow = {
-  value: string
-  packId?: string
-  coverageGroup?: TopicCoverageGroup
-  coverageSubjectIndex?: number
-  coverageProfile?: TopicCoverageProfile
-}
-
 function coherentTuple(subject: SubjectRow, round: number): Record<string, string> | undefined {
   if (subject.coverageProfile) {
     const tuple = subject.coverageProfile.tuples[round % subject.coverageProfile.tuples.length]!
@@ -115,6 +125,26 @@ function usedStructuralPairs(used: Set<string>, nicheId: string, subject: Subjec
   })
 }
 
+function planningAxes(pack: TopicPack): SubjectRow['planningAxes'] {
+  return PACK_PLANNING_FIELDS.flatMap(([id, label, field]) => {
+    const values = unique(pack[field] || [])
+    return values.length ? [{ id, label, values }] : []
+  })
+}
+
+function independentSiblingCapacity(axes: SubjectRow['planningAxes']): number | undefined {
+  const materialAxes = MATERIAL_SIBLING_DIMENSIONS.map(id => axes.find(axis => axis.id === id))
+  return materialAxes.every(Boolean)
+    ? Math.min(...materialAxes.map(axis => axis!.values.length))
+    : undefined
+}
+
+function dimensionsFromFingerprint(fingerprint: string): Record<string, string> {
+  return Object.fromEntries(fingerprint.split('|').slice(2).flatMap(part => {
+    const separator = part.indexOf('=')
+    return separator > 0 ? [[part.slice(0, separator), part.slice(separator + 1)]] : []
+  }))
+}
 /**
  * Build a large deterministic pool of conceptual assignments before any LLM
  * call. Exact fingerprints are reserved from structured dimensions, so a
@@ -134,6 +164,7 @@ export function planIdeaAssignments(options: {
   const subjectRows: SubjectRow[] = []
   if (packs.length) {
     for (const pack of packs) {
+      const packPlanningAxes = planningAxes(pack)
       for (const subject of unique(pack.subjects)) {
         const profile = pack.coverageProfiles?.find(candidate => candidate.subject === subject)
         const matches = (pack.coverageGroups || []).flatMap(group => {
@@ -149,6 +180,7 @@ export function planIdeaAssignments(options: {
         subjectRows.push({
           value: subject,
           packId: pack.id,
+          planningAxes: packPlanningAxes,
           coverageGroup: matches[0]?.group,
           coverageSubjectIndex: matches[0]?.index,
           coverageProfile: profile,
@@ -156,9 +188,9 @@ export function planIdeaAssignments(options: {
       }
     }
   } else {
-    for (const topic of unique(niche.exampleTopics)) subjectRows.push({ value: topic })
+    for (const topic of unique(niche.exampleTopics)) subjectRows.push({ value: topic, planningAxes: [] })
   }
-  if (!subjectRows.length) subjectRows.push({ value: niche.name })
+  if (!subjectRows.length) subjectRows.push({ value: niche.name, planningAxes: [] })
 
   const axes = (niche.ideaAxes || [])
     .filter(axis => axis.values?.length)
@@ -195,12 +227,21 @@ export function planIdeaAssignments(options: {
       .filter(axis => axis.values?.length)
       .map(axis => ({ ...axis, values: unique(axis.values) })),
   ]))
-  const axesForSubject = (subject: SubjectRow) => subject.packId
-    ? [
-      ...(axesByPack.get(subject.packId) || []).filter(axis => !(subject.coverageGroup || subject.coverageProfile) || !COHERENT_AXIS_IDS.has(axis.id)),
-      ...formulaAxes.filter(axis => !subject.coverageProfile || !COHERENT_AXIS_IDS.has(axis.id)),
+  const axesForSubject = (subject: SubjectRow) => {
+    if (!subject.packId) return axes
+    if (subject.coverageGroup || subject.coverageProfile) {
+      return [
+        ...(axesByPack.get(subject.packId) || []).filter(axis => !COHERENT_AXIS_IDS.has(axis.id)),
+        ...formulaAxes.filter(axis => !COHERENT_AXIS_IDS.has(axis.id)),
+      ]
+    }
+    const planningAxisIds = new Set(subject.planningAxes.map(axis => axis.id))
+    return [
+      ...subject.planningAxes,
+      ...formulaAxes.filter(axis => !planningAxisIds.has(axis.id)),
+      ...(axesByPack.get(subject.packId) || []).filter(axis => !planningAxisIds.has(axis.id)),
     ]
-    : axes
+  }
 
   const targetPoolSize = Math.max(options.count * 4, options.count + 40)
   const candidates: IdeaAssignment[] = []
@@ -265,19 +306,62 @@ export function planIdeaAssignments(options: {
     const subject = subjectRows[index % subjectRows.length]!
     const dimensions: Record<string, string> = { subject: subject.value }
     let combinationIndex = Math.floor(index / subjectRows.length)
+    const structuralRound = combinationIndex
+    let isInitialGenericSibling = false
     if (subject.coverageGroup || subject.coverageProfile) {
       Object.assign(dimensions, coherentTuple(subject, combinationIndex))
       combinationIndex = Math.floor(combinationIndex / (subject.coverageProfile?.tuples.length || subject.coverageGroup!.episodeObjects.length))
+    } else {
+      const initialIndependentSiblings = independentSiblingCapacity(subject.planningAxes) || 0
+      isInitialGenericSibling = structuralRound < initialIndependentSiblings
+      let planningCombinationIndex = combinationIndex
+      if (initialIndependentSiblings && combinationIndex < initialIndependentSiblings) {
+        for (const axis of subject.planningAxes) dimensions[axis.id] = axis.values[combinationIndex]!
+        planningCombinationIndex = 0
+      } else {
+        planningCombinationIndex -= initialIndependentSiblings
+      }
+      for (const axis of subject.planningAxes) {
+        if (dimensions[axis.id]) continue
+        dimensions[axis.id] = axis.values[planningCombinationIndex % axis.values.length]!
+        planningCombinationIndex = Math.floor(planningCombinationIndex / axis.values.length)
+      }
+      combinationIndex = planningCombinationIndex
     }
-    axesForSubject(subject).forEach((axis) => {
+    const planningAxisIds = new Set(subject.planningAxes.map(axis => axis.id))
+    axesForSubject(subject).filter(axis => !planningAxisIds.has(axis.id)).forEach((axis) => {
       dimensions[axis.id] = axis.values[combinationIndex % axis.values.length]!
       combinationIndex = Math.floor(combinationIndex / axis.values.length)
     })
-    reserveCandidate(subject, dimensions)
+    const candidate = reserveCandidate(subject, dimensions)
+    if (candidate && isInitialGenericSibling) {
+      primaryRank.set(candidate.fingerprint, subjectRows.length * (structuralRound + 1) + (index % subjectRows.length))
+    }
   }
 
   const siblingCounts = new Map<string, number>()
   const siblingStructures = new Map<string, Array<{ episodeObject: string, mechanism: string }>>()
+  const genericSiblingCounts = new Map<string, number>()
+  const genericMaterialValues = new Map<string, Map<string, Set<string>>>()
+  for (const fingerprint of used) {
+    const [fingerprintNiche, packId] = fingerprint.split('|')
+    if (fingerprintNiche !== niche.id || !packId) continue
+    const dimensions = dimensionsFromFingerprint(fingerprint)
+    const subject = subjectRows.find(row => row.packId === packId && slug(row.value) === dimensions.subject)
+    if (!subject || subject.coverageGroup || subject.coverageProfile) continue
+    const pack = packs.find(entry => entry.id === packId)
+    if (!pack?.maxSiblingsPerSubject) continue
+    const key = `${packId}|${dimensions.subject}`
+    genericSiblingCounts.set(key, (genericSiblingCounts.get(key) || 0) + 1)
+    if (!MATERIAL_SIBLING_DIMENSIONS.every(dimension => dimensions[dimension])) continue
+    const valuesByDimension = genericMaterialValues.get(key) || new Map<string, Set<string>>()
+    for (const dimension of MATERIAL_SIBLING_DIMENSIONS) {
+      const values = valuesByDimension.get(dimension) || new Set<string>()
+      values.add(dimensions[dimension]!)
+      valuesByDimension.set(dimension, values)
+    }
+    genericMaterialValues.set(key, valuesByDimension)
+  }
   const assignments = candidates
     .sort((a, b) => {
       const leftRank = primaryRank.get(a.fingerprint)
@@ -293,10 +377,28 @@ export function planIdeaAssignments(options: {
       const pack = candidate.topic_pack_id ? packs.find(entry => entry.id === candidate.topic_pack_id) : undefined
       const limit = pack?.maxSiblingsPerSubject
       if (!limit) return true
-      const key = `${candidate.topic_pack_id}|${candidate.dimensions.subject}`
       const episodeObject = candidate.dimensions['episode-object']
       const mechanism = candidate.dimensions.mechanism
       const subject = subjectRows.find(row => row.packId === candidate.topic_pack_id && row.value === candidate.dimensions.subject)
+      if (subject && !subject.coverageGroup && !subject.coverageProfile) {
+        const key = `${candidate.topic_pack_id}|${slug(candidate.dimensions.subject)}`
+        const boundedLimit = Math.min(limit, independentSiblingCapacity(subject.planningAxes) || limit)
+        if ((genericSiblingCounts.get(key) || 0) >= boundedLimit) return false
+        if (MATERIAL_SIBLING_DIMENSIONS.every(dimension => candidate.dimensions[dimension])) {
+          const valuesByDimension = genericMaterialValues.get(key) || new Map<string, Set<string>>()
+          if (MATERIAL_SIBLING_DIMENSIONS.some(dimension =>
+            valuesByDimension.get(dimension)?.has(slug(candidate.dimensions[dimension]!)))) return false
+          for (const dimension of MATERIAL_SIBLING_DIMENSIONS) {
+            const values = valuesByDimension.get(dimension) || new Set<string>()
+            values.add(slug(candidate.dimensions[dimension]!))
+            valuesByDimension.set(dimension, values)
+          }
+          genericMaterialValues.set(key, valuesByDimension)
+        }
+        genericSiblingCounts.set(key, (genericSiblingCounts.get(key) || 0) + 1)
+        return true
+      }
+      const key = `${candidate.topic_pack_id}|${candidate.dimensions.subject}`
       const priorStructures = subject && episodeObject && mechanism
         ? siblingStructures.get(key) || usedStructuralPairs(used, niche.id, subject)
         : []

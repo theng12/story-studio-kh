@@ -5,6 +5,10 @@ import {
   buildThumbnailDirective,
   enforceThumbnailPromptElements,
 } from '../generators/image-prompts.js'
+import { readFile } from 'node:fs/promises'
+import { contentPackDocumentToThumbnailTemplate } from '../content-packs/legacy-adapters.js'
+import { parseContentPackDocument } from '../content-packs/schemas.js'
+import type { ContentPackDocument } from '../content-packs/types.js'
 
 test('thumbnail prompts use one user idea and render the episode title in the image', () => {
   const directive = buildThumbnailDirective({
@@ -122,6 +126,42 @@ test('archival map investigation keeps the exact title and evidence-led safety r
   assert.match(directive, /stacked white headline bands/i)
   assert.match(directive, /unsupported secret plots/i)
   assert.match(directive, /sole-cause claim/i)
+})
+
+test('signed Archival Ledger recipe keeps the archival map composition rules in its effective prompt', async () => {
+  const source = new URL('../../../content-packs/archival-ledger/content/thumbnail-recipe.json', import.meta.url)
+  const legacySource = new URL('../thumbnail-templates/archival-map-investigation.json', import.meta.url)
+  const document = parseContentPackDocument('thumbnail-recipe', JSON.parse(await readFile(source, 'utf8'))) as Extract<ContentPackDocument, { kind: 'thumbnail-recipe' }>
+  const legacy = JSON.parse(await readFile(legacySource, 'utf8'))
+  const template = contentPackDocumentToThumbnailTemplate(document, [])
+  assert.ok(template.recipe)
+  const directive = buildThumbnailDirective({
+    thumbs: 1,
+    title: 'The Loan That Changed Egypt',
+    textStyle: 'shadow',
+    fontStyle: 'bold',
+    textPosition: 'bottom',
+    fmt: template.recipe,
+  })
+
+  assert.deepEqual(template.recipe.compositionRules, [
+    "Place one original period portrait or defining artifact in the left third; never reuse a real channel's crop, identity treatment, logo, or branding.",
+    'Place a weathered parchment map in the upper-right with only a few clear route arrows, dots, or boundary marks; preserve a clean visual hierarchy rather than a dense infographic.',
+    'Use a narrow lower-right archival-event strip showing a relevant historical setting, document, crowd, ship, rail line, market, or institution.',
+    'Reserve the lower-left to lower-middle as a title-safe zone for two to four stacked white headline bands. Render the exact episode title in those bands as bold, readable black uppercase lettering.',
+    'Use black, cream, sepia, and restrained oxblood accents; keep the image sober, legible, and mobile-readable.',
+  ])
+  assert.match(directive, /parchment map/i)
+  assert.match(directive, /stacked white headline bands/i)
+  const legacyDirective = buildThumbnailDirective({
+    thumbs: 1,
+    title: 'The Loan That Changed Egypt',
+    textStyle: 'shadow',
+    fontStyle: 'bold',
+    textPosition: 'bottom',
+    fmt: legacy.recipe,
+  })
+  assert.equal(directive.replace(/\r\n/g, '\n'), legacyDirective.replace(/\r\n/g, '\n'))
 })
 
 test('curiosity-hook recipes keep a short truthful hook separate from the full episode title', () => {

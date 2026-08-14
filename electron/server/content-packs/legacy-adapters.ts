@@ -172,6 +172,11 @@ export function contentPackDocumentToTopicPack(document: TopicDocument): TopicPa
     subjects: [...document.subjects],
     maxSiblingsPerSubject: document.max_siblings_per_subject,
     ideaAxes: mapIdeaAxes(document.idea_axes),
+    episodeObjects: [...document.episode_objects],
+    timePlaceScopes: [...document.time_place_scopes],
+    mechanisms: [...document.mechanisms],
+    evidenceLenses: [...document.evidence_lenses],
+    exclusions: [...document.exclusions],
     coverageGroups: document.coverage_groups?.map(group => ({
       subjects: [...group.subjects],
       episodeObjects: [...group.episode_objects],

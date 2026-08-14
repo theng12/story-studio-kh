@@ -25,7 +25,6 @@ function formulaDocument(): Extract<ContentPackDocument, { kind: 'series-formula
       required_habits: ['Name the institution.'], closing_policy: 'Return to the evidence.',
     },
     opening_profile: { id: 'consequence-first', label: 'Consequence first', description: 'Start with the result.' },
-    youtube_tags_hint: ['evidence documentary'],
     metadata_profile: {
       id: 'evidence-youtube', label: 'Evidence package', description: 'A factual summary.',
       description_section_ids: ['hook', 'hashtags'], title_mode: 'use_idea_title',
@@ -61,6 +60,7 @@ function formulaDocument(): Extract<ContentPackDocument, { kind: 'series-formula
     theme_shape_rules: ['Use a noun phrase.'], theme_count_range: [1, 3], structural_variety: 'vary-all',
     default_thumbnail_recipe_id: RECIPE_ID, metadata_title_style_hint: 'Concrete and restrained.',
     metadata_title_hook_rules: ['Name the tension.'], metadata_tags_hook_rules: ['Prefer specific institutions.'],
+    youtube_tags_hint: ['archive', 'evidence'],
     metadata_description: {
       voice_guidance: 'Write plainly.', description_shape_rules: ['Lead with evidence.'],
       closing_benediction: 'The record remains.', cta_shape: 'Invite careful discussion.',
@@ -90,7 +90,7 @@ function recipeDocument(): Extract<ContentPackDocument, { kind: 'thumbnail-recip
   const document = parseContentPackDocument('thumbnail-recipe', {
     kind: 'thumbnail-recipe', schema_version: 1, id: RECIPE_ID, name: 'Evidence Desk', description: 'A restrained evidence composition.',
     layout: 'hero', category: 'Documentary', tags: ['archive', 'evidence'], aspect_ratio: '16:9', title_mode: 'ai',
-    composition_guidance: 'Place one primary document centrally.', composition_rules: ['Reserve the lower-left for the exact label.'], required_elements: ['One document'], avoid_elements: ['Collage clutter'],
+    composition_guidance: 'Place one primary document centrally.', composition_rules: ['Place the ledger in the centre.', 'Leave the upper third clear for the title.'], required_elements: ['One document'], avoid_elements: ['Collage clutter'],
     headline_mode: 'curiosity-hook', headline_guidance: 'Use three concrete words.', default_text_style: 'Warm ivory.',
     default_font_style: 'Condensed serif.', default_text_position: 'bottom-left', headline_formats: ['THE HIDDEN LEDGER'],
     visual_style_guidance: 'Restrained archival realism.', preview_assets: ['assets/recipe.png'], compatible_formula_ids: [FORMULA_ID],
@@ -119,9 +119,9 @@ describe('Content Pack legacy adapters', () => {
     assert.equal(niche.scriptStructure?.defaultChapterCount, 4)
     assert.equal(niche.scriptStructure?.motionProfileId, 'ambient-documentary')
     assert.equal(niche.scriptStructure?.motionProfile?.id, 'ambient-documentary')
+    assert.deepEqual(niche.youtubeTagsHint, ['archive', 'evidence'])
     assert.equal(niche.recencyAvoidance?.strategyId, 'scripture-references')
     assert.ok(niche.recencyAvoidance?.extractPatterns.length)
-    assert.deepEqual(niche.youtubeTagsHint, ['evidence documentary'])
     assert.deepEqual(niche.productionKit?.episodeProfiles?.[0], {
       id: 'institution', label: 'Institution', description: 'A bounded institution.', ideaAxisValue: 'Institution',
       titleSuffix: 'Explained', forbiddenTitleSuffixes: ['Revealed'], narratorStyleId: 'archivist',
@@ -131,13 +131,17 @@ describe('Content Pack legacy adapters', () => {
     assert.equal('model' in niche, false)
   })
 
-  test('maps Topic Pack planning fields without pretending unsupported fields are current behavior', () => {
+  test('maps Topic Pack planning fields into the runtime planner contract', () => {
     const topic = contentPackDocumentToTopicPack(topicDocument())
     assert.deepEqual(topic.compatibleFormulaIds, [FORMULA_ID])
     assert.deepEqual(topic.compatibleNicheIds, [FORMULA_ID])
     assert.deepEqual(topic.subjects, ['Tax office'])
     assert.equal(topic.promptContext, 'Treat the institution as the episode object.')
-    assert.equal('episodeObjects' in topic, false)
+    assert.deepEqual((topic as any).episodeObjects, ['Ledger'])
+    assert.deepEqual((topic as any).timePlaceScopes, ['Europe, 1800s'])
+    assert.deepEqual((topic as any).mechanisms, ['Extraction'])
+    assert.deepEqual((topic as any).evidenceLenses, ['Account books'])
+    assert.equal((topic as any).maxSiblingsPerSubject, 4)
     assert.equal('provider' in topic, false)
   })
 
@@ -147,7 +151,7 @@ describe('Content Pack legacy adapters', () => {
     assert.equal(recipe.aspectRatio, '16:9')
     assert.deepEqual(recipe.previewImages, ['/api/content-packs/com.storystudio.test.pack/1.0.0/assets/abc'])
     assert.deepEqual(recipe.recipe, {
-      layout: 'hero', conceptGuidance: 'Place one primary document centrally.', compositionRules: ['Reserve the lower-left for the exact label.'],
+      layout: 'hero', conceptGuidance: 'Place one primary document centrally.', compositionRules: ['Place the ledger in the centre.', 'Leave the upper third clear for the title.'],
       requiredElements: ['One document'], avoid: ['Collage clutter'], titleMode: 'ai', headlineMode: 'curiosity-hook',
       headlineGuidance: 'Use three concrete words.', defaultTextStyle: 'Warm ivory.', defaultFontStyle: 'Condensed serif.',
       defaultTextPosition: 'bottom-left', headlineFormats: ['THE HIDDEN LEDGER'], visualStyleGuidance: 'Restrained archival realism.',

@@ -778,6 +778,12 @@ export interface TopicPack {
   coverageGroups?: TopicCoverageGroup[]
   /** Complete authored coherent tuples for one subject, ordered for reservation. */
   coverageProfiles?: TopicCoverageProfile[]
+  /** Signed Pack planning dimensions retained for deterministic campaigns. */
+  episodeObjects?: string[]
+  timePlaceScopes?: string[]
+  mechanisms?: string[]
+  evidenceLenses?: string[]
+  exclusions?: string[]
   /** Strong examples appended to the Series Formula's example bar. */
   exampleTopics?: string[]
   /** Prompt context appended after the Series Formula's dominant voice. */

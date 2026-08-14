@@ -102,6 +102,24 @@ Given identical source bytes and key, builds use canonical manifest bytes, fixed
 and deterministic archive order: `manifest.json`, `signature.ed25519`, then lexically ordered
 content and assets.
 
+### Release-parameterized sources
+
+`Archival Ledger` deliberately uses `{{MIN_APP_VERSION}}` in its source
+`min_app_version`: its signed fields and planner behavior must ship in the same forthcoming Story
+Studio release. Final integrators—not pack authors—choose that release version and must pass the
+identical value to the builder:
+
+```bash
+npm run content-pack:build -- ./content-packs/archival-ledger \
+  --private-key ./keys/com.storystudio.archival-ledger.private.pem \
+  --min-app-version "$FINAL_STORY_STUDIO_RELEASE_VERSION" \
+  --output ./dist/archival-ledger-1.0.0.sspack
+```
+
+The builder refuses to build a release-parameterized source without that explicit value, and
+refuses this override for ordinary sources. Set it only after the combined runtime release that
+contains the pack's schema, adapter, thumbnail, and planner support has an agreed version.
+
 ## Validate
 
 Validation requires the intended key identity and an explicit public-key PEM. It reports only the

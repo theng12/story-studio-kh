@@ -1,0 +1,14 @@
+{
+  "kind": "topic-pack", "schema_version": 1, "id": "com.storystudio.topic.archival-ledger.empires-trade-extraction", "name": "Empires, Trade & Extraction", "description": "Imperial expansion, colonial rule, chartered companies, trade routes, commodity systems, forced labor, and resistance to extraction.",
+  "compatible_formula_ids": ["com.storystudio.formula.archival-ledger"],
+  "subjects": ["the Spanish conquest of the Americas", "the Atlantic slave trade", "the Manila galleon trade", "the Dutch East India Company", "the British East India Company", "the triangular trade system", "the Haitian plantation economy", "the Opium Wars", "the scramble for Africa", "the Congo Free State", "the Suez Canal", "the Indian Ocean spice trade", "the trans-Saharan trade", "the fur trade in North America", "the guano trade", "the rubber boom", "the cotton economy of the American South", "British rule in India", "the partition of India", "the Berlin Conference", "the British Empire's decline", "decolonization in Africa", "the Non-Aligned Movement", "the history of sanctions", "the global oil trade"],
+  "episode_objects": ["chartered company", "trade route", "commodity system", "colonial administration", "labor regime", "port or chokepoint", "anti-colonial movement", "international conference"],
+  "time_place_scopes": ["imperial frontier", "oceanic trade route", "colonial region", "commodity-producing community"],
+  "mechanisms": ["chartered-company rule", "monopoly and tariff", "forced labor", "commodity dependency", "maritime chokepoint", "settler expansion", "colonial taxation", "anti-colonial resistance"],
+  "evidence_lenses": ["company records", "shipping and customs data", "colonial correspondence", "labor testimony", "local and transnational histories"],
+  "exclusions": ["single-villain colonial history", "economics-only explanation", "ethnic or religious scapegoating"],
+  "max_siblings_per_subject": 4,
+  "prompt_context": "Trace how imperial power, trade, labor, commodity flows, and local resistance interacted. Keep agency distributed among states, companies, communities, and workers; do not flatten complex colonial histories into a single villain or an economics-only explanation.",
+  "idea_axes": [{"id": "extraction-system", "label": "Imperial and trade mechanism", "values": ["chartered-company rule", "monopoly and tariff", "forced labor", "commodity dependency", "maritime chokepoint", "settler expansion", "colonial taxation", "anti-colonial resistance"]}],
+  "tags": ["empires", "colonial history", "trade", "extraction", "global history"]
+}
