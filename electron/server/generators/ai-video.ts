@@ -305,7 +305,7 @@ export async function generateAiVideo(job: Job): Promise<void> {
         numberOfVideos: nPerPrompt,
         modelId,
         startImagePath: startImage.path,
-        providerParams: (modelConfig as any).provider_params || {},
+        providerParams: { ...(modelConfig as any).provider_params, operation: 'image-to-video' },
         idempotencyIdentity: `${project_slug}:${episode_id}:scene:${p.number}`,
         isCancelled,
         onJobAccepted: async (taskId, idempotencyKey, variantIndex) => {

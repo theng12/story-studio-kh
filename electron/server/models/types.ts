@@ -1743,6 +1743,7 @@ export interface VideoModelConfig {
 
 /** One exact duration/resolution pair published by GenStudio for a motion clip. */
 export interface SceneClipVariantSelection {
+  operation: string
   duration_seconds: number
   resolution: string
 }

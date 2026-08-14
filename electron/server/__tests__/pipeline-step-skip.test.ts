@@ -363,7 +363,7 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
       const current = await seedProjectWithAcceptedIdea()
       await pm.updateConfig(current.slug, {
         motion_review_presets: [{ id: 'mr-current', name: 'Current Motion', data: {
-          model: 'mock-video-v1', aspect_ratio: '16:9', duration_seconds: 8, resolution: '1080p',
+          model: 'mock-video-v1', aspect_ratio: '16:9', operation: 'image-to-video', duration_seconds: 8, resolution: '1080p',
         } }],
         'motion_review_last_preset_motion-review': 'mr-current',
       } as any)
@@ -373,6 +373,7 @@ describe('run-batch — v1.0.363 audio-paced wiring', () => {
         .expect(201)
       const job = jq.getJob(queued.body.jobs[0].job_id)
       assert.equal(job?.type, 'scene_clips_batch')
+      assert.equal(job?.params.operation, 'image-to-video')
       assert.equal(job?.params.duration_seconds, 8)
       assert.equal(job?.params.resolution, '1080p')
     } finally {

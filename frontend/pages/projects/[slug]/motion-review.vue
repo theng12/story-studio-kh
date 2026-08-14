@@ -447,6 +447,7 @@ async function generateOne(scene: MotionScene) {
       scene_id: scene.id,
       model: videoModel.value,
       aspect_ratio: '16:9',
+      operation: selectedVideoVariant.value.operation,
       duration_seconds: selectedVideoVariant.value.duration_seconds,
       resolution: selectedVideoVariant.value.resolution,
     })
@@ -465,6 +466,7 @@ async function generateMissing() {
     const result = await post<{ queued: number; skipped: number }>(`/projects/${slug.value}/scene-review/${episodeId.value}/generate-missing-clips`, {
       model: videoModel.value,
       aspect_ratio: '16:9',
+      operation: selectedVideoVariant.value.operation,
       duration_seconds: selectedVideoVariant.value.duration_seconds,
       resolution: selectedVideoVariant.value.resolution,
     })

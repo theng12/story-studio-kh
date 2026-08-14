@@ -51,6 +51,8 @@ export interface TaskManifestEntry {
    * without creating a second provider task. */
   idempotency_key?: string
   operation?: 'tts' | 'transcription' | 'image' | 'video'
+  /** Exact GenStudio operation selected for a video task. */
+  variant_operation?: string
   /**
    * Last provider state Story Studio actually observed for `task_id`
    * ('prepared' before submit, then 'accepted' … 'succeeded' | 'failed').

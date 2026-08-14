@@ -150,6 +150,12 @@ test('chargeable:false is shown as included, not as a price about to be charged'
   assert.match(display.text, /No credit charge/)
 })
 
+test('an image model whose chargeability is not published is not shown as free', () => {
+  const unknown = describeImageUnitCost({ display_name: 'Unknown', credits_per_image: null }, null)
+  assert.equal(unknown.basis, 'unpublished')
+  assert.match(unknown.text, /Price not reported/)
+})
+
 test('promotions show the discounted price alongside the undiscounted one', () => {
   const promo = {
     display_name: 'Fast',
@@ -200,6 +206,17 @@ test('chat shows a rate and refuses to invent a total', () => {
   assert.match(display.title, /no up-front total/)
   // A rate is never presented as an amount that will be charged.
   assert.doesNotMatch(display.text, /Estimate|Total/i)
+})
+
+test('a chat model with no published token rates says Price not reported, while a published zero stays zero', () => {
+  assert.equal(describeChatRate({ display_name: 'Unknown' }).basis, 'unpublished')
+  const zero = describeChatRate({
+    display_name: 'Free input',
+    input_credits_per_million_tokens: 0,
+    output_credits_per_million_tokens: 3,
+  })
+  assert.equal(zero.basis, 'rate')
+  assert.match(zero.text, /0 credits \/ 1M input tokens/)
 })
 
 test('video model selection summarizes the complete published variant rate range', () => {

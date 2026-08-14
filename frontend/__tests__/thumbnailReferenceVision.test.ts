@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import { thumbnailVisionModelMenuOption } from '../utils/thumbnail-vision-model-menu.js'
 
 function source(path: string): string {
   return readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
@@ -17,7 +18,16 @@ test('thumbnail reference analysis shows only qualified GenStudio vision models'
   assert.match(route, /supports_structured_output/)
   assert.match(route, /thumbnail-reference\/vision-models/)
   assert.match(page, /thumbnailVisionModels/)
-  assert.match(page, /GenStudio KH · Vision only/)
+  assert.match(page, /:options="visionModelMenuOptions"/)
+  const option = thumbnailVisionModelMenuOption({
+    id: 'vision-priced', display_name: 'Vision priced', supported_detail_levels: ['high'],
+    max_input_images: 1, accepted_image_mime_types: ['image/png'], max_image_bytes: 1,
+    max_image_dimension: 1, input_credits_per_million_tokens: 2,
+    output_credits_per_million_tokens: 3, minimum_credits: 1, price_version: 'v1',
+  })
+  assert.equal(option.group, 'GenStudio KH · Vision only')
+  assert.equal(option.price, '2 credits / 1M input tokens · 3 credits / 1M output tokens')
+  assert.match(option.priceTitle, /minimum of 1 credit applies/i)
   assert.match(page, /Reference-guided thumbnail/)
   assert.match(page, /Import & analyse reference/)
   assert.match(page, /Retry vision models/)

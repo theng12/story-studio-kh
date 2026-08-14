@@ -42,14 +42,15 @@ import type { JobType, SceneClipVariantSelection, ScenePlan } from '../models/ty
 export const router = Router()
 
 function requestedSceneClipVariant(body: Record<string, unknown>): SceneClipVariantSelection {
+  const operation = typeof body.operation === 'string' ? body.operation.trim() : ''
   const hasDuration = body.duration_seconds !== undefined && body.duration_seconds !== null
   const hasResolution = body.resolution !== undefined && body.resolution !== null
   const duration_seconds = Number(body.duration_seconds)
   const resolution = typeof body.resolution === 'string' ? body.resolution.trim() : ''
-  if (!hasDuration || !hasResolution || !Number.isFinite(duration_seconds) || duration_seconds <= 0 || !resolution) {
-    throw new Error('duration_seconds and resolution must name one published motion variant')
+  if (!operation || !hasDuration || !hasResolution || !Number.isFinite(duration_seconds) || duration_seconds <= 0 || !resolution) {
+    throw new Error('operation, duration_seconds and resolution must name one published motion variant')
   }
-  return { duration_seconds, resolution }
+  return { operation, duration_seconds, resolution }
 }
 
 function streamLocalMedia(
@@ -475,6 +476,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clip', async (req,
         scene_id: sceneId,
         model: `genstudio-video:${modelId}`,
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        operation: variant.operation,
         duration_seconds: variant.duration_seconds,
         resolution: variant.resolution,
         auto_approve_clip: body.auto_approve_clip === true,
@@ -507,6 +509,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-clips-batch', asyn
         episode_id: episodeId,
         model: `genstudio-video:${modelId}`,
         aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+        operation: variant.operation,
         duration_seconds: variant.duration_seconds,
         resolution: variant.resolution,
       },
@@ -572,6 +575,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing-clips', as
           scene_id: s.id,
           model: `genstudio-video:${modelId}`,
           aspect_ratio: typeof body.aspect_ratio === 'string' ? body.aspect_ratio : '16:9',
+          operation: variant.operation,
           duration_seconds: variant.duration_seconds,
           resolution: variant.resolution,
         },

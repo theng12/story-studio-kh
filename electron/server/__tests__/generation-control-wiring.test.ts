@@ -198,7 +198,7 @@ test('GenStudio video reports each accepted variant before its first status poll
       numberOfVideos: 2,
       modelId: 'mock-video-v1',
       startImagePath: imagePath,
-      providerParams: { duration_seconds: 5, resolution: '720p' },
+      providerParams: { operation: 'image-to-video', duration_seconds: 5, resolution: '720p' },
       idempotencyIdentity: 'generation-control-wiring',
       onJobAccepted: (taskId, key, variantIndex) => {
         accepted.push({
@@ -241,18 +241,63 @@ test('the scene clip route persists the selected published variant on the queued
       .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clip`)
       .send({
         scene_id: 'scene-001', model: 'mock-video-v1', aspect_ratio: '16:9',
-        duration_seconds: 8, resolution: '1080p',
+        operation: 'image-to-video', duration_seconds: 8, resolution: '1080p',
       })
       .expect(201)
 
     assert.equal(response.body.params.duration_seconds, 8)
     assert.equal(response.body.params.resolution, '1080p')
+    assert.equal(response.body.params.operation, 'image-to-video')
     assert.equal(service.submissions.filter(entry => entry.operation === 'video').length, 0)
     for (let attempt = 0; attempt < 100; attempt++) {
       const queued = jq.getJob(response.body.job_id)
       if (queued && queued.status !== 'queued' && queued.status !== 'running') break
       await new Promise(resolve => setTimeout(resolve, 10))
     }
+  } finally {
+    restoreVideoCatalog?.()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('the generic GenStudio provider filters the exact image-to-video operation before matching duplicate variants', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreVideoCatalog: (() => void) | undefined
+  const imagePath = path.join(temp.dir, 'source.png')
+  await fs.writeFile(imagePath, ONE_PIXEL_PNG)
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    restoreVideoCatalog = enableMockVideoCatalog(service, [
+      { operation: 'text-to-video', duration_seconds: 3, resolution: '480p', credits_per_video: 1, minimum_credits: 1, price_version: 'mixed-v1' },
+      { operation: 'image-to-video', duration_seconds: 3, resolution: '480p', credits_per_video: 9, minimum_credits: 9, price_version: 'mixed-v1' },
+      { operation: 'image-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 90, minimum_credits: 90, price_version: 'mixed-v1' },
+    ])
+    await import('../providers/video/genstudio.js')
+    const { registry } = await import('../providers/registry.js')
+    const provider = registry.getVideoProvider('genstudio-video')
+    assert.ok(provider)
+
+    await provider.generateVideo({
+      mode: 'frames', prompt: 'A steady push through a misty archive.', apiKey: MOCK_GENSTUDIO_FULL_KEY,
+      aspectRatio: 'landscape', numberOfVideos: 1, modelId: 'mock-video-v1', startImagePath: imagePath,
+      providerParams: { operation: 'image-to-video', duration_seconds: 3, resolution: '480p' },
+    })
+    const submitted = service.submissions.find(entry => entry.operation === 'video')?.parsedBody
+    assert.equal(submitted?.mode, 'image-to-video')
+    assert.equal(submitted?.duration_seconds, 3)
+    assert.equal(submitted?.resolution, '480p')
+
+    await assert.rejects(
+      () => provider.generateVideo({
+        mode: 'frames', prompt: 'An invalid legacy request.', apiKey: MOCK_GENSTUDIO_FULL_KEY,
+        aspectRatio: 'landscape', numberOfVideos: 1, modelId: 'mock-video-v1', startImagePath: imagePath,
+        providerParams: { duration_seconds: 3, resolution: '480p' },
+      }),
+      /must include.*image-to-video/i,
+    )
+    assert.equal(service.providerSubmissionCount('video'), 1)
   } finally {
     restoreVideoCatalog?.()
     await service.close()
@@ -291,22 +336,24 @@ test('new Motion Review routes require an exact pair and preserve it for durable
 
     const durable = await request(app)
       .post(`/api/projects/${project.slug}/scene-review/EP001/generate-clips-batch`)
-      .send({ model: 'mock-video-v1', duration_seconds: 8, resolution: '1080p' })
+      .send({ model: 'mock-video-v1', operation: 'image-to-video', duration_seconds: 8, resolution: '1080p' })
       .expect(201)
     assert.equal(durable.body.params.duration_seconds, 8)
     assert.equal(durable.body.params.resolution, '1080p')
+    assert.equal(durable.body.params.operation, 'image-to-video')
     await waitForTerminalJob(jq, durable.body.job_id)
 
     const episode = await createEpisode('Motion missing clips preserve selected variant')
     await writeReadyMotionScene(episode.project.slug, episode.episodeId, episode.paths)
     const missing = await request(app)
       .post(`/api/projects/${episode.project.slug}/scene-review/${episode.episodeId}/generate-missing-clips`)
-      .send({ model: 'mock-video-v1', duration_seconds: 8, resolution: '1080p' })
+      .send({ model: 'mock-video-v1', operation: 'image-to-video', duration_seconds: 8, resolution: '1080p' })
       .expect(200)
     assert.equal(missing.body.queued, 1)
     const queued = (await jq.getJobs(episode.project.slug)).find(item => item.type === 'scene_clip_generate')
     assert.equal(queued?.params.duration_seconds, 8)
     assert.equal(queued?.params.resolution, '1080p')
+    assert.equal(queued?.params.operation, 'image-to-video')
     if (queued) await waitForTerminalJob(jq, queued.job_id)
   } finally {
     restoreVideoCatalog?.()
@@ -315,7 +362,7 @@ test('new Motion Review routes require an exact pair and preserve it for durable
   }
 })
 
-test('Jobs retry preserves legacy Motion fallback and an exact selected variant', async () => {
+test('Jobs retry fails closed for legacy Motion variants and preserves an exact selected operation', async () => {
   const temp = await useTempDataDir()
   const service = await startMockGenStudioService()
   let restoreVideoCatalog: (() => void) | undefined
@@ -351,7 +398,6 @@ test('Jobs retry preserves legacy Motion fallback and an exact selected variant'
     await waitForTerminalJob(jq, legacy.job_id)
     assert.equal(jq.getJob(legacy.job_id)?.status, 'error')
 
-    service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'] })
     jq.registerExecutor('scene_clip_generate', generateSceneClipJob)
     const legacyRetry = await request(app)
       .post(`/api/projects/${episode.project.slug}/jobs/${legacy.job_id}/retry`)
@@ -359,21 +405,16 @@ test('Jobs retry preserves legacy Motion fallback and an exact selected variant'
       .expect(202)
     assert.equal(legacyRetry.body.job.params.duration_seconds, undefined)
     assert.equal(legacyRetry.body.job.params.resolution, undefined)
-    const submissionDeadline = Date.now() + 4_000
-    while (Date.now() < submissionDeadline && !service.submissions.some(item => item.operation === 'video')) {
-      await new Promise(resolve => setTimeout(resolve, 20))
-    }
-    const legacySubmission = service.submissions.filter(item => item.operation === 'video').at(-1)
-    assert.equal(legacySubmission?.parsedBody?.duration_seconds, 5)
-    assert.equal(legacySubmission?.parsedBody?.resolution, '720p')
     await waitForTerminalJob(jq, legacyRetry.body.job.job_id, 8_000)
+    assert.equal(jq.getJob(legacyRetry.body.job.job_id)?.status, 'error')
+    assert.equal(service.submissions.filter(item => item.operation === 'video').length, 0)
 
     jq.registerExecutor('scene_clip_generate', async () => { throw new Error('selected failure') })
     const selected = jq.enqueuePreparedForTest({
       project_slug: episode.project.slug, type: 'scene_clip_generate', episode_id: episode.episodeId,
       title: 'Selected motion clip', params: {
         episode_id: episode.episodeId, scene_id: 'scene-001', model: 'genstudio-video:mock-video-v1',
-        duration_seconds: 8, resolution: '1080p',
+        operation: 'image-to-video', duration_seconds: 8, resolution: '1080p',
       },
     })
     await waitForTerminalJob(jq, selected.job_id)
@@ -383,6 +424,7 @@ test('Jobs retry preserves legacy Motion fallback and an exact selected variant'
       .expect(202)
     assert.equal(selectedRetry.body.job.params.duration_seconds, 8)
     assert.equal(selectedRetry.body.job.params.resolution, '1080p')
+    assert.equal(selectedRetry.body.job.params.operation, 'image-to-video')
     await waitForTerminalJob(jq, selectedRetry.body.job.job_id)
     await new Promise(resolve => setTimeout(resolve, 50))
   } finally {
@@ -522,13 +564,53 @@ test('a scene clip with a removed selected variant fails before a GenStudio vide
     await assert.rejects(
       generateSceneClipJob(job(project.slug, episodeId, 'scene_clip_generate', {
         scene_id: 'scene-001', model: 'mock-video-v1', aspect_ratio: '16:9',
-        duration_seconds: 8, resolution: '1080p',
+        operation: 'image-to-video', duration_seconds: 8, resolution: '1080p',
       })),
       /does not publish a 8s at 1080p option/,
     )
     assert.equal(service.submissions.filter(entry => entry.operation === 'video').length, 0)
     restoreVideoCatalog()
   } finally {
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a scene clip checkpoints its exact published operation before the first video status read', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreVideoCatalog: (() => void) | undefined
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    restoreVideoCatalog = enableMockVideoCatalog(service)
+    const { generateSceneClipJob, resolveVideoAssetsDir } = await import('../generators/scene-clip.js')
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { project, episodeId, paths } = await createEpisode('Scene clip operation provenance')
+    const imagePath = path.join(paths.episode_dir, 'scene-source.png')
+    await fs.writeFile(imagePath, ONE_PIXEL_PNG)
+    await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+      scenes: [{ id: 'scene-001', scene_index: 1, image_path: imagePath, motion_prompt: 'A slow drift across archive shelves.' }],
+    }))
+    const outDir = await resolveVideoAssetsDir(project.slug, episodeId, paths.episode_dir)
+    service.queueScenario('video', { states: ['accepted', 'running', 'succeeded'] })
+    const status = withFirstStatusAssertion(service, 'video', async taskId => {
+      const entry = (await readManifest(outDir)).tasks['scene-001.mp4']
+      assert.equal(entry?.task_id, taskId)
+      assert.equal(entry?.operation, 'video')
+      assert.equal(entry?.variant_operation, 'image-to-video')
+    })
+    try {
+      await generateSceneClipJob(job(project.slug, episodeId, 'scene_clip_generate', {
+        scene_id: 'scene-001', model: 'mock-video-v1', aspect_ratio: '16:9',
+        operation: 'image-to-video', duration_seconds: 5, resolution: '720p',
+      }))
+    } finally {
+      status.restore()
+    }
+    assert.ok(status.wasObserved(), 'scene clip must checkpoint before polling')
+  } finally {
+    restoreVideoCatalog?.()
     await service.close()
     await temp.cleanup()
   }
@@ -586,7 +668,7 @@ test('each GenStudio modality exposes its exact accepted identity before its fir
       } else {
         await client.generateVideoWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, {
           prompt: 'A tested video checkpoint.', modelId: 'mock-video-v1', sourceImagePath: sourceImage,
-          aspectRatio: '16:9', durationSeconds: 5, resolution: '720p', requestIdentity: 'checkpoint:video',
+          aspectRatio: '16:9', operation: 'image-to-video', durationSeconds: 5, resolution: '720p', requestIdentity: 'checkpoint:video',
           onJobAccepted: (taskId, key) => { accepted = { taskId, key } },
         })
       }

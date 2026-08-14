@@ -10,8 +10,8 @@ export interface ThumbnailVisionModel {
   accepted_image_mime_types: string[]
   max_image_bytes: number
   max_image_dimension: number
-  input_credits_per_million_tokens: number
-  output_credits_per_million_tokens: number
+  input_credits_per_million_tokens?: number
+  output_credits_per_million_tokens?: number
   minimum_credits: number
   price_version: string
   cost_tier?: GenStudioCostTier

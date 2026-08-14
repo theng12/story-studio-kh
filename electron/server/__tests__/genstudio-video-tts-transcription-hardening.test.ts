@@ -47,6 +47,7 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
         modelId: 'mock-video-v1',
         sourceImagePath: sourceImage,
         aspectRatio: '16:9',
+        operation: 'image-to-video',
         durationSeconds: 5,
         resolution: '720p',
         requestIdentity,
@@ -85,6 +86,7 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
         modelId: 'mock-video-v1',
         sourceImagePath: sourceImage,
         aspectRatio: '16:9',
+        operation: 'image-to-video',
         durationSeconds: 5,
         resolution: '720p',
         requestIdentity: 'video:poll',
@@ -118,7 +120,7 @@ void test('GenStudio video, TTS and transcription settle, refuse to reopen, and 
       await assert.rejects(
         client.recoverVideoWithGenStudio(MOCK_GENSTUDIO_FULL_KEY, dead, {
           prompt: 'unused', modelId: 'mock-video-v1', sourceImagePath: sourceImage,
-          aspectRatio: '16:9', durationSeconds: 5, resolution: '720p',
+          aspectRatio: '16:9', operation: 'image-to-video', durationSeconds: 5, resolution: '720p',
         }),
         (error: unknown) => error instanceof client.GenStudioVideoTerminalFailureError,
       )

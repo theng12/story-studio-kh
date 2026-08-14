@@ -9,6 +9,8 @@ import {
   generateVideoWithGenStudio,
   listVideoModels,
   supportsGenStudioVideoMode,
+  STORY_STUDIO_VIDEO_MODE,
+  variantsForGenStudioVideoOperation,
   type GenStudioVideoVariant,
 } from '../../lib/genstudio-client.js'
 
@@ -40,7 +42,11 @@ async function resolveRequestedVariant(
       `GenStudio does not currently publish an available image-to-video model with id "${modelId}".`,
     )
   }
-  const published = model.variants
+  const operation = providerParams?.operation
+  if (operation !== STORY_STUDIO_VIDEO_MODE) {
+    throw new Error(`GenStudio video requests must include the published ${STORY_STUDIO_VIDEO_MODE} operation.`)
+  }
+  const published = variantsForGenStudioVideoOperation(model.variants, operation)
   if (!published.length) {
     throw new Error(
       `GenStudio publishes no priced duration/resolution variant for "${model.display_name}", `
@@ -98,6 +104,7 @@ const genstudioVideoProvider: VideoProvider = {
         modelId,
         sourceImagePath: request.startImagePath,
         aspectRatio,
+        operation: variant.operation,
         durationSeconds: duration,
         resolution,
         requestIdentity: `${request.idempotencyIdentity || request.startImagePath}:variant:${index + 1}`,

@@ -269,9 +269,10 @@ async function preflightBatch(
     presetByStep[step] = result.preset
     if (step === 'motion_review') {
       const data = result.preset.data ?? result.preset
+      const hasOperation = typeof data?.operation === 'string' && Boolean(data.operation.trim())
       const hasDuration = Number.isFinite(Number(data?.duration_seconds)) && Number(data.duration_seconds) > 0
       const hasResolution = typeof data?.resolution === 'string' && Boolean(data.resolution.trim())
-      if (!hasDuration || !hasResolution) {
+      if (!hasOperation || !hasDuration || !hasResolution) {
         issues.push({
           code: 'invalid_preset',
           step,
@@ -846,6 +847,7 @@ export function resolveStepParams(
       episode_id: episodeId,
       model: data.model,
       aspect_ratio: typeof data.aspect_ratio === 'string' && data.aspect_ratio ? data.aspect_ratio : '16:9',
+      operation: data.operation,
       duration_seconds: data.duration_seconds,
       resolution: data.resolution,
       auto_approve_clip: true,
@@ -889,18 +891,20 @@ async function resolvePipelineTranscriptionParams(
  * their executor-only fallback; presets must be re-saved instead. */
 async function resolvePipelineMotionParams(
   preset: StoredPreset,
-): Promise<{ model: string; duration_seconds: number; resolution: string }> {
+): Promise<{ model: string; operation: string; duration_seconds: number; resolution: string }> {
   const params = resolveStepParams('motion_review', '', '', preset)
   const model = typeof params.model === 'string' ? params.model.trim() : ''
+  const operation = typeof params.operation === 'string' ? params.operation.trim() : ''
   const duration_seconds = Number(params.duration_seconds)
   const resolution = typeof params.resolution === 'string' ? params.resolution.trim() : ''
-  if (!model || !Number.isFinite(duration_seconds) || duration_seconds <= 0 || !resolution) {
+  if (!model || !operation || !Number.isFinite(duration_seconds) || duration_seconds <= 0 || !resolution) {
     throw new Error('Open Motion Review, choose a current model and published clip variant, then save the preset again.')
   }
   try {
-    const resolved = await requireSceneClipGenStudioModel(model, { duration_seconds, resolution })
+    const resolved = await requireSceneClipGenStudioModel(model, { operation, duration_seconds, resolution })
     return {
       model: `genstudio-video:${resolved.modelId}`,
+      operation: resolved.variant.operation,
       duration_seconds: resolved.variant.duration_seconds,
       resolution: resolved.variant.resolution,
     }
@@ -1274,7 +1278,7 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
     }
   }
 
-  let pipelineMotionParams: { model: string; duration_seconds: number; resolution: string } | null = null
+  let pipelineMotionParams: { model: string; operation: string; duration_seconds: number; resolution: string } | null = null
   if (steps.includes('motion_review')) {
     try {
       pipelineMotionParams = await resolvePipelineMotionParams(presetByStep.motion_review)

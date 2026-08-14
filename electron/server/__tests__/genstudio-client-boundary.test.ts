@@ -472,6 +472,30 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
   }
 })
 
+test('chat pricing preserves absent rates as unpublished while keeping a published zero', async () => {
+  const originalFetch = globalThis.fetch
+  clearGenStudioCatalogCache()
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/chat\/models$/)
+      return Response.json([
+        { id: 'chat-price-unknown', display_name: 'Unknown', available: true, qualification_only: false },
+        {
+          id: 'chat-free-input', display_name: 'Free input', available: true, qualification_only: false,
+          input_credits_per_million_tokens: 0, output_credits_per_million_tokens: 3,
+        },
+      ])
+    }
+    const [unknown, zero] = await listChatModels('chat-price-presence-key')
+    assert.equal(unknown?.input_credits_per_million_tokens, undefined)
+    assert.equal(unknown?.output_credits_per_million_tokens, undefined)
+    assert.equal(zero?.input_credits_per_million_tokens, 0)
+    assert.equal(zero?.output_credits_per_million_tokens, 3)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('GenStudio music catalog preserves only published provider details', async () => {
   const originalFetch = globalThis.fetch
   clearGenStudioCatalogCache()
@@ -775,6 +799,7 @@ test('GenStudio image catalog carries every published capability and invents non
           credits_per_image: 4,
           promotion_name: 'Launch week',
           promotion_discount_percent: 33.3,
+          chargeable: false,
           supports_seed: false,
           supports_image_to_image: true,
           min_reference_images: 1,
@@ -809,6 +834,7 @@ test('GenStudio image catalog carries every published capability and invents non
     assert.equal(model?.base_credits_per_image, 6)
     assert.equal(model?.promotion_name, 'Launch week')
     assert.equal(model?.promotion_discount_percent, 33.3)
+    assert.equal(model?.chargeable, false)
     assert.equal(model?.supports_seed, false)
     assert.equal(model?.supports_image_to_image, true)
     assert.equal(model?.min_reference_images, 1)
@@ -860,7 +886,7 @@ test('an image model that publishes nothing optional reports nothing optional', 
       'default_resolution', 'output_options', 'supports_seed', 'supports_image_to_image',
       'min_reference_images', 'reference_image_max_dimension', 'reference_generation_credits',
       'reference_generation_price_version', 'max_prompt_characters', 'prompt_token_allowance',
-      'operations', 'provider_name',
+      'operations', 'provider_name', 'chargeable',
     ] as const) {
       assert.equal(
         (model as any)?.[field] ?? undefined, undefined,

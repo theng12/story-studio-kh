@@ -149,24 +149,30 @@ test('variant selection takes the cheapest published option and rejects unpublis
   assert.equal(findGenStudioVideoVariant(variants, 8, '4k'), null)
 })
 
-test('scene clips keep an exact published variant, reject a removed one, and use cheapest only for legacy jobs', () => {
+test('scene clips resolve operation before duration/resolution and reject absent or ambiguous operation', () => {
   const variants: GenStudioVideoVariant[] = [
+    { operation: 'text-to-video', duration_seconds: 3, resolution: '480p', credits_per_video: 1, minimum_credits: 1, price_version: 'v1' },
     { operation: 'image-to-video', duration_seconds: 3, resolution: '480p', credits_per_video: 8, minimum_credits: 8, price_version: 'v1' },
     { operation: 'image-to-video', duration_seconds: 8, resolution: '1080p', credits_per_video: 40, minimum_credits: 40, price_version: 'v1' },
   ]
 
   assert.deepEqual(
-    selectSceneClipGenStudioVariant(variants, { duration_seconds: 8, resolution: '1080p' }),
+    selectSceneClipGenStudioVariant(variants, { operation: 'image-to-video', duration_seconds: 3, resolution: '480p' }),
     variants[1],
-    'a queued selection keeps the exact published duration and resolution',
-  )
-  assert.deepEqual(
-    selectSceneClipGenStudioVariant(variants),
-    variants[0],
-    'only jobs created before variant fields existed receive the current cheapest published option',
+    'a cheaper text-to-video duplicate is never selected for an image-to-video job',
   )
   assert.throws(
-    () => selectSceneClipGenStudioVariant(variants, { duration_seconds: 8, resolution: '4k' }),
+    () => selectSceneClipGenStudioVariant(variants, { duration_seconds: 3, resolution: '480p' }),
+    /operation.*required/i,
+    'duration/resolution alone are ambiguous across GenStudio operations',
+  )
+  assert.throws(
+    () => selectSceneClipGenStudioVariant(variants, { operation: 'text-to-video', duration_seconds: 3, resolution: '480p' }),
+    /image-to-video/i,
+    'Story Studio never submits a different published video operation',
+  )
+  assert.throws(
+    () => selectSceneClipGenStudioVariant(variants, { operation: 'image-to-video', duration_seconds: 8, resolution: '4k' }),
     /does not publish a 8s at 4k option/,
     'a stale queued combination stops before any provider submission',
   )

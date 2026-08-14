@@ -772,7 +772,7 @@ export interface GenStudioImageModel extends GenStudioCatalogLock {
   price_version: string | null
   promotion_name?: string
   promotion_discount_percent?: number
-  chargeable: boolean
+  chargeable?: boolean
   cost_tier?: GenStudioCostTier
   aspect_ratios: string[]
   default_aspect_ratio: string
@@ -1110,8 +1110,8 @@ export interface GenStudioChatModel extends GenStudioCatalogLock {
   max_structured_items_per_request: number | null
   controls: string[]
   activation_blockers: string[]
-  input_credits_per_million_tokens: number
-  output_credits_per_million_tokens: number
+  input_credits_per_million_tokens?: number
+  output_credits_per_million_tokens?: number
   minimum_credits: number
   price_version: string
   cost_tier?: GenStudioCostTier
@@ -1253,6 +1253,14 @@ export function cheapestGenStudioVideoVariant(
   ))[0]!
 }
 
+/** Keep variants in their published operation lane before choosing a price or pair. */
+export function variantsForGenStudioVideoOperation(
+  variants: readonly GenStudioVideoVariant[] | undefined | null,
+  operation: string,
+): GenStudioVideoVariant[] {
+  return Array.isArray(variants) ? variants.filter(variant => variant.operation === operation) : []
+}
+
 /** The published variant matching an exact (duration, resolution), or null.
  *  Null means "GenStudio does not publish this combination" and must be
  *  REJECTED by the caller — never quietly replaced with a nearby one. */
@@ -1331,6 +1339,8 @@ export interface GenStudioVideoRequest extends GenStudioOperationContext {
   modelId: string
   sourceImagePath: string
   aspectRatio: string
+  /** Exact published operation for the selected variant. */
+  operation: string
   /** Taken from a variant the model PUBLISHES. Not a literal union: the
    *  catalogue owns the list, and the caller resolves against it. */
   durationSeconds: number
@@ -3685,12 +3695,8 @@ export async function listChatModelsSnapshot(
     activation_blockers: Array.isArray(value?.activation_blockers)
       ? value.activation_blockers.filter((item: unknown) => typeof item === 'string')
       : [],
-    input_credits_per_million_tokens: Number.isFinite(value?.input_credits_per_million_tokens)
-      ? Math.max(0, value.input_credits_per_million_tokens)
-      : 0,
-    output_credits_per_million_tokens: Number.isFinite(value?.output_credits_per_million_tokens)
-      ? Math.max(0, value.output_credits_per_million_tokens)
-      : 0,
+    input_credits_per_million_tokens: publishedCredits(value?.input_credits_per_million_tokens),
+    output_credits_per_million_tokens: publishedCredits(value?.output_credits_per_million_tokens),
     minimum_credits: Number.isFinite(value?.minimum_credits)
       ? Math.max(0, value.minimum_credits)
       : 0,
@@ -3827,6 +3833,7 @@ export function buildGenStudioVideoIdempotencyKey(input: {
   modelId: string
   sourceSha256: string
   aspectRatio: string
+  operation: string
   durationSeconds: number
   resolution: string
   requestIdentity?: string
@@ -3836,6 +3843,7 @@ export function buildGenStudioVideoIdempotencyKey(input: {
     model_id: input.modelId.trim(),
     source_sha256: input.sourceSha256,
     aspect_ratio: input.aspectRatio,
+    operation: input.operation,
     duration_seconds: input.durationSeconds,
     resolution: input.resolution,
     request_identity: input.requestIdentity || null,
@@ -3961,6 +3969,9 @@ async function generateVideoWithGenStudioAdmitted(
   const modelId = request.modelId.trim()
   if (prompt.length < 3 || prompt.length > 4_000) throw new Error('GenStudio video prompts must contain 3 to 4,000 characters.')
   if (!modelId) throw new Error('Select a GenStudio video model.')
+  if (request.operation !== STORY_STUDIO_VIDEO_MODE) {
+    throw new Error(`Story Studio only submits the published ${STORY_STUDIO_VIDEO_MODE} video operation.`)
+  }
   const source = await fs.readFile(request.sourceImagePath)
   if (!source.length) throw new Error('GenStudio video source image is empty.')
   const sourceSha256 = createHash('sha256').update(source).digest('hex')
@@ -3972,6 +3983,7 @@ async function generateVideoWithGenStudioAdmitted(
     modelId,
     sourceSha256,
     aspectRatio: request.aspectRatio,
+    operation: request.operation,
     durationSeconds: request.durationSeconds,
     resolution: request.resolution,
     requestIdentity: request.requestIdentity,
@@ -3999,7 +4011,7 @@ async function generateVideoWithGenStudioAdmitted(
     idempotencyKey,
     messages: [{ role: 'prompt', content: prompt }],
     fields: [
-      ['mode', 'image-to-video'],
+      ['mode', request.operation],
       ['duration_seconds', request.durationSeconds],
       ['resolution', request.resolution],
       ['aspect_ratio', request.aspectRatio],
@@ -4019,7 +4031,7 @@ async function generateVideoWithGenStudioAdmitted(
       body: JSON.stringify({
         prompt,
         model_id: modelId,
-        mode: 'image-to-video',
+        mode: request.operation,
         reference_asset_id: sourceAsset.id,
         aspect_ratio: request.aspectRatio,
         duration_seconds: request.durationSeconds,
@@ -5370,7 +5382,7 @@ export async function listImageModelsSnapshot(
       ? value.promotion_discount_percent
       : undefined,
     availability_note: publishedText(value?.availability_note),
-    chargeable: value?.chargeable === true,
+    ...(publishedFlag(value?.chargeable) === undefined ? {} : { chargeable: publishedFlag(value?.chargeable) }),
     ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     aspect_ratios: Array.isArray(value?.aspect_ratios)
       ? value.aspect_ratios.filter((ratio: unknown): ratio is string => typeof ratio === 'string' && !!ratio.trim())
