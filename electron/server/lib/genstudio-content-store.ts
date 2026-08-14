@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { getGenStudioUrl } from '../services/app-settings.js'
 export { resolveStoryStudioVersion } from './app-version.js'
 
@@ -5,16 +7,21 @@ const MAX_DEPTH = 32
 const MAX_NODES = 4_096
 const MAX_STRING_BYTES = 256 * 1024
 const MAX_CANONICAL_BYTES = 1024 * 1024
+const MAX_LOCAL_ARCHIVE_BYTES = 50 * 1024 * 1024
+const MAX_PUBLISHED_ARCHIVE_BYTES = 128 * 1024 * 1024
 const QUOTE_TYPE = 'genstudio.content.quote.v1'
 const RECEIPT_TYPE = 'genstudio.content.receipt.v1'
+const RESTORE_TYPE = 'genstudio.content.restore.v1'
+const DOWNLOAD_TYPE = 'genstudio.content.download.v1'
+const CONTENT_STORE_CANONICALIZATION = 'json:sorted-keys,no-whitespace,utf-8'
+const CONTENT_STORE_PAYLOAD_TYPES = new Set([
+  DOWNLOAD_TYPE, QUOTE_TYPE, RECEIPT_TYPE, RESTORE_TYPE,
+])
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
 const PRODUCT_KINDS = new Set<GenStudioContentProductKind>([
   'series_formula', 'topic_pack', 'visual_style', 'thumbnail_recipe', 'niche_bundle',
 ])
 const numberSources = new WeakMap<object, Map<string, string>>()
-
-type JsonPrimitive = null | boolean | number | string
-type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
 
 export type GenStudioContentProductKind =
   | 'series_formula'
@@ -38,6 +45,7 @@ export interface GenStudioContentRelease {
   minStoryVersion: string
   changelog: string
   componentSummary: CanonicalJsonObject
+  archiveAvailable: boolean
   raw: CanonicalJsonObject
 }
 
@@ -140,6 +148,65 @@ export interface GenStudioContentPurchase {
   ledgerEventKey: string | null
   receipt: GenStudioContentReceipt
   replayed: boolean
+  raw: CanonicalJsonObject
+}
+
+export interface GenStudioContentPublicKey {
+  keyId: string
+  algorithm: 'ed25519'
+  publicKeyBase64: string
+  publicKeyBytes: Uint8Array
+  payloadTypes: string[]
+  canonicalization: typeof CONTENT_STORE_CANONICALIZATION
+  raw: CanonicalJsonObject
+}
+
+export interface GenStudioContentPurchaseReceipt extends GenStudioContentReceipt {
+  purchaseId: string
+  creditsCharged: number
+  createdAt: string
+}
+
+export interface GenStudioContentRestoreEntitlement {
+  entitlementId: string
+  entitlementFamily: string
+  productId: string
+  title: string
+  kind: GenStudioContentProductKind
+  publisherId: string
+  grantedAt: string
+  purchaseId: string | null
+  retired: boolean
+  currentRelease: GenStudioContentRelease | null
+  downloadAvailable: boolean
+  raw: CanonicalJsonObject
+}
+
+export interface GenStudioContentReceipts {
+  accountId: string
+  contentAccountId: string
+  restoreReceipt: GenStudioContentReceipt
+  purchaseReceipts: GenStudioContentPurchaseReceipt[]
+  entitlements: GenStudioContentRestoreEntitlement[]
+  raw: CanonicalJsonObject
+}
+
+export interface GenStudioContentDownloadGrant {
+  grantId: string
+  accountId: string
+  productId: string
+  entitlementFamily: string
+  releaseId: string
+  packId: string
+  version: string
+  archiveSha256: string
+  archiveBytes: number
+  downloadUrl: string
+  expiresAt: string
+  ttlSeconds: number
+  signedGrant: CanonicalJsonObject
+  grantSignature: string
+  keyId: string
   raw: CanonicalJsonObject
 }
 
@@ -276,6 +343,26 @@ function textArray(record: Record<string, unknown>, key: string): string[] {
   })
 }
 
+function strictBase64(value: string, field: string, expectedBytes?: number): Uint8Array {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    throw new Error(`${field} must be valid base64`)
+  }
+  const bytes = Buffer.from(value, 'base64')
+  if (bytes.toString('base64') !== value) throw new Error(`${field} must be canonical base64`)
+  if (expectedBytes !== undefined && bytes.byteLength !== expectedBytes) {
+    throw new Error(`${field} must encode exactly ${expectedBytes} bytes`)
+  }
+  return new Uint8Array(bytes)
+}
+
+function isoInstant(record: Record<string, unknown>, key: string): string {
+  const value = text(record, key)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value) || !Number.isFinite(Date.parse(value))) {
+    throw new Error(`${key} must be a UTC ISO-8601 instant`)
+  }
+  return value
+}
+
 function kind(record: Record<string, unknown>, key = 'kind'): GenStudioContentProductKind {
   const value = text(record, key) as GenStudioContentProductKind
   if (!PRODUCT_KINDS.has(value)) throw new Error(`${key} is not a published Content Store product kind`)
@@ -294,15 +381,20 @@ function parseRelease(value: unknown, field: string): GenStudioContentRelease {
   const archiveSha256 = text(row, 'archive_sha256')
   if (!/^[0-9a-f]{64}$/.test(archiveSha256)) throw new Error(`${field}.archive_sha256 must be 64 lowercase hexadecimal characters`)
   const componentSummary = canonicalizeContentStoreObject(row.component_summary)
+  const archiveBytes = uint(row, 'archive_bytes')
+  if (archiveBytes < 1 || archiveBytes > MAX_PUBLISHED_ARCHIVE_BYTES) {
+    throw new Error(`${field}.archive_bytes must be between 1 and ${MAX_PUBLISHED_ARCHIVE_BYTES}`)
+  }
   return {
     releaseId: text(row, 'release_id'),
     packId: text(row, 'pack_id'),
     version: text(row, 'version'),
     archiveSha256,
-    archiveBytes: uint(row, 'archive_bytes'),
+    archiveBytes,
     minStoryVersion: text(row, 'min_story_version'),
     changelog: typeof row.changelog === 'string' ? row.changelog : (() => { throw new Error(`${field}.changelog must be a string`) })(),
     componentSummary,
+    archiveAvailable: row.archive_available === undefined ? false : bool(row, 'archive_available'),
     raw,
   }
 }
@@ -483,6 +575,189 @@ export function parseContentStorePurchase(value: unknown): GenStudioContentPurch
   }
 }
 
+function parseSignedReceiptEnvelope(
+  value: unknown,
+  expectedType: typeof RECEIPT_TYPE | typeof RESTORE_TYPE,
+  field: string,
+): GenStudioContentReceipt {
+  const raw = canonicalizeContentStoreObject(value)
+  const row = raw.value
+  const signedReceipt = canonicalizeContentStoreObject(row.receipt)
+  if (signedReceipt.value.typ !== expectedType) throw new Error(`${field} typ must be ${expectedType}`)
+  const keyId = text(row, 'key_id')
+  if (signedReceipt.value.key_id !== keyId) throw new Error(`${field} key_id does not match its envelope`)
+  const receiptSignature = text(row, 'receipt_signature')
+  strictBase64(receiptSignature, `${field}.receipt_signature`, 64)
+  return { signedReceipt, receiptSignature, keyId, raw }
+}
+
+export function parseContentStorePublicKey(value: unknown): GenStudioContentPublicKey {
+  const raw = canonicalizeContentStoreObject(value)
+  const row = raw.value
+  const algorithm = text(row, 'algorithm')
+  if (algorithm !== 'ed25519') throw new Error('Content Store public-key algorithm must be ed25519')
+  const canonicalization = text(row, 'canonicalization')
+  if (canonicalization !== CONTENT_STORE_CANONICALIZATION) {
+    throw new Error(`Content Store public-key canonicalization must be ${CONTENT_STORE_CANONICALIZATION}`)
+  }
+  const payloadTypes = textArray(row, 'payload_types')
+  if (new Set(payloadTypes).size !== payloadTypes.length
+    || payloadTypes.length !== CONTENT_STORE_PAYLOAD_TYPES.size
+    || [...CONTENT_STORE_PAYLOAD_TYPES].some(type => !payloadTypes.includes(type))) {
+    throw new Error('Content Store public-key payload_types must exactly match the published signed payload types')
+  }
+  const publicKeyBase64 = text(row, 'public_key_base64')
+  return {
+    keyId: text(row, 'key_id'),
+    algorithm,
+    publicKeyBase64,
+    publicKeyBytes: strictBase64(publicKeyBase64, 'public_key_base64', 32),
+    payloadTypes,
+    canonicalization,
+    raw,
+  }
+}
+
+function assertRestoreCoherence(result: GenStudioContentReceipts): void {
+  if (result.accountId !== result.contentAccountId) throw new Error('Content Store restore account ids do not match')
+  const signed = result.restoreReceipt.signedReceipt.value
+  if (signed.account_id !== result.accountId || signed.content_account_id !== result.contentAccountId) {
+    throw new Error('Signed restore account ids do not match the response envelope')
+  }
+  const signedFamilies = signed.entitlement_families
+  const envelopeFamilies = result.entitlements.map(item => item.entitlementFamily)
+  if (!Array.isArray(signedFamilies) || JSON.stringify(signedFamilies) !== JSON.stringify(envelopeFamilies)) {
+    throw new Error('Signed restore entitlement_families do not match the response envelope')
+  }
+  const signedEntitlements = signed.entitlements
+  const envelopeEntitlements = result.entitlements.map(item => ({
+    entitlement_family: item.entitlementFamily,
+    product_id: item.productId,
+    title: item.title,
+    kind: item.kind,
+    granted_at: item.grantedAt,
+    purchase_id: item.purchaseId,
+  }))
+  if (!Array.isArray(signedEntitlements) || !sameJson({ rows: signedEntitlements }, { rows: envelopeEntitlements })) {
+    throw new Error('Signed restore entitlements do not match the response envelope')
+  }
+  const signedReleases = signed.releases
+  const envelopeReleases = result.entitlements.flatMap(item => item.currentRelease ? [{
+    entitlement_family: item.entitlementFamily,
+    release_id: item.currentRelease.releaseId,
+    pack_id: item.currentRelease.packId,
+    version: item.currentRelease.version,
+    archive_sha256: item.currentRelease.archiveSha256,
+    archive_bytes: item.currentRelease.archiveBytes,
+    min_story_version: item.currentRelease.minStoryVersion,
+  }] : [])
+  if (!Array.isArray(signedReleases) || !sameJson({ rows: signedReleases }, { rows: envelopeReleases })) {
+    throw new Error('Signed restore releases do not match the response envelope')
+  }
+  const expiry = plainObject(signed.expiry_policy, 'restore receipt expiry_policy')
+  if (expiry.ownership !== 'permanent' || expiry.receipt_expires_at !== null) {
+    throw new Error('Signed restore expiry_policy must state permanent ownership without receipt expiry')
+  }
+  isoInstant(expiry, 'refresh_recommended_after')
+  isoInstant(signed, 'issued_at')
+  text(signed, 'receipt_id')
+}
+
+export function parseContentStoreReceipts(value: unknown): GenStudioContentReceipts {
+  const raw = canonicalizeContentStoreObject(value)
+  const row = raw.value
+  const accountId = text(row, 'account_id')
+  const contentAccountId = text(row, 'content_account_id')
+  const result: GenStudioContentReceipts = {
+    accountId,
+    contentAccountId,
+    restoreReceipt: parseSignedReceiptEnvelope(row.restore_receipt, RESTORE_TYPE, 'restore_receipt'),
+    purchaseReceipts: array(row, 'purchase_receipts').map((value, index) => {
+      const receipt = parseSignedReceiptEnvelope(value, RECEIPT_TYPE, `purchase_receipts[${index}]`)
+      const envelope = receipt.raw.value
+      const signed = receipt.signedReceipt.value
+      const purchaseId = text(envelope, 'purchase_id')
+      const creditsCharged = uint(envelope, 'credits_charged')
+      if (signed.purchase_id !== purchaseId) throw new Error(`purchase_receipts[${index}] purchase_id does not match its signed receipt`)
+      if (signed.account_id !== accountId) throw new Error(`purchase_receipts[${index}] account_id does not match the restore account`)
+      if (signed.credits_charged !== creditsCharged) throw new Error(`purchase_receipts[${index}] credits_charged does not match its signed receipt`)
+      return { ...receipt, purchaseId, creditsCharged, createdAt: isoInstant(envelope, 'created_at') }
+    }),
+    entitlements: array(row, 'entitlements').map((value, index) => {
+      const entitlementRaw = canonicalizeContentStoreObject(value)
+      const entitlement = entitlementRaw.value
+      const currentRelease = parseOptionalRelease(entitlement.current_release, `entitlements[${index}].current_release`)
+      const downloadAvailable = bool(entitlement, 'download_available')
+      if (downloadAvailable !== Boolean(currentRelease?.archiveAvailable)) {
+        throw new Error(`entitlements[${index}] download_available must match current release archive availability`)
+      }
+      return {
+        entitlementId: text(entitlement, 'entitlement_id'),
+        entitlementFamily: text(entitlement, 'entitlement_family'),
+        productId: text(entitlement, 'product_id'),
+        title: text(entitlement, 'title'),
+        kind: kind(entitlement),
+        publisherId: text(entitlement, 'publisher_id'),
+        grantedAt: isoInstant(entitlement, 'granted_at'),
+        purchaseId: nullableText(entitlement, 'purchase_id'),
+        retired: bool(entitlement, 'retired'),
+        currentRelease,
+        downloadAvailable,
+        raw: entitlementRaw,
+      }
+    }),
+    raw,
+  }
+  assertRestoreCoherence(result)
+  return result
+}
+
+export function parseContentStoreDownloadGrant(value: unknown): GenStudioContentDownloadGrant {
+  const raw = canonicalizeContentStoreObject(value)
+  const row = raw.value
+  const signedGrant = canonicalizeContentStoreObject(row.grant)
+  if (signedGrant.value.typ !== DOWNLOAD_TYPE) throw new Error(`Signed download grant typ must be ${DOWNLOAD_TYPE}`)
+  const keyId = text(row, 'key_id')
+  if (signedGrant.value.key_id !== keyId) throw new Error('Signed download grant key_id does not match its envelope')
+  const scalarFields = [
+    'grant_id', 'account_id', 'product_id', 'entitlement_family', 'release_id', 'pack_id', 'version',
+    'archive_sha256', 'archive_bytes', 'expires_at',
+  ]
+  for (const field of scalarFields) {
+    if (signedGrant.value[field] !== row[field]) throw new Error(`Signed download grant ${field} does not match its envelope`)
+  }
+  const archiveSha256 = text(row, 'archive_sha256')
+  if (!/^[0-9a-f]{64}$/.test(archiveSha256)) throw new Error('archive_sha256 must be 64 lowercase hexadecimal characters')
+  const archiveBytes = uint(row, 'archive_bytes')
+  if (archiveBytes < 1 || archiveBytes > MAX_PUBLISHED_ARCHIVE_BYTES) {
+    throw new Error(`archive_bytes must be between 1 and ${MAX_PUBLISHED_ARCHIVE_BYTES}`)
+  }
+  const ttlSeconds = uint(row, 'ttl_seconds')
+  if (ttlSeconds !== 900) throw new Error('ttl_seconds must match the published 900-second grant lifetime')
+  isoInstant(signedGrant.value, 'issued_at')
+  const expiresAt = isoInstant(row, 'expires_at')
+  const grantSignature = text(row, 'grant_signature')
+  strictBase64(grantSignature, 'grant_signature', 64)
+  return {
+    grantId: text(row, 'grant_id'),
+    accountId: text(row, 'account_id'),
+    productId: text(row, 'product_id'),
+    entitlementFamily: text(row, 'entitlement_family'),
+    releaseId: text(row, 'release_id'),
+    packId: text(row, 'pack_id'),
+    version: text(row, 'version'),
+    archiveSha256,
+    archiveBytes,
+    downloadUrl: text(row, 'download_url'),
+    expiresAt,
+    ttlSeconds,
+    signedGrant,
+    grantSignature,
+    keyId,
+    raw,
+  }
+}
+
 interface RequestOptions<T> {
   method: 'GET' | 'POST'
   path: string
@@ -638,6 +913,22 @@ export async function getGenStudioContentAccount(apiKey: string): Promise<GenStu
   })
 }
 
+export async function getGenStudioContentPublicKey(apiKey: string): Promise<GenStudioContentPublicKey> {
+  assertApiKey(apiKey)
+  return requestOnce({
+    method: 'GET', path: '/v1/content/public-key', apiKey, timeoutMs: 8_000,
+    parse: parseContentStorePublicKey,
+  })
+}
+
+export async function getGenStudioContentReceipts(apiKey: string): Promise<GenStudioContentReceipts> {
+  assertApiKey(apiKey)
+  return requestOnce({
+    method: 'GET', path: '/v1/content/receipts', apiKey, timeoutMs: 12_000,
+    parse: parseContentStoreReceipts,
+  })
+}
+
 export async function listGenStudioContentProducts(
   apiKey: string,
   storyVersion: string,
@@ -690,4 +981,95 @@ export async function purchaseGenStudioContentProduct(
     purchase: true,
     parse: parseContentStorePurchase,
   })
+}
+
+export async function issueGenStudioContentDownload(
+  apiKey: string,
+  releaseId: string,
+): Promise<GenStudioContentDownloadGrant> {
+  assertApiKey(apiKey)
+  if (typeof releaseId !== 'string' || releaseId.length === 0) throw new TypeError('release_id is required')
+  return requestOnce({
+    method: 'POST', path: '/v1/content/downloads', apiKey, timeoutMs: 12_000,
+    body: JSON.stringify({ release_id: releaseId }),
+    parse: parseContentStoreDownloadGrant,
+  })
+}
+
+export async function downloadGenStudioContentArchive(
+  downloadUrl: string,
+  expected: { archiveSha256: string; archiveBytes: number },
+): Promise<Uint8Array> {
+  if (typeof downloadUrl !== 'string' || downloadUrl.length === 0) throw new TypeError('Content Store download URL is required')
+  if (!/^[0-9a-f]{64}$/.test(expected.archiveSha256)) throw new TypeError('Expected archive SHA-256 must be 64 lowercase hexadecimal characters')
+  if (!Number.isSafeInteger(expected.archiveBytes) || expected.archiveBytes < 1 || expected.archiveBytes > MAX_LOCAL_ARCHIVE_BYTES) {
+    throw new TypeError(`Expected archive size must be between 1 and ${MAX_LOCAL_ARCHIVE_BYTES} bytes`)
+  }
+
+  let pending: Promise<Response>
+  try {
+    pending = globalThis.fetch(downloadUrl, {
+      method: 'GET',
+      headers: { Accept: 'application/octet-stream' },
+      signal: AbortSignal.timeout(60_000),
+    })
+  } catch (error) {
+    throw new GenStudioContentStoreTransportError('not-sent', 'The Content Store archive request was not sent.', error)
+  }
+  let response: Response
+  try {
+    response = await pending
+  } catch (error) {
+    throw new GenStudioContentStoreTransportError('not-sent', 'The Content Store archive request did not receive a response.', error)
+  }
+  if (!response.ok) {
+    let responseText = ''
+    try { responseText = await readBoundedResponseBody(response) } catch { /* keep refusal bounded */ }
+    const refusal = errorBody(responseText)
+    const code = typeof refusal.code === 'string' ? refusal.code : null
+    const detail = typeof refusal.detail === 'string'
+      ? refusal.detail
+      : responseText || `GenStudio Content Store archive returned HTTP ${response.status}`
+    throw new GenStudioContentStoreApiError(response.status, code, detail, refusal)
+  }
+
+  const declaredLength = response.headers.get('content-length')
+  if (declaredLength !== null) {
+    if (!/^\d+$/.test(declaredLength) || Number(declaredLength) !== expected.archiveBytes) {
+      await response.body?.cancel().catch(() => {})
+      throw new Error(`Content Store archive size does not match the expected ${expected.archiveBytes} bytes`)
+    }
+  }
+  if (!response.body) throw new Error('Content Store archive response has no body')
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      length += value.byteLength
+      if (length > expected.archiveBytes || length > MAX_LOCAL_ARCHIVE_BYTES) {
+        await reader.cancel().catch(() => {})
+        throw new Error(`Content Store archive exceeds its expected ${expected.archiveBytes} byte size or ${MAX_LOCAL_ARCHIVE_BYTES} byte limit`)
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  if (length !== expected.archiveBytes) {
+    throw new Error(`Content Store archive size ${length} does not match expected ${expected.archiveBytes} bytes`)
+  }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  const actualSha256 = createHash('sha256').update(bytes).digest('hex')
+  if (actualSha256 !== expected.archiveSha256) {
+    throw new Error(`Content Store archive SHA-256 does not match expected digest ${expected.archiveSha256}`)
+  }
+  return bytes
 }
