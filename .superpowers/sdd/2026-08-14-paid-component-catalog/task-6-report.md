@@ -31,7 +31,7 @@ source/policy-only: it does not stock or sell a later paid wave.
 ## Review and verification
 
 - Focused boundary suite: 1 passing test.
-- Boundary plus publisher-tools suites: 24 passing tests, 0 failures.
+- Boundary plus publisher-tools suites: 23 passing tests, 0 failures.
 - `git diff --check`: passed.
 - No delegated subagent slot was available for a separate commercial-boundary review in this
   session. A read-only local review checked every requested prohibition and found no Critical or
