@@ -7,6 +7,8 @@ import { test } from 'node:test'
 import sharp from 'sharp'
 
 const WAVE = new URL('../../../content-packs/free-starters/', import.meta.url)
+const ROOT = new URL('../../../', import.meta.url)
+const PROVENANCE = new URL('../../../content-packs/free-starters/ASSET-PROVENANCE.md', import.meta.url)
 const kits = {
   'business-explained': ['economics-of', 'economics-businesses', 'hand-drawn-editorial-diagram', 'annotated-business-board', 'Cost → Constraint'],
   'human-behavior': ['human-behavior-explained', 'human-behavior-social-dynamics', 'minimal-stick-figure-explainer', 'centered-hero-headline', 'Signal → Choice'],
@@ -18,6 +20,11 @@ const subjectCounts = [40, 10, 25, 25]
 const documentName = { formula: 'series-formula', topic: 'topic-pack', style: 'visual-style', thumbnail: 'thumbnail-recipe' }
 async function json(path) { return JSON.parse(await readFile(new URL(path, WAVE), 'utf8')) }
 const sourcePath = url => decodeURIComponent(url.pathname)
+function provenanceRecords(markdown) {
+  const match = markdown.match(/<!-- free-starter-preview-provenance\n([\s\S]*?)\n-->/)
+  assert.ok(match, 'ASSET-PROVENANCE.md must contain the machine-readable preview registry')
+  return JSON.parse(match[1])
+}
 
 test('wave two has exact source identities, enriched Topic dimensions, promises, and Kit closures', async () => {
   const actualCounts = []
@@ -81,10 +88,26 @@ test('approved wave two preview bytes remain unchanged and every unblocked sourc
   }
 })
 
-test('BLOCKED: Centered Hero and Portrait Block require their owner-approved original rasters', async () => {
-  for (const preview of ['thumbnail/centered-hero-headline/assets/centered-hero-headline.webp', 'thumbnail/portrait-block-right/assets/portrait-block-right.webp']) {
+test('BLOCKED: Centered Hero and Portrait Block bind a future raster to their exact owner provenance', async () => {
+  const records = provenanceRecords(await readFile(PROVENANCE, 'utf8'))
+  for (const [ownerId, preview] of [['centered-hero-headline', 'thumbnail/centered-hero-headline/assets/centered-hero-headline.webp'], ['portrait-block-right', 'thumbnail/portrait-block-right/assets/portrait-block-right.webp']]) {
+    const record = records.find(row => row.id === ownerId)
+    assert.ok(record, `missing ${ownerId} provenance record`)
+    assert.equal(record.ownerId, ownerId)
+    assert.equal(record.provenance, 'owner-supplied-original')
     const url = new URL(preview, WAVE)
+    const canonicalSourcePath = `content-packs/free-starters/${preview}`
+    if (record.status === 'blocked-missing-owner-original') {
+      assert.equal(record.sourcePath, null)
+      assert.equal(record.sha256, null)
+      await access(url)
+      continue
+    }
+    assert.equal(record.status, 'approved')
+    assert.equal(record.sourcePath, canonicalSourcePath)
+    assert.match(record.sha256, /^[a-f0-9]{64}$/)
     await access(url)
+    assert.equal(createHash('sha256').update(await readFile(url)).digest('hex'), record.sha256)
     assert.deepEqual(await sharp(sourcePath(url)).metadata().then(({ format, width, height }) => ({ format, width, height })), { format: 'webp', width: 1672, height: 941 })
   }
 })

@@ -8,7 +8,8 @@ raster and its SHA-256 before that Kit can be authored.
 Each approved record's `ownerId` is the exact legacy Style or Recipe
 declaration authorized to select those bytes.
 
-Prehistoric Discovery and Dreamscape Story Window are deliberately blocked:
+Prehistoric Discovery, Dreamscape Story Window, Centered Hero Headline, and
+Portrait Block Right are deliberately blocked:
 there is no raster path, no SHA-256, and no substitute preview. The First
 Humans and Sleep Journeys kits must remain blocked until the corresponding
 owner-supplied originals are added to this ledger.
@@ -33,6 +34,8 @@ owner-supplied originals are added to this ledger.
   {"id":"annotated-business-board-coffee","ownerId":"annotated-business-board","provenance":"migrated-approved-built-in","status":"approved","sourcePath":"frontend/public/thumbnail-recipe-previews/annotated-business-board-coffee.webp","sha256":"7b0a222dcf0ca1d558d5ebfa28300ec9be201d8ddcbe70259c0fb05fc57da1e8"},
   {"id":"annotated-business-board-workshop","ownerId":"annotated-business-board","provenance":"migrated-approved-built-in","status":"approved","sourcePath":"frontend/public/thumbnail-recipe-previews/annotated-business-board-workshop.webp","sha256":"ee08f477759b2dbc1ddc1df4a3560e3c030523858f23f396b67730c3b7240328"},
   {"id":"annotated-business-board-hotel","ownerId":"annotated-business-board","provenance":"migrated-approved-built-in","status":"approved","sourcePath":"frontend/public/thumbnail-recipe-previews/annotated-business-board-hotel.webp","sha256":"29064f0bd0b38e59883db2ee8f1c66f428c10a3afbca02ca488c9adaf758c2fe"},
+  {"id":"centered-hero-headline","ownerId":"centered-hero-headline","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null},
+  {"id":"portrait-block-right","ownerId":"portrait-block-right","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null},
   {"id":"prehistoric-discovery","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null},
   {"id":"dreamscape-story-window","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null}
 ]

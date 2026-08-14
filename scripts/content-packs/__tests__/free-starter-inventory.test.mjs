@@ -164,7 +164,7 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
   }
   for (const { row, template } of recipeDeclarations) {
     const declaredPaths = template.previewImages || []
-    const approvedRecords = records.filter(record => record.ownerId === row.sourceId)
+    const approvedRecords = records.filter(record => record.ownerId === row.sourceId && record.status === 'approved')
     assert.equal(declaredPaths.length, approvedRecords.length, `${row.sourceId} preview declarations must match its approved ledger records`)
     for (const publicPath of declaredPaths) {
       const record = assertDeclaredPreview(records, row.sourceId, publicPath)
