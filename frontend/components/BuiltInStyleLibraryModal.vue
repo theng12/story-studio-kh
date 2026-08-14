@@ -153,6 +153,7 @@
 
 <script setup lang="ts">
 import { type BuiltInStyle, useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
+import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -240,8 +241,7 @@ watch(() => props.visible, async (visible) => {
   searchInput.value?.focus({ preventScroll: true })
 })
 watch(genStudioImageModels, (models) => {
-  if (models.some(model => model.id === previewModel.value && model.available)) return
-  previewModel.value = models.find(model => model.available)?.id || ''
+  previewModel.value = selectLiveGenStudioModel(previewModel.value, models)?.id || ''
 }, { immediate: true, deep: true })
 watch([selectedImageModel, aspectOptions], ([model, aspects]) => {
   if (!model || !aspects.length || aspects.includes(previewAspect.value)) return

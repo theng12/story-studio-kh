@@ -28,6 +28,8 @@ type ChatModelFixture = {
   display_name?: string
   available?: boolean
   qualification_only?: boolean
+  locked?: boolean
+  cost_tier?: 'economy' | 'balanced' | 'premium'
 }
 
 /** Minimal standalone GenStudio stand-in — only /v1/chat/models, fully
@@ -60,6 +62,8 @@ class ChatCatalogServer {
         display_name: m.display_name ?? m.id,
         available: m.available !== false,
         qualification_only: m.qualification_only === true,
+        ...(m.cost_tier ? { cost_tier: m.cost_tier } : {}),
+        ...(m.locked === true ? { locked: true, lock_reason: 'requires_paid_account' } : {}),
       }))))
       res.writeHead(200, { 'Content-Type': 'application/json', 'Content-Length': String(body.length) })
       res.end(body)
@@ -118,6 +122,31 @@ describe('resolveDefaultChatModel — live-catalog default resolution', () => {
     await assert.rejects(
       resolveDefaultChatModel('gsk_test_key', 'genstudio-chat-retired'),
       /No published GenStudio language model is currently available/,
+    )
+  })
+
+  test('a visible account-locked teaser is not selected as the default', async () => {
+    server = await new ChatCatalogServer().start()
+    await settings.setGenStudioUrl(server.baseUrl)
+    server.catalog = [
+      { id: 'locked-teaser', available: true, qualification_only: false, locked: true },
+      { id: 'open-model', available: true, qualification_only: false },
+    ]
+    const result = await resolveDefaultChatModel('gsk_test_key')
+    assert.equal(result.modelId, 'open-model')
+  })
+
+  test('an explicitly requested account-locked model fails closed instead of healing', async () => {
+    server = await new ChatCatalogServer().start()
+    await settings.setGenStudioUrl(server.baseUrl)
+    server.catalog = [
+      { id: 'locked-selection', available: true, qualification_only: false, locked: true },
+      { id: 'economy-open', available: true, qualification_only: false, cost_tier: 'economy' },
+    ]
+
+    await assert.rejects(
+      resolveDefaultChatModel('gsk_test_key', 'locked-selection'),
+      /locked-selection.*locked.*did not substitute/i,
     )
   })
 

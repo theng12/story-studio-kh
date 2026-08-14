@@ -2776,6 +2776,7 @@
 <script setup lang="ts">
 import AnalyticsTab from '~/components/upload/AnalyticsTab.vue'
 import { formatNumber, formatMinutes, formatTimecode, formatRelativeTime } from '~/utils/upload-format'
+import { selectLiveGenStudioModel, type LiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import tzData from '~/data/timezones.json'
 
 definePageMeta({ layout: 'dashboard' })
@@ -3334,16 +3335,14 @@ async function draftReplies(thread: CommentThreadShape) {
   draftCandidates[thread.id] = []
   try {
     const { post: apiPost } = useApi()
-    // Reuse the metadata preference only when it is a current GenStudio
-    // catalog id. Old provider IDs are healed to the first usable live model
-    // before this helper sends a generation request.
+    // Preserve an explicit usable choice or owner-published alias. With no
+    // saved choice, auto-select Economy only when the live tier catalog is
+    // complete; never silently cross a product or price boundary.
     const cfg = await useApi().get<any>(`/projects/${slug.value}/settings/config`).catch(() => null)
     const savedModel = cfg?.metadata_last_model || cfg?.last_text_model || ''
-    const liveModels = await useApi().get<Array<{ id: string; available: boolean }>>(`/models?project=${slug.value}`).catch(() => [])
-    const model = liveModels.find(entry => entry.id === savedModel && entry.available)?.id
-      || liveModels.find(entry => entry.available)?.id
-      || ''
-    if (!model) throw new Error('No GenStudio text model is currently available.')
+    const liveModels = await useApi().get<LiveGenStudioModel[]>(`/models?project=${slug.value}`).catch(() => [])
+    const model = selectLiveGenStudioModel(savedModel, liveModels)?.id || ''
+    if (!model) throw new Error('Choose an available GenStudio text model. Story Studio did not substitute a locked or higher-cost product.')
     // Best-effort: lookup the queue item by video_id to feed the LLM
     // a real video title for context. Falls back to undefined if the
     // user is querying a video outside their queue.

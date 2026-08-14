@@ -21,8 +21,9 @@ import type { GenStudioChatModel } from '../lib/genstudio-client.js'
 export interface ResolvedDefaultChatModel {
   /** The GenStudio product id to submit. Always a live, usable catalogue id. */
   modelId: string
-  /** True when a saved selection existed but was no longer usable, so this
-   *  result healed to a different live product. Callers that hold a saved
+  /** True when a saved selection was removed, retired, or qualification-only,
+   *  so this result healed to a different live product. Account-locked
+   *  selections fail closed instead of healing. Callers that hold a saved
    *  preference should persist `modelId` back so the heal becomes durable
    *  and should surface this to the operator instead of healing silently. */
   healed: boolean
@@ -32,10 +33,10 @@ export interface ResolvedDefaultChatModel {
   requestedModelId: string | null
 }
 
-/** A product is selectable when GenStudio marks it available and not
- *  qualification-gated. Never infer usability from the product's name. */
+/** A product is selectable when GenStudio marks it available, unlocked, and
+ *  not qualification-gated. Never infer usability from the product's name. */
 function isUsableChatModel(model: GenStudioChatModel): boolean {
-  return model.available === true && model.qualification_only !== true
+  return model.available === true && model.qualification_only !== true && model.locked !== true
 }
 
 /**
@@ -48,6 +49,8 @@ function isUsableChatModel(model: GenStudioChatModel): boolean {
  *    now qualification-only), this heals to the first usable live product
  *    and reports `healed: true` so the caller can persist/surface the change
  *    — it never heals silently to a value the caller can't see.
+ *  - If `savedModelId` names an account-locked product, resolution fails
+ *    closed. A lock is an explicit access boundary, not a retired preference.
  *  - If `savedModelId` is absent, the first usable live product is chosen.
  *  - If the catalogue can't be reached, or reports no usable product at
  *    all, this throws with an actionable message. It never substitutes a
@@ -73,6 +76,16 @@ export async function resolveDefaultChatModel(
   const usable = catalog.filter(isUsableChatModel)
 
   if (requestedModelId) {
+    const requested = catalog.find(model => model.id === requestedModelId)
+    if (requested?.locked === true) {
+      const accessDetail = requested.lock_reason === 'requires_paid_account'
+        ? ' It requires a paid GenStudio account.'
+        : ''
+      throw new Error(
+        `The selected GenStudio language model "${requestedModelId}" is locked for this account.${accessDetail} ` +
+        'Story Studio did not substitute another model. Choose an unlocked model, then try again.',
+      )
+    }
     const match = usable.find(model => model.id === requestedModelId)
     if (match) return { modelId: match.id, healed: false, requestedModelId }
   }

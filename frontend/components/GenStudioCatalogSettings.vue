@@ -88,6 +88,7 @@
                 <strong>{{ item.name }}</strong>
                 <small>{{ item.providerName ? `${item.id} · ${item.providerName}` : item.id }}</small>
                 <small v-if="item.costTier">{{ tierLabel(item.costTier) }}</small>
+                <small v-if="item.lockReason" class="catalog-lock-reason">{{ item.lockReason }}</small>
               </span>
               <em :class="`status-${item.statusTone}`">{{ item.statusLabel }}</em>
             </li>
@@ -108,6 +109,7 @@
 import { createGenStudioCatalogCache, GENSTUDIO_CATALOG_FRESH_MS, GENSTUDIO_CATALOG_STALE_CEILING_MS } from '../composables/useGenStudioCatalogCache.js'
 import { useGenStudioTranscriptionCatalog } from '../composables/useGenStudioTranscription.js'
 import { costTierLabel, type GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
+import { genStudioModelLockReason } from '../utils/live-genstudio-model-selection.js'
 
 const { get } = useApi()
 const {
@@ -160,6 +162,8 @@ interface CatalogEntry {
   generation_enabled?: boolean
   coming_soon?: boolean
   cost_tier?: GenStudioCostTier
+  locked?: boolean
+  lock_reason?: string | null
 }
 
 interface CatalogDiagnostic {
@@ -167,8 +171,9 @@ interface CatalogDiagnostic {
   name: string
   available: boolean
   providerName?: string
-  statusLabel: 'Available' | 'Unavailable' | 'Coming soon'
-  statusTone: 'available' | 'unavailable' | 'coming-soon'
+  statusLabel: 'Available' | 'Unavailable' | 'Coming soon' | 'Locked'
+  statusTone: 'available' | 'unavailable' | 'coming-soon' | 'locked'
+  lockReason?: string
   costTier?: GenStudioCostTier
 }
 
@@ -178,7 +183,10 @@ const loading = ref(false)
 const requestErrors = ref<string[]>([])
 const lastRefreshedAt = ref<Date | null>(null)
 function isAvailable(entry: CatalogEntry): boolean {
-  return entry.available !== false && entry.generation_enabled !== false && entry.coming_soon !== true
+  return entry.available !== false
+    && entry.generation_enabled !== false
+    && entry.coming_soon !== true
+    && entry.locked !== true
 }
 
 const summaries = computed(() => [
@@ -193,14 +201,16 @@ const summaries = computed(() => [
 function diagnosticRows(entries: readonly CatalogEntry[]): CatalogDiagnostic[] {
   return entries.map(entry => {
     const comingSoon = entry.coming_soon === true
+    const locked = entry.locked === true
     const available = isAvailable(entry)
     return {
       id: entry.id,
       name: entry.display_name || entry.voice_name || entry.name || entry.id,
       available,
       providerName: entry.provider_name,
-      statusLabel: comingSoon ? 'Coming soon' : available ? 'Available' : 'Unavailable',
-      statusTone: comingSoon ? 'coming-soon' : available ? 'available' : 'unavailable',
+      statusLabel: locked ? 'Locked' : comingSoon ? 'Coming soon' : available ? 'Available' : 'Unavailable',
+      statusTone: locked ? 'locked' : comingSoon ? 'coming-soon' : available ? 'available' : 'unavailable',
+      lockReason: genStudioModelLockReason(entry) || undefined,
       costTier: entry.cost_tier,
     }
   })
@@ -365,9 +375,11 @@ onMounted(() => { void refresh() })
 .catalog-detail-grid li > span { min-width: 0; }
 .catalog-detail-grid li strong, .catalog-detail-grid li small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .catalog-detail-grid li small { color: var(--text-muted); font-size: var(--font-xs); }
+.catalog-detail-grid li small.catalog-lock-reason { color: var(--warning); white-space: normal; }
 .catalog-detail-grid li em { flex: 0 0 auto; color: var(--text-muted); font-size: var(--font-xs); font-style: normal; }
 .catalog-detail-grid li em.status-available { color: var(--success); }
 .catalog-detail-grid li em.status-coming-soon { color: var(--warning); }
+.catalog-detail-grid li em.status-locked { color: var(--warning); }
 .catalog-footer { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-top: 14px; }
 .catalog-footer p { max-width: 780px; margin: 0; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.5; }
 .catalog-footer > div { display: flex; flex: 0 0 auto; gap: 8px; }

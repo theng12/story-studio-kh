@@ -248,6 +248,7 @@
 
 <script setup lang="ts">
 import { type BuiltInStyle, useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
+import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 
 interface PresetEntry {
   id: string
@@ -334,11 +335,7 @@ const galleryCount = computed(() => liveSamples.value.filter(sample => sample.ur
 const lightboxCurrent = computed(() => lightboxImages.value[lightboxIndex.value] || null)
 
 watch(genStudioImageModels, (models) => {
-  const current = models.find(model => model.id === previewModel.value && model.available)
-  if (!current) {
-    const mapped = models.find(model => model.available && model.legacy_ids?.includes(previewModel.value))
-    previewModel.value = mapped?.id || models.find(model => model.available)?.id || ''
-  }
+  previewModel.value = selectLiveGenStudioModel(previewModel.value, models)?.id || ''
 }, { immediate: true, deep: true })
 
 watch([selectedImageModel, aspectOptions], ([model, aspects]) => {

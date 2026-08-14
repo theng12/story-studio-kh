@@ -56,6 +56,13 @@ describe('scalable built-in style library', () => {
     assert.doesNotMatch(modal, /props\.imageModels/)
   })
 
+  test('both preview helpers use the shared locked and Economy-only selection policy', () => {
+    for (const source of [modal, projectLibrary]) {
+      assert.match(source, /selectLiveGenStudioModel/)
+      assert.doesNotMatch(source, /models\.find\(model => model\.available\)\?\.id/)
+    }
+  })
+
   test('keeps every project style surface on the shared built-in catalog', () => {
     assert.match(characterSheet, /<StylePicker/)
     assert.match(imagePrompts, /useVisualStyleCatalog/)

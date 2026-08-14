@@ -40,4 +40,14 @@ describe('GenStudio catalog diagnostics', () => {
     assert.doesNotMatch(source, /app-settings\/genstudio\/voices/)
     assert.doesNotMatch(source, /label: 'Voices'/)
   })
+
+  test('keeps account-locked products visible but excludes them from Available totals', () => {
+    assert.match(source, /locked\?: boolean/)
+    assert.match(source, /lock_reason\?: string \| null/)
+    assert.match(source, /entry\.locked !== true/)
+    assert.match(source, /statusLabel: .*'Locked'/)
+    assert.match(source, /statusTone: .*'locked'/)
+    assert.match(source, /item\.lockReason/)
+    assert.match(source, /genStudioModelLockReason/)
+  })
 })
