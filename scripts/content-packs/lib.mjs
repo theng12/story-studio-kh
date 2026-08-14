@@ -281,6 +281,9 @@ function substituteReleaseInputs(sourceManifest, { minAppVersion, keyId }) {
   }
   assertTokenPlacement(sourceManifest)
   const manifest = { ...sourceManifest }
+  if (manifest.min_app_version !== MIN_APP_VERSION_TOKEN && minAppVersion !== undefined) {
+    fail('min app version override is only permitted for release-parameterized pack sources')
+  }
   if (manifest.min_app_version === MIN_APP_VERSION_TOKEN) {
     if (!minAppVersion) fail(`pack.json ${MIN_APP_VERSION_TOKEN} requires minAppVersion`)
     manifest.min_app_version = minAppVersion

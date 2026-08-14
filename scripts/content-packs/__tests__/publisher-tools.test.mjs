@@ -170,6 +170,39 @@ test('build-pack accepts the deliberate private-key environment path and refuses
   assert.equal(built.status, 0, built.stderr)
 })
 
+test('buildContentPack rejects a min app version override for ordinary sources without touching output', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const source = await writeSource(fixture.root)
+  const missingOutput = join(fixture.root, 'ordinary-override.sspack')
+  const sentinelOutput = join(fixture.root, 'ordinary-override-sentinel.sspack')
+  const sentinel = Buffer.from('do not replace this published artifact')
+  const { buildContentPack } = await import('../lib.mjs')
+
+  await assert.rejects(
+    buildContentPack({
+      sourceDirectory: source,
+      privateKeyPath: fixture.privateKeyPath,
+      outputPath: missingOutput,
+      minAppVersion: '2.0.0',
+    }),
+    /min app version override is only permitted for release-parameterized pack sources/i,
+  )
+  await assert.rejects(readFile(missingOutput), /ENOENT/)
+
+  await writeFile(sentinelOutput, sentinel)
+  await assert.rejects(
+    buildContentPack({
+      sourceDirectory: source,
+      privateKeyPath: fixture.privateKeyPath,
+      outputPath: sentinelOutput,
+      minAppVersion: '2.0.0',
+    }),
+    /min app version override is only permitted for release-parameterized pack sources/i,
+  )
+  assert.deepEqual(await readFile(sentinelOutput), sentinel)
+})
+
 test('buildContentPack signs only a complete token-resolved bundle-only coordination source with the supplied key identity', async (t) => {
   const fixture = await makeFixture()
   t.after(() => rm(fixture.root, { recursive: true, force: true }))

@@ -57,3 +57,25 @@ assert.equal(paidRegistry.some(row => row.packId === 'com.storystudio.pack.archi
   registry boundary.
 - The three upstream handoff letters listed in the Archival source report were not available during
   the reviewed source task; they remain a precondition for later GenStudio catalog publication.
+
+## Review round 1 fix
+
+Independent review found that the Task 1 conflict resolution retained the two exact release tokens
+but lost the reviewed publisher rule that forbids `minAppVersion` for ordinary sources. As a
+result, `buildContentPack()` silently ignored a supplied override when `min_app_version` was not
+exactly `{{MIN_APP_VERSION}}`, contradicting the publisher README and allowing a caller to believe a
+different signed release floor had been selected.
+
+The regression was observed RED with `Missing expected rejection`. The publisher now rejects every
+supplied `minAppVersion` unless the source contains the exact release placeholder. The regression
+also proves that a fresh output remains absent and a pre-existing sentinel remains byte-identical.
+The existing token placement checks, explicit token requirements, bundle-only validation, signing,
+and immutable output commit path were otherwise unchanged.
+
+Post-fix verification:
+
+- Focused RED/GREEN regression: 1/1 passed after the guard was restored.
+- Archival source and publisher suite: 25/25 passed.
+- Legacy adapter, campaign planner, and thumbnail suite: 22/22 passed.
+- `npm run typecheck`: Electron and Nuxt typechecks passed.
+- `git diff --check`: passed.
