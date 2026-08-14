@@ -1,1 +1,132 @@
-{"kind":"topic-pack","schema_version":1,"id":"com.storystudio.topic.natural-world-animals","name":"Animals","description":"Animal lives, adaptations, ecological pressures, and survival trade-offs.","compatible_formula_ids":["com.storystudio.formula.natural-world-explained"],"subjects":["mammals","birds","reptiles","amphibians","fish","cephalopods","crustaceans","deep-sea animals","desert animals","migration"],"episode_objects":["a feeding tool","a camouflage pattern","a nest or den","a migration route","a predator defense","a courtship display"],"time_place_scopes":["a breeding season","a desert waterhole","a reef edge","an abyssal plain","a forest canopy","a polar shoreline"],"mechanisms":["energy conservation","predator avoidance","sensory adaptation","cooperation","thermoregulation","reproductive trade-off"],"evidence_lenses":["field observation","comparative anatomy","tracking data","life-history study","ecological survey"],"exclusions":["Do not assign human intention or dialogue to animals.","Do not make unsupported danger claims."],"max_siblings_per_subject":1,"prompt_context":"Treat animal behavior as biology and ecology, not as human intention. Explain one concrete survival pressure before humor.","idea_axes":[{"id":"episode-object","label":"Episode object","values":["a feeding tool","a camouflage pattern","a nest or den","a migration route","a predator defense","a courtship display"]},{"id":"time-place-scope","label":"Time and place","values":["a breeding season","a desert waterhole","a reef edge","an abyssal plain","a forest canopy","a polar shoreline"]},{"id":"mechanism","label":"Mechanism","values":["energy conservation","predator avoidance","sensory adaptation","cooperation","thermoregulation","reproductive trade-off"]},{"id":"evidence-lens","label":"Evidence lens","values":["field observation","comparative anatomy","tracking data","life-history study","ecological survey"]}],"tags":["animals","wildlife","biology"],"compatibility_rules":["Use only with the Natural World Formula.","Keep the selected subject, mechanism, and ecosystem materially connected."]}
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.natural-world-animals",
+  "name": "Animals",
+  "description": "Vertebrate and invertebrate animal lives, adaptations, ecological pressures, and survival trade-offs.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.natural-world-explained",
+    "com.storystudio.formula.listicle-explainer"
+  ],
+  "subjects": [
+    "mammals",
+    "birds",
+    "reptiles",
+    "amphibians",
+    "fish",
+    "cephalopods",
+    "crustaceans",
+    "deep-sea animals",
+    "desert animals",
+    "migration"
+  ],
+  "episode_objects": [
+    "a feeding tool",
+    "a camouflage pattern",
+    "a nest or den",
+    "a migration route",
+    "a predator defense",
+    "a courtship display"
+  ],
+  "time_place_scopes": [
+    "a breeding season",
+    "a desert waterhole",
+    "a reef edge",
+    "an abyssal plain",
+    "a forest canopy",
+    "a polar shoreline"
+  ],
+  "mechanisms": [
+    "energy conservation",
+    "predator avoidance",
+    "sensory adaptation",
+    "cooperation",
+    "thermoregulation",
+    "reproductive trade-off"
+  ],
+  "evidence_lenses": [
+    "field observation",
+    "comparative anatomy",
+    "tracking data",
+    "life-history study",
+    "ecological survey"
+  ],
+  "exclusions": [
+    "Do not assign human intention or dialogue to animals.",
+    "Do not make unsupported danger claims."
+  ],
+  "max_siblings_per_subject": 1,
+  "prompt_context": "Treat animal behavior as biology and ecology, not as human intention. Explain one concrete survival pressure before any humour.",
+  "idea_axes": [
+    {
+      "id": "biological-pressure",
+      "label": "Biological pressure",
+      "values": [
+        "finding food",
+        "avoiding predators",
+        "reproduction",
+        "migration",
+        "extreme habitat",
+        "social hierarchy",
+        "camouflage",
+        "parenting"
+      ]
+    },
+    {
+      "id": "episode-object",
+      "label": "Episode object",
+      "values": [
+        "a feeding tool",
+        "a camouflage pattern",
+        "a nest or den",
+        "a migration route",
+        "a predator defense",
+        "a courtship display"
+      ]
+    },
+    {
+      "id": "time-place-scope",
+      "label": "Time and place",
+      "values": [
+        "a breeding season",
+        "a desert waterhole",
+        "a reef edge",
+        "an abyssal plain",
+        "a forest canopy",
+        "a polar shoreline"
+      ]
+    },
+    {
+      "id": "mechanism",
+      "label": "Mechanism",
+      "values": [
+        "energy conservation",
+        "predator avoidance",
+        "sensory adaptation",
+        "cooperation",
+        "thermoregulation",
+        "reproductive trade-off"
+      ]
+    },
+    {
+      "id": "evidence-lens",
+      "label": "Evidence lens",
+      "values": [
+        "field observation",
+        "comparative anatomy",
+        "tracking data",
+        "life-history study",
+        "ecological survey"
+      ]
+    }
+  ],
+  "tags": [
+    "animals",
+    "wildlife",
+    "biology"
+  ],
+  "compatibility_rules": [
+    "Use only with the Natural World Formula.",
+    "Keep the selected subject, mechanism, and ecosystem materially connected."
+  ]
+}

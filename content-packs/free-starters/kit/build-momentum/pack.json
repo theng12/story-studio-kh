@@ -1,6 +1,65 @@
 {
-  "pack_format": 1, "pack_id": "com.storystudio.pack.kit.build-momentum", "publisher_id": "com.storystudio", "key_id": "{{KEY_ID}}", "version": "1.0.0", "min_app_version": "{{MIN_APP_VERSION}}", "lifecycle": "active", "changelog": "15 reviewed subjects / Friction → Action",
-  "entitlement": {"sku": "com.storystudio.sku.kit.build-momentum", "family": "com.storystudio.family.kit.build-momentum"},
-  "dependencies": [{"pack_id": "com.storystudio.pack.formula.practical-motivation", "version": "1.0.0"}, {"pack_id": "com.storystudio.pack.topic.habits-momentum", "version": "1.0.0"}, {"pack_id": "com.storystudio.pack.style.flat-vector-explainer", "version": "1.0.0"}, {"pack_id": "com.storystudio.pack.thumbnail.annotated-business-board", "version": "1.0.0"}],
-  "bundles": [{"id": "com.storystudio.bundle.build-momentum", "kind": "channel-kit", "name": "Build Momentum", "components": [{"pack_id": "com.storystudio.pack.formula.practical-motivation", "version": "1.0.0", "item_id": "com.storystudio.formula.practical-motivation", "kind": "series-formula"}, {"pack_id": "com.storystudio.pack.topic.habits-momentum", "version": "1.0.0", "item_id": "com.storystudio.topic.habits-momentum", "kind": "topic-pack"}, {"pack_id": "com.storystudio.pack.style.flat-vector-explainer", "version": "1.0.0", "item_id": "com.storystudio.style.flat-vector-explainer", "kind": "visual-style"}, {"pack_id": "com.storystudio.pack.thumbnail.annotated-business-board", "version": "1.0.0", "item_id": "com.storystudio.thumbnail.annotated-business-board", "kind": "thumbnail-recipe"}]}]
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.kit.build-momentum",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "15 habit challenges / Friction → Action",
+  "entitlement": {
+    "sku": "com.storystudio.sku.kit.build-momentum",
+    "family": "com.storystudio.family.kit.build-momentum"
+  },
+  "dependencies": [
+    {
+      "pack_id": "com.storystudio.pack.formula.practical-motivation",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.habits-momentum",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.flat-vector-explainer",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.annotated-business-board",
+      "version": "1.0.0"
+    }
+  ],
+  "bundles": [
+    {
+      "id": "com.storystudio.bundle.build-momentum",
+      "kind": "channel-kit",
+      "name": "Build Momentum",
+      "components": [
+        {
+          "pack_id": "com.storystudio.pack.formula.practical-motivation",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.formula.practical-motivation",
+          "kind": "series-formula"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.habits-momentum",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.topic.habits-momentum",
+          "kind": "topic-pack"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.flat-vector-explainer",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.style.flat-vector-explainer",
+          "kind": "visual-style"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.annotated-business-board",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.thumbnail.annotated-business-board",
+          "kind": "thumbnail-recipe"
+        }
+      ]
+    }
+  ]
 }

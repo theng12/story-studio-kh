@@ -1,1 +1,23 @@
-{"kind":"visual-style","schema_version":1,"id":"com.storystudio.style.prehistoric-stick-cartoon","name":"Prehistoric Stick Cartoon","description":"Playful history-explainer cartoon with stick-limbed cave people, mammoths, and bold black outlines.","category":"Explainer","tags":["history","cartoon","stick figure","educational","prehistoric"],"style_bible":"simple 2D educational cartoon, prehistoric explainer animation style, white round faces with tiny dot eyes and simple smiles, thin stick-limbed human bodies, shaggy brown cave-hair silhouettes, thick clean black outlines, flat digital colors, soft limited palette, pale icy blues and warm browns, friendly mammoths and primitive camp scenes, uncluttered wide composition, readable storytelling silhouettes, light playful tone, minimal shading, smooth clean fills, YouTube explainer thumbnail energy","negative_prompt":"photorealism, painterly brushwork, 3D render, realistic anatomy, cinematic lighting, detailed textures, gritty darkness, heavy gradients, anime rendering, realistic skin pores, horror mood, complex background clutter","preview_assets":["assets/prehistoric-stick-cartoon.webp"],"compatible_formula_ids":["com.storystudio.formula.ancient-humans"]}
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.prehistoric-stick-cartoon",
+  "name": "Prehistoric Stick Cartoon",
+  "description": "Playful history-explainer cartoon with stick-limbed cave people, mammoths, flat snowy scenes, and bold black outlines.",
+  "category": "Explainer",
+  "tags": [
+    "history",
+    "cartoon",
+    "stick figure",
+    "educational",
+    "prehistoric"
+  ],
+  "style_bible": "simple 2D educational cartoon, prehistoric explainer animation style, white round faces with tiny dot eyes and simple smiles, thin stick-limbed human bodies, shaggy brown cave-hair silhouettes, thick clean black outlines, flat digital colors, soft limited palette, pale icy blues and warm browns, friendly mammoths and primitive camp scenes, uncluttered wide composition, readable storytelling silhouettes, light playful tone, minimal shading, smooth clean fills, YouTube explainer thumbnail energy",
+  "negative_prompt": "photorealism, painterly brushwork, 3D render, realistic anatomy, cinematic lighting, detailed textures, gritty darkness, heavy gradients, anime rendering, realistic skin pores, horror mood, complex background clutter",
+  "preview_assets": [
+    "assets/prehistoric-stick-cartoon.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.ancient-humans"
+  ]
+}

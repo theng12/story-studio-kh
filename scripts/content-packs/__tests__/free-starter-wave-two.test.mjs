@@ -77,7 +77,7 @@ test('approved wave two preview bytes remain unchanged and every unblocked sourc
   }
   for (const [path, hash] of Object.entries(approved)) assert.equal(createHash('sha256').update(await readFile(new URL(path, WAVE))).digest('hex'), hash)
   const { buildContentPack, validateContentPack } = await import('../lib.mjs')
-  const unblocked = ['formula/economics-of', 'formula/human-behavior-explained', 'formula/history-explained', 'formula/pov-your-life-as', 'topic/economics-businesses', 'topic/human-behavior-social-dynamics', 'topic/historical-wars-treaties-world-order', 'topic/pov-historical-occupations', 'style/hand-drawn-editorial-diagram', 'style/minimal-stick-figure-explainer', 'style/sepia-ink-wash', 'style/cinematic-photoreal', 'thumbnail/annotated-business-board', 'kit/business-explained', 'kit/human-behavior', 'kit/history-explained', 'kit/a-life-as']
+  const unblocked = ['formula/economics-of', 'formula/human-behavior-explained', 'formula/history-explained', 'formula/pov-your-life-as', 'topic/economics-businesses', 'topic/human-behavior-social-dynamics', 'topic/historical-wars-treaties-world-order', 'topic/pov-historical-occupations', 'style/hand-drawn-editorial-diagram', 'style/minimal-stick-figure-explainer', 'style/sepia-ink-wash', 'style/cinematic-photoreal', 'thumbnail/annotated-business-board', 'thumbnail/centered-hero-headline', 'thumbnail/portrait-block-right', 'kit/business-explained', 'kit/human-behavior', 'kit/history-explained', 'kit/a-life-as']
   for (const source of unblocked) {
     const first = join(temporary, `${source.replace('/', '-')}-first.sspack`)
     const second = join(temporary, `${source.replace('/', '-')}-second.sspack`)
@@ -88,13 +88,13 @@ test('approved wave two preview bytes remain unchanged and every unblocked sourc
   }
 })
 
-test('BLOCKED: Centered Hero and Portrait Block bind a future raster to their exact owner provenance', async () => {
+test('Centered Hero and Portrait Block bind their approved publisher-created rasters', async () => {
   const records = provenanceRecords(await readFile(PROVENANCE, 'utf8'))
   for (const [ownerId, preview] of [['centered-hero-headline', 'thumbnail/centered-hero-headline/assets/centered-hero-headline.webp'], ['portrait-block-right', 'thumbnail/portrait-block-right/assets/portrait-block-right.webp']]) {
     const record = records.find(row => row.id === ownerId)
     assert.ok(record, `missing ${ownerId} provenance record`)
     assert.equal(record.ownerId, ownerId)
-    assert.equal(record.provenance, 'owner-supplied-original')
+    assert.equal(record.provenance, 'publisher-created-tool-generated-original')
     const url = new URL(preview, WAVE)
     const canonicalSourcePath = `content-packs/free-starters/${preview}`
     const assetPath = sourcePath(url)
@@ -102,8 +102,8 @@ test('BLOCKED: Centered Hero and Portrait Block bind a future raster to their ex
       await access(assetPath)
     } catch (error) {
       if (error?.code !== 'ENOENT') throw error
-      assert.deepEqual(record, { id: ownerId, ownerId, provenance: 'owner-supplied-original', status: 'blocked-missing-owner-original', sourcePath: null, sha256: null })
-      assert.fail(`missing owner-original ${ownerId} raster: ${canonicalSourcePath}`)
+      assert.deepEqual(record, { id: ownerId, ownerId, provenance: 'publisher-created-tool-generated-original', status: 'blocked-missing-owner-original', sourcePath: null, sha256: null })
+      assert.fail(`missing publisher-created ${ownerId} raster: ${canonicalSourcePath}`)
     }
     assert.equal(record.status, 'approved')
     assert.equal(record.sourcePath, canonicalSourcePath)

@@ -1,1 +1,155 @@
-{"kind":"topic-pack","schema_version":1,"id":"com.storystudio.topic.historical-wars-treaties-world-order","name":"Wars, Treaties & World Order","description":"Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.","compatible_formula_ids":["com.storystudio.formula.history-explained","com.storystudio.formula.hidden-mechanics-history"],"subjects":["the Peloponnesian War","the Punic Wars","the Crusades","the Thirty Years' War","the Seven Years' War","the Napoleonic Wars","the Congress of Vienna","the Crimean War","the Franco-Prussian War","the First World War","the Treaty of Versailles","the Second World War","the Yalta Conference","the Korean War","the Suez Crisis","the Cuban Missile Crisis","the Vietnam War","the Six-Day War","the Soviet-Afghan War","the Gulf War","the breakup of the Cold War order","the Dayton Agreement","the Good Friday Agreement","the War on Terror","NATO enlargement"],"episode_objects":["a treaty text","an alliance map","a supply route","a diplomatic telegram","a ceasefire line","a civilian evacuation"],"time_place_scopes":["a prewar crisis","a wartime coalition","a peace conference","an occupied territory","a deterrence standoff","a postwar settlement"],"mechanisms":["alliance commitment","deterrence failure","war aims","military logistics","home-front capacity","peace settlement","occupation and resistance","balance-of-power shift"],"evidence_lenses":["diplomatic archive","military logistics record","treaty text","civilian testimony","demographic record","historical debate"],"exclusions":["Do not write battlefield spectacle in place of causation.","Do not treat a treaty as the only cause of a later conflict."],"max_siblings_per_subject":1,"prompt_context":"Explain wars and settlements through diplomacy, political objectives, resources, alliances, logistics, and civilian consequences. Do not write battlefield spectacle in place of causation, or treat a treaty as the only cause of a later conflict.","idea_axes":[{"id":"episode-object","label":"Episode object","values":["a treaty text","an alliance map","a supply route","a diplomatic telegram","a ceasefire line","a civilian evacuation"]},{"id":"time-place-scope","label":"Historical scope","values":["a prewar crisis","a wartime coalition","a peace conference","an occupied territory","a deterrence standoff","a postwar settlement"]},{"id":"mechanism","label":"War and diplomacy mechanism","values":["alliance commitment","deterrence failure","war aims","military logistics","home-front capacity","peace settlement","occupation and resistance","balance-of-power shift"]},{"id":"evidence-lens","label":"Evidence lens","values":["diplomatic archive","military logistics record","treaty text","civilian testimony","demographic record","historical debate"]}],"tags":["war history","diplomacy","treaties","world order","geopolitics"],"compatibility_rules":["Use with History Explained or Hidden Mechanics History.","Keep political objectives, resources, diplomacy, logistics, and civilian consequences in view."]}
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.historical-wars-treaties-world-order",
+  "name": "Wars, Treaties & World Order",
+  "description": "Wars, alliance systems, peace settlements, deterrence, occupation, diplomacy, and changes in regional or global order.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.hidden-mechanics-history",
+    "com.storystudio.formula.history-explained"
+  ],
+  "subjects": [
+    "the Peloponnesian War",
+    "the Punic Wars",
+    "the Crusades",
+    "the Thirty Years' War",
+    "the Seven Years' War",
+    "the Napoleonic Wars",
+    "the Congress of Vienna",
+    "the Crimean War",
+    "the Franco-Prussian War",
+    "the First World War",
+    "the Treaty of Versailles",
+    "the Second World War",
+    "the Yalta Conference",
+    "the Korean War",
+    "the Suez Crisis",
+    "the Cuban Missile Crisis",
+    "the Vietnam War",
+    "the Six-Day War",
+    "the Soviet-Afghan War",
+    "the Gulf War",
+    "the breakup of the Cold War order",
+    "the Dayton Agreement",
+    "the Good Friday Agreement",
+    "the War on Terror",
+    "NATO enlargement"
+  ],
+  "episode_objects": [
+    "a treaty text",
+    "an alliance map",
+    "a supply route",
+    "a diplomatic telegram",
+    "a ceasefire line",
+    "a civilian evacuation"
+  ],
+  "time_place_scopes": [
+    "a prewar crisis",
+    "a wartime coalition",
+    "a peace conference",
+    "an occupied territory",
+    "a deterrence standoff",
+    "a postwar settlement"
+  ],
+  "mechanisms": [
+    "alliance commitment",
+    "deterrence failure",
+    "war aims",
+    "military logistics",
+    "home-front capacity",
+    "peace settlement",
+    "occupation and resistance",
+    "balance-of-power shift"
+  ],
+  "evidence_lenses": [
+    "diplomatic archive",
+    "military logistics record",
+    "treaty text",
+    "civilian testimony",
+    "demographic record",
+    "historical debate"
+  ],
+  "exclusions": [
+    "Do not write battlefield spectacle in place of causation.",
+    "Do not treat a treaty as the only cause of a later conflict."
+  ],
+  "max_siblings_per_subject": 1,
+  "prompt_context": "Explain wars and settlements through diplomacy, political objectives, resources, alliances, logistics, and civilian consequences. Do not write battlefield spectacle in place of causation, or treat a treaty as the only cause of a later conflict.",
+  "idea_axes": [
+    {
+      "id": "world-order-lens",
+      "label": "War and diplomacy lens",
+      "values": [
+        "alliance commitment",
+        "deterrence failure",
+        "war aims",
+        "military logistics",
+        "home-front capacity",
+        "peace settlement",
+        "occupation and resistance",
+        "balance-of-power shift"
+      ]
+    },
+    {
+      "id": "episode-object",
+      "label": "Episode object",
+      "values": [
+        "a treaty text",
+        "an alliance map",
+        "a supply route",
+        "a diplomatic telegram",
+        "a ceasefire line",
+        "a civilian evacuation"
+      ]
+    },
+    {
+      "id": "time-place-scope",
+      "label": "Historical scope",
+      "values": [
+        "a prewar crisis",
+        "a wartime coalition",
+        "a peace conference",
+        "an occupied territory",
+        "a deterrence standoff",
+        "a postwar settlement"
+      ]
+    },
+    {
+      "id": "mechanism",
+      "label": "War and diplomacy mechanism",
+      "values": [
+        "alliance commitment",
+        "deterrence failure",
+        "war aims",
+        "military logistics",
+        "home-front capacity",
+        "peace settlement",
+        "occupation and resistance",
+        "balance-of-power shift"
+      ]
+    },
+    {
+      "id": "evidence-lens",
+      "label": "Evidence lens",
+      "values": [
+        "diplomatic archive",
+        "military logistics record",
+        "treaty text",
+        "civilian testimony",
+        "demographic record",
+        "historical debate"
+      ]
+    }
+  ],
+  "tags": [
+    "war history",
+    "diplomacy",
+    "treaties",
+    "world order",
+    "geopolitics"
+  ],
+  "compatibility_rules": [
+    "Use with History Explained or Hidden Mechanics History.",
+    "Keep political objectives, resources, diplomacy, logistics, and civilian consequences in view."
+  ]
+}

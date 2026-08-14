@@ -170,6 +170,7 @@ export function contentPackDocumentToTopicPack(document: TopicDocument): TopicPa
     compatibleNicheIds: [...document.compatible_formula_ids],
     compatibleFormulaIds: [...document.compatible_formula_ids],
     subjects: [...document.subjects],
+    maxSiblingsPerSubject: document.max_siblings_per_subject,
     ideaAxes: mapIdeaAxes(document.idea_axes),
     exampleTopics: document.example_topics ? [...document.example_topics] : undefined,
     promptContext: document.prompt_context,

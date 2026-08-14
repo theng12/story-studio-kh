@@ -750,6 +750,8 @@ export interface TopicPack {
   compatibleFormulaIds?: string[]
   /** Primary subjects used by the deterministic Idea Campaign planner. */
   subjects: string[]
+  /** Maximum planned episodes that may use one subject from this pack. */
+  maxSiblingsPerSubject?: number
   /** Secondary dimensions composed with the primary subject. */
   ideaAxes?: IdeaAxis[]
   /** Strong examples appended to the Series Formula's example bar. */

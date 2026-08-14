@@ -1,1 +1,131 @@
-{"kind":"topic-pack","schema_version":1,"id":"com.storystudio.topic.ancient-humans-survival","name":"Survival Problems","description":"Concrete threats and necessities ancient humans had to solve without modern systems.","compatible_formula_ids":["com.storystudio.formula.ancient-humans"],"subjects":["surviving winter","finding safe drinking water","treating injuries","living without medicine","sleeping near predators","enduring drought","surviving famine","crossing dangerous rivers","protecting fire","avoiding food poisoning","surviving childbirth","raising infants while moving","escaping wildfires","coping with parasites","staying warm without houses","preserving food","navigating without maps","surviving extreme heat","defending a camp","recovering after a hunt"],"episode_objects":["a hearth","a stone blade","a hide shelter","a water source","a food cache","a child carrier","a wound dressing"],"time_place_scopes":["an Ice Age winter camp","a dry-season savanna","a river crossing","a rock shelter at night","a seasonal migration route","a burned grassland"],"mechanisms":["shared labor","fire management","seasonal mobility","material repair","food preservation","risk avoidance","social learning"],"evidence_lenses":["archaeological traces","experimental archaeology","skeletal evidence","ethnographic comparison","paleoenvironmental reconstruction"],"exclusions":["Do not generalize one culture or era as all ancient humans.","Do not turn uncertainty into fantasy certainty."],"max_siblings_per_subject":1,"prompt_context":"Start from one practical survival constraint, reconstruct the environment and available evidence, then trace the adaptation and trade-off.","idea_axes":[{"id":"episode-object","label":"Episode object","values":["a hearth","a stone blade","a hide shelter","a water source","a food cache","a child carrier","a wound dressing"]},{"id":"time-place-scope","label":"Time and place","values":["an Ice Age winter camp","a dry-season savanna","a river crossing","a rock shelter at night","a seasonal migration route","a burned grassland"]},{"id":"mechanism","label":"Adaptation mechanism","values":["shared labor","fire management","seasonal mobility","material repair","food preservation","risk avoidance","social learning"]},{"id":"evidence-lens","label":"Evidence lens","values":["archaeological traces","experimental archaeology","skeletal evidence","ethnographic comparison","paleoenvironmental reconstruction"]}],"tags":["prehistory","survival","risk"],"compatibility_rules":["Use only with the Ancient Humans Formula.","Name the evidence boundary and avoid universal claims about people, time, or place."]}
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.ancient-humans-survival",
+  "name": "Survival Problems",
+  "description": "Concrete threats and necessities ancient humans had to solve without modern systems.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.ancient-humans"
+  ],
+  "subjects": [
+    "surviving winter",
+    "finding safe drinking water",
+    "treating injuries",
+    "living without medicine",
+    "sleeping near predators",
+    "enduring drought",
+    "surviving famine",
+    "crossing dangerous rivers",
+    "protecting fire",
+    "avoiding food poisoning",
+    "surviving childbirth",
+    "raising infants while moving",
+    "escaping wildfires",
+    "coping with parasites",
+    "staying warm without houses",
+    "preserving food",
+    "navigating without maps",
+    "surviving extreme heat",
+    "defending a camp",
+    "recovering after a hunt"
+  ],
+  "episode_objects": [
+    "a hearth",
+    "a stone blade",
+    "a hide shelter",
+    "a water source",
+    "a food cache",
+    "a child carrier",
+    "a wound dressing"
+  ],
+  "time_place_scopes": [
+    "an Ice Age winter camp",
+    "a dry-season savanna",
+    "a river crossing",
+    "a rock shelter at night",
+    "a seasonal migration route",
+    "a burned grassland"
+  ],
+  "mechanisms": [
+    "shared labor",
+    "fire management",
+    "seasonal mobility",
+    "material repair",
+    "food preservation",
+    "risk avoidance",
+    "social learning"
+  ],
+  "evidence_lenses": [
+    "archaeological traces",
+    "experimental archaeology",
+    "skeletal evidence",
+    "ethnographic comparison",
+    "paleoenvironmental reconstruction"
+  ],
+  "exclusions": [
+    "Do not generalize one culture or era as all ancient humans.",
+    "Do not turn uncertainty into fantasy certainty."
+  ],
+  "max_siblings_per_subject": 1,
+  "prompt_context": "Start from one practical survival constraint, reconstruct the environment and available evidence, then trace the adaptation and trade-off.",
+  "idea_axes": [
+    {
+      "id": "episode-object",
+      "label": "Episode object",
+      "values": [
+        "a hearth",
+        "a stone blade",
+        "a hide shelter",
+        "a water source",
+        "a food cache",
+        "a child carrier",
+        "a wound dressing"
+      ]
+    },
+    {
+      "id": "time-place-scope",
+      "label": "Time and place",
+      "values": [
+        "an Ice Age winter camp",
+        "a dry-season savanna",
+        "a river crossing",
+        "a rock shelter at night",
+        "a seasonal migration route",
+        "a burned grassland"
+      ]
+    },
+    {
+      "id": "mechanism",
+      "label": "Adaptation mechanism",
+      "values": [
+        "shared labor",
+        "fire management",
+        "seasonal mobility",
+        "material repair",
+        "food preservation",
+        "risk avoidance",
+        "social learning"
+      ]
+    },
+    {
+      "id": "evidence-lens",
+      "label": "Evidence lens",
+      "values": [
+        "archaeological traces",
+        "experimental archaeology",
+        "skeletal evidence",
+        "ethnographic comparison",
+        "paleoenvironmental reconstruction"
+      ]
+    }
+  ],
+  "tags": [
+    "prehistory",
+    "survival",
+    "risk"
+  ],
+  "compatibility_rules": [
+    "Use only with the Ancient Humans Formula.",
+    "Name the evidence boundary and avoid universal claims about people, time, or place."
+  ]
+}

@@ -1,1 +1,23 @@
-{"kind":"visual-style","schema_version":1,"id":"com.storystudio.style.sepia-ink-wash","name":"Sepia Ink & Wash","description":"Muted line-and-wash illustration — fine ink over desaturated watercolor, lamplit and weathered, like a period expedition journal.","category":"Illustration","tags":["historical","ink","watercolor","sepia","journal"],"style_bible":"line-and-wash illustration, fine pen-and-ink linework over loose watercolor washes, heavily desaturated muted palette, sepia browns and charcoal greys with cold blue-grey shadows, warm lamplight accents, dim atmospheric lighting, low contrast, aged foxed paper texture, granulated watercolor, subtle crosshatching in the shadows, painterly editorial illustration, somber contemplative historical mood, soft vignette at the edges, early-20th-century documentary feel","negative_prompt":"vivid saturated colours, neon, photorealism, 3D render, glossy CGI, clean flat vector, bright cheerful palette, hard digital edges, anime, lens flare","preview_assets":["assets/sepia-ink-wash.webp"],"compatible_formula_ids":["com.storystudio.formula.history-explained"]}
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.sepia-ink-wash",
+  "name": "Sepia Ink & Wash",
+  "description": "Muted line-and-wash illustration — fine ink over desaturated watercolor, lamplit and weathered, like a period expedition journal.",
+  "category": "Illustration",
+  "tags": [
+    "historical",
+    "ink",
+    "watercolor",
+    "sepia",
+    "journal"
+  ],
+  "style_bible": "line-and-wash illustration, fine pen-and-ink linework over loose watercolor washes, heavily desaturated muted palette, sepia browns and charcoal greys with cold blue-grey shadows, warm lamplight accents, dim atmospheric lighting, low contrast, aged foxed paper texture, granulated watercolor, subtle crosshatching in the shadows, painterly editorial illustration, somber contemplative historical mood, soft vignette at the edges, early-20th-century documentary feel",
+  "negative_prompt": "vivid saturated colours, neon, photorealism, 3D render, glossy CGI, clean flat vector, bright cheerful palette, hard digital edges, anime, lens flare",
+  "preview_assets": [
+    "assets/sepia-ink-wash.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.history-explained"
+  ]
+}

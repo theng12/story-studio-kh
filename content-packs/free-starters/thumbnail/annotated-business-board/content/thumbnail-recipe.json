@@ -1,1 +1,49 @@
-{"kind":"thumbnail-recipe","schema_version":1,"id":"com.storystudio.thumbnail.annotated-business-board","name":"Annotated Business Board","description":"A clean hand-drawn economics explainer with one central business and a visual system of costs, people, tools, and outcomes.","layout":"annotated-collage","category":"Explainer","tags":["business","economics","annotated","diagram","hand-drawn"],"aspect_ratio":"16:9","title_mode":"ai","composition_guidance":"Show one recognizable business, company, facility, or operating system as the large central hero, surrounded by representative objects that reveal how it earns, spends, and operates.","required_elements":["one central business, location, or operational hero","a small perimeter of representative cost, revenue, labor, supply, or customer objects","large uppercase episode headline in the top title band"],"avoid_elements":["misspelled, placeholder, or illegible headline text","a dense undifferentiated montage","photorealistic advertising imagery or copied brand trade dress"],"headline_mode":"episode-title","headline_guidance":"Render the exact concise episode headline in the clean upper title space.","default_text_style":"shadow","default_font_style":"bold","default_text_position":"top","headline_formats":["THE ECONOMICS OF OWNING {SUBJECT}","SO YOU WANT TO OWN {SUBJECT}","THE ECONOMICS OF RUNNING {SUBJECT}"],"visual_style_guidance":"Original 2D hand-drawn editorial illustration: fine black ink outlines, lightly painted color fills, warm white paper, simple crosshatching, crisp silhouettes, and restrained detail.","preview_assets":["assets/coffee.webp","assets/workshop.webp","assets/hotel.webp"],"compatible_formula_ids":["com.storystudio.formula.economics-of","com.storystudio.formula.practical-motivation"]}
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.annotated-business-board",
+  "name": "Annotated Business Board",
+  "description": "A clean hand-drawn economics explainer: one unmistakable business or location in the center, surrounded by a small visual system of costs, people, tools, and outcomes. The selected image model renders the complete headline inside the thumbnail.",
+  "layout": "annotated-collage",
+  "category": "Explainer",
+  "tags": [
+    "business",
+    "economics",
+    "annotated",
+    "diagram",
+    "hand-drawn"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build an instantly readable visual economics board. Show one recognizable business, company, facility, or operating system as the large central hero; use a few surrounding representative objects to reveal how it earns, spends, and operates.",
+  "required_elements": [
+    "one central business, location, or operational hero",
+    "a small perimeter of representative cost, revenue, labor, supply, or customer objects",
+    "large uppercase episode headline in the top title band"
+  ],
+  "avoid_elements": [
+    "misspelled, placeholder, or illegible headline text",
+    "a dense undifferentiated montage",
+    "photorealistic advertising imagery or copied brand trade dress"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Render the exact concise episode headline in the clean upper title space.",
+  "default_text_style": "shadow",
+  "default_font_style": "bold",
+  "default_text_position": "top",
+  "headline_formats": [
+    "THE ECONOMICS OF OWNING {SUBJECT}",
+    "SO YOU WANT TO OWN {SUBJECT}",
+    "THE ECONOMICS OF RUNNING {SUBJECT}"
+  ],
+  "visual_style_guidance": "Clean original 2D hand-drawn editorial illustration: fine black ink outlines, lightly painted color fills, warm white paper, simple crosshatching, crisp silhouettes, and restrained detail. It should feel like an explanatory visual board, never a literal copy of another channel's artwork.",
+  "preview_assets": [
+    "assets/coffee.webp",
+    "assets/workshop.webp",
+    "assets/hotel.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.economics-of",
+    "com.storystudio.formula.practical-motivation"
+  ]
+}

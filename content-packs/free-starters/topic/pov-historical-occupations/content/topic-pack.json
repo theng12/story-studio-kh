@@ -1,1 +1,134 @@
-{"kind":"topic-pack","schema_version":1,"id":"com.storystudio.topic.pov-historical-occupations","name":"Historical Occupations","description":"Dangerous, strange, and status-heavy jobs whose full life cycle reveals a past society.","compatible_formula_ids":["com.storystudio.formula.pov-your-life-as"],"subjects":["medieval executioner","Roman gladiator","Viking shipbuilder","castle servant","court jester","plague doctor","Victorian chimney sweep","samurai retainer","Mongol messenger","ancient Egyptian scribe","Roman legionary","medieval guild apprentice","royal food taster","lighthouse keeper","whaler","siege engineer","caravan guard","galley rower","mine worker","imperial eunuch","renaissance printer","frontier stagecoach driver","manorial reeve","temple priest","professional mourner"],"episode_objects":["an entry oath","a work tool","a uniform or marker","a wage or ration","a rank insignia","a record of injury or retirement"],"time_place_scopes":["recruitment","training","ordinary duty","a first crisis","advancement","retirement or downfall"],"mechanisms":["institutional hierarchy","skill apprenticeship","material incentives","coercion and dependency","social status","occupational risk"],"evidence_lenses":["guild record","court account","material artifact","legal code","letter or diary","historical reconstruction"],"exclusions":["Do not glamorize violence, coercion, exploitation, or dangerous work.","Do not turn the role into a costume tour or unsupported roleplay."],"max_siblings_per_subject":1,"prompt_context":"Address the viewer as you while tracing entry, training, routine, hierarchy, danger, reward, and ending through evidence-led material detail.","idea_axes":[{"id":"episode-object","label":"Episode object","values":["an entry oath","a work tool","a uniform or marker","a wage or ration","a rank insignia","a record of injury or retirement"]},{"id":"time-place-scope","label":"Life stage","values":["recruitment","training","ordinary duty","a first crisis","advancement","retirement or downfall"]},{"id":"mechanism","label":"Role mechanism","values":["institutional hierarchy","skill apprenticeship","material incentives","coercion and dependency","social status","occupational risk"]},{"id":"evidence-lens","label":"Evidence lens","values":["guild record","court account","material artifact","legal code","letter or diary","historical reconstruction"]}],"tags":["historical jobs","occupations","daily life"],"compatibility_rules":["Use with POV: Your Life As.","Keep role, period, routine, hierarchy, incentives, and risk materially connected."]}
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.pov-historical-occupations",
+  "name": "Historical Occupations",
+  "description": "Dangerous, strange, and status-heavy jobs whose full life cycle reveals a past society.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.pov-your-life-as"
+  ],
+  "subjects": [
+    "medieval executioner",
+    "Roman gladiator",
+    "Viking shipbuilder",
+    "castle servant",
+    "court jester",
+    "plague doctor",
+    "Victorian chimney sweep",
+    "samurai retainer",
+    "Mongol messenger",
+    "ancient Egyptian scribe",
+    "Roman legionary",
+    "medieval guild apprentice",
+    "royal food taster",
+    "lighthouse keeper",
+    "whaler",
+    "siege engineer",
+    "caravan guard",
+    "galley rower",
+    "mine worker",
+    "imperial eunuch",
+    "renaissance printer",
+    "frontier stagecoach driver",
+    "manorial reeve",
+    "temple priest",
+    "professional mourner"
+  ],
+  "episode_objects": [
+    "an entry oath",
+    "a work tool",
+    "a uniform or marker",
+    "a wage or ration",
+    "a rank insignia",
+    "a record of injury or retirement"
+  ],
+  "time_place_scopes": [
+    "recruitment",
+    "training",
+    "ordinary duty",
+    "a first crisis",
+    "advancement",
+    "retirement or downfall"
+  ],
+  "mechanisms": [
+    "institutional hierarchy",
+    "skill apprenticeship",
+    "material incentives",
+    "coercion and dependency",
+    "social status",
+    "occupational risk"
+  ],
+  "evidence_lenses": [
+    "guild record",
+    "court account",
+    "material artifact",
+    "legal code",
+    "letter or diary",
+    "historical reconstruction"
+  ],
+  "exclusions": [
+    "Do not glamorize violence, coercion, exploitation, or dangerous work.",
+    "Do not turn the role into a costume tour or unsupported roleplay."
+  ],
+  "max_siblings_per_subject": 1,
+  "prompt_context": "Address the viewer as you while tracing entry, training, routine, hierarchy, danger, reward, and ending through evidence-led material detail.",
+  "idea_axes": [
+    {
+      "id": "episode-object",
+      "label": "Episode object",
+      "values": [
+        "an entry oath",
+        "a work tool",
+        "a uniform or marker",
+        "a wage or ration",
+        "a rank insignia",
+        "a record of injury or retirement"
+      ]
+    },
+    {
+      "id": "time-place-scope",
+      "label": "Life stage",
+      "values": [
+        "recruitment",
+        "training",
+        "ordinary duty",
+        "a first crisis",
+        "advancement",
+        "retirement or downfall"
+      ]
+    },
+    {
+      "id": "mechanism",
+      "label": "Role mechanism",
+      "values": [
+        "institutional hierarchy",
+        "skill apprenticeship",
+        "material incentives",
+        "coercion and dependency",
+        "social status",
+        "occupational risk"
+      ]
+    },
+    {
+      "id": "evidence-lens",
+      "label": "Evidence lens",
+      "values": [
+        "guild record",
+        "court account",
+        "material artifact",
+        "legal code",
+        "letter or diary",
+        "historical reconstruction"
+      ]
+    }
+  ],
+  "tags": [
+    "historical jobs",
+    "occupations",
+    "daily life"
+  ],
+  "compatibility_rules": [
+    "Use with POV: Your Life As.",
+    "Keep role, period, routine, hierarchy, incentives, and risk materially connected."
+  ]
+}

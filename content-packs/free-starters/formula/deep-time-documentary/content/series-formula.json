@@ -1,10 +1,328 @@
 {
-  "kind": "series-formula", "schema_version": 1, "id": "com.storystudio.formula.deep-time-documentary", "name": "Deep Time Documentary", "description": "Feature-length evidence-led documentaries about Earth, life, climates, landforms, and deep change.", "channel_promise": "Planet → Transformation", "audience": "Listeners who want calm, precise, long-form natural-history documentaries.", "formula_family": "Evidence & systems", "tagline": "The long, quiet history of a changing planet.",
-  "perspective_policy": "Third-person evidence-led documentary narration. Address the Earth system, organism, place, and evidence—not a generic viewer avatar.", "narrative_quality_contract": { "opening_policy": "Open on a specific fact, material trace, landscape, organism, or unresolved scientific question.", "forbidden_patterns": ["Imagine this", "Imagine you are", "Watch what happens next", "invented certainty"], "required_habits": ["Separate observation, inference, debate, and speculation.", "Use precise dates, places, processes, and measurements.", "Let tension come from real uncertainty and scale."], "closing_policy": "Close the actual inquiry with its evidence and remaining uncertainty." },
-  "metadata_profile": { "id": "evidence-youtube", "label": "Evidence-led YouTube package", "description": "A direct episode summary with sources when research exists, a concise CTA, disclosure, and focused hashtags.", "description_section_ids": ["hook", "sources", "cta", "ai-disclosure", "hashtags"], "title_mode": "use_idea_title", "description_max_chars": 4000, "title_max_length": 100, "tag_count": 15 },
-  "production_kit": { "id": "deep-time-documentary-kit", "label": "Deep-Time Documentary Production Kit", "description": "A reusable long-form deep-time Formula with calm visual pacing.", "recommended_visual_style_id": "com.storystudio.style.paleo-documentary-tableau", "episode_profiles": [{ "id": "deep-rest", "label": "Deep Rest Documentary", "description": "Factual late-night listening with gentle openings and long holds.", "idea_axis_value": "deep rest documentary", "title_suffix": " | Documentary for Sleep", "narrator_style_id": "deep-rest" }, { "id": "immersive", "label": "Immersive Documentary", "description": "Patient documentary without a sleep label.", "idea_axis_value": "immersive documentary", "narrator_style_id": "natural-history" }] },
-  "narrative_rules": ["Make timescale and mechanism clear.", "Do not pad atmospheric restatements."], "title_rules": ["Name one precise Earth or evidence question.", "Label counterfactuals clearly."], "script_structure": { "default_chapter_count": 18, "chapter_count_range": [16, 24], "default_length_minutes": 150, "length_minutes_range": [120, 180], "duration_presets": [120, 150, 180], "default_words_per_minute": 120, "chapters_independent": true, "motion_profile_id": "ambient-documentary", "pacing_arc": ["Orient the listener in place and evidence.", "Trace mechanisms, consequences, uncertainty, and implication."], "additional_rules": ["Use calm third-person narration.", "Preserve visual space for slow ambient holds."] },
-  "compatible_topic_pack_ids": ["com.storystudio.topic.deep-time-earth-systems"], "default_topic_pack_ids": ["com.storystudio.topic.deep-time-earth-systems"], "recommended_visual_style_ids": ["com.storystudio.style.paleo-documentary-tableau"], "recommended_thumbnail_recipe_ids": ["com.storystudio.thumbnail.documentary-label-tableau"], "default_thumbnail_recipe_id": "com.storystudio.thumbnail.documentary-label-tableau",
-  "idea_axes": [{ "id": "episode-profile", "label": "Episode profile", "values": ["deep rest documentary", "immersive documentary"] }, { "id": "time-scale", "label": "Time scale", "values": ["one season", "a millennium", "a geological epoch", "deep planetary time"] }, { "id": "evidence-lens", "label": "Evidence lens", "values": ["fossil record", "rock record", "isotope evidence", "field discovery"] }, { "id": "documentary-engine", "label": "Documentary engine", "values": ["a hidden mechanism", "a threshold crossed", "a slow transformation", "an environmental chain reaction"] }],
-  "vocabulary": { "mood": ["calm", "precise", "atmospheric"], "theme": ["deep time", "evidence", "change"], "genre": ["natural history documentary", "geology", "paleontology"], "keyword": ["prehistoric Earth", "climate history", "Earth systems"] }, "audience_hint": "Listeners who want a two-to-three-hour natural-history documentary without sacrificing factual clarity.", "idea_system_prompt_role": "Create one evidence-led investigation about Earth, life, climate, land, or deep change.", "idea_guidance_text": "Honor the reserved dimensions, prevent reworded duplicates, and label speculation clearly.", "script_context": "Tell how a world changed while distinguishing what evidence can and cannot show.", "script_system_prompt_role": "Write calm, patient, evidence-led natural-history documentaries.", "script_closing_hint": "Return to the central change and remaining uncertainty without a CTA.", "narrator_styles": [{ "id": "natural-history", "label": "Calm natural-history narrator", "description": "Unhurried and clear." }, { "id": "deep-rest", "label": "Deep-rest documentary narrator", "description": "Softer and slower without fiction." }], "default_narrator_style_id": "natural-history", "title_shape_rules": ["When {place/process} Changed {system}", "Why {Earth system} {does something}"], "title_length_range": [7, 16], "logline_shape_rules": ["Name subject, evidence-led question, and transformation."], "logline_sentence_range": [1, 2], "theme_shape_rules": ["Use concrete subject, process, evidence, and period."], "theme_count_range": [2, 4], "structural_variety": "vary-all", "metadata_title_style_hint": "Specific calm evidence-led documentary title.", "metadata_title_hook_rules": ["Make uncertainty or counterfactuals legible."], "metadata_tags_hook_rules": ["Use only organism, period, location, and process in the episode."]
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.deep-time-documentary",
+  "name": "Deep Time Documentary",
+  "description": "Feature-length, evidence-led documentaries about the changing Earth: prehistoric life, ancient oceans, climates, landforms, extinctions, and human origins. Episodes are calm and immersive enough for late-night listening, but remain precise about what is known, inferred, debated, or speculative.",
+  "channel_promise": "Planet → Transformation",
+  "audience": "Listeners who want calm, precise, long-form natural-history documentaries.",
+  "formula_family": "Evidence & systems",
+  "tagline": "The long, quiet history of a changing planet.",
+  "perspective_policy": "Third-person evidence-led documentary narration. Address the Earth system, organism, place, and evidence—not a generic viewer avatar.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open on a specific fact, material trace, landscape, organism, or unresolved scientific question. Establish the episode directly; do not invite the viewer to imagine themselves there.",
+    "forbidden_patterns": [
+      "Imagine this",
+      "Imagine you are",
+      "You find yourself",
+      "Watch what happens next",
+      "little did they know",
+      "You won't believe",
+      "generic mystery bait",
+      "repetitive chapter recaps",
+      "invented certainty",
+      "fictional scientist quotations"
+    ],
+    "required_habits": [
+      "Use exact nouns, dates, places, processes, and measurements when they clarify the story.",
+      "Separate observation, inference, debate, and speculation in plain language.",
+      "Vary the cadence and entry point of each chapter.",
+      "Let tension come from real uncertainty and scale rather than artificial countdowns or cliffhangers.",
+      "Use calm, lucid sentences; avoid vague cosmic poetry and inflated importance claims."
+    ],
+    "closing_policy": "Close the actual inquiry with its evidence and remaining uncertainty. Never manufacture a final reveal or next-episode tease."
+  },
+  "metadata_profile": {
+    "id": "evidence-youtube",
+    "label": "Evidence-led YouTube package",
+    "description": "A direct episode summary with sources when research exists, a concise CTA, disclosure, and focused hashtags.",
+    "description_section_ids": [
+      "hook",
+      "sources",
+      "cta",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 4000,
+    "title_max_length": 100,
+    "tag_count": 15
+  },
+  "production_kit": {
+    "id": "deep-time-documentary-kit",
+    "label": "Deep-Time Documentary Production Kit",
+    "description": "A reusable long-form deep-time Formula with calm visual pacing.",
+    "recommended_visual_style_id": "com.storystudio.style.paleo-documentary-tableau",
+    "episode_profiles": [
+      {
+        "id": "deep-rest",
+        "label": "Deep Rest Documentary",
+        "description": "Factual late-night listening with gentle openings and long holds.",
+        "idea_axis_value": "deep rest documentary",
+        "title_suffix": " | Documentary for Sleep",
+        "narrator_style_id": "deep-rest"
+      },
+      {
+        "id": "immersive",
+        "label": "Immersive Documentary",
+        "description": "Patient documentary without a sleep label.",
+        "idea_axis_value": "immersive documentary",
+        "narrator_style_id": "natural-history"
+      }
+    ]
+  },
+  "narrative_rules": [
+    "Make timescale and mechanism clear.",
+    "Do not pad atmospheric restatements."
+  ],
+  "title_rules": [
+    "Name one precise Earth or evidence question.",
+    "Label counterfactuals clearly."
+  ],
+  "script_structure": {
+    "default_chapter_count": 18,
+    "chapter_count_range": [
+      16,
+      24
+    ],
+    "default_length_minutes": 150,
+    "length_minutes_range": [
+      120,
+      180
+    ],
+    "duration_presets": [
+      120,
+      150,
+      180
+    ],
+    "default_words_per_minute": 120,
+    "chapters_independent": true,
+    "visual_pacing_profile": {
+      "opening_duration_sec": 900,
+      "opening": {
+        "min_sec": 4,
+        "max_sec": 8
+      },
+      "settled": {
+        "min_sec": 12,
+        "max_sec": 20
+      }
+    },
+    "motion_profile_id": "ambient-documentary",
+    "pacing_arc": [
+      "Chapters 1-2: Open on a concrete place, trace, organism, or question; establish why it changes our view of the world. Build orientation, not a teaser.",
+      "Chapters 3-5: Reconstruct the setting and conditions using material evidence, scale comparisons, and carefully bounded inference.",
+      "Chapters 6-9: Explain the mechanisms that drive the story. Each chapter advances a causal link rather than recapping the premise.",
+      "Chapters 10-13: Follow the consequences through landscapes, organisms, climates, or human populations. Use evidence checkpoints to separate certainty from debate.",
+      "Chapters 14-16: Introduce the complication, alternative interpretation, or remaining unknown only where the evidence supports it.",
+      "Chapters 17-{lastButOne}: Connect the long process back to a clear present-day insight without forcing relevance.",
+      "Chapter {last}: Resolve the central question calmly. Leave a precise final image or implication, not a cliffhanger."
+    ],
+    "additional_rules": [
+      "Use a calm third-person documentary voice. Never cast the viewer as a protagonist and never use second-person immersive framing.",
+      "Every chapter must contribute a distinct evidentiary, causal, temporal, or ecological step. Do not pad with atmospheric restatements.",
+      "Use evidence checkpoints throughout: explicitly signal what scientists observe, what is inferred, what is debated, and what remains unknown.",
+      "For speculative episodes, label the premise and consequences as speculation early and keep factual constraints visible throughout.",
+      "Vary chapter openings among a material trace, a scale comparison, a discovery, a contradiction, a timeline shift, a location, or a concrete organism. Do not reuse a stock hook.",
+      "Scene planning must use the Formula's two-phase rhythm: the first fifteen minutes receive more explanatory visual changes; after that, prefer spacious 12-20 second ambient holds and subtle motion over constant cutting.",
+      "Scene visuals should favor one legible landscape, organism group, map, specimen, or process per frame. Preserve room for slow camera drift, water, weather, particles, vegetation, or other restrained ambient motion."
+    ]
+  },
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.deep-time-earth-systems",
+    "com.storystudio.topic.deep-time-prehistoric-life",
+    "com.storystudio.topic.deep-time-deep-ocean",
+    "com.storystudio.topic.deep-time-human-origins",
+    "com.storystudio.topic.deep-time-speculative-earth"
+  ],
+  "default_topic_pack_ids": [
+    "com.storystudio.topic.deep-time-earth-systems",
+    "com.storystudio.topic.deep-time-prehistoric-life",
+    "com.storystudio.topic.deep-time-deep-ocean",
+    "com.storystudio.topic.deep-time-human-origins",
+    "com.storystudio.topic.deep-time-speculative-earth"
+  ],
+  "recommended_visual_style_ids": [
+    "com.storystudio.style.paleo-documentary-tableau"
+  ],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.documentary-label-tableau"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.documentary-label-tableau",
+  "idea_axes": [
+    {
+      "id": "episode-profile",
+      "label": "Episode profile",
+      "values": [
+        "deep rest documentary",
+        "immersive documentary"
+      ]
+    },
+    {
+      "id": "time-scale",
+      "label": "Time scale",
+      "values": [
+        "one revealing day",
+        "one season",
+        "one lifetime",
+        "a millennium",
+        "a geological epoch",
+        "a mass transition",
+        "deep planetary time"
+      ]
+    },
+    {
+      "id": "evidence-lens",
+      "label": "Evidence lens",
+      "values": [
+        "fossil record",
+        "rock record",
+        "isotope evidence",
+        "comparative anatomy",
+        "satellite and terrain evidence",
+        "experimental reconstruction",
+        "competing scientific interpretations",
+        "field discovery"
+      ]
+    },
+    {
+      "id": "documentary-engine",
+      "label": "Documentary engine",
+      "values": [
+        "a hidden mechanism",
+        "a threshold crossed",
+        "a world reconstructed",
+        "a slow transformation",
+        "a comparison across time",
+        "a problem scientists are still resolving",
+        "a rise and decline",
+        "an environmental chain reaction"
+      ]
+    },
+    {
+      "id": "viewer-payoff",
+      "label": "Viewer payoff",
+      "values": [
+        "scale made tangible",
+        "a familiar world made strange",
+        "a misconception corrected",
+        "an ecosystem explained",
+        "an uncertainty mapped honestly",
+        "a cause-and-consequence chain",
+        "a present-day connection"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "mood": [
+      "calm",
+      "reverent",
+      "clear-eyed",
+      "patient",
+      "immersive",
+      "curious",
+      "grounded",
+      "unhurried",
+      "precise",
+      "atmospheric"
+    ],
+    "theme": [
+      "deep time",
+      "evidence",
+      "change",
+      "adaptation",
+      "extinction",
+      "climate",
+      "oceans",
+      "landscapes",
+      "evolution",
+      "uncertainty"
+    ],
+    "genre": [
+      "natural history documentary",
+      "science documentary",
+      "prehistory",
+      "geology",
+      "paleontology",
+      "Earth systems",
+      "long-form documentary"
+    ],
+    "keyword": [
+      "deep time",
+      "prehistoric Earth",
+      "natural history",
+      "paleontology",
+      "geology",
+      "ancient oceans",
+      "evolution",
+      "mass extinction",
+      "climate history",
+      "human origins"
+    ]
+  },
+  "audience_hint": "Listeners who want a two- to three-hour, visually rich but low-pressure natural-history documentary: suitable for focused listening, late-night curiosity, or sleep without sacrificing factual clarity.",
+  "idea_system_prompt_role": "You create original, long-form deep-time documentary ideas. Each idea is a distinct factual investigation about Earth, life, oceans, climate, land, or human origins. Think like a rigorous natural-history documentary editor: select one durable question, mechanism, landscape, organism group, transition, or evidence problem that can support a feature-length narrative. Do not imitate a named channel or narrator.",
+  "idea_guidance_text": "Honor every reserved assignment exactly. A campaign must distribute across Topic Packs, episode profiles, time scales, evidence lenses, and documentary engines before it returns to a related subject. Never create lightly reworded dinosaur-extinction, Ice Age, or generic 'Earth explained' ideas. Choose a specific central subject and a genuinely different explanatory payoff. If the assigned episode-profile is deep rest documentary, end the title with “| Documentary for Sleep”; if it is immersive documentary, never add a sleep label. Mark counterfactual premises clearly as speculative; factual ideas must have a credible evidence path.",
+  "script_context": "Tell the long, calm story of how a world changed. Establish a concrete fact, landscape, fossil, organism, or scientific question; move through conditions and mechanisms; return repeatedly to what the evidence can and cannot show. The listener should feel oriented in scale, not rushed through trivia.",
+  "script_system_prompt_role": "You are a meticulous long-form natural-history documentary writer. Your voice is calm, patient, vivid, and evidence-led: premium public-science documentary qualities without imitating any named broadcaster or personality. You make scale legible through concrete landscapes, organisms, rock layers, maps, measurements, and causal links. You distinguish observation, inference, debate, and speculation. Your purpose is understanding, not manufactured suspense.",
+  "script_closing_hint": "End by returning to the central change at the correct scale: state what the evidence now makes clearer, what remains uncertain, and one quiet implication for the living planet. Do not tease a sequel or add a CTA.",
+  "narrator_styles": [
+    {
+      "id": "natural-history",
+      "label": "Calm natural-history narrator",
+      "description": "Unhurried, clear, and observant. Lets landscapes and evidence carry the wonder."
+    },
+    {
+      "id": "deep-rest",
+      "label": "Deep-rest documentary narrator",
+      "description": "Softer and slower for sleep-friendly episodes, without becoming vague or fictional."
+    }
+  ],
+  "default_narrator_style_id": "natural-history",
+  "title_shape_rules": [
+    "Titles name one precise Earth, life, or evidence question—not a broad subject area.",
+    "Rotate across shapes: 'When {place/process} Changed {system}', 'The {period/process} (As We Understand It)', 'Why {Earth system} {does something}', 'The Secret History of {specific subject}', 'What Really Happened When {change}', and clearly labeled 'What If {counterfactual}?'.",
+    "Use 'Documentary for Sleep' only for assignments marked deep-rest documentary. Immersive documentary episodes must not falsely claim sleep content.",
+    "FORBIDDEN: generic 'Dinosaurs Explained', all-caps hype, unsupported superlatives, and titles that conceal a speculative premise as fact."
+  ],
+  "title_length_range": [
+    7,
+    16
+  ],
+  "logline_shape_rules": [
+    "Write 1-2 concise sentences naming the central subject, the evidence-led question, and the transformation or uncertainty the episode follows.",
+    "State the factual boundary or speculative label where needed."
+  ],
+  "logline_sentence_range": [
+    1,
+    2
+  ],
+  "theme_shape_rules": [
+    "Choose 2-4 concrete terms spanning subject, process, evidence, and period or place."
+  ],
+  "theme_count_range": [
+    2,
+    4
+  ],
+  "structural_variety": "vary-all",
+  "metadata_title_style_hint": "Specific, calm, evidence-led long-form documentary title. Use a sleep suffix only where the episode profile genuinely calls for it.",
+  "metadata_title_hook_rules": [
+    "Name the central subject or change early.",
+    "Make any uncertainty or counterfactual legible without overselling it.",
+    "Never use false urgency or unsupported fear bait."
+  ],
+  "metadata_tags_hook_rules": [
+    "Mix broad documentary discovery terms with the exact organism, period, location, or process.",
+    "Do not tag unmentioned extinct animals or eras for reach."
+  ],
+  "example_topics": [
+    "When India Collided Into Asia",
+    "The Cambrian Period, As We Understand It",
+    "Why Earth Enters Ice Ages Every 100,000 Years",
+    "The Secret Language of Plants",
+    "The World Before Us: When Nine Species Walked the Earth",
+    "The Mariana Trench: Secrets of Earth's Deepest Abyss",
+    "What Really Killed the Ice Age Giants?",
+    "What If Earth Had Rings?"
+  ]
 }

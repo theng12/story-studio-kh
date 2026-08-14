@@ -158,9 +158,8 @@ test('approved preview bytes are copied unchanged and all unblocked sources buil
     assert.equal(createHash('sha256').update(await readFile(new URL(relativePath, WAVE))).digest('hex'), hash)
   }
   const unblocked = [
-    ...kits.filter(kit => kit.slug !== 'first-humans').flatMap(kit => kit.dependencies.map(component => [component.kindSlug, component.componentSlug])),
-    ...kits.filter(kit => kit.slug !== 'first-humans').map(kit => ['kit', kit.slug]),
-    ['formula', 'ancient-humans'], ['topic', 'ancient-humans-survival'], ['style', 'prehistoric-stick-cartoon'],
+    ...kits.flatMap(kit => kit.dependencies.map(component => [component.kindSlug, component.componentSlug])),
+    ...kits.map(kit => ['kit', kit.slug]),
   ]
   for (const [kind, slug] of unblocked) {
     const source = sourceDirectory(new URL(`${kind}/${slug}/`, WAVE))
@@ -173,7 +172,7 @@ test('approved preview bytes are copied unchanged and all unblocked sources buil
   }
 })
 
-test('BLOCKED: First Humans requires the owner-original Prehistoric Discovery raster', async () => {
+test('First Humans binds its approved publisher-created Prehistoric Discovery raster', async () => {
   const { manifest, document } = await sourceFor('thumbnail', 'prehistoric-discovery')
   assert.equal(manifest.pack_id, 'com.storystudio.pack.thumbnail.prehistoric-discovery')
   assert.deepEqual(document.preview_assets, ['assets/prehistoric-discovery.webp'])

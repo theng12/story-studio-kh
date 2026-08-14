@@ -52,7 +52,7 @@ const VocabularySchema = z.object({
   mood: z.array(safeText(80)).max(50).optional(),
   theme: z.array(safeText(80)).max(50).optional(),
   genre: z.array(safeText(80)).max(50).optional(),
-  keyword: z.array(safeText(80)).max(100).optional(),
+  keyword: z.array(safeText(80)).max(200).optional(),
 }).strict()
 const MetadataProfileSchema = z.object({
   id: localSlug,

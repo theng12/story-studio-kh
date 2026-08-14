@@ -27,7 +27,7 @@ function provenanceRecords(markdown) {
 }
 async function assertApprovedPreview(record, { ownerId, assetPath, canonicalSourcePath }) {
   assert.equal(record.ownerId, ownerId)
-  assert.equal(record.provenance, 'owner-supplied-original')
+  assert.equal(record.provenance, 'publisher-created-tool-generated-original')
   assert.equal(record.status, 'approved')
   assert.equal(record.sourcePath, canonicalSourcePath)
   assert.match(record.sha256, /^[a-f0-9]{64}$/)
@@ -126,7 +126,7 @@ test('offline assignments cover every new subject deterministically and safe sou
     }
   }
 
-  const safeSources = ['formula/guided-mindfulness', 'formula/practical-motivation', 'formula/sleep-story', 'topic/everyday-calm', 'topic/habits-momentum', 'topic/night-journeys', 'style/watercolor-storybook', 'style/flat-vector-explainer', 'kit/build-momentum']
+  const safeSources = ['formula/guided-mindfulness', 'formula/practical-motivation', 'formula/sleep-story', 'topic/everyday-calm', 'topic/habits-momentum', 'topic/night-journeys', 'style/watercolor-storybook', 'style/flat-vector-explainer', 'thumbnail/centered-hero-headline', 'thumbnail/annotated-business-board', 'thumbnail/dreamscape-story-window', 'kit/calm-mind', 'kit/build-momentum', 'kit/sleep-journeys']
   for (const source of safeSources) {
     const first = join(temporary, `${source.replace('/', '-')}-first.sspack`)
     const second = join(temporary, `${source.replace('/', '-')}-second.sspack`)
@@ -137,7 +137,7 @@ test('offline assignments cover every new subject deterministically and safe sou
   }
 })
 
-test('BLOCKED: Dreamscape Story Window binds a future raster to its exact owner provenance', async () => {
+test('Dreamscape Story Window binds its approved publisher-created raster', async () => {
   const recipe = await json('thumbnail/dreamscape-story-window/content/thumbnail-recipe.json')
   assert.equal(recipe.id, 'com.storystudio.thumbnail.dreamscape-story-window')
   assert.deepEqual(recipe.preview_assets, ['assets/dreamscape-story-window.webp'])
@@ -150,8 +150,8 @@ test('BLOCKED: Dreamscape Story Window binds a future raster to its exact owner 
     await access(assetPath)
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
-    assert.deepEqual(record, { id: ownerId, ownerId, provenance: 'owner-supplied-original', status: 'blocked-missing-owner-original', sourcePath: null, sha256: null })
-    assert.fail(`missing owner-original Dreamscape Story Window raster: ${canonicalSourcePath}`)
+    assert.deepEqual(record, { id: ownerId, ownerId, provenance: 'publisher-created-tool-generated-original', status: 'blocked-missing-owner-original', sourcePath: null, sha256: null })
+    assert.fail(`missing publisher-created Dreamscape Story Window raster: ${canonicalSourcePath}`)
   }
   await assertApprovedPreview(record, { ownerId, assetPath, canonicalSourcePath })
 })
@@ -162,7 +162,7 @@ test('a present Dreamscape raster rejects a blocked provenance record', async t 
   const assetPath = join(temporary, 'dreamscape-story-window.webp')
   await writeFile(assetPath, await readFile(new URL('style/watercolor-storybook/assets/watercolor-storybook.webp', WAVE)))
   await assert.rejects(
-    assertApprovedPreview({ id: 'dreamscape-story-window', ownerId: 'dreamscape-story-window', provenance: 'owner-supplied-original', status: 'blocked-missing-owner-original', sourcePath: null, sha256: null }, {
+    assertApprovedPreview({ id: 'dreamscape-story-window', ownerId: 'dreamscape-story-window', provenance: 'publisher-created-tool-generated-original', status: 'blocked-missing-owner-original', sourcePath: null, sha256: null }, {
       ownerId: 'dreamscape-story-window', assetPath,
       canonicalSourcePath: 'content-packs/free-starters/thumbnail/dreamscape-story-window/assets/dreamscape-story-window.webp',
     }),

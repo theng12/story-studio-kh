@@ -5,7 +5,9 @@
   "name": "Businesses & Companies",
   "description": "Owner-operator businesses, capital-heavy companies, venues, and modern commercial systems.",
   "compatible_formula_ids": [
-    "com.storystudio.formula.economics-of"
+    "com.storystudio.formula.economics-of",
+    "com.storystudio.formula.pov-hustle",
+    "com.storystudio.formula.listicle-explainer"
   ],
   "subjects": [
     "coffee shop",
@@ -88,6 +90,20 @@
   "max_siblings_per_subject": 1,
   "prompt_context": "Open the books on one real operating model. Establish place, scale, currency, and period; trace the relationship between revenue, costs, capacity, labor, cash flow, risk, and trade-off.",
   "idea_axes": [
+    {
+      "id": "business-model",
+      "label": "Business model",
+      "values": [
+        "high volume low margin",
+        "low volume high margin",
+        "subscription",
+        "asset rental",
+        "service labor",
+        "inventory resale",
+        "licensing",
+        "platform fees"
+      ]
+    },
     {
       "id": "episode-object",
       "label": "Episode object",

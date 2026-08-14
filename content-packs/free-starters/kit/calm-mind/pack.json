@@ -1,6 +1,65 @@
 {
-  "pack_format": 1, "pack_id": "com.storystudio.pack.kit.calm-mind", "publisher_id": "com.storystudio", "key_id": "{{KEY_ID}}", "version": "1.0.0", "min_app_version": "{{MIN_APP_VERSION}}", "lifecycle": "active", "changelog": "15 reviewed subjects / Pause → Presence",
-  "entitlement": {"sku": "com.storystudio.sku.kit.calm-mind", "family": "com.storystudio.family.kit.calm-mind"},
-  "dependencies": [{"pack_id": "com.storystudio.pack.formula.guided-mindfulness", "version": "1.0.0"}, {"pack_id": "com.storystudio.pack.topic.everyday-calm", "version": "1.0.0"}, {"pack_id": "com.storystudio.pack.style.watercolor-storybook", "version": "1.0.0"}, {"pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline", "version": "1.0.0"}],
-  "bundles": [{"id": "com.storystudio.bundle.calm-mind", "kind": "channel-kit", "name": "Calm Mind", "components": [{"pack_id": "com.storystudio.pack.formula.guided-mindfulness", "version": "1.0.0", "item_id": "com.storystudio.formula.guided-mindfulness", "kind": "series-formula"}, {"pack_id": "com.storystudio.pack.topic.everyday-calm", "version": "1.0.0", "item_id": "com.storystudio.topic.everyday-calm", "kind": "topic-pack"}, {"pack_id": "com.storystudio.pack.style.watercolor-storybook", "version": "1.0.0", "item_id": "com.storystudio.style.watercolor-storybook", "kind": "visual-style"}, {"pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline", "version": "1.0.0", "item_id": "com.storystudio.thumbnail.centered-hero-headline", "kind": "thumbnail-recipe"}]}]
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.kit.calm-mind",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "15 everyday practices / Pause → Presence",
+  "entitlement": {
+    "sku": "com.storystudio.sku.kit.calm-mind",
+    "family": "com.storystudio.family.kit.calm-mind"
+  },
+  "dependencies": [
+    {
+      "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.everyday-calm",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+      "version": "1.0.0"
+    }
+  ],
+  "bundles": [
+    {
+      "id": "com.storystudio.bundle.calm-mind",
+      "kind": "channel-kit",
+      "name": "Calm Mind",
+      "components": [
+        {
+          "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.formula.guided-mindfulness",
+          "kind": "series-formula"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.everyday-calm",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.topic.everyday-calm",
+          "kind": "topic-pack"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.style.watercolor-storybook",
+          "kind": "visual-style"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.thumbnail.centered-hero-headline",
+          "kind": "thumbnail-recipe"
+        }
+      ]
+    }
+  ]
 }

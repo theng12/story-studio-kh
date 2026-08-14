@@ -183,8 +183,19 @@ export function planIdeaAssignments(options: {
     })
   }
 
+  const siblingCounts = new Map<string, number>()
   return candidates
     .sort((a, b) => stableScore(seed, a.fingerprint).localeCompare(stableScore(seed, b.fingerprint)))
+    .filter((candidate) => {
+      const pack = candidate.topic_pack_id ? packs.find(entry => entry.id === candidate.topic_pack_id) : undefined
+      const limit = pack?.maxSiblingsPerSubject
+      if (!limit) return true
+      const key = `${candidate.topic_pack_id}|${candidate.dimensions.subject}`
+      const next = (siblingCounts.get(key) || 0) + 1
+      if (next > limit) return false
+      siblingCounts.set(key, next)
+      return true
+    })
 }
 
 export function assignmentSummary(assignment: IdeaAssignment): string {

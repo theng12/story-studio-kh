@@ -143,7 +143,7 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
   assert.ok(Array.isArray(records))
   assert.deepEqual(new Set(records.map(row => row.provenance)), new Set([
     'migrated-approved-built-in',
-    'owner-supplied-original',
+    'publisher-created-tool-generated-original',
   ]))
 
   const styleDeclarations = registry.styles.map(row => {
@@ -179,14 +179,15 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
     ['dreamscape-story-window', 'content-packs/free-starters/thumbnail/dreamscape-story-window/assets/dreamscape-story-window.webp', '1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce'],
   ]) {
     const record = records.find(row => row.id === sourceId)
-    assert.deepEqual(record, {
-      id: sourceId,
-      ownerId: sourceId,
-      provenance: 'owner-supplied-original',
-      status: 'approved',
-      sourcePath,
-      sha256: hash,
-    })
+    assert.equal(record.id, sourceId)
+    assert.equal(record.ownerId, sourceId)
+    assert.equal(record.provenance, 'publisher-created-tool-generated-original')
+    assert.equal(record.status, 'approved')
+    assert.equal(record.sourcePath, sourcePath)
+    assert.equal(record.sha256, hash)
+    assert.equal(record.generation_tool, 'codex-built-in-imagegen')
+    assert.match(record.source_path, /^\/Users\/thengmacmini\/\.codex\/generated_images\//)
+    assert.match(record.source_prompt, /Original 16:9/)
     assert.equal(sha256(await readFile(new URL(sourcePath, ROOT))), hash)
   }
 })

@@ -1,1 +1,186 @@
-{"kind":"series-formula","schema_version":1,"id":"com.storystudio.formula.pov-your-life-as","name":"POV: Your Life As…","description":"Second-person historical life-path explainers that trace a role from entry to exit.","channel_promise":"Role → Reality","audience":"Viewers who enjoy immersive history, hierarchy explainers, and second-person documentary storytelling.","formula_family":"Immersive paths","tagline":"Live the whole ladder from inside the role.","perspective_policy":"Address the viewer as you while keeping the role evidence-led, period-specific, and materially grounded.","narrative_quality_contract":{"opening_policy":"Open at a concrete point of entry into the role.","forbidden_patterns":["game-stat language","empty cinematic roleplay","costume-tour framing"],"required_habits":["Move chronologically through entry, training, work, hierarchy, risk, rewards, and ending.","Make authority, routine, incentives, and risk materially different at each tier.","Separate evidence from inference."],"closing_policy":"Close on the likely outcome and what the role reveals about its society."},"narrative_rules":["Explain the real system from the inside."],"title_rules":["Name a concrete role or tiered institution.","Name place or period when it changes the role materially."],"script_structure":{"default_chapter_count":9,"chapter_count_range":[7,12],"default_length_minutes":22,"length_minutes_range":[15,30],"duration_presets":[15,22,30],"default_words_per_minute":145,"chapters_independent":true,"pacing_arc":["Entry and selection.","Training, daily duty, hierarchy, crisis, advancement, and exit."],"additional_rules":["Do not glamorize danger, violence, exploitation, or coercion."]},"compatible_topic_pack_ids":["com.storystudio.topic.pov-historical-occupations"],"default_topic_pack_ids":["com.storystudio.topic.pov-historical-occupations"],"recommended_visual_style_ids":["com.storystudio.style.cinematic-photoreal"],"recommended_thumbnail_recipe_ids":["com.storystudio.thumbnail.portrait-block-right"],"default_thumbnail_recipe_id":"com.storystudio.thumbnail.portrait-block-right","idea_axes":[{"id":"life-stage","label":"Life stage","values":["entry and selection","training","ordinary duty","first crisis","advancement","peak authority","downfall or retirement"]},{"id":"inside-lens","label":"Inside lens","values":["daily routine","hierarchy","tools","pay and rewards","risk","moral compromise","survival odds","public reputation"]}],"vocabulary":{"mood":["immersive","unsentimental","tense","curious","grounded"],"theme":["hierarchy","daily life","risk","status","advancement"],"genre":["immersive history","role explainer","second-person documentary"],"keyword":["POV","your life as","rank","training","duty"]},"idea_system_prompt_role":"Design concrete second-person episode concepts where the viewer experiences a full role from entry to exit.","idea_guidance_text":"Promise a full lived system, not a costume tour.","script_context":"Address the viewer as you; make material routines, incentives, hierarchy, danger, and ending specific to the role and period.","script_system_prompt_role":"Write evidence-led immersive second-person life histories and institutional hierarchies.","script_closing_hint":"End with the role's likely outcome and social reality.","narrator_styles":[{"id":"a","label":"Immersive documentary","description":"Second-person, precise, and unsentimental."}],"default_narrator_style_id":"a","title_shape_rules":["POV: Your Life as {specific role}","POV: Your Life in Every Tier of {specific institution}"],"title_length_range":[5,14],"structural_variety":"vary-subject-only"}
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.pov-your-life-as",
+  "name": "POV: Your Life As…",
+  "description": "Second-person life-path explainers that place the viewer inside a role, rank, or occupation and carry them through recruitment, daily routine, hierarchy, danger, rewards, advancement, failure, and likely ending.",
+  "channel_promise": "Role → Reality",
+  "audience": "Viewers who enjoy immersive history, hierarchy explainers, and second-person documentary storytelling.",
+  "formula_family": "Immersive paths",
+  "tagline": "Live the whole ladder from inside the role.",
+  "perspective_policy": "Second-person immersive, grounded in period-appropriate daily decisions.",
+  "narrative_quality_contract": {
+    "opening_policy": "Begin inside a specific concrete moment, not a generic “you wake up” template.",
+    "forbidden_patterns": [
+      "Imagine this",
+      "You find yourself",
+      "Watch what happens next",
+      "generic sensory checklist"
+    ],
+    "required_habits": [
+      "Anchor each scene in a real task, constraint, or social role.",
+      "Let the viewer infer stakes through action.",
+      "Use historically or institutionally plausible details."
+    ],
+    "closing_policy": "End on a lived consequence rather than a cliffhanger."
+  },
+  "narrative_rules": [
+    "Explain the real system from the inside."
+  ],
+  "title_rules": [
+    "Name a concrete role or tiered institution.",
+    "Name place or period when it changes the role materially."
+  ],
+  "script_structure": {
+    "default_chapter_count": 9,
+    "chapter_count_range": [
+      7,
+      12
+    ],
+    "default_length_minutes": 22,
+    "length_minutes_range": [
+      15,
+      30
+    ],
+    "duration_presets": [
+      15,
+      22,
+      30
+    ],
+    "default_words_per_minute": 145,
+    "chapters_independent": true,
+    "pacing_arc": [
+      "Entry and selection.",
+      "Training, daily duty, hierarchy, crisis, advancement, and exit."
+    ],
+    "additional_rules": [
+      "Do not glamorize danger, violence, exploitation, or coercion."
+    ]
+  },
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.pov-law-enforcement",
+    "com.storystudio.topic.pov-criminal-hierarchies",
+    "com.storystudio.topic.pov-historical-occupations"
+  ],
+  "default_topic_pack_ids": [
+    "com.storystudio.topic.pov-law-enforcement",
+    "com.storystudio.topic.pov-criminal-hierarchies",
+    "com.storystudio.topic.pov-historical-occupations"
+  ],
+  "recommended_visual_style_ids": [
+    "com.storystudio.style.cinematic-photoreal"
+  ],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.portrait-block-right"
+  ],
+  "default_thumbnail_recipe_id": "com.storystudio.thumbnail.portrait-block-right",
+  "idea_axes": [
+    {
+      "id": "life-stage",
+      "label": "Life stage",
+      "values": [
+        "entry and selection",
+        "training",
+        "ordinary duty",
+        "first crisis",
+        "advancement",
+        "peak authority",
+        "downfall or retirement"
+      ]
+    },
+    {
+      "id": "inside-lens",
+      "label": "Inside lens",
+      "values": [
+        "daily routine",
+        "hierarchy",
+        "tools",
+        "pay and rewards",
+        "risk",
+        "moral compromise",
+        "survival odds",
+        "public reputation"
+      ]
+    }
+  ],
+  "vocabulary": {
+    "genre": [
+      "immersive history",
+      "role explainer",
+      "second-person documentary",
+      "hierarchy breakdown"
+    ],
+    "mood": [
+      "immersive",
+      "unsentimental",
+      "tense",
+      "curious",
+      "grounded"
+    ],
+    "theme": [
+      "hierarchy",
+      "daily life",
+      "risk",
+      "status",
+      "advancement",
+      "survival",
+      "power"
+    ],
+    "keyword": [
+      "POV",
+      "your life as",
+      "every tier",
+      "rank",
+      "training",
+      "duty",
+      "promotion",
+      "downfall"
+    ]
+  },
+  "idea_system_prompt_role": "You design concrete second-person episode concepts where the viewer experiences a full role, hierarchy, or occupation from entry to exit.",
+  "idea_guidance_text": "Every concept must promise a full lived system, not a costume tour. Titles should use 'POV: Your Life…' or a close second-person equivalent and name a concrete role or tiered institution.",
+  "script_context": "Address the viewer as 'you'. Move chronologically through entry, training, daily work, rank, danger, rewards, and ending. Make each tier materially different in authority, routine, incentives, and risk. Avoid game-stat language and empty cinematic roleplay; explain the real system from the inside.",
+  "script_system_prompt_role": "You are an evidence-led documentary writer specializing in immersive second-person life histories and institutional hierarchies.",
+  "script_closing_hint": "End with the role's likely outcome and social reality.",
+  "narrator_styles": [
+    {
+      "id": "a",
+      "label": "Immersive documentary",
+      "description": "Second-person, precise, and unsentimental."
+    }
+  ],
+  "default_narrator_style_id": "a",
+  "title_shape_rules": [
+    "Prefer 'POV: Your Life as [specific role]' for one occupation.",
+    "Prefer 'POV: Your Life in Every Tier of [specific institution]' for a rank ladder.",
+    "Name the place or period when the role changes materially across contexts."
+  ],
+  "title_length_range": [
+    5,
+    14
+  ],
+  "structural_variety": "vary-subject-only",
+  "example_topics": [
+    "POV: Your Life in Every Tier of Law Enforcement",
+    "POV: Your Life in Every Tier of a Criminal Empire",
+    "POV: Your Life as an Executioner in the Middle Ages",
+    "POV: Your Life as a Roman Vigile",
+    "POV: Your Life as a Pirate Quartermaster"
+  ],
+  "audience_hint": "Viewers who enjoy immersive history, hierarchy explainers, career ladders, and second-person documentary storytelling.",
+  "metadata_profile": {
+    "id": "immersive-youtube",
+    "label": "Immersive YouTube package",
+    "description": "A concise premise-led summary with a light CTA, disclosure, and focused hashtags.",
+    "description_section_ids": [
+      "hook",
+      "cta",
+      "ai-disclosure",
+      "hashtags"
+    ],
+    "title_mode": "use_idea_title",
+    "description_max_chars": 3500,
+    "title_max_length": 100,
+    "tag_count": 15
+  }
+}
