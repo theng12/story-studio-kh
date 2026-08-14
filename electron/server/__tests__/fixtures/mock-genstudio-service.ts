@@ -124,6 +124,20 @@ interface MockTranscriptionQuote {
   bodyText: string
 }
 
+interface MockContentOwnership {
+  productId: string
+  purchaseId: string | null
+  grantedAt: string
+}
+
+interface MockContentPurchaseRecord {
+  purchaseId: string
+  productId: string
+  entitlementFamilies: string[]
+  creditsCharged: number
+  issuedAt: string
+}
+
 interface TtsSubmissionBarrier {
   promise: Promise<void>
   resolve: () => void
@@ -316,6 +330,9 @@ export class MockGenStudioService {
   private readonly contentAccountCredits = new Map<string, number>()
   private readonly contentBundleComponents = new Map<string, string[]>()
   private readonly contentPurchases = new Map<string, Record<string, unknown>>()
+  /** Ownership is deliberately account-and-family scoped, like the real Content Store. */
+  private readonly contentOwnership = new Map<string, Map<string, MockContentOwnership>>()
+  private readonly contentPurchaseRecords = new Map<string, MockContentPurchaseRecord[]>()
   private readonly contentSigningKey = generateKeyPairSync('ed25519')
   private readonly contentArchives = new Map<string, Uint8Array>()
   private readonly queuedContentPurchaseOutcomes: MockContentPurchaseOutcome[] = []
@@ -387,6 +404,8 @@ export class MockGenStudioService {
     this.transcriptionQuotes.clear()
     this.transcriptionQuoteByIdempotency.clear()
     this.contentPurchases.clear()
+    this.contentOwnership.clear()
+    this.contentPurchaseRecords.clear()
     this.queuedContentPurchaseOutcomes.length = 0
     this.contentPurchasePostCount = 0
     this.totalCreditsCharged = 0
@@ -461,7 +480,28 @@ export class MockGenStudioService {
   setContentProductOwned(productId: string, owned = true): void {
     const product = this.contentProducts.find(entry => entry.product_id === productId)
     if (!product) throw new Error(`Unknown mock Content Store product: ${productId}`)
-    product.owned = owned
+    const accountId = this.contentAccounts.values().next().value || 'acct_mock'
+    const family = String(product.entitlement_family)
+    if (!owned) {
+      this.contentOwnership.get(accountId)?.delete(family)
+      return
+    }
+    this.seedContentProductOwnership(accountId, productId)
+  }
+
+  /** Test-only compatibility bridge for fixtures that start with an owned catalog row. */
+  seedContentProductOwnership(accountId: string, productId: string): void {
+    const product = this.contentProducts.find(entry => entry.product_id === productId)
+    if (!product) throw new Error(`Unknown mock Content Store product: ${productId}`)
+    const ownership = this.ownershipFor(accountId)
+    const family = String(product.entitlement_family)
+    if (ownership.has(family)) return
+    const purchaseId = `cpur_seed_${String((this.contentPurchaseRecords.get(accountId) || []).length + 1)}`
+    const issuedAt = '2026-08-14T09:12:44Z'
+    ownership.set(family, { productId, purchaseId, grantedAt: issuedAt })
+    const records = this.contentPurchaseRecords.get(accountId) || []
+    records.push({ purchaseId, productId, entitlementFamilies: [family], creditsCharged: 0, issuedAt })
+    this.contentPurchaseRecords.set(accountId, records)
   }
 
   queueScenario(operation: MockGenStudioOperation, scenario: MockGenStudioScenario): void {
@@ -553,30 +593,54 @@ export class MockGenStudioService {
     return this.contentAccountCredits.get(accountId) ?? 4_000
   }
 
-  private refreshBundleComponentOwnership(): void {
-    for (const product of this.contentProducts) {
-      const components = product.bundle_components
-      if (!Array.isArray(components)) continue
-      for (const component of components) {
-        if (!component || typeof component !== 'object') continue
-        const componentProduct = this.contentProducts.find(candidate => candidate.product_id === (component as Record<string, unknown>).product_id)
-        if (componentProduct) (component as Record<string, unknown>).owned = componentProduct.owned === true
-      }
+  private ownershipFor(accountId: string): Map<string, MockContentOwnership> {
+    let ownership = this.contentOwnership.get(accountId)
+    if (!ownership) {
+      ownership = new Map()
+      this.contentOwnership.set(accountId, ownership)
     }
+    return ownership
   }
 
-  private grantContentProducts(productId: string): Record<string, unknown>[] {
+  private ownershipRecord(accountId: string, product: Record<string, unknown>): MockContentOwnership | null {
+    return this.contentOwnership.get(accountId)?.get(String(product.entitlement_family)) || null
+  }
+
+  private isContentProductOwned(accountId: string, product: Record<string, unknown>): boolean {
+    return this.ownershipRecord(accountId, product) !== null
+  }
+
+  private ownedProductsFor(accountId: string): Record<string, unknown>[] {
+    return this.contentProducts.filter(product => this.isContentProductOwned(accountId, product))
+  }
+
+  private productForAccount(accountId: string, product: Record<string, unknown>): Record<string, unknown> {
+    const copy = structuredClone(product)
+    copy.owned = this.isContentProductOwned(accountId, product)
+    if (Array.isArray(copy.bundle_components)) {
+      for (const component of copy.bundle_components) {
+        if (!component || typeof component !== 'object') continue
+        const source = this.contentProducts.find(candidate => candidate.product_id === (component as Record<string, unknown>).product_id)
+        if (source) (component as Record<string, unknown>).owned = this.isContentProductOwned(accountId, source)
+      }
+    }
+    return copy
+  }
+
+  private grantContentProducts(accountId: string, productId: string, purchaseId: string): Record<string, unknown>[] {
     const productIds = [productId, ...(this.contentBundleComponents.get(productId) || [])]
     const products = productIds.map(id => this.contentProducts.find(candidate => candidate.product_id === id))
     if (products.some(product => !product)) throw new Error(`Mock Content Store bundle is not atomically resolvable: ${productId}`)
-    const newGrants = products.filter((product): product is Record<string, unknown> => product?.owned !== true)
+    const ownership = this.ownershipFor(accountId)
+    const newGrants = products.filter((product): product is Record<string, unknown> => (
+      Boolean(product) && !ownership.has(String(product!.entitlement_family))
+    ))
     for (const product of newGrants) {
-      product.owned = true
       const family = String(product.entitlement_family)
+      ownership.set(family, { productId: String(product.product_id), purchaseId, grantedAt: '2026-08-14T09:12:44Z' })
       this.grantedFamilies.push(family)
       this.grantedFamilyCounts.set(family, this.familyGrantCount(family) + 1)
     }
-    this.refreshBundleComponentOwnership()
     return newGrants
   }
 
@@ -606,14 +670,13 @@ export class MockGenStudioService {
 
   private contentAccountBody(request: IncomingMessage): Record<string, unknown> {
     const accountId = this.contentAccountId(request)
-    this.refreshBundleComponentOwnership()
-    const owned = this.contentProducts.filter(product => product.owned === true).map(product => ({
+    const owned = this.ownedProductsFor(accountId).map(product => ({
       entitlement_family: product.entitlement_family,
       product_id: product.product_id,
       title: product.title,
       kind: product.kind,
       granted_at: '2026-08-14T09:12:44Z',
-      purchase_id: null,
+      purchase_id: this.ownershipRecord(accountId, product)?.purchaseId ?? null,
       current_release: product.current_release,
       showcase_videos: product.showcase_videos || [],
     }))
@@ -628,7 +691,7 @@ export class MockGenStudioService {
 
   private contentReceiptsBody(request: IncomingMessage): Record<string, unknown> {
     const accountId = this.contentAccountId(request)
-    const owned = this.contentProducts.filter(product => product.owned === true)
+    const owned = this.ownedProductsFor(accountId)
     const entitlements = owned.map((product, index) => ({
       entitlement_id: `cent_restore_${index + 1}`,
       entitlement_family: product.entitlement_family,
@@ -637,7 +700,7 @@ export class MockGenStudioService {
       kind: product.kind,
       publisher_id: product.publisher_id,
       granted_at: '2026-08-14T09:12:44Z',
-      purchase_id: null,
+      purchase_id: this.ownershipRecord(accountId, product)?.purchaseId ?? `cpur_seed_${index + 1}`,
       retired: product.retired === true,
       current_release: product.current_release,
       download_available: Boolean((product.current_release as Record<string, unknown> | null)?.archive_available),
@@ -677,27 +740,33 @@ export class MockGenStudioService {
         refresh_recommended_after: new Date(now.getTime() + 30 * 24 * 60 * 60_000).toISOString(),
       },
     }
-    const purchaseReceipt = {
-      typ: 'genstudio.content.receipt.v1', key_id: 'mock-content-key', purchase_id: 'cpur_restore_1',
-      account_id: accountId, credits_charged: 300,
-    }
+    const purchaseReceipts = (this.contentPurchaseRecords.get(accountId) || []).map(record => {
+      const receipt = {
+        typ: 'genstudio.content.receipt.v1', key_id: 'mock-content-key', receipt_id: `crc_${record.purchaseId}`,
+        purchase_id: record.purchaseId, account_id: accountId, product_id: record.productId,
+        entitlement_families: record.entitlementFamilies, credits_charged: record.creditsCharged,
+        issued_at: record.issuedAt,
+      }
+      return {
+        purchase_id: record.purchaseId, receipt,
+        receipt_signature: this.tamperContentPurchaseReceipt
+          ? Buffer.alloc(64, 1).toString('base64')
+          : this.signContentPayload(receipt),
+        key_id: 'mock-content-key', credits_charged: record.creditsCharged, created_at: record.issuedAt,
+      }
+    })
     return {
       account_id: accountId,
       content_account_id: accountId,
       restore_receipt: { receipt: restore, receipt_signature: this.signContentPayload(restore), key_id: 'mock-content-key' },
-      purchase_receipts: [{
-        purchase_id: 'cpur_restore_1', receipt: purchaseReceipt,
-        receipt_signature: this.tamperContentPurchaseReceipt
-          ? Buffer.alloc(64, 1).toString('base64')
-          : this.signContentPayload(purchaseReceipt),
-        key_id: 'mock-content-key', credits_charged: 300, created_at: '2026-08-14T09:12:44Z',
-      }],
+      purchase_receipts: purchaseReceipts,
       entitlements,
     }
   }
 
   private contentOwnedReleasesBody(request: IncomingMessage, entitlementFamily: string): Record<string, unknown> {
-    const owned = this.contentProducts.filter(product => product.owned === true)
+    const accountId = this.contentAccountId(request)
+    const owned = this.ownedProductsFor(accountId)
     const index = owned.findIndex(product => product.entitlement_family === entitlementFamily)
     const product = owned[index]
     if (!product) throw Object.assign(new Error('not entitled'), { mockStatus: 404, mockCode: 'not_entitled' })
@@ -709,7 +778,7 @@ export class MockGenStudioService {
       title: product.title,
       kind: product.kind,
       publisher_id: product.publisher_id,
-      granted_at: '2026-08-14T09:12:44Z',
+      granted_at: this.ownershipRecord(accountId, product)?.grantedAt ?? '2026-08-14T09:12:44Z',
       retired: product.retired === true,
       current_release_id: release?.release_id || null,
       releases: release ? [{
@@ -732,7 +801,7 @@ export class MockGenStudioService {
         ? release?.release_id === releaseId
         : entry.entitlement_family === entitlementFamily && release?.version === version
     })
-    if (!product || product.owned !== true) throw Object.assign(new Error('not entitled'), { mockStatus: 404, mockCode: 'not_entitled' })
+    if (!product || !this.isContentProductOwned(this.contentAccountId(request), product)) throw Object.assign(new Error('not entitled'), { mockStatus: 404, mockCode: 'not_entitled' })
     const release = product.current_release as Record<string, unknown>
     if (!release.archive_available || !this.contentArchives.has(String(release.archive_sha256))) {
       throw Object.assign(new Error('archive unavailable'), { mockStatus: 409, mockCode: 'archive_unavailable' })
@@ -807,16 +876,24 @@ export class MockGenStudioService {
     const charged = Number(quote.quoted_credits || 0)
     const balanceBefore = this.contentCredits(accountId)
     if (charged > balanceBefore) throw Object.assign(new Error('insufficient credits'), { mockStatus: 402, mockCode: 'insufficient_credits' })
-    const granted = this.grantContentProducts(String(product.product_id))
+    const granted = this.grantContentProducts(accountId, String(product.product_id), purchaseId)
     const balanceAfter = balanceBefore - charged
     this.contentAccountCredits.set(accountId, balanceAfter)
     this.totalCreditsCharged += charged
     this.contentPurchaseCharges.push(charged)
+    const issuedAt = '2026-08-14T09:12:44Z'
+    const record: MockContentPurchaseRecord = {
+      purchaseId, productId: String(product.product_id), entitlementFamilies: granted.map(entry => String(entry.entitlement_family)),
+      creditsCharged: charged, issuedAt,
+    }
+    const records = this.contentPurchaseRecords.get(accountId) || []
+    records.push(record)
+    this.contentPurchaseRecords.set(accountId, records)
     const receipt = {
       typ: 'genstudio.content.receipt.v1', key_id: 'mock-content-key', receipt_id: `crc_${purchaseId}`,
       purchase_id: purchaseId, account_id: accountId,
       entitlement_families: granted.map(entry => entry.entitlement_family), product, release,
-      credits_charged: charged, issued_at: new Date().toISOString(),
+      credits_charged: charged, issued_at: issuedAt,
     }
     return {
       purchase_id: purchaseId, account_id: accountId, credits_charged: charged,
@@ -826,7 +903,7 @@ export class MockGenStudioService {
       product, release, ledger_event_key: charged ? `content-purchase:${purchaseId}` : null,
       receipt: {
         receipt,
-        receipt_signature: Buffer.alloc(64, 9).toString('base64'),
+        receipt_signature: this.signContentPayload(receipt),
         key_id: 'mock-content-key',
       },
       replayed,
@@ -1088,7 +1165,8 @@ export class MockGenStudioService {
         return
       }
       if (method === 'GET' && url.pathname === '/v1/content/products') {
-        json(response, 200, { products: this.contentProducts })
+        const accountId = this.contentAccountId(request)
+        json(response, 200, { products: this.contentProducts.map(product => this.productForAccount(accountId, product)) })
         return
       }
       if (method === 'GET' && url.pathname === '/v1/content/public-key') {
@@ -1168,7 +1246,8 @@ export class MockGenStudioService {
           json(response, 400, { detail: 'Idempotency-Key is required' })
           return
         }
-        const existing = this.contentPurchases.get(idempotencyKey)
+        const purchaseIdentity = `${this.contentAccountId(request)}:${idempotencyKey}`
+        const existing = this.contentPurchases.get(purchaseIdentity)
         if (existing) {
           json(response, 200, { ...existing, replayed: true })
           return
@@ -1202,7 +1281,7 @@ export class MockGenStudioService {
           const signedReceipt = receiptEnvelope.receipt as Record<string, unknown>
           signedReceipt.credits_charged = creditsCharged
         }
-        this.contentPurchases.set(idempotencyKey, purchase)
+        this.contentPurchases.set(purchaseIdentity, purchase)
         json(response, 200, purchase)
         return
       }

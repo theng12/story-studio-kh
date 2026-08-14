@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { generateKeyPairSync } from 'node:crypto'
 import fs from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, test } from 'node:test'
@@ -9,14 +10,24 @@ import express from 'express'
 import request from 'supertest'
 
 import { createContentPackKeyring } from '../content-packs/keyring.js'
-import { installContentPack, verifyInstalledContentPackClosure } from '../content-packs/installer.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { readContentPackState } from '../content-packs/state.js'
-import { downloadGenStudioContentArchive, issueGenStudioContentDownload, listGenStudioContentProducts } from '../lib/genstudio-content-store.js'
+import { resolveCatalogItem } from '../content-packs/registry.js'
+import { resolveProjectContentPins, setProjectContentPin } from '../content-packs/project-pins.js'
+import {
+  getGenStudioContentReceipts,
+  issueGenStudioContentDownload,
+  listGenStudioContentProducts,
+  listGenStudioOwnedContentReleases,
+} from '../lib/genstudio-content-store.js'
 import { router as contentStoreRouter } from '../routes/content-store.js'
 import { setApiKey } from '../services/app-secrets-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
+import { loadNiche } from '../services/niche-loader.js'
 import * as projectManager from '../services/project-manager.js'
+import { loadTemplate } from '../services/thumbnail-template-loader.js'
+import { loadTopicPack } from '../services/topic-pack-loader.js'
+import { loadVisualStyle } from '../services/visual-style-loader.js'
 import { useTempDataDir } from './_helpers.js'
 import { startMockGenStudioService, type MockGenStudioService } from './fixtures/mock-genstudio-service.js'
 
@@ -24,13 +35,17 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const STARTERS = path.join(ROOT, 'content-packs', 'free-starters')
 const KEY = 'gsk_free_starter_account'
 const ROTATED_KEY = 'gsk_free_starter_account_rotated'
+const OTHER_ACCOUNT_KEY = 'gsk_free_starter_other_account'
 const ACCOUNT = 'acct_free_starter'
 const TEST_KEY_ID = 'com.storystudio.free-starter-test'
 
 let cleanup: (() => Promise<void>) | undefined
 let mock: MockGenStudioService | undefined
+let restorePackagedTrust: (() => void) | undefined
 
 afterEach(async () => {
+  restorePackagedTrust?.()
+  restorePackagedTrust = undefined
   await mock?.close()
   mock = undefined
   await cleanup?.()
@@ -100,13 +115,49 @@ function app(): express.Express {
   return instance
 }
 
+/** Test-only packaged resource seam: delivery keeps its production trust lookup. */
+async function installTestFirstPartyTrust(tempDir: string, publicKeyPem: string): Promise<() => void> {
+  const resourcesPath = path.join(tempDir, 'packaged-resources')
+  const recoveryRoot = path.join(resourcesPath, 'content-packs', 'recovery')
+  await fs.mkdir(recoveryRoot, { recursive: true })
+  await fs.writeFile(path.join(recoveryRoot, 'trust-keys.json'), `${JSON.stringify({
+    schema_version: 1,
+    keys: [{ key_id: TEST_KEY_ID, publisher_id: 'com.storystudio', public_key_pem: publicKeyPem }],
+  })}\n`)
+  const require = createRequire(import.meta.url)
+  const electronPath = require.resolve('electron')
+  const cache = require.cache as Record<string, unknown>
+  const previousElectron = cache[electronPath]
+  const previousResourcesPath = process.resourcesPath
+  const previousRunAsNode = process.env.ELECTRON_RUN_AS_NODE
+  cache[electronPath] = { exports: { app: { isPackaged: true, getVersion: () => '1.0.841' } } }
+  ;(process as { resourcesPath?: string }).resourcesPath = resourcesPath
+  delete process.env.ELECTRON_RUN_AS_NODE
+  return () => {
+    if (previousElectron === undefined) delete cache[electronPath]
+    else cache[electronPath] = previousElectron
+    ;(process as { resourcesPath?: string }).resourcesPath = previousResourcesPath
+    if (previousRunAsNode === undefined) delete process.env.ELECTRON_RUN_AS_NODE
+    else process.env.ELECTRON_RUN_AS_NODE = previousRunAsNode
+  }
+}
+
+async function sourceDocumentId(source: SourcePack): Promise<string> {
+  const content = path.join(source.source, 'content')
+  const files = (await fs.readdir(content)).filter(name => name.endsWith('.json'))
+  assert.equal(files.length, 1, `${source.pack.pack_id} has one catalog document`)
+  return String(JSON.parse(await fs.readFile(path.join(content, files[0]!), 'utf8')).id)
+}
+
 test('free Starter Kits claim, restore, install, and remain usable without a credit balance or network', async () => {
   const temporary = await useTempDataDir()
   cleanup = temporary.cleanup
   mock = await startMockGenStudioService()
   mock.registerContentStoreKey(KEY, ACCOUNT)
   mock.registerContentStoreKey(ROTATED_KEY, ACCOUNT)
+  mock.registerContentStoreKey(OTHER_ACCOUNT_KEY, 'acct_free_starter_other')
   mock.setContentAccountCredits(ACCOUNT, 0)
+  mock.setContentAccountCredits('acct_free_starter_other', 0)
   await setGenStudioUrl(mock.baseUrl)
   await setApiKey('genstudio', KEY)
 
@@ -162,6 +213,24 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
   await setApiKey('genstudio', ROTATED_KEY)
   const restored = await request(local).post('/api/content-store/restore').send({}).expect(200)
   assert.equal(restored.body.account.accountId, ACCOUNT)
+  const restoredReceipts = await getGenStudioContentReceipts(ROTATED_KEY)
+  assert.equal(restoredReceipts.purchaseReceipts.length, 10)
+  assert.deepEqual(restoredReceipts.purchaseReceipts.map(receipt => receipt.creditsCharged), Array(10).fill(0))
+  assert.equal(new Set(restoredReceipts.purchaseReceipts.map(receipt => receipt.purchaseId)).size, 10)
+  assert.deepEqual(
+    restoredReceipts.entitlements.map(entitlement => entitlement.entitlementFamily).sort(),
+    restored.body.account.owned.map((entry: { entitlementFamily: string }) => entry.entitlementFamily).sort(),
+  )
+  await setApiKey('genstudio', OTHER_ACCOUNT_KEY)
+  const otherAccount = await request(local).post('/api/content-store/restore').send({}).expect(200)
+  assert.equal(otherAccount.body.account.owned.length, 0, 'different account cannot inherit Starter ownership')
+  await setApiKey('genstudio', ROTATED_KEY)
+  const restoredAfterOtherAccount = await request(local).post('/api/content-store/restore').send({}).expect(200)
+  assert.deepEqual(
+    restoredAfterOtherAccount.body.account.owned.map((entry: { entitlementFamily: string }) => entry.entitlementFamily).sort(),
+    restoredReceipts.entitlements.map(entitlement => entitlement.entitlementFamily).sort(),
+    'same-account key rotation restores the exact claimed family set',
+  )
 
   const { privateKey, publicKey } = generateKeyPairSync('ed25519')
   const policy = createContentPackKeyring([{
@@ -184,35 +253,78 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
     const product = productsByPackId.get(source.pack.pack_id)!
     mock.setContentArchive(String((product.current_release as Record<string, unknown>).release_id), await fs.readFile(archivePath))
   }
+  const calmFamily = String(productsByPackId.get('com.storystudio.pack.kit.calm-mind')!.entitlement_family)
+  const otherCatalog = await listGenStudioContentProducts(OTHER_ACCOUNT_KEY, '1.0.0')
+  assert.equal(otherCatalog.products.find(product => product.productId === productsByPackId.get('com.storystudio.pack.kit.calm-mind')!.product_id)?.owned, false)
+  await assert.rejects(() => listGenStudioOwnedContentReleases(OTHER_ACCOUNT_KEY, calmFamily), /not entitled/i)
+  await assert.rejects(() => issueGenStudioContentDownload(OTHER_ACCOUNT_KEY, { entitlementFamily: calmFamily, version: '1.0.0' }), /not entitled/i)
 
-  const installed = new Set<string>()
-  async function installExplicit(packId: string): Promise<void> {
-    if (installed.has(packId)) return
-    const product = productsByPackId.get(packId)!
-    const release = product.current_release as Record<string, unknown>
-    const grant = await issueGenStudioContentDownload(ROTATED_KEY, {
-      entitlementFamily: String(product.entitlement_family), version: String(release.version),
-    })
-    const archive = await downloadGenStudioContentArchive(grant.downloadUrl, {
-      archiveSha256: String(release.archive_sha256), archiveBytes: Number(release.archive_bytes),
-    })
-    const source = sources.find(candidate => candidate.pack.pack_id === packId)!
-    for (const dependency of source.pack.dependencies ?? []) await installExplicit(dependency.pack_id)
-    await installContentPack({ archiveBytes: archive, source: 'genstudio-store', expectedPackId: packId, expectedVersion: String(release.version) }, { policy, appVersion: '1.0.0' })
-    installed.add(packId)
+  restorePackagedTrust = await installTestFirstPartyTrust(temporary.dir, publicKey.export({ type: 'spki', format: 'pem' }).toString())
+  const deliveryDownloadCount = mock.contentDownloadPostCount
+  const deliveryRequestStart = mock.requests.length
+  const calmRelease = String((productsByPackId.get('com.storystudio.pack.kit.calm-mind')!.current_release as Record<string, unknown>).release_id)
+  const sleepRelease = String((productsByPackId.get('com.storystudio.pack.kit.sleep-journeys')!.current_release as Record<string, unknown>).release_id)
+  await request(local).post(`/api/content-store/releases/${calmRelease}/install`).send({}).expect(200)
+  await request(local).post(`/api/content-store/releases/${sleepRelease}/install`).send({}).expect(200)
+  const installAgain = await request(local).post(`/api/content-store/releases/${calmRelease}/install`).send({}).expect(200)
+  assert.equal(installAgain.body.install.pack_id, 'com.storystudio.pack.kit.calm-mind')
+  assert.equal(mock.contentDownloadPostCount - deliveryDownloadCount, 9, 'only missing exact kit dependencies download')
+  const deliveryRequests = mock.requests.slice(deliveryRequestStart)
+  const watercolorDownloads = deliveryRequests.filter(row => row.path === '/v1/content/downloads' && row.bodyText.includes('watercolor-storybook'))
+  assert.equal(watercolorDownloads.length, 1, 'shared dependency downloads once')
+  const expectedDownloadedPacks = new Set([...selectedPackIds])
+  const downloadedFamilies = deliveryRequests
+    .filter(row => row.path === '/v1/content/downloads')
+    .map(row => String(JSON.parse(row.bodyText).entitlement_family))
+  assert.equal(downloadedFamilies.length, 9)
+  assert.deepEqual(new Set(downloadedFamilies).size, 9)
+  assert.deepEqual(
+    new Set(downloadedFamilies),
+    new Set([...expectedDownloadedPacks].map(packId => String(productsByPackId.get(packId)!.entitlement_family))),
+  )
+  const releasedFamilies = new Set(deliveryRequests
+    .filter(row => /^\/v1\/content\/entitlements\/[^/]+\/releases$/.test(row.path))
+    .map(row => decodeURIComponent(row.path.split('/')[4]!)))
+  assert.deepEqual(
+    releasedFamilies,
+    new Set([...expectedDownloadedPacks]
+      .filter(packId => productsByPackId.get(packId)!.kind !== 'niche_bundle')
+      .map(packId => String(productsByPackId.get(packId)!.entitlement_family))),
+    'delivery reads the exact owned histories for every installed dependency',
+  )
+  restorePackagedTrust()
+  restorePackagedTrust = undefined
+  const state = await readContentPackState(getContentPackRuntimePaths())
+  assert.equal(state.packs['com.storystudio.pack.kit.calm-mind']?.active_version, '1.0.0')
+  assert.equal(state.packs['com.storystudio.pack.kit.sleep-journeys']?.active_version, '1.0.0')
+
+  const starterProject = await projectManager.createProject({ name: 'Starter closure available offline' })
+  const calmClosure = ['com.storystudio.pack.kit.calm-mind', ...sources.find(source => source.pack.pack_id === 'com.storystudio.pack.kit.calm-mind')!.pack.dependencies.map((row: { pack_id: string }) => row.pack_id)]
+  for (const packId of calmClosure) {
+    const release = productsByPackId.get(packId)!.current_release as Record<string, unknown>
+    await setProjectContentPin(starterProject.slug, {
+      pack_id: String(release.pack_id), version: String(release.version), archive_sha256: String(release.archive_sha256),
+    }, { policy, appVersion: '1.0.0' })
   }
 
-  await installExplicit('com.storystudio.pack.kit.calm-mind')
-  await installExplicit('com.storystudio.pack.kit.sleep-journeys')
-  assert.equal(mock.contentDownloadPostCount, 9, 'only missing exact kit dependencies download')
-  const watercolorDownloads = mock.requests.filter(row => row.path === '/v1/content/downloads' && row.bodyText.includes('watercolor-storybook'))
-  assert.equal(watercolorDownloads.length, 1, 'shared dependency downloads once')
-  const state = await readContentPackState(getContentPackRuntimePaths())
-  await verifyInstalledContentPackClosure(state, 'com.storystudio.pack.kit.calm-mind', '1.0.0', policy)
-  await verifyInstalledContentPackClosure(state, 'com.storystudio.pack.kit.sleep-journeys', '1.0.0', policy)
-
   await mock.close()
-  const offlineState = await readContentPackState(getContentPackRuntimePaths())
-  await verifyInstalledContentPackClosure(offlineState, 'com.storystudio.pack.kit.calm-mind', '1.0.0', policy)
+  mock = undefined
+  const offlineProject = await projectManager.getProject(starterProject.slug)
+  assert.ok(offlineProject)
+  const pins = await resolveProjectContentPins(offlineProject!, { policy, appVersion: '1.0.0' })
+  assert.equal(pins.length, calmClosure.length)
+  const offlineOptions = { policy, appVersion: '1.0.0', pins }
+  const formula = sources.find(source => source.pack.pack_id === 'com.storystudio.pack.formula.guided-mindfulness')!
+  const topic = sources.find(source => source.pack.pack_id === 'com.storystudio.pack.topic.everyday-calm')!
+  const style = sources.find(source => source.pack.pack_id === 'com.storystudio.pack.style.watercolor-storybook')!
+  const recipe = sources.find(source => source.pack.pack_id === 'com.storystudio.pack.thumbnail.centered-hero-headline')!
+  const [formulaId, topicId, styleId, recipeId] = await Promise.all([formula, topic, style, recipe].map(sourceDocumentId))
+  for (const id of [formulaId, topicId, styleId, recipeId]) {
+    assert.equal((await resolveCatalogItem(id, undefined, offlineOptions))?.source, 'signed-installed')
+  }
+  assert.equal((await loadNiche(formulaId, offlineOptions))?.id, formulaId)
+  assert.equal((await loadTopicPack(topicId, offlineOptions))?.id, topicId)
+  assert.equal((await loadVisualStyle(styleId, offlineOptions))?.id, styleId)
+  assert.equal((await loadTemplate(recipeId, offlineOptions))?.id, recipeId)
   assert.deepEqual((await projectManager.getProject(project.slug))?.content_pack_versions, { 'com.storystudio.pack.existing': '4.2.0' })
 })

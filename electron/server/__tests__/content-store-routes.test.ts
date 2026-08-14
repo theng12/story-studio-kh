@@ -8,6 +8,11 @@ import request from 'supertest'
 
 import { readContentStoreCommerceState } from '../content-store/commerce-state.js'
 import { readContentPackState } from '../content-packs/state.js'
+import {
+  getGenStudioContentReceipts,
+  purchaseGenStudioContentProduct,
+  quoteGenStudioContentProduct,
+} from '../lib/genstudio-content-store.js'
 import { router as contentStoreRouter } from '../routes/content-store.js'
 import { setApiKey } from '../services/app-secrets-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
@@ -60,6 +65,9 @@ async function setup(options: { products?: Array<Record<string, unknown>>; key?:
   mock.registerContentStoreKey(KEY_A_ROTATED, 'acct_a')
   mock.registerContentStoreKey(KEY_B, 'acct_b')
   mock.contentProducts = options.products ?? [product()]
+  for (const owned of mock.contentProducts.filter(product => product.owned === true)) {
+    mock.seedContentProductOwnership('acct_a', String(owned.product_id))
+  }
   await setGenStudioUrl(mock.baseUrl)
   await setApiKey('genstudio', options.key ?? KEY_A)
   return { app: app(), tempDir: temp.dir }
@@ -91,11 +99,22 @@ describe('Content Store commerce routes', () => {
     })] })
     mock.setContentArchive('crel_a', archive)
 
+    const otherAccountReceipts = await getGenStudioContentReceipts(KEY_B)
+    assert.equal(otherAccountReceipts.entitlements.length, 0, 'legacy fixture ownership is seeded to acct_a only')
+    const otherAccountQuote = await quoteGenStudioContentProduct(KEY_B, { product_id: 'cprod_a', release_id: null })
+    await purchaseGenStudioContentProduct(KEY_B, {
+      quoteCanonicalJson: otherAccountQuote.signedQuote.canonicalJson,
+      quoteSignature: otherAccountQuote.quoteSignature,
+      idempotencyKey: 'legacy-seed-account-b',
+    })
+    assert.equal((await getGenStudioContentReceipts(KEY_B)).entitlements.length, 1, 'a legacy catalog flag cannot suppress another account grant')
+    const purchasePostsBeforeRestore = mock.contentPurchasePostCount
+
     const restored = await request(localApp).post('/api/content-store/restore').send({}).expect(200)
     assert.equal(restored.body.capabilities.restore, true)
     assert.equal(restored.body.capabilities.receipt_verification, true)
     assert.equal(restored.body.account.owned[0].receiptVerification, 'verified')
-    assert.equal(mock.contentPurchasePostCount, 0)
+    assert.equal(mock.contentPurchasePostCount, purchasePostsBeforeRestore, 'restore sends no purchase for acct_a')
     assert.equal((await readContentStoreCommerceState()).verified_restore?.account_id, 'acct_a')
 
     await setApiKey('genstudio', KEY_A_ROTATED)
