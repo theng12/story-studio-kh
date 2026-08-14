@@ -313,12 +313,18 @@ export class MockGenStudioService {
 
   private readonly keys = new Map<string, Set<MockGenStudioScope>>()
   private readonly contentAccounts = new Map<string, string>()
+  private readonly contentAccountCredits = new Map<string, number>()
+  private readonly contentBundleComponents = new Map<string, string[]>()
   private readonly contentPurchases = new Map<string, Record<string, unknown>>()
   private readonly contentSigningKey = generateKeyPairSync('ed25519')
   private readonly contentArchives = new Map<string, Uint8Array>()
   private readonly queuedContentPurchaseOutcomes: MockContentPurchaseOutcome[] = []
   contentProducts: Array<Record<string, unknown>> = []
   contentPurchasePostCount = 0
+  totalCreditsCharged = 0
+  readonly contentPurchaseCharges: number[] = []
+  readonly grantedFamilies: string[] = []
+  private readonly grantedFamilyCounts = new Map<string, number>()
   contentDownloadPostCount = 0
   contentArchiveGetCount = 0
   contentDownloadRefusal: {
@@ -383,6 +389,12 @@ export class MockGenStudioService {
     this.contentPurchases.clear()
     this.queuedContentPurchaseOutcomes.length = 0
     this.contentPurchasePostCount = 0
+    this.totalCreditsCharged = 0
+    this.contentPurchaseCharges.length = 0
+    this.grantedFamilies.length = 0
+    this.grantedFamilyCounts.clear()
+    this.contentAccountCredits.clear()
+    this.contentBundleComponents.clear()
     this.contentDownloadPostCount = 0
     this.contentArchiveGetCount = 0
     this.contentDownloadRefusal = null
@@ -407,6 +419,28 @@ export class MockGenStudioService {
   ): void {
     this.registerKey(key, scopes)
     this.contentAccounts.set(key, accountId)
+  }
+
+  /** Test-only fixture control; it never reaches a GenStudio request contract. */
+  setContentAccountCredits(accountId: string, credits: number): void {
+    if (!Number.isSafeInteger(credits) || credits < 0) throw new Error('Mock Content Store credits must be a non-negative integer')
+    this.contentAccountCredits.set(accountId, credits)
+  }
+
+  /** Test-only bundle grant fixture: a claim owns its kit and these component products atomically. */
+  configureContentBundle(productId: string, componentProductIds: readonly string[]): void {
+    if (!this.contentProducts.some(product => product.product_id === productId)) throw new Error(`Unknown mock Content Store product: ${productId}`)
+    if (new Set(componentProductIds).size !== componentProductIds.length) throw new Error('Mock Content Store bundle components must be unique')
+    for (const componentProductId of componentProductIds) {
+      if (!this.contentProducts.some(product => product.product_id === componentProductId)) {
+        throw new Error(`Unknown mock Content Store bundle component: ${componentProductId}`)
+      }
+    }
+    this.contentBundleComponents.set(productId, [...componentProductIds])
+  }
+
+  familyGrantCount(entitlementFamily: string): number {
+    return this.grantedFamilyCounts.get(entitlementFamily) || 0
   }
 
   queueContentPurchaseOutcome(outcome: MockContentPurchaseOutcome): void {
@@ -515,6 +549,37 @@ export class MockGenStudioService {
     return this.contentAccounts.get(this.bearerKey(request)) || 'acct_mock'
   }
 
+  private contentCredits(accountId: string): number {
+    return this.contentAccountCredits.get(accountId) ?? 4_000
+  }
+
+  private refreshBundleComponentOwnership(): void {
+    for (const product of this.contentProducts) {
+      const components = product.bundle_components
+      if (!Array.isArray(components)) continue
+      for (const component of components) {
+        if (!component || typeof component !== 'object') continue
+        const componentProduct = this.contentProducts.find(candidate => candidate.product_id === (component as Record<string, unknown>).product_id)
+        if (componentProduct) (component as Record<string, unknown>).owned = componentProduct.owned === true
+      }
+    }
+  }
+
+  private grantContentProducts(productId: string): Record<string, unknown>[] {
+    const productIds = [productId, ...(this.contentBundleComponents.get(productId) || [])]
+    const products = productIds.map(id => this.contentProducts.find(candidate => candidate.product_id === id))
+    if (products.some(product => !product)) throw new Error(`Mock Content Store bundle is not atomically resolvable: ${productId}`)
+    const newGrants = products.filter((product): product is Record<string, unknown> => product?.owned !== true)
+    for (const product of newGrants) {
+      product.owned = true
+      const family = String(product.entitlement_family)
+      this.grantedFamilies.push(family)
+      this.grantedFamilyCounts.set(family, this.familyGrantCount(family) + 1)
+    }
+    this.refreshBundleComponentOwnership()
+    return newGrants
+  }
+
   private canonicalContentJson(value: unknown): string {
     if (value === null || typeof value !== 'object') return JSON.stringify(value)
     if (Array.isArray(value)) return `[${value.map(entry => this.canonicalContentJson(entry)).join(',')}]`
@@ -541,6 +606,7 @@ export class MockGenStudioService {
 
   private contentAccountBody(request: IncomingMessage): Record<string, unknown> {
     const accountId = this.contentAccountId(request)
+    this.refreshBundleComponentOwnership()
     const owned = this.contentProducts.filter(product => product.owned === true).map(product => ({
       entitlement_family: product.entitlement_family,
       product_id: product.product_id,
@@ -554,8 +620,8 @@ export class MockGenStudioService {
     return {
       account_id: accountId,
       content_account_id: accountId,
-      available_credits: 5_000,
-      content_spendable_credits: 4_000,
+      available_credits: this.contentCredits(accountId),
+      content_spendable_credits: this.contentCredits(accountId),
       owned,
     }
   }
@@ -739,16 +805,24 @@ export class MockGenStudioService {
     const accountId = this.contentAccountId(request)
     const purchaseId = `cpur_${String(this.contentPurchases.size + 1)}`
     const charged = Number(quote.quoted_credits || 0)
+    const balanceBefore = this.contentCredits(accountId)
+    if (charged > balanceBefore) throw Object.assign(new Error('insufficient credits'), { mockStatus: 402, mockCode: 'insufficient_credits' })
+    const granted = this.grantContentProducts(String(product.product_id))
+    const balanceAfter = balanceBefore - charged
+    this.contentAccountCredits.set(accountId, balanceAfter)
+    this.totalCreditsCharged += charged
+    this.contentPurchaseCharges.push(charged)
     const receipt = {
       typ: 'genstudio.content.receipt.v1', key_id: 'mock-content-key', receipt_id: `crc_${purchaseId}`,
       purchase_id: purchaseId, account_id: accountId,
-      entitlement_families: [product.entitlement_family], product, release,
+      entitlement_families: granted.map(entry => entry.entitlement_family), product, release,
       credits_charged: charged, issued_at: new Date().toISOString(),
     }
     return {
       purchase_id: purchaseId, account_id: accountId, credits_charged: charged,
-      discount_credits: 0, balance_before: 4_000, balance_after: 4_000 - charged,
-      entitlement_ids: [`cent_${purchaseId}`], entitlement_families: [product.entitlement_family],
+      discount_credits: 0, balance_before: balanceBefore, balance_after: balanceAfter,
+      entitlement_ids: granted.map((_, index) => `cent_${purchaseId}_${index + 1}`),
+      entitlement_families: granted.map(entry => entry.entitlement_family),
       product, release, ledger_event_key: charged ? `content-purchase:${purchaseId}` : null,
       receipt: {
         receipt,

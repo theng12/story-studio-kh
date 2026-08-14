@@ -214,3 +214,23 @@ test('declared preview redirects cannot cross a Style or Recipe provenance ident
     /must retain curiosity-question-cartoon provenance/,
   )
 })
+
+test('free Starter Channel Kit source tree contains the exact 46 independently versioned packs', async () => {
+  const sourceRoots = ['formula', 'topic', 'style', 'thumbnail', 'kit']
+  const packSources = []
+  for (const root of sourceRoots) {
+    const directory = new URL(`../../../content-packs/free-starters/${root}/`, import.meta.url)
+    const entries = await (await import('node:fs/promises')).readdir(directory, { withFileTypes: true })
+    for (const entry of entries.filter(entry => entry.isDirectory())) {
+      const relative = `content-packs/free-starters/${root}/${entry.name}/pack.json`
+      const source = JSON.parse(await readFile(new URL(`../../../${relative}`, import.meta.url), 'utf8'))
+      packSources.push({ relative, source })
+    }
+  }
+  assert.equal(packSources.length, 46)
+  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 46)
+  for (const { relative, source } of packSources) {
+    assert.equal(source.version, '1.0.0', `${relative} must retain its launch version`)
+    assert.match(source.entitlement.family, /^com\.storystudio\.family\./)
+  }
+})
