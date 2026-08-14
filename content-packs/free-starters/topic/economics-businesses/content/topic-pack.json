@@ -1,0 +1,150 @@
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.economics-businesses",
+  "name": "Businesses & Companies",
+  "description": "Owner-operator businesses, capital-heavy companies, venues, and modern commercial systems.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.economics-of"
+  ],
+  "subjects": [
+    "coffee shop",
+    "casino",
+    "automobile workshop",
+    "clothing brand",
+    "Formula One team",
+    "five-star hotel",
+    "automated car wash",
+    "martial arts club",
+    "restaurant",
+    "convenience store",
+    "dental practice",
+    "private school",
+    "funeral home",
+    "gym",
+    "construction company",
+    "laundromat",
+    "supermarket",
+    "movie theater",
+    "airline",
+    "shipping company",
+    "data center",
+    "solar farm",
+    "game studio",
+    "software company",
+    "theme park",
+    "wedding venue",
+    "brewery",
+    "franchise restaurant",
+    "warehouse",
+    "commercial farm",
+    "daycare center",
+    "veterinary clinic",
+    "self-storage facility",
+    "food truck",
+    "bakery",
+    "nightclub",
+    "record label",
+    "animation studio",
+    "private security company",
+    "recycling plant"
+  ],
+  "episode_objects": [
+    "a lease agreement",
+    "a point-of-sale counter",
+    "a payroll roster",
+    "a delivery truck",
+    "a balance sheet",
+    "a piece of specialist equipment"
+  ],
+  "time_place_scopes": [
+    "a launch month",
+    "a busy season",
+    "a slow weekday",
+    "a supply disruption",
+    "a financing renewal",
+    "an expansion decision"
+  ],
+  "mechanisms": [
+    "customer volume",
+    "capacity utilization",
+    "contribution margin",
+    "inventory turnover",
+    "labor scheduling",
+    "pricing power",
+    "cash conversion"
+  ],
+  "evidence_lenses": [
+    "public filings",
+    "industry benchmark",
+    "operator interview",
+    "site observation",
+    "regulatory record"
+  ],
+  "exclusions": [
+    "Do not promise profitability or personal financial outcomes.",
+    "Do not present representative assumptions as universal facts."
+  ],
+  "max_siblings_per_subject": 1,
+  "prompt_context": "Open the books on one real operating model. Establish place, scale, currency, and period; trace the relationship between revenue, costs, capacity, labor, cash flow, risk, and trade-off.",
+  "idea_axes": [
+    {
+      "id": "episode-object",
+      "label": "Episode object",
+      "values": [
+        "a lease agreement",
+        "a point-of-sale counter",
+        "a payroll roster",
+        "a delivery truck",
+        "a balance sheet",
+        "a piece of specialist equipment"
+      ]
+    },
+    {
+      "id": "time-place-scope",
+      "label": "Operating moment",
+      "values": [
+        "a launch month",
+        "a busy season",
+        "a slow weekday",
+        "a supply disruption",
+        "a financing renewal",
+        "an expansion decision"
+      ]
+    },
+    {
+      "id": "mechanism",
+      "label": "Business mechanism",
+      "values": [
+        "customer volume",
+        "capacity utilization",
+        "contribution margin",
+        "inventory turnover",
+        "labor scheduling",
+        "pricing power",
+        "cash conversion"
+      ]
+    },
+    {
+      "id": "evidence-lens",
+      "label": "Evidence lens",
+      "values": [
+        "public filings",
+        "industry benchmark",
+        "operator interview",
+        "site observation",
+        "regulatory record"
+      ]
+    }
+  ],
+  "tags": [
+    "business",
+    "companies",
+    "ownership",
+    "operations"
+  ],
+  "compatibility_rules": [
+    "Use with the Business Economics Formula.",
+    "Keep subject, business mechanism, and selected operating moment materially connected."
+  ]
+}
