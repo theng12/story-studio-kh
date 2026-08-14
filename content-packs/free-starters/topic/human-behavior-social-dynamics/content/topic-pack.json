@@ -24,20 +24,21 @@
     "a repeated request after a clear no",
     "accepting an extra task despite a full calendar",
     "an apology attached to a reasonable refusal",
-    "a social cue",
+    "a reserved head-of-table seat",
     "speaking-time distribution",
-    "a disagreement",
+    "an unsent feedback draft",
     "an issue repeatedly omitted from the agenda",
     "decision-relevant terms omitted from a written offer",
     "a condition changed after agreement",
-    "a repair attempt",
-    "a promise kept across repeated situations",
+    "a shared-expense receipt",
+    "a spare house key lent for a weekend",
     "a group chat",
     "a curated achievement feed",
+    "an ambiguous comparison chart",
     "a public answer given after unanimous peers",
     "an unanswered message",
     "a reunion after a brief separation",
-    "a specific repair attempt",
+    "a jointly revised household agreement",
     "an apology followed by changed behavior"
   ],
   "time_place_scopes": [
@@ -45,18 +46,21 @@
     "a close relationship over several weeks",
     "one team meeting during a deadline week",
     "several low-stakes requests among friends",
-    "a first meeting",
+    "the first meeting of a new team",
     "a small-group meeting",
-    "a recurring workplace interaction",
+    "the days before a performance review",
     "successive workplace meetings",
     "one repeated sales negotiation",
     "three contract revisions with the same counterparty",
-    "several months in a close relationship",
+    "several low-stakes transactions between friends",
+    "one low-stakes favor between neighbors",
     "a public group setting",
     "an evening social-media session",
+    "a small-group estimation task",
     "one small-group decision",
     "a close relationship",
     "repeated caregiver-child interactions",
+    "the follow-up after a recurring disagreement",
     "the weeks after a recurring conflict"
   ],
   "mechanisms": [
@@ -64,20 +68,21 @@
     "contingency learning around compliance",
     "anticipated disapproval after declining",
     "short-term conflict reduction",
-    "status signaling",
+    "spatial status signaling",
     "dominance signaling",
-    "threat appraisal",
+    "anticipated confrontation",
     "short-term anxiety relief",
     "selective disclosure before commitment",
     "post-agreement goalpost shifting",
-    "co-regulation",
-    "reliability learning and prediction updating",
+    "reciprocal risk-taking",
+    "calibrated vulnerability under uncertainty",
+    "status signaling",
     "upward comparison and selective attention",
-    "social learning",
+    "informational social influence",
     "normative social influence",
     "attachment expectation",
     "relationship-expectation updating",
-    "reciprocal acknowledgement",
+    "negotiated expectation reset",
     "accountability and reliability rebuilding"
   ],
   "evidence_lenses": [
@@ -85,18 +90,20 @@
     "behavioral sequence coding",
     "self-report paired with observed workload",
     "coded interaction sequence and participant self-report",
-    "social psychology experiment",
+    "coded seating and deference observation",
     "coded group observation",
-    "behavioral study",
+    "document timeline and participant self-report",
     "longitudinal workplace observation",
     "timestamped document sequence with intent left unassigned",
     "versioned agreement history with intent left unassigned",
-    "longitudinal research",
-    "longitudinal dyadic study",
+    "transaction diary and dyadic survey",
+    "diary-backed dyadic study",
+    "social psychology experiment",
     "experience-sampling study",
     "controlled group experiment",
+    "longitudinal research",
     "longitudinal attachment observation",
-    "longitudinal relationship observation",
+    "coded follow-up conversation",
     "longitudinal couple observation"
   ],
   "exclusions": [
@@ -126,20 +133,21 @@
         "a repeated request after a clear no",
         "accepting an extra task despite a full calendar",
         "an apology attached to a reasonable refusal",
-        "a social cue",
+        "a reserved head-of-table seat",
         "speaking-time distribution",
-        "a disagreement",
+        "an unsent feedback draft",
         "an issue repeatedly omitted from the agenda",
         "decision-relevant terms omitted from a written offer",
         "a condition changed after agreement",
-        "a repair attempt",
-        "a promise kept across repeated situations",
+        "a shared-expense receipt",
+        "a spare house key lent for a weekend",
         "a group chat",
         "a curated achievement feed",
+        "an ambiguous comparison chart",
         "a public answer given after unanimous peers",
         "an unanswered message",
         "a reunion after a brief separation",
-        "a specific repair attempt",
+        "a jointly revised household agreement",
         "an apology followed by changed behavior"
       ]
     },
@@ -151,18 +159,21 @@
         "a close relationship over several weeks",
         "one team meeting during a deadline week",
         "several low-stakes requests among friends",
-        "a first meeting",
+        "the first meeting of a new team",
         "a small-group meeting",
-        "a recurring workplace interaction",
+        "the days before a performance review",
         "successive workplace meetings",
         "one repeated sales negotiation",
         "three contract revisions with the same counterparty",
-        "several months in a close relationship",
+        "several low-stakes transactions between friends",
+        "one low-stakes favor between neighbors",
         "a public group setting",
         "an evening social-media session",
+        "a small-group estimation task",
         "one small-group decision",
         "a close relationship",
         "repeated caregiver-child interactions",
+        "the follow-up after a recurring disagreement",
         "the weeks after a recurring conflict"
       ]
     },
@@ -174,20 +185,21 @@
         "contingency learning around compliance",
         "anticipated disapproval after declining",
         "short-term conflict reduction",
-        "status signaling",
+        "spatial status signaling",
         "dominance signaling",
-        "threat appraisal",
+        "anticipated confrontation",
         "short-term anxiety relief",
         "selective disclosure before commitment",
         "post-agreement goalpost shifting",
-        "co-regulation",
-        "reliability learning and prediction updating",
+        "reciprocal risk-taking",
+        "calibrated vulnerability under uncertainty",
+        "status signaling",
         "upward comparison and selective attention",
-        "social learning",
+        "informational social influence",
         "normative social influence",
         "attachment expectation",
         "relationship-expectation updating",
-        "reciprocal acknowledgement",
+        "negotiated expectation reset",
         "accountability and reliability rebuilding"
       ]
     },
@@ -199,18 +211,20 @@
         "behavioral sequence coding",
         "self-report paired with observed workload",
         "coded interaction sequence and participant self-report",
-        "social psychology experiment",
+        "coded seating and deference observation",
         "coded group observation",
-        "behavioral study",
+        "document timeline and participant self-report",
         "longitudinal workplace observation",
         "timestamped document sequence with intent left unassigned",
         "versioned agreement history with intent left unassigned",
-        "longitudinal research",
-        "longitudinal dyadic study",
+        "transaction diary and dyadic survey",
+        "diary-backed dyadic study",
+        "social psychology experiment",
         "experience-sampling study",
         "controlled group experiment",
+        "longitudinal research",
         "longitudinal attachment observation",
-        "longitudinal relationship observation",
+        "coded follow-up conversation",
         "longitudinal couple observation"
       ]
     }
@@ -263,10 +277,10 @@
       "subject": "status",
       "tuples": [
         {
-          "episode_object": "a social cue",
-          "time_place_scope": "a first meeting",
-          "mechanism": "status signaling",
-          "evidence_lens": "social psychology experiment"
+          "episode_object": "a reserved head-of-table seat",
+          "time_place_scope": "the first meeting of a new team",
+          "mechanism": "spatial status signaling",
+          "evidence_lens": "coded seating and deference observation"
         },
         {
           "episode_object": "speaking-time distribution",
@@ -280,10 +294,10 @@
       "subject": "conflict avoidance",
       "tuples": [
         {
-          "episode_object": "a disagreement",
-          "time_place_scope": "a recurring workplace interaction",
-          "mechanism": "threat appraisal",
-          "evidence_lens": "behavioral study"
+          "episode_object": "an unsent feedback draft",
+          "time_place_scope": "the days before a performance review",
+          "mechanism": "anticipated confrontation",
+          "evidence_lens": "document timeline and participant self-report"
         },
         {
           "episode_object": "an issue repeatedly omitted from the agenda",
@@ -314,16 +328,16 @@
       "subject": "trust",
       "tuples": [
         {
-          "episode_object": "a repair attempt",
-          "time_place_scope": "a difficult conversation",
-          "mechanism": "co-regulation",
-          "evidence_lens": "longitudinal research"
+          "episode_object": "a shared-expense receipt",
+          "time_place_scope": "several low-stakes transactions between friends",
+          "mechanism": "reciprocal risk-taking",
+          "evidence_lens": "transaction diary and dyadic survey"
         },
         {
-          "episode_object": "a promise kept across repeated situations",
-          "time_place_scope": "several months in a close relationship",
-          "mechanism": "reliability learning and prediction updating",
-          "evidence_lens": "longitudinal dyadic study"
+          "episode_object": "a spare house key lent for a weekend",
+          "time_place_scope": "one low-stakes favor between neighbors",
+          "mechanism": "calibrated vulnerability under uncertainty",
+          "evidence_lens": "diary-backed dyadic study"
         }
       ]
     },
@@ -348,10 +362,10 @@
       "subject": "group conformity",
       "tuples": [
         {
-          "episode_object": "a social cue",
-          "time_place_scope": "a recurring workplace interaction",
-          "mechanism": "social learning",
-          "evidence_lens": "behavioral study"
+          "episode_object": "an ambiguous comparison chart",
+          "time_place_scope": "a small-group estimation task",
+          "mechanism": "informational social influence",
+          "evidence_lens": "controlled group experiment"
         },
         {
           "episode_object": "a public answer given after unanimous peers",
@@ -382,10 +396,10 @@
       "subject": "repair after conflict",
       "tuples": [
         {
-          "episode_object": "a specific repair attempt",
-          "time_place_scope": "a difficult conversation",
-          "mechanism": "reciprocal acknowledgement",
-          "evidence_lens": "longitudinal relationship observation"
+          "episode_object": "a jointly revised household agreement",
+          "time_place_scope": "the follow-up after a recurring disagreement",
+          "mechanism": "negotiated expectation reset",
+          "evidence_lens": "coded follow-up conversation"
         },
         {
           "episode_object": "an apology followed by changed behavior",

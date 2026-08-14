@@ -38,13 +38,13 @@
     "the edge of a desk",
     "a chair back",
     "a pebbled neighborhood footpath",
-    "a rustling leaf",
+    "a rough tree-bark patch",
     "a kitchen bowl",
     "a wooden chopping board",
     "a folded towel",
     "a shirt sleeve",
-    "a powered-down screen",
-    "a darkened monitor",
+    "a view through a distant window",
+    "a closed laptop beside a doorway",
     "a doormat beneath both feet",
     "a coat hook",
     "an herb leaf",
@@ -53,7 +53,7 @@
     "a shaded bedside lamp",
     "a dimmer switch",
     "a rain-streaked window",
-    "a raindrop on the pane"
+    "a loose window latch"
   ],
   "time_place_scopes": [
     "early morning",
@@ -67,12 +67,12 @@
     "the minute between meetings",
     "a desk in mid-afternoon",
     "a short outdoor loop",
-    "a neighborhood path",
+    "midway along a neighborhood path",
     "a shared home",
     "an evening kitchen",
     "a laundry table",
-    "the end of a long screen session",
-    "the end of a screen session",
+    "the first minute after a long screen session",
+    "a short walk after finishing screen work",
     "the home doorway after work",
     "the home doorway",
     "a shaded garden",
@@ -81,8 +81,7 @@
     "the minutes before a conversation",
     "the hour before bed",
     "a bedside at night",
-    "a quiet room during an afternoon shower",
-    "a rainy afternoon indoors"
+    "a quiet room during an afternoon shower"
   ],
   "mechanisms": [
     "sensory anchoring",
@@ -98,11 +97,11 @@
     "supported shoulder release",
     "choice-based range of motion",
     "paced five-sense scan",
-    "paced sensory scan",
+    "comparing one tactile detail",
     "sound-and-texture attention",
     "repetitive hand movement",
-    "distance-gaze shifting",
-    "distance refocusing",
+    "near-to-far gaze shifting",
+    "whole-body transition away from the device",
     "deliberate arrival pause",
     "deliberate arrival",
     "scent attention",
@@ -112,7 +111,7 @@
     "single-task closing ritual",
     "gradual light lowering",
     "steady sound-pattern attention",
-    "sound-pattern noticing"
+    "securing a rattling latch"
   ],
   "evidence_lenses": [
     "sensory specificity",
@@ -120,7 +119,8 @@
     "context fit",
     "listener comfort choice",
     "everyday accessibility",
-    "non-medical boundary"
+    "non-medical boundary",
+    "completed small task"
   ],
   "exclusions": [
     "Do not assign clinical labels or promise to resolve a condition.",
@@ -147,13 +147,13 @@
         "the edge of a desk",
         "a chair back",
         "a pebbled neighborhood footpath",
-        "a rustling leaf",
+        "a rough tree-bark patch",
         "a kitchen bowl",
         "a wooden chopping board",
         "a folded towel",
         "a shirt sleeve",
-        "a powered-down screen",
-        "a darkened monitor",
+        "a view through a distant window",
+        "a closed laptop beside a doorway",
         "a doormat beneath both feet",
         "a coat hook",
         "an herb leaf",
@@ -162,7 +162,7 @@
         "a shaded bedside lamp",
         "a dimmer switch",
         "a rain-streaked window",
-        "a raindrop on the pane"
+        "a loose window latch"
       ]
     },
     {
@@ -180,12 +180,12 @@
         "the minute between meetings",
         "a desk in mid-afternoon",
         "a short outdoor loop",
-        "a neighborhood path",
+        "midway along a neighborhood path",
         "a shared home",
         "an evening kitchen",
         "a laundry table",
-        "the end of a long screen session",
-        "the end of a screen session",
+        "the first minute after a long screen session",
+        "a short walk after finishing screen work",
         "the home doorway after work",
         "the home doorway",
         "a shaded garden",
@@ -194,8 +194,7 @@
         "the minutes before a conversation",
         "the hour before bed",
         "a bedside at night",
-        "a quiet room during an afternoon shower",
-        "a rainy afternoon indoors"
+        "a quiet room during an afternoon shower"
       ]
     },
     {
@@ -215,11 +214,11 @@
         "supported shoulder release",
         "choice-based range of motion",
         "paced five-sense scan",
-        "paced sensory scan",
+        "comparing one tactile detail",
         "sound-and-texture attention",
         "repetitive hand movement",
-        "distance-gaze shifting",
-        "distance refocusing",
+        "near-to-far gaze shifting",
+        "whole-body transition away from the device",
         "deliberate arrival pause",
         "deliberate arrival",
         "scent attention",
@@ -229,7 +228,7 @@
         "single-task closing ritual",
         "gradual light lowering",
         "steady sound-pattern attention",
-        "sound-pattern noticing"
+        "securing a rattling latch"
       ]
     },
     {
@@ -241,7 +240,8 @@
         "context fit",
         "listener comfort choice",
         "everyday accessibility",
-        "non-medical boundary"
+        "non-medical boundary",
+        "completed small task"
       ]
     }
   ],
@@ -368,9 +368,9 @@
           "evidence_lens": "sensory specificity"
         },
         {
-          "episode_object": "a rustling leaf",
-          "time_place_scope": "a neighborhood path",
-          "mechanism": "paced sensory scan",
+          "episode_object": "a rough tree-bark patch",
+          "time_place_scope": "midway along a neighborhood path",
+          "mechanism": "comparing one tactile detail",
           "evidence_lens": "sensory specificity"
         }
       ]
@@ -413,16 +413,16 @@
       "subject": "after-screen pause",
       "tuples": [
         {
-          "episode_object": "a powered-down screen",
-          "time_place_scope": "the end of a long screen session",
-          "mechanism": "distance-gaze shifting",
+          "episode_object": "a view through a distant window",
+          "time_place_scope": "the first minute after a long screen session",
+          "mechanism": "near-to-far gaze shifting",
           "evidence_lens": "listener comfort choice"
         },
         {
-          "episode_object": "a darkened monitor",
-          "time_place_scope": "the end of a screen session",
-          "mechanism": "distance refocusing",
-          "evidence_lens": "listener comfort choice"
+          "episode_object": "a closed laptop beside a doorway",
+          "time_place_scope": "a short walk after finishing screen work",
+          "mechanism": "whole-body transition away from the device",
+          "evidence_lens": "everyday accessibility"
         }
       ]
     },
@@ -504,10 +504,10 @@
           "evidence_lens": "sensory specificity"
         },
         {
-          "episode_object": "a raindrop on the pane",
-          "time_place_scope": "a rainy afternoon indoors",
-          "mechanism": "sound-pattern noticing",
-          "evidence_lens": "sensory specificity"
+          "episode_object": "a loose window latch",
+          "time_place_scope": "a quiet room during an afternoon shower",
+          "mechanism": "securing a rattling latch",
+          "evidence_lens": "completed small task"
         }
       ]
     }

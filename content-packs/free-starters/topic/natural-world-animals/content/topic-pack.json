@@ -28,7 +28,7 @@
     "a sun-warmed basking rock",
     "a tail-shedding injury scar",
     "an egg mass at a pond edge",
-    "an egg mass in a temporary pond",
+    "an adult frog skin surface",
     "a parrotfish pharyngeal jaw",
     "a cleaner-wrasse station",
     "a chromatophore-rich mantle",
@@ -50,7 +50,7 @@
     "a cool desert morning",
     "a predator encounter at a desert waterhole",
     "the first rains in a woodland pond",
-    "the first rains of breeding season",
+    "a dry interval between pond visits",
     "a coral-reef grazing patch",
     "a reef cleaning territory",
     "a rocky reef during a predator approach",
@@ -72,7 +72,7 @@
     "behavioral thermoregulation",
     "defensive autotomy",
     "moisture-dependent breeding",
-    "developmental timing",
+    "cutaneous water exchange",
     "algal grazing and bioerosion",
     "mutualistic parasite removal",
     "dynamic camouflage",
@@ -94,7 +94,7 @@
     "thermal-camera observation",
     "mark-recapture field study",
     "egg and larval survey",
-    "larval survival survey",
+    "physiological measurement",
     "bite-scar and gut-content survey",
     "field manipulation",
     "high-speed behavior recording",
@@ -104,7 +104,6 @@
     "ROV observation and stomach-content analysis",
     "tissue-isotope and microbiome analysis",
     "thermal-imaging study",
-    "physiological measurement",
     "controlled orientation experiment",
     "satellite tracking and body-mass sampling"
   ],
@@ -140,7 +139,7 @@
         "a sun-warmed basking rock",
         "a tail-shedding injury scar",
         "an egg mass at a pond edge",
-        "an egg mass in a temporary pond",
+        "an adult frog skin surface",
         "a parrotfish pharyngeal jaw",
         "a cleaner-wrasse station",
         "a chromatophore-rich mantle",
@@ -166,7 +165,7 @@
         "a cool desert morning",
         "a predator encounter at a desert waterhole",
         "the first rains in a woodland pond",
-        "the first rains of breeding season",
+        "a dry interval between pond visits",
         "a coral-reef grazing patch",
         "a reef cleaning territory",
         "a rocky reef during a predator approach",
@@ -192,7 +191,7 @@
         "behavioral thermoregulation",
         "defensive autotomy",
         "moisture-dependent breeding",
-        "developmental timing",
+        "cutaneous water exchange",
         "algal grazing and bioerosion",
         "mutualistic parasite removal",
         "dynamic camouflage",
@@ -218,7 +217,7 @@
         "thermal-camera observation",
         "mark-recapture field study",
         "egg and larval survey",
-        "larval survival survey",
+        "physiological measurement",
         "bite-scar and gut-content survey",
         "field manipulation",
         "high-speed behavior recording",
@@ -228,7 +227,6 @@
         "ROV observation and stomach-content analysis",
         "tissue-isotope and microbiome analysis",
         "thermal-imaging study",
-        "physiological measurement",
         "controlled orientation experiment",
         "satellite tracking and body-mass sampling"
       ]
@@ -305,10 +303,10 @@
           "evidence_lens": "egg and larval survey"
         },
         {
-          "episode_object": "an egg mass in a temporary pond",
-          "time_place_scope": "the first rains of breeding season",
-          "mechanism": "developmental timing",
-          "evidence_lens": "larval survival survey"
+          "episode_object": "an adult frog skin surface",
+          "time_place_scope": "a dry interval between pond visits",
+          "mechanism": "cutaneous water exchange",
+          "evidence_lens": "physiological measurement"
         }
       ]
     },
