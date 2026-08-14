@@ -111,6 +111,9 @@ router.post('/projects/:slug/style-preview', validateBody(StylePreviewSchema), a
       detail: `${selectedModel.display_name} is currently unavailable in GenStudio.`,
     })
   }
+  if (selectedModel.locked) {
+    return res.status(409).json({ detail: `${selectedModel.display_name} is locked for this GenStudio account.` })
+  }
   if (selectedModel.aspect_ratios.length && !selectedModel.aspect_ratios.includes(aspectRatio)) {
     return res.status(400).json({
       detail: `${selectedModel.display_name} does not support ${aspectRatio}. Choose ${selectedModel.aspect_ratios.join(', ')}.`,

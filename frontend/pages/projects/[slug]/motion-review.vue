@@ -187,6 +187,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { selectLiveImageToVideoModel } from '~/utils/genstudio-video-model-selection'
+import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Motion Review')
@@ -327,12 +328,12 @@ const i2vModels = computed(() => {
           : 'GenStudio publishes no priced length or resolution for this model, so Story Studio '
             + 'cannot generate a clip with it.')
           + (generatesAudio ? ` ${GENERATED_AUDIO_DISCLOSURE}` : ''),
-        disabled: !model.available || !variant,
-        disabledReason: !model.available
+        disabled: !model.available || model.locked === true || !variant,
+        disabledReason: genStudioModelLockReason(model) || (!model.available
           ? 'This video model is not currently available.'
           : !variant
             ? 'GenStudio publishes no priced length or resolution for this model.'
-            : undefined,
+            : undefined),
         badges: generatesAudio ? [{ label: 'Generates audio', tone: 'warning' as const }] : [],
         costTier: model.cost_tier,
       }

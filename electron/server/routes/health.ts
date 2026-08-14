@@ -115,6 +115,8 @@ router.get('/models', async (_req, res) => {
       provider: 'genstudio',
       provider_name: model.provider_name || null,
       cost_tier: model.cost_tier,
+      locked: model.locked,
+      lock_reason: model.lock_reason,
       available: model.available,
       disabled_reason: model.available
         ? null

@@ -20,6 +20,11 @@ const tieredWithoutEconomy = [
   { id: 'premium-model', available: true, cost_tier: 'premium' as const },
 ]
 
+const lockedModels = [
+  { id: 'locked-economy', available: true, cost_tier: 'economy' as const, locked: true, lock_reason: 'requires_paid_account' },
+  { id: 'open-economy', available: true, cost_tier: 'economy' as const },
+]
+
 test('a named saved product is never silently replaced', () => {
   assert.equal(selectLiveGenStudioModel('gpt-4o', models), null)
   assert.equal(selectLiveGenStudioModel('writer-retired', models), null)
@@ -40,6 +45,11 @@ test('a fully tiered empty selector chooses only an available Economy model', ()
 
 test('an untiered legacy catalog keeps its existing first-usable default', () => {
   assert.equal(selectLiveGenStudioModel('', models)?.id, 'writer-fast')
+})
+
+test('account-locked teaser models stay visible but are never selectable or chosen by default', () => {
+  assert.equal(selectLiveGenStudioModel('locked-economy', lockedModels), null)
+  assert.equal(selectLiveGenStudioModel('', lockedModels)?.id, 'open-economy')
 })
 
 test('no catalog model means no selection rather than reviving a retired id', () => {

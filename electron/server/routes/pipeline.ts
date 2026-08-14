@@ -879,6 +879,7 @@ async function resolvePipelineTranscriptionParams(
   const selected = models.find(model => model.id === modelId)
   if (!selected) throw new Error('The selected transcription model is no longer available.')
   if (!selected.available) throw new Error('The selected transcription model is temporarily unavailable.')
+  if (selected.locked) throw new Error('The selected transcription model is locked for this GenStudio account.')
   const language = resolveTranscriptionLanguage(selected, params.language)
   return { model: selected.id, ...(language ? { language } : {}) }
 }

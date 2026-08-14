@@ -253,7 +253,7 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
   try {
     const catalog = await listGenStudioVideoModels(apiKey)
     const entry = catalog.find(item => item.id === modelId)
-    if (!entry?.available || !entry.modes.includes('image-to-video')) {
+    if (!entry?.available || entry.locked === true || !entry.modes.includes('image-to-video')) {
       return res.status(409).json({
         detail: `Saved video model "${selectedModelId}" is not currently available in the GenStudio catalog. Select an available image-to-video model.`,
       })

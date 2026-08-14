@@ -22,6 +22,8 @@ export interface GenStudioChatModelInfo {
   output_credits_per_million_tokens?: number
   minimum_credits?: number
   price_version?: string
+  locked?: boolean
+  lock_reason?: string
 }
 
 const cache = createGenStudioCatalogCache<GenStudioChatModelInfo[]>({

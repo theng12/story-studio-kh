@@ -18,6 +18,7 @@ import {
   recordPurchaseUncertain,
   recoverInterruptedContentPurchases,
   saveQuotedAttempt,
+  recordVerifiedContentRestore,
 } from '../content-store/commerce-state.js'
 import type { CachedContentRefusal } from '../content-store/types.js'
 import { parseContentStorePurchase, parseContentStoreQuote } from '../lib/genstudio-content-store.js'
@@ -144,6 +145,24 @@ const refusals: CachedContentRefusal[] = [
 ]
 
 describe('Content Store commerce state', () => {
+  test('persists only already-verified restore evidence and never a bearer grant', async () => {
+    await isolate()
+    await recordVerifiedContentRestore({
+      account_id: 'acct_a',
+      content_account_id: 'content-acct_a',
+      genstudio_origin: 'https://api.genstudio.example',
+      key_id: 'content-key-1',
+      public_key_base64: Buffer.alloc(32, 4).toString('base64'),
+      receipt_canonical_json: '{"account_id":"acct_a","typ":"genstudio.content.restore.v1"}',
+      receipt_signature: SIGNATURE,
+      verified_at: new Date().toISOString(),
+    })
+    const state = await readContentStoreCommerceState()
+    assert.equal(state.verified_restore?.account_id, 'acct_a')
+    assert.equal(state.verified_restore?.key_id, 'content-key-1')
+    assert.doesNotMatch(JSON.stringify(state), /download_url|grant_signature|gsk_/i)
+  })
+
   test('persists one 0600 journal with a durable bounded idempotency key', async () => {
     const { paths } = await isolate()
     const saved = await saveQuotedAttempt(quote())

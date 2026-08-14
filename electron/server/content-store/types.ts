@@ -85,6 +85,19 @@ export const CachedContentPurchaseSchema = z.object({
 
 export type CachedContentPurchase = z.infer<typeof CachedContentPurchaseSchema>
 
+export const CachedVerifiedContentRestoreSchema = z.object({
+  account_id: OpaqueIdSchema,
+  content_account_id: OpaqueIdSchema,
+  genstudio_origin: z.string().url().max(2048),
+  key_id: OpaqueIdSchema,
+  public_key_base64: boundedUtf8(512, 'Content Store public key', 1),
+  receipt_canonical_json: CanonicalJsonSchema,
+  receipt_signature: SignatureSchema,
+  verified_at: IsoDateTimeSchema,
+}).strict()
+
+export type CachedVerifiedContentRestore = z.infer<typeof CachedVerifiedContentRestoreSchema>
+
 export const ContentPurchaseAttemptStatusSchema = z.enum([
   'quoted', 'submitting', 'uncertain', 'refused', 'completed',
 ])
@@ -149,6 +162,7 @@ export type CachedContentQuote = z.infer<typeof CachedContentQuoteSchema>
 export const ContentStoreCommerceStateSchema = z.object({
   schema_version: z.literal(1),
   attempts: z.record(CachedContentQuoteSchema).refine(value => Object.keys(value).length <= 200, 'commerce state exceeds 200 quote records'),
+  verified_restore: CachedVerifiedContentRestoreSchema.optional(),
 }).strict().superRefine((value, context) => {
   for (const [key, attempt] of Object.entries(value.attempts)) {
     if (key !== attempt.quote_id) {

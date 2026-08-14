@@ -42,7 +42,7 @@
     </p>
 
     <div class="product-action">
-      <p v-if="product.owned">Permanent ownership belongs to this GenStudio account.</p>
+      <p v-if="product.owned">{{ ownedStatus }}</p>
       <p v-else-if="product.retired">This product is no longer available for new ownership.</p>
       <p v-else-if="product.compatible">GenStudio supplies the exact quote before any purchase.</p>
       <button
@@ -54,16 +54,27 @@
       >
         {{ busy ? 'Requesting quote…' : product.free ? 'Get permanently' : 'See exact quote' }}
       </button>
+      <button
+        v-else-if="product.owned && ownership?.downloadAvailable && ownership.installState !== 'installed_current' && product.currentRelease"
+        type="button"
+        class="btn btn-primary"
+        :disabled="!!busy"
+        :aria-busy="busy ? 'true' : undefined"
+        @click="$emit('install', product.currentRelease.releaseId)"
+      >
+        {{ busy ? 'Installing…' : ownership.installState === 'update_available' ? 'Install update' : 'Install on this Mac' }}
+      </button>
     </div>
   </article>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { ContentStoreProduct } from '~/composables/useContentStore'
+import type { ContentStoreAccount, ContentStoreProduct } from '~/composables/useContentStore'
 
-const props = defineProps<{ product: ContentStoreProduct; busy?: boolean }>()
-defineEmits<{ quote: [product: ContentStoreProduct] }>()
+type OwnedContent = ContentStoreAccount['owned'][number]
+const props = defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean }>()
+defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
 
 const kindLabel = computed(() => ({
   series_formula: 'Series Formula',
@@ -72,6 +83,18 @@ const kindLabel = computed(() => ({
   thumbnail_recipe: 'Thumbnail Recipe',
   niche_bundle: 'Niche Bundle',
 })[props.product.kind])
+
+const ownedStatus = computed(() => {
+  if (!props.ownership) return 'Owned in GenStudio.'
+  if (props.ownership.receiptVerification !== 'verified') {
+    return 'Owned in GenStudio · restore purchases to verify on this Mac.'
+  }
+  if (props.ownership.installState === 'installed_current') return 'Verified ownership · installed on this Mac.'
+  if (props.ownership.installState === 'update_available') return `Installed ${props.ownership.installedVersion || 'version'} · newer owned release available.`
+  if (props.ownership.installState === 'installed_other_version') return `Verified ownership · ${props.ownership.installedVersion || 'another version'} is active.`
+  if (!props.ownership.downloadAvailable) return 'Verified ownership · no downloadable release is available right now.'
+  return 'Verified ownership · ready to install on this Mac.'
+})
 
 function formatCredits(value: number): string {
   return value.toLocaleString()

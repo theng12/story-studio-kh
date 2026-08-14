@@ -413,6 +413,7 @@
 import type { GenStudioTtsModel, GenStudioVoice, GenStudioNarrationQuote } from '~/composables/useGenStudioVoices'
 import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
+import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
 import {
   defaultTtsControlValues,
@@ -454,11 +455,12 @@ const audioModelOptions = computed(() => ttsModels.value.map((model) => {
       `Up to ${model.maximum_input_characters.toLocaleString()} characters per request`,
     ].join(' · '),
     description: model.description,
-    disabled: !model.generation_enabled,
-    disabledReason: model.generation_enabled ? '' : 'GenStudio has generation turned off for this model.',
+    disabled: !model.generation_enabled || model.locked === true,
+    disabledReason: genStudioModelLockReason(model) || (model.generation_enabled ? '' : 'GenStudio has generation turned off for this model.'),
     badges: [
       ...(model.supports_voice_cloning ? [{ label: 'Voice cloning', tone: 'info' as const }] : []),
-      ...(model.generation_enabled ? [] : [{ label: 'Unavailable', tone: 'paid' as const }]),
+      ...(model.locked ? [{ label: 'Locked', tone: 'warning' as const }] : []),
+      ...(!model.generation_enabled ? [{ label: 'Unavailable', tone: 'paid' as const }] : []),
     ],
     costTier: model.cost_tier,
   }

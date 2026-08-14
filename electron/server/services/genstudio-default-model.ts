@@ -90,8 +90,17 @@ export async function resolveDefaultChatModel(
     if (match) return { modelId: match.id, healed: false, requestedModelId }
   }
 
-  const fallback = usable[0]
+  const fullyTiered = usable.length > 0 && usable.every(model => model.cost_tier !== undefined)
+  const fallback = fullyTiered
+    ? usable.find(model => model.cost_tier === 'economy')
+    : usable[0]
   if (!fallback) {
+    if (fullyTiered) {
+      throw new Error(
+        'No published Economy GenStudio language model is currently available. ' +
+        'Choose an Economy model explicitly after GenStudio publishes one; Story Studio will not substitute Balanced or Premium automatically.',
+      )
+    }
     throw new Error(
       'No published GenStudio language model is currently available. ' +
       'Open GenStudio KH, publish/enable a chat model, then try again.',

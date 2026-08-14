@@ -326,6 +326,7 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
       const headers = new Headers(init?.headers)
       assert.equal(headers.has('Authorization'), false)
       assert.equal(headers.has('X-Api-Key'), false)
+      assert.equal(init?.redirect, 'error')
       return new Response(archive, { status: 200, headers: { 'Content-Length': String(archive.byteLength) } })
     }
     const bytes = await downloadGenStudioContentArchive(
@@ -333,6 +334,15 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
       { archiveSha256: digest, archiveBytes: archive.byteLength },
     )
     assert.deepEqual(Buffer.from(bytes), archive)
+  })
+
+  test('rejects non-HTTP and embedded-credential archive URLs before fetch', async () => {
+    let fetchCalls = 0
+    globalThis.fetch = async () => { fetchCalls += 1; throw new Error('must not fetch') }
+    const expected = { archiveSha256: HASH, archiveBytes: 18 }
+    await assert.rejects(downloadGenStudioContentArchive('file:///tmp/archive.sspack', expected), /HTTP|URL/i)
+    await assert.rejects(downloadGenStudioContentArchive('https://user:secret@example.test/archive', expected), /credential|URL/i)
+    assert.equal(fetchCalls, 0)
   })
 
   test('rejects hash, size, and 50 MiB limit violations without retaining bad bytes', async () => {

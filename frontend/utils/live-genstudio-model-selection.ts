@@ -10,6 +10,8 @@ import { isCompleteTierCatalog, type GenStudioCostTier } from './genstudio-cost-
 export interface LiveGenStudioModel {
   id: string
   available: boolean
+  locked?: boolean
+  lock_reason?: string | null
   disabled_reason?: string | null
   supports_vision?: boolean
   legacy_ids?: readonly string[]
@@ -21,8 +23,16 @@ export function isUsableLiveGenStudioModel(
   requireVision = false,
 ): boolean {
   return model.available
+    && model.locked !== true
     && !model.disabled_reason
     && (!requireVision || model.supports_vision === true)
+}
+
+export function genStudioModelLockReason(model: Pick<LiveGenStudioModel, 'locked' | 'lock_reason'>): string {
+  if (model.locked !== true) return ''
+  return model.lock_reason === 'requires_paid_account'
+    ? 'Requires a paid GenStudio account.'
+    : 'Locked for this GenStudio account.'
 }
 
 /**

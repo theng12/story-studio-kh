@@ -1,6 +1,6 @@
 import { useApi } from './useApi.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
-import { selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
+import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 
 export interface GenStudioTranscriptionModel {
@@ -37,6 +37,8 @@ export interface GenStudioTranscriptionModel {
   price_version?: string
   legacy_ids?: string[]
   cost_tier?: GenStudioCostTier
+  locked?: boolean
+  lock_reason?: string
 }
 
 /**
@@ -88,7 +90,7 @@ export function useGenStudioTranscriptionModels() {
   const selectedModel = computed(() =>
     models.value.find(model => model.id === modelId.value),
   )
-  const ready = computed(() => selectedModel.value?.available === true)
+  const ready = computed(() => selectedModel.value?.available === true && selectedModel.value?.locked !== true)
   const options = computed(() => models.value.map((model) => {
     return {
       id: model.id,
@@ -106,8 +108,8 @@ export function useGenStudioTranscriptionModels() {
       description: model.qualification_only
         ? 'Available for qualified accounts.'
         : 'Available for transcription.',
-      disabled: !model.available,
-      disabledReason: model.available ? undefined : 'This transcription model is temporarily unavailable.',
+      disabled: !model.available || model.locked === true,
+      disabledReason: genStudioModelLockReason(model) || (model.available ? undefined : 'This transcription model is temporarily unavailable.'),
       badges: [
         ...(!model.available ? [{ label: 'unavailable', tone: 'warning' as const }] : []),
         ...(model.qualification_only

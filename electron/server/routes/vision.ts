@@ -23,7 +23,7 @@ export const router = Router()
 
 type Detail = 'low' | 'high' | 'auto'
 function eligibleThumbnailVisionModel(model: GenStudioChatModel): boolean {
-  return model.available && model.supports_vision && model.max_input_images >= 1 && model.supports_structured_output
+  return model.available && model.locked !== true && model.supports_vision && model.max_input_images >= 1 && model.supports_structured_output
     && model.supported_detail_levels.some(level => level === 'high' || level === 'auto' || level === 'low')
 }
 function safeDetail(model: GenStudioChatModel): Detail {

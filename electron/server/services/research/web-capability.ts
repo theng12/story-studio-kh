@@ -65,6 +65,7 @@ export const WEB_RESEARCH_CONDITIONS: ReadonlyArray<{
   readonly test: (model: GenStudioChatModel) => boolean
 }> = [
   { id: 'available', label: 'published and available', test: m => m.available === true },
+  { id: 'account_unlocked', label: 'unlocked for this account', test: m => m.locked !== true },
   {
     id: 'qualification_only',
     label: 'released to customers (not qualification-only)',

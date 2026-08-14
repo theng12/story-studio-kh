@@ -30,7 +30,7 @@
 </template>
 
 <script setup lang="ts">
-import { selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
+import { genStudioModelLockReason, selectLiveGenStudioModel } from '../utils/live-genstudio-model-selection.js'
 import { CREDIT_BASIS_LABEL, describeImageModelRate, describeImageUnitCost } from '../utils/genstudio-credit-cost.js'
 import { defaultOutputOption } from '../utils/genstudio-output-options.js'
 
@@ -62,10 +62,10 @@ const options = computed(() => {
       provider: model.provider_name || '',
       price: rate.text,
       priceTitle: rate.title,
-      disabled: !model.available,
-      disabledReason: !model.available
+      disabled: !model.available || model.locked === true,
+      disabledReason: genStudioModelLockReason(model) || (!model.available
         ? 'This model is currently unavailable in GenStudio.'
-        : '',
+        : ''),
       badges: [],
       costTier: model.cost_tier,
     }

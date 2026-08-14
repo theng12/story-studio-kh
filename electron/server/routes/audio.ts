@@ -63,6 +63,9 @@ router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema),
     if (!ttsModel.generation_enabled) {
       return res.status(409).json({ detail: `GenStudio KH has generation turned off for ${ttsModel.display_name}. Choose another voice model.` })
     }
+    if (ttsModel.locked) {
+      return res.status(409).json({ detail: `${ttsModel.display_name} is locked for this GenStudio account. Choose an unlocked voice model.` })
+    }
     const voices = await listGenStudioVoices(apiKey, { modelId: migratedModel })
     const selectedVoice = voices.find(voice => voice.id === req.body.voice && voice.generation_enabled !== false)
     if (!selectedVoice || !catalogHasVoice(voices, req.body.voice)) {
@@ -186,6 +189,9 @@ router.post('/projects/:slug/episodes/:code/tts-quote', async (req, res) => {
     const ttsModel = (await listGenStudioTtsModels(apiKey)).find(model => model.id === modelId)
     if (!ttsModel) {
       return res.status(409).json({ detail: `The selected voice model "${modelId}" is not currently in your GenStudio KH catalogue.` })
+    }
+    if (!ttsModel.generation_enabled || ttsModel.locked) {
+      return res.status(409).json({ detail: `${ttsModel.display_name} is not available for generation on this GenStudio account.` })
     }
     const voices = await listGenStudioVoices(apiKey, { modelId })
     const voice = voices.find(candidate => candidate.id === voiceId)

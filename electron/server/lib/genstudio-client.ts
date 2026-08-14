@@ -661,7 +661,27 @@ function parseGenStudioCostTier(value: unknown): GenStudioCostTier | undefined {
     : undefined
 }
 
-export interface GenStudioTranscriptionModel {
+export interface GenStudioCatalogLock {
+  /** A visible teaser that this account may not submit. Absent on older catalogs. */
+  locked?: boolean
+  /** GenStudio's machine-readable explanation, only meaningful when locked. */
+  lock_reason?: string
+}
+
+function parseGenStudioCatalogLock(value: unknown): GenStudioCatalogLock {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const row = value as Record<string, unknown>
+  if (typeof row.locked !== 'boolean') return {}
+  const lockReason = row.locked && typeof row.lock_reason === 'string' && row.lock_reason.trim()
+    ? row.lock_reason.trim()
+    : undefined
+  return {
+    locked: row.locked,
+    ...(lockReason ? { lock_reason: lockReason } : {}),
+  }
+}
+
+export interface GenStudioTranscriptionModel extends GenStudioCatalogLock {
   id: string
   display_name: string
   provider: string
@@ -734,7 +754,7 @@ export interface GenStudioImageOutputOption {
  * Nothing that GenStudio does not publish appears on this interface, so a
  * capability cannot be invented on the way through the transport.
  */
-export interface GenStudioImageModel {
+export interface GenStudioImageModel extends GenStudioCatalogLock {
   id: string
   display_name: string
   /** Published model creator/provider label. Absent until GenStudio supplies it. */
@@ -916,7 +936,7 @@ export interface GenStudioVoice {
 }
 
 /** `TTSModelResponse` — the selection and pricing axis for speech. */
-export interface GenStudioTtsModel {
+export interface GenStudioTtsModel extends GenStudioCatalogLock {
   id: string
   display_name: string
   provider_id: string
@@ -946,7 +966,7 @@ export interface GenStudioTtsModel {
 }
 
 /** `GET /v1/music/models` — an account-visible music product published by GenStudio. */
-export interface GenStudioMusicModel {
+export interface GenStudioMusicModel extends GenStudioCatalogLock {
   id: string
   display_name: string
   /** Display only; absent means GenStudio published no provider. */
@@ -1061,7 +1081,7 @@ export interface GenStudioModelCapability {
   controls: Record<string, unknown>
 }
 
-export interface GenStudioChatModel {
+export interface GenStudioChatModel extends GenStudioCatalogLock {
   id: string
   display_name: string
   /** Published model creator/provider label. Absent until GenStudio supplies it. */
@@ -1167,7 +1187,7 @@ export interface GenStudioVideoVariant {
   price_version: string
 }
 
-export interface GenStudioVideoModel {
+export interface GenStudioVideoModel extends GenStudioCatalogLock {
   id: string
   display_name: string
   description?: string
@@ -1398,16 +1418,24 @@ function parseServiceTierStanding(value: unknown): GenStudioServiceTierStanding 
   const standing = objectRecord(value)
   const current = parseServiceTier(standing?.current)
   const ladder = parseServiceTier(standing?.ladder)
+  const floorPublished = !!standing && Object.hasOwn(standing, 'floor')
+  const floor = !floorPublished
+    ? undefined
+    : standing!.floor === null
+      ? null
+      : parseServiceTier(standing!.floor)
+  const floorValid = !floorPublished || floor === null || floor !== undefined
   const lifetime_paid_cents = nonNegativeInteger(standing?.lifetime_paid_cents)
   const next_tier = standing?.next_tier === null ? null : parseServiceTier(standing?.next_tier)
   const cents_to_next_tier = standing?.cents_to_next_tier === null
     ? null
     : nonNegativeInteger(standing?.cents_to_next_tier)
-  return current && ladder && typeof standing?.overridden === 'boolean'
+  return current && ladder && floorValid && typeof standing?.overridden === 'boolean'
     && lifetime_paid_cents !== undefined && next_tier !== undefined && cents_to_next_tier !== undefined
     ? {
         current,
         ladder,
+        ...(floorPublished ? { floor: floor ?? null } : {}),
         overridden: standing.overridden,
         lifetime_paid_cents,
         next_tier,
@@ -3284,6 +3312,7 @@ export async function listTtsModelsSnapshot(
         supports_voice_cloning: value?.supports_voice_cloning === true,
         preview_policy: typeof value?.preview_policy === 'string' ? value.preview_policy.trim() : '',
         generation_enabled: value?.generation_enabled === true,
+        ...parseGenStudioCatalogLock(value),
         ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
         // This is a model-local hint, not something Story Studio may derive
         // from the provider name or id. Absent, null, and malformed values
@@ -3339,6 +3368,7 @@ export async function listMusicModelsSnapshot(
         provider_name: optionalText(value?.provider_name),
         description,
         coming_soon: value.coming_soon,
+        ...parseGenStudioCatalogLock(value),
         credits_per_request: value.credits_per_request,
         minimum_credits: value.minimum_credits,
         price_version: value.price_version.trim(),
@@ -3632,6 +3662,7 @@ export async function listChatModelsSnapshot(
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
+    ...parseGenStudioCatalogLock(value),
     context_window_tokens: readPublishedTokenLimit(
       value?.context_window_tokens,
       value?.context_limit_tokens,
@@ -3728,6 +3759,7 @@ export async function listVideoModelsSnapshot(
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
+    ...parseGenStudioCatalogLock(value),
     ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
     // Every published mode survives the transport. Story Studio submits only
     // image-to-video, but that is enforced where a request is built, not by
@@ -4679,7 +4711,7 @@ async function prepareChatSubmission(
     throw new Error('The GenStudio language-product endpoint is text-only in this release. No request or credit charge was made.')
   }
   const product = (await listChatModels(apiKey)).find(model => model.id === modelId)
-  if (!product || !product.available || product.qualification_only) {
+  if (!product || !product.available || product.qualification_only || product.locked === true) {
     throw new GenStudioChatProductUnavailableError(modelId)
   }
   // An explicit number still wins (and is still checked below). Otherwise the
@@ -5257,6 +5289,7 @@ export async function listTranscriptionModelsSnapshot(
         ? Math.max(0, value.available_workers)
         : 0,
       qualification_only: value?.qualification_only !== false,
+      ...parseGenStudioCatalogLock(value),
       // GenStudio publishes a per-SECOND rate. Reading `credits_per_minute`
       // here (a field it does not publish) made every model parse as 0.
       credits_per_second: Number.isFinite(value?.credits_per_second)
@@ -5315,6 +5348,7 @@ export async function listImageModelsSnapshot(
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
     qualification_only: value?.qualification_only !== false,
+    ...parseGenStudioCatalogLock(value),
     execution_label: typeof value?.execution_label === 'string' ? value.execution_label.trim() : undefined,
     credits_per_image: Number.isFinite(value?.credits_per_image)
       ? Math.max(0, value.credits_per_image)

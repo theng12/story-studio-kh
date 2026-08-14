@@ -24,19 +24,29 @@
         <article><span>Completed</span><strong>{{ snapshot.overview.completed_jobs.toLocaleString() }}</strong><small>GenStudio jobs</small></article>
       </div>
 
-      <section class="card plan-card">
+      <section v-if="snapshot.overview.service_tier" class="card plan-card">
         <div>
-          <span class="eyebrow">Current plan</span>
-          <h2>{{ snapshot.overview.subscription_plan_name || 'GenStudio account' }}</h2>
+          <span class="eyebrow">Tier standing</span>
+          <h2>{{ tierHeading(snapshot.overview.service_tier.current) }}</h2>
+          <p>
+            {{ snapshot.overview.paid_active_jobs.toLocaleString() }} of
+            {{ snapshot.overview.paid_concurrency_limit.toLocaleString() }} standard lanes active ·
+            {{ snapshot.overview.paid_queued_jobs.toLocaleString() }} queued.
+          </p>
+          <p v-if="snapshot.overview.service_tier.overridden">
+            This account's tier is set by hand. Lifetime-spend progress does not decide today's capacity.
+          </p>
+          <p v-else-if="snapshot.overview.service_tier.next_tier && snapshot.overview.service_tier.cents_to_next_tier !== null">
+            {{ formatMoney(snapshot.overview.service_tier.lifetime_paid_cents) }} lifetime spend ·
+            {{ formatMoney(snapshot.overview.service_tier.cents_to_next_tier) }} more reaches
+            {{ tierHeading(snapshot.overview.service_tier.next_tier) }} with
+            {{ snapshot.overview.service_tier.next_tier.paid_concurrency_limit }} standard lanes.
+          </p>
         </div>
-        <button
-          type="button"
-          class="btn btn-secondary"
-          disabled
-          title="The GenStudio plan website is not hosted yet. This button will open it when the portal launches."
-        >
-          Manage plan · coming soon
-        </button>
+        <div class="billing-direction">
+          <strong>Buy credits in GenStudio</strong>
+          <small>Open GenStudio → Billing &amp; credits. Story Studio will link directly once GenStudio publishes its customer-web URL.</small>
+        </div>
       </section>
 
       <section class="card">
@@ -85,11 +95,34 @@ interface Snapshot {
     credit_balance: number
     credits_used_30d: number
     subscription_plan_name: string
+    paid_concurrency_limit: number
+    paid_active_jobs: number
+    paid_queued_jobs: number
+    service_tier?: ServiceTierStanding
     active_jobs: number
     completed_jobs: number
   }
   jobs: { items: Array<{ id: string; operation: string; state: string; model_id: string; reserved_credits: number; settled_credits: number; released_credits: number }> }
   credit_activity: { items: Array<{ id: string; kind: 'credit' | 'charge' | 'return'; description: string; credits: number; reason_code: string; created_at: string }> }
+}
+
+interface ServiceTier {
+  code: string
+  display_name: string
+  threshold_cents: number
+  paid_concurrency_limit: number
+  max_queued_jobs: number
+  generation_submissions_per_minute: number
+  max_api_keys: number
+}
+interface ServiceTierStanding {
+  current: ServiceTier
+  ladder: ServiceTier
+  floor?: ServiceTier | null
+  overridden: boolean
+  lifetime_paid_cents: number
+  next_tier: ServiceTier | null
+  cents_to_next_tier: number | null
 }
 
 const snapshot = ref<Snapshot | null>(null)
@@ -111,6 +144,14 @@ async function load(): Promise<void> {
 
 function formatDate(value: string): string {
   return new Date(value).toLocaleString()
+}
+
+function formatMoney(cents: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(cents / 100)
+}
+
+function tierHeading(tier: ServiceTier): string {
+  return `${tier.display_name} · ${formatMoney(tier.threshold_cents)} tier`
 }
 
 function usageModelDisplay(job: Snapshot['jobs']['items'][number]): string {
@@ -136,7 +177,7 @@ await Promise.all([load(), genStudioModels.refresh()])
 .totals article, .card { border: 1px solid var(--border); border-radius: 10px; background: var(--bg-secondary); padding: 16px; }
 .totals span, .totals small { display: block; color: var(--text-muted); font-size: var(--font-xs); }.totals strong { display: block; margin: 4px 0; font-size: 24px; }
 .card { margin-top: 14px; }.card h2 { margin: 0 0 12px; font-size: 16px; }.empty { color: var(--text-muted); }
-.plan-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }.plan-card h2 { margin: 4px 0 6px; }.plan-card p { max-width: 760px; margin: 0; color: var(--text-secondary); line-height: 1.5; }.plan-card button { flex: 0 0 auto; }
+.plan-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-color: color-mix(in srgb, var(--accent) 28%, var(--border)); }.plan-card h2 { margin: 4px 0 6px; }.plan-card p { max-width: 760px; margin: 4px 0 0; color: var(--text-secondary); line-height: 1.5; }.billing-direction { display: grid; max-width: 260px; gap: 4px; color: var(--text-primary); }.billing-direction small { color: var(--text-muted); line-height: 1.4; }
 .table-wrap { overflow-x: auto; } table { width: 100%; border-collapse: collapse; font-size: 12px; } th, td { padding: 9px; border-bottom: 1px solid var(--border); text-align: left; } th { color: var(--text-muted); font-size: var(--font-xs); text-transform: uppercase; } td small { display: block; color: var(--text-muted); }.num { text-align: right; font-variant-numeric: tabular-nums; }
 .activity { list-style: none; margin: 0; padding: 0; }.activity li { display: grid; grid-template-columns: 70px 1fr auto; gap: 12px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }.activity small { display: block; color: var(--text-muted); }.activity-kind { text-transform: uppercase; font-size: var(--font-xs); font-weight: 700; }.activity-kind.credit, .activity-kind.return { color: var(--success); }.activity-kind.charge { color: var(--warning, #d97706); }
 @media (max-width: 760px) { .usage-header { flex-direction: column; }.usage-actions { width: 100%; justify-content: flex-start; }.totals { grid-template-columns: repeat(2, 1fr); }.plan-card { align-items: stretch; flex-direction: column; }.plan-card button { width: 100%; } }

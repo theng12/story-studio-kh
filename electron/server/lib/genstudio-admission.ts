@@ -11,6 +11,7 @@ export interface GenStudioServiceTier {
 export interface GenStudioServiceTierStanding {
   current: GenStudioServiceTier
   ladder: GenStudioServiceTier
+  floor?: GenStudioServiceTier | null
   overridden: boolean
   lifetime_paid_cents: number
   next_tier: GenStudioServiceTier | null
@@ -101,6 +102,7 @@ function validTierStanding(value: unknown): value is GenStudioServiceTierStandin
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const standing = value as Record<string, unknown>
   return validTier(standing.current) && validTier(standing.ladder)
+    && (standing.floor === undefined || standing.floor === null || validTier(standing.floor))
     && typeof standing.overridden === 'boolean'
     && typeof standing.lifetime_paid_cents === 'number' && Number.isInteger(standing.lifetime_paid_cents) && standing.lifetime_paid_cents >= 0
     && (standing.next_tier === null || validTier(standing.next_tier))

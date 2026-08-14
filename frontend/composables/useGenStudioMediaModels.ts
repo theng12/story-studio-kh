@@ -16,6 +16,8 @@ export interface GenStudioVoiceModelInfo {
   generation_enabled: boolean
   legacy_ids?: string[]
   cost_tier?: GenStudioCostTier
+  locked?: boolean
+  lock_reason?: string
 }
 
 export interface GenStudioVideoModelInfo {
@@ -47,6 +49,8 @@ export interface GenStudioVideoModelInfo {
   generates_audio?: boolean | null
   legacy_ids?: string[]
   cost_tier?: GenStudioCostTier
+  locked?: boolean
+  lock_reason?: string
 }
 
 // Two independent live catalogs (voice, video) each get their own freshness

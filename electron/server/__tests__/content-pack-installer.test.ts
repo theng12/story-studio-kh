@@ -112,6 +112,22 @@ describe('Content Pack local installer', () => {
     await assert.rejects(fs.stat(paths.installedRoot), { code: 'ENOENT' })
   })
 
+  test('checks the expected remote pack identity before activating downloaded bytes', async () => {
+    const paths = await isolated()
+    const archiveBytes = await buildArchive()
+    await assert.rejects(installContentPack({
+      ...request(archiveBytes),
+      expectedPackId: 'com.storystudio.some-other-pack',
+      expectedVersion: '1.0.0',
+    }, { paths, policy }), /pack identity/i)
+    await assert.rejects(installContentPack({
+      ...request(archiveBytes),
+      expectedPackId: 'com.storystudio.installer-test',
+      expectedVersion: '2.0.0',
+    }, { paths, policy }), /pack identity/i)
+    assert.deepEqual(await readContentPackState(paths), { schema_version: 1, packs: {} })
+  })
+
   test('enforces app compatibility and exact verified dependencies before activation', async () => {
     const paths = await isolated()
     await assert.rejects(installContentPack(request(await buildArchive({ minAppVersion: '99.0.0' })), { paths, policy }), /requires Story Studio/i)

@@ -856,6 +856,9 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
       detail: 'The selected transcription model is temporarily unavailable.',
     })
   }
+  if (selectedModel.locked) {
+    return res.status(409).json({ detail: 'The selected transcription model is locked for this GenStudio account. Choose an unlocked model.' })
+  }
   const requestedLanguage = typeof req.body?.language === 'string' ? req.body.language : undefined
   try {
     resolveTranscriptionLanguage(selectedModel, requestedLanguage)

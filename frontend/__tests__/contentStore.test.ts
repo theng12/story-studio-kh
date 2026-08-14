@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { beforeEach, describe, test } from 'node:test'
 
 const completeOverview = {
-  phase: 'commerce_core' as const,
+  phase: 'delivery_ready' as const,
   account: {
     accountId: 'acct_a',
     contentAccountId: 'content_acct_a',
@@ -22,6 +22,7 @@ const completeOverview = {
       currentRelease: {
         releaseId: 'rel_formula', packId: 'pack_formula', version: '1.0.0',
         archiveSha256: 'a'.repeat(64), archiveBytes: 4_096,
+        archiveAvailable: true,
         minStoryVersion: '1.0.834', changelog: 'First release.', componentSummary: {},
       },
       bundleComponents: [], ownedComponentCreditValue: 0,
@@ -29,8 +30,8 @@ const completeOverview = {
   ],
   attempts: [],
   capabilities: {
-    purchase: true, receipt_verification: false, download: false,
-    install_after_purchase: false, restore: false,
+    purchase: true, receipt_verification: true, download: true,
+    install_after_purchase: true, restore: true,
   },
 }
 
@@ -89,6 +90,46 @@ describe('useContentStore explicit commerce state machine', () => {
     assert.deepEqual(result, quoted)
     assert.deepEqual(store.attempts.value, [quoted])
     assert.equal(calls.length, 1)
+  })
+
+  test('restores ownership and installs only after explicit customer actions', async () => {
+    const owned = {
+      ...structuredClone(completeOverview),
+      account: {
+        ...structuredClone(completeOverview.account),
+        owned: [{
+          entitlementFamily: 'formula.family', productId: 'formula', title: 'Archive Formula',
+          kind: 'series_formula' as const, grantedAt: '2026-08-14T09:12:44Z', purchaseId: 'cpur_1',
+          currentRelease: structuredClone(completeOverview.products[0].currentRelease),
+          receiptVerification: 'verified' as const, downloadAvailable: true,
+          installState: 'not_installed' as const, installedVersion: null,
+        }],
+      },
+      products: [{ ...structuredClone(completeOverview.products[0]), owned: true }],
+    }
+    handler = (path, options) => {
+      if (path === '/api/content-store/restore') {
+        assert.equal(options.method, 'POST')
+        return owned
+      }
+      if (path === '/api/content-store/releases/rel_formula/install') {
+        assert.equal(options.method, 'POST')
+        const installedOverview = structuredClone(owned)
+        installedOverview.account.owned[0]!.installState = 'installed_current'
+        installedOverview.account.owned[0]!.installedVersion = '1.0.0'
+        return { install: { pack_id: 'pack_formula', version: '1.0.0', activated: true }, overview: installedOverview }
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    }
+
+    const store = useContentStore()
+    assert.equal(calls.length, 0)
+    await store.restoreOwnership()
+    assert.equal(store.account.value?.owned[0]?.receiptVerification, 'verified')
+    assert.equal(calls.length, 1)
+    await store.installRelease('rel_formula')
+    assert.equal(store.account.value?.owned[0]?.installState, 'installed_current')
+    assert.equal(calls.length, 2)
   })
 
   test('replays an uncertain purchase only after explicit Retry and keeps the same attempt', async () => {
@@ -280,12 +321,18 @@ describe('Content Store renderer contract', () => {
     assert.match(page, /label: 'Discover'/)
     assert.match(page, /label: 'Owned'/)
     assert.match(page, /The Content Store is ready, but no packs have been published yet\./)
-    assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|>Download<|>Install<|>Restore<|portal URL/i)
+    assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|portal URL/i)
+    assert.match(page, /Restore purchases/)
+    assert.match(card, /Install on this Mac/)
   })
 
-  test('describes Phase 1 as permanent ownership without promising pack delivery', () => {
+  test('describes account ownership and local install truth separately', () => {
     assert.match(page, /permanently owned by your GenStudio account/)
-    assert.doesNotMatch(page, /delivered by GenStudio/i)
+    assert.match(card, /receiptVerification !== 'verified'/)
+    assert.match(card, /restore purchases to verify on this Mac/i)
+    assert.match(card, /Verified ownership · installed on this Mac/)
+    assert.match(card, /ready to install on this Mac/)
+    assert.match(page, /hasVerifiedOwnership/)
   })
 
   test('presents total and content-spendable balances as distinct account facts', () => {
@@ -318,12 +365,12 @@ describe('Content Store renderer contract', () => {
     assert.match(dialog, /View credits/)
   })
 
-  test('uses shared Modal with a non-spending initial focus target and truthful Phase 1 outcomes', () => {
+  test('uses shared Modal with a non-spending initial focus target and truthful purchase outcomes', () => {
     assert.match(dialog, /<Modal/)
     assert.match(dialog, /ref="cancelButton"/)
     assert.match(dialog, /cancelButton\.value\?\.focus/)
     assert.match(dialog, /Owned in GenStudio · not installed on this Mac/)
-    assert.match(dialog, /Receipt cached · verification arrives with Phase 2/)
+    assert.match(page, /Ownership receipts are verified locally/)
     assert.match(dialog, /No replacement was sent/)
     assert.match(dialog, /Retry this purchase/)
     assert.match(dialog, /store is not open yet/i)

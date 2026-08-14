@@ -56,6 +56,8 @@ export interface GenStudioTtsModel {
    */
   planned_request_characters?: number
   cost_tier?: GenStudioCostTier
+  locked?: boolean
+  lock_reason?: string
 }
 
 /** `StandardVoiceResponse`. */

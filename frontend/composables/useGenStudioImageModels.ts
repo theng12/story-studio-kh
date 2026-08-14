@@ -57,6 +57,8 @@ export interface GenStudioImageModelInfo {
   operations?: string[]
   legacy_ids?: string[]
   cost_tier?: GenStudioCostTier
+  locked?: boolean
+  lock_reason?: string
 }
 
 const cache = createGenStudioCatalogCache<GenStudioImageModelInfo[]>({

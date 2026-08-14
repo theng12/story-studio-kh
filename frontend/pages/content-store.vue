@@ -6,9 +6,14 @@
         <h1>Content Store</h1>
         <p>Expand Story Studio with packs priced by GenStudio and permanently owned by your GenStudio account.</p>
       </div>
-      <button type="button" class="btn btn-secondary" :disabled="loading" @click="loadStore">
-        {{ loading ? 'Refreshing…' : 'Refresh store' }}
-      </button>
+      <div class="store-header-actions">
+        <button type="button" class="btn btn-secondary" :disabled="loading" @click="restoreOwnership">
+          Restore purchases
+        </button>
+        <button type="button" class="btn btn-secondary" :disabled="loading" @click="loadStore">
+          {{ loading ? 'Refreshing…' : 'Refresh store' }}
+        </button>
+      </div>
     </header>
 
     <section v-if="account" class="account-strip" aria-label="Content Store account balances">
@@ -78,8 +83,10 @@
           v-for="product in visibleProducts"
           :key="product.productId"
           :product="product"
-          :busy="quoteBusyProduct === product.productId"
+          :ownership="ownedRecord(product.entitlementFamily)"
+          :busy="quoteBusyProduct === product.productId || installBusyRelease === product.currentRelease?.releaseId"
           @quote="openQuote"
+          @install="installRelease"
         />
       </div>
 
@@ -88,11 +95,12 @@
         <ul>
           <li v-for="attempt in completedAttempts" :key="attempt.quote_id">
             <span>{{ productTitle(attempt.product_id) }}</span>
-            <span>Owned in GenStudio · not installed on this Mac</span>
+            <span>Owned in GenStudio · install explicitly from the Owned shelf</span>
             <span>{{ formatCredits(attempt.credits_charged ?? 0) }} credits charged</span>
           </li>
         </ul>
-        <p>Receipt cached · verification arrives with Phase 2</p>
+        <p v-if="hasVerifiedOwnership">Ownership receipts are verified locally against GenStudio's published signing key.</p>
+        <p v-else>Use Restore purchases to verify this account's ownership receipts on this Mac.</p>
       </section>
     </main>
 
@@ -132,6 +140,7 @@ const appSettingsModal = useAppSettingsModal()
 const { account, products, attempts, loading, error } = store
 const activeTab = ref<StoreTab>('discover')
 const quoteBusyProduct = ref('')
+const installBusyRelease = ref('')
 const purchaseBusy = ref(false)
 const dialogOpen = ref(false)
 const selectedQuoteId = ref('')
@@ -145,6 +154,7 @@ const visibleProducts = computed(() => activeTab.value === 'discover' ? discover
 const selectedAttempt = computed(() => attempts.value.find(row => row.quote_id === selectedQuoteId.value) || null)
 const selectedProduct = computed(() => products.value.find(row => row.productId === selectedProductId.value) || null)
 const completedAttempts = computed(() => attempts.value.filter(row => row.status === 'completed'))
+const hasVerifiedOwnership = computed(() => account.value?.owned.some(row => row.receiptVerification === 'verified') === true)
 
 const pageError = computed(() => {
   if (!error.value || dialogOpen.value) return null
@@ -165,6 +175,20 @@ const pageError = computed(() => {
 
 async function loadStore(): Promise<void> {
   try { await store.refresh() } catch { /* state renders the exact boundary */ }
+}
+
+async function restoreOwnership(): Promise<void> {
+  try {
+    await store.restoreOwnership()
+    activeTab.value = 'owned'
+  } catch { /* exact restore boundary is rendered from store.error */ }
+}
+
+async function installRelease(releaseId: string): Promise<void> {
+  if (installBusyRelease.value) return
+  installBusyRelease.value = releaseId
+  try { await store.installRelease(releaseId) } catch { /* exact install boundary is rendered from store.error */ }
+  finally { installBusyRelease.value = '' }
 }
 
 async function openQuote(product: ContentStoreProduct): Promise<void> {
@@ -223,6 +247,10 @@ function productTitle(productId: string): string {
   return products.value.find(product => product.productId === productId)?.title || productId
 }
 
+function ownedRecord(entitlementFamily: string) {
+  return account.value?.owned.find(row => row.entitlementFamily === entitlementFamily) || null
+}
+
 function formatCredits(value: number): string {
   return value.toLocaleString()
 }
@@ -233,6 +261,7 @@ onMounted(() => { void loadStore() })
 <style scoped>
 .content-store-page { width: min(1180px, calc(100% - 36px)); margin: 0 auto; padding: 30px 0 64px; color: var(--text-primary); }
 .store-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.store-header-actions { display: flex; flex: 0 0 auto; gap: 8px; }
 .back-link { display: inline-block; margin-bottom: 8px; color: var(--text-secondary); font-size: var(--font-sm); text-decoration: underline; text-underline-offset: 4px; }
 .store-header h1 { font-size: clamp(32px, 4vw, 48px); letter-spacing: -.035em; line-height: 1.05; }
 .store-header p { max-width: 690px; margin-top: 10px; color: var(--text-secondary); font-size: var(--font-lg); line-height: 1.55; }
@@ -251,7 +280,7 @@ onMounted(() => { void loadStore() })
 .notice-action { display: inline-block; margin-top: 4px; padding: 0; border: 0; background: transparent; color: var(--accent); font: 650 var(--font-sm)/1.4 inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .notice-action:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .store-tabs { display: flex; gap: 4px; margin-top: 26px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
-.store-tabs button { display: inline-flex; min-height: 40px; align-items: center; gap: 8px; padding: 8px 14px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); font: 650 var(--font-md)/1 inherit; cursor: pointer; }
+.store-tabs button { display: inline-flex; min-height: 44px; align-items: center; gap: 8px; padding: 8px 14px; border: 0; border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); font: 650 var(--font-md)/1 inherit; cursor: pointer; }
 .store-tabs button:hover { background: var(--bg-hover); color: var(--text-primary); }
 .store-tabs button[aria-selected='true'] { background: var(--accent-dim); color: var(--text-primary); }
 .store-tabs button:focus-visible { outline: none; box-shadow: var(--focus-ring); }
@@ -273,7 +302,7 @@ onMounted(() => { void loadStore() })
 @media (max-width: 760px) {
   .content-store-page { width: min(100% - 24px, 1180px); padding-top: 22px; }
   .store-header { align-items: stretch; flex-direction: column; }
-  .store-header .btn { align-self: flex-start; }
+  .store-header-actions { align-items: stretch; flex-direction: column; }
   .account-strip { grid-template-columns: 1fr; gap: 12px; }
   .account-strip dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .account-strip dd { overflow-wrap: anywhere; }

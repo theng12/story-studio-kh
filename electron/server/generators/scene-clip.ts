@@ -142,7 +142,7 @@ export function resolveSceneClipCatalogModel(
   if (!raw) return null
   // The image-to-video restriction is applied HERE, at the selection call
   // site, rather than by discarding other published modes during the parse.
-  const available = catalog.filter(model => model.available && supportsGenStudioVideoMode(model))
+  const available = catalog.filter(model => model.available && model.locked !== true && supportsGenStudioVideoMode(model))
   const canonical = resolveGenStudioModelId('video', raw)
   const exact = available.find(model => model.id === canonical || model.id === raw)
   if (exact) return exact.id

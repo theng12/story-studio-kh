@@ -1,15 +1,19 @@
 import {
   GenStudioContentStoreApiError,
   GenStudioContentStoreTransportError,
+  canonicalizeContentStoreObject,
   getGenStudioContentAccount,
   listGenStudioContentProducts,
   purchaseGenStudioContentProduct,
+  parseContentStorePublicKey,
   quoteGenStudioContentProduct,
   resolveStoryStudioVersion,
   type GenStudioContentAccount,
   type GenStudioContentProduct,
 } from '../lib/genstudio-content-store.js'
+import { verifyContentStoreRestoreReceipt } from '../lib/genstudio-content-store-trust.js'
 import { getApiKey } from './app-secrets-store.js'
+import { getGenStudioUrl } from './app-settings.js'
 import {
   claimPurchaseAttempt,
   readContentStoreCommerceState,
@@ -21,6 +25,11 @@ import {
   restoreQuotedAfterPurchaseNotSent,
   saveQuotedAttempt,
 } from '../content-store/commerce-state.js'
+import {
+  resolveContentStoreInstallStates,
+  type ContentStoreInstallState,
+  type ContentStoreLocalInstallState,
+} from './content-store-install-state.js'
 import {
   CachedContentRefusalSchema,
   type CachedContentQuote,
@@ -55,6 +64,10 @@ export interface PublicContentPurchaseAttempt {
 export type PublicContentAccount = Omit<GenStudioContentAccount, 'raw' | 'owned'> & {
   owned: Array<Omit<GenStudioContentAccount['owned'][number], 'raw' | 'currentRelease'> & {
     currentRelease: PublicContentRelease | null
+    receiptVerification: 'verified' | 'unverified'
+    downloadAvailable: boolean
+    installState: ContentStoreInstallState
+    installedVersion: string | null
   }>
 }
 
@@ -68,18 +81,19 @@ export type PublicContentProduct = Omit<GenStudioContentProduct, 'raw' | 'curren
 }
 
 export interface ContentStoreOverview {
-  phase: 'commerce_core'
+  phase: 'delivery_ready'
   account: PublicContentAccount
   products: PublicContentProduct[]
   attempts: PublicContentPurchaseAttempt[]
   capabilities: {
     purchase: true
-    receipt_verification: false
-    download: false
-    install_after_purchase: false
-    restore: false
+    receipt_verification: true
+    download: true
+    install_after_purchase: true
+    restore: true
   }
 }
+
 
 export class ContentStoreLocalError extends Error {
   constructor(
@@ -105,6 +119,42 @@ export class ContentStoreUpstreamRefusal extends Error {
 }
 
 const activePurchaseClaims = new Map<string, Promise<PublicContentPurchaseAttempt>>()
+async function currentGenStudioOrigin(): Promise<string> {
+  return new URL(await getGenStudioUrl()).origin
+}
+
+async function cachedVerifiedFamilies(accountId: string): Promise<Set<string>> {
+  const cached = (await readContentStoreCommerceState()).verified_restore
+  if (!cached || cached.account_id !== accountId || cached.genstudio_origin !== await currentGenStudioOrigin()) return new Set()
+  try {
+    const publicKey = parseContentStorePublicKey({
+      key_id: cached.key_id,
+      algorithm: 'ed25519',
+      public_key_base64: cached.public_key_base64,
+      payload_types: [
+        'genstudio.content.download.v1', 'genstudio.content.quote.v1',
+        'genstudio.content.receipt.v1', 'genstudio.content.restore.v1',
+      ],
+      canonicalization: 'json:sorted-keys,no-whitespace,utf-8',
+    })
+    const payloadValue = JSON.parse(cached.receipt_canonical_json) as Record<string, unknown>
+    const signedReceipt = canonicalizeContentStoreObject(payloadValue)
+    verifyContentStoreRestoreReceipt(publicKey, {
+      signedReceipt,
+      receiptSignature: cached.receipt_signature,
+      keyId: cached.key_id,
+      raw: canonicalizeContentStoreObject({
+        receipt: payloadValue,
+        receipt_signature: cached.receipt_signature,
+        key_id: cached.key_id,
+      }),
+    }, accountId)
+    const families = signedReceipt.value.entitlement_families
+    return new Set(Array.isArray(families) ? families.filter((value): value is string => typeof value === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
 
 function publicAttempt(attempt: CachedContentQuote): PublicContentPurchaseAttempt {
   const completed = attempt.completed_purchase
@@ -145,6 +195,7 @@ function publicRelease(
     version: release.version,
     archiveSha256: release.archiveSha256,
     archiveBytes: release.archiveBytes,
+    archiveAvailable: release.archiveAvailable,
     minStoryVersion: release.minStoryVersion,
     changelog: release.changelog,
     componentSummary: release.componentSummary.value,
@@ -180,13 +231,17 @@ function publicProduct(product: GenStudioContentProduct): PublicContentProduct {
   }
 }
 
-function publicAccount(account: GenStudioContentAccount): PublicContentAccount {
+async function publicAccount(
+  account: GenStudioContentAccount,
+  verifiedFamilies: ReadonlySet<string>,
+  installStates: ReadonlyArray<ContentStoreLocalInstallState>,
+): Promise<PublicContentAccount> {
   return {
     accountId: account.accountId,
     contentAccountId: account.contentAccountId,
     availableCredits: account.availableCredits,
     contentSpendableCredits: account.contentSpendableCredits,
-    owned: account.owned.map(owned => ({
+    owned: account.owned.map((owned, index) => ({
       entitlementFamily: owned.entitlementFamily,
       productId: owned.productId,
       title: owned.title,
@@ -194,6 +249,9 @@ function publicAccount(account: GenStudioContentAccount): PublicContentAccount {
       grantedAt: owned.grantedAt,
       purchaseId: owned.purchaseId,
       currentRelease: owned.currentRelease ? publicRelease(owned.currentRelease) : null,
+      receiptVerification: verifiedFamilies.has(owned.entitlementFamily) ? 'verified' as const : 'unverified' as const,
+      downloadAvailable: owned.currentRelease?.archiveAvailable === true,
+      ...installStates[index]!,
     })),
   }
 }
@@ -235,17 +293,21 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     throw error
   }
   const catalog = await listGenStudioContentProducts(apiKey, await resolveStoryStudioVersion())
+  const [verifiedFamilies, installStates] = await Promise.all([
+    cachedVerifiedFamilies(account.accountId),
+    resolveContentStoreInstallStates(account.owned.map(owned => owned.currentRelease)),
+  ])
   return {
-    phase: 'commerce_core',
-    account: publicAccount(account),
+    phase: 'delivery_ready',
+    account: await publicAccount(account, verifiedFamilies, installStates),
     products: catalog.products.map(publicProduct),
     attempts: await localAttempts(account.accountId),
     capabilities: {
       purchase: true,
-      receipt_verification: false,
-      download: false,
-      install_after_purchase: false,
-      restore: false,
+      receipt_verification: true,
+      download: true,
+      install_after_purchase: true,
+      restore: true,
     },
   }
 }

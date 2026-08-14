@@ -26,6 +26,9 @@ export function publishedSupportsReferenceImages(model: GenStudioImageModel): bo
 
 /** Human-readable reason a model cannot be submitted right now, or ''. */
 export function publishedAvailabilityProblem(model: GenStudioImageModel): string {
+  if (model.locked) {
+    return `${model.display_name} is visible for comparison but locked for this GenStudio account. Choose an unlocked published model.`
+  }
   if (!model.available) {
     return `${model.display_name} is currently unavailable in GenStudio. Choose a published model.`
   }

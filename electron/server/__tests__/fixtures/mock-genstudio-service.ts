@@ -4,6 +4,7 @@ import http, {
   type ServerResponse,
 } from 'node:http'
 import { once } from 'node:events'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 
 export const MOCK_GENSTUDIO_FULL_KEY = 'gsk_mock_story_full_scope'
 
@@ -274,7 +275,8 @@ function normalizeScenario(
 
 function requiredScope(pathname: string, method: string): MockGenStudioScope | null {
   if (pathname === '/v1/content/account' || pathname === '/v1/content/products'
-    || pathname === '/v1/content/quotes') return 'content:read'
+    || pathname === '/v1/content/quotes' || pathname === '/v1/content/public-key'
+    || pathname === '/v1/content/receipts' || pathname === '/v1/content/downloads') return 'content:read'
   if (pathname === '/v1/content/purchases') return 'content:purchase'
   if (pathname === '/v1/models' || pathname === '/v1/chat/models'
     || pathname === '/v1/video/models' || pathname === '/v1/videos/models') {
@@ -311,9 +313,15 @@ export class MockGenStudioService {
   private readonly keys = new Map<string, Set<MockGenStudioScope>>()
   private readonly contentAccounts = new Map<string, string>()
   private readonly contentPurchases = new Map<string, Record<string, unknown>>()
+  private readonly contentSigningKey = generateKeyPairSync('ed25519')
+  private readonly contentArchives = new Map<string, Uint8Array>()
   private readonly queuedContentPurchaseOutcomes: MockContentPurchaseOutcome[] = []
   contentProducts: Array<Record<string, unknown>> = []
   contentPurchasePostCount = 0
+  contentDownloadPostCount = 0
+  contentArchiveGetCount = 0
+  contentDownloadRefusal: { status: number; code: string; detail: string } | null = null
+  tamperContentPurchaseReceipt = false
   private readonly queuedScenarios = new Map<MockGenStudioOperation, StoredScenario[]>()
   private readonly jobs = new Map<string, MockJob>()
   private readonly jobByIdempotency = new Map<string, string>()
@@ -368,6 +376,11 @@ export class MockGenStudioService {
     this.contentPurchases.clear()
     this.queuedContentPurchaseOutcomes.length = 0
     this.contentPurchasePostCount = 0
+    this.contentDownloadPostCount = 0
+    this.contentArchiveGetCount = 0
+    this.contentDownloadRefusal = null
+    this.tamperContentPurchaseReceipt = false
+    this.contentArchives.clear()
     this.contentProducts = []
     for (const operation of Object.keys(this.sequence) as MockGenStudioOperation[]) {
       this.sequence[operation] = 0
@@ -391,6 +404,23 @@ export class MockGenStudioService {
 
   queueContentPurchaseOutcome(outcome: MockContentPurchaseOutcome): void {
     this.queuedContentPurchaseOutcomes.push(outcome)
+  }
+
+  setContentArchive(releaseId: string, archiveBytes: Uint8Array): void {
+    const product = this.contentProducts.find(entry => (entry.current_release as Record<string, unknown> | null)?.release_id === releaseId)
+    if (!product) throw new Error(`Unknown mock Content Store release: ${releaseId}`)
+    const release = product.current_release as Record<string, unknown>
+    const digest = createHash('sha256').update(archiveBytes).digest('hex')
+    release.archive_sha256 = digest
+    release.archive_bytes = archiveBytes.byteLength
+    release.archive_available = true
+    this.contentArchives.set(digest, Uint8Array.from(archiveBytes))
+  }
+
+  setContentProductOwned(productId: string, owned = true): void {
+    const product = this.contentProducts.find(entry => entry.product_id === productId)
+    if (!product) throw new Error(`Unknown mock Content Store product: ${productId}`)
+    product.owned = owned
   }
 
   queueScenario(operation: MockGenStudioOperation, scenario: MockGenStudioScenario): void {
@@ -478,14 +508,142 @@ export class MockGenStudioService {
     return this.contentAccounts.get(this.bearerKey(request)) || 'acct_mock'
   }
 
+  private canonicalContentJson(value: unknown): string {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value)
+    if (Array.isArray(value)) return `[${value.map(entry => this.canonicalContentJson(entry)).join(',')}]`
+    const row = value as Record<string, unknown>
+    return `{${Object.keys(row).sort().map(key => `${JSON.stringify(key)}:${this.canonicalContentJson(row[key])}`).join(',')}}`
+  }
+
+  private signContentPayload(payload: Record<string, unknown>): string {
+    return sign(null, Buffer.from(this.canonicalContentJson(payload), 'utf8'), this.contentSigningKey.privateKey).toString('base64')
+  }
+
+  private contentPublicKeyBody(): Record<string, unknown> {
+    const der = this.contentSigningKey.publicKey.export({ format: 'der', type: 'spki' })
+    return {
+      key_id: 'mock-content-key', algorithm: 'ed25519',
+      public_key_base64: der.subarray(der.byteLength - 32).toString('base64'),
+      payload_types: [
+        'genstudio.content.download.v1', 'genstudio.content.quote.v1',
+        'genstudio.content.receipt.v1', 'genstudio.content.restore.v1',
+      ],
+      canonicalization: 'json:sorted-keys,no-whitespace,utf-8',
+    }
+  }
+
   private contentAccountBody(request: IncomingMessage): Record<string, unknown> {
     const accountId = this.contentAccountId(request)
+    const owned = this.contentProducts.filter(product => product.owned === true).map(product => ({
+      entitlement_family: product.entitlement_family,
+      product_id: product.product_id,
+      title: product.title,
+      kind: product.kind,
+      granted_at: '2026-08-14T09:12:44Z',
+      purchase_id: null,
+      current_release: product.current_release,
+    }))
     return {
       account_id: accountId,
-      content_account_id: `content-${accountId}`,
+      content_account_id: accountId,
       available_credits: 5_000,
       content_spendable_credits: 4_000,
-      owned: [],
+      owned,
+    }
+  }
+
+  private contentReceiptsBody(request: IncomingMessage): Record<string, unknown> {
+    const accountId = this.contentAccountId(request)
+    const owned = this.contentProducts.filter(product => product.owned === true)
+    const entitlements = owned.map((product, index) => ({
+      entitlement_id: `cent_restore_${index + 1}`,
+      entitlement_family: product.entitlement_family,
+      product_id: product.product_id,
+      title: product.title,
+      kind: product.kind,
+      publisher_id: product.publisher_id,
+      granted_at: '2026-08-14T09:12:44Z',
+      purchase_id: null,
+      retired: product.retired === true,
+      current_release: product.current_release,
+      download_available: Boolean((product.current_release as Record<string, unknown> | null)?.archive_available),
+    }))
+    const signedEntitlements = entitlements.map(item => ({
+      entitlement_family: item.entitlement_family,
+      product_id: item.product_id,
+      title: item.title,
+      kind: item.kind,
+      granted_at: item.granted_at,
+      purchase_id: item.purchase_id,
+    }))
+    const releases = entitlements.flatMap(item => {
+      const release = item.current_release as Record<string, unknown> | null
+      return release ? [{
+        entitlement_family: item.entitlement_family,
+        release_id: release.release_id,
+        pack_id: release.pack_id,
+        version: release.version,
+        archive_sha256: release.archive_sha256,
+        archive_bytes: release.archive_bytes,
+        min_story_version: release.min_story_version,
+      }] : []
+    })
+    const now = new Date()
+    const restore = {
+      typ: 'genstudio.content.restore.v1', key_id: 'mock-content-key', receipt_id: `crst_${this.requests.length}`,
+      account_id: accountId, content_account_id: accountId,
+      entitlement_families: entitlements.map(item => item.entitlement_family),
+      entitlements: signedEntitlements,
+      releases,
+      issued_at: now.toISOString(),
+      expiry_policy: {
+        ownership: 'permanent', receipt_expires_at: null,
+        refresh_recommended_after: new Date(now.getTime() + 30 * 24 * 60 * 60_000).toISOString(),
+      },
+    }
+    const purchaseReceipt = {
+      typ: 'genstudio.content.receipt.v1', key_id: 'mock-content-key', purchase_id: 'cpur_restore_1',
+      account_id: accountId, credits_charged: 300,
+    }
+    return {
+      account_id: accountId,
+      content_account_id: accountId,
+      restore_receipt: { receipt: restore, receipt_signature: this.signContentPayload(restore), key_id: 'mock-content-key' },
+      purchase_receipts: [{
+        purchase_id: 'cpur_restore_1', receipt: purchaseReceipt,
+        receipt_signature: this.tamperContentPurchaseReceipt
+          ? Buffer.alloc(64, 1).toString('base64')
+          : this.signContentPayload(purchaseReceipt),
+        key_id: 'mock-content-key', credits_charged: 300, created_at: '2026-08-14T09:12:44Z',
+      }],
+      entitlements,
+    }
+  }
+
+  private contentDownloadBody(request: IncomingMessage, body: Buffer): Record<string, unknown> {
+    const releaseId = String(parseJson(body).release_id || '')
+    const product = this.contentProducts.find(entry => (entry.current_release as Record<string, unknown> | null)?.release_id === releaseId)
+    if (!product || product.owned !== true) throw Object.assign(new Error('not entitled'), { mockStatus: 404, mockCode: 'not_entitled' })
+    const release = product.current_release as Record<string, unknown>
+    if (!release.archive_available || !this.contentArchives.has(String(release.archive_sha256))) {
+      throw Object.assign(new Error('archive unavailable'), { mockStatus: 409, mockCode: 'archive_unavailable' })
+    }
+    const now = new Date()
+    const expiresAt = new Date(now.getTime() + 900_000)
+    const grant = {
+      typ: 'genstudio.content.download.v1', key_id: 'mock-content-key', grant_id: `cdg_${this.requests.length}`,
+      account_id: this.contentAccountId(request), product_id: product.product_id,
+      entitlement_family: product.entitlement_family, release_id: release.release_id,
+      pack_id: release.pack_id, version: release.version, archive_sha256: release.archive_sha256,
+      archive_bytes: release.archive_bytes, issued_at: now.toISOString(), expires_at: expiresAt.toISOString(),
+    }
+    return {
+      grant_id: grant.grant_id, account_id: grant.account_id, product_id: grant.product_id,
+      entitlement_family: grant.entitlement_family, release_id: grant.release_id, pack_id: grant.pack_id,
+      version: grant.version, archive_sha256: grant.archive_sha256, archive_bytes: grant.archive_bytes,
+      download_url: `${this.baseUrl}/v1/content/archives/${release.archive_sha256}?grant=mock-opaque-token`,
+      expires_at: grant.expires_at, ttl_seconds: 900, grant,
+      grant_signature: this.signContentPayload(grant), key_id: 'mock-content-key',
     }
   }
 
@@ -814,6 +972,52 @@ export class MockGenStudioService {
       }
       if (method === 'GET' && url.pathname === '/v1/content/products') {
         json(response, 200, { products: this.contentProducts })
+        return
+      }
+      if (method === 'GET' && url.pathname === '/v1/content/public-key') {
+        json(response, 200, this.contentPublicKeyBody())
+        return
+      }
+      if (method === 'GET' && url.pathname === '/v1/content/receipts') {
+        json(response, 200, this.contentReceiptsBody(request))
+        return
+      }
+      if (method === 'POST' && url.pathname === '/v1/content/downloads') {
+        this.contentDownloadPostCount += 1
+        if (this.contentDownloadRefusal) {
+          json(response, this.contentDownloadRefusal.status, {
+            code: this.contentDownloadRefusal.code,
+            detail: this.contentDownloadRefusal.detail,
+            internal_path: '/srv/private/content/archive',
+          })
+          return
+        }
+        try {
+          json(response, 200, this.contentDownloadBody(request, body))
+        } catch (error) {
+          const shaped = error as Error & { mockStatus?: number; mockCode?: string }
+          json(response, shaped.mockStatus || 500, { code: shaped.mockCode, detail: shaped.message })
+        }
+        return
+      }
+      if (method === 'GET' && url.pathname.startsWith('/v1/content/archives/')) {
+        this.contentArchiveGetCount += 1
+        if (request.headers.authorization) {
+          json(response, 400, { code: 'credential_leak', detail: 'Archive fetch must not carry Authorization.' })
+          return
+        }
+        const digest = url.pathname.slice('/v1/content/archives/'.length)
+        const archive = this.contentArchives.get(digest)
+        if (!archive || url.searchParams.get('grant') !== 'mock-opaque-token') {
+          json(response, 404, { code: 'archive_unavailable', detail: 'archive unavailable' })
+          return
+        }
+        response.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(archive.byteLength),
+          'X-Archive-SHA256': digest,
+        })
+        response.end(archive)
         return
       }
       if (method === 'POST' && url.pathname === '/v1/content/quotes') {

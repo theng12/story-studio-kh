@@ -14,6 +14,7 @@ export interface ContentStoreRelease {
   version: string
   archiveSha256: string
   archiveBytes: number
+  archiveAvailable: boolean
   minStoryVersion: string
   changelog: string
   componentSummary: Record<string, unknown>
@@ -61,6 +62,10 @@ export interface ContentStoreAccount {
     grantedAt: string
     purchaseId: string | null
     currentRelease: ContentStoreRelease | null
+    receiptVerification: 'verified' | 'unverified'
+    downloadAvailable: boolean
+    installState: 'not_installed' | 'installed_current' | 'installed_other_version' | 'update_available' | 'unavailable'
+    installedVersion: string | null
   }>
 }
 
@@ -99,16 +104,16 @@ export interface PublicContentPurchaseAttempt {
 }
 
 interface ContentStoreOverview {
-  phase: 'commerce_core'
+  phase: 'delivery_ready'
   account: ContentStoreAccount
   products: ContentStoreProduct[]
   attempts: PublicContentPurchaseAttempt[]
   capabilities: {
     purchase: true
-    receipt_verification: false
-    download: false
-    install_after_purchase: false
-    restore: false
+    receipt_verification: true
+    download: true
+    install_after_purchase: true
+    restore: true
   }
 }
 
@@ -145,6 +150,8 @@ export function useContentStore(): {
   refresh: () => Promise<void>
   requestQuote: (productId: string, releaseId?: string | null) => Promise<PublicContentPurchaseAttempt>
   confirmPurchase: (quoteId: string) => Promise<PublicContentPurchaseAttempt>
+  restoreOwnership: () => Promise<void>
+  installRelease: (releaseId: string) => Promise<{ pack_id: string; version: string; activated: boolean }>
 } {
   const { get, post } = useApi()
   const account = ref<ContentStoreAccount | null>(null)
@@ -248,6 +255,39 @@ export function useContentStore(): {
     }
   }
 
+  async function restoreOwnership(): Promise<void> {
+    loading.value = true
+    error.value = null
+    try {
+      const overview = await post<ContentStoreOverview>('/content-store/restore', {})
+      account.value = overview.account
+      products.value = overview.products
+      attempts.value = overview.attempts
+    } catch (cause: any) {
+      error.value = uiError(cause, 'GenStudio ownership could not be restored.')
+      throw cause
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function installRelease(releaseId: string): Promise<{ pack_id: string; version: string; activated: boolean }> {
+    error.value = null
+    try {
+      const response = await post<{
+        install: { pack_id: string; version: string; activated: boolean }
+        overview: ContentStoreOverview
+      }>(`/content-store/releases/${encodeURIComponent(releaseId)}/install`, {})
+      account.value = response.overview.account
+      products.value = response.overview.products
+      attempts.value = response.overview.attempts
+      return response.install
+    } catch (cause: any) {
+      error.value = uiError(cause, 'This owned Content Pack could not be installed.')
+      throw cause
+    }
+  }
+
   return {
     account: readonly(account) as unknown as Readonly<Ref<ContentStoreAccount | null>>,
     products: readonly(products) as unknown as Readonly<Ref<ContentStoreProduct[]>>,
@@ -257,5 +297,7 @@ export function useContentStore(): {
     refresh,
     requestQuote,
     confirmPurchase,
+    restoreOwnership,
+    installRelease,
   }
 }

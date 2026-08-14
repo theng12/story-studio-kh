@@ -1001,6 +1001,16 @@ export async function downloadGenStudioContentArchive(
   expected: { archiveSha256: string; archiveBytes: number },
 ): Promise<Uint8Array> {
   if (typeof downloadUrl !== 'string' || downloadUrl.length === 0) throw new TypeError('Content Store download URL is required')
+  let parsedDownloadUrl: URL
+  try { parsedDownloadUrl = new URL(downloadUrl) } catch (error) {
+    throw new TypeError('Content Store download URL must be an absolute HTTP(S) URL', { cause: error })
+  }
+  if (!['http:', 'https:'].includes(parsedDownloadUrl.protocol)) {
+    throw new TypeError('Content Store download URL must use HTTP or HTTPS')
+  }
+  if (parsedDownloadUrl.username || parsedDownloadUrl.password) {
+    throw new TypeError('Content Store download URL must not contain embedded credentials')
+  }
   if (!/^[0-9a-f]{64}$/.test(expected.archiveSha256)) throw new TypeError('Expected archive SHA-256 must be 64 lowercase hexadecimal characters')
   if (!Number.isSafeInteger(expected.archiveBytes) || expected.archiveBytes < 1 || expected.archiveBytes > MAX_LOCAL_ARCHIVE_BYTES) {
     throw new TypeError(`Expected archive size must be between 1 and ${MAX_LOCAL_ARCHIVE_BYTES} bytes`)
@@ -1011,6 +1021,7 @@ export async function downloadGenStudioContentArchive(
     pending = globalThis.fetch(downloadUrl, {
       method: 'GET',
       headers: { Accept: 'application/octet-stream' },
+      redirect: 'error',
       signal: AbortSignal.timeout(60_000),
     })
   } catch (error) {

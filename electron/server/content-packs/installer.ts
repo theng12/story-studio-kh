@@ -394,6 +394,11 @@ async function installContentPackLocked(
     await quarantineContentPackBytes(request.archiveBytes, 'invalid_archive', paths)
     throw error
   }
+  if ((request.expectedPackId !== undefined && verified.manifest.pack_id !== request.expectedPackId)
+    || (request.expectedVersion !== undefined && verified.manifest.version !== request.expectedVersion)) {
+    await quarantineContentPackBytes(request.archiveBytes, 'remote_identity_mismatch', paths)
+    throw new Error('Content Pack signed manifest does not match the expected remote pack identity')
+  }
   await assertContentPackAppCompatible(verified.manifest.min_app_version, options.appVersion)
 
   return withContentPackStateTransaction(async state => {

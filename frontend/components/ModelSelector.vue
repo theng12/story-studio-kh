@@ -23,6 +23,7 @@
 import {
   isUsableLiveGenStudioModel,
   selectLiveGenStudioModel,
+  genStudioModelLockReason,
 } from '../utils/live-genstudio-model-selection.js'
 import { invalidateModelCatalogCache } from '../composables/useApi.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
@@ -47,6 +48,8 @@ interface LlmModelRow {
   structured_output_mode?: 'json_object' | 'request_json_schema'
   legacy_ids?: string[]
   cost_tier?: GenStudioCostTier
+  locked?: boolean
+  lock_reason?: string | null
   input_credits_per_million_tokens?: number | null
   output_credits_per_million_tokens?: number | null
   minimum_credits?: number | null
@@ -96,7 +99,7 @@ const menuOptions = computed(() => {
       priceTitle: rate.title,
       description: model.disabled_reason || model.hint || '',
       disabled: isDisabled(model),
-      disabledReason: model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
+      disabledReason: genStudioModelLockReason(model) || model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
       badges: [],
       costTier: model.cost_tier,
     }

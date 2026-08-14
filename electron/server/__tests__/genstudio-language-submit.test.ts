@@ -186,3 +186,30 @@ test('a refusal that is not request_in_progress is still a failure', async () =>
     globalThis.fetch = originalFetch
   }
 })
+
+test('an account-locked teaser model is refused before any generation POST', async () => {
+  const originalFetch = globalThis.fetch
+  let submissions = 0
+  try {
+    globalThis.fetch = async (input) => {
+      const url = String(input)
+      if (url.endsWith('/v1/chat/models')) {
+        return Response.json([{ ...catalog()[0], locked: true, lock_reason: 'requires_paid_account' }])
+      }
+      submissions += 1
+      throw new Error(`unexpected paid request to ${url}`)
+    }
+    await assert.rejects(
+      () => callChatWithGenStudio('locked-key', {
+        modelId: 'writer-alpha',
+        system: '',
+        userMessage: 'One pack.',
+        outputContract: { mode: 'json_object' },
+      }),
+      /not available/i,
+    )
+    assert.equal(submissions, 0)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})

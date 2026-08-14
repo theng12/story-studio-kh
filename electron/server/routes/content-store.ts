@@ -8,6 +8,10 @@ import {
   createContentStoreQuote,
   loadContentStoreOverview,
 } from '../services/content-store.js'
+import {
+  installOwnedContentStoreRelease,
+  restoreContentStoreOwnership,
+} from '../services/content-store-delivery.js'
 import { GenStudioContentStoreApiError } from '../lib/genstudio-content-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
@@ -43,6 +47,12 @@ function quoteId(req: Request): string {
   return OPAQUE_ID.parse(firstParam(req.params.quoteId))
 }
 
+function emptyBody(value: unknown): void {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 0) {
+    throw new z.ZodError([{ code: 'custom', path: [], message: 'Request body must be empty' }])
+  }
+}
+
 function upstreamFailure(res: Response, error: GenStudioContentStoreApiError, requiredScope: 'content:read' | 'content:purchase'): void {
   if (error.status === 401) {
     res.status(401).json({
@@ -51,12 +61,31 @@ function upstreamFailure(res: Response, error: GenStudioContentStoreApiError, re
     })
     return
   }
+  const safeRefusals: Record<string, string> = {
+    already_owned: 'This GenStudio account already owns this content.',
+    archive_unavailable: 'The owned Content Pack archive is not available right now.',
+    entitlement_revoked: 'GenStudio reports that this content entitlement is revoked.',
+    insufficient_credits: 'This GenStudio account does not have enough content-spendable credits.',
+    not_entitled: 'This GenStudio account does not own the requested Content Pack.',
+    product_unavailable: 'This Content Store product is not available.',
+    quote_rejected: 'GenStudio rejected the saved Content Store quote.',
+    release_unavailable: 'This Content Pack release is not available.',
+    signing_unavailable: 'GenStudio cannot sign Content Store evidence right now.',
+  }
+  const safeDetail = error.code ? safeRefusals[error.code] : undefined
+  if (!safeDetail) {
+    res.status(502).json({
+      code: 'CONTENT_STORE_UPSTREAM_REFUSED',
+      detail: 'GenStudio refused this Content Store request without a recognized public reason.',
+    })
+    return
+  }
   const credits = error.status === 402 ? {
     required_credits: error.refusal.required_credits,
     available_credits: error.refusal.available_credits,
     shortfall_credits: error.refusal.shortfall_credits,
   } : {}
-  res.status(error.status).json({ ...(error.code ? { code: error.code } : {}), detail: error.detail, ...credits })
+  res.status(error.status).json({ code: error.code, detail: safeDetail, ...credits })
 }
 
 function localFailure(res: Response, error: ContentStoreLocalError): void {
@@ -106,6 +135,24 @@ router.get('/content-store', async (_req, res) => {
   }
 })
 
+router.post('/content-store/restore', async (req, res) => {
+  try {
+    emptyBody(req.body)
+    res.json(await restoreContentStoreOwnership())
+  } catch (error) {
+    handleFailure(res, error, 'Failed to restore Content Store ownership.', 'content:read')
+  }
+})
+
+router.post('/content-store/releases/:releaseId/install', async (req, res) => {
+  try {
+    emptyBody(req.body)
+    res.json(await installOwnedContentStoreRelease(OPAQUE_ID.parse(firstParam(req.params.releaseId))))
+  } catch (error) {
+    handleFailure(res, error, 'Failed to install the owned Content Pack.', 'content:read')
+  }
+})
+
 router.post('/content-store/quotes', async (req, res) => {
   try {
     const input = QuoteBodySchema.parse(req.body)
@@ -117,9 +164,7 @@ router.post('/content-store/quotes', async (req, res) => {
 
 router.post('/content-store/quotes/:quoteId/purchase', async (req, res) => {
   try {
-    if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body) || Object.keys(req.body).length !== 0) {
-      throw new z.ZodError([{ code: 'custom', path: [], message: 'Purchase body must be empty' }])
-    }
+    emptyBody(req.body)
     res.json(await confirmContentStorePurchase(quoteId(req)))
   } catch (error) {
     handleFailure(res, error, 'Failed to confirm the Content Store purchase.', 'content:purchase')

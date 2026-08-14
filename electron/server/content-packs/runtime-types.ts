@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { ContentPackManifestSchema } from './schemas.js'
 
-export const ContentPackInstallSourceSchema = z.enum(['local-import', 'recovery'])
+export const ContentPackInstallSourceSchema = z.enum(['local-import', 'recovery', 'genstudio-store'])
 
 export const ContentPackInstalledVersionSchema = z.object({
   archive_sha256: z.string().regex(/^[a-f0-9]{64}$/, 'must be a lowercase SHA-256 digest'),
@@ -54,6 +54,9 @@ export interface ContentPackInstallRequest {
   archiveBytes: Uint8Array
   source: z.infer<typeof ContentPackInstallSourceSchema>
   expectedArchiveSha256?: string
+  /** Remote delivery identity; checked against the signed manifest before any activation. */
+  expectedPackId?: string
+  expectedVersion?: string
 }
 
 export interface ContentPackInstallResult {

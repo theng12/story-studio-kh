@@ -7,6 +7,7 @@ import express from 'express'
 import request from 'supertest'
 
 import { readContentStoreCommerceState } from '../content-store/commerce-state.js'
+import { readContentPackState } from '../content-packs/state.js'
 import { router as contentStoreRouter } from '../routes/content-store.js'
 import { setApiKey } from '../services/app-secrets-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
@@ -24,11 +25,12 @@ const HASH = 'a'.repeat(64)
 let cleanup: (() => Promise<void>) | undefined
 let mock: MockGenStudioService
 
-function release() {
+function release(overrides: Record<string, unknown> = {}) {
   return {
     release_id: 'crel_a', pack_id: 'com.storystudio.test', version: '1.0.0',
     archive_sha256: HASH, archive_bytes: 4096, min_story_version: '1.0.834',
     changelog: 'First release.', component_summary: { count: 1 },
+    ...overrides,
   }
 }
 
@@ -74,6 +76,132 @@ afterEach(async () => {
 })
 
 describe('Content Store commerce routes', () => {
+  test('restores same-account ownership and explicitly installs verified bytes without spending credits', async () => {
+    const archive = await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url))
+    const ownedRelease = {
+      ...release(),
+      pack_id: 'com.storystudio.pack.free-recovery-test',
+      version: '1.0.0',
+      archive_available: true,
+    }
+    const { app: localApp } = await setup({ products: [product({
+      owned: true,
+      entitlement_family: 'com.storystudio.family.free-recovery-test',
+      current_release: ownedRelease,
+    })] })
+    mock.setContentArchive('crel_a', archive)
+
+    const restored = await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+    assert.equal(restored.body.capabilities.restore, true)
+    assert.equal(restored.body.capabilities.receipt_verification, true)
+    assert.equal(restored.body.account.owned[0].receiptVerification, 'verified')
+    assert.equal(mock.contentPurchasePostCount, 0)
+    assert.equal((await readContentStoreCommerceState()).verified_restore?.account_id, 'acct_a')
+
+    await setApiKey('genstudio', KEY_A_ROTATED)
+    const installed = await request(localApp)
+      .post('/api/content-store/releases/crel_a/install').send({}).expect(200)
+    assert.equal(installed.body.install.pack_id, 'com.storystudio.pack.free-recovery-test')
+    assert.equal(installed.body.install.version, '1.0.0')
+    assert.equal(mock.contentDownloadPostCount, 1)
+    assert.equal(mock.contentArchiveGetCount, 1)
+    const archiveRequest = mock.requests.find(row => row.path.startsWith('/v1/content/archives/'))
+    assert.equal(archiveRequest?.authorization, '')
+    const state = await readContentPackState()
+    assert.equal(state.packs['com.storystudio.pack.free-recovery-test'].active_version, '1.0.0')
+    assert.doesNotMatch(JSON.stringify(installed.body), /receipt_signature|grant_signature|public_key_base64|download_url|"grant"|gsk_|\/Users\//i)
+
+    mock.contentProducts = [product({
+      owned: true,
+      entitlement_family: 'com.storystudio.family.free-recovery-test',
+      current_release: { ...ownedRelease, archive_available: false },
+    })]
+    const offlineOwned = await request(localApp).get('/api/content-store').expect(200)
+    assert.equal(offlineOwned.body.account.owned[0].downloadAvailable, false)
+    assert.equal(offlineOwned.body.account.owned[0].installState, 'installed_current')
+    assert.equal(offlineOwned.body.account.owned[0].installedVersion, '1.0.0')
+  })
+
+  test('does not report a locally damaged signed pack as installed', async () => {
+    const archive = await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url))
+    const ownedRelease = {
+      ...release(),
+      pack_id: 'com.storystudio.pack.free-recovery-test',
+      version: '1.0.0',
+      archive_available: true,
+    }
+    const { app: localApp } = await setup({ products: [product({
+      owned: true,
+      entitlement_family: 'com.storystudio.family.free-recovery-test',
+      current_release: ownedRelease,
+    })] })
+    mock.setContentArchive('crel_a', archive)
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+    await request(localApp).post('/api/content-store/releases/crel_a/install').send({}).expect(200)
+
+    const state = await readContentPackState()
+    const installed = state.packs['com.storystudio.pack.free-recovery-test'].versions['1.0.0']
+    await fs.writeFile(path.join(installed.install_path, 'content', 'archive.sspack'), 'damaged')
+
+    const overview = await request(localApp).get('/api/content-store').expect(200)
+    assert.notEqual(overview.body.account.owned[0].installState, 'installed_current')
+  })
+
+  test('does not advertise verified ownership when an original purchase receipt fails signature verification', async () => {
+    const { app: localApp } = await setup({ products: [product({
+      owned: true,
+      current_release: release({ archive_available: true }),
+    })] })
+    mock.tamperContentPurchaseReceipt = true
+    const response = await request(localApp).post('/api/content-store/restore').send({}).expect(500)
+    assert.equal((await readContentStoreCommerceState()).verified_restore, undefined)
+    assert.doesNotMatch(JSON.stringify(response.body), /signature|receipt|mock-content-key/i)
+  })
+
+  test('refuses a Story-incompatible archive before issuing a download grant', async () => {
+    const { app: localApp } = await setup({ products: [product({
+      owned: true,
+      current_release: release({ archive_bytes: 60 * 1024 * 1024, archive_available: true }),
+    })] })
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+    const response = await request(localApp)
+      .post('/api/content-store/releases/crel_a/install').send({}).expect(409)
+    assert.equal(response.body.code, 'CONTENT_PACK_TOO_LARGE_FOR_THIS_APP')
+    assert.equal(mock.contentDownloadPostCount, 0)
+    assert.equal(mock.contentArchiveGetCount, 0)
+  })
+
+  test('refuses a release requiring a newer Story version before issuing a download grant', async () => {
+    const { app: localApp } = await setup({ products: [product({
+      owned: true,
+      current_release: release({ min_story_version: '999.0.0', archive_available: true }),
+    })] })
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+    const response = await request(localApp)
+      .post('/api/content-store/releases/crel_a/install').send({}).expect(409)
+    assert.equal(response.body.code, 'CONTENT_PACK_REQUIRES_NEWER_APP')
+    assert.match(response.body.detail, /999\.0\.0/)
+    assert.equal(mock.contentDownloadPostCount, 0)
+    assert.equal(mock.contentArchiveGetCount, 0)
+  })
+
+  test('redacts unknown delivery refusals instead of forwarding upstream internals', async () => {
+    const { app: localApp } = await setup({ products: [product({
+      owned: true,
+      current_release: release({ archive_available: true }),
+    })] })
+    mock.contentDownloadRefusal = {
+      status: 503,
+      code: 'future_internal_refusal',
+      detail: 'private bucket /srv/private/content/archive is unavailable',
+    }
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+    const response = await request(localApp)
+      .post('/api/content-store/releases/crel_a/install').send({}).expect(502)
+    assert.equal(response.body.code, 'CONTENT_STORE_UPSTREAM_REFUSED')
+    assert.doesNotMatch(JSON.stringify(response.body), /future_internal_refusal|private bucket|\/srv\/private|internal_path/i)
+  })
+
   test('requires a saved key locally and sends no remote request', async () => {
     const { app: localApp } = await setup({ key: '' })
     const response = await request(localApp).get('/api/content-store').expect(400)
@@ -84,13 +212,13 @@ describe('Content Store commerce routes', () => {
   test('loads exact account and products with the current Story version and accepts an empty catalog', async () => {
     const { app: localApp } = await setup({ products: [] })
     const response = await request(localApp).get('/api/content-store').expect(200)
-    assert.equal(response.body.phase, 'commerce_core')
+    assert.equal(response.body.phase, 'delivery_ready')
     assert.equal(response.body.account.accountId, 'acct_a')
     assert.deepEqual(response.body.products, [])
     assert.doesNotMatch(JSON.stringify(response.body), /canonicalJson|canonicalBytes|\"raw\"/)
     assert.deepEqual(response.body.capabilities, {
-      purchase: true, receipt_verification: false, download: false,
-      install_after_purchase: false, restore: false,
+      purchase: true, receipt_verification: true, download: true,
+      install_after_purchase: true, restore: true,
     })
     assert.equal(mock.requests.filter(row => row.path === '/v1/content/account').length, 1)
     assert.match(mock.requests.find(row => row.path === '/v1/content/products')!.path, /^\/v1\/content\/products$/)

@@ -74,7 +74,11 @@ test('TTS models carry only a positive published provider submit concurrency hin
         supports_voice_cloning: false,
         preview_policy: '',
         generation_enabled: true,
-        ...(index === 0 ? { cost_tier: 'economy' } : {}),
+        ...(index === 0 ? {
+          cost_tier: 'economy',
+          locked: true,
+          lock_reason: 'requires_paid_account',
+        } : {}),
         ...(provider_submit_concurrency === undefined ? {} : { provider_submit_concurrency }),
         controls: [],
       })))
@@ -82,6 +86,9 @@ test('TTS models carry only a positive published provider submit concurrency hin
     const models = await listTtsModels('task3-tts-concurrency-parser')
     assert.deepEqual(models.map(model => (model as any).provider_submit_concurrency), [4, null, null, null, null, null])
     assert.equal(models[0]?.cost_tier, 'economy')
+    assert.equal(models[0]?.locked, true)
+    assert.equal(models[0]?.lock_reason, 'requires_paid_account')
+    assert.equal(Object.hasOwn(models[1] ?? {}, 'locked'), false)
   } finally {
     globalThis.fetch = originalFetch
     clearGenStudioCatalogCache()
@@ -419,6 +426,8 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
           id: 'chat-v1', display_name: 'Chat V1', available: true, qualification_only: false,
           provider_name: 'Published LLM creator',
           cost_tier: 'economy',
+          locked: true,
+          lock_reason: 'requires_paid_account',
           max_structured_items_per_request: 80,
           max_output_tokens: 65_536, controls: ['temperature'], activation_blockers: [],
           input_credits_per_million_tokens: 10_000,
@@ -429,6 +438,8 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
         return Response.json([{
           id: 'video-v1', display_name: 'Video V1', available: false,
           cost_tier: 'premium',
+          locked: false,
+          lock_reason: 'must-not-survive-when-unlocked',
           modes: ['image-to-video'], aspect_ratios: ['16:9'],
           variants: [{ duration_seconds: 5, resolution: '720p', credits_per_video: 12, minimum_credits: 12, price_version: 'video-v1' }],
         }])
@@ -446,11 +457,15 @@ test('GenStudio publishes normalized capability, chat, and video catalogs', asyn
     assert.equal(chat[0]?.available, true)
     assert.equal(chat[0]?.provider_name, 'Published LLM creator')
     assert.equal(chat[0]?.cost_tier, 'economy')
+    assert.equal(chat[0]?.locked, true)
+    assert.equal(chat[0]?.lock_reason, 'requires_paid_account')
     assert.equal(chat[0]?.max_structured_items_per_request, 80)
     assert.equal(chat[0]?.input_credits_per_million_tokens, 10_000)
     assert.equal(chat[0]?.price_version, 'chat-price-v1')
     assert.deepEqual(video[0]?.modes, ['image-to-video'])
     assert.equal(video[0]?.cost_tier, 'premium')
+    assert.equal(video[0]?.locked, false)
+    assert.equal(Object.hasOwn(video[0] ?? {}, 'lock_reason'), false)
     assert.equal(video[0]?.variants[0]?.price_version, 'video-v1')
   } finally {
     globalThis.fetch = originalFetch
@@ -468,6 +483,7 @@ test('GenStudio music catalog preserves only published provider details', async 
         {
           id: 'music-local-v1', display_name: 'Local Music', provider_name: 'Studio Hub',
           cost_tier: 'premium',
+          locked: true, lock_reason: 'requires_paid_account',
           description: 'Local instrumental generation', coming_soon: false,
           credits_per_request: 0, minimum_credits: 0, price_version: 'music-price-v1',
           standard_credits: null, sale_credits: null, sale_ends_at: null, sale_disclaimer: null,
@@ -494,6 +510,7 @@ test('GenStudio music catalog preserves only published provider details', async 
       {
         id: 'music-local-v1', display_name: 'Local Music', provider_name: 'Studio Hub',
         cost_tier: 'premium',
+        locked: true, lock_reason: 'requires_paid_account',
         description: 'Local instrumental generation', coming_soon: false,
         credits_per_request: 0, minimum_credits: 0, price_version: 'music-price-v1',
         standard_credits: null, sale_credits: null, sale_ends_at: null, sale_disclaimer: null,
@@ -747,6 +764,8 @@ test('GenStudio image catalog carries every published capability and invents non
           display_name: 'GenStudio Image Fast',
           provider_name: 'Published image creator',
           cost_tier: 'balanced',
+          locked: true,
+          lock_reason: 'requires_paid_account',
           aspect_ratios: ['16:9', '4:3'],
           default_aspect_ratio: '16:9',
           default_resolution: '1K',
@@ -783,6 +802,8 @@ test('GenStudio image catalog carries every published capability and invents non
     assert.equal(model?.default_resolution, '1K')
     assert.equal(model?.provider_name, 'Published image creator')
     assert.equal(model?.cost_tier, 'balanced')
+    assert.equal(model?.locked, true)
+    assert.equal(model?.lock_reason, 'requires_paid_account')
     assert.equal(model?.credits_per_image, 4)
     assert.equal(model?.availability_note, 'Fleet capacity is limited tonight.')
     assert.equal(model?.base_credits_per_image, 6)
@@ -885,6 +906,8 @@ test('GenStudio drops retired Relaxed fields from account and transcription resp
           available_workers: 3,
           qualification_only: false,
           cost_tier: 'balanced',
+          locked: true,
+          lock_reason: 'requires_paid_account',
           unlimited_relaxed: true,
         }])
       }
@@ -903,6 +926,8 @@ test('GenStudio drops retired Relaxed fields from account and transcription resp
     assert.equal((models[0] as unknown as Record<string, unknown> | undefined)?.unlimited_relaxed, undefined)
     assert.equal(models[0]?.provider, '')
     assert.equal(models[0]?.cost_tier, 'balanced')
+    assert.equal(models[0]?.locked, true)
+    assert.equal(models[0]?.lock_reason, 'requires_paid_account')
   } finally {
     globalThis.fetch = originalFetch
   }

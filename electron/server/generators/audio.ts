@@ -255,6 +255,9 @@ export async function generateAudio(job: Job): Promise<void> {
   if (!ttsModel.generation_enabled) {
     throw new Error(`GenStudio KH has generation turned off for ${ttsModel.display_name}. Choose another voice model.`)
   }
+  if (ttsModel.locked) {
+    throw new Error(`${ttsModel.display_name} is locked for this GenStudio account. Choose an unlocked voice model. No request or credit charge was made.`)
+  }
   // The published boundary, and the budget Story Studio actually plans at:
   // that boundary less the shared safety margin. `resolveTtsRequestBudget` is
   // the ONE place that decides it, and the quote route calls the same function

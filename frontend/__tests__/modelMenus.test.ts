@@ -81,6 +81,20 @@ describe('shared model menus', () => {
     assert.match(modelMenu, /No \$\{tierLabel\(activeTier\.value\)\} models are currently available\./)
   })
 
+  test('account-locked teaser models remain visible with price but cannot be selected', () => {
+    assert.match(modelMenu, /:aria-disabled="option\.disabled \|\| undefined"/)
+    assert.match(modelMenu, /if \(option\.disabled\) return/)
+    assert.match(modelSelector, /genStudioModelLockReason\(model\)/)
+    assert.match(imagePicker, /model\.locked === true/)
+    assert.match(modelSurfaces.audio, /model\.locked === true/)
+    assert.match(modelSurfaces.motion, /model\.locked === true/)
+    assert.match(transcriptionCatalog, /model\.locked === true/)
+    for (const catalog of [imageCatalog, mediaCatalog, voiceCatalog, transcriptionCatalog]) {
+      assert.match(catalog, /locked\?: boolean/)
+      assert.match(catalog, /lock_reason\?: string/)
+    }
+  })
+
   test('the image picker exposes catalog errors and heals stale saved selections silently', () => {
     assert.match(imagePicker, /v-if="error"/)
     assert.match(imagePicker, /notice-error/)

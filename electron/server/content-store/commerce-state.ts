@@ -18,6 +18,7 @@ import {
   type CachedContentPurchase,
   type CachedContentQuote,
   type CachedContentRefusal,
+  type CachedVerifiedContentRestore,
   type ContentStoreCommerceState,
 } from './types.js'
 
@@ -314,6 +315,16 @@ export async function readContentStoreCommerceState(): Promise<ContentStoreComme
   if (initial.kind === 'missing') return emptyContentStoreCommerceState()
   if (initial.kind === 'io-error') throw initial.error
   return withCommerceLock(readOrResetState)
+}
+
+/** Cache only already-verified public ownership evidence. Raw API keys and download grants never enter this journal. */
+export async function recordVerifiedContentRestore(
+  restore: CachedVerifiedContentRestore,
+): Promise<CachedVerifiedContentRestore> {
+  return mutateState(state => {
+    state.verified_restore = structuredClone(restore)
+    return structuredClone(restore)
+  })
 }
 
 async function mutateState<T>(

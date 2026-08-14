@@ -175,6 +175,28 @@ describe('resolveDefaultChatModel — live-catalog default resolution', () => {
     assert.equal(result.requestedModelId, 'genstudio-chat-retired-product')
   })
 
+  test('a removed saved selection heals only to Economy and never silently spends at Premium', async () => {
+    server = await new ChatCatalogServer().start()
+    await settings.setGenStudioUrl(server.baseUrl)
+    server.catalog = [
+      { id: 'premium-first', available: true, cost_tier: 'premium' },
+      { id: 'economy-safe', available: true, cost_tier: 'economy' },
+    ]
+    assert.equal(
+      (await resolveDefaultChatModel('gsk_test_key', 'removed-model')).modelId,
+      'economy-safe',
+    )
+
+    await server.close()
+    server = await new ChatCatalogServer().start()
+    await settings.setGenStudioUrl(server.baseUrl)
+    server.catalog = [{ id: 'premium-only', available: true, cost_tier: 'premium' }]
+    await assert.rejects(
+      resolveDefaultChatModel('gsk_test_key', 'removed-model'),
+      /Choose an Economy model explicitly|No published Economy/i,
+    )
+  })
+
   test('a saved selection that is now qualification-only is treated as unusable and heals', async () => {
     server = await new ChatCatalogServer().start()
     await settings.setGenStudioUrl(server.baseUrl)

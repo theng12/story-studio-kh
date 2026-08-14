@@ -35,7 +35,7 @@
             <div><dt>Credits charged</dt><dd>{{ formatCredits(attempt.credits_charged ?? 0) }}</dd></div>
             <div><dt>Balance after</dt><dd>{{ formatCredits(attempt.balance_after) }}</dd></div>
           </dl>
-          <p class="receipt-state">Receipt cached · verification arrives with Phase 2</p>
+          <p class="receipt-state">Signed receipt cached · use Restore purchases on the Owned shelf to verify and install.</p>
           <p v-if="attempt.replayed" class="replay-state">GenStudio safely replayed the saved purchase attempt.</p>
         </template>
 
