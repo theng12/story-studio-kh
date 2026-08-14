@@ -176,6 +176,7 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
     const record = records.find(row => row.id === sourceId)
     assert.deepEqual(record, {
       id: sourceId,
+      ...(sourceId === 'dreamscape-story-window' ? { ownerId: 'dreamscape-story-window' } : {}),
       provenance: 'owner-supplied-original',
       status: 'blocked-missing-owner-original',
       sourcePath: null,

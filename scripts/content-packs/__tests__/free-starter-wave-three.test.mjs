@@ -8,6 +8,7 @@ import sharp from 'sharp'
 import { register } from 'tsx/esm/api'
 
 const WAVE = new URL('../../../content-packs/free-starters/', import.meta.url)
+const PROVENANCE = new URL('../../../content-packs/free-starters/ASSET-PROVENANCE.md', import.meta.url)
 const BLOCKED_DREAMSCAPE_PREVIEW = new URL('../../../content-packs/free-starters/thumbnail/dreamscape-story-window/assets/dreamscape-story-window.webp', import.meta.url)
 const DOCUMENT_NAME = { formula: 'series-formula', topic: 'topic-pack', style: 'visual-style', thumbnail: 'thumbnail-recipe' }
 const kits = {
@@ -19,6 +20,11 @@ const kits = {
 const canonicalJson = value => JSON.stringify(value).toLowerCase()
 const sourcePath = url => decodeURIComponent(url.pathname)
 async function json(path) { return JSON.parse(await readFile(new URL(path, WAVE), 'utf8')) }
+function provenanceRecords(markdown) {
+  const match = markdown.match(/<!-- free-starter-preview-provenance\n([\s\S]*?)\n-->/)
+  assert.ok(match, 'ASSET-PROVENANCE.md must contain the machine-readable preview registry')
+  return JSON.parse(match[1])
+}
 
 test('wave three binds the exact wellness identities, 15-subject Topics, complete axes, and Kit closures', async () => {
   const actualCounts = []
@@ -36,6 +42,7 @@ test('wave three binds the exact wellness identities, 15-subject Topics, complet
     assert.equal(topicDoc.id, `com.storystudio.topic.${topic}`)
     assert.equal(styleDoc.id, `com.storystudio.style.${style}`)
     assert.equal(recipeDoc.id, `com.storystudio.thumbnail.${recipe}`)
+    assert.ok(recipeDoc.compatible_formula_ids.includes(formulaDoc.id), `${recipe} must declare compatibility with ${formula}`)
     assert.equal(topicDoc.subjects.length, 15)
     assert.equal(new Set(topicDoc.subjects.map(value => value.toLowerCase())).size, 15)
     for (const field of ['episode_objects', 'time_place_scopes', 'mechanisms', 'evidence_lenses', 'exclusions', 'compatibility_rules']) assert.ok(topicDoc[field]?.length, `${topic} needs ${field}`)
@@ -120,10 +127,25 @@ test('offline assignments cover every new subject deterministically and safe sou
   }
 })
 
-test('BLOCKED: Sleep Journeys requires the owner-original Dreamscape Story Window raster', async () => {
+test('BLOCKED: Dreamscape Story Window binds a future raster to its exact owner provenance', async () => {
   const recipe = await json('thumbnail/dreamscape-story-window/content/thumbnail-recipe.json')
   assert.equal(recipe.id, 'com.storystudio.thumbnail.dreamscape-story-window')
   assert.deepEqual(recipe.preview_assets, ['assets/dreamscape-story-window.webp'])
+  const record = provenanceRecords(await readFile(PROVENANCE, 'utf8')).find(row => row.id === 'dreamscape-story-window')
+  assert.ok(record, 'missing dreamscape-story-window provenance record')
+  assert.equal(record.ownerId, 'dreamscape-story-window')
+  assert.equal(record.provenance, 'owner-supplied-original')
+  const canonicalSourcePath = 'content-packs/free-starters/thumbnail/dreamscape-story-window/assets/dreamscape-story-window.webp'
+  if (record.status === 'blocked-missing-owner-original') {
+    assert.equal(record.sourcePath, null)
+    assert.equal(record.sha256, null)
+    await access(BLOCKED_DREAMSCAPE_PREVIEW)
+    return
+  }
+  assert.equal(record.status, 'approved')
+  assert.equal(record.sourcePath, canonicalSourcePath)
+  assert.match(record.sha256, /^[a-f0-9]{64}$/)
   await access(BLOCKED_DREAMSCAPE_PREVIEW)
+  assert.equal(createHash('sha256').update(await readFile(BLOCKED_DREAMSCAPE_PREVIEW)).digest('hex'), record.sha256)
   assert.deepEqual(await sharp(sourcePath(BLOCKED_DREAMSCAPE_PREVIEW)).metadata().then(({ format, width, height }) => ({ format, width, height })), { format: 'webp', width: 1672, height: 941 })
 })

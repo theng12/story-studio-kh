@@ -37,6 +37,6 @@ owner-supplied originals are added to this ledger.
   {"id":"centered-hero-headline","ownerId":"centered-hero-headline","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null},
   {"id":"portrait-block-right","ownerId":"portrait-block-right","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null},
   {"id":"prehistoric-discovery","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null},
-  {"id":"dreamscape-story-window","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null}
+  {"id":"dreamscape-story-window","ownerId":"dreamscape-story-window","provenance":"owner-supplied-original","status":"blocked-missing-owner-original","sourcePath":null,"sha256":null}
 ]
 -->
