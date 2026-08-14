@@ -385,6 +385,25 @@ describe('useContentStore explicit commerce state machine', () => {
     assert.match(store.error.value?.detail || '', /content:read/)
     assert.deepEqual(store.products.value, [])
   })
+
+  test('keeps the browser on /content-store while the mounted load reports its scope refusal', async () => {
+    window.location.href = 'http://127.0.0.1/content-store'
+    handler = () => {
+      const error: any = new Error('scope')
+      error.status = 401
+      error.data = {
+        code: 'CONTENT_STORE_SCOPE_REQUIRED',
+        detail: 'The active GenStudio key was not accepted for required content:read access.',
+      }
+      throw error
+    }
+
+    const store = useContentStore()
+    await assert.rejects(store.refresh())
+    assert.equal(window.location.pathname, '/content-store')
+    assert.equal(store.error.value?.code, 'CONTENT_STORE_SCOPE_REQUIRED')
+    assert.match(store.error.value?.detail || '', /content:read/)
+  })
 })
 
 describe('Content Store renderer contract', () => {
