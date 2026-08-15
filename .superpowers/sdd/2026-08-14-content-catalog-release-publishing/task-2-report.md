@@ -142,3 +142,27 @@ Observed RED → GREEN evidence:
 - Focused delivery/install/recovery/registry/commerce suites passed **131
   tests**. `npm run typecheck:electron`, `npm run lint -- --quiet`,
   `npm run check:security`, and `git diff --check` passed.
+
+## Fix round 3 — safeStorage envelope provenance
+
+The prior anchor used the existing app-secret file but could still read a
+plaintext fallback as an anchor. Content Store anchors now have a narrow,
+separate safeStorage boundary: production reads require a decryptable encrypted
+envelope and production writes require available OS safeStorage. A plaintext
+legacy app-secret payload may be preserved only as input to a successful online
+revalidation migration; its anchor data is discarded and can never authorize
+offline content. A malformed or undecryptable encrypted envelope is terminal,
+not reset or rewritten. The general legacy app-secret fallback remains
+unchanged for unrelated provider behavior.
+
+Node tests explicitly inject a plaintext-only anchor seam because they do not
+have an Electron OS keychain. This is a module-local test injection, not an
+environment switch and is not used by packaged runtime code. Production-mode
+probes set `STORY_STUDIO_FORCE_KEYCHAIN=1` with that seam disabled and prove:
+
+- direct plaintext anchor substitution is refused;
+- anchor write without available safeStorage is refused; and
+- encrypted-envelope ciphertext tampering is refused.
+
+The full focused suite passed **132 tests**, with Electron typecheck, quiet
+lint, security check, and diff check also passing.

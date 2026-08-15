@@ -24,7 +24,12 @@ import {
 import type { CachedContentRefusal } from '../content-store/types.js'
 import { canonicalizeContentStoreObject, parseContentStorePurchase, parseContentStoreQuote } from '../lib/genstudio-content-store.js'
 import { useTempDataDir } from './_helpers.js'
-import { appSecretsPath } from '../services/app-secrets-store.js'
+import {
+  appSecretsPath,
+  readContentStoreKeyAnchor,
+  recordContentStoreKeyAnchor,
+  setContentStoreAnchorPlaintextTestSeamForTests,
+} from '../services/app-secrets-store.js'
 
 const SIGNATURE = Buffer.alloc(64, 7).toString('base64')
 const HASH = 'a'.repeat(64)
@@ -226,6 +231,32 @@ describe('Content Store commerce state', () => {
     await assert.rejects(resolveVerifiedContentStoreSigningKey({
       accountId: 'acct_a', origin: 'https://api.genstudio.example', keyId,
     }), /anchor|disagrees/i)
+  })
+
+  test('requires a decryptable safeStorage envelope for production anchor reads and writes', async () => {
+    await isolate()
+    const anchor = {
+      origin: 'https://api.genstudio.example', account_id: 'acct_a', content_account_id: 'acct_a',
+      keys: [{ key_id: 'key_anchor', public_key_base64: Buffer.alloc(32, 9).toString('base64') }],
+    }
+    const previousForce = process.env.STORY_STUDIO_FORCE_KEYCHAIN
+    process.env.STORY_STUDIO_FORCE_KEYCHAIN = '1'
+    setContentStoreAnchorPlaintextTestSeamForTests(false)
+    try {
+      await fs.writeFile(appSecretsPath(), JSON.stringify({ schema_version: 3, providers: {}, contentStoreKeyAnchors: [anchor] }))
+      await assert.rejects(readContentStoreKeyAnchor({
+        origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
+      }), /safeStorage envelope/i)
+      await assert.rejects(recordContentStoreKeyAnchor(anchor), /requires available OS safeStorage/i)
+      await fs.writeFile(appSecretsPath(), JSON.stringify({ __encrypted: true, version: 1, ciphertext: 'tampered-not-a-real-envelope' }))
+      await assert.rejects(readContentStoreKeyAnchor({
+        origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
+      }), /undecryptable|tampered/i)
+    } finally {
+      if (previousForce === undefined) delete process.env.STORY_STUDIO_FORCE_KEYCHAIN
+      else process.env.STORY_STUDIO_FORCE_KEYCHAIN = previousForce
+      setContentStoreAnchorPlaintextTestSeamForTests(true)
+    }
   })
 
   test('persists one 0600 journal with a durable bounded idempotency key', async () => {

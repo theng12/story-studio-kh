@@ -67,6 +67,16 @@ interface EncryptedEnvelope {
   ciphertext: string
 }
 
+// The ordinary app-secret store intentionally supports a legacy plaintext
+// fallback. Receipt anchors do not: they are the independent integrity
+// boundary. Tests inject this seam explicitly because node:test has no OS
+// keychain; no environment variable can enable it in a packaged build.
+let contentStoreAnchorPlaintextTestSeam = false
+
+export function setContentStoreAnchorPlaintextTestSeamForTests(enabled: boolean): void {
+  contentStoreAnchorPlaintextTestSeam = enabled
+}
+
 function isEnvelope(raw: any): raw is EncryptedEnvelope {
   return !!raw && typeof raw === 'object' && raw.__encrypted === true
     && typeof raw.ciphertext === 'string'
@@ -218,12 +228,46 @@ export async function writeAppSecrets(
   return result
 }
 
+function decodeContentStoreAnchorState(raw: unknown, allowPlaintextMigration: boolean): AppSecretsV3 {
+  if (raw == null) return emptyV3()
+  if (isEnvelope(raw)) {
+    try { return normaliseV3(JSON.parse(decryptFromBase64(raw.ciphertext))) } catch {
+      throw new Error('Content Store key anchor safeStorage envelope is undecryptable or tampered')
+    }
+  }
+  if (contentStoreAnchorPlaintextTestSeam) return normaliseV3(raw)
+  if (allowPlaintextMigration) {
+    const migrated = normaliseV3(raw)
+    // A plaintext anchor never has provenance. Preserve unrelated legacy
+    // secrets solely so a successful online revalidation can migrate them.
+    delete migrated.contentStoreKeyAnchors
+    return migrated
+  }
+  throw new Error('Content Store key anchor is not protected by a safeStorage envelope')
+}
+
+async function mutateContentStoreAnchorState(
+  mutate: (state: AppSecretsV3) => void | Promise<void>,
+): Promise<void> {
+  const filePath = appSecretsPath()
+  await withLock(filePath, async () => {
+    const raw = await readFileRaw(filePath)
+    const state = decodeContentStoreAnchorState(raw, true)
+    await mutate(state)
+    try { await fs.mkdir(path.dirname(filePath), { recursive: true }) } catch { /* race-safe */ }
+    if (!contentStoreAnchorPlaintextTestSeam && !isEncryptionAvailable()) {
+      throw new Error('Content Store key anchor requires available OS safeStorage')
+    }
+    await writeRaw(filePath, state)
+  })
+}
+
 /** Insert-only OS-protected key mapping; a named GenStudio key can never repoint. */
 export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor): Promise<void> {
   if (!anchor.origin || !anchor.account_id || !anchor.content_account_id || !anchor.keys.length || anchor.keys.length > 100) {
     throw new Error('GenStudio Content Store key anchor is invalid')
   }
-  await writeAppSecrets(state => {
+  await mutateContentStoreAnchorState(state => {
     const anchors = state.contentStoreKeyAnchors ?? []
     const existing = anchors.find(candidate => candidate.origin === anchor.origin
       && candidate.account_id === anchor.account_id && candidate.content_account_id === anchor.content_account_id)
@@ -249,7 +293,9 @@ export async function readContentStoreKeyAnchor(input: {
   account_id: string
   content_account_id: string
 }): Promise<ContentStoreKeyAnchor | null> {
-  const anchors = (await readAppSecrets()).contentStoreKeyAnchors ?? []
+  const raw = await readFileRaw(appSecretsPath())
+  if (raw == null) return null
+  const anchors = decodeContentStoreAnchorState(raw, false).contentStoreKeyAnchors ?? []
   const found = anchors.find(anchor => anchor.origin === input.origin
     && anchor.account_id === input.account_id && anchor.content_account_id === input.content_account_id)
   return found ? { ...found, keys: found.keys.map(key => ({ ...key })) } : null
