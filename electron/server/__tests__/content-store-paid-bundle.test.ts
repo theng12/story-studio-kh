@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs/promises'
 import { afterEach, test } from 'node:test'
 
 import { ContentStoreUpstreamRefusal, confirmContentStorePurchase, createContentStoreQuote } from '../services/content-store.js'
 import { purchaseGenStudioContentProduct, quoteGenStudioContentProduct } from '../lib/genstudio-content-store.js'
-import { readContentStoreCommerceState } from '../content-store/commerce-state.js'
+import { getContentStoreStatePath, readContentStoreCommerceState } from '../content-store/commerce-state.js'
 import { setApiKey } from '../services/app-secrets-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
 import { useTempDataDir } from './_helpers.js'
@@ -77,7 +78,7 @@ async function setup() {
       { product_id: componentIds[6]!, entitlement_family: STYLE_FAMILY, component_credit_value: 0 },
       { product_id: 'cprod_history_component', entitlement_family: 'com.storystudio.topic.history-foundations', component_credit_value: 0 },
     ] }),
-    product({ productId: componentIds[0]!, family: COMPONENT_FAMILIES[0]!, kind: 'series_formula' }),
+    product({ productId: componentIds[0]!, family: COMPONENT_FAMILIES[0]!, kind: 'series_formula', price: 300 }),
     product({ productId: componentIds[1]!, family: COMPONENT_FAMILIES[1]!, kind: 'topic_pack' }),
     product({ productId: componentIds[2]!, family: COMPONENT_FAMILIES[2]!, kind: 'topic_pack' }),
     product({ productId: componentIds[3]!, family: COMPONENT_FAMILIES[3]!, kind: 'topic_pack' }),
@@ -171,4 +172,32 @@ test('replays byte-equivalent nine-family signed receipt evidence for an explici
   assert.deepEqual(service.contentPurchaseCharges, [200])
   assert.equal(service.familyGrantCount(KIT_FAMILY), 1)
   assert.equal(service.familyGrantCount(STYLE_FAMILY), 1)
+})
+
+test('settles a legacy non-bundle journal attempt once without changing its quote bytes or idempotency key', async () => {
+  const service = await setup()
+  const quoted = facts(await createContentStoreQuote({ product_id: 'cprod_archival_component_1', release_id: null }))
+  const saved = (await readContentStoreCommerceState()).attempts[quoted.quote_id]!
+  const rawState = JSON.parse(await fs.readFile(getContentStoreStatePath(), 'utf8')) as {
+    attempts: Record<string, Record<string, unknown>>
+  }
+  delete rawState.attempts[quoted.quote_id]!.entitlement_families
+  delete rawState.attempts[quoted.quote_id]!.bundle_closure
+  await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(rawState)}\n`, { mode: 0o600 })
+  const legacy = (await readContentStoreCommerceState()).attempts[quoted.quote_id]!
+  assert.equal(legacy.quote_canonical_json, saved.quote_canonical_json)
+  assert.equal(legacy.idempotency_key, saved.idempotency_key)
+  assert.equal(legacy.entitlement_families, undefined)
+  assert.equal(legacy.bundle_closure, undefined)
+
+  const completed = facts(await confirmContentStorePurchase(quoted.quote_id))
+  assert.equal(completed.status, 'completed')
+  assert.equal(service.contentPurchasePostCount, 1)
+  assert.deepEqual(service.contentPurchaseCharges, [300])
+  assert.equal(service.totalCreditsCharged, 300)
+  assert.equal(service.familyGrantCount(COMPONENT_FAMILIES[0]), 1)
+  assert.deepEqual(await confirmContentStorePurchase(quoted.quote_id), completed)
+  assert.equal(service.contentPurchasePostCount, 1, 'completed legacy settlement sends no duplicate POST')
+  assert.deepEqual(service.contentPurchaseCharges, [300])
+  assert.equal(service.familyGrantCount(COMPONENT_FAMILIES[0]), 1, 'completed legacy settlement grants once')
 })

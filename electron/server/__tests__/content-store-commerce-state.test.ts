@@ -383,6 +383,34 @@ describe('Content Store commerce state', () => {
     assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
   })
 
+  test('settles a legacy non-bundle attempt once while retaining its original quote bytes and identity key', async () => {
+    await isolate()
+    const saved = await saveQuotedAttempt(quote())
+    const originalCanonicalQuote = saved.quote_canonical_json
+    const originalIdempotencyKey = saved.idempotency_key
+    const rawState = JSON.parse(await fs.readFile(getContentStoreStatePath(), 'utf8')) as {
+      attempts: Record<string, Record<string, unknown>>
+    }
+    delete rawState.attempts.cq_test!.entitlement_families
+    delete rawState.attempts.cq_test!.bundle_closure
+    await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(rawState)}\n`, { mode: 0o600 })
+
+    const legacy = (await readContentStoreCommerceState()).attempts.cq_test!
+    assert.equal(legacy.quote_canonical_json, originalCanonicalQuote)
+    assert.equal(legacy.idempotency_key, originalIdempotencyKey)
+    assert.equal(legacy.entitlement_families, undefined)
+    assert.equal(legacy.bundle_closure, undefined)
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    const wrongProduct = purchase()
+    wrongProduct.product.value.product_id = 'cprod_different'
+    await assert.rejects(recordCompletedPurchase('cq_test', wrongProduct), /product|release/i)
+    const completed = await recordCompletedPurchase('cq_test', purchase())
+    const replay = await recordCompletedPurchase('cq_test', purchase())
+    assert.equal(completed.idempotency_key, originalIdempotencyKey)
+    assert.deepEqual(replay, completed)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'completed')
+  })
+
   test('quarantines malformed and oversized journals using a safe direct child', async () => {
     const { paths } = await isolate()
     await fs.mkdir(paths.root, { recursive: true })

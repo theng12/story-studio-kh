@@ -693,8 +693,8 @@ export async function recordCompletedPurchase(
       || purchase.release.value.release_id !== attempt.release_id) {
       throw new Error('Completed Content Store purchase product or release does not match the saved quote')
     }
-    if (!attempt.entitlement_families
-      || JSON.stringify(purchase.entitlementFamilies) !== JSON.stringify(attempt.entitlement_families)) {
+    if (attempt.entitlement_families !== undefined
+      && JSON.stringify(purchase.entitlementFamilies) !== JSON.stringify(attempt.entitlement_families)) {
       throw new Error('Completed Content Store purchase entitlement families do not match the saved quote')
     }
     const savedClosure = attempt.bundle_closure
@@ -706,7 +706,7 @@ export async function recordCompletedPurchase(
       version: component.version,
       archive_sha256: component.archiveSha256,
     }))
-    if (!savedClosure || JSON.stringify(receivedClosure) !== JSON.stringify(savedClosure)) {
+    if (savedClosure !== undefined && JSON.stringify(receivedClosure) !== JSON.stringify(savedClosure)) {
       throw new Error('Completed Content Store purchase bundle closure does not match the saved quote')
     }
     const { uncertain_detail: _uncertainDetail, submission_owner: _submissionOwner, ...retained } = attempt
