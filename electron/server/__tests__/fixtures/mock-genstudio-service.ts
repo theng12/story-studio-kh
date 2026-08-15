@@ -950,9 +950,15 @@ export class MockGenStudioService {
     const componentDiscountCredits = Number(quote.discount_credits || 0)
     const operatorDiscount = quote.operator_discount ?? null
     const operatorDiscountCredits = Number(quote.operator_discount_credits || 0)
-    const entitlementFamilies = quote.entitlement_families as string[]
-    const bundleClosure = quote.bundle_closure as Array<Record<string, unknown>>
-    const previouslyOwnedFamilies = (quote.owned_components as string[]).slice().sort()
+    const entitlementFamilies = Array.isArray(quote.entitlement_families)
+      ? quote.entitlement_families as string[]
+      : [String(product.entitlement_family)]
+    const bundleClosure = Array.isArray(quote.bundle_closure)
+      ? quote.bundle_closure as Array<Record<string, unknown>>
+      : []
+    const previouslyOwnedFamilies = Array.isArray(quote.owned_components)
+      ? (quote.owned_components as string[]).slice().sort()
+      : []
     const balanceBefore = this.contentCredits(accountId)
     if (charged > balanceBefore) throw Object.assign(new Error('insufficient credits'), { mockStatus: 402, mockCode: 'insufficient_credits' })
     const granted = this.grantContentProducts(accountId, String(product.product_id), purchaseId)

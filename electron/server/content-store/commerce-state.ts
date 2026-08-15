@@ -8,7 +8,11 @@ import { promisify } from 'node:util'
 import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
-import type { GenStudioContentPurchase, GenStudioContentQuote } from '../lib/genstudio-content-store.js'
+import {
+  canonicalizeContentStoreObject,
+  type GenStudioContentPurchase,
+  type GenStudioContentQuote,
+} from '../lib/genstudio-content-store.js'
 import {
   CachedContentQuoteSchema,
   CachedContentRefusalSchema,
@@ -530,6 +534,52 @@ function requireAttempt(state: ContentStoreCommerceState, quoteId: string): Cach
   return attempt
 }
 
+function sameCanonicalValue(left: unknown, right: unknown): boolean {
+  return canonicalizeContentStoreObject({ value: left }).canonicalJson
+    === canonicalizeContentStoreObject({ value: right }).canonicalJson
+}
+
+/**
+ * A legacy attempt is determined only by immutable signed quote bytes, never by
+ * optional journal projections that can be absent in an old state file.
+ */
+function validateSignedQuoteProjection(attempt: CachedContentQuote): boolean {
+  let signedQuote: ReturnType<typeof canonicalizeContentStoreObject>
+  try {
+    signedQuote = canonicalizeContentStoreObject(JSON.parse(attempt.quote_canonical_json))
+  } catch (error) {
+    throw new Error('Saved Content Store canonical quote is invalid', { cause: error })
+  }
+  if (signedQuote.canonicalJson !== attempt.quote_canonical_json) {
+    throw new Error('Saved Content Store canonical quote bytes are not canonical')
+  }
+  const row = signedQuote.value
+  const identity: Array<[string, string]> = [
+    ['typ', 'genstudio.content.quote.v1'],
+    ['quote_id', attempt.quote_id],
+    ['account_id', attempt.account_id],
+    ['product_id', attempt.product_id],
+    ['release_id', attempt.release_id],
+    ['entitlement_family', attempt.entitlement_family],
+  ]
+  for (const [field, expected] of identity) {
+    if (row[field] !== expected) throw new Error(`Saved Content Store signed quote ${field} does not match its journal identity`)
+  }
+  const hasFamilies = Object.hasOwn(row, 'entitlement_families')
+  const hasClosure = Object.hasOwn(row, 'bundle_closure')
+  if (hasFamilies !== hasClosure) {
+    throw new Error('Saved Content Store signed quote has a partial bundle contract and cannot settle')
+  }
+  if (!hasFamilies) return false
+  if (!Array.isArray(row.entitlement_families) || !Array.isArray(row.bundle_closure)
+    || attempt.entitlement_families === undefined || attempt.bundle_closure === undefined
+    || !sameCanonicalValue(attempt.entitlement_families, row.entitlement_families)
+    || !sameCanonicalValue(attempt.bundle_closure, row.bundle_closure)) {
+    throw new Error('Saved Content Store signed quote bundle projections drifted from canonical evidence')
+  }
+  return true
+}
+
 function replaceAttempt(state: ContentStoreCommerceState, next: CachedContentQuote): CachedContentQuote {
   const validated = CachedContentQuoteSchema.parse(next)
   state.attempts[next.quote_id] = validated
@@ -548,6 +598,7 @@ export async function claimPurchaseAttempt(quoteId: string, accountId: string): 
     if (attempt.account_id !== accountId) throw new Error('Content Store purchase account does not match the saved quote account')
     if (attempt.status === 'completed') return { outcome: 'completed', attempt }
     if (attempt.status === 'submitting') return { outcome: 'existing-submitting', attempt }
+    validateSignedQuoteProjection(attempt)
     const { uncertain_detail: _uncertainDetail, ...retained } = attempt
     const next = replaceAttempt(state, {
       ...retained,
@@ -686,6 +737,7 @@ export async function recordCompletedPurchase(
       return attempt
     }
     if (attempt.status !== 'submitting') throw new Error('Only a submitting Content Store purchase can complete')
+    const hasModernBundleContract = validateSignedQuoteProjection(attempt)
     if (purchase.accountId !== attempt.account_id) throw new Error('Completed Content Store purchase account does not match the quote account')
     if (purchase.quoteId !== attempt.quote_id) throw new Error('Completed Content Store purchase quote_id does not match the saved quote')
     if (purchase.product.value.product_id !== attempt.product_id
@@ -693,7 +745,7 @@ export async function recordCompletedPurchase(
       || purchase.release.value.release_id !== attempt.release_id) {
       throw new Error('Completed Content Store purchase product or release does not match the saved quote')
     }
-    if (attempt.entitlement_families !== undefined
+    if (hasModernBundleContract
       && JSON.stringify(purchase.entitlementFamilies) !== JSON.stringify(attempt.entitlement_families)) {
       throw new Error('Completed Content Store purchase entitlement families do not match the saved quote')
     }
@@ -706,7 +758,7 @@ export async function recordCompletedPurchase(
       version: component.version,
       archive_sha256: component.archiveSha256,
     }))
-    if (savedClosure !== undefined && JSON.stringify(receivedClosure) !== JSON.stringify(savedClosure)) {
+    if (hasModernBundleContract && JSON.stringify(receivedClosure) !== JSON.stringify(savedClosure)) {
       throw new Error('Completed Content Store purchase bundle closure does not match the saved quote')
     }
     const { uncertain_detail: _uncertainDetail, submission_owner: _submissionOwner, ...retained } = attempt

@@ -183,9 +183,15 @@ test('settles a legacy non-bundle journal attempt once without changing its quot
   }
   delete rawState.attempts[quoted.quote_id]!.entitlement_families
   delete rawState.attempts[quoted.quote_id]!.bundle_closure
+  const legacySignedQuote = JSON.parse(rawState.attempts[quoted.quote_id]!.quote_canonical_json as string) as Record<string, unknown>
+  delete legacySignedQuote.entitlement_families
+  delete legacySignedQuote.bundle_closure
+  const legacyCanonicalQuote = JSON.stringify(legacySignedQuote)
+  rawState.attempts[quoted.quote_id]!.quote_canonical_json = legacyCanonicalQuote
   await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(rawState)}\n`, { mode: 0o600 })
   const legacy = (await readContentStoreCommerceState()).attempts[quoted.quote_id]!
-  assert.equal(legacy.quote_canonical_json, saved.quote_canonical_json)
+  assert.notEqual(legacy.quote_canonical_json, saved.quote_canonical_json)
+  assert.equal(legacy.quote_canonical_json, legacyCanonicalQuote)
   assert.equal(legacy.idempotency_key, saved.idempotency_key)
   assert.equal(legacy.entitlement_families, undefined)
   assert.equal(legacy.bundle_closure, undefined)
@@ -196,8 +202,27 @@ test('settles a legacy non-bundle journal attempt once without changing its quot
   assert.deepEqual(service.contentPurchaseCharges, [300])
   assert.equal(service.totalCreditsCharged, 300)
   assert.equal(service.familyGrantCount(COMPONENT_FAMILIES[0]), 1)
+  assert.equal((await readContentStoreCommerceState()).attempts[quoted.quote_id]?.quote_canonical_json, legacyCanonicalQuote)
   assert.deepEqual(await confirmContentStorePurchase(quoted.quote_id), completed)
   assert.equal(service.contentPurchasePostCount, 1, 'completed legacy settlement sends no duplicate POST')
   assert.deepEqual(service.contentPurchaseCharges, [300])
   assert.equal(service.familyGrantCount(COMPONENT_FAMILIES[0]), 1, 'completed legacy settlement grants once')
+})
+
+test('refuses missing modern quote projections before any purchase POST, debit, or grant', async () => {
+  const service = await setup()
+  const quoted = facts(await createContentStoreQuote({ product_id: 'cprod_archival_kit', release_id: null }))
+  const rawState = JSON.parse(await fs.readFile(getContentStoreStatePath(), 'utf8')) as {
+    attempts: Record<string, Record<string, unknown>>
+  }
+  delete rawState.attempts[quoted.quote_id]!.entitlement_families
+  delete rawState.attempts[quoted.quote_id]!.bundle_closure
+  await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(rawState)}\n`, { mode: 0o600 })
+
+  await assert.rejects(confirmContentStorePurchase(quoted.quote_id), /bundle projections drifted/i)
+  await assert.rejects(confirmContentStorePurchase(quoted.quote_id), /bundle projections drifted/i)
+  assert.equal(service.contentPurchasePostCount, 0)
+  assert.equal(service.totalCreditsCharged, 0)
+  assert.deepEqual(service.grantedFamilies, [])
+  assert.equal((await readContentStoreCommerceState()).attempts[quoted.quote_id]?.status, 'quoted')
 })

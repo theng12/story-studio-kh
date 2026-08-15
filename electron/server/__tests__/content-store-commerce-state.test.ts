@@ -393,10 +393,16 @@ describe('Content Store commerce state', () => {
     }
     delete rawState.attempts.cq_test!.entitlement_families
     delete rawState.attempts.cq_test!.bundle_closure
+    const legacySignedQuote = JSON.parse(rawState.attempts.cq_test!.quote_canonical_json as string) as Record<string, unknown>
+    delete legacySignedQuote.entitlement_families
+    delete legacySignedQuote.bundle_closure
+    const legacyCanonicalQuote = JSON.stringify(legacySignedQuote)
+    rawState.attempts.cq_test!.quote_canonical_json = legacyCanonicalQuote
     await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(rawState)}\n`, { mode: 0o600 })
 
     const legacy = (await readContentStoreCommerceState()).attempts.cq_test!
-    assert.equal(legacy.quote_canonical_json, originalCanonicalQuote)
+    assert.notEqual(legacy.quote_canonical_json, originalCanonicalQuote)
+    assert.equal(legacy.quote_canonical_json, legacyCanonicalQuote)
     assert.equal(legacy.idempotency_key, originalIdempotencyKey)
     assert.equal(legacy.entitlement_families, undefined)
     assert.equal(legacy.bundle_closure, undefined)
@@ -408,6 +414,7 @@ describe('Content Store commerce state', () => {
     const replay = await recordCompletedPurchase('cq_test', purchase())
     assert.equal(completed.idempotency_key, originalIdempotencyKey)
     assert.deepEqual(replay, completed)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.quote_canonical_json, legacyCanonicalQuote)
     assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'completed')
   })
 
