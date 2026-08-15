@@ -351,6 +351,7 @@ async function verifyArchive(
     if (key.publisherId !== manifest.publisher_id) fail('publisher key does not match manifest publisher')
     if (!signatureBytes || !verifyEd25519Signature(manifestBytes, signatureBytes, key.publicKeyPem)) fail('manifest signature verification failed')
     if (manifest.delivery_profile) fail('delivery-attested profile must not use the local publisher verifier')
+  // model-drift-allow: Frozen Content Store receipt profile identifies the signed delivery attestation format.
   } else if (manifest.delivery_profile !== 'genstudio-store-receipt-v1') {
     fail('delivery-attested archive must declare the GenStudio Store receipt profile')
   }

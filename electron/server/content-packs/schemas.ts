@@ -494,6 +494,7 @@ export const ContentPackManifestSchema = z.object({
   min_app_version: exactSemver,
   lifecycle: z.enum(['active', 'retired', 'replaced']),
   /** Store delivery is receipt-attested; local and recovery packs omit this. */
+  // model-drift-allow: Frozen Content Store receipt profile is the persisted delivery manifest schema tag.
   delivery_profile: z.literal('genstudio-store-receipt-v1').optional(),
   changelog: safeText(4000).optional(),
   entitlement: z.object({

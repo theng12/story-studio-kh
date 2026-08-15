@@ -57,6 +57,7 @@ async function verifyArchiveForRequest(
   policy: ContentPackVerificationPolicy,
   resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey'],
 ): Promise<VerifiedContentPack> {
+  // model-drift-allow: Frozen Content Store source discriminator selects receipt-attested archive verification.
   if (request.source !== 'genstudio-store') {
     if (request.deliveryAttestation) throw new Error('Only GenStudio Store archives may carry delivery attestation evidence')
     return verifyContentPackArchive(archiveBytes, policy)
@@ -269,6 +270,7 @@ export async function verifyInstalledContentPackClosure(
       }
       await assertContentPackAppCompatible(verified.manifest.min_app_version, appVersion)
       for (const dependency of verified.manifest.dependencies ?? []) await visit(dependency.pack_id, dependency.version)
+      // model-drift-allow: Frozen Content Store source discriminator identifies persisted receipt-attested closure state.
       if (installed.source === 'genstudio-store' && ContentPackDeliveryAttestationSchema.parse(installed.delivery_attestation).subject === 'receipt-root') {
         const evidence = ContentPackDeliveryAttestationSchema.parse(installed.delivery_attestation)
         const closure = evidence.closure_members
@@ -277,6 +279,7 @@ export async function verifyInstalledContentPackClosure(
         for (const [index, dependency] of dependencies.entries()) {
           const pinned = closure[index]!
           const retainedDependency = state.packs[dependency.pack_id]?.versions[dependency.version]
+          // model-drift-allow: Frozen Content Store source discriminator identifies persisted receipt-attested dependency evidence.
           const dependencyEvidence = retainedDependency?.source === 'genstudio-store'
             ? retainedDependency.delivery_attestation : undefined
           if (!dependencyEvidence || dependencyEvidence.product_id !== pinned.product_id
@@ -504,6 +507,7 @@ async function installContentPackLocked(
         source: request.source,
         install_path: finalPath,
         manifest: verified.manifest,
+        // model-drift-allow: Frozen Content Store source discriminator controls persisted delivery-attestation state.
         ...(request.source === 'genstudio-store' ? {
           delivery_attestation: ContentPackDeliveryAttestationSchema.parse(request.deliveryAttestation),
         } : {}),

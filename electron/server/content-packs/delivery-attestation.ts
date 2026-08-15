@@ -102,6 +102,7 @@ export function verifyGenStudioDeliveryAttestation(
   archiveBytes: number,
   trustedPublicKeyBase64: string,
 ): void {
+  // model-drift-allow: Frozen Content Store receipt profile binds delivery evidence to its manifest format.
   if (manifest.delivery_profile !== 'genstudio-store-receipt-v1'
     || manifest.pack_id !== evidence.pack_id || manifest.version !== evidence.version
     || manifest.entitlement.family !== evidence.entitlement_family) {
