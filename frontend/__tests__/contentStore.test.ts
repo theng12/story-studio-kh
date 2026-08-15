@@ -429,6 +429,7 @@ describe('useContentStore explicit commerce state machine', () => {
 describe('Content Store renderer contract', () => {
   const page = readFileSync(fileURLToPath(new URL('../pages/content-store.vue', import.meta.url)), 'utf8')
   const card = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCard.vue', import.meta.url)), 'utf8')
+  const shelf = readFileSync(fileURLToPath(new URL('../components/content-store/ContentStoreShelf.vue', import.meta.url)), 'utf8')
   const dialog = readFileSync(fileURLToPath(new URL('../components/content-store/ContentPurchaseDialog.vue', import.meta.url)), 'utf8')
   const home = readFileSync(fileURLToPath(new URL('../pages/index.vue', import.meta.url)), 'utf8')
   const dashboard = readFileSync(fileURLToPath(new URL('../layouts/dashboard.vue', import.meta.url)), 'utf8')
@@ -441,10 +442,8 @@ describe('Content Store renderer contract', () => {
     assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|portal URL/i)
     assert.match(page, /Restore purchases/)
     assert.match(card, /Install on this Mac/)
-    assert.match(card, /showcaseVideos/)
-    assert.match(card, /Watch example videos/)
-    assert.match(card, /target="_blank"/)
-    assert.match(card, /rel="noopener noreferrer"/)
+    assert.match(card, /ContentProductCover/)
+    assert.match(card, /View proof/)
     assert.doesNotMatch(card, /iframe|v-html/)
   })
 
@@ -475,12 +474,9 @@ describe('Content Store renderer contract', () => {
   })
 
   test('covers every product kind and blocks incompatible checkout', () => {
-    for (const label of ['Series Formula', 'Topic Pack', 'Visual Style', 'Thumbnail Recipe', 'Niche Bundle']) {
-      assert.match(card, new RegExp(label))
-    }
     assert.match(card, /compatibilityReason/)
     assert.match(card, /See exact quote/)
-    assert.match(card, /Get permanently/)
+    assert.match(card, /Get free/)
     assert.doesNotMatch(card, /@click="[^\"]*purchase/i)
   })
 
@@ -529,5 +525,16 @@ describe('Content Store renderer contract', () => {
     assert.match(page, /onMounted\(\(\) => \{ void loadStore\(\) \}\)/)
     assert.match(page, /v-if="pageError"/)
     assert.doesNotMatch(page, /navigateTo\(['"]\/login['"]\)/)
+  })
+
+  test('renders shelves in server order and routes cards to proof', () => {
+    assert.match(page, /v-for="shelf in visibleShelves"/)
+    assert.match(card, /:to="`\/content-store\/\$\{product\.productId\}`"/)
+    assert.doesNotMatch(card, /included components<\/strong>/i)
+  })
+
+  test('passes current catalog tags into live filters', () => {
+    assert.match(page, /catalogPresentation/)
+    assert.match(page, /catalogPresentation\.value/)
   })
 })

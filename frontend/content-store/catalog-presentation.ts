@@ -153,7 +153,7 @@ function customerSearchText(
 export function filterCatalogProducts(
   products: readonly ContentStoreProduct[],
   query: string,
-  options: { price: 'all' | 'free' | 'paid'; kind: ContentStoreKindFilter; compatibleOnly: boolean },
+  options: { price: 'all' | 'free' | 'paid'; kind: ContentStoreKindFilter; compatibleOnly: boolean; tag?: string },
   presentations?: CatalogPresentationFixture['products'],
 ): ContentStoreProduct[] {
   const normalizedQuery = query.trim().toLocaleLowerCase()
@@ -162,6 +162,7 @@ export function filterCatalogProducts(
     if (options.price === 'paid' && product.free) return false
     if (options.kind !== 'all' && product.kind !== options.kind) return false
     if (options.compatibleOnly && !product.compatible) return false
+    if (options.tag && !(presentations?.[product.productId]?.tags || []).includes(options.tag)) return false
     if (!normalizedQuery) return true
     return customerSearchText(product, presentations).some(text =>
       typeof text === 'string' && text.toLocaleLowerCase().includes(normalizedQuery),

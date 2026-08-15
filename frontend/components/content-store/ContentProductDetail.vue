@@ -1,0 +1,87 @@
+<template>
+  <article class="content-product-detail">
+    <header class="detail-hero">
+      <ContentProductCover :product="product" />
+      <div class="detail-copy"><p class="detail-kind">{{ kindLabel }}</p><h1>{{ product.title }}</h1><p class="detail-promise">{{ product.summary }}</p><p v-if="product.description" class="detail-description">{{ product.description }}</p><div class="detail-status" role="status">{{ status }}</div></div>
+    </header>
+
+    <p v-if="!product.compatible" class="detail-warning" role="status"><strong>Not compatible with this Story Studio version.</strong>{{ product.compatibilityReason }}</p>
+
+    <section v-if="showcaseVideos.length" class="detail-section" aria-labelledby="showcase-heading">
+      <h2 id="showcase-heading">Watch example videos</h2>
+      <p>Examples are published catalog links. Opens YouTube in your default browser.</p>
+      <ul class="showcase-list"><li v-for="video in showcaseVideos" :key="video.url"><button type="button" class="showcase-link" @click="openExternalShowcase(video.url)">{{ video.title }}</button><p v-if="video.description">{{ video.description }}</p></li></ul>
+    </section>
+
+    <section class="detail-section" aria-labelledby="release-heading"><h2 id="release-heading">Release proof</h2><dl class="proof-grid"><div><dt>Publisher</dt><dd>{{ product.publisherId }}</dd></div><div><dt>Current release</dt><dd>{{ release?.version || 'Unavailable' }}</dd></div><div><dt>Minimum Story Studio version</dt><dd>{{ release?.minStoryVersion || 'Not published' }}</dd></div><div><dt>License</dt><dd>{{ product.presentation.licenseLabel || 'Not published' }}</dd></div></dl><div v-if="release?.changelog" class="changelog"><h3>Changelog</h3><p>{{ release.changelog }}</p></div></section>
+
+    <section v-if="product.bundleComponents.length || componentSummary.length" class="detail-section" aria-labelledby="components-heading"><h2 id="components-heading">Included components</h2><ul v-if="product.bundleComponents.length" class="component-list"><li v-for="component in product.bundleComponents" :key="component.productId"><span>{{ component.title }}</span><span>{{ componentVersion(component.productId) }}</span></li></ul><dl v-if="componentSummary.length" class="summary-grid"><div v-for="fact in componentSummary" :key="fact.label"><dt>{{ fact.label }}</dt><dd>{{ fact.value }}</dd></div></dl></section>
+
+    <section v-if="ownership?.recalledReleaseVersions.length" class="detail-warning" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><span>Ownership remains permanent. GenStudio stopped serving these exact versions.</span></section>
+
+    <footer class="detail-actions"><NuxtLink to="/content-store" class="back-to-store">Back to Content Store</NuxtLink><button v-if="!product.owned && !product.retired && product.compatible && release" type="button" class="btn btn-primary" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button><button v-else-if="product.owned && ownership?.downloadAvailable && ownership.installState !== 'installed_current' && release" type="button" class="btn btn-primary" :disabled="busy" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', release.releaseId)">{{ busy ? 'Installing…' : ownership.installState === 'update_available' ? 'Update' : 'Install' }}</button></footer>
+  </article>
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+import ContentProductCover from './ContentProductCover.vue'
+import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShowcaseVideo } from '~/composables/useContentStore'
+
+type OwnedContent = ContentStoreAccount['owned'][number]
+const props = defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; catalogProducts: readonly ContentStoreProduct[]; busy?: boolean }>()
+defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
+const kindLabel = computed(() => ({ series_formula: 'Series Formula', topic_pack: 'Topic Pack', visual_style: 'Visual Style', thumbnail_recipe: 'Thumbnail Recipe', niche_bundle: 'Channel Kit' })[props.product.kind])
+const release = computed(() => props.product.currentRelease)
+const showcaseVideos = computed<readonly ContentStoreShowcaseVideo[]>(() => props.ownership?.showcaseVideos.length ? props.ownership.showcaseVideos : props.product.showcaseVideos)
+const status = computed(() => {
+  if (!props.product.compatible) return 'Not compatible with this Story Studio version'
+  if (props.product.retired) return 'Retired'
+  if (!props.product.owned) return props.product.free ? 'Free to claim' : `${props.product.creditPrice.toLocaleString()} credits`
+  if (props.ownership?.installState === 'installed_current') return 'Installed'
+  if (props.ownership?.installState === 'update_available') return 'Owned · update available'
+  return 'Owned'
+})
+const componentSummary = computed(() => Object.entries(release.value?.componentSummary || {}).flatMap(([key, value]) => {
+  if (typeof value === 'number') return [{ label: factLabel(key), value: value.toLocaleString() }]
+  if (Array.isArray(value)) return [{ label: factLabel(key), value: `${value.length.toLocaleString()} items` }]
+  return []
+}))
+function factLabel(key: string): string { return key.replace(/[_-]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()) }
+function componentVersion(productId: string): string {
+  return versionFromSignedSummary(release.value?.componentSummary, productId)
+    || props.catalogProducts.find(product => product.productId === productId)?.currentRelease?.version
+    || 'Exact version not published in this catalog view'
+}
+function versionFromSignedSummary(value: unknown, productId: string): string | null {
+  if (Array.isArray(value)) {
+    for (const entry of value) { const version = versionFromSignedSummary(entry, productId); if (version) return version }
+    return null
+  }
+  if (!value || typeof value !== 'object') return null
+  const record = value as Record<string, unknown>
+  if ((record.productId === productId || record.product_id === productId) && typeof record.version === 'string' && record.version.trim()) return record.version
+  for (const entry of Object.values(record)) { const version = versionFromSignedSummary(entry, productId); if (version) return version }
+  return null
+}
+function openExternalShowcase(url: string): void {
+  let parsed: URL
+  try { parsed = new URL(url) } catch { return }
+  if (parsed.protocol !== 'https:' || !/(^|\.)youtube\.com$|(^|\.)youtu\.be$/i.test(parsed.hostname)) return
+  if (typeof window !== 'undefined' && (window as any).require) {
+    try { (window as any).require('electron').shell.openExternal(parsed.toString()); return } catch { /* browser fallback */ }
+  }
+  window.open(parsed.toString(), '_blank', 'noopener,noreferrer')
+}
+</script>
+
+<style scoped>
+.content-product-detail { display: grid; gap: 20px; }
+.detail-hero { display: grid; grid-template-columns: minmax(220px, .75fr) minmax(0, 1.25fr); gap: clamp(18px, 3vw, 34px); padding: clamp(16px, 2.3vw, 28px); border: 1px solid var(--border); border-radius: var(--radius-xl); background: var(--bg-secondary); }
+.detail-hero :deep(.product-cover) { min-height: 240px; }.detail-hero :deep(.product-cover img), .detail-hero :deep(.product-cover-fallback) { min-height: 240px; }
+.detail-copy { display: grid; align-content: center; gap: 11px; min-width: 0; }.detail-kind { color: var(--accent); font-size: var(--font-sm); font-weight: 700; }.detail-copy h1 { overflow-wrap: anywhere; font-size: clamp(30px, 4vw, 48px); letter-spacing: -.04em; line-height: 1.05; }.detail-promise { font-size: var(--font-xl); font-weight: 650; line-height: 1.45; }.detail-description { max-width: 70ch; color: var(--text-secondary); line-height: 1.55; }.detail-status { justify-self: start; padding: 5px 9px; border: 1px solid var(--border-light); border-radius: 999px; color: var(--text-secondary); font-size: var(--font-sm); }
+.detail-section { display: grid; gap: 12px; padding: clamp(16px, 2vw, 24px); border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }.detail-section h2 { font-size: var(--font-2xl); letter-spacing: -.02em; }.detail-section > p { color: var(--text-secondary); font-size: var(--font-sm); }.proof-grid, .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 12px; }.proof-grid div, .summary-grid div { min-width: 0; }.proof-grid dt, .summary-grid dt { color: var(--text-muted); font-size: var(--font-xs); }.proof-grid dd, .summary-grid dd { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }.changelog { display: grid; gap: 4px; padding-top: 12px; border-top: 1px solid var(--border); }.changelog h3 { font-size: var(--font-md); }.changelog p { color: var(--text-secondary); white-space: pre-wrap; }
+.showcase-list, .component-list { display: grid; gap: 9px; padding: 0; list-style: none; }.showcase-list li, .component-list li { display: grid; gap: 3px; min-width: 0; padding: 10px; border-radius: var(--radius-md); background: var(--bg-tertiary); }.showcase-link { width: fit-content; max-width: 100%; border: 0; background: none; color: var(--accent); cursor: pointer; font: inherit; font-weight: 700; text-align: left; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }.showcase-list p { color: var(--text-secondary); font-size: var(--font-sm); overflow-wrap: anywhere; }.component-list li { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }.component-list li span:last-child { color: var(--text-secondary); font-size: var(--font-sm); text-align: right; overflow-wrap: anywhere; }
+.detail-warning { display: grid; gap: 4px; padding: 13px; border-radius: var(--radius-lg); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); }.detail-warning strong { color: var(--warning); }.detail-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.back-to-store { color: var(--accent); font-weight: 650; text-decoration: underline; text-underline-offset: 4px; }
+@media (max-width: 680px) { .detail-hero { grid-template-columns: 1fr; }.detail-hero :deep(.product-cover), .detail-hero :deep(.product-cover img), .detail-hero :deep(.product-cover-fallback) { min-height: 190px; }.detail-actions { align-items: stretch; flex-direction: column; }.detail-actions .btn { width: 100%; justify-content: center; } }.component-list li { align-items: start; } @media (max-width: 360px) { .component-list li { grid-template-columns: 1fr; }.component-list li span:last-child { text-align: left; } }
+</style>
