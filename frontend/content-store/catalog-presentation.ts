@@ -5,6 +5,18 @@ import type {
 
 export type ContentStoreKindFilter = 'all' | ContentStoreProductKind
 
+const productKindLabels: Record<ContentStoreProductKind, string> = {
+  series_formula: 'Series Formula',
+  topic_pack: 'Topic Pack',
+  visual_style: 'Visual Style',
+  thumbnail_recipe: 'Thumbnail Recipe',
+  niche_bundle: 'Channel Kit',
+}
+
+export function contentStoreKindLabel(kind: ContentStoreProductKind): string {
+  return productKindLabels[kind]
+}
+
 export interface CatalogShelfPresentation {
   id: string
   title: string
@@ -146,6 +158,7 @@ function customerSearchText(
     product.title,
     product.summary,
     product.description,
+    contentStoreKindLabel(product.kind),
     ...(presentations?.[product.productId]?.tags || []),
   ]
 }

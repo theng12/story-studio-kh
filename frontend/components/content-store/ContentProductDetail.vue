@@ -26,12 +26,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import ContentProductCover from './ContentProductCover.vue'
+import { contentStoreKindLabel } from '~/content-store/catalog-presentation'
 import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShowcaseVideo } from '~/composables/useContentStore'
 
 type OwnedContent = ContentStoreAccount['owned'][number]
-const props = defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; catalogProducts: readonly ContentStoreProduct[]; busy?: boolean }>()
+const props = defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean }>()
 defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
-const kindLabel = computed(() => ({ series_formula: 'Series Formula', topic_pack: 'Topic Pack', visual_style: 'Visual Style', thumbnail_recipe: 'Thumbnail Recipe', niche_bundle: 'Channel Kit' })[props.product.kind])
+const kindLabel = computed(() => contentStoreKindLabel(props.product.kind))
 const release = computed(() => props.product.currentRelease)
 const showcaseVideos = computed<readonly ContentStoreShowcaseVideo[]>(() => props.ownership?.showcaseVideos.length ? props.ownership.showcaseVideos : props.product.showcaseVideos)
 const status = computed(() => {
@@ -50,8 +51,7 @@ const componentSummary = computed(() => Object.entries(release.value?.componentS
 function factLabel(key: string): string { return key.replace(/[_-]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()) }
 function componentVersion(productId: string): string {
   return versionFromSignedSummary(release.value?.componentSummary, productId)
-    || props.catalogProducts.find(product => product.productId === productId)?.currentRelease?.version
-    || 'Exact version not published in this catalog view'
+    || 'Exact included version is not published in this signed release.'
 }
 function versionFromSignedSummary(value: unknown, productId: string): string | null {
   if (Array.isArray(value)) {

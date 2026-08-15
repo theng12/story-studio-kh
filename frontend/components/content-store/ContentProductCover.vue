@@ -13,18 +13,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { contentStoreKindLabel } from '~/content-store/catalog-presentation'
 import type { ContentStoreProduct } from '~/composables/useContentStore'
 
 const props = defineProps<{ product: ContentStoreProduct }>()
 
 const coverAlt = computed(() => props.product.presentation.cover?.alt || '')
-const kindLabel = computed(() => ({
-  series_formula: 'Series Formula',
-  topic_pack: 'Topic Pack',
-  visual_style: 'Visual Style',
-  thumbnail_recipe: 'Thumbnail Recipe',
-  niche_bundle: 'Channel Kit',
-})[props.product.kind])
+const kindLabel = computed(() => contentStoreKindLabel(props.product.kind))
 
 function formatCredits(value: number): string {
   return value.toLocaleString()
