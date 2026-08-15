@@ -172,6 +172,23 @@ describe('Content Store commerce state', () => {
     assert.doesNotMatch(JSON.stringify(state), /download_url|grant_signature|gsk_/i)
   })
 
+  test('fails closed when a previously pinned GenStudio key id is repointed', async () => {
+    await isolate()
+    const restore = {
+      account_id: 'acct_a', content_account_id: 'content-acct_a', genstudio_origin: 'https://api.genstudio.example',
+      key_id: 'content-key-1', public_key_base64: Buffer.alloc(32, 4).toString('base64'),
+      receipt_canonical_json: '{"account_id":"acct_a","typ":"genstudio.content.restore.v1"}',
+      receipt_signature: SIGNATURE, verified_at: new Date().toISOString(),
+      key_history: [{ key_id: 'content-key-1', public_key_base64: Buffer.alloc(32, 4).toString('base64') }],
+    }
+    await recordVerifiedContentRestore(restore)
+    await assert.rejects(recordVerifiedContentRestore({
+      ...restore,
+      public_key_base64: Buffer.alloc(32, 5).toString('base64'),
+      key_history: [{ key_id: 'content-key-1', public_key_base64: Buffer.alloc(32, 5).toString('base64') }],
+    }), /repointed/i)
+  })
+
   test('persists one 0600 journal with a durable bounded idempotency key', async () => {
     const { paths } = await isolate()
     const saved = await saveQuotedAttempt(quote())

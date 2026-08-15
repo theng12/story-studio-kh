@@ -308,31 +308,55 @@ export async function verifyContentPackArchive(
   archiveBytes: Uint8Array,
   policy: ContentPackVerificationPolicy,
 ): Promise<VerifiedContentPack> {
-  const limits = limitsFor(policy)
+  return verifyArchive(archiveBytes, policy)
+}
+
+/**
+ * Store archives remain structurally strict, but their permanent authority is
+ * the GenStudio receipt rather than a Story publisher signature.
+ */
+export async function verifyDeliveryAttestedContentPackArchive(
+  archiveBytes: Uint8Array,
+): Promise<VerifiedContentPack> {
+  return verifyArchive(archiveBytes)
+}
+
+async function verifyArchive(
+  archiveBytes: Uint8Array,
+  policy?: ContentPackVerificationPolicy,
+): Promise<VerifiedContentPack> {
+  const limits = limitsFor(policy ?? { publisherKeys: new Map() })
   const entries = parseZipEntries(archiveBytes, limits)
   const entriesByPath = new Map(entries.map(entry => [entry.path, entry]))
   const manifestEntry = entriesByPath.get('manifest.json')
   const signatureEntry = entriesByPath.get('signature.ed25519')
-  if (!manifestEntry || !signatureEntry) fail('manifest.json and signature.ed25519 are required')
+  if (!manifestEntry || (policy && !signatureEntry)) fail('manifest.json and signature.ed25519 are required')
   if (manifestEntry.expandedBytes > limits.maxJsonBytes) fail('manifest.json exceeds JSON byte limit')
-  if (signatureEntry.expandedBytes > limits.maxSignatureBytes) fail('signature.ed25519 exceeds signature byte limit')
+  if (signatureEntry && signatureEntry.expandedBytes > limits.maxSignatureBytes) fail('signature.ed25519 exceeds signature byte limit')
 
   const manifestBytes = extractBounded(archiveBytes, manifestEntry, Math.min(limits.maxJsonBytes, limits.maxExpandedBytes))
-  const signatureBytes = extractBounded(archiveBytes, signatureEntry, Math.min(limits.maxSignatureBytes, limits.maxExpandedBytes - manifestBytes.byteLength))
-  if (signatureBytes.byteLength !== 64) fail('signature.ed25519 must be a 64-byte Ed25519 signature')
+  const signatureBytes = signatureEntry
+    ? extractBounded(archiveBytes, signatureEntry, Math.min(limits.maxSignatureBytes, limits.maxExpandedBytes - manifestBytes.byteLength))
+    : undefined
+  if (signatureBytes && signatureBytes.byteLength !== 64) fail('signature.ed25519 must be a 64-byte Ed25519 signature')
   let manifest: ContentPackManifest
   try {
     manifest = parseContentPackManifest(JSON.parse(readText(manifestBytes, 'manifest.json')))
   } catch (error) {
     fail(`manifest.json does not match the Content Pack contract (${error instanceof Error ? error.message : 'unknown error'})`)
   }
-  const key = policy.publisherKeys.get(manifest.key_id)
-  if (!key) fail(`unknown publisher key: ${manifest.key_id}`)
-  if (key.publisherId !== manifest.publisher_id) fail('publisher key does not match manifest publisher')
-  if (!verifyEd25519Signature(manifestBytes, signatureBytes, key.publicKeyPem)) fail('manifest signature verification failed')
+  if (policy) {
+    const key = policy.publisherKeys.get(manifest.key_id)
+    if (!key) fail(`unknown publisher key: ${manifest.key_id}`)
+    if (key.publisherId !== manifest.publisher_id) fail('publisher key does not match manifest publisher')
+    if (!signatureBytes || !verifyEd25519Signature(manifestBytes, signatureBytes, key.publicKeyPem)) fail('manifest signature verification failed')
+    if (manifest.delivery_profile) fail('delivery-attested profile must not use the local publisher verifier')
+  } else if (manifest.delivery_profile !== 'genstudio-store-receipt-v1') {
+    fail('delivery-attested archive must declare the GenStudio Store receipt profile')
+  }
 
   const declaredPaths = new Set(manifest.files.map(file => file.path))
-  const admittedPaths = new Set(['manifest.json', 'signature.ed25519', ...declaredPaths])
+  const admittedPaths = new Set(['manifest.json', ...(signatureEntry ? ['signature.ed25519'] : []), ...declaredPaths])
   if (isBundleOnlyCoordinationManifest(manifest) && entries.some(entry => entry.path.startsWith('content/') || entry.path.startsWith('assets/'))) {
     fail('bundle-only coordination archives must not contain content or assets')
   }
@@ -342,7 +366,7 @@ export async function verifyContentPackArchive(
   const itemsByPath = new Map(manifest.items.map(item => [item.path, item]))
   const files = new Map<string, Uint8Array>()
   const documents = new Map<string, ContentPackDocument>()
-  let actualExpanded = manifestBytes.byteLength + signatureBytes.byteLength
+  let actualExpanded = manifestBytes.byteLength + (signatureBytes?.byteLength ?? 0)
   for (const file of manifest.files) {
     const entry = entriesByPath.get(file.path)
     if (!entry) fail(`declared file is missing: ${JSON.stringify(file.path)}`)

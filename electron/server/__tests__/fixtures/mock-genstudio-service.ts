@@ -756,10 +756,18 @@ export class MockGenStudioService {
       },
     }
     const purchaseReceipts = (this.contentPurchaseRecords.get(accountId) || []).map(record => {
+      const product = this.contentProducts.find(candidate => candidate.product_id === record.productId)
+      const release = product?.current_release
+      if (!product || !release) throw new Error('Mock Content Store receipt has no product release')
       const receipt = {
         typ: 'genstudio.content.receipt.v1', key_id: 'mock-content-key', receipt_id: `crc_${record.purchaseId}`,
-        purchase_id: record.purchaseId, account_id: accountId, product_id: record.productId,
+        purchase_id: record.purchaseId, account_id: accountId,
         entitlement_families: record.entitlementFamilies, credits_charged: record.creditsCharged,
+        product: {
+          product_id: product.product_id, entitlement_family: product.entitlement_family, kind: product.kind,
+          publisher_id: product.publisher_id, title: product.title, summary: product.summary,
+        },
+        release, bundle_closure: [],
         issued_at: record.issuedAt,
       }
       return {

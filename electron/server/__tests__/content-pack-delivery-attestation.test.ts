@@ -1,0 +1,143 @@
+import assert from 'node:assert/strict'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+import { describe, test } from 'node:test'
+
+import JSZip from 'jszip'
+
+import { verifyContentPackArchive, verifyDeliveryAttestedContentPackArchive } from '../content-packs/archive.js'
+import { readGenStudioDeliveryClosure, verifyGenStudioDeliveryAttestation } from '../content-packs/delivery-attestation.js'
+import { createContentPackKeyring } from '../content-packs/keyring.js'
+import { canonicalizeContentStoreObject, parseContentStorePublicKey } from '../lib/genstudio-content-store.js'
+import { verifyContentStoreDeliveryReceipt } from '../lib/genstudio-content-store-trust.js'
+
+const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==', 'base64')
+const localKey = generateKeyPairSync('ed25519')
+const commerceKey = generateKeyPairSync('ed25519')
+const commercePublicDer = commerceKey.publicKey.export({ format: 'der', type: 'spki' })
+const COMMERCE_KEY_ID = 'content-store-test-key'
+const COMMERCE_KEY_BASE64 = commercePublicDer.subarray(commercePublicDer.byteLength - 32).toString('base64')
+
+function sha256(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex')
+}
+
+async function deliveryArchive(): Promise<Uint8Array> {
+  const document = Buffer.from(JSON.stringify({
+    kind: 'visual-style', schema_version: 1, id: 'com.storystudio.delivery-test.style', name: 'Delivery Test',
+    description: 'A delivery-attested fixture.', category: 'Test', tags: ['test'],
+    style_bible: 'Keep the scene clear.', negative_prompt: 'No text.',
+    preview_assets: ['assets/preview.png'], compatible_formula_ids: [],
+  }), 'utf8')
+  const manifest = Buffer.from(JSON.stringify({
+    pack_format: 1, pack_id: 'com.storystudio.delivery-test', publisher_id: 'com.storystudio',
+    key_id: 'com.storystudio.delivery-test', version: '1.0.0', min_app_version: '1.0.0', lifecycle: 'active',
+    delivery_profile: 'genstudio-store-receipt-v1',
+    entitlement: { sku: 'com.storystudio.delivery-test.sku', family: 'com.storystudio.delivery-test.family' },
+    bundles: [], items: [{ id: 'com.storystudio.delivery-test.style', kind: 'visual-style', schema_version: 1, path: 'content/visual-style.json' }],
+    files: [
+      { path: 'content/visual-style.json', sha256: sha256(document), bytes: document.byteLength, mime: 'application/json' },
+      { path: 'assets/preview.png', sha256: sha256(PNG_1PX), bytes: PNG_1PX.byteLength, mime: 'image/png' },
+    ],
+  }), 'utf8')
+  const zip = new JSZip()
+  zip.file('manifest.json', manifest, { createFolders: false })
+  zip.file('content/visual-style.json', document, { createFolders: false })
+  zip.file('assets/preview.png', PNG_1PX, { createFolders: false })
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
+}
+
+describe('delivery-attested Content Pack archive boundary', () => {
+  test('admits a receipt-profile archive only through the GenStudio delivery verifier', async () => {
+    const archive = await deliveryArchive()
+    const localPolicy = createContentPackKeyring([{
+      keyId: 'com.storystudio.local-test', publisherId: 'com.storystudio',
+      publicKeyPem: localKey.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+    }])
+
+    await assert.rejects(verifyContentPackArchive(archive, localPolicy), /signature|publisher/i)
+    const verified = await verifyDeliveryAttestedContentPackArchive(archive)
+    assert.equal(verified.manifest.delivery_profile, 'genstudio-store-receipt-v1')
+  })
+
+  test('binds a Store archive to the permanent signed receipt rather than the transport grant', () => {
+    const receipt = {
+      typ: 'genstudio.content.receipt.v1', key_id: COMMERCE_KEY_ID, receipt_id: 'crc_test', purchase_id: 'cpur_test',
+      account_id: 'acct_test', entitlement_families: ['com.storystudio.delivery-test.family'],
+      product: { product_id: 'cprod_test', entitlement_family: 'com.storystudio.delivery-test.family', kind: 'visual_style' },
+      release: {
+        release_id: 'crel_test', pack_id: 'com.storystudio.delivery-test', version: '1.0.0',
+        archive_sha256: 'a'.repeat(64), archive_bytes: 123, min_story_version: '1.0.0', changelog: 'First release.', component_summary: {},
+      },
+      bundle_closure: [], credits_charged: 0, issued_at: '2026-08-15T00:00:00Z',
+    }
+    const signature = sign(null, Buffer.from(canonicalizeContentStoreObject(receipt).canonicalJson, 'utf8'), commerceKey.privateKey).toString('base64')
+    const keyring = parseContentStorePublicKey({
+      key_id: COMMERCE_KEY_ID, algorithm: 'ed25519', public_key_base64: COMMERCE_KEY_BASE64,
+      payload_types: ['genstudio.content.download.v1', 'genstudio.content.quote.v1', 'genstudio.content.receipt.v1', 'genstudio.content.restore.v1'],
+      canonicalization: 'json:sorted-keys,no-whitespace,utf-8',
+    })
+    const signedReceipt = canonicalizeContentStoreObject(receipt)
+
+    assert.doesNotThrow(() => verifyContentStoreDeliveryReceipt(keyring, {
+      signedReceipt, receiptSignature: signature, keyId: COMMERCE_KEY_ID, raw: signedReceipt,
+    }, {
+      accountId: 'acct_test', productId: 'cprod_test', entitlementFamily: 'com.storystudio.delivery-test.family',
+      releaseId: 'crel_test', packId: 'com.storystudio.delivery-test', version: '1.0.0', archiveSha256: 'a'.repeat(64), archiveBytes: 123,
+    }))
+    assert.throws(() => verifyContentStoreDeliveryReceipt(keyring, {
+      signedReceipt, receiptSignature: signature, keyId: COMMERCE_KEY_ID, raw: signedReceipt,
+    }, {
+      accountId: 'acct_test', productId: 'cprod_test', entitlementFamily: 'com.storystudio.delivery-test.family',
+      releaseId: 'crel_test', packId: 'com.storystudio.delivery-test', version: '1.0.0', archiveSha256: 'b'.repeat(64), archiveBytes: 123,
+    }), /archiveSha256|archive_sha256|release/i)
+  })
+
+  test('rejects receipt evidence when its archive identity and manifest entitlement diverge', () => {
+    const receipt = {
+      typ: 'genstudio.content.receipt.v1', key_id: COMMERCE_KEY_ID, receipt_id: 'crc_test', purchase_id: 'cpur_test',
+      account_id: 'acct_test', entitlement_families: ['com.storystudio.delivery-test.family'],
+      product: { product_id: 'cprod_test', entitlement_family: 'com.storystudio.delivery-test.family', kind: 'visual_style' },
+      release: {
+        release_id: 'crel_test', pack_id: 'com.storystudio.delivery-test', version: '1.0.0',
+        archive_sha256: 'a'.repeat(64), archive_bytes: 123, min_story_version: '1.0.0', changelog: 'First release.', component_summary: {},
+      },
+      bundle_closure: [], credits_charged: 0, issued_at: '2026-08-15T00:00:00Z',
+    }
+    const receiptCanonicalJson = canonicalizeContentStoreObject(receipt).canonicalJson
+    const receiptSignature = sign(null, Buffer.from(receiptCanonicalJson, 'utf8'), commerceKey.privateKey).toString('base64')
+    const evidence = {
+      account_id: 'acct_test', product_id: 'cprod_test', entitlement_family: 'com.storystudio.delivery-test.family',
+      release_id: 'crel_test', pack_id: 'com.storystudio.delivery-test', version: '1.0.0',
+      archive_sha256: 'a'.repeat(64), archive_bytes: 123, key_id: COMMERCE_KEY_ID,
+      public_key_base64: COMMERCE_KEY_BASE64, receipt_canonical_json: receiptCanonicalJson, receipt_signature: receiptSignature,
+    }
+    const manifest = {
+      pack_id: 'com.storystudio.delivery-test', version: '1.0.0',
+      entitlement: { family: 'com.storystudio.delivery-test.family' }, delivery_profile: 'genstudio-store-receipt-v1',
+    }
+
+    assert.doesNotThrow(() => verifyGenStudioDeliveryAttestation(evidence, manifest, 'a'.repeat(64), 123))
+    assert.throws(() => verifyGenStudioDeliveryAttestation(evidence, manifest, 'b'.repeat(64), 123), /archive_sha256|archive/i)
+    assert.throws(() => verifyGenStudioDeliveryAttestation(evidence, {
+      ...manifest, entitlement: { family: 'com.storystudio.other.family' },
+    }, 'a'.repeat(64), 123), /entitlement|identity/i)
+  })
+
+  test('reads only ordered exact closure pins from signed delivery evidence', () => {
+    const payload = {
+      typ: 'genstudio.content.receipt.v1', key_id: COMMERCE_KEY_ID, bundle_closure: [{
+        position: 0, product_id: 'cprod_dependency', entitlement_family: 'com.storystudio.dependency.family',
+        release_id: 'crel_dependency', version: '1.2.3', archive_sha256: 'c'.repeat(64),
+      }],
+    }
+    assert.deepEqual(readGenStudioDeliveryClosure({
+      receipt_canonical_json: canonicalizeContentStoreObject(payload).canonicalJson,
+    }), [{
+      product_id: 'cprod_dependency', entitlement_family: 'com.storystudio.dependency.family',
+      release_id: 'crel_dependency', version: '1.2.3', archive_sha256: 'c'.repeat(64),
+    }])
+    assert.throws(() => readGenStudioDeliveryClosure({
+      receipt_canonical_json: canonicalizeContentStoreObject({ ...payload, bundle_closure: [{ ...payload.bundle_closure[0], position: 1 }] }).canonicalJson,
+    }), /closure|position/i)
+  })
+})

@@ -493,6 +493,8 @@ export const ContentPackManifestSchema = z.object({
   version: exactSemver,
   min_app_version: exactSemver,
   lifecycle: z.enum(['active', 'retired', 'replaced']),
+  /** Store delivery is receipt-attested; local and recovery packs omit this. */
+  delivery_profile: z.literal('genstudio-store-receipt-v1').optional(),
   changelog: safeText(4000).optional(),
   entitlement: z.object({
     sku: qualifiedId,

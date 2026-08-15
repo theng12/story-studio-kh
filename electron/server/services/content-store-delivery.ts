@@ -18,7 +18,8 @@ import {
   verifyContentStoreRestore,
 } from '../lib/genstudio-content-store-trust.js'
 import { recordVerifiedContentRestore } from '../content-store/commerce-state.js'
-import { verifyContentPackArchive } from '../content-packs/archive.js'
+import { verifyDeliveryAttestedContentPackArchive } from '../content-packs/archive.js'
+import type { ContentPackDeliveryAttestation } from '../content-packs/runtime-types.js'
 import {
   assertContentPackAppCompatible,
   installContentPack,
@@ -84,6 +85,7 @@ async function fetchVerifiedOwnership(): Promise<{
     receipt_canonical_json: receipts.restoreReceipt.signedReceipt.canonicalJson,
     receipt_signature: receipts.restoreReceipt.receiptSignature,
     verified_at: new Date().toISOString(),
+    key_history: publicKey.keys.map(key => ({ key_id: key.keyId, public_key_base64: key.publicKeyBase64 })),
   })
   return { apiKey, account, publicKey, receipts }
 }
@@ -167,6 +169,53 @@ function releaseKey(release: GenStudioContentRelease): string {
   return `${release.packId}@${release.version}`
 }
 
+function deliveryAttestation(
+  context: Pick<DeliveryContext, 'account' | 'publicKey' | 'receipts'>,
+  entitlement: GenStudioContentRestoreEntitlement,
+  release: GenStudioContentRelease,
+): ContentPackDeliveryAttestation {
+  const matchingReceipt = context.receipts.purchaseReceipts.find(candidate => {
+    const payload = candidate.signedReceipt.value
+    const product = payload.product as Record<string, unknown> | undefined
+    const receiptRelease = payload.release as Record<string, unknown> | undefined
+    const direct = product?.product_id === entitlement.productId
+      && product.entitlement_family === entitlement.entitlementFamily
+      && receiptRelease?.release_id === release.releaseId
+      && receiptRelease.pack_id === release.packId
+      && receiptRelease.version === release.version
+      && receiptRelease.archive_sha256 === release.archiveSha256
+      && receiptRelease.archive_bytes === release.archiveBytes
+    const closure = Array.isArray(payload.bundle_closure) && payload.bundle_closure.some(entry => {
+      const pin = entry as Record<string, unknown>
+      return pin.product_id === entitlement.productId
+        && pin.entitlement_family === entitlement.entitlementFamily
+        && pin.release_id === release.releaseId
+        && pin.version === release.version
+        && pin.archive_sha256 === release.archiveSha256
+    })
+    return direct || closure
+  })
+  if (!matchingReceipt) {
+    throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_MISSING', 'GenStudio did not return permanent signed receipt evidence for this owned release.')
+  }
+  const signingKey = context.publicKey.keys.find(key => key.keyId === matchingReceipt.keyId)
+  if (!signingKey) throw new ContentStoreLocalError(409, 'CONTENT_STORE_SIGNING_KEY_MISSING', 'GenStudio did not publish the receipt signing key.')
+  return {
+    account_id: context.account.accountId,
+    product_id: entitlement.productId,
+    entitlement_family: entitlement.entitlementFamily,
+    release_id: release.releaseId,
+    pack_id: release.packId,
+    version: release.version,
+    archive_sha256: release.archiveSha256,
+    archive_bytes: release.archiveBytes,
+    key_id: signingKey.keyId,
+    public_key_base64: signingKey.publicKeyBase64,
+    receipt_canonical_json: matchingReceipt.signedReceipt.canonicalJson,
+    receipt_signature: matchingReceipt.receiptSignature,
+  }
+}
+
 async function alreadyInstalled(
   release: GenStudioContentRelease,
   policy: DeliveryContext['policy'],
@@ -243,7 +292,8 @@ async function installOwnedEntitlement(
       archiveSha256: release.archiveSha256,
       archiveBytes: release.archiveBytes,
     })
-    const verified = await verifyContentPackArchive(archiveBytes, context.policy)
+    const evidence = deliveryAttestation(context, entitlement, release)
+    const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)
     if (verified.manifest.pack_id !== release.packId || verified.manifest.version !== release.version) {
       throw new ContentStoreLocalError(409, 'CONTENT_PACK_REMOTE_IDENTITY_MISMATCH', 'The downloaded signed pack identity does not match the owned release.')
     }
@@ -258,6 +308,7 @@ async function installOwnedEntitlement(
       expectedArchiveSha256: release.archiveSha256,
       expectedPackId: release.packId,
       expectedVersion: release.version,
+      deliveryAttestation: evidence,
     })
     const installedState = await readContentPackState()
     await verifyInstalledContentPackClosure(installedState, release.packId, release.version, context.policy)

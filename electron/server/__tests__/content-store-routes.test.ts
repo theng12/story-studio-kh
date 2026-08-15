@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, test } from 'node:test'
 
 import express from 'express'
+import JSZip from 'jszip'
 import request from 'supertest'
 
 import { readContentStoreCommerceState } from '../content-store/commerce-state.js'
@@ -50,6 +52,21 @@ function product(overrides: Record<string, unknown> = {}) {
   }
 }
 
+async function asStoreDeliveryArchive(bytes: Uint8Array): Promise<Uint8Array> {
+  const zip = await JSZip.loadAsync(bytes)
+  const manifest = JSON.parse(await zip.file('manifest.json')!.async('text'))
+  manifest.delivery_profile = 'genstudio-store-receipt-v1'
+  zip.file('manifest.json', JSON.stringify(manifest))
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
+}
+
+function archiveRelease(archive: Uint8Array, overrides: Record<string, unknown> = {}) {
+  return release({
+    archive_sha256: createHash('sha256').update(archive).digest('hex'), archive_bytes: archive.byteLength,
+    ...overrides,
+  })
+}
+
 function app() {
   const instance = express()
   instance.use(express.json({ limit: '10mb' }))
@@ -85,9 +102,9 @@ afterEach(async () => {
 
 describe('Content Store commerce routes', () => {
   test('restores same-account ownership and explicitly installs verified bytes without spending credits', async () => {
-    const archive = await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url))
+    const archive = await asStoreDeliveryArchive(await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url)))
     const ownedRelease = {
-      ...release(),
+      ...archiveRelease(archive),
       pack_id: 'com.storystudio.pack.free-recovery-test',
       version: '1.0.0',
       archive_available: true,
@@ -146,9 +163,9 @@ describe('Content Store commerce routes', () => {
   })
 
   test('does not report a locally damaged signed pack as installed', async () => {
-    const archive = await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url))
+    const archive = await asStoreDeliveryArchive(await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url)))
     const ownedRelease = {
-      ...release(),
+      ...archiveRelease(archive),
       pack_id: 'com.storystudio.pack.free-recovery-test',
       version: '1.0.0',
       archive_available: true,

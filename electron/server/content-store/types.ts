@@ -128,6 +128,11 @@ export const CachedVerifiedContentRestoreSchema = z.object({
   receipt_canonical_json: CanonicalJsonSchema,
   receipt_signature: SignatureSchema,
   verified_at: IsoDateTimeSchema,
+  /** Insert-only GenStudio key history; a key id is never allowed to repoint. */
+  key_history: z.array(z.object({
+    key_id: OpaqueIdSchema,
+    public_key_base64: boundedUtf8(512, 'Content Store public key', 1),
+  }).strict()).max(100).optional(),
 }).strict()
 
 export type CachedVerifiedContentRestore = z.infer<typeof CachedVerifiedContentRestoreSchema>

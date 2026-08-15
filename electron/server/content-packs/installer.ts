@@ -5,12 +5,20 @@ import path from 'node:path'
 
 import {
   verifyContentPackArchive,
+  verifyDeliveryAttestedContentPackArchive,
   type ContentPackVerificationPolicy,
   type VerifiedContentPack,
 } from './archive.js'
+import { readGenStudioDeliveryClosure, verifyGenStudioDeliveryAttestation } from './delivery-attestation.js'
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import { installedVersionPath, resolveVerifiedPackFile, type ContentPackRuntimePaths } from './runtime-paths.js'
-import { type ContentPackInstallRequest, type ContentPackInstallResult, type ContentPackInstalledVersion, type ContentPackRuntimeState } from './runtime-types.js'
+import {
+  ContentPackDeliveryAttestationSchema,
+  type ContentPackInstallRequest,
+  type ContentPackInstallResult,
+  type ContentPackInstalledVersion,
+  type ContentPackRuntimeState,
+} from './runtime-types.js'
 import { withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
@@ -39,6 +47,21 @@ export interface ContentPackInstallOptions {
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
+}
+
+async function verifyArchiveForRequest(
+  archiveBytes: Uint8Array,
+  request: Pick<ContentPackInstallRequest, 'source' | 'deliveryAttestation'>,
+  policy: ContentPackVerificationPolicy,
+): Promise<VerifiedContentPack> {
+  if (request.source !== 'genstudio-store') {
+    if (request.deliveryAttestation) throw new Error('Only GenStudio Store archives may carry delivery attestation evidence')
+    return verifyContentPackArchive(archiveBytes, policy)
+  }
+  const evidence = ContentPackDeliveryAttestationSchema.parse(request.deliveryAttestation)
+  const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)
+  verifyGenStudioDeliveryAttestation(evidence, verified.manifest, sha256(archiveBytes), archiveBytes.byteLength)
+  return verified
 }
 
 export interface ContentPackVersionResolutionOptions {
@@ -183,14 +206,17 @@ function nodeKey(packId: string, version: string): string {
 }
 
 export async function verifyInstalledContentPackVersion(
-  installed: Pick<ContentPackInstalledVersion, 'install_path' | 'archive_sha256'>,
+  installed: Pick<ContentPackInstalledVersion, 'install_path' | 'archive_sha256' | 'source' | 'delivery_attestation'>,
   policy: ContentPackVerificationPolicy,
 ): Promise<VerifiedContentPack> {
   if (!await existingSafeDirectory(installed.install_path)) throw new Error(`Content Pack immutable version is missing on disk: ${installed.install_path}`)
   const archivePath = resolveVerifiedPackFile(installed.install_path, 'content/archive.sspack')
   const archiveBytes = await fs.readFile(archivePath)
   if (sha256(archiveBytes) !== installed.archive_sha256) throw new Error(`Content Pack immutable archive hash does not match state: ${installed.install_path}`)
-  const verified = await verifyContentPackArchive(archiveBytes, policy)
+  const verified = await verifyArchiveForRequest(archiveBytes, {
+    source: installed.source,
+    deliveryAttestation: installed.delivery_attestation,
+  }, policy)
   for (const [relativePath, bytes] of verified.files) {
     const target = resolveVerifiedPackFile(installed.install_path, relativePath)
     const info = await fs.lstat(target)
@@ -231,6 +257,25 @@ export async function verifyInstalledContentPackClosure(
       }
       await assertContentPackAppCompatible(verified.manifest.min_app_version, appVersion)
       for (const dependency of verified.manifest.dependencies ?? []) await visit(dependency.pack_id, dependency.version)
+      if (installed.source === 'genstudio-store') {
+        const evidence = ContentPackDeliveryAttestationSchema.parse(installed.delivery_attestation)
+        const closure = readGenStudioDeliveryClosure(evidence)
+        const dependencies = verified.manifest.dependencies ?? []
+        if (closure.length !== dependencies.length) throw new Error(`GenStudio delivery closure does not match Content Pack dependencies: ${key}`)
+        for (const [index, dependency] of dependencies.entries()) {
+          const pinned = closure[index]!
+          const retainedDependency = state.packs[dependency.pack_id]?.versions[dependency.version]
+          const dependencyEvidence = retainedDependency?.source === 'genstudio-store'
+            ? retainedDependency.delivery_attestation : undefined
+          if (!dependencyEvidence || dependencyEvidence.product_id !== pinned.product_id
+            || dependencyEvidence.entitlement_family !== pinned.entitlement_family
+            || dependencyEvidence.release_id !== pinned.release_id
+            || dependencyEvidence.version !== pinned.version
+            || dependencyEvidence.archive_sha256 !== pinned.archive_sha256) {
+            throw new Error(`GenStudio delivery closure pin does not match the installed dependency: ${key}`)
+          }
+        }
+      }
       visited.set(key, verified)
       return verified
     } finally {
@@ -317,6 +362,7 @@ async function stageArchive(bytes: Uint8Array, paths: ContentPackRuntimePaths): 
 async function materialiseVerifiedPack(
   archiveBytes: Uint8Array,
   verified: VerifiedContentPack,
+  request: Pick<ContentPackInstallRequest, 'source' | 'deliveryAttestation'>,
   stagingRoot: string,
   installedRoot: string,
   finalPath: string,
@@ -337,7 +383,12 @@ async function materialiseVerifiedPack(
   await ensureExclusiveDirectory(installedRoot, path.dirname(finalPath))
   if (await existingSafeDirectory(finalPath)) {
     if (!policy) throw new Error('Content Pack verification policy is required to adopt an orphaned version')
-    const orphaned = await verifyInstalledContentPackVersion({ install_path: finalPath, archive_sha256: sha256(archiveBytes) }, policy)
+    const orphaned = await verifyInstalledContentPackVersion({
+      install_path: finalPath,
+      archive_sha256: sha256(archiveBytes),
+      source: request.source,
+      delivery_attestation: request.deliveryAttestation,
+    }, policy)
     if (canonicalJson(orphaned.manifest) !== canonicalJson(verified.manifest)) {
       throw new Error(`Content Pack immutable orphan conflicts with candidate: ${finalPath}`)
     }
@@ -389,7 +440,7 @@ async function installContentPackLocked(
   const policy = options.policy ?? await getFirstPartyContentPackVerificationPolicy()
   let verified: VerifiedContentPack
   try {
-    verified = await verifyContentPackArchive(request.archiveBytes, policy)
+    verified = await verifyArchiveForRequest(request.archiveBytes, request, policy)
   } catch (error) {
     await quarantineContentPackBytes(request.archiveBytes, 'invalid_archive', paths)
     throw error
@@ -425,7 +476,7 @@ async function installContentPackLocked(
       await verifiedManifestGraph(state, verified, policy)
       const finalPath = installedVersionPath(paths, verified.manifest)
       await options.hooks?.beforeVersionRename?.()
-      await materialiseVerifiedPack(request.archiveBytes, verified, transactionRoot, paths.installedRoot, finalPath, options.hooks, policy)
+      await materialiseVerifiedPack(request.archiveBytes, verified, request, transactionRoot, paths.installedRoot, finalPath, options.hooks, policy)
       await options.hooks?.beforeActivationWrite?.()
       const pack = state.packs[packId] ?? { discovery_disabled: false, versions: {} }
       pack.versions[version] = {
@@ -435,6 +486,9 @@ async function installContentPackLocked(
         source: request.source,
         install_path: finalPath,
         manifest: verified.manifest,
+        ...(request.source === 'genstudio-store' ? {
+          delivery_attestation: ContentPackDeliveryAttestationSchema.parse(request.deliveryAttestation),
+        } : {}),
       }
       pack.active_version = version
       state.packs[packId] = pack

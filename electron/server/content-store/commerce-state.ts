@@ -327,8 +327,20 @@ export async function recordVerifiedContentRestore(
   restore: CachedVerifiedContentRestore,
 ): Promise<CachedVerifiedContentRestore> {
   return mutateState(state => {
-    state.verified_restore = structuredClone(restore)
-    return structuredClone(restore)
+    const previous = state.verified_restore?.key_history ?? (state.verified_restore ? [{
+      key_id: state.verified_restore.key_id,
+      public_key_base64: state.verified_restore.public_key_base64,
+    }] : [])
+    const next = restore.key_history ?? [{ key_id: restore.key_id, public_key_base64: restore.public_key_base64 }]
+    for (const key of next) {
+      const pinned = previous.find(candidate => candidate.key_id === key.key_id)
+      if (pinned && pinned.public_key_base64 !== key.public_key_base64) {
+        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed locally`)
+      }
+    }
+    const key_history = [...previous, ...next.filter(key => !previous.some(candidate => candidate.key_id === key.key_id))]
+    state.verified_restore = { ...structuredClone(restore), key_history }
+    return structuredClone(state.verified_restore)
   })
 }
 
