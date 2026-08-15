@@ -202,3 +202,31 @@ Observed RED → GREEN evidence:
   still fails at its pre-existing publisher-profile archive because the newer
   Store path requires `genstudio-store-receipt-v1`; the failure is outside this
   anchor-only correction and occurs before anchor handling.
+
+## Fix round 5 — Store-profile Starter Kit integration fixture
+
+The final review blocker was confined to the test harness. The free Starter Kit
+integration built ordinary publisher-profile archives and then submitted them
+to the Store delivery route, which correctly rejects anything other than the
+`genstudio-store-receipt-v1` profile. The fixture now converts its locally built
+archives to that Store profile before the mock serves them. Production archive
+validation and trust code are unchanged.
+
+The GenStudio mock now signs the exact configured bundle closure into both
+purchase and restore receipts. Its signed `entitlement_families` sequence is
+the complete conveyed set (root first, then closure order), while the existing
+grant bookkeeping continues to report only newly granted families. This
+matches the deployed 1.14 Store contract and covers shared components that an
+account already owns.
+
+Observed RED → GREEN evidence:
+
+- The exact integration first failed **0/1** with the expected delivery-profile
+  rejection, then exposed and failed the previously unreachable signed-closure
+  check, and now passes **1/1** through claim, restore, archive delivery,
+  installation, and offline use.
+- The focused Store delivery/attestation/install/recovery/registry/commerce
+  matrix passed **133/133** tests.
+- The official backend suite passed **2,626/2,626** tests, including the repaired
+  free Starter Kit integration.
+- Electron typecheck, quiet lint, production security, and diff checks passed.

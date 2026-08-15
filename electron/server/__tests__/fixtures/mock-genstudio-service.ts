@@ -659,6 +659,22 @@ export class MockGenStudioService {
     return newGrants
   }
 
+  private contentBundleClosure(productId: string): Array<Record<string, unknown>> {
+    return (this.contentBundleComponents.get(productId) || []).map((componentProductId, position) => {
+      const component = this.contentProducts.find(candidate => candidate.product_id === componentProductId)
+      const release = component?.current_release as Record<string, unknown> | null
+      if (!component || !release) throw new Error(`Mock Content Store bundle component has no release: ${componentProductId}`)
+      return {
+        position,
+        product_id: component.product_id,
+        entitlement_family: component.entitlement_family,
+        release_id: release.release_id,
+        version: release.version,
+        archive_sha256: release.archive_sha256,
+      }
+    })
+  }
+
   private canonicalContentJson(value: unknown): string {
     if (value === null || typeof value !== 'object') return JSON.stringify(value)
     if (Array.isArray(value)) return `[${value.map(entry => this.canonicalContentJson(entry)).join(',')}]`
@@ -767,7 +783,7 @@ export class MockGenStudioService {
           product_id: product.product_id, entitlement_family: product.entitlement_family, kind: product.kind,
           publisher_id: product.publisher_id, title: product.title, summary: product.summary,
         },
-        release, bundle_closure: [],
+        release, bundle_closure: this.contentBundleClosure(record.productId),
         issued_at: record.issuedAt,
       }
       return {
@@ -970,13 +986,18 @@ export class MockGenStudioService {
     const balanceBefore = this.contentCredits(accountId)
     if (charged > balanceBefore) throw Object.assign(new Error('insufficient credits'), { mockStatus: 402, mockCode: 'insufficient_credits' })
     const granted = this.grantContentProducts(accountId, String(product.product_id), purchaseId)
+    const bundleClosure = this.contentBundleClosure(String(product.product_id))
+    const entitlementFamilies = [
+      String(product.entitlement_family),
+      ...bundleClosure.map(pin => String(pin.entitlement_family)),
+    ]
     const balanceAfter = balanceBefore - charged
     this.contentAccountCredits.set(accountId, balanceAfter)
     this.totalCreditsCharged += charged
     this.contentPurchaseCharges.push(charged)
     const issuedAt = '2026-08-14T09:12:44Z'
     const record: MockContentPurchaseRecord = {
-      purchaseId, productId: String(product.product_id), entitlementFamilies: granted.map(entry => String(entry.entitlement_family)),
+      purchaseId, productId: String(product.product_id), entitlementFamilies,
       creditsCharged: charged, issuedAt,
     }
     const records = this.contentPurchaseRecords.get(accountId) || []

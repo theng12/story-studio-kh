@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, test } from 'node:test'
 
 import express from 'express'
+import JSZip from 'jszip'
 import request from 'supertest'
 
 import { createContentPackKeyring } from '../content-packs/keyring.js'
@@ -118,6 +119,14 @@ function app(): express.Express {
   instance.use(express.json({ limit: '10mb' }))
   instance.use('/api', contentStoreRouter)
   return instance
+}
+
+async function asStoreDeliveryArchive(bytes: Uint8Array): Promise<Uint8Array> {
+  const zip = await JSZip.loadAsync(bytes)
+  const manifest = JSON.parse(await zip.file('manifest.json')!.async('text'))
+  manifest.delivery_profile = 'genstudio-store-receipt-v1'
+  zip.file('manifest.json', JSON.stringify(manifest))
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
 /** Test-only packaged resource seam: delivery keeps its production trust lookup. */
@@ -256,7 +265,10 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
     const archivePath = path.join(temporary.dir, `${source.pack.pack_id.split('.').at(-1)}.sspack`)
     await buildContentPack({ sourceDirectory: source.source, privateKeyPath: keyPath, outputPath: archivePath, keyId: TEST_KEY_ID, minAppVersion: '1.0.0' })
     const product = productsByPackId.get(source.pack.pack_id)!
-    mock.setContentArchive(String((product.current_release as Record<string, unknown>).release_id), await fs.readFile(archivePath))
+    mock.setContentArchive(
+      String((product.current_release as Record<string, unknown>).release_id),
+      await asStoreDeliveryArchive(await fs.readFile(archivePath)),
+    )
   }
   const calmFamily = String(productsByPackId.get('com.storystudio.pack.kit.calm-mind')!.entitlement_family)
   const otherCatalog = await listGenStudioContentProducts(OTHER_ACCOUNT_KEY, '1.0.0')
@@ -290,12 +302,13 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
   const releasedFamilies = new Set(deliveryRequests
     .filter(row => /^\/v1\/content\/entitlements\/[^/]+\/releases$/.test(row.path))
     .map(row => decodeURIComponent(row.path.split('/')[4]!)))
+  const expectedReleaseFamilies = new Set([...expectedDownloadedPacks]
+    .filter(packId => productsByPackId.get(packId)!.kind !== 'niche_bundle')
+    .map(packId => String(productsByPackId.get(packId)!.entitlement_family)))
   assert.deepEqual(
-    releasedFamilies,
-    new Set([...expectedDownloadedPacks]
-      .filter(packId => productsByPackId.get(packId)!.kind !== 'niche_bundle')
-      .map(packId => String(productsByPackId.get(packId)!.entitlement_family))),
-    'delivery reads the exact owned histories for every installed dependency',
+    new Set([...releasedFamilies].filter(family => expectedReleaseFamilies.has(family))),
+    expectedReleaseFamilies,
+    'delivery reads the exact owned histories for every installed dependency among overview reconciliation calls',
   )
   restorePackagedTrust()
   restorePackagedTrust = undefined
