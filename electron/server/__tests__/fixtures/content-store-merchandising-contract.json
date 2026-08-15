@@ -1,0 +1,129 @@
+{
+  "products_response": {
+    "products": [
+      {
+        "product_id": "cprod_archival_ledger",
+        "entitlement_family": "com.storystudio.family.archival-ledger",
+        "kind": "niche_bundle",
+        "title": "Archival Ledger",
+        "summary": "A documentary research system.",
+        "description": "Build evidence-led archival stories.",
+        "publisher_id": "com.storystudio",
+        "credit_price": 2000,
+        "free": false,
+        "owned": false,
+        "retired": false,
+        "successor_product_id": null,
+        "current_release": null,
+        "compatible": true,
+        "compatibility_reason": null,
+        "bundle_components": [],
+        "owned_component_credit_value": 0,
+        "showcase_videos": [
+          {
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "title": "Archival Ledger walkthrough",
+            "description": "A public catalog example."
+          }
+        ],
+        "cover": {
+          "url": "https://catalog.example.test/media/archival-ledger-cover.webp",
+          "alt": "An archival ledger beside documentary research notes"
+        },
+        "hero": {
+          "url": "https://catalog.example.test/media/archival-ledger-hero.webp",
+          "alt": "A wide archival ledger and documentary research desk"
+        },
+        "tags": ["documentary", "archive"],
+        "license": {
+          "label": "Story Studio Content Pack License",
+          "text": "Use this pack in Story Studio projects.\nDo not redistribute the archive."
+        },
+        "discount": {
+          "discount_id": "cdsc_archival_ledger",
+          "version": 1,
+          "percent": 90,
+          "starts_on": null,
+          "ends_on": "2026-12-31",
+          "timezone": "Asia/Phnom_Penh",
+          "list_credit_price": 2000,
+          "discounted_credit_price": 200
+        }
+      },
+      {
+        "product_id": "cprod_free_starter",
+        "entitlement_family": "com.storystudio.family.free-starter",
+        "kind": "series_formula",
+        "title": "Free Starter",
+        "summary": "A free starter formula.",
+        "description": "Start a documented series.",
+        "publisher_id": "com.storystudio",
+        "credit_price": 0,
+        "free": true,
+        "owned": false,
+        "retired": false,
+        "successor_product_id": null,
+        "current_release": null,
+        "compatible": true,
+        "compatibility_reason": null,
+        "bundle_components": [],
+        "owned_component_credit_value": 0,
+        "showcase_videos": [],
+        "cover": null,
+        "hero": null,
+        "tags": [],
+        "license": null,
+        "discount": null
+      },
+      {
+        "product_id": "cprod_production_look",
+        "entitlement_family": "com.storystudio.family.production-look",
+        "kind": "visual_style",
+        "title": "Production Look",
+        "summary": "A production visual style.",
+        "description": "A publishable visual language.",
+        "publisher_id": "com.storystudio",
+        "credit_price": 300,
+        "free": false,
+        "owned": false,
+        "retired": false,
+        "successor_product_id": null,
+        "current_release": null,
+        "compatible": true,
+        "compatibility_reason": null,
+        "bundle_components": [],
+        "owned_component_credit_value": 0,
+        "showcase_videos": [],
+        "cover": null,
+        "hero": null,
+        "tags": ["visual"],
+        "license": null,
+        "discount": null
+      }
+    ]
+  },
+  "shelves_response": {
+    "shelves": [
+      {
+        "shelf_id": "cshf_specialist",
+        "title": "Specialist Channel Kits",
+        "position": 7,
+        "product_ids": ["cprod_archival_ledger"]
+      },
+      {
+        "shelf_id": "cshf_starters",
+        "title": "Free Starter Kits",
+        "position": 11,
+        "product_ids": ["cprod_free_starter"]
+      }
+    ],
+    "fallback_product_ids": ["cprod_production_look"]
+  },
+  "expected_story_order": [
+    ["cprod_archival_ledger"],
+    ["cprod_free_starter"],
+    ["cprod_production_look"]
+  ],
+  "expected_cover_url": "https://catalog.example.test/media/archival-ledger-cover.webp",
+  "expected_license_label": "Story Studio Content Pack License"
+}

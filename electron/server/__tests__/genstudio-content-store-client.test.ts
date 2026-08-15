@@ -10,6 +10,7 @@ import {
   listGenStudioContentProducts,
   parseContentStoreAccount,
   parseContentStoreCatalog,
+  parseContentStoreShelves,
   parseContentStorePurchase,
   parseContentStoreQuote,
   purchaseGenStudioContentProduct,
@@ -21,6 +22,7 @@ import { useTempDataDir } from './_helpers.js'
 const SIGNATURE = Buffer.alloc(64, 7).toString('base64')
 const HASH = 'a'.repeat(64)
 const PACKAGE_VERSION = JSON.parse(await fs.readFile(new URL('../../../package.json', import.meta.url), 'utf8')).version
+const MERCHANDISING_FIXTURE = new URL('./fixtures/content-store-merchandising-contract.json', import.meta.url)
 
 function release(overrides: Record<string, unknown> = {}) {
   return {
@@ -64,6 +66,11 @@ function product(overrides: Record<string, unknown> = {}) {
       future_component_fact: 'kept',
     }],
     owned_component_credit_value: 100,
+    cover: null,
+    hero: null,
+    tags: [],
+    license: null,
+    discount: null,
     future_product_fact: ['kept'],
     ...overrides,
   }
@@ -162,6 +169,47 @@ function purchase(overrides: Record<string, unknown> = {}) {
 }
 
 describe('GenStudio Content Store 0.21 canonical parser', () => {
+  test('preserves published shelves, media, tags, license, and discount display facts', async () => {
+    const wire = JSON.parse(await fs.readFile(MERCHANDISING_FIXTURE, 'utf8'))
+    const catalog = parseContentStoreCatalog(wire.products_response)
+    const shelves = parseContentStoreShelves(
+      wire.shelves_response,
+      catalog.products.map(product => product.productId),
+    )
+
+    assert.deepEqual(
+      [...shelves.shelves.map(shelf => shelf.productIds), shelves.fallbackProductIds],
+      wire.expected_story_order,
+    )
+    assert.equal(catalog.products[0]?.cover?.url, wire.expected_cover_url)
+    assert.equal(catalog.products[0]?.hero?.url, 'https://catalog.example.test/media/archival-ledger-hero.webp')
+    assert.equal(catalog.products[0]?.license?.label, wire.expected_license_label)
+    assert.deepEqual(catalog.products[0]?.tags, ['documentary', 'archive'])
+    assert.equal(catalog.products[0]?.discount?.discountedCreditPrice, 200)
+    assert.deepEqual(catalog.products[0]?.showcaseVideos, wire.products_response.products[0].showcase_videos)
+  })
+
+  test('refuses malformed merchandising facts before a catalog can hide or misrepresent a product', async () => {
+    const wire = JSON.parse(await fs.readFile(MERCHANDISING_FIXTURE, 'utf8'))
+    const product = wire.products_response.products[0]
+
+    assert.throws(() => parseContentStoreCatalog({ products: [{ ...product, cover: { ...product.cover, url: 'http://catalog.example.test/cover.webp' } }] }), /cover|https/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [{ ...product, cover: { ...product.cover, url: 'https://catalog.example.test/v1%2Fcontent%2Farchives%2Fsecret' } }] }), /cover|archive/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [{ ...product, cover: null, hero: product.hero }] }), /hero|cover/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [{ ...product, tags: Array.from({ length: 13 }, () => 'tag') }] }), /tags|12/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [{ ...product, tags: ['Archive', 'archive'] }] }), /tags|unique/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [{ ...product, license: { ...product.license, label: 'a'.repeat(121) } }] }), /license|120/i)
+    assert.throws(() => parseContentStoreCatalog({ products: [{ ...product, license: { ...product.license, text: 'a'.repeat(8001) } }] }), /license|8000/i)
+    const withoutTags = { ...product }
+    delete withoutTags.tags
+    assert.throws(() => parseContentStoreCatalog({ products: [withoutTags] }), /tags/i)
+
+    const productIds = wire.products_response.products.map((entry: { product_id: string }) => entry.product_id)
+    assert.throws(() => parseContentStoreShelves({ shelves: [{ ...wire.shelves_response.shelves[0], product_ids: ['unknown'] }], fallback_product_ids: productIds.slice(1) }, productIds), /unknown/i)
+    assert.throws(() => parseContentStoreShelves({ shelves: wire.shelves_response.shelves, fallback_product_ids: ['cprod_archival_ledger', 'cprod_production_look'] }, productIds), /duplicate/i)
+    assert.throws(() => parseContentStoreShelves({ shelves: wire.shelves_response.shelves, fallback_product_ids: [] }, productIds), /missing/i)
+  })
+
   test('preserves the complete signed quote while canonicalising recursively', () => {
     const parsed = parseContentStoreQuote(quote())
     const exact = parseContentStoreQuote(quote({ quote: signedQuote({

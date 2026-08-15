@@ -5,6 +5,7 @@ import {
   getGenStudioContentAccount,
   getGenStudioContentReceipts,
   listGenStudioContentProducts,
+  listGenStudioContentStoreShelves,
   purchaseGenStudioContentProduct,
   parseContentStorePublicKey,
   quoteGenStudioContentProduct,
@@ -77,15 +78,43 @@ export type PublicContentRelease = Omit<GenStudioContentProduct['currentRelease'
   componentSummary: Record<string, unknown>
 }
 
-export type PublicContentProduct = Omit<GenStudioContentProduct, 'raw' | 'currentRelease' | 'bundleComponents'> & {
+export interface PublicContentProductPresentation {
+  cover: { src: string; alt: string } | null
+  licenseLabel: string | null
+  tags: string[]
+}
+
+export interface PublicContentProductDiscount {
+  id: string
+  version: number
+  percent: number
+  startsOn: string | null
+  endsOn: string | null
+  timezone: 'Asia/Phnom_Penh'
+  listCreditPrice: number
+  discountedCreditPrice: number
+}
+
+export interface PublicContentStoreShelf {
+  id: string
+  title: string
+  productIds: string[]
+}
+
+export type PublicContentProduct = Omit<GenStudioContentProduct,
+  'raw' | 'currentRelease' | 'bundleComponents' | 'cover' | 'hero' | 'tags' | 'license' | 'discount'
+> & {
   currentRelease: PublicContentRelease | null
   bundleComponents: Array<Omit<GenStudioContentProduct['bundleComponents'][number], 'raw'>>
+  presentation: PublicContentProductPresentation
+  discount: PublicContentProductDiscount | null
 }
 
 export interface ContentStoreOverview {
   phase: 'delivery_ready'
   account: PublicContentAccount
   products: PublicContentProduct[]
+  shelves: PublicContentStoreShelf[]
   attempts: PublicContentPurchaseAttempt[]
   capabilities: {
     purchase: true
@@ -231,6 +260,21 @@ function publicProduct(product: GenStudioContentProduct): PublicContentProduct {
     })),
     ownedComponentCreditValue: product.ownedComponentCreditValue,
     showcaseVideos: product.showcaseVideos,
+    presentation: {
+      cover: product.cover ? { src: product.cover.url, alt: product.cover.alt } : null,
+      licenseLabel: product.license?.label ?? null,
+      tags: [...product.tags],
+    },
+    discount: product.discount ? {
+      id: product.discount.discountId,
+      version: product.discount.version,
+      percent: product.discount.percent,
+      startsOn: product.discount.startsOn,
+      endsOn: product.discount.endsOn,
+      timezone: product.discount.timezone,
+      listCreditPrice: product.discount.listCreditPrice,
+      discountedCreditPrice: product.discount.discountedCreditPrice,
+    } : null,
   }
 }
 
@@ -298,8 +342,10 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     }
     throw error
   }
-  const [catalog, receipts] = await Promise.all([
-    listGenStudioContentProducts(apiKey, await resolveStoryStudioVersion()),
+  const storyVersion = await resolveStoryStudioVersion()
+  const catalog = await listGenStudioContentProducts(apiKey, storyVersion)
+  const [shelfResponse, receipts] = await Promise.all([
+    listGenStudioContentStoreShelves(apiKey, storyVersion, catalog.products.map(product => product.productId)),
     getGenStudioContentReceipts(apiKey),
   ])
   if (receipts.accountId !== account.accountId || receipts.contentAccountId !== account.contentAccountId) {
@@ -321,6 +367,12 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     phase: 'delivery_ready',
     account: await publicAccount(account, verifiedFamilies, installStates, recalledVersionsByFamily),
     products: catalog.products.map(publicProduct),
+    shelves: [
+      ...shelfResponse.shelves.map(shelf => ({ id: shelf.shelfId, title: shelf.title, productIds: [...shelf.productIds] })),
+      ...(shelfResponse.fallbackProductIds.length > 0
+        ? [{ id: 'fallback', title: 'More Content', productIds: [...shelfResponse.fallbackProductIds] }]
+        : []),
+    ],
     attempts: await localAttempts(account.accountId),
     capabilities: {
       purchase: true,

@@ -26,8 +26,19 @@ const completeOverview = {
         minStoryVersion: '1.0.834', changelog: 'First release.', componentSummary: {},
       },
       bundleComponents: [], ownedComponentCreditValue: 0,
+      presentation: {
+        cover: { src: 'https://catalog.example.test/covers/archive-formula.webp', alt: 'Archive Formula cover' },
+        licenseLabel: 'Story Studio Content Pack License',
+        tags: ['documentary', 'archive'],
+      },
+      discount: {
+        id: 'cdsc_archive_formula', version: 1, percent: 25,
+        startsOn: null, endsOn: '2026-12-31', timezone: 'Asia/Phnom_Penh',
+        listCreditPrice: 400, discountedCreditPrice: 300,
+      },
     },
   ],
+  shelves: [{ id: 'cshf_featured', title: 'Featured', productIds: ['formula'] }],
   attempts: [],
   capabilities: {
     purchase: true, receipt_verification: true, download: true,
@@ -54,6 +65,15 @@ beforeEach(() => {
 })
 
 describe('useContentStore explicit commerce state machine', () => {
+  test('retains server-normalized merchandising facts without deriving a price or shelf', async () => {
+    const store = useContentStore()
+    await store.refresh()
+
+    assert.deepEqual(store.shelves.value, completeOverview.shelves)
+    assert.deepEqual(store.products.value[0]?.presentation, completeOverview.products[0]?.presentation)
+    assert.deepEqual(store.products.value[0]?.discount, completeOverview.products[0]?.discount)
+  })
+
   test('loads only on explicit refresh and never polls or purchases on its own', async () => {
     const store = useContentStore()
     assert.equal(calls.length, 0)

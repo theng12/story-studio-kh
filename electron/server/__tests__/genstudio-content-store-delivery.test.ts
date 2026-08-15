@@ -193,6 +193,7 @@ describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
       title: 'Test', summary: '', description: '', publisher_id: 'com.storystudio', credit_price: 0,
       free: true, owned: true, retired: false, successor_product_id: null, compatible: true,
       compatibility_reason: null, bundle_components: [], owned_component_credit_value: 0,
+      cover: null, hero: null, tags: [], license: null, discount: null,
     }
     const parsed = parseContentStoreCatalog({ products: [
       { ...base, current_release: release() },

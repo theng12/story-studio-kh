@@ -87,6 +87,27 @@ export interface GenStudioShowcaseVideo {
   description: string
 }
 
+export interface GenStudioContentMedia {
+  url: string
+  alt: string
+}
+
+export interface GenStudioContentLicense {
+  label: string
+  text: string
+}
+
+export interface GenStudioContentDiscount {
+  discountId: string
+  version: number
+  percent: number
+  startsOn: string | null
+  endsOn: string | null
+  timezone: 'Asia/Phnom_Penh'
+  listCreditPrice: number
+  discountedCreditPrice: number
+}
+
 export interface GenStudioContentProduct {
   productId: string
   entitlementFamily: string
@@ -106,6 +127,11 @@ export interface GenStudioContentProduct {
   bundleComponents: GenStudioContentBundleComponent[]
   ownedComponentCreditValue: number
   showcaseVideos: GenStudioShowcaseVideo[]
+  cover: GenStudioContentMedia | null
+  hero: GenStudioContentMedia | null
+  tags: string[]
+  license: GenStudioContentLicense | null
+  discount: GenStudioContentDiscount | null
   raw: CanonicalJsonObject
 }
 
@@ -132,6 +158,19 @@ export interface GenStudioContentAccount {
 
 export interface GenStudioContentCatalog {
   products: GenStudioContentProduct[]
+  raw: CanonicalJsonObject
+}
+
+export interface GenStudioContentStoreShelf {
+  shelfId: string
+  title: string
+  position: number
+  productIds: string[]
+}
+
+export interface GenStudioContentStoreShelves {
+  shelves: GenStudioContentStoreShelf[]
+  fallbackProductIds: string[]
   raw: CanonicalJsonObject
 }
 
@@ -384,6 +423,106 @@ function optionalTextArray(record: Record<string, unknown>, key: string): string
   return record[key] === undefined ? [] : textArray(record, key)
 }
 
+function boundedPlainText(value: unknown, field: string, min: number, max: number, allowNewlines = false): string {
+  if (typeof value !== 'string') throw new Error(`${field} must be a string`)
+  const length = [...value].length
+  if (length < min || length > max) throw new Error(`${field} must contain ${min}-${max} characters`)
+  for (const character of value) {
+    if (character === '<' || character === '>'
+      || (/\p{Cc}/u.test(character) && (!allowNewlines || character !== '\n'))) {
+      throw new Error(`${field} must be plain text`)
+    }
+  }
+  return value
+}
+
+function canonicalMarketingUrl(value: unknown, field: string): string {
+  if (typeof value !== 'string' || [...value].length > 2_048) throw new Error(`${field} must be an HTTPS URL no longer than 2048 characters`)
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    throw new Error(`${field} must be a valid HTTPS URL`)
+  }
+  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port
+    || parsed.search || parsed.hash || !parsed.hostname.includes('.')) {
+    throw new Error(`${field} must be a canonical HTTPS marketing URL`)
+  }
+  let decodedPath: string
+  try {
+    decodedPath = decodeURIComponent(parsed.pathname)
+  } catch {
+    throw new Error(`${field} must contain a valid URL path`)
+  }
+  if (decodedPath.includes('/v1/content/archives')) {
+    throw new Error(`${field} must not reference gated content archives`)
+  }
+  return `https://${parsed.hostname.toLowerCase()}${parsed.pathname}`
+}
+
+function parseContentMedia(value: unknown, field: string): GenStudioContentMedia | null {
+  if (value === null) return null
+  const row = plainObject(value, field)
+  return {
+    url: canonicalMarketingUrl(row.url, `${field}.url`),
+    alt: boundedPlainText(row.alt, `${field}.alt`, 1, 200),
+  }
+}
+
+function nullableDate(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key]
+  if (value === null) return null
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`${key} must be a YYYY-MM-DD date or null`)
+  const [year, month, day] = value.split('-').map(Number)
+  const date = new Date(Date.UTC(year!, month! - 1, day!))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month! - 1 || date.getUTCDate() !== day) {
+    throw new Error(`${key} must be a calendar date`)
+  }
+  return value
+}
+
+function parseTags(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 12) throw new Error('tags must contain at most 12 entries')
+  const seen = new Set<string>()
+  return value.map((tag, index) => {
+    const parsed = boundedPlainText(tag, `tags[${index}]`, 1, 40)
+    const normalized = parsed.toLocaleLowerCase()
+    if (seen.has(normalized)) throw new Error('tags must be case-insensitively unique')
+    seen.add(normalized)
+    return parsed
+  })
+}
+
+function parseLicense(value: unknown): GenStudioContentLicense | null {
+  if (value === null) return null
+  const row = plainObject(value, 'license')
+  return {
+    label: boundedPlainText(row.label, 'license.label', 1, 120),
+    text: boundedPlainText(row.text, 'license.text', 1, 8_000, true),
+  }
+}
+
+function parseDiscount(value: unknown, free: boolean): GenStudioContentDiscount | null {
+  if (value === null) return null
+  if (free) throw new Error('discount must be null for a free product')
+  const row = plainObject(value, 'discount')
+  const percent = uint(row, 'percent')
+  if (percent < 1 || percent > 99) throw new Error('discount.percent must be between 1 and 99')
+  const version = uint(row, 'version')
+  if (version < 1) throw new Error('discount.version must be at least 1')
+  if (row.timezone !== 'Asia/Phnom_Penh') throw new Error('discount.timezone must be Asia/Phnom_Penh')
+  return {
+    discountId: text(row, 'discount_id'),
+    version,
+    percent,
+    startsOn: nullableDate(row, 'starts_on'),
+    endsOn: nullableDate(row, 'ends_on'),
+    timezone: 'Asia/Phnom_Penh',
+    listCreditPrice: uint(row, 'list_credit_price'),
+    discountedCreditPrice: uint(row, 'discounted_credit_price'),
+  }
+}
+
 function strictBase64(value: string, field: string, expectedBytes?: number): Uint8Array {
   if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
     throw new Error(`${field} must be valid base64`)
@@ -480,6 +619,9 @@ function parseProduct(value: unknown): GenStudioContentProduct {
   const creditPrice = uint(row, 'credit_price')
   const free = bool(row, 'free')
   if (free !== (creditPrice === 0)) throw new Error('free must match whether credit_price is zero')
+  const cover = parseContentMedia(row.cover, 'cover')
+  const hero = parseContentMedia(row.hero, 'hero')
+  if (hero !== null && cover === null) throw new Error('hero must be null when cover is null')
   return {
     productId: text(row, 'product_id'),
     entitlementFamily: text(row, 'entitlement_family'),
@@ -511,6 +653,11 @@ function parseProduct(value: unknown): GenStudioContentProduct {
     }),
     ownedComponentCreditValue: uint(row, 'owned_component_credit_value'),
     showcaseVideos: parseShowcaseVideos(row.showcase_videos, 'showcase_videos'),
+    cover,
+    hero,
+    tags: parseTags(row.tags),
+    license: parseLicense(row.license),
+    discount: parseDiscount(row.discount, free),
     raw,
   }
 }
@@ -544,7 +691,52 @@ export function parseContentStoreAccount(value: unknown): GenStudioContentAccoun
 
 export function parseContentStoreCatalog(value: unknown): GenStudioContentCatalog {
   const raw = canonicalizeContentStoreObject(value)
-  return { products: array(raw.value, 'products').map(parseProduct), raw }
+  const products = array(raw.value, 'products').map(parseProduct)
+  const ids = new Set<string>()
+  for (const product of products) {
+    if (ids.has(product.productId)) throw new Error(`products contains duplicate product_id ${product.productId}`)
+    ids.add(product.productId)
+  }
+  return { products, raw }
+}
+
+export function parseContentStoreShelves(
+  value: unknown,
+  visibleProductIds: readonly string[],
+): GenStudioContentStoreShelves {
+  const raw = canonicalizeContentStoreObject(value)
+  const visible = new Set(visibleProductIds)
+  if (visible.size !== visibleProductIds.length) throw new Error('Visible catalog product IDs must be unique')
+  const seenShelfIds = new Set<string>()
+  const placedProductIds = new Set<string>()
+  const shelves = array(raw.value, 'shelves').map((entry, index) => {
+    const row = plainObject(entry, `shelves[${index}]`)
+    const shelfId = text(row, 'shelf_id')
+    if (seenShelfIds.has(shelfId)) throw new Error(`shelves contains duplicate shelf_id ${shelfId}`)
+    seenShelfIds.add(shelfId)
+    const productIds = textArray(row, 'product_ids')
+    for (const productId of productIds) {
+      if (!visible.has(productId)) throw new Error(`shelves contains unknown product_id ${productId}`)
+      if (placedProductIds.has(productId)) throw new Error(`shelves contains duplicate product_id ${productId}`)
+      placedProductIds.add(productId)
+    }
+    return {
+      shelfId,
+      title: boundedPlainText(row.title, `shelves[${index}].title`, 1, 120),
+      position: uint(row, 'position'),
+      productIds,
+    }
+  })
+  const fallbackProductIds = textArray(raw.value, 'fallback_product_ids')
+  for (const productId of fallbackProductIds) {
+    if (!visible.has(productId)) throw new Error(`fallback_product_ids contains unknown product_id ${productId}`)
+    if (placedProductIds.has(productId)) throw new Error(`shelves contains duplicate product_id ${productId}`)
+    placedProductIds.add(productId)
+  }
+  for (const productId of visibleProductIds) {
+    if (!placedProductIds.has(productId)) throw new Error(`shelves is missing visible product_id ${productId}`)
+  }
+  return { shelves, fallbackProductIds, raw }
 }
 
 function assertSignedQuoteCoherence(signed: Record<string, unknown>, envelope: Record<string, unknown>): void {
@@ -1122,6 +1314,20 @@ export async function listGenStudioContentProducts(
   return requestOnce({
     method: 'GET', path: `/v1/content/products?story_version=${encodeURIComponent(storyVersion)}`,
     apiKey, timeoutMs: 8_000, parse: parseContentStoreCatalog,
+  })
+}
+
+export async function listGenStudioContentStoreShelves(
+  apiKey: string,
+  storyVersion: string,
+  visibleProductIds: readonly string[],
+): Promise<GenStudioContentStoreShelves> {
+  assertApiKey(apiKey)
+  if (typeof storyVersion !== 'string' || storyVersion.length === 0) throw new TypeError('Story Studio version is required')
+  return requestOnce({
+    method: 'GET', path: `/v1/content/shelves?story_version=${encodeURIComponent(storyVersion)}`,
+    apiKey, timeoutMs: 8_000,
+    parse: value => parseContentStoreShelves(value, visibleProductIds),
   })
 }
 

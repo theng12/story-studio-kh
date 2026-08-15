@@ -275,6 +275,47 @@ describe('Content Store commerce routes', () => {
     assert.match(mock.requests.find(row => row.path === '/v1/content/products')!.path, /^\/v1\/content\/products$/)
   })
 
+  test('projects only validated catalog merchandising facts and preserves the published shelf/fallback order', async () => {
+    const merchandising = {
+      cover: { url: 'https://catalog.example.test/covers/test-formula.webp', alt: 'A documented formula cover' },
+      hero: { url: 'https://catalog.example.test/heroes/test-formula.webp', alt: 'A documented formula hero' },
+      tags: ['documentary', 'archive'],
+      license: { label: 'Story Studio Content Pack License', text: 'Customer-facing terms.' },
+      discount: {
+        discount_id: 'cdsc_test_formula', version: 1, percent: 25,
+        starts_on: null, ends_on: '2026-12-31', timezone: 'Asia/Phnom_Penh',
+        list_credit_price: 300, discounted_credit_price: 225,
+      },
+    }
+    const fallback = product({
+      product_id: 'cprod_fallback', entitlement_family: 'com.storystudio.fallback',
+      title: 'Fallback Formula', ...merchandising,
+      discount: null,
+    })
+    const { app: localApp } = await setup({ products: [product(merchandising), fallback] })
+    mock.contentShelves = {
+      shelves: [{ shelf_id: 'cshf_featured', title: 'Featured', position: 9, product_ids: ['cprod_a'] }],
+      fallback_product_ids: ['cprod_fallback'],
+    }
+
+    const response = await request(localApp).get('/api/content-store').expect(200)
+
+    assert.deepEqual(response.body.shelves.map((shelf: { productIds: string[] }) => shelf.productIds), [
+      ['cprod_a'], ['cprod_fallback'],
+    ])
+    assert.equal(response.body.products[0].presentation.cover.src, merchandising.cover.url)
+    assert.equal(response.body.products[0].presentation.cover.alt, merchandising.cover.alt)
+    assert.equal(response.body.products[0].presentation.licenseLabel, merchandising.license.label)
+    assert.deepEqual(response.body.products[0].presentation.tags, merchandising.tags)
+    assert.deepEqual(response.body.products[0].discount, {
+      id: 'cdsc_test_formula', version: 1, percent: 25,
+      startsOn: null, endsOn: '2026-12-31', timezone: 'Asia/Phnom_Penh',
+      listCreditPrice: 300, discountedCreditPrice: 225,
+    })
+    assert.doesNotMatch(JSON.stringify(response.body), /Customer-facing terms|test-formula-hero|canonicalJson|canonicalBytes|"raw"/)
+    assert.equal(mock.requests.filter(row => row.path === '/v1/content/shelves').length, 1)
+  })
+
   test('shows recalled owned versions beside the newest safe release without changing ownership', async () => {
     const { app: localApp } = await setup({ products: [product({
       owned: true,

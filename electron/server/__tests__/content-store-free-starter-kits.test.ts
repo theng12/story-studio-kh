@@ -105,6 +105,11 @@ function sourceProduct(source: SourcePack): Record<string, unknown> {
     bundle_components: [],
     owned_component_credit_value: 0,
     showcase_videos: [],
+    cover: null,
+    hero: null,
+    tags: [],
+    license: null,
+    discount: null,
   }
 }
 

@@ -35,6 +35,29 @@ export interface ContentStoreShowcaseVideo {
   description: string
 }
 
+export interface ContentStoreProductPresentation {
+  cover: { src: string; alt: string } | null
+  licenseLabel: string | null
+  tags: string[]
+}
+
+export interface ContentStoreProductDiscount {
+  id: string
+  version: number
+  percent: number
+  startsOn: string | null
+  endsOn: string | null
+  timezone: 'Asia/Phnom_Penh'
+  listCreditPrice: number
+  discountedCreditPrice: number
+}
+
+export interface ContentStoreShelf {
+  id: string
+  title: string
+  productIds: string[]
+}
+
 export interface ContentStoreProduct {
   productId: string
   entitlementFamily: string
@@ -54,6 +77,8 @@ export interface ContentStoreProduct {
   bundleComponents: ContentStoreBundleComponent[]
   ownedComponentCreditValue: number
   showcaseVideos: ContentStoreShowcaseVideo[]
+  presentation: ContentStoreProductPresentation
+  discount: ContentStoreProductDiscount | null
 }
 
 export interface ContentStoreAccount {
@@ -116,6 +141,7 @@ interface ContentStoreOverview {
   phase: 'delivery_ready'
   account: ContentStoreAccount
   products: ContentStoreProduct[]
+  shelves: ContentStoreShelf[]
   attempts: PublicContentPurchaseAttempt[]
   capabilities: {
     purchase: true
@@ -161,6 +187,7 @@ function uiError(cause: any, fallback: string): ContentStoreUiError {
 export function useContentStore(): {
   account: Readonly<Ref<ContentStoreAccount | null>>
   products: Readonly<Ref<ContentStoreProduct[]>>
+  shelves: Readonly<Ref<ContentStoreShelf[]>>
   attempts: Readonly<Ref<PublicContentPurchaseAttempt[]>>
   loading: Readonly<Ref<boolean>>
   error: Readonly<Ref<ContentStoreUiError | null>>
@@ -173,6 +200,7 @@ export function useContentStore(): {
   const { get, post } = useApi()
   const account = ref<ContentStoreAccount | null>(null)
   const products = ref<ContentStoreProduct[]>([])
+  const shelves = ref<ContentStoreShelf[]>([])
   const attempts = ref<PublicContentPurchaseAttempt[]>([])
   const loading = ref(false)
   const error = ref<ContentStoreUiError | null>(null)
@@ -180,6 +208,7 @@ export function useContentStore(): {
   function applyOverview(overview: ContentStoreOverview): void {
     account.value = overview.account
     products.value = overview.products
+    shelves.value = overview.shelves
     attempts.value = overview.attempts
   }
 
@@ -225,6 +254,7 @@ export function useContentStore(): {
     } catch (cause: any) {
       account.value = null
       products.value = []
+      shelves.value = []
       attempts.value = []
       error.value = uiError(cause, 'The Content Store could not be loaded.')
       throw cause
@@ -317,6 +347,7 @@ export function useContentStore(): {
   return {
     account: readonly(account) as unknown as Readonly<Ref<ContentStoreAccount | null>>,
     products: readonly(products) as unknown as Readonly<Ref<ContentStoreProduct[]>>,
+    shelves: readonly(shelves) as unknown as Readonly<Ref<ContentStoreShelf[]>>,
     attempts: readonly(attempts) as unknown as Readonly<Ref<PublicContentPurchaseAttempt[]>>,
     loading: readonly(loading),
     error: readonly(error),

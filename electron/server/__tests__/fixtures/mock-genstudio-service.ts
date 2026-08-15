@@ -288,7 +288,7 @@ function normalizeScenario(
 }
 
 function requiredScope(pathname: string, method: string): MockGenStudioScope | null {
-  if (pathname === '/v1/content/account' || pathname === '/v1/content/products'
+  if (pathname === '/v1/content/account' || pathname === '/v1/content/products' || pathname === '/v1/content/shelves'
     || pathname === '/v1/content/quotes' || pathname === '/v1/content/public-key'
     || pathname === '/v1/content/receipts' || pathname === '/v1/content/downloads'
     || /^\/v1\/content\/entitlements\/[^/]+\/releases$/.test(pathname)) return 'content:read'
@@ -337,6 +337,7 @@ export class MockGenStudioService {
   private readonly contentArchives = new Map<string, Uint8Array>()
   private readonly queuedContentPurchaseOutcomes: MockContentPurchaseOutcome[] = []
   contentProducts: Array<Record<string, unknown>> = []
+  contentShelves: { shelves: Array<Record<string, unknown>>; fallback_product_ids: string[] } | null = null
   contentPurchasePostCount = 0
   totalCreditsCharged = 0
   readonly contentPurchaseCharges: number[] = []
@@ -420,6 +421,7 @@ export class MockGenStudioService {
     this.tamperContentPurchaseReceipt = false
     this.contentArchives.clear()
     this.contentProducts = []
+    this.contentShelves = null
     for (const operation of Object.keys(this.sequence) as MockGenStudioOperation[]) {
       this.sequence[operation] = 0
     }
@@ -624,7 +626,20 @@ export class MockGenStudioService {
         if (source) (component as Record<string, unknown>).owned = this.isContentProductOwned(accountId, source)
       }
     }
+    copy.cover ??= null
+    copy.hero ??= null
+    copy.tags ??= []
+    copy.license ??= null
+    copy.discount ??= null
     return copy
+  }
+
+  private contentShelvesBody(): Record<string, unknown> {
+    if (this.contentShelves) return structuredClone(this.contentShelves)
+    return {
+      shelves: [],
+      fallback_product_ids: this.contentProducts.map(product => String(product.product_id)),
+    }
   }
 
   private grantContentProducts(accountId: string, productId: string, purchaseId: string): Record<string, unknown>[] {
@@ -1167,6 +1182,10 @@ export class MockGenStudioService {
       if (method === 'GET' && url.pathname === '/v1/content/products') {
         const accountId = this.contentAccountId(request)
         json(response, 200, { products: this.contentProducts.map(product => this.productForAccount(accountId, product)) })
+        return
+      }
+      if (method === 'GET' && url.pathname === '/v1/content/shelves') {
+        json(response, 200, this.contentShelvesBody())
         return
       }
       if (method === 'GET' && url.pathname === '/v1/content/public-key') {
