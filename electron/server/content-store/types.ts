@@ -205,12 +205,26 @@ export type CachedContentQuote = z.infer<typeof CachedContentQuoteSchema>
 export const ContentStoreCommerceStateSchema = z.object({
   schema_version: z.literal(1),
   attempts: z.record(CachedContentQuoteSchema).refine(value => Object.keys(value).length <= 200, 'commerce state exceeds 200 quote records'),
+  /** Account/origin-bound restore evidence retained for offline Store delivery verification. */
+  verified_restores: z.array(CachedVerifiedContentRestoreSchema).max(200).optional(),
+  /** Legacy singleton accepted only so it can be migrated to verified_restores on the next verified restore. */
   verified_restore: CachedVerifiedContentRestoreSchema.optional(),
 }).strict().superRefine((value, context) => {
   for (const [key, attempt] of Object.entries(value.attempts)) {
     if (key !== attempt.quote_id) {
       context.addIssue({ code: z.ZodIssueCode.custom, path: ['attempts', key], message: 'attempt key must equal quote_id' })
     }
+  }
+  if (value.verified_restore && value.verified_restores) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['verified_restore'], message: 'legacy and account-bound restore evidence cannot coexist' })
+  }
+  const restoreOwners = new Set<string>()
+  for (const [index, restore] of (value.verified_restores ?? []).entries()) {
+    const owner = `${restore.account_id}\u0000${restore.content_account_id}\u0000${restore.genstudio_origin}`
+    if (restoreOwners.has(owner)) {
+      context.addIssue({ code: z.ZodIssueCode.custom, path: ['verified_restores', index], message: 'restore evidence must be unique per account and origin' })
+    }
+    restoreOwners.add(owner)
   }
 })
 

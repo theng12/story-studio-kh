@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+import { createHash, generateKeyPairSync, randomUUID, sign } from 'node:crypto'
 import { afterEach, describe, test } from 'node:test'
 
 import JSZip from 'jszip'
@@ -7,8 +7,10 @@ import JSZip from 'jszip'
 import { installContentPack } from '../content-packs/installer.js'
 import { uninstallContentPackVersion } from '../content-packs/lifecycle.js'
 import { createContentPackKeyring } from '../content-packs/keyring.js'
+import { listCatalogEntries } from '../content-packs/registry.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState } from '../content-packs/state.js'
+import { recordVerifiedContentRestore, resolveVerifiedContentStoreSigningKey } from '../content-store/commerce-state.js'
 import { canonicalizeContentStoreObject } from '../lib/genstudio-content-store.js'
 import { resolveContentStoreInstallSnapshot } from '../services/content-store-install-state.js'
 import { useTempDataDir } from './_helpers.js'
@@ -39,11 +41,20 @@ async function archive(packId: string, version: string, dependencies: Dependency
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
-function evidence(packId: string, version: string, archiveSha: string, archiveBytes: number, closure: ClosurePin[]) {
+function evidence(
+  packId: string,
+  version: string,
+  archiveSha: string,
+  archiveBytes: number,
+  closure: ClosurePin[],
+  accountId = 'acct_test',
+  signingKeyId = 'test-key',
+  signingPair = commercePair,
+) {
   const productId = `product.${packId}`; const family = `${packId}.family`; const releaseId = `release.${packId}.${version}`
-  const receipt = { typ: 'genstudio.content.receipt.v1', key_id: 'test-key', receipt_id: `receipt.${packId}.${version}`, purchase_id: `purchase.${packId}.${version}`, account_id: 'acct_test', entitlement_families: [family, ...closure.map(pin => pin.entitlement_family)], product: { product_id: productId, entitlement_family: family, kind: 'visual_style' }, release: { release_id: releaseId, pack_id: packId, version, archive_sha256: archiveSha, archive_bytes: archiveBytes, min_story_version: '1.0.0', changelog: null, component_summary: {} }, bundle_closure: closure.map(({ pack_id: _packId, ...pin }, position) => ({ position, ...pin })), credits_charged: 0, issued_at: '2026-08-15T00:00:00Z' }
+  const receipt = { typ: 'genstudio.content.receipt.v1', key_id: signingKeyId, receipt_id: `receipt.${packId}.${version}`, purchase_id: `purchase.${packId}.${version}`, account_id: accountId, entitlement_families: [family, ...closure.map(pin => pin.entitlement_family)], product: { product_id: productId, entitlement_family: family, kind: 'visual_style' }, release: { release_id: releaseId, pack_id: packId, version, archive_sha256: archiveSha, archive_bytes: archiveBytes, min_story_version: '1.0.0', changelog: null, component_summary: {} }, bundle_closure: closure.map(({ pack_id: _packId, ...pin }, position) => ({ position, ...pin })), credits_charged: 0, issued_at: '2026-08-15T00:00:00Z' }
   const canonical = canonicalizeContentStoreObject(receipt).canonicalJson
-  return { account_id: 'acct_test', product_id: productId, entitlement_family: family, release_id: releaseId, pack_id: packId, version, archive_sha256: archiveSha, archive_bytes: archiveBytes, genstudio_origin: 'https://genstudio.example', subject: 'receipt-root' as const, closure_members: closure.map((dependency, position) => ({ position, ...dependency })), key_id: 'test-key', receipt_canonical_json: canonical, receipt_signature: sign(null, Buffer.from(canonical), commercePair.privateKey).toString('base64') }
+  return { account_id: accountId, product_id: productId, entitlement_family: family, release_id: releaseId, pack_id: packId, version, archive_sha256: archiveSha, archive_bytes: archiveBytes, genstudio_origin: 'https://genstudio.example', subject: 'receipt-root' as const, closure_members: closure.map((dependency, position) => ({ position, ...dependency })), key_id: signingKeyId, receipt_canonical_json: canonical, receipt_signature: sign(null, Buffer.from(canonical), signingPair.privateKey).toString('base64') }
 }
 
 async function isolated() { const temp = await useTempDataDir(); cleanup = temp.cleanup; return getContentPackRuntimePaths() }
@@ -55,7 +66,73 @@ function pin(packId: string, version: string, archiveSha256: string): ClosurePin
 function release(packId: string, version: string, archiveSha256: string, archiveAvailable = true) { return { releaseId: `release.${packId}.${version}`, packId, version, archiveSha256, archiveBytes: 1, archiveAvailable, minStoryVersion: '1.0.0', changelog: null, componentSummary: {} } as any }
 function options(paths: Awaited<ReturnType<typeof isolated>>) { return { paths, policy, resolveSigningKey: signer } }
 
+function publicKeyBase64(pair: typeof commercePair): string {
+  return pair.publicKey.export({ type: 'spki', format: 'der' }).subarray(-32).toString('base64')
+}
+
+async function recordRestore(accountId: string, keyId: string, pair: typeof commercePair) {
+  const receipt = {
+    typ: 'genstudio.content.restore.v1', key_id: keyId, account_id: accountId,
+    content_account_id: accountId, entitlement_families: [],
+  }
+  const receiptCanonicalJson = canonicalizeContentStoreObject(receipt).canonicalJson
+  return recordVerifiedContentRestore({
+    account_id: accountId, content_account_id: accountId, genstudio_origin: 'https://genstudio.example',
+    key_id: keyId, public_key_base64: publicKeyBase64(pair), receipt_canonical_json: receiptCanonicalJson,
+    receipt_signature: sign(null, Buffer.from(receiptCanonicalJson), pair.privateKey).toString('base64'),
+    verified_at: new Date().toISOString(),
+    key_history: [{ key_id: keyId, public_key_base64: publicKeyBase64(pair) }],
+  })
+}
+
 describe('Content Store installed-library lifecycle matrix', () => {
+  test('keeps account A Store installs and exact pins verifiable after account B restores', async () => {
+    const paths = await isolated()
+    const accountA = 'acct_a'
+    const accountB = 'acct_b'
+    const keyA = 'content-key-a'
+    const keyB = 'content-key-b'
+    const pairB = generateKeyPairSync('ed25519')
+    const packId = 'com.storystudio.matrix.account-a'
+    const bytes = await archive(packId, '1.0.0')
+    const archiveSha256 = sha(bytes)
+
+    await recordRestore(accountA, keyA, commercePair)
+    await installContentPack({
+      archiveBytes: bytes,
+      source: 'genstudio-store',
+      expectedArchiveSha256: archiveSha256,
+      expectedPackId: packId,
+      expectedVersion: '1.0.0',
+      deliveryAttestation: evidence(packId, '1.0.0', archiveSha256, bytes.byteLength, [], accountA, keyA),
+    }, { paths, policy })
+
+    await recordRestore(accountB, keyB, pairB)
+
+    assert.equal(await resolveVerifiedContentStoreSigningKey({
+      accountId: accountA, origin: 'https://genstudio.example', keyId: keyA,
+    }), commercePublicKey)
+    assert.equal(await resolveVerifiedContentStoreSigningKey({
+      accountId: accountB, origin: 'https://genstudio.example', keyId: keyB,
+    }), publicKeyBase64(pairB))
+    await assert.rejects(resolveVerifiedContentStoreSigningKey({
+      accountId: accountB, origin: 'https://genstudio.example', keyId: keyA,
+    }), /requested receipt key/i)
+
+    const restartedCommerceState = await import(`${new URL('../content-store/commerce-state.ts', import.meta.url).href}?restart=${randomUUID()}`)
+    assert.equal(await restartedCommerceState.resolveVerifiedContentStoreSigningKey({
+      accountId: accountA, origin: 'https://genstudio.example', keyId: keyA,
+    }), commercePublicKey)
+
+    const entries = await listCatalogEntries('visual-style', {
+      paths,
+      policy,
+      pins: [{ pack_id: packId, version: '1.0.0', archive_sha256: archiveSha256 }],
+      appVersion: '1.0.0',
+    })
+    assert.deepEqual(entries.map(entry => entry.pack), [{ pack_id: packId, version: '1.0.0', archive_sha256: archiveSha256 }])
+  })
+
   test('caps exact public missing dependencies at 100 without paths', async () => {
     const paths = await isolated(); const root = 'com.storystudio.matrix.cap-root'
     const directLeaves = await Promise.all(Array.from({ length: 99 }, async (_, index) => {

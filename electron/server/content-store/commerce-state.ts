@@ -33,6 +33,7 @@ import {
 const STATE_MODE = 0o600
 const MAX_STATE_BYTES = 16 * 1024 * 1024
 const MAX_RECORDS = 200
+const MAX_VERIFIED_RESTORES = 200
 const LOCK_WAIT_MS = 10_000
 const LOCK_RETRY_MS = 20
 const STALE_LOCK_MS = 60_000
@@ -329,17 +330,18 @@ export async function readContentStoreCommerceState(): Promise<ContentStoreComme
 export async function recordVerifiedContentRestore(
   restore: CachedVerifiedContentRestore,
 ): Promise<CachedVerifiedContentRestore> {
-  const keys = restore.key_history ?? [{ key_id: restore.key_id, public_key_base64: restore.public_key_base64 }]
-  await recordContentStoreKeyAnchor({
-    origin: restore.genstudio_origin,
-    account_id: restore.account_id,
-    content_account_id: restore.content_account_id,
-    keys,
-  })
-  return mutateState(state => {
-    const previous = state.verified_restore?.key_history ?? (state.verified_restore ? [{
-      key_id: state.verified_restore.key_id,
-      public_key_base64: state.verified_restore.public_key_base64,
+  return mutateState(async state => {
+    const retained = state.verified_restores ?? (state.verified_restore ? [state.verified_restore] : [])
+    const sameOwner = (candidate: CachedVerifiedContentRestore) => candidate.account_id === restore.account_id
+      && candidate.content_account_id === restore.content_account_id
+      && candidate.genstudio_origin === restore.genstudio_origin
+    const current = retained.find(sameOwner)
+    if (!current && retained.length >= MAX_VERIFIED_RESTORES) {
+      throw new Error(`Content Store commerce journal retains at most ${MAX_VERIFIED_RESTORES} account-bound restore records; online revalidation is required`)
+    }
+    const previous = current?.key_history ?? (current ? [{
+      key_id: current.key_id,
+      public_key_base64: current.public_key_base64,
     }] : [])
     const next = restore.key_history ?? [{ key_id: restore.key_id, public_key_base64: restore.public_key_base64 }]
     for (const key of next) {
@@ -349,9 +351,29 @@ export async function recordVerifiedContentRestore(
       }
     }
     const key_history = [...previous, ...next.filter(key => !previous.some(candidate => candidate.key_id === key.key_id))]
-    state.verified_restore = { ...structuredClone(restore), key_history }
-    return structuredClone(state.verified_restore)
+    await recordContentStoreKeyAnchor({
+      origin: restore.genstudio_origin,
+      account_id: restore.account_id,
+      content_account_id: restore.content_account_id,
+      keys: next,
+    })
+    const retainedRestore = { ...structuredClone(restore), key_history }
+    state.verified_restores = [...retained.filter(candidate => !sameOwner(candidate)), retainedRestore]
+    delete state.verified_restore
+    return structuredClone(retainedRestore)
   })
+}
+
+/** Read only account/origin-bound restore evidence; a different account's proof never implies ownership. */
+export async function readVerifiedContentStoreRestore(input: {
+  accountId: string
+  origin: string
+}): Promise<CachedVerifiedContentRestore | null> {
+  const state = await readContentStoreCommerceState()
+  const retained = state.verified_restores ?? (state.verified_restore ? [state.verified_restore] : [])
+  const restore = retained.find(candidate => candidate.account_id === input.accountId
+    && candidate.genstudio_origin === input.origin)
+  return restore ? structuredClone(restore) : null
 }
 
 /**
@@ -364,7 +386,7 @@ export async function resolveVerifiedContentStoreSigningKey(input: {
   origin: string
   keyId: string
 }): Promise<string> {
-  const cached = (await readContentStoreCommerceState()).verified_restore
+  const cached = await readVerifiedContentStoreRestore({ accountId: input.accountId, origin: input.origin })
   if (!cached || cached.account_id !== input.accountId || cached.content_account_id !== input.accountId
     || cached.genstudio_origin !== input.origin) {
     throw new Error('No independently verified GenStudio key history exists for this account and origin')

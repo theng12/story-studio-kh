@@ -19,6 +19,7 @@ import { getGenStudioUrl } from './app-settings.js'
 import {
   claimPurchaseAttempt,
   readContentStoreCommerceState,
+  readVerifiedContentStoreRestore,
   recordCompletedPurchase,
   recordPurchaseRefusal,
   recordPurchaseUncertain,
@@ -193,8 +194,8 @@ async function currentGenStudioOrigin(): Promise<string> {
 }
 
 async function cachedVerifiedFamilies(accountId: string): Promise<Set<string>> {
-  const cached = (await readContentStoreCommerceState()).verified_restore
-  if (!cached || cached.account_id !== accountId || cached.genstudio_origin !== await currentGenStudioOrigin()) return new Set()
+  const cached = await readVerifiedContentStoreRestore({ accountId, origin: await currentGenStudioOrigin() })
+  if (!cached) return new Set()
   try {
     const trustedKey = await resolveVerifiedContentStoreSigningKey({
       accountId, origin: cached.genstudio_origin, keyId: cached.key_id,

@@ -175,8 +175,8 @@ describe('Content Store commerce state', () => {
       verified_at: new Date().toISOString(),
     })
     const state = await readContentStoreCommerceState()
-    assert.equal(state.verified_restore?.account_id, 'acct_a')
-    assert.equal(state.verified_restore?.key_id, 'content-key-1')
+    assert.equal(state.verified_restores?.[0]?.account_id, 'acct_a')
+    assert.equal(state.verified_restores?.[0]?.key_id, 'content-key-1')
     assert.doesNotMatch(JSON.stringify(state), /download_url|grant_signature|gsk_/i)
   })
 
@@ -225,9 +225,9 @@ describe('Content Store commerce state', () => {
       key_history: [{ key_id: keyId, public_key_base64: publicBase64(trusted.publicKey) }],
     })
     const journal = JSON.parse(await fs.readFile(getContentStoreStatePath(), 'utf8'))
-    journal.verified_restore.public_key_base64 = publicBase64(rogue.publicKey)
-    journal.verified_restore.key_history = [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }]
-    journal.verified_restore.receipt_signature = sign(null, Buffer.from(canonical), rogue.privateKey).toString('base64')
+    journal.verified_restores[0].public_key_base64 = publicBase64(rogue.publicKey)
+    journal.verified_restores[0].key_history = [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }]
+    journal.verified_restores[0].receipt_signature = sign(null, Buffer.from(canonical), rogue.privateKey).toString('base64')
     await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(journal)}\n`, { mode: 0o600 })
     await assert.rejects(resolveVerifiedContentStoreSigningKey({
       accountId: 'acct_a', origin: 'https://api.genstudio.example', keyId,
@@ -266,9 +266,9 @@ describe('Content Store commerce state', () => {
     await setApiKey('genstudio', 'gsk_provider_save')
 
     const journal = JSON.parse(await fs.readFile(getContentStoreStatePath(), 'utf8'))
-    journal.verified_restore.public_key_base64 = publicBase64(rogue.publicKey)
-    journal.verified_restore.key_history = [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }]
-    journal.verified_restore.receipt_signature = sign(null, Buffer.from(canonical), rogue.privateKey).toString('base64')
+    journal.verified_restores[0].public_key_base64 = publicBase64(rogue.publicKey)
+    journal.verified_restores[0].key_history = [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }]
+    journal.verified_restores[0].receipt_signature = sign(null, Buffer.from(canonical), rogue.privateKey).toString('base64')
     await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(journal)}\n`, { mode: 0o600 })
 
     await assert.rejects(resolveVerifiedContentStoreSigningKey({

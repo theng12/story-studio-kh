@@ -135,7 +135,7 @@ describe('Content Store commerce routes', () => {
     assert.equal(restored.body.capabilities.receipt_verification, true)
     assert.equal(restored.body.account.owned[0].receiptVerification, 'verified')
     assert.equal(mock.contentPurchasePostCount, purchasePostsBeforeRestore, 'restore sends no purchase for acct_a')
-    assert.equal((await readContentStoreCommerceState()).verified_restore?.account_id, 'acct_a')
+    assert.equal((await readContentStoreCommerceState()).verified_restores?.[0]?.account_id, 'acct_a')
 
     await setApiKey('genstudio', KEY_A_ROTATED)
     const installed = await request(localApp)
@@ -161,7 +161,7 @@ describe('Content Store commerce routes', () => {
 
     const commercePath = getContentStoreStatePath()
     const commerce = JSON.parse(await fs.readFile(commercePath, 'utf8'))
-    delete commerce.verified_restore
+    delete commerce.verified_restores
     await fs.writeFile(commercePath, JSON.stringify(commerce))
     const unverified = await request(localApp).get('/api/content-store').expect(200)
     assert.equal(unverified.body.account.owned[0].receiptVerification, 'unverified')
@@ -252,7 +252,7 @@ describe('Content Store commerce routes', () => {
     })] })
     mock.tamperContentPurchaseReceipt = true
     const response = await request(localApp).post('/api/content-store/restore').send({}).expect(500)
-    assert.equal((await readContentStoreCommerceState()).verified_restore, undefined)
+    assert.equal((await readContentStoreCommerceState()).verified_restores, undefined)
     assert.doesNotMatch(JSON.stringify(response.body), /signature|receipt|mock-content-key/i)
   })
 
