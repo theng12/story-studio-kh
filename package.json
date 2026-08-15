@@ -29,6 +29,7 @@
     "verify:public-artifact": "node scripts/release/verify-signed-desktop-artifact.mjs",
     "content-pack:build": "node scripts/content-packs/build-pack.mjs",
     "content-pack:validate": "node scripts/content-packs/validate-pack.mjs",
+    "content-pack:registry": "node scripts/content-packs/authoring-registry.mjs",
     "start": "electron .",
     "test:backend": "cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/*.test.ts",
     "test:frontend": "cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/*.test.ts",
