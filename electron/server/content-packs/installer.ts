@@ -45,6 +45,8 @@ export interface ContentPackInstallOptions {
   appVersion?: string
   /** Test seam; production resolves the independently verified commerce key history. */
   resolveGenStudioSigningKey?: (evidence: NonNullable<ContentPackInstallRequest['deliveryAttestation']>) => Promise<string>
+  /** Keep a verified immutable version inactive until a caller commits a wider transaction. */
+  activate?: boolean
 }
 
 function sha256(bytes: Uint8Array): string {
@@ -498,7 +500,6 @@ async function installContentPackLocked(
       const finalPath = installedVersionPath(paths, verified.manifest)
       await options.hooks?.beforeVersionRename?.()
       await materialiseVerifiedPack(request.archiveBytes, verified, request, transactionRoot, paths.installedRoot, finalPath, options.hooks, policy)
-      await options.hooks?.beforeActivationWrite?.()
       const pack = state.packs[packId] ?? { discovery_disabled: false, versions: {} }
       pack.versions[version] = {
         archive_sha256: archiveSha,
@@ -512,9 +513,12 @@ async function installContentPackLocked(
           delivery_attestation: ContentPackDeliveryAttestationSchema.parse(request.deliveryAttestation),
         } : {}),
       }
-      pack.active_version = version
+      if (options.activate !== false) {
+        await options.hooks?.beforeActivationWrite?.()
+        pack.active_version = version
+      }
       state.packs[packId] = pack
-      return { pack_id: packId, version, archive_sha256: archiveSha, activated: true, retained_versions: retainedVersions(state, packId) }
+      return { pack_id: packId, version, archive_sha256: archiveSha, activated: options.activate !== false, retained_versions: retainedVersions(state, packId) }
     } finally {
       if (transactionRoot) await removeTreeIfContained(paths.stagingRoot, transactionRoot)
     }

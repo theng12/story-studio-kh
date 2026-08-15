@@ -26,8 +26,8 @@ import {
   verifyInstalledContentPackClosure,
 } from '../content-packs/installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
-import { rollbackContentPack } from '../content-packs/lifecycle.js'
-import { readContentPackState } from '../content-packs/state.js'
+import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
+import { mutateContentPackState, readContentPackState, withContentPackCoordinationLock } from '../content-packs/state.js'
 import type { ContentPackInstallResult } from '../content-packs/runtime-types.js'
 import { getApiKey } from './app-secrets-store.js'
 import { getGenStudioUrl } from './app-settings.js'
@@ -327,10 +327,8 @@ async function installOwnedEntitlement(
   }
   const local = await alreadyInstalled(release, context.policy)
   if (local) {
-    if (!local.activated) await rollbackContentPack(release.packId, release.version)
-    const activated = { ...local, activated: true }
-    context.completed.set(key, activated)
-    return activated
+    context.completed.set(key, local)
+    return local
   }
 
   context.visiting.add(key)
@@ -371,7 +369,7 @@ async function installOwnedEntitlement(
       expectedPackId: release.packId,
       expectedVersion: release.version,
       deliveryAttestation: evidence,
-    })
+    }, { activate: false })
     const installedState = await readContentPackState()
     await verifyInstalledContentPackClosure(installedState, release.packId, release.version, context.policy)
     context.completed.set(key, installed)
@@ -379,6 +377,31 @@ async function installOwnedEntitlement(
   } finally {
     context.visiting.delete(key)
   }
+}
+
+/** Activate a fully verified owned closure in one locked state checkpoint. */
+async function activateOwnedDeliveryClosure(
+  root: GenStudioContentRelease,
+  context: DeliveryContext,
+): Promise<ContentPackInstallResult> {
+  const paths = getContentPackRuntimePaths()
+  return withContentPackCoordinationLock(paths, () => mutateContentPackState(async state => {
+    for (const installed of context.completed.values()) {
+      const retained = state.packs[installed.pack_id]?.versions[installed.version]
+      if (!retained || retained.pending_removal || retained.recalled || retained.archive_sha256 !== installed.archive_sha256) {
+        throw new Error(`Content Pack delivery candidate changed before activation: ${installed.pack_id}@${installed.version}`)
+      }
+    }
+    await verifyInstalledContentPackClosure(state, root.packId, root.version, context.policy)
+    for (const installed of context.completed.values()) state.packs[installed.pack_id]!.active_version = installed.version
+    const activated = context.completed.get(releaseKey(root))
+    if (!activated) throw new Error(`Content Pack root was not staged: ${releaseKey(root)}`)
+    return {
+      ...activated,
+      activated: true,
+      retained_versions: Object.keys(state.packs[root.packId]!.versions).sort(),
+    }
+  }, paths))
 }
 
 export async function installOwnedContentStoreRelease(releaseId: string): Promise<ContentStoreInstallResponse> {
@@ -389,12 +412,14 @@ export async function installOwnedContentStoreRelease(releaseId: string): Promis
     throw new ContentStoreLocalError(404, 'CONTENT_PACK_NOT_OWNED', 'The active GenStudio account does not own this release.')
   }
   const release = entitlement.currentRelease!
-  const install = await installOwnedEntitlement(entitlement, release, {
+  const context: DeliveryContext = {
     ...verified,
     policy: await getFirstPartyContentPackVerificationPolicy(),
     completed: new Map(),
     visiting: new Set(),
     releaseHistories: new Map(),
-  })
+  }
+  await installOwnedEntitlement(entitlement, release, context)
+  const install = await activateOwnedDeliveryClosure(release, context)
   return { install, overview: await loadContentStoreOverview() }
 }
