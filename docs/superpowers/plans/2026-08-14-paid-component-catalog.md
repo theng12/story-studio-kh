@@ -11,11 +11,11 @@
 ## Global Constraints
 
 - Execute after Free Starter plan Task 1 supplies bundle-only coordination manifests and after approved Archival Ledger commit `18e6bbe02f382ee7dcd1868da7052296e24222d8` is available as source material.
-- Archival Ledger launches at exactly 2,000 GenStudio credits, but Story runtime never hardcodes or derives that price; only GenStudio catalog/quote fixtures may carry it.
+- Archival Ledger launches at an owner-approved list price of exactly 2,000 GenStudio credits. The approved launch offer is an operator-set 90% discount for every customer through an optional 2026-12-31 end date; Story runtime never hardcodes or derives the list price, discount, or final amount. Only GenStudio catalog/quote facts may carry them.
 - Final Archival Ledger shape is eight independent `1.0.0` component packs plus `com.storystudio.pack.kit.archival-ledger` coordination pack. The self-contained `com.storystudio.pack.archival-ledger` candidate is never stocked.
 - Preserve 125 named subjects and prove at least 500 materially distinct assignments: four siblings per subject with distinct episode object, time/place, and mechanism.
 - Unchanged legacy built-ins remain usable and cannot be resold. Paid products require material net-new structured coverage, a distinct Formula contract, or an original production look.
-- Ownership and discount are by entitlement family. Shared components already owned through any product receive the same server-calculated value; Story displays only exact quote facts.
+- Ownership and discount are by entitlement family. Shared components already owned through any product receive the same server-calculated value; GenStudio deducts owned-component value first, then applies the active operator discount to the missing-component remainder. Story displays only exact signed quote facts and performs no eligibility or account-history check.
 - Every byte change creates a new exact content version. Existing project pins never move automatically; withdrawal preserves owner access; recall is terminal for that version.
 - Prices for every paid product except Archival Ledger remain undecided. This plan creates no guessed price, SKU publication, live product, or release.
 - No production key/artifact, purchase, publication, deploy, generation, fleet work, version bump, merge, push, install, or restart is authorized.
@@ -280,8 +280,8 @@ Reject deleted legacy files, implicit upgrades, pin rewriting, paid rebilling of
 - Modify only after exact live contract: `electron/server/services/content-store.ts`
 
 **Interfaces:**
-- Consumes: field-exact live GenStudio contract for atomic kit/component grants, bundle release composition, entitlement-family discounts, and zero/paid bundle quotes.
-- Produces acceptance of the existing signed `entitlement_families`, `owned_components`, `discount_credits`, and exact release evidence without client-side calculation.
+- Consumes: field-exact live GenStudio contract for atomic kit/component grants, bundle release composition, entitlement-family deductions, the Archival Ledger operator discount, and zero/paid bundle quotes. Final wire names are supplied by GenStudio and must not be guessed here.
+- Produces acceptance of the existing signed `entitlement_families`, `owned_components`, exact owned-component deduction facts, operator-discount facts, final amount, and exact release evidence without client-side calculation or eligibility evaluation.
 
 - [ ] **Step 1: Enforce the external contract gate**
 
@@ -302,7 +302,7 @@ test('uses GenStudio quote discount facts without client calculation', async () 
 })
 ```
 
-Also prove atomic nine-family grant, already-owned deduplication, shared-family discount from another kit, exact 2,000 live fixture only, one purchase POST, replayed idempotency, and no client price/discount calculation.
+Also prove atomic nine-family grant, already-owned deduplication, shared-family deduction from another kit, exact 2,000 list-price live fixture, the 90% operator discount for an offer with no customer eligibility distinction, deduction-before-discount ordering, the optional 2026-12-31 end date, one purchase POST, replayed idempotency, and no client price/discount calculation or eligibility check. Use GenStudio's final field names when the deployed reply arrives.
 
 - [ ] **Step 3: Run RED, apply only exact contract changes, and run GREEN**
 

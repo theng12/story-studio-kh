@@ -10,3 +10,9 @@ Task 3: complete (commits 1578dcd8..82488395, review clean)
 Task 4: complete (commit 23869979, review clean; explicit HMH migration is preview-token-bound, exact-version-pinned, and never automatic)
 Task 6: complete (23 focused boundary/publisher tests; no later paid product, price, identity, publication, or commerce implementation)
 Pre-Task5 aggregate gate: GO (C0/I0). Evidence: 404b2d5e publisher/source 32/32, migration/runtime 32/32, Electron typecheck, focused lint, production-security, and diff check; no Task5 commerce, pricing, UI, version, key, artifact, or external-state changes.
+
+Owner clarification adopted 2026-08-15: Archival Ledger uses a 2,000-credit list price and an
+operator-set 90% discount for every customer through an optional 2026-12-31 end date. GenStudio
+deducts owned component value before applying that discount to the missing-component remainder;
+Story renders signed quote facts and performs no eligibility or account-history check. Task 5
+still waits for GenStudio's field-exact deployed reply; no wire names are invented here.

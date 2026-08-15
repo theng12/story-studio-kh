@@ -318,7 +318,7 @@ Final integrated code at ad7cddc00a4281c54b4244386c3ec224d07a47a7:
 - Production pack signing and immutable archive ledgers require their explicit
   owner gate and external signing operation.
 - GenStudio still owns the signed merchandising, bundle entitlement,
-  quote/promotion, stocking, upload, and publication contracts. Story Studio
+  operator-discount quote, stocking, upload, and publication contracts. Story Studio
   does not invent those fields. Catalog Experience work that consumes those
   live contracts and paid Task 5 remain gated on the exact GenStudio contract
   handoff and qualification.

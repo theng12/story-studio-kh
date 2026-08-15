@@ -261,12 +261,12 @@ git commit -m "docs: record Content Catalog archives"
 - Create: `.superpowers/sdd/2026-08-14-content-catalog-release/genstudio-qualification.md`
 
 **Interfaces:**
-- Consumes: archive ledger, exact family/release registry, ten free kit composition, live merchandising/bundle contracts, Archival price ruling.
+- Consumes: archive ledger, exact family/release registry, ten free kit composition, live merchandising/bundle contracts, and the Archival 2,000-credit list-price/operator-discount ruling.
 - Produces evidence for component families/releases, zero-price kits, shelf placement/media metadata, and Archival Ledger at 2,000; no mutation by Story.
 
 - [ ] **Step 1: Write the evidence handoff**
 
-List exact pack/family/SKU/version/hash/bytes/minimum/components/changelog for every archive, ten zero-price permanent grants, shared-family mapping, Archival 2,000 ruling, absent showcase links as allowed metadata, and Story minimum version. Include acceptance checks for atomic grants, owned discount, zero balance, exact downloads, withdrawal/recall, and 50 MiB gate.
+List exact pack/family/SKU/version/hash/bytes/minimum/components/changelog for every archive, ten zero-price permanent grants, shared-family mapping, Archival 2,000 list-price ruling, approved 90% operator discount for every customer through optional 2026-12-31, absent showcase links as allowed metadata, and Story minimum version. Include acceptance checks for atomic grants, owned-component deduction followed by operator discount, zero balance, exact downloads, withdrawal/recall, and 50 MiB gate. Do not add eligibility or account-history fields; use GenStudio's final wire names.
 
 - [ ] **Step 2: Obtain explicit owner authority for GenStudio drafts/uploads**
 

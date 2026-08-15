@@ -28,7 +28,7 @@ Story Studio does not create or upload showcase videos. The owner creates exampl
 ## 2. Goals
 
 1. Turn the completed Content Pack runtime and commerce path into a coherent first-party merchandise catalog.
-2. Give every new customer ten immediately useful channel directions without charging for basic creative variety.
+2. Give every customer ten immediately useful channel directions without charging for basic creative variety.
 3. Let one component be reused across multiple kits without duplicate archives or entitlements.
 4. Let future catalog additions and compatible content updates ship without a Story Studio application update.
 5. Preserve existing projects and existing built-in access exactly until a customer explicitly adopts a signed replacement.
@@ -313,7 +313,16 @@ Paid is a merchandising property published by GenStudio, not a different pack fo
 
 ### 11.2 First paid flagship: Archival Ledger
 
-Archival Ledger remains the first specialist paid Channel Kit. The owner-approved launch price is **2,000 GenStudio credits**, but Story must render the live catalog amount and never hardcode the figure in runtime UI.
+Archival Ledger remains the first specialist paid Channel Kit. The owner-approved list price is **2,000 GenStudio credits**. The approved launch offer is an operator-set **90% discount for every customer**, with an optional end date of **2026-12-31** for this offer. Story must render the live catalog and quote facts and never hardcode either amount or discount in runtime UI.
+
+GenStudio applies the operator discount after deducting the exact value of already-owned
+components from the list-price remainder. The mechanisms compose: a customer pays for the
+missing components, and the active operator discount applies to that remainder. The final
+amount is calculated and signed by GenStudio. There is no new-customer eligibility rule,
+account-history check, first-purchase rule, or eligibility refusal state for this offer; while
+active, it applies to every customer. Story displays the signed discount and final amount and
+never calculates, re-qualifies, or auto-applies the offer locally. The final wire field names
+remain a GenStudio contract input and must not be guessed here.
 
 Its componentized `1.0.0` product uses:
 
@@ -684,6 +693,7 @@ Story must not invent the remaining server contract. A field-exact GenStudio han
 6. **Shelf cover media:** publish safe catalog cover/hero metadata and alt text or a documented derivation policy. Pack-internal preview assets cannot be downloaded before entitlement and must not be exposed by guessed URLs.
 7. **Product detail completeness:** confirm whether the existing product list is the detail source or provide an exact authenticated detail endpoint; Story must not manufacture missing license, media, or release facts.
 8. **License display:** publish the authoritative customer-facing license label/text or a stable operator-managed license reference for each product. The pack archive does not currently contain a commercial license contract, and Story must not invent one.
+9. **Operator discount quote semantics:** for Archival Ledger, confirm the field-exact signed facts for the 2,000-credit list price, owned-component deductions, the operator discount identity/percentage and optional end date, and the final server-calculated amount. The discount applies to every customer after the owned-component deduction; no eligibility, account-history, first-purchase, or discount-refusal fields are required. Story renders these facts without local calculation or eligibility checks. Final wire names must come from GenStudio's deployed reply.
 
 Until those answers are live, Story may implement local fixtures and UI states, but production stocking remains blocked. This is a cross-app contract gate, not an unresolved owner product decision.
 
@@ -724,7 +734,8 @@ Until those answers are live, Story may implement local fixtures and UI states, 
 - Every free claim charges zero credits and grants permanent kit/component families atomically.
 - Claiming all ten grants each shared component family once.
 - A repeated claim/purchase reuses idempotent evidence and never creates a second debit or ownership mutation.
-- Paid bundle quotes remove already-owned paid component value using GenStudio facts.
+- Paid bundle quotes remove already-owned paid component value using GenStudio facts, then apply any active operator discount to the remaining amount using GenStudio's signed quote facts.
+- Archival Ledger's approved 90% operator discount applies to every customer through its optional 2026-12-31 end date; Story performs no eligibility or account-history check and never calculates the final amount.
 - Story never displays a hardcoded paid price.
 - Same-account API-key rotation restores identical ownership.
 - Switching generation to another account does not delete installed packs or break pins.

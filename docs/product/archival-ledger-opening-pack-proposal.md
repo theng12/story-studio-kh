@@ -1,6 +1,6 @@
 # Opening Content Pack Proposal: Archival Ledger
 
-Status: owner-approved direction; proposal for final scope and pricing approval before archive authoring.
+Status: owner-approved direction and commercial ruling; final field-exact GenStudio quote contract remains pending before archive stocking.
 
 ## Store promise
 
@@ -75,21 +75,20 @@ Initial proof slots:
 
 Each showcase entry should contain a title, public HTTPS YouTube URL, optional thumbnail URL, short caption, and display order. No YouTube link is bundled into executable prompts or trusted as pack ownership evidence.
 
-## Pricing recommendation
+## Pricing and operator discount ruling
 
-Story Studio's provisional customer-value recommendation is **2,500 GenStudio credits** for the complete opening bundle.
+The owner-approved list price is **2,000 GenStudio credits** for the complete opening bundle.
+The approved launch offer is a plain operator-set **90% discount for every customer**, with an
+optional end date of **2026-12-31** for this offer. It is not a new-customer promotion:
+there is no eligibility rule, account-history evaluation, first-purchase semantics, or
+discount-refusal state.
 
-Reasoning:
-
-- permanent account ownership;
-- 500+ defensible episode directions;
-- a complete production system rather than a loose prompt list;
-- room for future signed content updates within the owned family;
-- enough value separation for smaller future Topic, Style, and Thumbnail packs.
-
-This is not the published price. GenStudio should independently recommend a credit-economy price using the live credit ladder, pack-purchase behavior, and desired margin. The owner chooses the final price; GenStudio remains the only authoritative source of the published credit amount.
-
-Suggested launch decision band: **2,000–3,000 credits**. Avoid discounting the first release before the proof gallery exists; if a launch offer is desired later, publish it as explicit catalog pricing rather than hardcoding it in Story Studio.
+GenStudio calculates the quote by deducting the exact value of owned components first, then
+applying the active 90% operator discount to the missing-component remainder. The final amount
+and discount facts are signed by GenStudio. Story Studio renders those facts and never
+calculates the list price, component deduction, discount, final amount, or eligibility locally.
+The final wire field names remain a GenStudio contract input and must not be guessed in this
+proposal.
 
 ## Release facts to prepare after approval
 
@@ -112,7 +111,7 @@ Before building the paid archive, the owner approves:
 
 1. the Archival Ledger name and copy;
 2. the 500+ promise and included historical scope;
-3. the provisional Story recommendation versus GenStudio's independent price recommendation;
+3. the owner-approved 2,000-credit list price and 90% operator discount, with GenStudio's final field-exact quote contract;
 4. the first public showcase links when the owner has produced the videos.
 5. the stable production publisher public key and secure off-repository custody of its private key.
 
