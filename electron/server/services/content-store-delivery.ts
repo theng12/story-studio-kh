@@ -22,11 +22,11 @@ import { verifyDeliveryAttestedContentPackArchive } from '../content-packs/archi
 import type { ContentPackDeliveryAttestation } from '../content-packs/runtime-types.js'
 import {
   assertContentPackAppCompatible,
-  installContentPack,
+  installContentPackLocked,
   verifyInstalledContentPackClosure,
 } from '../content-packs/installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
-import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
+import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState, readContentPackState, withContentPackCoordinationLock } from '../content-packs/state.js'
 import type { ContentPackInstallResult } from '../content-packs/runtime-types.js'
 import { getApiKey } from './app-secrets-store.js'
@@ -131,6 +131,7 @@ interface DeliveryContext {
   receipts: GenStudioContentReceipts
   origin: string
   policy: Awaited<ReturnType<typeof getFirstPartyContentPackVerificationPolicy>>
+  paths: ContentPackRuntimePaths
   completed: Map<string, ContentPackInstallResult>
   visiting: Set<string>
   releaseHistories: Map<string, GenStudioOwnedContentReleases>
@@ -279,19 +280,22 @@ async function bindRootClosure(
 
 async function alreadyInstalled(
   release: GenStudioContentRelease,
-  policy: DeliveryContext['policy'],
-): Promise<ContentPackInstallResult | null> {
-  const state = await readContentPackState()
+  context: Pick<DeliveryContext, 'paths' | 'policy'>,
+): Promise<{ install: ContentPackInstallResult; dependencies: ReadonlyArray<{ pack_id: string; version: string }> } | null> {
+  const state = await readContentPackState(context.paths)
   const pack = state.packs[release.packId]
   const installed = pack?.versions[release.version]
   if (!installed || installed.pending_removal || installed.archive_sha256 !== release.archiveSha256) return null
-  await verifyInstalledContentPackClosure(state, release.packId, release.version, policy)
+  const verified = await verifyInstalledContentPackClosure(state, release.packId, release.version, context.policy)
   return {
-    pack_id: release.packId,
-    version: release.version,
-    archive_sha256: release.archiveSha256,
-    activated: pack.active_version === release.version,
-    retained_versions: Object.keys(pack.versions).sort(),
+    install: {
+      pack_id: release.packId,
+      version: release.version,
+      archive_sha256: release.archiveSha256,
+      activated: pack.active_version === release.version,
+      retained_versions: Object.keys(pack.versions).sort(),
+    },
+    dependencies: verified.manifest.dependencies ?? [],
   }
 }
 
@@ -325,14 +329,17 @@ async function installOwnedEntitlement(
   if (context.visiting.has(key)) {
     throw new ContentStoreLocalError(409, 'CONTENT_PACK_DEPENDENCY_CYCLE', `The owned Content Pack dependency graph contains a cycle at ${key}.`)
   }
-  const local = await alreadyInstalled(release, context.policy)
-  if (local) {
-    context.completed.set(key, local)
-    return local
-  }
-
   context.visiting.add(key)
   try {
+    const local = await alreadyInstalled(release, context)
+    if (local) {
+      for (const dependency of local.dependencies) {
+        const ownedDependency = await resolveOwnedContentStoreDependency(context, dependency.pack_id, dependency.version)
+        await installOwnedEntitlement(ownedDependency.entitlement, ownedDependency.release, context)
+      }
+      context.completed.set(key, local.install)
+      return local.install
+    }
     const grant = await issueGenStudioContentDownload(context.apiKey, {
       entitlementFamily: entitlement.entitlementFamily,
       version: release.version,
@@ -361,7 +368,7 @@ async function installOwnedEntitlement(
       const ownedDependency = await resolveOwnedContentStoreDependency(context, dependency.pack_id, dependency.version)
       await installOwnedEntitlement(ownedDependency.entitlement, ownedDependency.release, context)
     }
-    const installed = await installContentPack({
+    const installed = await installContentPackLocked({
       archiveBytes,
       // model-drift-allow: Persisted Content Pack provenance discriminator, not a GenStudio catalog product ID.
       source: 'genstudio-store',
@@ -369,8 +376,8 @@ async function installOwnedEntitlement(
       expectedPackId: release.packId,
       expectedVersion: release.version,
       deliveryAttestation: evidence,
-    }, { activate: false })
-    const installedState = await readContentPackState()
+    }, { activate: false, policy: context.policy }, context.paths)
+    const installedState = await readContentPackState(context.paths)
     await verifyInstalledContentPackClosure(installedState, release.packId, release.version, context.policy)
     context.completed.set(key, installed)
     return installed
@@ -384,8 +391,7 @@ async function activateOwnedDeliveryClosure(
   root: GenStudioContentRelease,
   context: DeliveryContext,
 ): Promise<ContentPackInstallResult> {
-  const paths = getContentPackRuntimePaths()
-  return withContentPackCoordinationLock(paths, () => mutateContentPackState(async state => {
+  return mutateContentPackState(async state => {
     for (const installed of context.completed.values()) {
       const retained = state.packs[installed.pack_id]?.versions[installed.version]
       if (!retained || retained.pending_removal || retained.recalled || retained.archive_sha256 !== installed.archive_sha256) {
@@ -401,7 +407,7 @@ async function activateOwnedDeliveryClosure(
       activated: true,
       retained_versions: Object.keys(state.packs[root.packId]!.versions).sort(),
     }
-  }, paths))
+  }, context.paths)
 }
 
 export async function installOwnedContentStoreRelease(releaseId: string): Promise<ContentStoreInstallResponse> {
@@ -412,14 +418,18 @@ export async function installOwnedContentStoreRelease(releaseId: string): Promis
     throw new ContentStoreLocalError(404, 'CONTENT_PACK_NOT_OWNED', 'The active GenStudio account does not own this release.')
   }
   const release = entitlement.currentRelease!
+  const paths = getContentPackRuntimePaths()
   const context: DeliveryContext = {
     ...verified,
     policy: await getFirstPartyContentPackVerificationPolicy(),
+    paths,
     completed: new Map(),
     visiting: new Set(),
     releaseHistories: new Map(),
   }
-  await installOwnedEntitlement(entitlement, release, context)
-  const install = await activateOwnedDeliveryClosure(release, context)
+  const install = await withContentPackCoordinationLock(paths, async () => {
+    await installOwnedEntitlement(entitlement, release, context)
+    return activateOwnedDeliveryClosure(release, context)
+  })
   return { install, overview: await loadContentStoreOverview() }
 }

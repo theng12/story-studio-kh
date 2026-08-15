@@ -449,7 +449,7 @@ export async function installContentPack(
 }
 
 /** Caller holds coordination → state; this avoids nested coordination locks in future bulk operations. */
-async function installContentPackLocked(
+export async function installContentPackLocked(
   request: ContentPackInstallRequest,
   options: ContentPackInstallOptions,
   paths: ContentPackRuntimePaths,

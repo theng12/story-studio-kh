@@ -138,11 +138,23 @@ interface MockContentPurchaseRecord {
   issuedAt: string
 }
 
+interface MockOwnedContentReleaseState {
+  state: 'published' | 'withdrawn' | 'recalled'
+  recalledAt?: string
+  recallReason?: string
+}
+
 interface TtsSubmissionBarrier {
   promise: Promise<void>
   resolve: () => void
   reject: (error: Error) => void
   timeout: ReturnType<typeof setTimeout>
+}
+
+interface ContentArchiveResponseBarrier {
+  started: () => void
+  wait: Promise<void>
+  release: () => void
 }
 
 const FULL_SCOPES: MockGenStudioScope[] = [
@@ -335,6 +347,7 @@ export class MockGenStudioService {
   private readonly contentPurchaseRecords = new Map<string, MockContentPurchaseRecord[]>()
   private readonly contentSigningKey = generateKeyPairSync('ed25519')
   private readonly contentArchives = new Map<string, Uint8Array>()
+  private readonly contentOwnedReleaseStates = new Map<string, MockOwnedContentReleaseState>()
   private readonly queuedContentPurchaseOutcomes: MockContentPurchaseOutcome[] = []
   contentProducts: Array<Record<string, unknown>> = []
   contentShelves: { shelves: Array<Record<string, unknown>>; fallback_product_ids: string[] } | null = null
@@ -369,6 +382,7 @@ export class MockGenStudioService {
   private activeTtsSubmissions = 0
   private maxInFlightTtsSubmissions = 0
   private readonly ttsSubmissionBarriers = new Map<number, TtsSubmissionBarrier>()
+  private nextContentArchiveResponseBarrier: ContentArchiveResponseBarrier | undefined
 
   baseUrl = ''
 
@@ -420,6 +434,9 @@ export class MockGenStudioService {
     this.contentDownloadRefusal = null
     this.tamperContentPurchaseReceipt = false
     this.contentArchives.clear()
+    this.contentOwnedReleaseStates.clear()
+    this.nextContentArchiveResponseBarrier?.release()
+    this.nextContentArchiveResponseBarrier = undefined
     this.contentProducts = []
     this.contentShelves = null
     for (const operation of Object.keys(this.sequence) as MockGenStudioOperation[]) {
@@ -477,6 +494,23 @@ export class MockGenStudioService {
     release.archive_bytes = archiveBytes.byteLength
     release.archive_available = true
     this.contentArchives.set(digest, Uint8Array.from(archiveBytes))
+  }
+
+  setContentOwnedReleaseState(releaseId: string, state: MockOwnedContentReleaseState): void {
+    if (!this.contentProducts.some(product => (product.current_release as Record<string, unknown> | null)?.release_id === releaseId)) {
+      throw new Error(`Unknown mock Content Store release: ${releaseId}`)
+    }
+    this.contentOwnedReleaseStates.set(releaseId, { ...state })
+  }
+
+  pauseNextContentArchiveResponse(): { started: Promise<void>; release: () => void } {
+    if (this.nextContentArchiveResponseBarrier) throw new Error('A mock Content Store archive response is already paused')
+    let signalStarted!: () => void
+    let release!: () => void
+    const started = new Promise<void>(resolve => { signalStarted = resolve })
+    const wait = new Promise<void>(resolve => { release = resolve })
+    this.nextContentArchiveResponseBarrier = { started: signalStarted, wait, release }
+    return { started, release }
   }
 
   setContentProductOwned(productId: string, owned = true): void {
@@ -794,6 +828,8 @@ export class MockGenStudioService {
     const product = owned[index]
     if (!product) throw Object.assign(new Error('not entitled'), { mockStatus: 404, mockCode: 'not_entitled' })
     const release = product.current_release as Record<string, unknown> | null
+    const releaseState = release ? this.contentOwnedReleaseStates.get(String(release.release_id)) : undefined
+    const state = releaseState?.state ?? 'published'
     return {
       entitlement_family: product.entitlement_family,
       entitlement_id: `cent_restore_${index + 1}`,
@@ -803,12 +839,14 @@ export class MockGenStudioService {
       publisher_id: product.publisher_id,
       granted_at: this.ownershipRecord(accountId, product)?.grantedAt ?? '2026-08-14T09:12:44Z',
       retired: product.retired === true,
-      current_release_id: release?.release_id || null,
+      current_release_id: state === 'recalled' ? null : release?.release_id || null,
       releases: release ? [{
         ...release,
-        state: 'published',
+        state,
         published_at: '2026-08-14T09:12:44Z',
-        current: true,
+        current: state !== 'recalled',
+        recalled_at: state === 'recalled' ? releaseState?.recalledAt : null,
+        recall_reason: state === 'recalled' ? releaseState?.recallReason : null,
       }] : [],
     }
   }
@@ -1331,6 +1369,12 @@ export class MockGenStudioService {
         if (!archive || url.searchParams.get('grant') !== 'mock-opaque-token') {
           json(response, 404, { code: 'archive_unavailable', detail: 'archive unavailable' })
           return
+        }
+        const responseBarrier = this.nextContentArchiveResponseBarrier
+        if (responseBarrier) {
+          this.nextContentArchiveResponseBarrier = undefined
+          responseBarrier.started()
+          await responseBarrier.wait
         }
         response.writeHead(200, {
           'Content-Type': 'application/octet-stream',
