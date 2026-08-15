@@ -64,6 +64,9 @@ function upstreamFailure(res: Response, error: GenStudioContentStoreApiError, re
   const safeRefusals: Record<string, string> = {
     already_owned: 'This GenStudio account already owns this content.',
     archive_unavailable: 'The owned Content Pack archive is not available right now.',
+    bundle_closure_missing: 'This Content Store bundle has no pinned component closure and cannot be purchased.',
+    bundle_component_unavailable: 'A pinned component of this Content Store bundle is no longer available.',
+    discount_misconfigured: 'GenStudio cannot safely quote this Content Store discount right now.',
     entitlement_revoked: 'GenStudio reports that this content entitlement is revoked.',
     insufficient_credits: 'This GenStudio account does not have enough content-spendable credits.',
     not_entitled: 'This GenStudio account does not own the requested Content Pack.',

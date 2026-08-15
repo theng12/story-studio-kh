@@ -34,7 +34,7 @@ export type MockGenStudioScope =
   | 'content:purchase'
 
 export interface MockContentPurchaseOutcome {
-  status?: 200 | 401 | 402 | 404 | 409 | 418 | 503
+  status?: 200 | 401 | 402 | 403 | 404 | 409 | 418 | 503
   body?: Record<string, unknown>
   dropResponse?: boolean
   delayMs?: number
@@ -850,14 +850,30 @@ export class MockGenStudioService {
     const account = this.contentAccountBody(request)
     const quoteId = `cq_${productId}_${String(this.requests.length)}`
     const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString()
+    const closure = this.contentBundleClosure(product)
+    const entitlementFamilies = [String(product.entitlement_family), ...closure.map(component => String(component.entitlement_family))]
+    const ownedComponents = closure
+      .filter(component => this.isContentProductOwned(account.account_id as string, component.product as Record<string, unknown>))
+      .map(component => String(component.entitlement_family))
+    const componentDiscountCredits = closure
+      .filter(component => ownedComponents.includes(String(component.entitlement_family)))
+      .reduce((total, component) => total + Number(component.component_credit_value || 0), 0)
     const price = Number(product.credit_price || 0)
+    const operatorDiscount = product.operator_discount ?? null
+    const operatorDiscountCredits = operatorDiscount === null
+      ? 0
+      : Math.floor((price - componentDiscountCredits) * Number((operatorDiscount as Record<string, unknown>).percent) / 100)
+    const quotedCredits = price - componentDiscountCredits - operatorDiscountCredits
     const signed = {
       typ: 'genstudio.content.quote.v1', key_id: 'mock-content-key', quote_id: quoteId,
       account_id: account.account_id, product_id: productId,
       entitlement_family: product.entitlement_family, release_id: releaseId,
       release_version: release?.version, archive_sha256: release?.archive_sha256,
-      base_credit_price: price, discount_credits: 0, quoted_credits: price,
-      owned_components: [], issued_at: new Date().toISOString(), expires_at: expiresAt,
+      base_credit_price: price, discount_credits: componentDiscountCredits, quoted_credits: quotedCredits,
+      owned_components: ownedComponents, entitlement_families: entitlementFamilies,
+      bundle_closure: closure.map(({ product: _product, component_credit_value: _value, ...component }) => component),
+      operator_discount: operatorDiscount, operator_discount_credits: operatorDiscountCredits,
+      issued_at: new Date().toISOString(), expires_at: expiresAt,
     }
     return {
       quote: signed,
@@ -870,15 +886,56 @@ export class MockGenStudioService {
       entitlement_family: product.entitlement_family,
       release_id: releaseId,
       base_credit_price: price,
-      discount_credits: 0,
-      quoted_credits: price,
+      discount_credits: componentDiscountCredits,
+      entitlement_families: entitlementFamilies,
+      bundle_closure: signed.bundle_closure,
+      operator_discount: operatorDiscount,
+      operator_discount_credits: operatorDiscountCredits,
+      quoted_credits: quotedCredits,
       balance_before: account.content_spendable_credits,
-      balance_after: Number(account.content_spendable_credits) - price,
-      owned_components: [],
-      sufficient_credits: Number(account.content_spendable_credits) >= price,
-      insufficient_reason: Number(account.content_spendable_credits) >= price ? null : 'insufficient_credits',
-      shortfall_credits: Math.max(0, price - Number(account.content_spendable_credits)),
+      balance_after: Number(account.content_spendable_credits) - quotedCredits,
+      owned_components: ownedComponents,
+      sufficient_credits: Number(account.content_spendable_credits) >= quotedCredits,
+      insufficient_reason: Number(account.content_spendable_credits) >= quotedCredits ? null : 'insufficient_credits',
+      shortfall_credits: Math.max(0, quotedCredits - Number(account.content_spendable_credits)),
     }
+  }
+
+  private contentBundleClosure(product: Record<string, unknown>): Array<Record<string, unknown> & {
+    product: Record<string, unknown>
+    component_credit_value: number
+  }> {
+    if (product.kind !== 'niche_bundle') return []
+    const componentIds = this.contentBundleComponents.get(String(product.product_id))
+    if (!componentIds) {
+      throw Object.assign(new Error('This bundle release has no pinned component closure and cannot be sold.'), {
+        mockStatus: 409, mockCode: 'bundle_closure_missing',
+      })
+    }
+    const listed = new Map(
+      ((product.bundle_components as Array<Record<string, unknown>> | undefined) || [])
+        .map(component => [String(component.product_id), component]),
+    )
+    return componentIds.map((productId, position) => {
+      const componentProduct = this.contentProducts.find(entry => entry.product_id === productId)
+      const component = listed.get(productId)
+      const release = componentProduct?.current_release as Record<string, unknown> | null
+      if (!componentProduct || !component || !release) {
+        throw Object.assign(new Error('A pinned bundle component is unavailable.'), {
+          mockStatus: 409, mockCode: 'bundle_component_unavailable',
+        })
+      }
+      return {
+        position,
+        product_id: productId,
+        entitlement_family: componentProduct.entitlement_family,
+        release_id: release.release_id,
+        version: release.version,
+        archive_sha256: release.archive_sha256,
+        product: componentProduct,
+        component_credit_value: Number(component.component_credit_value || 0),
+      }
+    })
   }
 
   private contentPurchaseBody(request: IncomingMessage, body: Buffer, replayed: boolean): Record<string, unknown> {
@@ -889,6 +946,13 @@ export class MockGenStudioService {
     const accountId = this.contentAccountId(request)
     const purchaseId = `cpur_${String(this.contentPurchases.size + 1)}`
     const charged = Number(quote.quoted_credits || 0)
+    const baseCreditPrice = Number(quote.base_credit_price || 0)
+    const componentDiscountCredits = Number(quote.discount_credits || 0)
+    const operatorDiscount = quote.operator_discount ?? null
+    const operatorDiscountCredits = Number(quote.operator_discount_credits || 0)
+    const entitlementFamilies = quote.entitlement_families as string[]
+    const bundleClosure = quote.bundle_closure as Array<Record<string, unknown>>
+    const previouslyOwnedFamilies = (quote.owned_components as string[]).slice().sort()
     const balanceBefore = this.contentCredits(accountId)
     if (charged > balanceBefore) throw Object.assign(new Error('insufficient credits'), { mockStatus: 402, mockCode: 'insufficient_credits' })
     const granted = this.grantContentProducts(accountId, String(product.product_id), purchaseId)
@@ -907,14 +971,26 @@ export class MockGenStudioService {
     const receipt = {
       typ: 'genstudio.content.receipt.v1', key_id: 'mock-content-key', receipt_id: `crc_${purchaseId}`,
       purchase_id: purchaseId, account_id: accountId,
-      entitlement_families: granted.map(entry => entry.entitlement_family), product, release,
-      credits_charged: charged, issued_at: issuedAt,
+      quote_id: quote.quote_id, entitlement_families: entitlementFamilies, product, release,
+      credits_charged: charged, base_credit_price: baseCreditPrice,
+      component_discount_credits: componentDiscountCredits,
+      operator_discount: operatorDiscount, operator_discount_credits: operatorDiscountCredits,
+      granted_families: granted.map(entry => entry.entitlement_family),
+      previously_owned_families: previouslyOwnedFamilies,
+      bundle_closure: bundleClosure,
+      issued_at: issuedAt,
     }
     return {
       purchase_id: purchaseId, account_id: accountId, credits_charged: charged,
-      discount_credits: 0, balance_before: balanceBefore, balance_after: balanceAfter,
+      discount_credits: componentDiscountCredits, base_credit_price: baseCreditPrice,
+      component_discount_credits: componentDiscountCredits,
+      operator_discount: operatorDiscount, operator_discount_credits: operatorDiscountCredits,
+      granted_families: granted.map(entry => entry.entitlement_family),
+      previously_owned_families: previouslyOwnedFamilies,
+      bundle_closure: bundleClosure,
+      balance_before: balanceBefore, balance_after: balanceAfter,
       entitlement_ids: granted.map((_, index) => `cent_${purchaseId}_${index + 1}`),
-      entitlement_families: granted.map(entry => entry.entitlement_family),
+      entitlement_families: entitlementFamilies,
       product, release, ledger_event_key: charged ? `content-purchase:${purchaseId}` : null,
       receipt: {
         receipt,
@@ -1273,10 +1349,6 @@ export class MockGenStudioService {
         }
         const outcome = this.queuedContentPurchaseOutcomes.shift()
         if (outcome?.delayMs) await new Promise(resolve => setTimeout(resolve, outcome.delayMs))
-        if (outcome?.dropResponse) {
-          response.socket?.destroy()
-          return
-        }
         if (outcome?.status && outcome.status !== 200) {
           if (outcome.rawBody !== undefined) {
             response.writeHead(outcome.status, { 'Content-Type': 'application/json' })
@@ -1290,17 +1362,24 @@ export class MockGenStudioService {
         if (outcome?.body) {
           const creditsCharged = Number(outcome.body.credits_charged ?? purchase.credits_charged)
           const discountCredits = Number(outcome.body.discount_credits ?? purchase.discount_credits)
+          const componentDiscountCredits = Number(outcome.body.component_discount_credits ?? discountCredits)
           const balanceBefore = Number(outcome.body.balance_before ?? purchase.balance_before)
           const balanceAfter = Number(outcome.body.balance_after ?? purchase.balance_after)
           purchase.credits_charged = creditsCharged
           purchase.discount_credits = discountCredits
+          purchase.component_discount_credits = componentDiscountCredits
           purchase.balance_before = balanceBefore
           purchase.balance_after = balanceAfter
           const receiptEnvelope = purchase.receipt as Record<string, unknown>
           const signedReceipt = receiptEnvelope.receipt as Record<string, unknown>
           signedReceipt.credits_charged = creditsCharged
+          signedReceipt.component_discount_credits = componentDiscountCredits
         }
         this.contentPurchases.set(purchaseIdentity, purchase)
+        if (outcome?.dropResponse) {
+          response.socket?.destroy()
+          return
+        }
         json(response, 200, purchase)
         return
       }

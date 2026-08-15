@@ -186,6 +186,10 @@ export interface GenStudioContentQuote {
   releaseId: string
   baseCreditPrice: number
   discountCredits: number
+  entitlementFamilies: string[]
+  bundleClosure: GenStudioContentBundleClosureEntry[]
+  operatorDiscount: GenStudioContentOperatorDiscount | null
+  operatorDiscountCredits: number
   quotedCredits: number
   balanceBefore: number
   balanceAfter: number
@@ -194,6 +198,24 @@ export interface GenStudioContentQuote {
   insufficientReason: string | null
   shortfallCredits: number
   raw: CanonicalJsonObject
+}
+
+export interface GenStudioContentOperatorDiscount {
+  discountId: string
+  version: number
+  percent: number
+  startsOn: string | null
+  endsOn: string | null
+  timezone: 'Asia/Phnom_Penh'
+}
+
+export interface GenStudioContentBundleClosureEntry {
+  position: number
+  productId: string
+  entitlementFamily: string
+  releaseId: string
+  version: string
+  archiveSha256: string
 }
 
 export interface GenStudioContentReceipt {
@@ -208,10 +230,17 @@ export interface GenStudioContentPurchase {
   accountId: string
   creditsCharged: number
   discountCredits: number
+  baseCreditPrice: number
+  componentDiscountCredits: number
+  operatorDiscount: GenStudioContentOperatorDiscount | null
+  operatorDiscountCredits: number
   balanceBefore: number
   balanceAfter: number
   entitlementIds: string[]
   entitlementFamilies: string[]
+  grantedFamilies: string[]
+  previouslyOwnedFamilies: string[]
+  bundleClosure: GenStudioContentBundleClosureEntry[]
   product: CanonicalJsonObject
   release: CanonicalJsonObject
   ledgerEventKey: string | null
@@ -739,10 +768,60 @@ export function parseContentStoreShelves(
   return { shelves, fallbackProductIds, raw }
 }
 
+function parseOperatorDiscount(value: unknown, field: string): GenStudioContentOperatorDiscount | null {
+  if (value === null) return null
+  const row = plainObject(value, field)
+  const version = uint(row, 'version')
+  const percent = uint(row, 'percent')
+  const startsOn = nullableText(row, 'starts_on')
+  const endsOn = nullableText(row, 'ends_on')
+  if (version < 1) throw new Error(`${field}.version must be at least 1`)
+  if (percent < 1 || percent > 99) throw new Error(`${field}.percent must be between 1 and 99`)
+  for (const [name, date] of [['starts_on', startsOn], ['ends_on', endsOn]] as const) {
+    if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error(`${field}.${name} must be YYYY-MM-DD or null`)
+  }
+  if (text(row, 'timezone') !== 'Asia/Phnom_Penh') throw new Error(`${field}.timezone must be Asia/Phnom_Penh`)
+  return {
+    discountId: text(row, 'discount_id'), version, percent, startsOn, endsOn, timezone: 'Asia/Phnom_Penh',
+  }
+}
+
+function parseBundleClosure(value: unknown, field: string): GenStudioContentBundleClosureEntry[] {
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`)
+  const families = new Set<string>()
+  return value.map((entry, index) => {
+    const row = plainObject(entry, `${field}[${index}]`)
+    const position = uint(row, 'position')
+    if (position !== index) throw new Error(`${field} positions must be pinned in order from zero`)
+    const entitlementFamily = text(row, 'entitlement_family')
+    if (families.has(entitlementFamily)) throw new Error(`${field} contains a duplicate entitlement_family`)
+    families.add(entitlementFamily)
+    const archiveSha256 = text(row, 'archive_sha256')
+    if (!/^[0-9a-f]{64}$/.test(archiveSha256)) throw new Error(`${field}[${index}].archive_sha256 must be 64 lowercase hexadecimal characters`)
+    return {
+      position,
+      productId: text(row, 'product_id'),
+      entitlementFamily,
+      releaseId: text(row, 'release_id'),
+      version: text(row, 'version'),
+      archiveSha256,
+    }
+  })
+}
+
+function parseEntitlementFamilies(value: unknown, field: string, entitlementFamily: string, closure: readonly GenStudioContentBundleClosureEntry[]): string[] {
+  const families = textArray({ value }, 'value')
+  const expected = [entitlementFamily, ...closure.map(component => component.entitlementFamily)]
+  if (families.length === 0 || new Set(families).size !== families.length || JSON.stringify(families) !== JSON.stringify(expected)) {
+    throw new Error(`${field} must contain the complete pinned family set in order`)
+  }
+  return families
+}
+
 function assertSignedQuoteCoherence(signed: Record<string, unknown>, envelope: Record<string, unknown>): void {
   const scalarFields = [
     'quote_id', 'account_id', 'product_id', 'entitlement_family', 'release_id', 'expires_at',
-    'base_credit_price', 'discount_credits', 'quoted_credits',
+    'base_credit_price', 'discount_credits', 'operator_discount_credits', 'quoted_credits',
   ]
   for (const field of scalarFields) {
     if (signed[field] !== envelope[field]) throw new Error(`Signed quote ${field} does not match its envelope`)
@@ -752,6 +831,9 @@ function assertSignedQuoteCoherence(signed: Record<string, unknown>, envelope: R
   if (!Array.isArray(signedOwned) || !Array.isArray(envelopeOwned)
     || JSON.stringify(signedOwned) !== JSON.stringify(envelopeOwned)) {
     throw new Error('Signed quote owned_components does not match its envelope')
+  }
+  for (const field of ['entitlement_families', 'bundle_closure', 'operator_discount']) {
+    if (!sameJson({ value: signed[field] }, { value: envelope[field] })) throw new Error(`Signed quote ${field} does not match its envelope`)
   }
 }
 
@@ -763,6 +845,18 @@ export function parseContentStoreQuote(value: unknown): GenStudioContentQuote {
   const keyId = text(row, 'key_id')
   if (signedQuote.value.key_id !== keyId) throw new Error('Signed quote key_id does not match its envelope')
   assertSignedQuoteCoherence(signedQuote.value, row)
+  const bundleClosure = parseBundleClosure(row.bundle_closure, 'bundle_closure')
+  const entitlementFamily = text(row, 'entitlement_family')
+  const entitlementFamilies = parseEntitlementFamilies(row.entitlement_families, 'entitlement_families', entitlementFamily, bundleClosure)
+  const ownedComponents = textArray(row, 'owned_components')
+  if (new Set(ownedComponents).size !== ownedComponents.length) {
+    throw new Error('owned_components must be unique')
+  }
+  const operatorDiscount = parseOperatorDiscount(row.operator_discount, 'operator_discount')
+  const operatorDiscountCredits = uint(row, 'operator_discount_credits')
+  if ((operatorDiscount === null) !== (operatorDiscountCredits === 0)) {
+    throw new Error('operator_discount and operator_discount_credits must agree')
+  }
 
   const sufficientCredits = bool(row, 'sufficient_credits')
   const insufficientReason = nullableText(row, 'insufficient_reason')
@@ -776,14 +870,18 @@ export function parseContentStoreQuote(value: unknown): GenStudioContentQuote {
     expiresAt: text(row, 'expires_at'),
     accountId: text(row, 'account_id'),
     productId: text(row, 'product_id'),
-    entitlementFamily: text(row, 'entitlement_family'),
+    entitlementFamily,
     releaseId: text(row, 'release_id'),
     baseCreditPrice: uint(row, 'base_credit_price'),
     discountCredits: uint(row, 'discount_credits'),
+    entitlementFamilies,
+    bundleClosure,
+    operatorDiscount,
+    operatorDiscountCredits,
     quotedCredits: uint(row, 'quoted_credits'),
     balanceBefore: uint(row, 'balance_before'),
     balanceAfter: uint(row, 'balance_after'),
-    ownedComponents: textArray(row, 'owned_components'),
+    ownedComponents,
     sufficientCredits,
     insufficientReason,
     shortfallCredits: uint(row, 'shortfall_credits'),
@@ -817,15 +915,54 @@ export function parseContentStorePurchase(value: unknown): GenStudioContentPurch
   if (!sameJson(signedReceipt.value.product, row.product)) throw new Error('Signed receipt product does not match its purchase envelope')
   if (!sameJson(signedReceipt.value.release, row.release)) throw new Error('Signed receipt release does not match its purchase envelope')
 
+  const entitlementFamily = text(plainObject(row.product, 'product'), 'entitlement_family')
+  const bundleClosure = parseBundleClosure(row.bundle_closure, 'bundle_closure')
+  const entitlementFamilies = parseEntitlementFamilies(row.entitlement_families, 'entitlement_families', entitlementFamily, bundleClosure)
+  const grantedFamilies = textArray(row, 'granted_families')
+  const previouslyOwnedFamilies = textArray(row, 'previously_owned_families')
+  if (new Set(grantedFamilies).size !== grantedFamilies.length
+    || grantedFamilies.some(family => !entitlementFamilies.includes(family))) {
+    throw new Error('granted_families must be a unique subset of entitlement_families')
+  }
+  if (new Set(previouslyOwnedFamilies).size !== previouslyOwnedFamilies.length
+    || previouslyOwnedFamilies.some(family => !entitlementFamilies.includes(family))
+    || JSON.stringify(previouslyOwnedFamilies) !== JSON.stringify([...previouslyOwnedFamilies].sort())) {
+    throw new Error('previously_owned_families must be a sorted unique subset of entitlement_families')
+  }
+  const operatorDiscount = parseOperatorDiscount(row.operator_discount, 'operator_discount')
+  const operatorDiscountCredits = uint(row, 'operator_discount_credits')
+  if ((operatorDiscount === null) !== (operatorDiscountCredits === 0)) {
+    throw new Error('operator_discount and operator_discount_credits must agree')
+  }
+  const componentDiscountCredits = uint(row, 'component_discount_credits')
+  if (componentDiscountCredits !== uint(row, 'discount_credits')) {
+    throw new Error('component_discount_credits must match discount_credits')
+  }
+  for (const field of [
+    'base_credit_price', 'component_discount_credits', 'operator_discount', 'operator_discount_credits',
+    'granted_families', 'previously_owned_families', 'bundle_closure',
+  ]) {
+    if (!sameJson({ value: signedReceipt.value[field] }, { value: row[field] })) {
+      throw new Error(`Signed receipt ${field} does not match its purchase envelope`)
+    }
+  }
+
   return {
     purchaseId: text(row, 'purchase_id'),
     accountId: text(row, 'account_id'),
     creditsCharged: uint(row, 'credits_charged'),
     discountCredits: uint(row, 'discount_credits'),
+    baseCreditPrice: uint(row, 'base_credit_price'),
+    componentDiscountCredits,
+    operatorDiscount,
+    operatorDiscountCredits,
     balanceBefore: uint(row, 'balance_before'),
     balanceAfter: uint(row, 'balance_after'),
     entitlementIds: textArray(row, 'entitlement_ids'),
-    entitlementFamilies: textArray(row, 'entitlement_families'),
+    entitlementFamilies,
+    grantedFamilies,
+    previouslyOwnedFamilies,
+    bundleClosure,
     product,
     release,
     ledgerEventKey: nullableText(row, 'ledger_event_key'),

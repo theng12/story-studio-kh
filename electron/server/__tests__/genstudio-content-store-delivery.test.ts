@@ -109,6 +109,9 @@ function purchasePayload(overrides: Record<string, unknown> = {}) {
   return {
     typ: 'genstudio.content.receipt.v1', key_id: KEY_ID, receipt_id: 'crc_a', purchase_id: 'cpur_a',
     account_id: 'acct_a', entitlement_families: ['com.storystudio.test'],
+    granted_families: ['com.storystudio.test'], previously_owned_families: [], bundle_closure: [],
+    base_credit_price: 250, component_discount_credits: 0,
+    operator_discount: null, operator_discount_credits: 0,
     product: { product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', kind: 'series_formula' },
     release: release(), credits_charged: 250, issued_at: '2026-08-14T09:12:44Z',
     ...overrides,
@@ -140,8 +143,11 @@ function purchaseResponse() {
   const payload = purchasePayload()
   return {
     purchase_id: 'cpur_a', account_id: 'acct_a', credits_charged: 250, discount_credits: 0,
+    base_credit_price: 250, component_discount_credits: 0,
+    operator_discount: null, operator_discount_credits: 0,
     balance_before: 1000, balance_after: 750, entitlement_ids: ['cent_a'],
-    entitlement_families: ['com.storystudio.test'], product: payload.product, release: payload.release,
+    entitlement_families: ['com.storystudio.test'], granted_families: ['com.storystudio.test'],
+    previously_owned_families: [], bundle_closure: [], product: payload.product, release: payload.release,
     ledger_event_key: 'content-purchase:cpur_a',
     receipt: { receipt: payload, receipt_signature: signature(payload), key_id: KEY_ID },
     replayed: false,

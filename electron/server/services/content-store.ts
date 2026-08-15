@@ -48,6 +48,24 @@ export interface PublicContentPurchaseAttempt {
   status: CachedContentQuote['status']
   base_credit_price: number
   discount_credits: number
+  entitlement_families?: string[]
+  bundle_closure?: Array<{
+    position: number
+    product_id: string
+    entitlement_family: string
+    release_id: string
+    version: string
+    archive_sha256: string
+  }>
+  operator_discount?: {
+    discount_id: string
+    version: number
+    percent: number
+    starts_on: string | null
+    ends_on: string | null
+    timezone: 'Asia/Phnom_Penh'
+  } | null
+  operator_discount_credits?: number
   quoted_credits: number
   balance_before: number
   balance_after: number
@@ -59,6 +77,9 @@ export interface PublicContentPurchaseAttempt {
   uncertain_detail?: string
   ownership?: 'owned_not_installed'
   credits_charged?: number
+  component_discount_credits?: number
+  granted_families?: string[]
+  previously_owned_families?: string[]
   replayed?: boolean
   receipt_verification?: 'unverified_phase1'
 }
@@ -189,6 +210,12 @@ async function cachedVerifiedFamilies(accountId: string): Promise<Set<string>> {
 
 function publicAttempt(attempt: CachedContentQuote): PublicContentPurchaseAttempt {
   const completed = attempt.completed_purchase
+  const finalOperatorDiscount = completed?.operator_discount !== undefined
+    ? completed.operator_discount
+    : attempt.operator_discount
+  const finalOperatorDiscountCredits = completed?.operator_discount !== undefined
+    ? completed.operator_discount_credits
+    : attempt.operator_discount_credits
   return {
     quote_id: attempt.quote_id,
     account_id: attempt.account_id,
@@ -197,7 +224,7 @@ function publicAttempt(attempt: CachedContentQuote): PublicContentPurchaseAttemp
     entitlement_family: attempt.entitlement_family,
     expires_at: attempt.expires_at,
     status: attempt.status,
-    base_credit_price: attempt.base_credit_price,
+    base_credit_price: completed?.base_credit_price ?? attempt.base_credit_price,
     discount_credits: completed?.discount_credits ?? attempt.discount_credits,
     quoted_credits: attempt.quoted_credits,
     balance_before: completed?.balance_before ?? attempt.balance_before,
@@ -206,11 +233,26 @@ function publicAttempt(attempt: CachedContentQuote): PublicContentPurchaseAttemp
     sufficient_credits: attempt.sufficient_credits,
     insufficient_reason: attempt.insufficient_reason,
     shortfall_credits: attempt.shortfall_credits,
+    ...(attempt.entitlement_families ? {
+      entitlement_families: [...(completed?.entitlement_families ?? attempt.entitlement_families)],
+    } : {}),
+    ...((completed?.bundle_closure ?? attempt.bundle_closure) ? {
+      bundle_closure: structuredClone(completed?.bundle_closure ?? attempt.bundle_closure) as NonNullable<PublicContentPurchaseAttempt['bundle_closure']>,
+    } : {}),
+    ...(finalOperatorDiscount !== undefined ? {
+      operator_discount: structuredClone(finalOperatorDiscount) as PublicContentPurchaseAttempt['operator_discount'],
+      operator_discount_credits: finalOperatorDiscountCredits,
+    } : {}),
     ...(attempt.last_refusal ? { refusal: { ...attempt.last_refusal } } : {}),
     ...(attempt.uncertain_detail ? { uncertain_detail: attempt.uncertain_detail } : {}),
     ...(completed ? {
       ownership: 'owned_not_installed' as const,
       credits_charged: completed.credits_charged,
+      ...(completed.component_discount_credits !== undefined ? {
+        component_discount_credits: completed.component_discount_credits,
+      } : {}),
+      ...(completed.granted_families ? { granted_families: [...completed.granted_families] } : {}),
+      ...(completed.previously_owned_families ? { previously_owned_families: [...completed.previously_owned_families] } : {}),
       replayed: completed.replayed,
       receipt_verification: completed.receipt.verification,
     } : {}),

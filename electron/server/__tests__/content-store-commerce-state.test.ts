@@ -86,7 +86,8 @@ function signedQuote(overrides: Record<string, unknown> = {}) {
     typ: 'genstudio.content.quote.v1', key_id: 'key-1', quote_id: 'cq_test', account_id: 'acct_a',
     product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', release_id: 'crel_a',
     release_version: '1.0.0', archive_sha256: HASH, base_credit_price: 400,
-    discount_credits: 100, quoted_credits: 300, owned_components: [],
+    discount_credits: 100, entitlement_families: ['com.storystudio.test'], bundle_closure: [],
+    operator_discount: null, operator_discount_credits: 0, quoted_credits: 300, owned_components: [],
     issued_at: '2026-08-14T10:00:00Z', expires_at: '2099-08-14T10:15:00Z', ...overrides,
   }
 }
@@ -100,6 +101,8 @@ function quote(overrides: Record<string, unknown> = {}) {
     expires_at: signed.expires_at, account_id: signed.account_id, product_id: signed.product_id,
     entitlement_family: signed.entitlement_family, release_id: signed.release_id,
     base_credit_price: signed.base_credit_price, discount_credits: signed.discount_credits,
+    entitlement_families: signed.entitlement_families, bundle_closure: signed.bundle_closure,
+    operator_discount: signed.operator_discount, operator_discount_credits: signed.operator_discount_credits,
     quoted_credits: signed.quoted_credits, balance_before: 5000, balance_after: 4700,
     owned_components: signed.owned_components, sufficient_credits: true,
     insufficient_reason: null, shortfall_credits: 0,
@@ -119,13 +122,19 @@ function purchase(overrides: Record<string, unknown> = {}) {
   const receipt = {
     typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a',
     purchase_id: 'cpur_a', account_id: 'acct_a', entitlement_families: ['com.storystudio.test'],
+    granted_families: ['com.storystudio.test'], previously_owned_families: [], bundle_closure: [],
+    base_credit_price: 400, component_discount_credits: 100,
+    operator_discount: null, operator_discount_credits: 0,
     product: { product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', title: 'Test Formula' },
     release: release(), credits_charged: 300, issued_at: '2026-08-14T10:01:00Z',
   }
   return parseContentStorePurchase({
     purchase_id: 'cpur_a', account_id: 'acct_a', credits_charged: 300, discount_credits: 100,
+    base_credit_price: 400, component_discount_credits: 100,
+    operator_discount: null, operator_discount_credits: 0,
     balance_before: 5000, balance_after: 4700, entitlement_ids: ['cent_a'],
-    entitlement_families: ['com.storystudio.test'], product: receipt.product, release: receipt.release,
+    entitlement_families: ['com.storystudio.test'], granted_families: ['com.storystudio.test'],
+    previously_owned_families: [], bundle_closure: [], product: receipt.product, release: receipt.release,
     ledger_event_key: 'content-purchase:cpur_a',
     receipt: { receipt, receipt_signature: SIGNATURE, key_id: 'key-1' }, replayed: false,
     ...overrides,
@@ -319,24 +328,17 @@ describe('Content Store commerce state', () => {
         receipt: {
           typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a', purchase_id: 'cpur_a',
           account_id: 'acct_other', entitlement_families: ['com.storystudio.test'],
+          granted_families: ['com.storystudio.test'], previously_owned_families: [], bundle_closure: [],
+          base_credit_price: 400, component_discount_credits: 100, operator_discount: null, operator_discount_credits: 0,
           product: { product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', title: 'Test Formula' },
           release: release(), credits_charged: 300, issued_at: '2026-08-14T10:01:00Z',
         },
         receipt_signature: SIGNATURE, key_id: 'key-1',
       },
     })), /account/i)
-    await assert.rejects(recordCompletedPurchase('cq_test', purchase({
-      entitlement_families: ['com.storystudio.other'],
-      receipt: {
-        receipt: {
-          typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a', purchase_id: 'cpur_a',
-          account_id: 'acct_a', entitlement_families: ['com.storystudio.other'],
-          product: { product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', title: 'Test Formula' },
-          release: release(), credits_charged: 300, issued_at: '2026-08-14T10:01:00Z',
-        },
-        receipt_signature: SIGNATURE, key_id: 'key-1',
-      },
-    })), /entitlement/i)
+    const wrongFamily = purchase()
+    wrongFamily.entitlementFamilies = ['com.storystudio.other']
+    await assert.rejects(recordCompletedPurchase('cq_test', wrongFamily), /entitlement/i)
     assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
   })
 
@@ -375,8 +377,8 @@ describe('Content Store commerce state', () => {
       `const HASH=${JSON.stringify(HASH)}; const SIGNATURE=${JSON.stringify(SIGNATURE)};`,
       'const id = process.env.CONTENT_STORE_WORKER_ID;',
       "const quote_id = `cq_process_${id}`;",
-      "const quote={typ:'genstudio.content.quote.v1',key_id:'key-1',quote_id,account_id:'acct_a',product_id:'cprod_a',entitlement_family:'com.storystudio.test',release_id:'crel_a',release_version:'1.0.0',archive_sha256:HASH,base_credit_price:400,discount_credits:100,quoted_credits:300,owned_components:[],issued_at:'2026-08-14T10:00:00Z',expires_at:'2099-08-14T10:15:00Z'};",
-      "await saveQuotedAttempt(parseContentStoreQuote({quote,quote_signature:SIGNATURE,quote_id,key_id:'key-1',expires_at:quote.expires_at,account_id:'acct_a',product_id:'cprod_a',entitlement_family:'com.storystudio.test',release_id:'crel_a',base_credit_price:400,discount_credits:100,quoted_credits:300,balance_before:5000,balance_after:4700,owned_components:[],sufficient_credits:true,insufficient_reason:null,shortfall_credits:0}));",
+      "const quote={typ:'genstudio.content.quote.v1',key_id:'key-1',quote_id,account_id:'acct_a',product_id:'cprod_a',entitlement_family:'com.storystudio.test',release_id:'crel_a',release_version:'1.0.0',archive_sha256:HASH,base_credit_price:400,discount_credits:100,entitlement_families:['com.storystudio.test'],bundle_closure:[],operator_discount:null,operator_discount_credits:0,quoted_credits:300,owned_components:[],issued_at:'2026-08-14T10:00:00Z',expires_at:'2099-08-14T10:15:00Z'};",
+      "await saveQuotedAttempt(parseContentStoreQuote({quote,quote_signature:SIGNATURE,quote_id,key_id:'key-1',expires_at:quote.expires_at,account_id:'acct_a',product_id:'cprod_a',entitlement_family:'com.storystudio.test',release_id:'crel_a',base_credit_price:400,discount_credits:100,entitlement_families:quote.entitlement_families,bundle_closure:quote.bundle_closure,operator_discount:quote.operator_discount,operator_discount_credits:0,quoted_credits:300,balance_before:5000,balance_after:4700,owned_components:[],sufficient_credits:true,insufficient_reason:null,shortfall_credits:0}));",
     ].join('\n'))
     await Promise.all(Array.from({ length: 12 }, (_, index) => runWorker(workerPath, {
       ...process.env,
@@ -534,7 +536,7 @@ describe('Content Store commerce state', () => {
         ...completed,
         quote_id: quoteId,
         idempotency_key: `story-content-00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
-        quote_canonical_json: JSON.stringify({ padding: 'x'.repeat(96_000) }),
+        quote_canonical_json: JSON.stringify({ padding: '' }),
         completed_purchase: {
           ...completed.completed_purchase!,
           purchase_id: `cpur_boundary_${index}`,
@@ -542,6 +544,10 @@ describe('Content Store commerce state', () => {
       }
     }
     const seeded = { schema_version: 1 as const, attempts }
+    const rawBudget = Math.floor((16 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(seeded), 'utf8') - 1) / 170)
+    for (const attempt of Object.values(attempts)) {
+      attempt.quote_canonical_json = JSON.stringify({ padding: 'x'.repeat(rawBudget) })
+    }
     assert.ok(Buffer.byteLength(JSON.stringify(seeded), 'utf8') < 16 * 1024 * 1024)
     assert.ok(Buffer.byteLength(`${JSON.stringify(seeded, null, 2)}\n`, 'utf8') > 16 * 1024 * 1024)
     await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(seeded)}\n`, { mode: 0o600 })

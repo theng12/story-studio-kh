@@ -17,6 +17,22 @@ const CanonicalJsonSchema = boundedUtf8(MAX_CANONICAL_BYTES, 'canonical JSON', 2
 export const ContentStoreDetailSchema = boundedUtf8(MAX_DETAIL_BYTES, 'detail')
 const IsoDateTimeSchema = z.string().datetime({ offset: true })
 const CreditsSchema = z.number().int().nonnegative().safe()
+const ContentOperatorDiscountSchema = z.object({
+  discount_id: OpaqueIdSchema,
+  version: z.number().int().positive().safe(),
+  percent: z.number().int().min(1).max(99).safe(),
+  starts_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  ends_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  timezone: z.literal('Asia/Phnom_Penh'),
+}).strict()
+const ContentBundleClosureSchema = z.object({
+  position: z.number().int().nonnegative().safe(),
+  product_id: OpaqueIdSchema,
+  entitlement_family: OpaqueIdSchema,
+  release_id: OpaqueIdSchema,
+  version: OpaqueIdSchema,
+  archive_sha256: z.string().regex(/^[0-9a-f]{64}$/),
+}).strict()
 
 const InsufficientCreditsRefusalSchema = z.object({
   status: z.literal(402),
@@ -39,7 +55,10 @@ const ProductRefusalSchema = z.object({
 
 const ConflictRefusalSchema = z.object({
   status: z.literal(409),
-  code: z.enum(['already_owned', 'quote_rejected']),
+  code: z.enum([
+    'already_owned', 'quote_rejected', 'discount_misconfigured',
+    'bundle_closure_missing', 'bundle_component_unavailable',
+  ]),
   detail: ContentStoreDetailSchema,
 }).strict()
 
@@ -49,10 +68,17 @@ const SigningRefusalSchema = z.object({
   detail: ContentStoreDetailSchema,
 }).strict()
 
+const EntitlementRefusalSchema = z.object({
+  status: z.literal(403),
+  code: z.literal('entitlement_revoked'),
+  detail: ContentStoreDetailSchema,
+}).strict()
+
 export const CachedContentRefusalSchema = z.union([
   InsufficientCreditsRefusalSchema,
   ProductRefusalSchema,
   ConflictRefusalSchema,
+  EntitlementRefusalSchema,
   SigningRefusalSchema,
 ])
 
@@ -72,10 +98,17 @@ export const CachedContentPurchaseSchema = z.object({
   account_id: OpaqueIdSchema,
   credits_charged: CreditsSchema,
   discount_credits: CreditsSchema,
+  base_credit_price: CreditsSchema.optional(),
+  component_discount_credits: CreditsSchema.optional(),
+  operator_discount: ContentOperatorDiscountSchema.nullable().optional(),
+  operator_discount_credits: CreditsSchema.optional(),
   balance_before: CreditsSchema,
   balance_after: CreditsSchema,
   entitlement_ids: z.array(OpaqueIdSchema).max(200),
   entitlement_families: z.array(OpaqueIdSchema).min(1).max(200),
+  granted_families: z.array(OpaqueIdSchema).max(200).optional(),
+  previously_owned_families: z.array(OpaqueIdSchema).max(200).optional(),
+  bundle_closure: z.array(ContentBundleClosureSchema).max(200).optional(),
   product_canonical_json: CanonicalJsonSchema,
   release_canonical_json: CanonicalJsonSchema,
   ledger_event_key: OpaqueIdSchema.nullable(),
@@ -125,6 +158,10 @@ export const CachedContentQuoteSchema = z.object({
   idempotency_key: z.string().min(8).max(128).regex(/^story-content-[0-9a-f-]+$/),
   base_credit_price: CreditsSchema,
   discount_credits: CreditsSchema,
+  entitlement_families: z.array(OpaqueIdSchema).min(1).max(200).optional(),
+  bundle_closure: z.array(ContentBundleClosureSchema).max(200).optional(),
+  operator_discount: ContentOperatorDiscountSchema.nullable().optional(),
+  operator_discount_credits: CreditsSchema.optional(),
   quoted_credits: CreditsSchema,
   balance_before: CreditsSchema,
   balance_after: CreditsSchema,
