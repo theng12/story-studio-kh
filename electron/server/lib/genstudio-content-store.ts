@@ -413,6 +413,10 @@ export function canonicalizeContentStoreObject(value: unknown): CanonicalJsonObj
   }
 }
 
+export function canonicalizeContentStoreJson(source: string): CanonicalJsonObject {
+  return canonicalizeContentStoreObject(parseJsonPreservingNumberSources(source))
+}
+
 function text(record: Record<string, unknown>, key: string): string {
   const value = record[key]
   if (typeof value !== 'string' || value.length === 0) throw new Error(`${key} must be a non-empty string`)
@@ -1510,11 +1514,10 @@ export async function purchaseGenStudioContentProduct(
     throw new TypeError('Content Store purchase idempotency key must contain 8 to 128 characters')
   }
   if (typeof request.quoteSignature !== 'string' || request.quoteSignature.length === 0) throw new TypeError('quote signature is required')
-  let quoteValue: unknown
-  try { quoteValue = parseJsonPreservingNumberSources(request.quoteCanonicalJson) } catch (error) {
+  let canonicalQuote: CanonicalJsonObject
+  try { canonicalQuote = canonicalizeContentStoreJson(request.quoteCanonicalJson) } catch (error) {
     throw new TypeError('Saved Content Store quote JSON is invalid', { cause: error })
   }
-  const canonicalQuote = canonicalizeContentStoreObject(quoteValue)
   if (canonicalQuote.canonicalJson !== request.quoteCanonicalJson) {
     throw new TypeError('Saved Content Store quote JSON is not canonical')
   }

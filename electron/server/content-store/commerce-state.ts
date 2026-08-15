@@ -9,6 +9,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import {
+  canonicalizeContentStoreJson,
   canonicalizeContentStoreObject,
   type GenStudioContentPurchase,
   type GenStudioContentQuote,
@@ -546,7 +547,7 @@ function sameCanonicalValue(left: unknown, right: unknown): boolean {
 function validateSignedQuoteProjection(attempt: CachedContentQuote): boolean {
   let signedQuote: ReturnType<typeof canonicalizeContentStoreObject>
   try {
-    signedQuote = canonicalizeContentStoreObject(JSON.parse(attempt.quote_canonical_json))
+    signedQuote = canonicalizeContentStoreJson(attempt.quote_canonical_json)
   } catch (error) {
     throw new Error('Saved Content Store canonical quote is invalid', { cause: error })
   }

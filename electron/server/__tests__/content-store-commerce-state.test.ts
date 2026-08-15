@@ -418,6 +418,39 @@ describe('Content Store commerce state', () => {
     assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'completed')
   })
 
+  test('accepts canonical signed quote bytes with preserved Python numeric lexemes', async () => {
+    await isolate()
+    const exact = quote({ quote: {
+      future_signed_fact: { integral_float: 1, negative_zero: 0, small: 1e-7, large: 1e20 },
+    } })
+    const javascriptNumbers = '"future_signed_fact":{"integral_float":1,"large":100000000000000000000,"negative_zero":0,"small":1e-7}'
+    const pythonNumbers = '"future_signed_fact":{"integral_float":1.0,"large":1e+20,"negative_zero":-0.0,"small":1e-07}'
+    assert.match(exact.signedQuote.canonicalJson, new RegExp(javascriptNumbers.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+    exact.signedQuote.canonicalJson = exact.signedQuote.canonicalJson.replace(javascriptNumbers, pythonNumbers)
+
+    const saved = await saveQuotedAttempt(exact)
+    const submitting = await beginPurchaseAttempt('cq_test', 'acct_a')
+
+    assert.equal(submitting.status, 'submitting')
+    assert.equal(submitting.quote_canonical_json, saved.quote_canonical_json)
+    assert.match(submitting.quote_canonical_json, /"integral_float":1\.0,"large":1e\+20,"negative_zero":-0\.0,"small":1e-07/)
+  })
+
+  test('still rejects mutated identity and non-canonical saved quote bytes', async () => {
+    await isolate()
+    const mutated = quote()
+    mutated.signedQuote.canonicalJson = mutated.signedQuote.canonicalJson.replace('"product_id":"cprod_a"', '"product_id":"cprod_other"')
+    await saveQuotedAttempt(mutated)
+    await assert.rejects(beginPurchaseAttempt('cq_test', 'acct_a'), /product_id|journal identity/i)
+
+    await cleanupCurrent()
+    await isolate()
+    const nonCanonical = quote()
+    nonCanonical.signedQuote.canonicalJson = nonCanonical.signedQuote.canonicalJson.replace('{"account_id"', '{ "account_id"')
+    await saveQuotedAttempt(nonCanonical)
+    await assert.rejects(beginPurchaseAttempt('cq_test', 'acct_a'), /not canonical/i)
+  })
+
   test('quarantines malformed and oversized journals using a safe direct child', async () => {
     const { paths } = await isolate()
     await fs.mkdir(paths.root, { recursive: true })
