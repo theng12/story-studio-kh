@@ -191,6 +191,11 @@ async function verifyInstalledAndRecover(
     }
     if (!pack.active_version) continue
     const from = pack.active_version
+    if (pack.versions[from]?.recalled) {
+      delete pack.active_version
+      report(options, `active version disabled after GenStudio recall: ${packId}@${from}`)
+      continue
+    }
     try {
       await assertSafeInstalledClosurePaths(state, packId, from, paths)
       await verifyInstalledContentPackClosure(state, packId, from, policy, options.appVersion)
@@ -201,7 +206,7 @@ async function verifyInstalledAndRecover(
     }
     let recovered = false
     for (const candidate of Object.keys(pack.versions).filter(version => version !== from).sort(compareSemverDescending)) {
-      if (pack.versions[candidate].pending_removal) continue
+      if (pack.versions[candidate].pending_removal || pack.versions[candidate].recalled) continue
       try {
         await assertSafeInstalledClosurePaths(state, packId, candidate, paths)
         await verifyInstalledContentPackClosure(state, packId, candidate, policy, options.appVersion)

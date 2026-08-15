@@ -9,7 +9,7 @@ import {
   type ContentPackVerificationPolicy,
   type VerifiedContentPack,
 } from './archive.js'
-import { readGenStudioDeliveryClosure, verifyGenStudioDeliveryAttestation } from './delivery-attestation.js'
+import { verifyGenStudioDeliveryAttestation } from './delivery-attestation.js'
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import { installedVersionPath, resolveVerifiedPackFile, type ContentPackRuntimePaths } from './runtime-paths.js'
 import {
@@ -43,6 +43,8 @@ export interface ContentPackInstallOptions {
   hooks?: ContentPackInstallerHooks
   /** Test-only seam; production derives the actual app version from its own package resource. */
   appVersion?: string
+  /** Test seam; production resolves the independently verified commerce key history. */
+  resolveGenStudioSigningKey?: (evidence: NonNullable<ContentPackInstallRequest['deliveryAttestation']>) => Promise<string>
 }
 
 function sha256(bytes: Uint8Array): string {
@@ -53,6 +55,7 @@ async function verifyArchiveForRequest(
   archiveBytes: Uint8Array,
   request: Pick<ContentPackInstallRequest, 'source' | 'deliveryAttestation'>,
   policy: ContentPackVerificationPolicy,
+  resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey'],
 ): Promise<VerifiedContentPack> {
   if (request.source !== 'genstudio-store') {
     if (request.deliveryAttestation) throw new Error('Only GenStudio Store archives may carry delivery attestation evidence')
@@ -60,7 +63,12 @@ async function verifyArchiveForRequest(
   }
   const evidence = ContentPackDeliveryAttestationSchema.parse(request.deliveryAttestation)
   const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)
-  verifyGenStudioDeliveryAttestation(evidence, verified.manifest, sha256(archiveBytes), archiveBytes.byteLength)
+  const key = await (resolveSigningKey
+    ? resolveSigningKey(evidence)
+    : (await import('../content-store/commerce-state.js')).resolveVerifiedContentStoreSigningKey({
+        accountId: evidence.account_id, origin: evidence.genstudio_origin, keyId: evidence.key_id,
+      }))
+  verifyGenStudioDeliveryAttestation(evidence, verified.manifest, sha256(archiveBytes), archiveBytes.byteLength, key)
   return verified
 }
 
@@ -206,9 +214,11 @@ function nodeKey(packId: string, version: string): string {
 }
 
 export async function verifyInstalledContentPackVersion(
-  installed: Pick<ContentPackInstalledVersion, 'install_path' | 'archive_sha256' | 'source' | 'delivery_attestation'>,
+  installed: Pick<ContentPackInstalledVersion, 'install_path' | 'archive_sha256' | 'source' | 'delivery_attestation' | 'recalled'>,
   policy: ContentPackVerificationPolicy,
+  resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey'],
 ): Promise<VerifiedContentPack> {
+  if (installed.recalled) throw new Error('GenStudio recalled this installed Content Pack version')
   if (!await existingSafeDirectory(installed.install_path)) throw new Error(`Content Pack immutable version is missing on disk: ${installed.install_path}`)
   const archivePath = resolveVerifiedPackFile(installed.install_path, 'content/archive.sspack')
   const archiveBytes = await fs.readFile(archivePath)
@@ -216,7 +226,7 @@ export async function verifyInstalledContentPackVersion(
   const verified = await verifyArchiveForRequest(archiveBytes, {
     source: installed.source,
     deliveryAttestation: installed.delivery_attestation,
-  }, policy)
+  }, policy, resolveSigningKey)
   for (const [relativePath, bytes] of verified.files) {
     const target = resolveVerifiedPackFile(installed.install_path, relativePath)
     const info = await fs.lstat(target)
@@ -238,6 +248,7 @@ export async function verifyInstalledContentPackClosure(
   version: string,
   policy: ContentPackVerificationPolicy,
   appVersion?: string,
+  resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey'],
 ): Promise<VerifiedContentPack> {
   const visiting = new Set<string>()
   const visited = new Map<string, VerifiedContentPack>()
@@ -251,15 +262,16 @@ export async function verifyInstalledContentPackClosure(
     if (installed.pending_removal) throw new Error(`Content Pack dependency is pending removal: ${key}`)
     visiting.add(key)
     try {
-      const verified = await verifyInstalledContentPackVersion(installed, policy)
+      if (installed.recalled) throw new Error(`GenStudio recalled Content Pack version: ${key}`)
+      const verified = await verifyInstalledContentPackVersion(installed, policy, resolveSigningKey)
       if (verified.manifest.pack_id !== requiredPackId || verified.manifest.version !== requiredVersion) {
         throw new Error(`Content Pack immutable archive identity does not match state: ${key}`)
       }
       await assertContentPackAppCompatible(verified.manifest.min_app_version, appVersion)
       for (const dependency of verified.manifest.dependencies ?? []) await visit(dependency.pack_id, dependency.version)
-      if (installed.source === 'genstudio-store') {
+      if (installed.source === 'genstudio-store' && ContentPackDeliveryAttestationSchema.parse(installed.delivery_attestation).subject === 'receipt-root') {
         const evidence = ContentPackDeliveryAttestationSchema.parse(installed.delivery_attestation)
-        const closure = readGenStudioDeliveryClosure(evidence)
+        const closure = evidence.closure_members
         const dependencies = verified.manifest.dependencies ?? []
         if (closure.length !== dependencies.length) throw new Error(`GenStudio delivery closure does not match Content Pack dependencies: ${key}`)
         for (const [index, dependency] of dependencies.entries()) {
@@ -440,7 +452,7 @@ async function installContentPackLocked(
   const policy = options.policy ?? await getFirstPartyContentPackVerificationPolicy()
   let verified: VerifiedContentPack
   try {
-    verified = await verifyArchiveForRequest(request.archiveBytes, request, policy)
+    verified = await verifyArchiveForRequest(request.archiveBytes, request, policy, options.resolveGenStudioSigningKey)
   } catch (error) {
     await quarantineContentPackBytes(request.archiveBytes, 'invalid_archive', paths)
     throw error
@@ -463,7 +475,8 @@ async function installContentPackLocked(
       if (existing) {
         if (existing.pending_removal) throw new Error(`Content Pack version is pending removal: ${packId}@${version}`)
         if (existing.archive_sha256 !== archiveSha) throw new Error(`Content Pack version is immutable and already has a different archive: ${packId}@${version}`)
-        const verifiedExisting = await verifyInstalledContentPackVersion(existing, policy)
+        if (existing.recalled) throw new Error(`GenStudio recalled Content Pack version: ${packId}@${version}`)
+        const verifiedExisting = await verifyInstalledContentPackVersion(existing, policy, options.resolveGenStudioSigningKey)
         if (verifiedExisting.manifest.pack_id !== packId || verifiedExisting.manifest.version !== version) throw new Error(`Content Pack immutable archive identity does not match state: ${packId}@${version}`)
         await verifiedManifestGraph(state, verified, policy)
         // The retained signed archive is the authority. Repair a stale or

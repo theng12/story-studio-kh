@@ -27,7 +27,7 @@ import {
 } from '../content-packs/installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
 import { rollbackContentPack } from '../content-packs/lifecycle.js'
-import { readContentPackState } from '../content-packs/state.js'
+import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
 import type { ContentPackInstallResult } from '../content-packs/runtime-types.js'
 import { getApiKey } from './app-secrets-store.js'
 import { getGenStudioUrl } from './app-settings.js'
@@ -61,6 +61,7 @@ async function fetchVerifiedOwnership(): Promise<{
   account: GenStudioContentAccount
   publicKey: GenStudioContentPublicKey
   receipts: GenStudioContentReceipts
+  origin: string
 }> {
   const apiKey = await activeKey()
   const account = await getGenStudioContentAccount(apiKey)
@@ -76,10 +77,11 @@ async function fetchVerifiedOwnership(): Promise<{
   if (!restoreSigningKey) {
     throw new ContentStoreLocalError(409, 'CONTENT_STORE_SIGNING_KEY_MISSING', 'GenStudio did not publish the restore receipt signing key.')
   }
+  const origin = await currentGenStudioOrigin()
   await recordVerifiedContentRestore({
     account_id: receipts.accountId,
     content_account_id: receipts.contentAccountId,
-    genstudio_origin: await currentGenStudioOrigin(),
+    genstudio_origin: origin,
     key_id: restoreSigningKey.keyId,
     public_key_base64: restoreSigningKey.publicKeyBase64,
     receipt_canonical_json: receipts.restoreReceipt.signedReceipt.canonicalJson,
@@ -87,12 +89,44 @@ async function fetchVerifiedOwnership(): Promise<{
     verified_at: new Date().toISOString(),
     key_history: publicKey.keys.map(key => ({ key_id: key.keyId, public_key_base64: key.publicKeyBase64 })),
   })
-  return { apiKey, account, publicKey, receipts }
+  return { apiKey, account, publicKey, receipts, origin }
 }
 
 export async function restoreContentStoreOwnership(): Promise<ContentStoreOverview> {
-  await fetchVerifiedOwnership()
+  const verified = await fetchVerifiedOwnership()
+  await reconcileRecalledContentStoreReleases(verified)
   return loadContentStoreOverview()
+}
+
+/** Persist an online recall as a local disablement without deleting permanent ownership/history. */
+async function reconcileRecalledContentStoreReleases(verified: {
+  apiKey: string
+  account: GenStudioContentAccount
+  receipts: GenStudioContentReceipts
+  origin: string
+}): Promise<void> {
+  const recalled = new Map<string, { reason?: string }>()
+  for (const entitlement of verified.receipts.entitlements) {
+    const history = await listGenStudioOwnedContentReleases(verified.apiKey, entitlement.entitlementFamily)
+    if (history.entitlementFamily !== entitlement.entitlementFamily || history.entitlementId !== entitlement.entitlementId
+      || history.productId !== entitlement.productId) throw new ContentStoreLocalError(409, 'CONTENT_PACK_OWNED_RELEASE_MISMATCH', 'GenStudio returned release history for different verified ownership.')
+    for (const release of history.releases) {
+      if (release.state === 'recalled') recalled.set(`${entitlement.entitlementFamily}\u0000${release.releaseId}`, { reason: release.recallReason ?? undefined })
+    }
+  }
+  if (!recalled.size) return
+  await mutateContentPackState(state => {
+    for (const pack of Object.values(state.packs)) {
+      for (const [version, installed] of Object.entries(pack.versions)) {
+        const evidence = installed.source === 'genstudio-store' ? installed.delivery_attestation : undefined
+        if (!evidence || evidence.account_id !== verified.account.accountId || evidence.genstudio_origin !== verified.origin) continue
+        const recall = recalled.get(`${evidence.entitlement_family}\u0000${evidence.release_id}`)
+        if (!recall) continue
+        installed.recalled = { observed_at: new Date().toISOString(), ...(recall.reason ? { reason: recall.reason } : {}) }
+        if (pack.active_version === version) delete pack.active_version
+      }
+    }
+  })
 }
 
 interface DeliveryContext {
@@ -100,6 +134,7 @@ interface DeliveryContext {
   account: GenStudioContentAccount
   publicKey: GenStudioContentPublicKey
   receipts: GenStudioContentReceipts
+  origin: string
   policy: Awaited<ReturnType<typeof getFirstPartyContentPackVerificationPolicy>>
   completed: Map<string, ContentPackInstallResult>
   visiting: Set<string>
@@ -170,7 +205,7 @@ function releaseKey(release: GenStudioContentRelease): string {
 }
 
 function deliveryAttestation(
-  context: Pick<DeliveryContext, 'account' | 'publicKey' | 'receipts'>,
+  context: Pick<DeliveryContext, 'account' | 'receipts' | 'origin'>,
   entitlement: GenStudioContentRestoreEntitlement,
   release: GenStudioContentRelease,
 ): ContentPackDeliveryAttestation {
@@ -198,8 +233,9 @@ function deliveryAttestation(
   if (!matchingReceipt) {
     throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_MISSING', 'GenStudio did not return permanent signed receipt evidence for this owned release.')
   }
-  const signingKey = context.publicKey.keys.find(key => key.keyId === matchingReceipt.keyId)
-  if (!signingKey) throw new ContentStoreLocalError(409, 'CONTENT_STORE_SIGNING_KEY_MISSING', 'GenStudio did not publish the receipt signing key.')
+  const payload = matchingReceipt.signedReceipt.value
+  const direct = (payload.product as Record<string, unknown> | undefined)?.product_id === entitlement.productId
+    && (payload.release as Record<string, unknown> | undefined)?.release_id === release.releaseId
   return {
     account_id: context.account.accountId,
     product_id: entitlement.productId,
@@ -209,11 +245,41 @@ function deliveryAttestation(
     version: release.version,
     archive_sha256: release.archiveSha256,
     archive_bytes: release.archiveBytes,
-    key_id: signingKey.keyId,
-    public_key_base64: signingKey.publicKeyBase64,
+    genstudio_origin: context.origin,
+    subject: direct ? 'receipt-root' : 'bundle-closure-member',
+    closure_members: [],
+    key_id: matchingReceipt.keyId,
     receipt_canonical_json: matchingReceipt.signedReceipt.canonicalJson,
     receipt_signature: matchingReceipt.receiptSignature,
   }
+}
+
+/** Build the only pack-id mapping that 1.14 permits: signed root manifest + signed receipt pins. */
+async function bindRootClosure(
+  evidence: ContentPackDeliveryAttestation,
+  dependencies: ReadonlyArray<{ pack_id: string; version: string }>,
+  context: DeliveryContext,
+): Promise<ContentPackDeliveryAttestation> {
+  if (evidence.subject === 'bundle-closure-member') {
+    if (dependencies.length) throw new ContentStoreLocalError(409, 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'GenStudio 1.14 receipt closure does not authorize nested bundle-member dependencies.')
+    return evidence
+  }
+  const payload = JSON.parse(evidence.receipt_canonical_json) as { bundle_closure?: unknown[] }
+  if (!Array.isArray(payload.bundle_closure) || payload.bundle_closure.length !== dependencies.length) {
+    throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed GenStudio receipt closure does not match this pack before installation.')
+  }
+  const closure_members = await Promise.all(dependencies.map(async (dependency, position) => {
+    const owned = await resolveOwnedContentStoreDependency(context, dependency.pack_id, dependency.version)
+    const pin = payload.bundle_closure![position] as Record<string, unknown>
+    if (!pin || pin.position !== position || pin.product_id !== owned.entitlement.productId
+      || pin.entitlement_family !== owned.entitlement.entitlementFamily || pin.release_id !== owned.release.releaseId
+      || pin.version !== owned.release.version || pin.archive_sha256 !== owned.release.archiveSha256) {
+      throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed GenStudio receipt closure does not authorize this exact dependency.')
+    }
+    return { position, pack_id: dependency.pack_id, version: dependency.version, product_id: owned.entitlement.productId,
+      entitlement_family: owned.entitlement.entitlementFamily, release_id: owned.release.releaseId, archive_sha256: owned.release.archiveSha256 }
+  }))
+  return { ...evidence, closure_members }
 }
 
 async function alreadyInstalled(
@@ -292,11 +358,12 @@ async function installOwnedEntitlement(
       archiveSha256: release.archiveSha256,
       archiveBytes: release.archiveBytes,
     })
-    const evidence = deliveryAttestation(context, entitlement, release)
+    let evidence = deliveryAttestation(context, entitlement, release)
     const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)
     if (verified.manifest.pack_id !== release.packId || verified.manifest.version !== release.version) {
       throw new ContentStoreLocalError(409, 'CONTENT_PACK_REMOTE_IDENTITY_MISMATCH', 'The downloaded signed pack identity does not match the owned release.')
     }
+    evidence = await bindRootClosure(evidence, verified.manifest.dependencies ?? [], context)
     for (const dependency of verified.manifest.dependencies ?? []) {
       const ownedDependency = await resolveOwnedContentStoreDependency(context, dependency.pack_id, dependency.version)
       await installOwnedEntitlement(ownedDependency.entitlement, ownedDependency.release, context)
@@ -321,6 +388,7 @@ async function installOwnedEntitlement(
 
 export async function installOwnedContentStoreRelease(releaseId: string): Promise<ContentStoreInstallResponse> {
   const verified = await fetchVerifiedOwnership()
+  await reconcileRecalledContentStoreReleases(verified)
   const entitlement = verified.receipts.entitlements.find(row => row.currentRelease?.releaseId === releaseId)
   if (!entitlement) {
     throw new ContentStoreLocalError(404, 'CONTENT_PACK_NOT_OWNED', 'The active GenStudio account does not own this release.')

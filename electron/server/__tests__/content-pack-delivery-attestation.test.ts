@@ -7,6 +7,7 @@ import JSZip from 'jszip'
 import { verifyContentPackArchive, verifyDeliveryAttestedContentPackArchive } from '../content-packs/archive.js'
 import { readGenStudioDeliveryClosure, verifyGenStudioDeliveryAttestation } from '../content-packs/delivery-attestation.js'
 import { createContentPackKeyring } from '../content-packs/keyring.js'
+import { ContentPackDeliveryAttestationSchema } from '../content-packs/runtime-types.js'
 import { canonicalizeContentStoreObject, parseContentStorePublicKey } from '../lib/genstudio-content-store.js'
 import { verifyContentStoreDeliveryReceipt } from '../lib/genstudio-content-store-trust.js'
 
@@ -108,19 +109,20 @@ describe('delivery-attested Content Pack archive boundary', () => {
     const evidence = {
       account_id: 'acct_test', product_id: 'cprod_test', entitlement_family: 'com.storystudio.delivery-test.family',
       release_id: 'crel_test', pack_id: 'com.storystudio.delivery-test', version: '1.0.0',
-      archive_sha256: 'a'.repeat(64), archive_bytes: 123, key_id: COMMERCE_KEY_ID,
-      public_key_base64: COMMERCE_KEY_BASE64, receipt_canonical_json: receiptCanonicalJson, receipt_signature: receiptSignature,
+      archive_sha256: 'a'.repeat(64), archive_bytes: 123, genstudio_origin: 'https://genstudio.example',
+      subject: 'receipt-root' as const, closure_members: [], key_id: COMMERCE_KEY_ID,
+      receipt_canonical_json: receiptCanonicalJson, receipt_signature: receiptSignature,
     }
     const manifest = {
       pack_id: 'com.storystudio.delivery-test', version: '1.0.0',
       entitlement: { family: 'com.storystudio.delivery-test.family' }, delivery_profile: 'genstudio-store-receipt-v1',
     }
 
-    assert.doesNotThrow(() => verifyGenStudioDeliveryAttestation(evidence, manifest, 'a'.repeat(64), 123))
-    assert.throws(() => verifyGenStudioDeliveryAttestation(evidence, manifest, 'b'.repeat(64), 123), /archive_sha256|archive/i)
+    assert.doesNotThrow(() => verifyGenStudioDeliveryAttestation(evidence, manifest, 'a'.repeat(64), 123, COMMERCE_KEY_BASE64))
+    assert.throws(() => verifyGenStudioDeliveryAttestation(evidence, manifest, 'b'.repeat(64), 123, COMMERCE_KEY_BASE64), /archive_sha256|archive/i)
     assert.throws(() => verifyGenStudioDeliveryAttestation(evidence, {
       ...manifest, entitlement: { family: 'com.storystudio.other.family' },
-    }, 'a'.repeat(64), 123), /entitlement|identity/i)
+    }, 'a'.repeat(64), 123, COMMERCE_KEY_BASE64), /entitlement|identity/i)
   })
 
   test('reads only ordered exact closure pins from signed delivery evidence', () => {
@@ -139,5 +141,47 @@ describe('delivery-attested Content Pack archive boundary', () => {
     assert.throws(() => readGenStudioDeliveryClosure({
       receipt_canonical_json: canonicalizeContentStoreObject({ ...payload, bundle_closure: [{ ...payload.bundle_closure[0], position: 1 }] }).canonicalJson,
     }), /closure|position/i)
+  })
+
+  test('does not permit mutable pack evidence to repoint a receipt key id', () => {
+    const rogue = generateKeyPairSync('ed25519')
+    const rogueDer = rogue.publicKey.export({ format: 'der', type: 'spki' })
+    const receipt = {
+      typ: 'genstudio.content.receipt.v1', key_id: COMMERCE_KEY_ID, account_id: 'acct_test', entitlement_families: ['family'],
+      product: { product_id: 'product', entitlement_family: 'family' },
+      release: { release_id: 'release', pack_id: 'com.storystudio.delivery-test', version: '1.0.0', archive_sha256: 'a'.repeat(64), archive_bytes: 1 },
+      bundle_closure: [],
+    }
+    const canonical = canonicalizeContentStoreObject(receipt).canonicalJson
+    const evidence = {
+      account_id: 'acct_test', product_id: 'product', entitlement_family: 'family', release_id: 'release',
+      pack_id: 'com.storystudio.delivery-test', version: '1.0.0', archive_sha256: 'a'.repeat(64), archive_bytes: 1,
+      genstudio_origin: 'https://genstudio.example', subject: 'receipt-root' as const, closure_members: [], key_id: COMMERCE_KEY_ID,
+      receipt_canonical_json: canonical, receipt_signature: sign(null, Buffer.from(canonical), commerceKey.privateKey).toString('base64'),
+    }
+    assert.equal(ContentPackDeliveryAttestationSchema.safeParse({ ...evidence, public_key_base64: COMMERCE_KEY_BASE64 }).success, false)
+    assert.throws(() => verifyGenStudioDeliveryAttestation(evidence, {
+      pack_id: evidence.pack_id, version: evidence.version, entitlement: { family: evidence.entitlement_family }, delivery_profile: 'genstudio-store-receipt-v1',
+    }, evidence.archive_sha256, evidence.archive_bytes, rogueDer.subarray(rogueDer.byteLength - 32).toString('base64')), /signature|key/i)
+  })
+
+  test('accepts an exact leaf closure pin but rejects an unbound nested leaf', () => {
+    const receipt = {
+      typ: 'genstudio.content.receipt.v1', key_id: COMMERCE_KEY_ID, account_id: 'acct_test', entitlement_families: ['root-family', 'leaf-family'],
+      product: { product_id: 'root-product', entitlement_family: 'root-family' }, release: { release_id: 'root-release', pack_id: 'com.root', version: '1.0.0', archive_sha256: 'b'.repeat(64), archive_bytes: 2 },
+      bundle_closure: [{ position: 0, product_id: 'leaf-product', entitlement_family: 'leaf-family', release_id: 'leaf-release', version: '2.0.0', archive_sha256: 'c'.repeat(64) }],
+    }
+    const canonical = canonicalizeContentStoreObject(receipt).canonicalJson
+    const evidence = {
+      account_id: 'acct_test', product_id: 'leaf-product', entitlement_family: 'leaf-family', release_id: 'leaf-release', pack_id: 'com.leaf', version: '2.0.0', archive_sha256: 'c'.repeat(64), archive_bytes: 7,
+      genstudio_origin: 'https://genstudio.example', subject: 'bundle-closure-member' as const, closure_members: [], key_id: COMMERCE_KEY_ID,
+      receipt_canonical_json: canonical, receipt_signature: sign(null, Buffer.from(canonical), commerceKey.privateKey).toString('base64'),
+    }
+    assert.doesNotThrow(() => verifyGenStudioDeliveryAttestation(evidence, {
+      pack_id: 'com.leaf', version: '2.0.0', entitlement: { family: 'leaf-family' }, dependencies: [], delivery_profile: 'genstudio-store-receipt-v1',
+    }, 'c'.repeat(64), 7, COMMERCE_KEY_BASE64))
+    assert.throws(() => verifyGenStudioDeliveryAttestation(evidence, {
+      pack_id: 'com.leaf', version: '2.0.0', entitlement: { family: 'leaf-family' }, dependencies: [{ pack_id: 'com.bad', version: '1.0.0' }], delivery_profile: 'genstudio-store-receipt-v1',
+    }, 'c'.repeat(64), 7, COMMERCE_KEY_BASE64), /nested|closure/i)
   })
 })

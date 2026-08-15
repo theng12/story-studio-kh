@@ -11,9 +11,11 @@ import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import {
   canonicalizeContentStoreJson,
   canonicalizeContentStoreObject,
+  parseContentStorePublicKey,
   type GenStudioContentPurchase,
   type GenStudioContentQuote,
 } from '../lib/genstudio-content-store.js'
+import { verifyContentStoreRestoreReceipt } from '../lib/genstudio-content-store-trust.js'
 import {
   CachedContentQuoteSchema,
   CachedContentRefusalSchema,
@@ -342,6 +344,48 @@ export async function recordVerifiedContentRestore(
     state.verified_restore = { ...structuredClone(restore), key_history }
     return structuredClone(state.verified_restore)
   })
+}
+
+/**
+ * Resolve a delivery receipt key from separately persisted, account/origin
+ * bound restore evidence. Installed-pack evidence never carries key material,
+ * so replacing it cannot repoint an existing key id at boot.
+ */
+export async function resolveVerifiedContentStoreSigningKey(input: {
+  accountId: string
+  origin: string
+  keyId: string
+}): Promise<string> {
+  const cached = (await readContentStoreCommerceState()).verified_restore
+  if (!cached || cached.account_id !== input.accountId || cached.content_account_id !== input.accountId
+    || cached.genstudio_origin !== input.origin) {
+    throw new Error('No independently verified GenStudio key history exists for this account and origin')
+  }
+  const history = cached.key_history ?? [{ key_id: cached.key_id, public_key_base64: cached.public_key_base64 }]
+  const restoreKey = history.find(key => key.key_id === cached.key_id)
+  const requested = history.find(key => key.key_id === input.keyId)
+  if (!restoreKey || !requested) throw new Error('GenStudio key history does not contain the requested receipt key')
+  const publicKey = parseContentStorePublicKey({
+    key_id: restoreKey.key_id,
+    algorithm: 'ed25519',
+    public_key_base64: restoreKey.public_key_base64,
+    payload_types: ['genstudio.content.download.v1', 'genstudio.content.quote.v1', 'genstudio.content.receipt.v1', 'genstudio.content.restore.v1'],
+    canonicalization: 'json:sorted-keys,no-whitespace,utf-8',
+    // The verifier requires its top-level/current key first. This is a local
+    // verification keyring, not a freshness claim about an old receipt key.
+    keys: [restoreKey, ...history.filter(key => key.key_id !== restoreKey.key_id)].map((key, index) => ({
+      key_id: key.key_id, algorithm: 'ed25519', public_key_base64: key.public_key_base64, current: index === 0,
+    })),
+  })
+  const signedReceipt = canonicalizeContentStoreObject(JSON.parse(cached.receipt_canonical_json))
+  if (signedReceipt.canonicalJson !== cached.receipt_canonical_json) throw new Error('Stored GenStudio restore evidence is not canonical')
+  verifyContentStoreRestoreReceipt(publicKey, {
+    signedReceipt,
+    receiptSignature: cached.receipt_signature,
+    keyId: cached.key_id,
+    raw: canonicalizeContentStoreObject({ receipt: signedReceipt.value, receipt_signature: cached.receipt_signature, key_id: cached.key_id }),
+  }, input.accountId)
+  return requested.public_key_base64
 }
 
 async function mutateState<T>(

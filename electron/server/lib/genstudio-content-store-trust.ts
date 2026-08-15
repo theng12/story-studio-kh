@@ -129,6 +129,16 @@ export interface ExpectedContentDownload {
 /** Durable receipt facts that must describe the exact Store archive. */
 export type ExpectedContentDelivery = ExpectedContentDownload
 
+/** Facts the 1.14 closure signs for a non-root bundle member. */
+export interface ExpectedContentClosureMember {
+  accountId: string
+  productId: string
+  entitlementFamily: string
+  releaseId: string
+  version: string
+  archiveSha256: string
+}
+
 function receiptObject(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`Delivery receipt ${field} must be an object`)
   return value as Record<string, unknown>
@@ -195,6 +205,53 @@ export function verifyContentStoreDeliveryReceipt(
   if (direct && expectedFamilies[0] !== expected.entitlementFamily) {
     throw new Error('Delivery receipt product entitlement family does not match the exact owned release')
   }
+}
+
+/**
+ * The 1.14 closure deliberately does not duplicate a member pack_id or byte
+ * count.  Callers must bind those structurally (root signed manifest + local
+ * SHA-bound bytes); this verifier only authorizes the signed member pin.
+ */
+export function verifyContentStoreDeliveryClosureMemberReceipt(
+  publicKey: GenStudioContentPublicKey,
+  receipt: GenStudioContentReceipt,
+  expected: ExpectedContentClosureMember,
+): void {
+  if (receipt.keyId !== receipt.signedReceipt.value.key_id) {
+    throw new Error('Delivery receipt key_id does not match its signed payload')
+  }
+  verifySignature(publicKey, receipt.signedReceipt, receipt.receiptSignature, 'genstudio.content.receipt.v1', 'Delivery receipt')
+  const payload = receipt.signedReceipt.value
+  if (payload.account_id !== expected.accountId) throw new Error('Delivery receipt account_id does not match the active account')
+  const product = receiptObject(payload.product, 'product')
+  const closure = payload.bundle_closure
+  if (!Array.isArray(closure)) throw new Error('Delivery receipt bundle_closure must be an array')
+  const families = payload.entitlement_families
+  if (!Array.isArray(families) || families.some(value => typeof value !== 'string' || value.length === 0)) {
+    throw new Error('Delivery receipt entitlement_families must be a non-empty string array')
+  }
+  const expectedFamilies = [typeof product.entitlement_family === 'string' ? product.entitlement_family : '']
+  let matched = false
+  for (const [index, entry] of closure.entries()) {
+    const pin = receiptObject(entry, `bundle_closure[${index}]`)
+    if (pin.position !== index || typeof pin.entitlement_family !== 'string' || typeof pin.product_id !== 'string'
+      || typeof pin.release_id !== 'string' || typeof pin.version !== 'string'
+      || typeof pin.archive_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(pin.archive_sha256)) {
+      throw new Error(`Delivery receipt bundle_closure[${index}] is not an exact closure pin`)
+    }
+    expectedFamilies.push(pin.entitlement_family)
+    matched ||= pin.product_id === expected.productId
+      && pin.entitlement_family === expected.entitlementFamily
+      && pin.release_id === expected.releaseId
+      && pin.version === expected.version
+      && pin.archive_sha256 === expected.archiveSha256
+  }
+  if (new Set(expectedFamilies).size !== expectedFamilies.length
+    || expectedFamilies.length !== families.length
+    || expectedFamilies.some((family, index) => family !== families[index])) {
+    throw new Error('Delivery receipt entitlement_families do not match its exact closure')
+  }
+  if (!matched) throw new Error('Delivery receipt does not bind the exact closure member')
 }
 
 export function verifyContentStoreDownloadGrant(

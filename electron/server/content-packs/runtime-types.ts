@@ -15,8 +15,24 @@ export const ContentPackDeliveryAttestationSchema = z.object({
   version: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/),
   archive_sha256: z.string().regex(/^[a-f0-9]{64}$/),
   archive_bytes: z.number().int().min(1).max(50 * 1024 * 1024),
+  /** The Store origin and account select an independently persisted key history. */
+  genstudio_origin: z.string().url().max(2048),
+  subject: z.enum(['receipt-root', 'bundle-closure-member']),
+  /**
+   * The upstream closure intentionally omits pack_id and byte count.  These
+   * assignments bind each signed closure pin to the signed root manifest's
+   * dependency declaration before anything becomes active.
+   */
+  closure_members: z.array(z.object({
+    position: z.number().int().nonnegative().max(199),
+    pack_id: BoundedText(256),
+    version: z.string().regex(/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/),
+    product_id: BoundedText(256),
+    entitlement_family: BoundedText(256),
+    release_id: BoundedText(256),
+    archive_sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict()).max(200),
   key_id: BoundedText(256),
-  public_key_base64: BoundedText(512),
   receipt_canonical_json: BoundedText(1024 * 1024),
   receipt_signature: BoundedText(16 * 1024),
 }).strict()
@@ -29,6 +45,11 @@ export const ContentPackInstalledVersionSchema = z.object({
   install_path: z.string().min(1).max(4096),
   manifest: ContentPackManifestSchema,
   delivery_attestation: ContentPackDeliveryAttestationSchema.optional(),
+  /** Online recall disables this exact immutable version without deleting ownership evidence. */
+  recalled: z.object({
+    observed_at: z.string().datetime(),
+    reason: z.string().min(1).max(2048).optional(),
+  }).strict().optional(),
   /** Durable before an immutable directory is ever moved or deleted. */
   pending_removal: z.object({
     operation_id: z.string().uuid(),
@@ -37,6 +58,9 @@ export const ContentPackInstalledVersionSchema = z.object({
 }).strict().superRefine((value, context) => {
   if ((value.source === 'genstudio-store') !== (value.delivery_attestation !== undefined)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'only GenStudio Store versions carry delivery attestation evidence' })
+  }
+  if (value.recalled && value.source !== 'genstudio-store') {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'only GenStudio Store versions may be recalled by Store reconciliation' })
   }
 })
 

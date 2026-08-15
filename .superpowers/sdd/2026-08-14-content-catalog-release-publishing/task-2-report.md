@@ -75,3 +75,36 @@ Ed25519 keys and mock responses with the field-exact 1.14.1 shape; no live
 network call was made. The controller should independently review the new
 closure relationship and the planned online recall-reconciliation wiring when
 combining the release branch.
+
+## Fix round 1 — independent review C1/I1/I2/I3
+
+- **C1:** Pack evidence no longer contains public-key bytes. Offline delivery
+  verification resolves the named key id from a separately persisted,
+  account/origin-bound verified restore/key-history journal, re-verifies that
+  restore signature, and then verifies the delivery receipt. The journal
+  remains insert-only for key ids; a same-id replacement fails closed.
+- **I1:** No upstream fields were invented. A closure leaf is authorized by the
+  receipt's signed product/family/release/version/SHA pin, the root archive's
+  signed dependency pack-id/version declaration, and local structural archive
+  verification. The byte count is re-derived from the SHA-bound bytes. Nested
+  closure-member dependencies fail closed because 1.14 has no signed relation.
+- **I2:** Evidence explicitly distinguishes `receipt-root` and
+  `bundle-closure-member`. Root assignments are checked against the signed
+  receipt, signed manifest, and exact owned history before any child is
+  installed; `installContentPack` repeats the checks before staging/activation.
+  Leaves verify their own pin and cannot declare unbound dependencies.
+- **I3:** Online restore/install reconciliation persists recalled Store
+  versions as disabled, clears active selection, preserves ownership/archive
+  history, and boot/registry/admission refuse recalled state with no fallback.
+
+Observed RED → GREEN: the focused delivery test initially failed after mutable
+key removal; the final adversarial delivery suite passes 6/6, including
+same-id key substitution, tampered evidence schema rejection, exact closure
+leaf, and unbound leaf rejection. Focused delivery/install/state/recovery/
+registry/commerce suites passed 110 tests. `npm run typecheck:electron` and
+`git diff --check` passed; lint completed with existing repository warnings
+and no errors.
+
+Remaining concern: recall is an authenticated online release-history fact, not
+a signed receipt field. It becomes a durable local disablement after online
+reconciliation and is enforced on all later offline boots.

@@ -159,6 +159,9 @@ function validateStateForPaths(state: ContentPackRuntimeState, paths: ContentPac
     if (pack.active_version && pack.versions[pack.active_version].pending_removal) {
       throw new Error(`Content Pack state active version is pending removal: ${packId}@${pack.active_version}`)
     }
+    if (pack.active_version && pack.versions[pack.active_version].recalled) {
+      throw new Error(`Content Pack state active version is recalled: ${packId}@${pack.active_version}`)
+    }
     for (const [version, installed] of Object.entries(pack.versions)) {
       if (installed.manifest.pack_id !== packId || installed.manifest.version !== version) {
         throw new Error(`Content Pack state identity does not match manifest: ${packId}@${version}`)
