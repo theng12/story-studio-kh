@@ -245,8 +245,31 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
   }
 }
 
-let sessionOverview: { accountId: string; origin: string; overview: ContentStoreOverview; verifiedAt: string } | null = null
-export function _clearContentStoreSessionCacheForTests(): void { sessionOverview = null }
+let sessionOverview: { accountId: string; origin: string; verifiedAt: string } | null = null
+const sharedAccount = ref<ContentStoreAccount | null>(null)
+const sharedProducts = ref<ContentStoreProduct[]>([])
+const sharedInstalled = ref<ContentStoreInstalledPack[]>([])
+const sharedShelves = ref<ContentStoreShelf[]>([])
+const sharedAttempts = ref<PublicContentPurchaseAttempt[]>([])
+const sharedCatalogFreshness = ref<ContentStoreCatalogFreshness>('unavailable')
+const sharedLastVerifiedAt = ref<string | null>(null)
+const sharedLastVerifiedProof = ref<ContentStoreCachedProof | null>(null)
+const sharedCachedProof = computed<ContentStoreCachedProof | null>(() =>
+  sharedCatalogFreshness.value === 'cached' ? sharedLastVerifiedProof.value : null)
+let sharedOverviewGeneration = 0
+
+export function _clearContentStoreSessionCacheForTests(): void {
+  sessionOverview = null
+  sharedAccount.value = null
+  sharedProducts.value = []
+  sharedInstalled.value = []
+  sharedShelves.value = []
+  sharedAttempts.value = []
+  sharedCatalogFreshness.value = 'unavailable'
+  sharedLastVerifiedAt.value = null
+  sharedLastVerifiedProof.value = null
+  sharedOverviewGeneration = 0
+}
 
 function uiError(cause: any, fallback: string): ContentStoreUiError {
   const data = cause?.data || cause?.response?._data || {}
@@ -286,50 +309,37 @@ export function useContentStore(): {
   installRelease: (releaseId: string) => Promise<{ pack_id: string; version: string; activated: boolean }>
 } {
   const { get, post } = useApi()
-  const cached = sessionOverview
-  const account = ref<ContentStoreAccount | null>(cached?.overview.account ?? null)
-  const products = ref<ContentStoreProduct[]>(cached?.overview.products ?? [])
-  const installed = ref<ContentStoreInstalledPack[]>(cached?.overview.installed ?? [])
-  const shelves = ref<ContentStoreShelf[]>(cached?.overview.shelves ?? [])
-  const attempts = ref<PublicContentPurchaseAttempt[]>(cached?.overview.attempts ?? [])
-  // A new route can render a verified session snapshot, but cannot assume its
-  // network actions remain live until it completes its own explicit refresh.
-  const catalogFreshness = ref<ContentStoreCatalogFreshness>(cached ? 'cached' : 'unavailable')
-  const lastVerifiedAt = ref<string | null>(cached?.verifiedAt ?? null)
-  const lastVerifiedProof = ref<ContentStoreCachedProof | null>(cached
-    ? { accountId: cached.accountId, origin: cached.origin, verifiedAt: cached.verifiedAt }
-    : null)
-  const cachedProof = computed<ContentStoreCachedProof | null>(() =>
-    catalogFreshness.value === 'cached' ? lastVerifiedProof.value : null)
   const loading = ref(false)
   const error = ref<ContentStoreUiError | null>(null)
 
-  let overviewGeneration = 0
-  function beginOverviewRequest(): number { overviewGeneration += 1; return overviewGeneration }
+  function beginOverviewRequest(): number { sharedOverviewGeneration += 1; return sharedOverviewGeneration }
   function applyOverview(overview: ContentStoreOverview, generation: number): void {
-    if (generation !== overviewGeneration) return
-    account.value = overview.account
-    products.value = overview.products
-    installed.value = overview.installed ?? []
-    shelves.value = overview.shelves
-    attempts.value = overview.attempts
-    catalogFreshness.value = 'fresh'
-    lastVerifiedAt.value = new Date().toISOString()
+    if (generation !== sharedOverviewGeneration) return
+    const verifiedAt = new Date().toISOString()
     const origin = overview.origin
     if (!origin) {
       sessionOverview = null
-      lastVerifiedProof.value = null
+      sharedLastVerifiedProof.value = null
       return
     }
+    // Vue batches these synchronous assignments, so every mounted consumer
+    // observes one verified account/origin snapshot rather than mixed facts.
+    sharedAccount.value = overview.account
+    sharedProducts.value = overview.products
+    sharedInstalled.value = overview.installed ?? []
+    sharedShelves.value = overview.shelves
+    sharedAttempts.value = overview.attempts
+    sharedCatalogFreshness.value = 'fresh'
+    sharedLastVerifiedAt.value = verifiedAt
     if (sessionOverview && (sessionOverview.accountId !== overview.account.accountId || sessionOverview.origin !== origin)) sessionOverview = null
-    sessionOverview = { accountId: overview.account.accountId, origin, overview, verifiedAt: lastVerifiedAt.value }
-    lastVerifiedProof.value = { accountId: overview.account.accountId, origin, verifiedAt: lastVerifiedAt.value }
+    sessionOverview = { accountId: overview.account.accountId, origin, verifiedAt }
+    sharedLastVerifiedProof.value = { accountId: overview.account.accountId, origin, verifiedAt }
   }
 
   function replaceAttempt(attempt: PublicContentPurchaseAttempt): void {
-    const index = attempts.value.findIndex(row => row.quote_id === attempt.quote_id)
-    if (index === -1) attempts.value = [attempt, ...attempts.value]
-    else attempts.value.splice(index, 1, attempt)
+    const index = sharedAttempts.value.findIndex(row => row.quote_id === attempt.quote_id)
+    if (index === -1) sharedAttempts.value = [attempt, ...sharedAttempts.value]
+    else sharedAttempts.value.splice(index, 1, attempt)
   }
 
   function applyFailedAttempt(quoteId: string, cause: any): void {
@@ -338,7 +348,7 @@ export function useContentStore(): {
       replaceAttempt(data.attempt as PublicContentPurchaseAttempt)
       return
     }
-    const current = attempts.value.find(row => row.quote_id === quoteId)
+    const current = sharedAttempts.value.find(row => row.quote_id === quoteId)
     if (!current) return
     const status = data.status
     if (!['quoted', 'submitting', 'uncertain', 'refused', 'completed'].includes(status)) return
@@ -367,16 +377,16 @@ export function useContentStore(): {
       const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
       applyOverview(overview, generation)
     } catch (cause: any) {
-      if (generation === overviewGeneration) {
-        const hasVerifiedOverview = lastVerifiedAt.value !== null
+      if (generation === sharedOverviewGeneration) {
+        const hasVerifiedOverview = sharedLastVerifiedAt.value !== null
         if (!hasVerifiedOverview) {
-          account.value = null
-          products.value = []
-          installed.value = []
-          shelves.value = []
-          attempts.value = []
+          sharedAccount.value = null
+          sharedProducts.value = []
+          sharedInstalled.value = []
+          sharedShelves.value = []
+          sharedAttempts.value = []
         }
-        catalogFreshness.value = hasVerifiedOverview ? 'cached' : 'unavailable'
+        sharedCatalogFreshness.value = hasVerifiedOverview ? 'cached' : 'unavailable'
         error.value = uiError(cause, 'The Content Store could not be loaded.')
       }
       throw cause
@@ -412,9 +422,9 @@ export function useContentStore(): {
       if (attempt.status === 'completed') {
         try {
           const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
-          if (generation === overviewGeneration) {
+          if (generation === sharedOverviewGeneration) {
             applyOverview(overview, generation)
-            if (!overview.attempts.some(row => row.quote_id === attempt.quote_id)) attempts.value = [attempt, ...overview.attempts]
+            if (!overview.attempts.some(row => row.quote_id === attempt.quote_id)) sharedAttempts.value = [attempt, ...overview.attempts]
           }
         } catch {
           // Ownership is already durable. A read-side refresh must not turn success into failure.
@@ -469,14 +479,14 @@ export function useContentStore(): {
   }
 
   return {
-    account: readonly(account) as unknown as Readonly<Ref<ContentStoreAccount | null>>,
-    products: readonly(products) as unknown as Readonly<Ref<ContentStoreProduct[]>>,
-    installed: readonly(installed) as unknown as Readonly<Ref<ContentStoreInstalledPack[]>>,
-    shelves: readonly(shelves) as unknown as Readonly<Ref<ContentStoreShelf[]>>,
-    attempts: readonly(attempts) as unknown as Readonly<Ref<PublicContentPurchaseAttempt[]>>,
-    catalogFreshness: readonly(catalogFreshness),
-    lastVerifiedAt: readonly(lastVerifiedAt),
-    cachedProof: readonly(cachedProof),
+    account: readonly(sharedAccount) as unknown as Readonly<Ref<ContentStoreAccount | null>>,
+    products: readonly(sharedProducts) as unknown as Readonly<Ref<ContentStoreProduct[]>>,
+    installed: readonly(sharedInstalled) as unknown as Readonly<Ref<ContentStoreInstalledPack[]>>,
+    shelves: readonly(sharedShelves) as unknown as Readonly<Ref<ContentStoreShelf[]>>,
+    attempts: readonly(sharedAttempts) as unknown as Readonly<Ref<PublicContentPurchaseAttempt[]>>,
+    catalogFreshness: readonly(sharedCatalogFreshness),
+    lastVerifiedAt: readonly(sharedLastVerifiedAt),
+    cachedProof: readonly(sharedCachedProof),
     loading: readonly(loading),
     error: readonly(error),
     refresh,

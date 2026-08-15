@@ -20,9 +20,15 @@
 - A historical detail intentionally clears the product’s active ownership presentation and passes no ownership record into the detail component. It therefore never represents the cached account, balance, entitlement, or install state as current when offline. A later fresh response remains the only way to establish current identity; a verified account/origin response atomically replaces the session proof.
 - Dialog close focus now uses the same solid 3px accent outline (no translucent box shadow). Back to channels/detail and View proof links have 44px minimum hit areas without changing their visual hierarchy.
 
+## Rendered-review hardening (round 3)
+
+- Catalog proof is now a module-scoped reactive snapshot rather than independent per-route copies. A verified overview updates the account, catalog, library, shelves, attempts, freshness, timestamp, and historical-proof identity for every mounted Store consumer in one Vue-batched update.
+- The shared generation guard prevents an older Shelf response from replacing a newer detail account/origin proof. A failed detail refresh changes shared freshness to historical cached proof without deleting it; detail actions are also disabled until that route resolves its own refresh.
+- Repaired the rendered-proof test fixture with the full Store state refs. New executable dual-consumer tests cover A fresh → detail offline historical A → detail verified B updating both consumers, plus stale-A response rejection.
+
 ## Tests and checks
 
-- Focused frontend: 92 passing tests. Includes 42 table-driven public-code cases, same-account/origin session proof, account/origin replacement, mounted historical detail proof/no-action behavior, no-cache failure, roving tabs, Escape containment, successful-purchase focus, and focus/hit-area style checks.
+- Focused frontend: 102 passing tests. Includes 42 table-driven public-code cases, dual-consumer shared proof, account/origin replacement, stale-response rejection, mounted historical detail proof/no-action behavior, no-cache failure, roving tabs, Escape containment, successful-purchase focus, rendered-proof regressions, and focus/hit-area style checks.
 - Focused backend neighbors: 91 passing Content Store/delivery tests.
 - Frontend and Electron typechecks passed.
 - Production frontend build passed.

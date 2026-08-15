@@ -90,7 +90,8 @@ function testStore(overrides: Partial<{
   refresh: () => Promise<void>
 }> = {}) {
   return {
-    account: ref(null), products: overrides.products || ref([]), shelves: ref([]), attempts: ref([]),
+    account: ref(null), products: overrides.products || ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
+    catalogFreshness: ref('fresh'), lastVerifiedAt: ref(null), cachedProof: ref(null),
     loading: overrides.loading || ref(false), error: overrides.error || ref(null),
     refresh: overrides.refresh || (async () => {}), requestQuote: async () => { throw new Error('not used') },
     installRelease: async () => { throw new Error('not used') }, confirmPurchase: async () => { throw new Error('not used') },

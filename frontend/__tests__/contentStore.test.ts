@@ -79,12 +79,12 @@ describe('useContentStore explicit commerce state machine', () => {
     const proof = useContentStore()
 
     assert.equal(proof.products.value[0]?.productId, 'formula')
+    assert.equal(proof.catalogFreshness.value, 'fresh')
+    await assert.rejects(proof.refresh())
     assert.equal(proof.catalogFreshness.value, 'cached')
     assert.deepEqual(proof.cachedProof.value, {
       accountId: 'acct_a', origin: 'https://catalog.example.test', verifiedAt: shelf.lastVerifiedAt.value,
     })
-    await assert.rejects(proof.refresh())
-    assert.equal(proof.catalogFreshness.value, 'cached')
     assert.equal(proof.lastVerifiedAt.value, shelf.lastVerifiedAt.value)
   })
 
@@ -109,11 +109,72 @@ describe('useContentStore explicit commerce state machine', () => {
     const offlineAfterAccountSwitch = useContentStore()
 
     assert.equal(accountB.account.value?.accountId, 'acct_b')
+    assert.equal(accountA.account.value?.accountId, 'acct_b')
     assert.equal(offlineAfterAccountSwitch.account.value?.accountId, 'acct_b')
     assert.equal(offlineAfterAccountSwitch.products.value[0]?.productId, 'formula-b')
-    assert.deepEqual(offlineAfterAccountSwitch.cachedProof.value, {
-      accountId: 'acct_b', origin: 'https://two.example.test', verifiedAt: accountB.lastVerifiedAt.value,
-    })
+    assert.equal(offlineAfterAccountSwitch.catalogFreshness.value, 'fresh')
+    assert.equal(offlineAfterAccountSwitch.cachedProof.value, null)
+  })
+
+  test('shares historical A proof, then updates every mounted Store consumer when detail verifies B', async () => {
+    const accountA = { ...structuredClone(completeOverview), origin: 'https://a.example.test' }
+    const accountB = {
+      ...structuredClone(completeOverview), origin: 'https://b.example.test',
+      account: { ...completeOverview.account, accountId: 'acct_b', contentAccountId: 'content_b' },
+      products: [{ ...completeOverview.products[0]!, productId: 'formula-b', title: 'Account B Formula' }],
+    }
+    let reads = 0
+    handler = path => {
+      if (path !== '/api/content-store') throw new Error(`Unexpected request: ${path}`)
+      reads += 1
+      if (reads === 1) return accountA
+      if (reads === 2) throw Object.assign(new Error('offline'), { data: { code: 'CONTENT_STORE_UNAVAILABLE', detail: 'Offline.' } })
+      return accountB
+    }
+    const shelf = useContentStore()
+    const detail = useContentStore()
+    await shelf.refresh()
+    await assert.rejects(detail.refresh())
+    assert.equal(shelf.catalogFreshness.value, 'cached')
+    assert.equal(shelf.cachedProof.value?.accountId, 'acct_a')
+    assert.equal(detail.products.value[0]?.title, 'Archive Formula')
+    await detail.refresh()
+
+    for (const store of [shelf, detail]) {
+      assert.equal(store.catalogFreshness.value, 'fresh')
+      assert.equal(store.account.value?.accountId, 'acct_b')
+      assert.equal(store.products.value[0]?.productId, 'formula-b')
+      assert.equal(store.cachedProof.value, null)
+    }
+  })
+
+  test('does not let a stale A response from one consumer overwrite a newer B proof', async () => {
+    const accountA = { ...structuredClone(completeOverview), origin: 'https://a.example.test' }
+    const accountB = {
+      ...structuredClone(completeOverview), origin: 'https://b.example.test',
+      account: { ...completeOverview.account, accountId: 'acct_b', contentAccountId: 'content_b' },
+      products: [{ ...completeOverview.products[0]!, productId: 'formula-b', title: 'Account B Formula' }],
+    }
+    let releaseA: ((overview: typeof accountA) => void) | null = null
+    let reads = 0
+    handler = path => {
+      if (path !== '/api/content-store') throw new Error(`Unexpected request: ${path}`)
+      reads += 1
+      if (reads === 1) return new Promise<typeof accountA>(resolve => { releaseA = resolve })
+      return accountB
+    }
+    const shelf = useContentStore()
+    const detail = useContentStore()
+    const staleRefresh = shelf.refresh()
+    await detail.refresh()
+    releaseA!(accountA)
+    await staleRefresh
+
+    for (const store of [shelf, detail]) {
+      assert.equal(store.account.value?.accountId, 'acct_b')
+      assert.equal(store.products.value[0]?.productId, 'formula-b')
+      assert.equal(store.catalogFreshness.value, 'fresh')
+    }
   })
 
   for (const failure of [
