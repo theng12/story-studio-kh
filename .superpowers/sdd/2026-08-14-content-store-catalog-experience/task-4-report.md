@@ -53,3 +53,24 @@ Task 5's minor mobile polish is explicitly deferred; this round makes no mobile-
 - Completed-purchase reconciliation participates in the same monotonic overview generation as refresh, restore, and install. An older refresh cannot replace newly reconciled ownership or balances.
 - Card and detail install controls require a compatible, non-recalled, downloadable safe release and an actionable install state. Unavailable, recalled, incompatible, and no-download records keep their bounded explanatory status without an action.
 - Added executable regressions for inactive retained local installation, unverified ownership evidence, purchase-refresh ordering, and mounted blocked-action rendering.
+
+## Fix round 3 — executable lifecycle coverage recovery
+
+- Added an isolated signed-archive resolver suite that proves the public missing-dependency ceiling is exactly 100, with a legal nested 101-missing graph because a single Content Pack manifest itself is capped at 100 dependencies. Expectations assert exact IDs, versions, public reasons, and no local-path/archive leakage.
+- Added a separate shared-dependency closure regression, ownership matrix for not-installed/current/older-pinned-update, withdrawn `currentRelease: null` retained-installation projection, and coordination test proving an overview waits for removal instead of returning a stale Installed row.
+- The resolver test seam keeps packaged runtime paths, packaged policy, and trusted signer resolution as production defaults. It only permits isolated paths/policy/signer injection; the resolver still holds coordination then state locks throughout verification. Graph validation now forwards that existing signer seam to retained Store archives, so test verification follows the same signed path as the candidate archive.
+- Replaced the combined mounted blocked-action fixture with independently mounted incompatible, recalled, unavailable, and no-download cases for both card and detail controls. Each leaves every other install guard permissive, so a removed guard is observable.
+
+### TDD evidence
+
+1. Initial recovered tests failed because their receipt closure fixtures did not match the signed manifests and the signer seam stopped at graph verification.
+2. Correct signed fixtures made the graph signer propagation failure reproducible; forwarding the existing injected signer was the minimal GREEN change. Production still derives its signer normally when no test seam is supplied.
+3. The boundary fixture then exposed the manifest's own 100-dependency contract. The final legal nested graph produces 101 missing dependencies and confirms only the first 100 exact public entries surface.
+
+### Round 3 verification
+
+- `STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 electron/server/__tests__/content-store-install-state.test.ts electron/server/__tests__/content-store-routes.test.ts electron/server/__tests__/genstudio-content-store-delivery.test.ts electron/server/__tests__/content-pack-delivery-attestation.test.ts` — 68 passing.
+- `cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/contentStore.test.ts __tests__/contentStoreProofRendered.test.ts` — 35 passing.
+- `npm run typecheck:electron` and `npm --prefix frontend run typecheck` — passing.
+- `npm run lint` — exit 0; 1,721 existing repository warnings and 0 errors.
+- `npm run check:security` — passing; `npm audit --omit=dev --audit-level=high` — 0 vulnerabilities.

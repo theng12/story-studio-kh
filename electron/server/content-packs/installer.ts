@@ -301,6 +301,7 @@ async function verifiedManifestGraph(
   state: ContentPackRuntimeState,
   candidate: VerifiedContentPack,
   policy: ContentPackVerificationPolicy,
+  resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey'],
 ): Promise<void> {
   const manifests = new Map<string, VerifiedContentPack['manifest']>()
   for (const [packId, pack] of Object.entries(state.packs)) {
@@ -309,7 +310,7 @@ async function verifiedManifestGraph(
       // graph node. It must not block unrelated installs, while any exact
       // dependency on it still fails below as missing.
       if (installed.recalled) continue
-      const verified = await verifyInstalledContentPackVersion(installed, policy)
+      const verified = await verifyInstalledContentPackVersion(installed, policy, resolveSigningKey)
       if (verified.manifest.pack_id !== packId || verified.manifest.version !== version) {
         throw new Error(`Content Pack immutable archive identity does not match state: ${packId}@${version}`)
       }
@@ -482,7 +483,7 @@ async function installContentPackLocked(
         if (existing.recalled) throw new Error(`GenStudio recalled Content Pack version: ${packId}@${version}`)
         const verifiedExisting = await verifyInstalledContentPackVersion(existing, policy, options.resolveGenStudioSigningKey)
         if (verifiedExisting.manifest.pack_id !== packId || verifiedExisting.manifest.version !== version) throw new Error(`Content Pack immutable archive identity does not match state: ${packId}@${version}`)
-        await verifiedManifestGraph(state, verified, policy)
+        await verifiedManifestGraph(state, verified, policy, options.resolveGenStudioSigningKey)
         // The retained signed archive is the authority. Repair a stale or
         // forged cache only after proving it against the immutable archive.
         if (canonicalJson(existing.manifest) !== canonicalJson(verifiedExisting.manifest)) {
@@ -490,7 +491,7 @@ async function installContentPackLocked(
         }
         return { pack_id: packId, version, archive_sha256: archiveSha, activated: state.packs[packId].active_version === version, retained_versions: retainedVersions(state, packId) }
       }
-      await verifiedManifestGraph(state, verified, policy)
+      await verifiedManifestGraph(state, verified, policy, options.resolveGenStudioSigningKey)
       const finalPath = installedVersionPath(paths, verified.manifest)
       await options.hooks?.beforeVersionRename?.()
       await materialiseVerifiedPack(request.archiveBytes, verified, request, transactionRoot, paths.installedRoot, finalPath, options.hooks, policy)

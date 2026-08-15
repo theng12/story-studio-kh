@@ -110,22 +110,28 @@ describe('Content Store rendered catalog and proof regressions', () => {
     rendered.unmount()
   })
 
-  test('withholds install actions for unavailable, recalled, or incompatible owned releases', async () => {
+  test('withholds mounted install actions when each release guard blocks independently', async () => {
     const Card = await loadComponent('ContentProductCard.vue')
     const Detail = await loadComponent('ContentProductDetail.vue')
-    const blocked = { ...product('blocked', 'Blocked pack'), owned: true, compatible: false, compatibilityReason: 'Requires a newer Story Studio.', currentRelease: { ...product('blocked', 'Blocked pack').currentRelease!, archiveAvailable: false } }
-    const ownership = {
-      entitlementFamily: 'blocked.family', productId: 'blocked', title: 'Blocked pack', kind: 'series_formula' as const,
-      grantedAt: '2026-08-14T09:12:44Z', purchaseId: 'cpur_blocked', currentRelease: blocked.currentRelease,
-      showcaseVideos: [], recalledReleaseVersions: [blocked.currentRelease!.version], receiptVerification: 'verified' as const,
-      downloadAvailable: false, installState: 'unavailable' as const, installedVersion: null, missingDependencies: [],
+    for (const fixture of [
+      { label: 'incompatible', product: { compatible: false, compatibilityReason: 'Requires a newer Story Studio.' }, ownership: {} },
+      { label: 'recalled', product: {}, ownership: { recalledReleaseVersions: ['9.9.9'] } },
+      { label: 'unavailable', product: { currentRelease: null }, ownership: { currentRelease: null } },
+      { label: 'no download', product: {}, ownership: { downloadAvailable: false } },
+    ]) {
+      const blocked = { ...product(`blocked-${fixture.label}`, 'Blocked pack'), owned: true, ...fixture.product }
+      const ownership = {
+        entitlementFamily: blocked.entitlementFamily, productId: blocked.productId, title: blocked.title, kind: 'series_formula' as const,
+        grantedAt: '2026-08-14T09:12:44Z', purchaseId: 'cpur_blocked', currentRelease: blocked.currentRelease,
+        showcaseVideos: [], recalledReleaseVersions: [], receiptVerification: 'verified' as const,
+        downloadAvailable: true, installState: 'not_installed' as const, installedVersion: null, missingDependencies: [], ...fixture.ownership,
+      }
+      const card = await mount(Card, { product: blocked, ownership })
+      const detail = await mount(Detail, { product: blocked, ownership })
+      assert.equal(card.host.querySelector('button.btn-primary'), null, fixture.label)
+      assert.equal(detail.host.querySelector('button.btn-primary'), null, fixture.label)
+      card.unmount(); detail.unmount()
     }
-    const card = await mount(Card, { product: blocked, ownership })
-    const detail = await mount(Detail, { product: blocked, ownership })
-    assert.equal(card.host.querySelector('button.btn-primary'), null)
-    assert.equal(detail.host.querySelector('button.btn-primary'), null)
-    assert.match(card.host.textContent || '', /Not compatible/i)
-    card.unmount(); detail.unmount()
   })
 
   test('keeps server and final fallback shelf product order when the shelf is mounted', async () => {

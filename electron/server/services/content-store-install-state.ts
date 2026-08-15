@@ -2,6 +2,9 @@ import type { GenStudioContentRelease } from '../lib/genstudio-content-store.js'
 import { verifyInstalledContentPackClosure, verifyInstalledContentPackVersion } from '../content-packs/installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
+import type { ContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
+import type { ContentPackVerificationPolicy } from '../content-packs/archive.js'
+import type { ContentPackInstallOptions } from '../content-packs/installer.js'
 import { mutateContentPackState, withContentPackCoordinationLock, withContentPackStateSnapshot } from '../content-packs/state.js'
 
 export type ContentStoreInstallState =
@@ -26,6 +29,13 @@ export interface ContentStoreInstalledPackState {
 export interface ContentStoreInstallSnapshot {
   owned: ContentStoreClosureState[]
   installed: ContentStoreInstalledPackState[]
+}
+
+export interface ContentStoreInstallSnapshotOptions {
+  /** Test-only dependency injection; production always uses the packaged policy and runtime paths. */
+  paths?: ContentPackRuntimePaths
+  policy?: ContentPackVerificationPolicy
+  resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey']
 }
 
 export type ContentStoreLocalInstallState = ContentStoreClosureState
@@ -53,10 +63,11 @@ export async function reconcileContentStoreRecalledVersions(input: {
 /** Reads and verifies one immutable local snapshot under coordination → state. */
 export async function resolveContentStoreInstallSnapshot(
   releases: ReadonlyArray<GenStudioContentRelease | null>,
+  options: ContentStoreInstallSnapshotOptions = {},
 ): Promise<ContentStoreInstallSnapshot> {
-  const paths = getContentPackRuntimePaths()
+  const paths = options.paths ?? getContentPackRuntimePaths()
   return withContentPackCoordinationLock(paths, () => withContentPackStateSnapshot(paths, async state => {
-    const policy = await getFirstPartyContentPackVerificationPolicy()
+    const policy = options.policy ?? await getFirstPartyContentPackVerificationPolicy()
     const cache = new Map<string, Promise<ContentStoreClosureState>>()
     const inspect = (packId: string, version: string): Promise<ContentStoreClosureState> => {
       const key = `${packId}@${version}`
@@ -64,7 +75,7 @@ export async function resolveContentStoreInstallSnapshot(
       if (prior) return prior
       const result = (async (): Promise<ContentStoreClosureState> => {
         try {
-          await verifyInstalledContentPackClosure(state, packId, version, policy)
+          await verifyInstalledContentPackClosure(state, packId, version, policy, undefined, options.resolveSigningKey)
           return { installState: 'installed_current', installedVersion: version, missingDependencies: [] }
         } catch {
           const missing = new Map<string, { packId: string; version: string; reason: string }>()
@@ -82,14 +93,14 @@ export async function resolveContentStoreInstallSnapshot(
             if (local.recalled) return add(id, requiredVersion, 'recalled')
             if (local.pending_removal) return add(id, requiredVersion, 'pending removal')
             try {
-              const verified = await verifyInstalledContentPackVersion(local, policy)
+              const verified = await verifyInstalledContentPackVersion(local, policy, options.resolveSigningKey)
               for (const dependency of verified.manifest.dependencies ?? []) await visit(dependency.pack_id, dependency.version)
             } catch { add(id, requiredVersion, 'cannot be verified') }
           }
           const root = state.packs[packId]?.versions[version]
           if (root) {
             try {
-              const verified = await verifyInstalledContentPackVersion(root, policy)
+              const verified = await verifyInstalledContentPackVersion(root, policy, options.resolveSigningKey)
               for (const dependency of verified.manifest.dependencies ?? []) await visit(dependency.pack_id, dependency.version)
             } catch { /* a bad root is incomplete; never invent a dependency from unverified state */ }
           }
