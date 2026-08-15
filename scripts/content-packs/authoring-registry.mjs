@@ -62,6 +62,13 @@ function boundedString(value, label, maximum) {
   return value
 }
 
+function trimmedString(value, label, maximum) {
+  boundedString(value, label, maximum)
+  const trimmed = value.trim()
+  if (!trimmed) fail(`${label} must be non-empty after trimming whitespace`)
+  return trimmed
+}
+
 function qualifiedId(value, label, namespace) {
   boundedString(value, label, 160)
   if (!QUALIFIED_ID.test(value)) fail(`${label} must be a lowercase qualified identifier`)
@@ -190,9 +197,11 @@ function proposal(value, label, namespace) {
   exactFields(value, new Set(['id', 'status', 'confirmation_ref']), label)
   const id = qualifiedId(value.id, `${label} id`, namespace)
   if (!PROPOSAL_STATUSES.has(value.status)) fail(`${label} has invalid status`)
-  if (value.status === 'confirmed') boundedString(value.confirmation_ref, `${label} confirmation_ref`, 500)
-  else if ('confirmation_ref' in value) fail(`${label} confirmation_ref is only allowed when confirmed`)
-  return { id, status: value.status, ...(value.status === 'confirmed' ? { confirmation_ref: value.confirmation_ref } : {}) }
+  const confirmationRef = value.status === 'confirmed'
+    ? trimmedString(value.confirmation_ref, `${label} confirmation_ref`, 500)
+    : undefined
+  if (value.status !== 'confirmed' && 'confirmation_ref' in value) fail(`${label} confirmation_ref is only allowed when confirmed`)
+  return { id, status: value.status, ...(confirmationRef ? { confirmation_ref: confirmationRef } : {}) }
 }
 
 function validateRecord(record, index, { request = false } = {}) {
@@ -311,11 +320,13 @@ function transitionRequest(request) {
       const change = stocking[name]
       exactFields(change, new Set(['status', 'confirmation_ref']), `lifecycle transition ${name}`)
       if (!PROPOSAL_STATUSES.has(change.status)) fail(`lifecycle transition ${name} has invalid status`)
-      if (change.status === 'confirmed') boundedString(change.confirmation_ref, `lifecycle transition ${name} confirmation_ref`, 500)
-      else if ('confirmation_ref' in change) fail(`lifecycle transition ${name} confirmation_ref is only allowed when confirmed`)
+      const confirmationRef = change.status === 'confirmed'
+        ? trimmedString(change.confirmation_ref, `lifecycle transition ${name} confirmation_ref`, 500)
+        : undefined
+      if (change.status !== 'confirmed' && 'confirmation_ref' in change) fail(`lifecycle transition ${name} confirmation_ref is only allowed when confirmed`)
       changes.stocking_proposal[name] = {
         status: change.status,
-        ...(change.status === 'confirmed' ? { confirmation_ref: change.confirmation_ref } : {}),
+        ...(confirmationRef ? { confirmation_ref: confirmationRef } : {}),
       }
     }
   }
@@ -470,8 +481,11 @@ async function reconcileSources(records, repositoryRoot) {
     if (record.pack_id !== manifest.pack_id || record.version !== manifest.version || record.publisher_id !== manifest.publisher_id || record.min_app_version !== manifest.min_app_version) fail(`identity differs for ${sourcePath}`)
     if (record.stocking_proposal.family.id !== manifest.entitlement?.family || record.stocking_proposal.sku.id !== manifest.entitlement?.sku) fail(`stocking proposal differs for ${sourcePath}`)
     const bundles = manifest.bundles ?? []
-    if (bundles.length) {
-      if (bundles.length !== 1 || record.kind !== bundles[0].kind || record.bundle_id !== bundles[0].id) fail(`coordinator identity differs for ${sourcePath}`)
+    if (!Array.isArray(bundles)) fail(`manifest bundles must be an array for ${sourcePath}`)
+    if (record.kind === 'channel-kit') {
+      if (bundles.length !== 1 || bundles[0].kind !== 'channel-kit' || record.bundle_id !== bundles[0].id) fail(`coordinator must have exactly one matching Channel Kit bundle for ${sourcePath}`)
+      const contentInfo = await lstat(join(dirname(packPath), 'content')).catch((error) => error?.code === 'ENOENT' ? undefined : Promise.reject(error))
+      if (contentInfo) fail(`coordinator source must be bundle-only and contain no creative content for ${sourcePath}`)
       const components = bundles[0].components ?? []
       if (!same(components.map(({ pack_id, version }) => ({ pack_id, version })), expectedDependencies)) fail(`dependency closure differs for ${sourcePath}`)
       for (const component of components) {
@@ -480,6 +494,7 @@ async function reconcileSources(records, repositoryRoot) {
         if (dependency.kind !== component.kind) fail(`bundle component kind differs for ${sourcePath}`)
       }
     } else {
+      if (bundles.length) fail(`creative component ${record.kind} must not declare bundles for ${sourcePath}`)
       const contentPath = join(dirname(packPath), 'content')
       const documents = await readdir(contentPath, { withFileTypes: true }).catch(() => [])
       const jsonDocuments = documents.filter((entry) => entry.isFile() && !entry.isSymbolicLink() && entry.name.endsWith('.json'))
