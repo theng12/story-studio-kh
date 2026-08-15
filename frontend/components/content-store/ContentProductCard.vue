@@ -14,6 +14,7 @@
     <p v-else-if="product.retired" class="ownership-status">No longer available for new ownership.</p>
     <p v-else class="ownership-status">GenStudio supplies the exact quote before any purchase.</p>
     <section v-if="ownership?.recalledReleaseVersions.length" class="recall-message" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><p>GenStudio stopped serving those versions. Ownership remains permanent.</p><p v-if="ownership.currentRelease">The newest safe owned release is {{ ownership.currentRelease.version }}.</p></section>
+    <section v-if="ownership?.installState === 'incomplete'" class="closure-message" role="status"><strong>Installed files are incomplete</strong><p v-if="ownership.missingDependencies.length">{{ closureSummary }}</p><p v-else>Story Studio could not verify the installed pack. Install the published release explicitly to repair it.</p></section>
 
     <div class="product-action">
       <NuxtLink :to="`/content-store/${product.productId}`" class="proof-action">View proof</NuxtLink>
@@ -38,6 +39,7 @@ const status = computed(() => {
   if (!props.product.owned) return props.product.free ? 'Free to claim' : 'Available'
   if (props.ownership?.installState === 'installed_current') return 'Installed'
   if (props.ownership?.installState === 'update_available') return 'Update available'
+  if (props.ownership?.installState === 'incomplete') return 'Incomplete'
   return 'Owned'
 })
 const ownedStatus = computed(() => {
@@ -46,9 +48,11 @@ const ownedStatus = computed(() => {
   if (props.ownership.installState === 'installed_current') return 'Verified ownership · installed on this Mac.'
   if (props.ownership.installState === 'update_available') return `Installed ${props.ownership.installedVersion || 'version'} · newer owned release available.`
   if (props.ownership.installState === 'installed_other_version') return `Verified ownership · ${props.ownership.installedVersion || 'another version'} is active.`
+  if (props.ownership.installState === 'incomplete') return 'Verified ownership · installed files need repair on this Mac.'
   if (!props.ownership.downloadAvailable) return 'Verified ownership · no downloadable release is available right now.'
   return 'Verified ownership · ready to install on this Mac.'
 })
+const closureSummary = computed(() => props.ownership?.missingDependencies.map(dependency => `${dependency.packId} ${dependency.version} (${dependency.reason})`).join(', ') || '')
 </script>
 
 <style scoped>
@@ -65,6 +69,7 @@ h3 { min-width: 0; overflow-wrap: anywhere; font-size: var(--font-xl); letter-sp
 .compatibility-message { display: grid; gap: 3px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; overflow-wrap: anywhere; }
 .compatibility-message strong { color: var(--warning); }
 .recall-message { display: grid; gap: 3px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }.recall-message strong { color: var(--warning); }
+.closure-message { display: grid; gap: 3px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }.closure-message strong { color: var(--warning); }
 .product-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
 .proof-action { color: var(--accent); font-size: var(--font-sm); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 .product-action .btn { margin-left: auto; min-height: var(--control-height-sm); padding: 7px 11px; font-size: var(--font-sm); }

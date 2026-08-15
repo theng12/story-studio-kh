@@ -98,8 +98,9 @@ export interface ContentStoreAccount {
     recalledReleaseVersions: string[]
     receiptVerification: 'verified' | 'unverified'
     downloadAvailable: boolean
-    installState: 'not_installed' | 'installed_current' | 'installed_other_version' | 'update_available' | 'unavailable'
+    installState: 'not_installed' | 'installing_dependencies' | 'installed_current' | 'installed_other_version' | 'update_available' | 'incomplete' | 'unavailable'
     installedVersion: string | null
+    missingDependencies: Array<{ packId: string; version: string; reason: string }>
   }>
 }
 

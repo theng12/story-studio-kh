@@ -163,7 +163,7 @@ describe('Content Store commerce routes', () => {
     assert.equal(offlineOwned.body.account.owned[0].installedVersion, '1.0.0')
   })
 
-  test('does not report a locally damaged signed pack as installed', async () => {
+  test('reports an incomplete closure, never Installed, when a local Store pack cannot be verified', async () => {
     const archive = await asStoreDeliveryArchive(await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url)))
     const ownedRelease = {
       ...archiveRelease(archive),
@@ -185,7 +185,11 @@ describe('Content Store commerce routes', () => {
     await fs.writeFile(path.join(installed.install_path, 'content', 'archive.sspack'), 'damaged')
 
     const overview = await request(localApp).get('/api/content-store').expect(200)
-    assert.notEqual(overview.body.account.owned[0].installState, 'installed_current')
+    const installedState = overview.body.account.owned[0]
+    assert.equal(installedState.installState, 'incomplete')
+    assert.equal(installedState.installedVersion, '1.0.0')
+    assert.deepEqual(installedState.missingDependencies, [])
+    assert.doesNotMatch(JSON.stringify(installedState), /archive\.sspack|\/Users\//i)
   })
 
   test('ordinary overview durably disables a recalled installed version for the next offline boot', async () => {

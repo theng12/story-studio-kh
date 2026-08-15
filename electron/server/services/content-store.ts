@@ -94,6 +94,7 @@ export type PublicContentAccount = Omit<GenStudioContentAccount, 'raw' | 'owned'
     downloadAvailable: boolean
     installState: ContentStoreInstallState
     installedVersion: string | null
+    missingDependencies: Array<{ packId: string; version: string; reason: string }>
   }>
 }
 

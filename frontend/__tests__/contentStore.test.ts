@@ -434,10 +434,16 @@ describe('Content Store renderer contract', () => {
   const home = readFileSync(fileURLToPath(new URL('../pages/index.vue', import.meta.url)), 'utf8')
   const dashboard = readFileSync(fileURLToPath(new URL('../layouts/dashboard.vue', import.meta.url)), 'utf8')
 
-  test('shows only remote products with Discover and Owned views and the healthy empty state', () => {
+  test('separates Discover, Owned, Installed, and Updates with truthful counts and empty states', () => {
     assert.match(page, /role="tablist"/)
     assert.match(page, /label: 'Discover'/)
     assert.match(page, /label: 'Owned'/)
+    assert.match(page, /label: 'Installed'/)
+    assert.match(page, /label: 'Updates'/)
+    assert.match(page, /installedProducts/)
+    assert.match(page, /updateProducts/)
+    assert.match(page, /No installed packs yet/)
+    assert.match(page, /No updates available/)
     assert.match(page, /The Content Store is ready, but no packs have been published yet\./)
     assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|portal URL/i)
     assert.match(page, /Restore purchases/)
