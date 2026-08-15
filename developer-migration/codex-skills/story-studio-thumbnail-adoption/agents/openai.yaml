@@ -1,0 +1,4 @@
+interface:
+  display_name: "Thumbnail Adoption"
+  short_description: "Adopt reusable Story Studio thumbnail formats"
+  default_prompt: "Use $story-studio-thumbnail-adoption to adopt this thumbnail format into Story Studio."

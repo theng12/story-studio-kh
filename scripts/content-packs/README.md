@@ -15,13 +15,33 @@ product/release/account identities, prices, shelves, signing, archives, or publi
 ```bash
 npm run content-pack:registry -- validate
 npm run content-pack:registry -- reserve --request ./reservation-request.json
+npm run content-pack:registry -- verify-receipt --revision 2 \
+  --receipt authoring:<sha256> --expected-identity ./expected-identity.json
 ```
 
 The reservation request supplies the current `expected_revision`, coordinator `task` and `branch`,
 a proposal reference, and every requested record. The command returns a deterministic receipt and
 increments the revision exactly once, without creating source files. Start from the committed
 revision; competing coordinators receive a conflict and must rebase, validate, and reserve again.
-Leaf authors consume the committed receipt and never mint identities themselves.
+Each accepted batch persists the canonical request metadata that produced its receipt. Before
+creating source files, a leaf writes its coordinator-issued complete record (without `receipt_ref`)
+to the expected-identity JSON file and runs `verify-receipt`. The command succeeds only when the
+revision, receipt, and every expected identity field match the persisted batch and current registry
+record. Leaf authors never mint or repair identities themselves.
+
+Generic discovery reconciles every `pack.json` source below `content-packs/`, including future
+catalog waves, while explicitly excluding only the retired source-only
+`content-packs/archival-ledger` monolith. Canonical forward-slash repository paths are mandatory;
+aliases, absolute paths, backslashes, symlinks, cycles, coordinators in creative dependency closure,
+and unregistered authored sources fail closed.
+
+Canonical migration copies of all four authoring skill packages live under
+`developer-migration/codex-skills/`. Install or verify them on a new computer with:
+
+```bash
+node scripts/developer/sync-story-authoring-skills.mjs --install
+node scripts/developer/sync-story-authoring-skills.mjs --check
+```
 
 ## Source layout
 

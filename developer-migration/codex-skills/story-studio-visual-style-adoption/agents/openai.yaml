@@ -1,0 +1,4 @@
+interface:
+  display_name: "Story Studio Visual Styles"
+  short_description: "Add complete reference-driven visual style presets"
+  default_prompt: "Use $story-studio-visual-style-adoption to analyze these references and add a fully wired Story Studio visual style with a bundled preview and tests."

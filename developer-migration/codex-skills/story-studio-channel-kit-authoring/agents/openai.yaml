@@ -1,0 +1,4 @@
+interface:
+  display_name: "Channel Kit Authoring"
+  short_description: "Coordinate modular Story Store channel kits safely"
+  default_prompt: "Use $story-studio-channel-kit-authoring to turn this channel concept into reviewed Story Content Store component handoffs."

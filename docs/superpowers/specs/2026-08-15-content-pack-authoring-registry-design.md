@@ -62,12 +62,13 @@ The validator reconciles every `authored` registry record against its actual `pa
 version, publisher, source path, item or bundle identity, dependency closure, family, and SKU. It
 also proves every authored source is registered and every registry source exists exactly once.
 
-The four personal Story authoring skills name the real registry path and validation/reservation
-commands. They fail closed with `Registry task required` when the registry is missing, stale,
-invalid, or lacks the assigned receipt.
+The four Story authoring skills name the real registry path and validation, reservation, and
+leaf-facing receipt-verification commands. They fail closed with `Registry task required` when the
+registry is missing, stale, invalid, or lacks an exact verified identity assignment.
 
-These personal skills are not stored in the Story Git repository and must be included in the
-new-computer migration checklist separately.
+Canonical complete copies of those four packages are stored under
+`developer-migration/codex-skills/`; the developer migration command installs or checks their
+personal `~/.codex/skills` copies byte-for-byte on a new computer.
 
 ## Acceptance
 
@@ -78,4 +79,3 @@ new-computer migration checklist separately.
 - Replaying the same request cannot create a second reservation.
 - Validation and reservation make no network, generation, signing, archive, customer-data, or
   commerce mutation.
-

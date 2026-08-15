@@ -1,0 +1,4 @@
+interface:
+  display_name: "Niche Adoption"
+  short_description: "Scale Story Studio main and sub-niches safely"
+  default_prompt: "Use $story-studio-niche-adoption to add this scalable niche to Story Studio."
