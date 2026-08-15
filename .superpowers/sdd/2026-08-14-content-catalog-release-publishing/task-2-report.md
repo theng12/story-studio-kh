@@ -108,3 +108,37 @@ and no errors.
 Remaining concern: recall is an authenticated online release-history fact, not
 a signed receipt field. It becomes a durable local disablement after online
 reconciliation and is enforced on all later offline boots.
+
+## Fix round 2 — independent anchor and recall isolation
+
+- **C1:** Receipt-key mappings now have a second persistence boundary in the
+  existing app-secrets safeStorage/OS-keychain envelope. The anchor is bounded,
+  append-only and scoped to GenStudio origin, account, and content account.
+  Offline delivery and cached-ownership verification require the anchor to
+  agree with the mutable commerce journal before accepting a receipt. Missing
+  anchors (including installations created before this migration) fail closed
+  pending online revalidation. A direct journal receipt/key-history replacement
+  under the same key id is rejected because it cannot alter the independent
+  anchored bytes.
+- **I3:** Normal successful `/api/content-store` overview now reconciles each
+  authenticated receipt response's `recalledReleaseVersions`, not just restore
+  or install. It writes account/origin-bound recall markers, removes the active
+  version but preserves immutable archive and ownership evidence, and the next
+  offline boot keeps it disabled.
+- **I4:** Recalled retained versions are excluded from the available manifest
+  graph. They cannot poison an unrelated local install; an exact dependency on
+  the recalled pack is absent from the graph and still fails closed.
+
+Observed RED → GREEN evidence:
+
+- Commerce-state anchor regression: removal of the independent anchor causes
+  offline resolution to fail; replacing journal key bytes, receipt signature,
+  and receipt under the same id fails against the retained anchor.
+- Content Store route regression: ordinary overview recall disables an
+  installed version, records matching account/origin markers, and a subsequent
+  no-network boot leaves it inactive.
+- Installer regression: an unrelated pack installs with a recalled retained
+  Store version present, while an exact dependency on that version is rejected.
+- Focused delivery/install/recovery/registry/commerce suites passed **131
+  tests**. `npm run typecheck:electron`, `npm run lint -- --quiet`,
+  `npm run check:security`, and `git diff --check` passed.

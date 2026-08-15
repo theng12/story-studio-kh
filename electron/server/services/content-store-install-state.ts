@@ -2,6 +2,7 @@ import type { GenStudioContentRelease } from '../lib/genstudio-content-store.js'
 import { verifyInstalledContentPackClosure } from '../content-packs/installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
 import { readContentPackState } from '../content-packs/state.js'
+import { mutateContentPackState } from '../content-packs/state.js'
 
 export type ContentStoreInstallState =
   | 'not_installed'
@@ -13,6 +14,30 @@ export type ContentStoreInstallState =
 export interface ContentStoreLocalInstallState {
   installState: ContentStoreInstallState
   installedVersion: string | null
+}
+
+/**
+ * Receipt restore/overview recall facts are account-and-origin scoped. Keep
+ * the immutable bytes and ownership evidence, but durably remove usability.
+ */
+export async function reconcileContentStoreRecalledVersions(input: {
+  accountId: string
+  origin: string
+  recalledVersionsByFamily: ReadonlyMap<string, readonly string[]>
+}): Promise<void> {
+  await mutateContentPackState(state => {
+    for (const pack of Object.values(state.packs)) {
+      for (const [version, installed] of Object.entries(pack.versions)) {
+        const evidence = installed.source === 'genstudio-store' ? installed.delivery_attestation : undefined
+        if (!evidence || evidence.account_id !== input.accountId || evidence.genstudio_origin !== input.origin
+          || !input.recalledVersionsByFamily.get(evidence.entitlement_family)?.includes(version)) continue
+        installed.recalled = {
+          observed_at: new Date().toISOString(), account_id: input.accountId, genstudio_origin: input.origin,
+        }
+        if (pack.active_version === version) delete pack.active_version
+      }
+    }
+  })
 }
 
 export async function resolveContentStoreInstallStates(

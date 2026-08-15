@@ -305,6 +305,10 @@ async function verifiedManifestGraph(
   const manifests = new Map<string, VerifiedContentPack['manifest']>()
   for (const [packId, pack] of Object.entries(state.packs)) {
     for (const [version, installed] of Object.entries(pack.versions)) {
+      // A recalled retained version is preserved as evidence, not an available
+      // graph node. It must not block unrelated installs, while any exact
+      // dependency on it still fails below as missing.
+      if (installed.recalled) continue
       const verified = await verifyInstalledContentPackVersion(installed, policy)
       if (verified.manifest.pack_id !== packId || verified.manifest.version !== version) {
         throw new Error(`Content Pack immutable archive identity does not match state: ${packId}@${version}`)

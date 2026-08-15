@@ -16,6 +16,7 @@ import {
   type GenStudioContentQuote,
 } from '../lib/genstudio-content-store.js'
 import { verifyContentStoreRestoreReceipt } from '../lib/genstudio-content-store-trust.js'
+import { readContentStoreKeyAnchor, recordContentStoreKeyAnchor } from '../services/app-secrets-store.js'
 import {
   CachedContentQuoteSchema,
   CachedContentRefusalSchema,
@@ -328,6 +329,13 @@ export async function readContentStoreCommerceState(): Promise<ContentStoreComme
 export async function recordVerifiedContentRestore(
   restore: CachedVerifiedContentRestore,
 ): Promise<CachedVerifiedContentRestore> {
+  const keys = restore.key_history ?? [{ key_id: restore.key_id, public_key_base64: restore.public_key_base64 }]
+  await recordContentStoreKeyAnchor({
+    origin: restore.genstudio_origin,
+    account_id: restore.account_id,
+    content_account_id: restore.content_account_id,
+    keys,
+  })
   return mutateState(state => {
     const previous = state.verified_restore?.key_history ?? (state.verified_restore ? [{
       key_id: state.verified_restore.key_id,
@@ -362,8 +370,18 @@ export async function resolveVerifiedContentStoreSigningKey(input: {
     throw new Error('No independently verified GenStudio key history exists for this account and origin')
   }
   const history = cached.key_history ?? [{ key_id: cached.key_id, public_key_base64: cached.public_key_base64 }]
+  const anchor = await readContentStoreKeyAnchor({
+    origin: input.origin, account_id: input.accountId, content_account_id: cached.content_account_id,
+  })
+  if (!anchor) throw new Error('No OS-backed GenStudio key anchor exists; online revalidation is required')
+  for (const key of history) {
+    const pinned = anchor.keys.find(candidate => candidate.key_id === key.key_id)
+    if (!pinned || pinned.public_key_base64 !== key.public_key_base64) {
+      throw new Error(`GenStudio key history disagrees with the OS-backed anchor for ${key.key_id}`)
+    }
+  }
   const restoreKey = history.find(key => key.key_id === cached.key_id)
-  const requested = history.find(key => key.key_id === input.keyId)
+  const requested = anchor.keys.find(key => key.key_id === input.keyId)
   if (!restoreKey || !requested) throw new Error('GenStudio key history does not contain the requested receipt key')
   const publicKey = parseContentStorePublicKey({
     key_id: restoreKey.key_id,

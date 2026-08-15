@@ -50,6 +50,15 @@ export interface AppSecretsV3 {
   // is what makes the per-machine local-modal URLs (voicestudio/imagestudio)
   // fully user-controlled: whatever you Save is what the app uses.
   providers: Partial<Record<ProviderId, { apiKey: string; userSet?: boolean }>>
+  /** OS-protected, append-only public-key anchors for offline Store receipts. */
+  contentStoreKeyAnchors?: ContentStoreKeyAnchor[]
+}
+
+export interface ContentStoreKeyAnchor {
+  origin: string
+  account_id: string
+  content_account_id: string
+  keys: Array<{ key_id: string; public_key_base64: string }>
 }
 
 interface EncryptedEnvelope {
@@ -132,6 +141,20 @@ function normaliseV3(raw: any): AppSecretsV3 {
       }
     }
   }
+  if (Array.isArray(raw.contentStoreKeyAnchors)) {
+    const anchors: ContentStoreKeyAnchor[] = []
+    for (const value of raw.contentStoreKeyAnchors.slice(0, 20)) {
+      if (!value || typeof value !== 'object') continue
+      const row = value as Record<string, unknown>
+      if (typeof row.origin !== 'string' || typeof row.account_id !== 'string' || typeof row.content_account_id !== 'string'
+        || !Array.isArray(row.keys) || row.keys.length === 0 || row.keys.length > 100) continue
+      const keys = row.keys.filter((key): key is { key_id: string; public_key_base64: string } => !!key && typeof key === 'object'
+        && typeof (key as Record<string, unknown>).key_id === 'string' && typeof (key as Record<string, unknown>).public_key_base64 === 'string')
+      if (keys.length !== row.keys.length || new Set(keys.map(key => key.key_id)).size !== keys.length) continue
+      anchors.push({ origin: row.origin, account_id: row.account_id, content_account_id: row.content_account_id, keys })
+    }
+    if (anchors.length) out.contentStoreKeyAnchors = anchors
+  }
   return out
 }
 
@@ -193,6 +216,43 @@ export async function writeAppSecrets(
     result = v3
   })
   return result
+}
+
+/** Insert-only OS-protected key mapping; a named GenStudio key can never repoint. */
+export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor): Promise<void> {
+  if (!anchor.origin || !anchor.account_id || !anchor.content_account_id || !anchor.keys.length || anchor.keys.length > 100) {
+    throw new Error('GenStudio Content Store key anchor is invalid')
+  }
+  await writeAppSecrets(state => {
+    const anchors = state.contentStoreKeyAnchors ?? []
+    const existing = anchors.find(candidate => candidate.origin === anchor.origin
+      && candidate.account_id === anchor.account_id && candidate.content_account_id === anchor.content_account_id)
+    if (!existing) {
+      if (anchors.length >= 20) throw new Error('GenStudio Content Store key-anchor capacity reached')
+      anchors.push({ ...anchor, keys: anchor.keys.map(key => ({ ...key })) })
+      state.contentStoreKeyAnchors = anchors
+      return
+    }
+    for (const key of anchor.keys) {
+      const pinned = existing.keys.find(candidate => candidate.key_id === key.key_id)
+      if (pinned && pinned.public_key_base64 !== key.public_key_base64) {
+        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed in the OS key anchor`)
+      }
+      if (!pinned) existing.keys.push({ ...key })
+    }
+  })
+}
+
+/** Returns only the OS-protected mapping for one exact Store account/origin. */
+export async function readContentStoreKeyAnchor(input: {
+  origin: string
+  account_id: string
+  content_account_id: string
+}): Promise<ContentStoreKeyAnchor | null> {
+  const anchors = (await readAppSecrets()).contentStoreKeyAnchors ?? []
+  const found = anchors.find(anchor => anchor.origin === input.origin
+    && anchor.account_id === input.account_id && anchor.content_account_id === input.content_account_id)
+  return found ? { ...found, keys: found.keys.map(key => ({ ...key })) } : null
 }
 
 /** Maximum sidecar backups (`app-secrets.json.bak.<ts>`) to retain. */

@@ -136,6 +136,28 @@ describe('Content Pack local installer', () => {
     await assert.doesNotReject(installContentPack(request(await buildArchive({ dependencies: [{ pack_id: 'com.storystudio.dependency', version: '1.0.0' }] })), { paths, policy }))
   })
 
+  test('excludes a recalled retained Store version from unrelated installs but rejects an exact dependency on it', async () => {
+    const paths = await isolated()
+    const recalled = await buildArchive({ packId: 'com.storystudio.recalled-dependency' })
+    await installContentPack(request(recalled), { paths, policy })
+    const raw = JSON.parse(await fs.readFile(paths.statePath, 'utf8'))
+    const retained = raw.packs['com.storystudio.recalled-dependency'].versions['1.0.0']
+    retained.source = 'genstudio-store'
+    retained.delivery_attestation = {
+      account_id: 'acct_test', product_id: 'product_test', entitlement_family: 'family_test', release_id: 'release_test',
+      pack_id: 'com.storystudio.recalled-dependency', version: '1.0.0', archive_sha256: retained.archive_sha256,
+      archive_bytes: recalled.byteLength, genstudio_origin: 'https://genstudio.example', subject: 'receipt-root', closure_members: [],
+      key_id: 'key_test', receipt_canonical_json: '{}', receipt_signature: 'signature',
+    }
+    retained.recalled = { observed_at: new Date().toISOString(), account_id: 'acct_test', genstudio_origin: 'https://genstudio.example' }
+    delete raw.packs['com.storystudio.recalled-dependency'].active_version
+    await fs.writeFile(paths.statePath, `${JSON.stringify(raw)}\n`, { mode: 0o600 })
+    await assert.doesNotReject(installContentPack(request(await buildArchive({ packId: 'com.storystudio.unrelated' })), { paths, policy }))
+    await assert.rejects(installContentPack(request(await buildArchive({
+      packId: 'com.storystudio.depends-on-recalled', dependencies: [{ pack_id: 'com.storystudio.recalled-dependency', version: '1.0.0' }],
+    })), { paths, policy }), /dependency/i)
+  })
+
   test('does not trust a forged state manifest when re-verifying the installed dependency graph', async () => {
     const paths = await isolated()
     const cycleB = await buildArchive({ packId: 'com.storystudio.cycle-b' })

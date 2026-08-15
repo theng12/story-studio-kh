@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
@@ -19,10 +19,12 @@ import {
   recoverInterruptedContentPurchases,
   saveQuotedAttempt,
   recordVerifiedContentRestore,
+  resolveVerifiedContentStoreSigningKey,
 } from '../content-store/commerce-state.js'
 import type { CachedContentRefusal } from '../content-store/types.js'
-import { parseContentStorePurchase, parseContentStoreQuote } from '../lib/genstudio-content-store.js'
+import { canonicalizeContentStoreObject, parseContentStorePurchase, parseContentStoreQuote } from '../lib/genstudio-content-store.js'
 import { useTempDataDir } from './_helpers.js'
+import { appSecretsPath } from '../services/app-secrets-store.js'
 
 const SIGNATURE = Buffer.alloc(64, 7).toString('base64')
 const HASH = 'a'.repeat(64)
@@ -187,6 +189,43 @@ describe('Content Store commerce state', () => {
       public_key_base64: Buffer.alloc(32, 5).toString('base64'),
       key_history: [{ key_id: 'content-key-1', public_key_base64: Buffer.alloc(32, 5).toString('base64') }],
     }), /repointed/i)
+  })
+
+  test('rejects a journal receipt and key replacement under the same key id when offline', async () => {
+    await isolate()
+    const trusted = generateKeyPairSync('ed25519')
+    const rogue = generateKeyPairSync('ed25519')
+    const keyId = 'content-key-anchor'
+    const publicBase64 = (key: typeof trusted.publicKey) => {
+      const der = key.export({ format: 'der', type: 'spki' })
+      return der.subarray(der.byteLength - 32).toString('base64')
+    }
+    const payload = { typ: 'genstudio.content.restore.v1', key_id: keyId, account_id: 'acct_a', content_account_id: 'acct_a', entitlement_families: [] }
+    const canonical = canonicalizeContentStoreObject(payload).canonicalJson
+    await recordVerifiedContentRestore({
+      account_id: 'acct_a', content_account_id: 'acct_a', genstudio_origin: 'https://api.genstudio.example', key_id: keyId,
+      public_key_base64: publicBase64(trusted.publicKey), receipt_canonical_json: canonical,
+      receipt_signature: sign(null, Buffer.from(canonical), trusted.privateKey).toString('base64'), verified_at: new Date().toISOString(),
+      key_history: [{ key_id: keyId, public_key_base64: publicBase64(trusted.publicKey) }],
+    })
+    await fs.rm(appSecretsPath())
+    await assert.rejects(resolveVerifiedContentStoreSigningKey({
+      accountId: 'acct_a', origin: 'https://api.genstudio.example', keyId,
+    }), /OS-backed.*anchor|online revalidation/i)
+    await recordVerifiedContentRestore({
+      account_id: 'acct_a', content_account_id: 'acct_a', genstudio_origin: 'https://api.genstudio.example', key_id: keyId,
+      public_key_base64: publicBase64(trusted.publicKey), receipt_canonical_json: canonical,
+      receipt_signature: sign(null, Buffer.from(canonical), trusted.privateKey).toString('base64'), verified_at: new Date().toISOString(),
+      key_history: [{ key_id: keyId, public_key_base64: publicBase64(trusted.publicKey) }],
+    })
+    const journal = JSON.parse(await fs.readFile(getContentStoreStatePath(), 'utf8'))
+    journal.verified_restore.public_key_base64 = publicBase64(rogue.publicKey)
+    journal.verified_restore.key_history = [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }]
+    journal.verified_restore.receipt_signature = sign(null, Buffer.from(canonical), rogue.privateKey).toString('base64')
+    await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(journal)}\n`, { mode: 0o600 })
+    await assert.rejects(resolveVerifiedContentStoreSigningKey({
+      accountId: 'acct_a', origin: 'https://api.genstudio.example', keyId,
+    }), /anchor|disagrees/i)
   })
 
   test('persists one 0600 journal with a durable bounded idempotency key', async () => {

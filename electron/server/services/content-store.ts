@@ -23,12 +23,14 @@ import {
   recordPurchaseRefusal,
   recordPurchaseUncertain,
   recoverInterruptedContentPurchases,
+  resolveVerifiedContentStoreSigningKey,
   restoreQuotedAfterPurchaseScopeRefusal,
   restoreQuotedAfterPurchaseNotSent,
   saveQuotedAttempt,
 } from '../content-store/commerce-state.js'
 import {
   resolveContentStoreInstallStates,
+  reconcileContentStoreRecalledVersions,
   type ContentStoreInstallState,
   type ContentStoreLocalInstallState,
 } from './content-store-install-state.js'
@@ -179,10 +181,13 @@ async function cachedVerifiedFamilies(accountId: string): Promise<Set<string>> {
   const cached = (await readContentStoreCommerceState()).verified_restore
   if (!cached || cached.account_id !== accountId || cached.genstudio_origin !== await currentGenStudioOrigin()) return new Set()
   try {
+    const trustedKey = await resolveVerifiedContentStoreSigningKey({
+      accountId, origin: cached.genstudio_origin, keyId: cached.key_id,
+    })
     const publicKey = parseContentStorePublicKey({
       key_id: cached.key_id,
       algorithm: 'ed25519',
-      public_key_base64: cached.public_key_base64,
+      public_key_base64: trustedKey,
       payload_types: [
         'genstudio.content.download.v1', 'genstudio.content.quote.v1',
         'genstudio.content.receipt.v1', 'genstudio.content.restore.v1',
@@ -401,6 +406,11 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     entitlement.entitlementFamily,
     entitlement.recalledReleaseVersions,
   ]))
+  await reconcileContentStoreRecalledVersions({
+    accountId: account.accountId,
+    origin: await currentGenStudioOrigin(),
+    recalledVersionsByFamily,
+  })
   const [verifiedFamilies, installStates] = await Promise.all([
     cachedVerifiedFamilies(account.accountId),
     resolveContentStoreInstallStates(account.owned.map(owned => owned.currentRelease)),

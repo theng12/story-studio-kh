@@ -48,6 +48,8 @@ export const ContentPackInstalledVersionSchema = z.object({
   /** Online recall disables this exact immutable version without deleting ownership evidence. */
   recalled: z.object({
     observed_at: z.string().datetime(),
+    account_id: BoundedText(256),
+    genstudio_origin: z.string().url().max(2048),
     reason: z.string().min(1).max(2048).optional(),
   }).strict().optional(),
   /** Durable before an immutable directory is ever moved or deleted. */
@@ -61,6 +63,10 @@ export const ContentPackInstalledVersionSchema = z.object({
   }
   if (value.recalled && value.source !== 'genstudio-store') {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'only GenStudio Store versions may be recalled by Store reconciliation' })
+  }
+  if (value.recalled && (value.recalled.account_id !== value.delivery_attestation?.account_id
+    || value.recalled.genstudio_origin !== value.delivery_attestation?.genstudio_origin)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'Store recall marker must match its delivery account and origin' })
   }
 })
 

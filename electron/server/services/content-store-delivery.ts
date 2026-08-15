@@ -27,11 +27,12 @@ import {
 } from '../content-packs/installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
 import { rollbackContentPack } from '../content-packs/lifecycle.js'
-import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
+import { readContentPackState } from '../content-packs/state.js'
 import type { ContentPackInstallResult } from '../content-packs/runtime-types.js'
 import { getApiKey } from './app-secrets-store.js'
 import { getGenStudioUrl } from './app-settings.js'
 import { ContentStoreLocalError, loadContentStoreOverview, type ContentStoreOverview } from './content-store.js'
+import { reconcileContentStoreRecalledVersions } from './content-store-install-state.js'
 
 const STORY_CONTENT_PACK_MAX_BYTES = 50 * 1024 * 1024
 
@@ -105,27 +106,21 @@ async function reconcileRecalledContentStoreReleases(verified: {
   receipts: GenStudioContentReceipts
   origin: string
 }): Promise<void> {
-  const recalled = new Map<string, { reason?: string }>()
+  const recalled = new Map<string, string[]>()
   for (const entitlement of verified.receipts.entitlements) {
     const history = await listGenStudioOwnedContentReleases(verified.apiKey, entitlement.entitlementFamily)
     if (history.entitlementFamily !== entitlement.entitlementFamily || history.entitlementId !== entitlement.entitlementId
       || history.productId !== entitlement.productId) throw new ContentStoreLocalError(409, 'CONTENT_PACK_OWNED_RELEASE_MISMATCH', 'GenStudio returned release history for different verified ownership.')
     for (const release of history.releases) {
-      if (release.state === 'recalled') recalled.set(`${entitlement.entitlementFamily}\u0000${release.releaseId}`, { reason: release.recallReason ?? undefined })
-    }
-  }
-  if (!recalled.size) return
-  await mutateContentPackState(state => {
-    for (const pack of Object.values(state.packs)) {
-      for (const [version, installed] of Object.entries(pack.versions)) {
-        const evidence = installed.source === 'genstudio-store' ? installed.delivery_attestation : undefined
-        if (!evidence || evidence.account_id !== verified.account.accountId || evidence.genstudio_origin !== verified.origin) continue
-        const recall = recalled.get(`${evidence.entitlement_family}\u0000${evidence.release_id}`)
-        if (!recall) continue
-        installed.recalled = { observed_at: new Date().toISOString(), ...(recall.reason ? { reason: recall.reason } : {}) }
-        if (pack.active_version === version) delete pack.active_version
+      if (release.state === 'recalled') {
+        const versions = recalled.get(entitlement.entitlementFamily) ?? []
+        versions.push(release.version)
+        recalled.set(entitlement.entitlementFamily, versions)
       }
     }
+  }
+  await reconcileContentStoreRecalledVersions({
+    accountId: verified.account.accountId, origin: verified.origin, recalledVersionsByFamily: recalled,
   })
 }
 

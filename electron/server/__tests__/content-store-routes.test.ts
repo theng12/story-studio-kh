@@ -10,6 +10,7 @@ import request from 'supertest'
 
 import { readContentStoreCommerceState } from '../content-store/commerce-state.js'
 import { readContentPackState } from '../content-packs/state.js'
+import { verifyContentPackRuntimeAtBoot } from '../content-packs/recovery.js'
 import {
   getGenStudioContentReceipts,
   purchaseGenStudioContentProduct,
@@ -185,6 +186,29 @@ describe('Content Store commerce routes', () => {
 
     const overview = await request(localApp).get('/api/content-store').expect(200)
     assert.notEqual(overview.body.account.owned[0].installState, 'installed_current')
+  })
+
+  test('ordinary overview durably disables a recalled installed version for the next offline boot', async () => {
+    const archive = await asStoreDeliveryArchive(await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url)))
+    const ownedRelease = { ...archiveRelease(archive), pack_id: 'com.storystudio.pack.free-recovery-test', version: '1.0.0', archive_available: true }
+    const { app: localApp } = await setup({ products: [product({
+      owned: true, entitlement_family: 'com.storystudio.family.free-recovery-test', current_release: ownedRelease,
+    })] })
+    mock.setContentArchive('crel_a', archive)
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+    await request(localApp).post('/api/content-store/releases/crel_a/install').send({}).expect(200)
+    mock.contentProducts = [product({
+      owned: true, entitlement_family: 'com.storystudio.family.free-recovery-test', current_release: ownedRelease,
+      recalled_release_versions: ['1.0.0'],
+    })]
+    await request(localApp).get('/api/content-store').expect(200)
+    const disabled = await readContentPackState()
+    const retained = disabled.packs['com.storystudio.pack.free-recovery-test'].versions['1.0.0']
+    assert.equal(disabled.packs['com.storystudio.pack.free-recovery-test'].active_version, undefined)
+    assert.equal(retained.recalled?.account_id, 'acct_a')
+    assert.equal(retained.recalled?.genstudio_origin, mock.baseUrl)
+    await verifyContentPackRuntimeAtBoot()
+    assert.equal((await readContentPackState()).packs['com.storystudio.pack.free-recovery-test'].active_version, undefined)
   })
 
   test('does not advertise verified ownership when an original purchase receipt fails signature verification', async () => {
