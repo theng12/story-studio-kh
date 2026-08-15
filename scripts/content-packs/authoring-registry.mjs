@@ -1,17 +1,43 @@
-import { open, readdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { lstat, open, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+const PUBLISHER_ID = 'com.storystudio'
+const MIN_APP_VERSION_TOKEN = '{{MIN_APP_VERSION}}'
+const EXACT_SEMVER = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/
+const QUALIFIED_ID = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+$/
+const AUTHORING_RECEIPT = /^authoring:[a-f0-9]{64}$/
+const MAX_REGISTRY_BYTES = 8 * 1024 * 1024
+const MAX_REQUEST_BYTES = 1024 * 1024
+const MAX_MANIFEST_BYTES = 1024 * 1024
+const MAX_REGISTRY_RECORDS = 5_000
+const MAX_REQUEST_RECORDS = 100
+const MAX_DEPENDENCIES = 100
+const MAX_JSON_DEPTH = 32
+const MAX_JSON_NODES = 250_000
+const MAX_JSON_STRING_BYTES = 64 * 1024
+const MAX_SOURCE_DEPTH = 16
+const MAX_DISCOVERY_ENTRIES = 100_000
+const MAX_DISCOVERY_DIRECTORIES = 10_000
+const RETIRED_SOURCE_ROOT = 'content-packs/archival-ledger'
 const RECORD_FIELDS = new Set([
   'receipt_ref', 'pack_id', 'item_id', 'bundle_id', 'version', 'publisher_id',
   'min_app_version', 'min_app_version_status', 'kind', 'source_path', 'status',
   'dependencies', 'stocking_proposal',
 ])
-const CREATIVE_KINDS = new Set(['series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe'])
+const REQUEST_RECORD_FIELDS = new Set([...RECORD_FIELDS].filter((field) => field !== 'receipt_ref'))
 const STATUSES = new Set(['authored', 'reserved'])
 const PROPOSAL_STATUSES = new Set(['proposed', 'reserved', 'confirmed'])
 const MIN_APP_VERSION_STATUSES = new Set(['release-bound', 'fixed'])
+const KIND_NAMESPACES = {
+  'series-formula': { pack: `${PUBLISHER_ID}.pack.formula.`, item: `${PUBLISHER_ID}.formula.`, proposal: 'formula' },
+  'topic-pack': { pack: `${PUBLISHER_ID}.pack.topic.`, item: `${PUBLISHER_ID}.topic.`, proposal: 'topic' },
+  'visual-style': { pack: `${PUBLISHER_ID}.pack.style.`, item: `${PUBLISHER_ID}.style.`, proposal: 'style' },
+  'thumbnail-recipe': { pack: `${PUBLISHER_ID}.pack.thumbnail.`, item: `${PUBLISHER_ID}.thumbnail.`, proposal: 'thumbnail' },
+  'channel-kit': { pack: `${PUBLISHER_ID}.pack.kit.`, bundle: `${PUBLISHER_ID}.bundle.`, proposal: 'kit' },
+}
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
 function fail(message) {
@@ -29,65 +55,163 @@ function exactFields(value, allowed, label) {
   }
 }
 
-function nonempty(value, label) {
+function boundedString(value, label, maximum) {
   if (typeof value !== 'string' || !value) fail(`${label} must be a non-empty string`)
+  if (value.length > maximum) fail(`${label} must not exceed ${maximum} characters`)
+  if (/\p{Cc}/u.test(value)) fail(`${label} must not contain control characters`)
   return value
 }
 
-function canonicalDependencies(value, label) {
+function qualifiedId(value, label, namespace) {
+  boundedString(value, label, 160)
+  if (!QUALIFIED_ID.test(value)) fail(`${label} must be a lowercase qualified identifier`)
+  if (!value.startsWith(namespace)) fail(`${label} must be within the ${namespace.slice(0, -1)} namespace`)
+  return value
+}
+
+function exactSemver(value, label) {
+  if (typeof value !== 'string' || !EXACT_SEMVER.test(value)) fail(`${label} must be an exact semantic version`)
+  return value
+}
+
+function canonicalSourcePath(value, label) {
+  boundedString(value, label, 240)
+  const segments = value.split('/')
+  if (!value.startsWith('content-packs/') || value.includes('\\') || value.startsWith('/')
+    || /^[a-z]:/i.test(value) || value !== value.normalize('NFC')
+    || !/^[a-z0-9][a-z0-9._/-]*$/.test(value)
+    || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+    fail(`${label} must be a canonical repository-contained forward-slash path under content-packs`)
+  }
+  if (segments.length > MAX_SOURCE_DEPTH) fail(`${label} exceeds the ${MAX_SOURCE_DEPTH}-segment traversal depth limit`)
+  return value
+}
+
+function assertBoundedJson(value, label, maximumBytes) {
+  let serialized
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    fail(`${label} must be valid acyclic JSON`)
+  }
+  if (Buffer.byteLength(serialized) > maximumBytes) fail(`${label} exceeds the ${maximumBytes}-byte JSON limit`)
+  const stack = [{ value, depth: 0 }]
+  let nodes = 0
+  while (stack.length) {
+    const current = stack.pop()
+    nodes += 1
+    if (nodes > MAX_JSON_NODES) fail(`${label} exceeds the ${MAX_JSON_NODES}-node JSON limit`)
+    if (current.depth > MAX_JSON_DEPTH) fail(`${label} exceeds the ${MAX_JSON_DEPTH}-level JSON depth limit`)
+    if (typeof current.value === 'string') {
+      if (Buffer.byteLength(current.value) > MAX_JSON_STRING_BYTES) fail(`${label} exceeds the JSON string limit`)
+    } else if (typeof current.value === 'number') {
+      if (!Number.isFinite(current.value)) fail(`${label} must contain finite JSON numbers`)
+    } else if (current.value && typeof current.value === 'object') {
+      if (!Array.isArray(current.value)) {
+        const prototype = Object.getPrototypeOf(current.value)
+        if (prototype !== Object.prototype && prototype !== null) fail(`${label} must contain plain JSON objects`)
+      }
+      for (const child of Array.isArray(current.value) ? current.value : Object.values(current.value)) {
+        stack.push({ value: child, depth: current.depth + 1 })
+      }
+    } else if (current.value !== null && !['boolean', 'string', 'number'].includes(typeof current.value)) {
+      fail(`${label} must contain only JSON values`)
+    }
+  }
+}
+
+async function readBoundedJson(path, maximumBytes, label) {
+  const info = await lstat(path).catch(() => undefined)
+  if (!info || !info.isFile() || info.isSymbolicLink()) fail(`${label} must be a regular file, not a symlink`)
+  if (info.size > maximumBytes) fail(`${label} exceeds the ${maximumBytes}-byte limit`)
+  let handle
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    const bytes = await handle.readFile()
+    if (bytes.byteLength > maximumBytes) fail(`${label} exceeds the ${maximumBytes}-byte limit`)
+    let value
+    try {
+      value = JSON.parse(bytes.toString('utf8'))
+    } catch (error) {
+      fail(`${label} must contain valid JSON: ${error.message}`)
+    }
+    assertBoundedJson(value, label, maximumBytes)
+    return value
+  } finally {
+    await handle?.close()
+  }
+}
+
+function canonicalDependencies(value, label, selfPackId) {
   if (!Array.isArray(value)) fail(`${label} dependencies must be an array`)
+  if (value.length > MAX_DEPENDENCIES) fail(`${label} dependencies must not exceed ${MAX_DEPENDENCIES} records`)
   const seen = new Set()
   return value.map((dependency, index) => {
     exactFields(dependency, new Set(['pack_id', 'version']), `${label} dependency ${index}`)
-    const packId = nonempty(dependency.pack_id, `${label} dependency ${index} pack_id`)
-    const version = nonempty(dependency.version, `${label} dependency ${index} version`)
-    const identity = `${packId}@${version}`
-    if (seen.has(identity)) fail(`duplicate dependency ${identity} in ${label}`)
-    seen.add(identity)
+    const packId = qualifiedId(dependency.pack_id, `${label} dependency ${index} pack_id`, `${PUBLISHER_ID}.pack.`)
+    const version = exactSemver(dependency.version, `${label} dependency ${index} version`)
+    if (packId === selfPackId) fail(`${label} must not depend on itself`)
+    if (seen.has(packId)) fail(`duplicate dependency ${packId} in ${label}`)
+    seen.add(packId)
     return { pack_id: packId, version }
   })
 }
 
-function proposal(value, label) {
+function proposal(value, label, namespace) {
   exactFields(value, new Set(['id', 'status', 'confirmation_ref']), label)
-  const id = nonempty(value.id, `${label} id`)
+  const id = qualifiedId(value.id, `${label} id`, namespace)
   if (!PROPOSAL_STATUSES.has(value.status)) fail(`${label} has invalid status`)
-  if (value.status === 'confirmed') nonempty(value.confirmation_ref, `${label} confirmation_ref`)
+  if (value.status === 'confirmed') boundedString(value.confirmation_ref, `${label} confirmation_ref`, 500)
   else if ('confirmation_ref' in value) fail(`${label} confirmation_ref is only allowed when confirmed`)
   return { id, status: value.status, ...(value.status === 'confirmed' ? { confirmation_ref: value.confirmation_ref } : {}) }
 }
 
-function validateRecord(record, index) {
-  const label = `record ${index}`
-  exactFields(record, RECORD_FIELDS, label)
-  for (const field of ['receipt_ref', 'pack_id', 'version', 'publisher_id', 'min_app_version', 'source_path']) nonempty(record[field], `${label} ${field}`)
+function validateRecord(record, index, { request = false } = {}) {
+  const label = `${request ? 'request ' : ''}record ${index}`
+  exactFields(record, request ? REQUEST_RECORD_FIELDS : RECORD_FIELDS, label)
+  if (typeof record.kind !== 'string' || !KIND_NAMESPACES[record.kind]) fail(`${label} has invalid kind`)
+  const namespaces = KIND_NAMESPACES[record.kind]
+  const packId = qualifiedId(record.pack_id, `${label} pack_id`, namespaces.pack)
+  const version = exactSemver(record.version, `${label} version`)
+  if (record.publisher_id !== PUBLISHER_ID) fail(`${label} publisher_id must be exactly ${PUBLISHER_ID}`)
   if (!MIN_APP_VERSION_STATUSES.has(record.min_app_version_status)) fail(`${label} has invalid min_app_version_status`)
+  if (record.min_app_version_status === 'release-bound') {
+    if (record.min_app_version !== MIN_APP_VERSION_TOKEN) fail(`${label} min_app_version must be ${MIN_APP_VERSION_TOKEN} when release-bound`)
+  } else {
+    exactSemver(record.min_app_version, `${label} min_app_version for fixed status`)
+  }
   if (!STATUSES.has(record.status)) fail(`${label} has invalid status`)
-  if (typeof record.kind !== 'string' || (!CREATIVE_KINDS.has(record.kind) && record.kind !== 'channel-kit')) fail(`${label} has invalid kind`)
+  if (request && record.status !== 'reserved') fail(`${label} status must be reserved`)
   const hasItem = typeof record.item_id === 'string'
   const hasBundle = typeof record.bundle_id === 'string'
   if (record.kind === 'channel-kit' ? hasItem || !hasBundle : !hasItem || hasBundle) fail(`${label} has an invalid coordinator/leaf identity shape`)
-  if (hasItem) nonempty(record.item_id, `${label} item_id`)
-  if (hasBundle) nonempty(record.bundle_id, `${label} bundle_id`)
-  if (record.source_path.startsWith('/') || record.source_path.split(/[\\/]/).includes('..')) fail(`${label} source_path must be repository-relative`)
+  if (hasItem) qualifiedId(record.item_id, `${label} item_id`, namespaces.item)
+  if (hasBundle) qualifiedId(record.bundle_id, `${label} bundle_id`, namespaces.bundle)
+  const sourcePath = canonicalSourcePath(record.source_path, `${label} source_path`)
   exactFields(record.stocking_proposal, new Set(['family', 'sku']), `${label} stocking_proposal`)
-  return {
-    receipt_ref: record.receipt_ref,
-    pack_id: record.pack_id,
+  const proposalNamespace = namespaces.proposal
+  const validated = {
+    ...(request ? {} : { receipt_ref: boundedString(record.receipt_ref, `${label} receipt_ref`, 256) }),
+    pack_id: packId,
     ...(hasItem ? { item_id: record.item_id } : { bundle_id: record.bundle_id }),
-    version: record.version,
-    publisher_id: record.publisher_id,
+    version,
+    publisher_id: PUBLISHER_ID,
     min_app_version: record.min_app_version,
     min_app_version_status: record.min_app_version_status,
     kind: record.kind,
-    source_path: record.source_path,
+    source_path: sourcePath,
     status: record.status,
-    dependencies: canonicalDependencies(record.dependencies, label),
+    dependencies: canonicalDependencies(record.dependencies, label, packId),
     stocking_proposal: {
-      family: proposal(record.stocking_proposal.family, `${label} family`),
-      sku: proposal(record.stocking_proposal.sku, `${label} sku`),
+      family: proposal(record.stocking_proposal.family, `${label} family`, `${PUBLISHER_ID}.family.${proposalNamespace}.`),
+      sku: proposal(record.stocking_proposal.sku, `${label} sku`, `${PUBLISHER_ID}.sku.${proposalNamespace}.`),
     },
   }
+  if (!request && !AUTHORING_RECEIPT.test(validated.receipt_ref)) {
+    const baseline = `baseline:${validated.pack_id}@${validated.version}`
+    if (validated.receipt_ref !== baseline || validated.status !== 'authored') fail(`${label} receipt_ref is not bound to its exact baseline identity`)
+  }
+  return validated
 }
 
 function unique(records, field) {
@@ -99,41 +223,120 @@ function unique(records, field) {
   }
 }
 
-async function packPaths(repositoryRoot) {
-  async function visit(path) {
-    const entries = await readdir(path, { withFileTypes: true })
-    return (await Promise.all(entries.map((entry) => {
-      const child = join(path, entry.name)
-      if (entry.isDirectory()) return visit(child)
-      return entry.name === 'pack.json' ? [child] : []
-    }))).flat()
-  }
-  return (await Promise.all([
-    visit(join(repositoryRoot, 'content-packs/free-starters')),
-    visit(join(repositoryRoot, 'content-packs/paid/archival-ledger')),
-  ])).flat().sort()
-}
-
-function same(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right)
-}
-
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
   if (value && typeof value === 'object') return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`
   return JSON.stringify(value)
 }
 
+function same(left, right) {
+  return canonical(left) === canonical(right)
+}
+
+function reservationRequest(request) {
+  assertBoundedJson(request, 'reservation request', MAX_REQUEST_BYTES)
+  exactFields(request, new Set(['expected_revision', 'coordinator', 'proposal_ref', 'records']), 'reservation request')
+  if (!Number.isSafeInteger(request.expected_revision) || request.expected_revision < 1) fail('expected_revision must be a positive integer')
+  exactFields(request.coordinator, new Set(['task', 'branch']), 'reservation coordinator')
+  boundedString(request.coordinator.task, 'reservation coordinator task', 200)
+  boundedString(request.coordinator.branch, 'reservation coordinator branch', 200)
+  boundedString(request.proposal_ref, 'reservation proposal_ref', 500)
+  if (!Array.isArray(request.records) || !request.records.length) fail('reservation records must be a non-empty array')
+  if (request.records.length > MAX_REQUEST_RECORDS) fail(`reservation records must not exceed ${MAX_REQUEST_RECORDS}`)
+  return {
+    expected_revision: request.expected_revision,
+    coordinator: { task: request.coordinator.task, branch: request.coordinator.branch },
+    proposal_ref: request.proposal_ref,
+    records: request.records.map((record, index) => validateRecord(record, index, { request: true })),
+  }
+}
+
+function receiptFor(request) {
+  return `authoring:${createHash('sha256').update(canonical(request)).digest('hex')}`
+}
+
+function validateBatches(value, revision) {
+  if (!Array.isArray(value)) fail('registry batches must be an array')
+  if (value.length !== revision - 1) fail(`registry revision ${revision} must have exactly ${revision - 1} persisted reservation batches`)
+  return value.map((batch, index) => {
+    const label = `batch ${index}`
+    exactFields(batch, new Set(['revision', 'receipt_ref', 'request']), label)
+    if (batch.revision !== index + 2) fail(`${label} revision must be ${index + 2}`)
+    if (!AUTHORING_RECEIPT.test(batch.receipt_ref)) fail(`${label} receipt_ref must be a valid authoring receipt`)
+    const request = reservationRequest(batch.request)
+    if (request.expected_revision !== batch.revision - 1) fail(`${label} expected_revision must precede its revision`)
+    if (receiptFor(request) !== batch.receipt_ref) fail(`${label} receipt does not match its persisted request metadata`)
+    return { revision: batch.revision, receipt_ref: batch.receipt_ref, request }
+  })
+}
+
+async function assertSafeSourcePath(repositoryRoot, record) {
+  const repositoryPhysical = await realpath(repositoryRoot)
+  let cursor = resolve(repositoryRoot)
+  const segments = record.source_path.split('/')
+  for (const [index, segment] of segments.entries()) {
+    cursor = join(cursor, segment)
+    const info = await lstat(cursor).catch((error) => error?.code === 'ENOENT' ? undefined : Promise.reject(error))
+    if (!info) {
+      if (record.status === 'authored') fail(`registered authored source does not exist: ${record.source_path}`)
+      return
+    }
+    if (info.isSymbolicLink()) fail(`source_path must not contain symlinks: ${record.source_path}`)
+    if (index < segments.length - 1 && !info.isDirectory()) fail(`source_path ancestor must be a directory: ${record.source_path}`)
+  }
+  const physical = await realpath(cursor)
+  const fromRoot = relative(repositoryPhysical, physical)
+  if (!fromRoot || fromRoot === '..' || fromRoot.startsWith(`..${sep}`)) fail(`source_path must remain inside the repository: ${record.source_path}`)
+  const final = await lstat(cursor)
+  if (!final.isDirectory()) fail(`source_path must be a directory: ${record.source_path}`)
+}
+
+async function packPaths(repositoryRoot) {
+  const contentRoot = join(repositoryRoot, 'content-packs')
+  const rootInfo = await lstat(contentRoot).catch(() => undefined)
+  if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) fail('content-packs source root must be a regular directory')
+  const repositoryPhysical = await realpath(repositoryRoot)
+  const stack = [{ path: contentRoot, sourcePath: 'content-packs', depth: 1 }]
+  const paths = []
+  let directoryCount = 0
+  let entryCount = 0
+  while (stack.length) {
+    const current = stack.pop()
+    directoryCount += 1
+    if (directoryCount > MAX_DISCOVERY_DIRECTORIES) fail(`source discovery exceeds the ${MAX_DISCOVERY_DIRECTORIES}-directory limit`)
+    const physical = await realpath(current.path)
+    const fromRoot = relative(repositoryPhysical, physical)
+    if (fromRoot === '..' || fromRoot.startsWith(`..${sep}`)) fail(`source discovery escaped the repository at ${current.sourcePath}`)
+    const entries = (await readdir(current.path, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name))
+    for (const entry of entries) {
+      entryCount += 1
+      if (entryCount > MAX_DISCOVERY_ENTRIES) fail(`source discovery exceeds the ${MAX_DISCOVERY_ENTRIES}-entry limit`)
+      const child = join(current.path, entry.name)
+      const sourcePath = `${current.sourcePath}/${entry.name}`
+      if (sourcePath === RETIRED_SOURCE_ROOT) continue
+      if (entry.isSymbolicLink()) fail(`source discovery symlink is not permitted: ${sourcePath}`)
+      if (entry.isDirectory()) {
+        if (current.depth + 1 > MAX_SOURCE_DEPTH) fail(`source discovery exceeds the ${MAX_SOURCE_DEPTH}-segment traversal depth limit at ${sourcePath}`)
+        stack.push({ path: child, sourcePath, depth: current.depth + 1 })
+      } else if (entry.name === 'pack.json') {
+        if (!entry.isFile()) fail(`pack.json must be a regular file: ${sourcePath}`)
+        paths.push(child)
+      }
+    }
+  }
+  return paths.sort()
+}
+
 async function reconcileAuthored(records, repositoryRoot) {
   const paths = await packPaths(repositoryRoot)
   const authored = records.filter((record) => record.status === 'authored')
-  if (paths.length !== authored.length) fail(`authored source reconciliation expected ${paths.length} records, found ${authored.length}`)
   const bySource = new Map(authored.map((record) => [record.source_path, record]))
+  const byIdentity = new Map(records.map((record) => [`${record.pack_id}@${record.version}`, record]))
   for (const packPath of paths) {
     const sourcePath = relative(repositoryRoot, dirname(packPath)).split(sep).join('/')
     const record = bySource.get(sourcePath)
     if (!record) fail(`authored source ${sourcePath} is not registered`)
-    const manifest = JSON.parse(await readFile(packPath, 'utf8'))
+    const manifest = await readBoundedJson(packPath, MAX_MANIFEST_BYTES, `pack manifest ${sourcePath}`)
     const expectedDependencies = manifest.dependencies ?? []
     if (!same(record.dependencies, expectedDependencies)) fail(`dependency closure differs for ${sourcePath}`)
     if (record.pack_id !== manifest.pack_id || record.version !== manifest.version || record.publisher_id !== manifest.publisher_id || record.min_app_version !== manifest.min_app_version) fail(`identity differs for ${sourcePath}`)
@@ -143,11 +346,18 @@ async function reconcileAuthored(records, repositoryRoot) {
       if (bundles.length !== 1 || record.kind !== bundles[0].kind || record.bundle_id !== bundles[0].id) fail(`coordinator identity differs for ${sourcePath}`)
       const components = bundles[0].components ?? []
       if (!same(components.map(({ pack_id, version }) => ({ pack_id, version })), expectedDependencies)) fail(`dependency closure differs for ${sourcePath}`)
+      for (const component of components) {
+        const dependency = byIdentity.get(`${component.pack_id}@${component.version}`)
+        if (!dependency || dependency.item_id !== component.item_id) fail(`bundle component item_id differs for ${sourcePath}`)
+        if (dependency.kind !== component.kind) fail(`bundle component kind differs for ${sourcePath}`)
+      }
     } else {
       const contentPath = join(dirname(packPath), 'content')
-      const documents = (await readdir(contentPath)).filter((name) => name.endsWith('.json'))
-      if (documents.length !== 1) fail(`authored source ${sourcePath} must contain exactly one content document`)
-      const document = JSON.parse(await readFile(join(contentPath, documents[0]), 'utf8'))
+      const documents = await readdir(contentPath, { withFileTypes: true }).catch(() => [])
+      const jsonDocuments = documents.filter((entry) => entry.isFile() && !entry.isSymbolicLink() && entry.name.endsWith('.json'))
+      if (documents.some((entry) => entry.isSymbolicLink())) fail(`authored source ${sourcePath} must not contain content symlinks`)
+      if (jsonDocuments.length !== 1) fail(`authored source ${sourcePath} must contain exactly one content document`)
+      const document = await readBoundedJson(join(contentPath, jsonDocuments[0].name), MAX_MANIFEST_BYTES, `content document ${sourcePath}`)
       if (record.kind !== document.kind || record.item_id !== document.id) fail(`component identity differs for ${sourcePath}`)
     }
     bySource.delete(sourcePath)
@@ -155,51 +365,81 @@ async function reconcileAuthored(records, repositoryRoot) {
   if (bySource.size) fail(`registered authored source does not exist: ${[...bySource.keys()][0]}`)
 }
 
+function validateDependencyGraph(records) {
+  const byIdentity = new Map(records.map((record) => [`${record.pack_id}@${record.version}`, record]))
+  const outgoing = new Map(records.map((record) => [record.pack_id, []]))
+  const indegree = new Map(records.map((record) => [record.pack_id, 0]))
+  for (const record of records) {
+    for (const dependency of record.dependencies) {
+      const target = byIdentity.get(`${dependency.pack_id}@${dependency.version}`)
+      if (!target) fail(`unknown dependency ${dependency.pack_id}@${dependency.version}`)
+      if (record.kind !== 'channel-kit' && target.kind === 'channel-kit') fail(`creative pack ${record.pack_id} must not depend on coordinator ${target.pack_id}`)
+      outgoing.get(dependency.pack_id).push(record.pack_id)
+      indegree.set(record.pack_id, indegree.get(record.pack_id) + 1)
+    }
+  }
+  const queue = [...indegree].filter(([, degree]) => degree === 0).map(([packId]) => packId)
+  let visited = 0
+  while (queue.length) {
+    const packId = queue.shift()
+    visited += 1
+    for (const dependent of outgoing.get(packId)) {
+      const degree = indegree.get(dependent) - 1
+      indegree.set(dependent, degree)
+      if (degree === 0) queue.push(dependent)
+    }
+  }
+  if (visited !== records.length) fail('cyclic dependency closure is not permitted')
+  for (const record of records.filter((candidate) => candidate.kind === 'channel-kit')) {
+    const kinds = record.dependencies.map((dependency) => byIdentity.get(`${dependency.pack_id}@${dependency.version}`).kind)
+    if (kinds.filter((kind) => kind === 'series-formula').length !== 1 || !kinds.includes('topic-pack') || !kinds.includes('visual-style') || !kinds.includes('thumbnail-recipe')) fail(`coordinator dependency closure is incomplete for ${record.pack_id}`)
+  }
+}
+
+function bindReceipts(records, batches) {
+  const authoringRecords = new Map()
+  for (const record of records) {
+    if (!AUTHORING_RECEIPT.test(record.receipt_ref)) continue
+    const list = authoringRecords.get(record.receipt_ref) ?? []
+    list.push(record)
+    authoringRecords.set(record.receipt_ref, list)
+  }
+  for (const batch of batches) {
+    const current = authoringRecords.get(batch.receipt_ref) ?? []
+    if (current.length !== batch.request.records.length) fail(`receipt ${batch.receipt_ref} identity count differs from persisted metadata`)
+    for (const expected of batch.request.records) {
+      const match = current.find((record) => record.pack_id === expected.pack_id && record.version === expected.version)
+      if (!match || !same(match, { receipt_ref: batch.receipt_ref, ...expected })) fail(`receipt ${batch.receipt_ref} identity differs from persisted metadata for pack_id ${expected.pack_id}`)
+    }
+    authoringRecords.delete(batch.receipt_ref)
+  }
+  if (authoringRecords.size) fail(`authoring receipt has no persisted batch metadata: ${authoringRecords.keys().next().value}`)
+}
+
 async function validateRegistryDocument(registry, repositoryRoot) {
-  exactFields(registry, new Set(['revision', 'records']), 'registry')
+  assertBoundedJson(registry, 'registry', MAX_REGISTRY_BYTES)
+  exactFields(registry, new Set(['revision', 'batches', 'records']), 'registry')
   if (!Number.isSafeInteger(registry.revision) || registry.revision < 1) fail('revision must be a positive integer')
   if (!Array.isArray(registry.records)) fail('records must be an array')
-  const records = registry.records.map(validateRecord)
+  if (registry.records.length > MAX_REGISTRY_RECORDS) fail(`registry records must not exceed ${MAX_REGISTRY_RECORDS}`)
+  const records = registry.records.map((record, index) => validateRecord(record, index))
+  const batches = validateBatches(registry.batches, registry.revision)
   unique(records, function pack_id(record) { return record.pack_id })
   unique(records.filter((record) => record.item_id), function item_id(record) { return record.item_id })
   unique(records.filter((record) => record.bundle_id), function bundle_id(record) { return record.bundle_id })
   unique(records, function source_path(record) { return record.source_path })
   unique(records, function family(record) { return record.stocking_proposal.family.id })
   unique(records, function sku(record) { return record.stocking_proposal.sku.id })
-  const identities = new Set(records.map((record) => `${record.pack_id}@${record.version}`))
-  for (const record of records) for (const dependency of record.dependencies) if (!identities.has(`${dependency.pack_id}@${dependency.version}`)) fail(`unknown dependency ${dependency.pack_id}@${dependency.version}`)
-  const byIdentity = new Map(records.map((record) => [`${record.pack_id}@${record.version}`, record]))
-  for (const record of records.filter((record) => record.kind === 'channel-kit')) {
-    const kinds = record.dependencies.map((dependency) => byIdentity.get(`${dependency.pack_id}@${dependency.version}`).kind)
-    if (kinds.filter((kind) => kind === 'series-formula').length !== 1 || !kinds.includes('topic-pack') || !kinds.includes('visual-style') || !kinds.includes('thumbnail-recipe')) fail(`coordinator dependency closure is incomplete for ${record.pack_id}`)
-  }
-  await reconcileAuthored(records, resolve(repositoryRoot))
-  return { revision: registry.revision, records }
+  bindReceipts(records, batches)
+  validateDependencyGraph(records)
+  const resolvedRoot = resolve(repositoryRoot)
+  for (const record of records) await assertSafeSourcePath(resolvedRoot, record)
+  await reconcileAuthored(records, resolvedRoot)
+  return { revision: registry.revision, batches, records }
 }
 
 export async function validateAuthoringRegistry({ registryPath = join(root, 'content-packs/authoring-registry.json'), repositoryRoot = root } = {}) {
-  return validateRegistryDocument(JSON.parse(await readFile(registryPath, 'utf8')), repositoryRoot)
-}
-
-function reservationRecord(record, index) {
-  exactFields(record, new Set([...RECORD_FIELDS].filter((field) => field !== 'receipt_ref')), `request record ${index}`)
-  return validateRecord({ ...record, receipt_ref: 'pending' }, index)
-}
-
-function reservationRequest(request) {
-  exactFields(request, new Set(['expected_revision', 'coordinator', 'proposal_ref', 'records']), 'reservation request')
-  if (!Number.isSafeInteger(request.expected_revision) || request.expected_revision < 1) fail('expected_revision must be a positive integer')
-  exactFields(request.coordinator, new Set(['task', 'branch']), 'reservation coordinator')
-  nonempty(request.coordinator.task, 'reservation coordinator task')
-  nonempty(request.coordinator.branch, 'reservation coordinator branch')
-  nonempty(request.proposal_ref, 'reservation proposal_ref')
-  if (!Array.isArray(request.records) || !request.records.length) fail('reservation records must be a non-empty array')
-  return {
-    expected_revision: request.expected_revision,
-    coordinator: { task: request.coordinator.task, branch: request.coordinator.branch },
-    proposal_ref: request.proposal_ref,
-    records: request.records.map(reservationRecord),
-  }
+  return validateRegistryDocument(await readBoundedJson(registryPath, MAX_REGISTRY_BYTES, 'registry'), repositoryRoot)
 }
 
 async function withRegistryLock(registryPath, action) {
@@ -232,25 +472,52 @@ async function atomicWrite(path, bytes) {
 export async function reserveAuthoringBatch({ registryPath = join(root, 'content-packs/authoring-registry.json'), repositoryRoot = root, request } = {}) {
   const accepted = reservationRequest(request)
   return withRegistryLock(registryPath, async () => {
-    const current = JSON.parse(await readFile(registryPath, 'utf8'))
+    const current = await readBoundedJson(registryPath, MAX_REGISTRY_BYTES, 'registry')
     const validated = await validateRegistryDocument(current, repositoryRoot)
     if (validated.revision !== accepted.expected_revision) fail(`stale expected revision ${accepted.expected_revision}; current revision is ${validated.revision}`)
-    const receipt_ref = `authoring:${createHash('sha256').update(canonical(accepted)).digest('hex')}`
-    const records = accepted.records.map((record) => ({ ...record, receipt_ref }))
-    const next = { revision: validated.revision + 1, records: [...validated.records, ...records] }
+    const receipt_ref = receiptFor(accepted)
+    const records = accepted.records.map((record) => ({ receipt_ref, ...record }))
+    const revision = validated.revision + 1
+    const next = {
+      revision,
+      batches: [...validated.batches, { revision, receipt_ref, request: accepted }],
+      records: [...validated.records, ...records],
+    }
     await validateRegistryDocument(next, repositoryRoot)
     await atomicWrite(registryPath, `${JSON.stringify(next, null, 2)}\n`)
-    return { revision: next.revision, receipt_ref }
+    return { revision, receipt_ref }
   })
 }
 
+export async function verifyAuthoringReceipt({ registryPath = join(root, 'content-packs/authoring-registry.json'), repositoryRoot = root, revision, receiptRef, expectedIdentity } = {}) {
+  const validated = await validateAuthoringRegistry({ registryPath, repositoryRoot })
+  if (!Number.isSafeInteger(revision) || revision < 2) fail('receipt revision must be an integer of at least 2')
+  if (typeof receiptRef !== 'string' || !AUTHORING_RECEIPT.test(receiptRef)) fail('receipt reference must be a valid authoring receipt')
+  const batch = validated.batches.find((candidate) => candidate.revision === revision && candidate.receipt_ref === receiptRef)
+  if (!batch) fail('receipt revision or receipt reference does not match a persisted batch')
+  const identity = validateRecord(expectedIdentity, 0, { request: true })
+  const accepted = batch.request.records.find((candidate) => same(candidate, identity))
+  if (!accepted) fail('receipt expected identity does not match the persisted batch')
+  return { revision, receipt_ref: receiptRef, identity: accepted }
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  if (process.argv[2] === 'validate') {
+  if (process.argv[2] === 'validate' && process.argv.length === 3) {
     const result = await validateAuthoringRegistry()
     process.stdout.write(`authoring registry revision ${result.revision}: ${result.records.length} records\n`)
   } else if (process.argv[2] === 'reserve' && process.argv[3] === '--request' && process.argv[4] && process.argv.length === 5) {
-    process.stdout.write(`${JSON.stringify(await reserveAuthoringBatch({ request: JSON.parse(await readFile(process.argv[4], 'utf8')) }))}\n`)
+    const request = await readBoundedJson(resolve(process.argv[4]), MAX_REQUEST_BYTES, 'reservation request file')
+    process.stdout.write(`${JSON.stringify(await reserveAuthoringBatch({ request }))}\n`)
+  } else if (process.argv[2] === 'verify-receipt' && process.argv[3] === '--revision' && process.argv[4]
+    && process.argv[5] === '--receipt' && process.argv[6] && process.argv[7] === '--expected-identity'
+    && process.argv[8] && process.argv.length === 9) {
+    const expectedIdentity = await readBoundedJson(resolve(process.argv[8]), MAX_REQUEST_BYTES, 'expected identity file')
+    process.stdout.write(`${JSON.stringify(await verifyAuthoringReceipt({
+      revision: Number(process.argv[4]),
+      receiptRef: process.argv[6],
+      expectedIdentity,
+    }))}\n`)
   } else {
-    fail('usage: authoring-registry.mjs validate | reserve --request <path>')
+    fail('usage: authoring-registry.mjs validate | reserve --request <path> | verify-receipt --revision <revision> --receipt <receipt_ref> --expected-identity <path>')
   }
 }
