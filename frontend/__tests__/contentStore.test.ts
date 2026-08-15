@@ -88,6 +88,27 @@ describe('useContentStore explicit commerce state machine', () => {
     assert.equal(calls.length, 1, 'the Store must not poll or retry commerce calls')
   })
 
+  test('does not let an older refresh overwrite a newer explicit install overview', async () => {
+    let releaseRefresh: ((value: unknown) => void) | undefined
+    const installed = structuredClone(completeOverview)
+    installed.account.availableCredits = 2_399
+    handler = (path) => {
+      if (path === '/api/content-store') return new Promise(resolve => { releaseRefresh = resolve })
+      if (path === '/api/content-store/releases/rel_formula/install') {
+        return { install: { pack_id: 'pack_formula', version: '1.0.0', activated: true }, overview: installed }
+      }
+      throw new Error(`Unexpected request: ${path}`)
+    }
+
+    const store = useContentStore()
+    const staleRefresh = store.refresh()
+    await Promise.resolve()
+    await store.installRelease('rel_formula')
+    releaseRefresh?.(structuredClone(completeOverview))
+    await staleRefresh
+    assert.equal(store.account.value?.availableCredits, 2_399)
+  })
+
   test('requests one exact quote only after the customer asks', async () => {
     const quoted = {
       quote_id: 'cq_1', account_id: 'acct_a', product_id: 'formula', release_id: 'rel_formula',
@@ -429,6 +450,7 @@ describe('useContentStore explicit commerce state machine', () => {
 describe('Content Store renderer contract', () => {
   const page = readFileSync(fileURLToPath(new URL('../pages/content-store.vue', import.meta.url)), 'utf8')
   const card = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCard.vue', import.meta.url)), 'utf8')
+  const installedView = readFileSync(fileURLToPath(new URL('../components/content-store/ContentInstalledLibraryView.vue', import.meta.url)), 'utf8')
   const shelf = readFileSync(fileURLToPath(new URL('../components/content-store/ContentStoreShelf.vue', import.meta.url)), 'utf8')
   const dialog = readFileSync(fileURLToPath(new URL('../components/content-store/ContentPurchaseDialog.vue', import.meta.url)), 'utf8')
   const home = readFileSync(fileURLToPath(new URL('../pages/index.vue', import.meta.url)), 'utf8')
@@ -440,9 +462,10 @@ describe('Content Store renderer contract', () => {
     assert.match(page, /label: 'Owned'/)
     assert.match(page, /label: 'Installed'/)
     assert.match(page, /label: 'Updates'/)
-    assert.match(page, /installedProducts/)
+    assert.match(page, /ContentInstalledLibraryView/)
+    assert.match(page, /products\.length === 0 && installed\.length === 0/)
     assert.match(page, /updateProducts/)
-    assert.match(page, /No installed packs yet/)
+    assert.match(installedView, /No installed packs yet/)
     assert.match(page, /No updates available/)
     assert.match(page, /The Content Store is ready, but no packs have been published yet\./)
     assert.doesNotMatch(page + card, /starter entries|preview gallery|license terms|portal URL/i)

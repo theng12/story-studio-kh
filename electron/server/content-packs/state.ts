@@ -109,6 +109,17 @@ export async function readContentPackState(paths: ContentPackRuntimePaths = getC
 }
 
 /**
+ * Read one stable Content Pack state snapshot while holding the state lock.
+ * Callers that also coordinate lifecycle work must take coordination first.
+ */
+export function withContentPackStateSnapshot<T>(
+  paths: ContentPackRuntimePaths,
+  work: (state: ContentPackRuntimeState) => Promise<T>,
+): Promise<T> {
+  return withContentPackStateLock(paths, async () => work(await readOrResetState(paths)))
+}
+
+/**
  * Serialise all state mutations, validate before persistence, and use the
  * existing crash-safe 0600 JSON writer. The callback may mutate the supplied
  * state in place, but an invalid result is never committed.

@@ -8,10 +8,11 @@ import { transform } from 'esbuild'
 import { filterCatalogProducts, orderShelfProducts } from '../content-store/catalog-presentation.js'
 import type { ContentStoreProduct, ContentStoreShelf, ContentStoreUiError } from '../composables/useContentStore.js'
 
-type SfcName = 'ContentProductDetail.vue' | 'ContentStoreShelf.vue' | '[productId].vue'
+type SfcName = 'ContentProductDetail.vue' | 'ContentStoreShelf.vue' | 'ContentInstalledLibraryView.vue' | '[productId].vue'
 const sourceByName: Record<SfcName, string> = {
   'ContentProductDetail.vue': '../components/content-store/ContentProductDetail.vue',
   'ContentStoreShelf.vue': '../components/content-store/ContentStoreShelf.vue',
+  'ContentInstalledLibraryView.vue': '../components/content-store/ContentInstalledLibraryView.vue',
   '[productId].vue': '../pages/content-store/[productId].vue',
 }
 
@@ -96,6 +97,18 @@ function testStore(overrides: Partial<{
 }
 
 describe('Content Store rendered catalog and proof regressions', () => {
+  test('renders local signed installed packs independently from account ownership', async () => {
+    const Installed = await loadComponent('ContentInstalledLibraryView.vue')
+    const rendered = await mount(Installed, { installed: [{
+      packId: 'com.storystudio.local.withdrawn', version: '1.0.0', productId: 'withdrawn-product',
+      title: 'com.storystudio.local.withdrawn', kind: 'unknown', ownedByActiveAccount: false,
+      installState: 'installed_current', missingDependencies: [],
+    }] })
+    assert.match(rendered.host.textContent || '', /com\.storystudio\.local\.withdrawn/)
+    assert.match(rendered.host.textContent || '', /ownership is not verified/i)
+    rendered.unmount()
+  })
+
   test('keeps server and final fallback shelf product order when the shelf is mounted', async () => {
     const Shelf = await loadComponent('ContentStoreShelf.vue')
     const alpha = product('alpha', 'Server first')

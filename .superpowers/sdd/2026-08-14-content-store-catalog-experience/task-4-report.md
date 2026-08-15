@@ -14,8 +14,8 @@
 
 ## Verification
 
-- `STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 electron/server/__tests__/content-store-routes.test.ts electron/server/__tests__/genstudio-content-store-delivery.test.ts` — 57 passing.
-- `cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/contentStore.test.ts` — 25 passing.
+- `STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit electron/server/__tests__/content-store-routes.test.ts electron/server/__tests__/genstudio-content-store-delivery.test.ts electron/server/__tests__/content-pack-delivery-attestation.test.ts` — 63 passing.
+- `cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/contentStore.test.ts __tests__/contentStoreProofRendered.test.ts` — 33 passing.
 - `npm run typecheck` — passing.
 - `npm run lint` — exit 0; 1,721 pre-existing repository warnings, 0 errors.
 - `npm audit --omit=dev --audit-level=high` — 0 vulnerabilities.
@@ -35,3 +35,13 @@
 ## Scope note
 
 `ContentProductCard.vue` was updated alongside the listed files so an incomplete closure is not described as ready/installed and its bounded public reason is visible where the pack is offered.
+
+## Fix round 1 — reviewer lifecycle findings
+
+- Installed is now a separate signed-local projection. It scans active, receipt-attested local packs under the Content Pack coordination lock and does not use account ownership or a current catalog release as admission criteria. A locally installed withdrawn or other-account pack remains visible, but is plainly not claimed as owned by the active account.
+- The snapshot holds the global coordination lock and then the Content Pack state lock across state read and exact closure verification. The speculative `installing_dependencies` value was removed because no durable runtime state made it observable.
+- The renderer tracks a monotonic overview generation, so an older refresh cannot overwrite an explicit install response.
+- Updates are restricted to owned, compatible, non-recalled current releases. Incompatible owned releases are exposed as unavailable and do not count as updates or get actions.
+- Added executable regressions for cross-account local installation, stale refresh versus install, and a mounted local-installed renderer state. Existing lifecycle/delivery suites retain coverage for recalls, exact versions, safe download refusal, and closure integrity.
+
+Task 5's minor mobile polish is explicitly deferred; this round makes no mobile-specific layout change.

@@ -98,10 +98,21 @@ export interface ContentStoreAccount {
     recalledReleaseVersions: string[]
     receiptVerification: 'verified' | 'unverified'
     downloadAvailable: boolean
-    installState: 'not_installed' | 'installing_dependencies' | 'installed_current' | 'installed_other_version' | 'update_available' | 'incomplete' | 'unavailable'
+    installState: 'not_installed' | 'installed_current' | 'installed_other_version' | 'update_available' | 'incomplete' | 'unavailable'
     installedVersion: string | null
     missingDependencies: Array<{ packId: string; version: string; reason: string }>
   }>
+}
+
+export interface ContentStoreInstalledPack {
+  packId: string
+  version: string
+  installState: 'installed_current' | 'incomplete'
+  missingDependencies: Array<{ packId: string; version: string; reason: string }>
+  productId: string
+  title: string
+  kind: ContentStoreProductKind | 'unknown'
+  ownedByActiveAccount: boolean
 }
 
 export type ContentPurchaseStatus = 'quoted' | 'submitting' | 'uncertain' | 'refused' | 'completed'
@@ -141,6 +152,7 @@ export interface PublicContentPurchaseAttempt {
 interface ContentStoreOverview {
   phase: 'delivery_ready'
   account: ContentStoreAccount
+  installed: ContentStoreInstalledPack[]
   products: ContentStoreProduct[]
   shelves: ContentStoreShelf[]
   attempts: PublicContentPurchaseAttempt[]
@@ -188,6 +200,7 @@ function uiError(cause: any, fallback: string): ContentStoreUiError {
 export function useContentStore(): {
   account: Readonly<Ref<ContentStoreAccount | null>>
   products: Readonly<Ref<ContentStoreProduct[]>>
+  installed: Readonly<Ref<ContentStoreInstalledPack[]>>
   shelves: Readonly<Ref<ContentStoreShelf[]>>
   attempts: Readonly<Ref<PublicContentPurchaseAttempt[]>>
   loading: Readonly<Ref<boolean>>
@@ -201,14 +214,19 @@ export function useContentStore(): {
   const { get, post } = useApi()
   const account = ref<ContentStoreAccount | null>(null)
   const products = ref<ContentStoreProduct[]>([])
+  const installed = ref<ContentStoreInstalledPack[]>([])
   const shelves = ref<ContentStoreShelf[]>([])
   const attempts = ref<PublicContentPurchaseAttempt[]>([])
   const loading = ref(false)
   const error = ref<ContentStoreUiError | null>(null)
 
-  function applyOverview(overview: ContentStoreOverview): void {
+  let overviewGeneration = 0
+  function beginOverviewRequest(): number { overviewGeneration += 1; return overviewGeneration }
+  function applyOverview(overview: ContentStoreOverview, generation: number): void {
+    if (generation !== overviewGeneration) return
     account.value = overview.account
     products.value = overview.products
+    installed.value = overview.installed ?? []
     shelves.value = overview.shelves
     attempts.value = overview.attempts
   }
@@ -247,17 +265,21 @@ export function useContentStore(): {
   }
 
   async function refresh(): Promise<void> {
+    const generation = beginOverviewRequest()
     loading.value = true
     error.value = null
     try {
       const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
-      applyOverview(overview)
+      applyOverview(overview, generation)
     } catch (cause: any) {
-      account.value = null
-      products.value = []
-      shelves.value = []
-      attempts.value = []
-      error.value = uiError(cause, 'The Content Store could not be loaded.')
+      if (generation === overviewGeneration) {
+        account.value = null
+        products.value = []
+        installed.value = []
+        shelves.value = []
+        attempts.value = []
+        error.value = uiError(cause, 'The Content Store could not be loaded.')
+      }
       throw cause
     } finally {
       loading.value = false
@@ -292,6 +314,7 @@ export function useContentStore(): {
           const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
           account.value = overview.account
           products.value = overview.products
+          installed.value = overview.installed ?? []
           attempts.value = overview.attempts.some(row => row.quote_id === attempt.quote_id)
             ? overview.attempts
             : [attempt, ...overview.attempts]
@@ -308,11 +331,12 @@ export function useContentStore(): {
   }
 
   async function restoreOwnership(): Promise<void> {
+    const generation = beginOverviewRequest()
     loading.value = true
     error.value = null
     try {
       const overview = await post<ContentStoreOverview>('/content-store/restore', {})
-      applyOverview(overview)
+      applyOverview(overview, generation)
     } catch (cause: any) {
       error.value = uiError(cause, 'GenStudio ownership could not be restored.')
       throw cause
@@ -322,20 +346,21 @@ export function useContentStore(): {
   }
 
   async function installRelease(releaseId: string): Promise<{ pack_id: string; version: string; activated: boolean }> {
+    const generation = beginOverviewRequest()
     error.value = null
     try {
       const response = await post<{
         install: { pack_id: string; version: string; activated: boolean }
         overview: ContentStoreOverview
       }>(`/content-store/releases/${encodeURIComponent(releaseId)}/install`, {})
-      applyOverview(response.overview)
+      applyOverview(response.overview, generation)
       return response.install
     } catch (cause: any) {
       const installError = uiError(cause, 'This owned Content Pack could not be installed.')
       error.value = installError
       if (installError.code === 'release_recalled') {
         try {
-          applyOverview(await get<ContentStoreOverview>('/content-store', { cache: 'no-store' }))
+          applyOverview(await get<ContentStoreOverview>('/content-store', { cache: 'no-store' }), generation)
         } catch {
           // Preserve the terminal recall. A failed read refresh is not permission to retry the recalled version.
         }
@@ -348,6 +373,7 @@ export function useContentStore(): {
   return {
     account: readonly(account) as unknown as Readonly<Ref<ContentStoreAccount | null>>,
     products: readonly(products) as unknown as Readonly<Ref<ContentStoreProduct[]>>,
+    installed: readonly(installed) as unknown as Readonly<Ref<ContentStoreInstalledPack[]>>,
     shelves: readonly(shelves) as unknown as Readonly<Ref<ContentStoreShelf[]>>,
     attempts: readonly(attempts) as unknown as Readonly<Ref<PublicContentPurchaseAttempt[]>>,
     loading: readonly(loading),

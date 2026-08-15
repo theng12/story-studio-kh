@@ -28,6 +28,7 @@ import {
 const KEY_A = 'gsk_content_account_a'
 const KEY_A_ROTATED = 'gsk_content_account_a_rotated'
 const KEY_B = 'gsk_content_account_b'
+const KEY_C = 'gsk_content_account_c'
 const HASH = 'a'.repeat(64)
 
 let cleanup: (() => Promise<void>) | undefined
@@ -82,6 +83,7 @@ async function setup(options: { products?: Array<Record<string, unknown>>; key?:
   mock.registerContentStoreKey(KEY_A, 'acct_a')
   mock.registerContentStoreKey(KEY_A_ROTATED, 'acct_a')
   mock.registerContentStoreKey(KEY_B, 'acct_b')
+  mock.registerContentStoreKey(KEY_C, 'acct_c')
   mock.contentProducts = options.products ?? [product()]
   for (const owned of mock.contentProducts.filter(product => product.owned === true)) {
     mock.seedContentProductOwnership('acct_a', String(owned.product_id))
@@ -140,6 +142,11 @@ describe('Content Store commerce routes', () => {
       .post('/api/content-store/releases/crel_a/install').send({}).expect(200)
     assert.equal(installed.body.install.pack_id, 'com.storystudio.pack.free-recovery-test')
     assert.equal(installed.body.install.version, '1.0.0')
+    assert.deepEqual(installed.body.overview.installed, [{
+      packId: 'com.storystudio.pack.free-recovery-test', version: '1.0.0',
+      installState: 'installed_current', missingDependencies: [],
+      productId: 'cprod_a', title: 'Test Formula', kind: 'series_formula', ownedByActiveAccount: true,
+    }])
     assert.equal(mock.contentDownloadPostCount, 1)
     assert.equal(mock.contentArchiveGetCount, 1)
     const downloadRequest = mock.requests.find(row => row.path === '/v1/content/downloads')
@@ -151,6 +158,13 @@ describe('Content Store commerce routes', () => {
     const state = await readContentPackState()
     assert.equal(state.packs['com.storystudio.pack.free-recovery-test'].active_version, '1.0.0')
     assert.doesNotMatch(JSON.stringify(installed.body), /receipt_signature|grant_signature|public_key_base64|download_url|"grant"|gsk_|\/Users\//i)
+
+    await setApiKey('genstudio', KEY_C)
+    const otherAccount = await request(localApp).get('/api/content-store').expect(200)
+    assert.deepEqual(otherAccount.body.account.owned, [])
+    assert.equal(otherAccount.body.installed[0].packId, 'com.storystudio.pack.free-recovery-test')
+    assert.equal(otherAccount.body.installed[0].ownedByActiveAccount, false)
+    await setApiKey('genstudio', KEY_A_ROTATED)
 
     mock.contentProducts = [product({
       owned: true,

@@ -29,7 +29,7 @@ import {
   saveQuotedAttempt,
 } from '../content-store/commerce-state.js'
 import {
-  resolveContentStoreInstallStates,
+  resolveContentStoreInstallSnapshot,
   reconcileContentStoreRecalledVersions,
   type ContentStoreInstallState,
   type ContentStoreLocalInstallState,
@@ -98,6 +98,17 @@ export type PublicContentAccount = Omit<GenStudioContentAccount, 'raw' | 'owned'
   }>
 }
 
+export interface PublicContentInstalledPack {
+  packId: string
+  version: string
+  installState: 'installed_current' | 'incomplete'
+  missingDependencies: Array<{ packId: string; version: string; reason: string }>
+  productId: string
+  title: string
+  kind: GenStudioContentAccount['owned'][number]['kind'] | 'unknown'
+  ownedByActiveAccount: boolean
+}
+
 export type PublicContentRelease = Omit<GenStudioContentProduct['currentRelease'] & {}, 'raw' | 'componentSummary'> & {
   componentSummary: Record<string, unknown>
 }
@@ -137,6 +148,7 @@ export type PublicContentProduct = Omit<GenStudioContentProduct,
 export interface ContentStoreOverview {
   phase: 'delivery_ready'
   account: PublicContentAccount
+  installed: PublicContentInstalledPack[]
   products: PublicContentProduct[]
   shelves: PublicContentStoreShelf[]
   attempts: PublicContentPurchaseAttempt[]
@@ -331,6 +343,7 @@ async function publicAccount(
   verifiedFamilies: ReadonlySet<string>,
   installStates: ReadonlyArray<ContentStoreLocalInstallState>,
   recalledVersionsByFamily: ReadonlyMap<string, string[]>,
+  compatibleByProduct: ReadonlyMap<string, boolean>,
 ): Promise<PublicContentAccount> {
   return {
     accountId: account.accountId,
@@ -349,7 +362,10 @@ async function publicAccount(
       recalledReleaseVersions: [...(recalledVersionsByFamily.get(owned.entitlementFamily) ?? [])],
       receiptVerification: verifiedFamilies.has(owned.entitlementFamily) ? 'verified' as const : 'unverified' as const,
       downloadAvailable: owned.currentRelease?.archiveAvailable === true,
-      ...installStates[index]!,
+      ...((compatibleByProduct.get(owned.productId) === false
+        || (owned.currentRelease && recalledVersionsByFamily.get(owned.entitlementFamily)?.includes(owned.currentRelease.version)))
+        ? { installState: 'unavailable' as const, installedVersion: null, missingDependencies: [] }
+        : installStates[index]!),
     })),
   }
 }
@@ -412,13 +428,25 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     origin: await currentGenStudioOrigin(),
     recalledVersionsByFamily,
   })
-  const [verifiedFamilies, installStates] = await Promise.all([
+  const [verifiedFamilies, installSnapshot] = await Promise.all([
     cachedVerifiedFamilies(account.accountId),
-    resolveContentStoreInstallStates(account.owned.map(owned => owned.currentRelease)),
+    resolveContentStoreInstallSnapshot(account.owned.map(owned => owned.currentRelease)),
   ])
+  const catalogByProduct = new Map(catalog.products.map(product => [product.productId, product]))
+  const ownedProductIds = new Set(account.owned.map(owned => owned.productId))
   return {
     phase: 'delivery_ready',
-    account: await publicAccount(account, verifiedFamilies, installStates, recalledVersionsByFamily),
+    account: await publicAccount(account, verifiedFamilies, installSnapshot.owned, recalledVersionsByFamily,
+      new Map(catalog.products.map(product => [product.productId, product.compatible]))),
+    installed: installSnapshot.installed.map(local => {
+      const product = catalogByProduct.get(local.productId)
+      return {
+        ...local,
+        title: product?.title ?? local.packId,
+        kind: product?.kind ?? 'unknown',
+        ownedByActiveAccount: ownedProductIds.has(local.productId),
+      }
+    }),
     products: catalog.products.map(publicProduct),
     shelves: [
       ...shelfResponse.shelves.map(shelf => ({ id: shelf.shelfId, title: shelf.title, productIds: [...shelf.productIds] })),
