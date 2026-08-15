@@ -34,6 +34,7 @@ const STATE_MODE = 0o600
 const MAX_STATE_BYTES = 16 * 1024 * 1024
 const MAX_RECORDS = 200
 const MAX_VERIFIED_RESTORES = 200
+const MAX_RESTORE_KEY_HISTORY = 100
 const LOCK_WAIT_MS = 10_000
 const LOCK_RETRY_MS = 20
 const STALE_LOCK_MS = 60_000
@@ -351,6 +352,9 @@ export async function recordVerifiedContentRestore(
       }
     }
     const key_history = [...previous, ...next.filter(key => !previous.some(candidate => candidate.key_id === key.key_id))]
+    if (key_history.length > MAX_RESTORE_KEY_HISTORY) {
+      throw new Error(`GenStudio Content Store key history exceeds ${MAX_RESTORE_KEY_HISTORY} keys; online revalidation is required`)
+    }
     await recordContentStoreKeyAnchor({
       origin: restore.genstudio_origin,
       account_id: restore.account_id,

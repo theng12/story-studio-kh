@@ -197,6 +197,76 @@ describe('Content Store commerce state', () => {
     }), /repointed/i)
   })
 
+  test('rejects a 101st restore key before changing the journal or OS anchor', async () => {
+    await isolate()
+    const trusted = generateKeyPairSync('ed25519')
+    const next = generateKeyPairSync('ed25519')
+    const publicBase64 = (key: typeof trusted.publicKey) => {
+      const der = key.export({ format: 'der', type: 'spki' })
+      return der.subarray(der.byteLength - 32).toString('base64')
+    }
+    const accountId = 'acct_a'
+    const origin = 'https://api.genstudio.example'
+    const trustedKeyId = 'content-key-0'
+    const keyHistory = Array.from({ length: 100 }, (_, index) => ({
+      key_id: `content-key-${index}`,
+      public_key_base64: index === 0 ? publicBase64(trusted.publicKey) : Buffer.alloc(32, index).toString('base64'),
+    }))
+    const receipt = {
+      typ: 'genstudio.content.restore.v1', key_id: trustedKeyId, account_id: accountId,
+      content_account_id: accountId, entitlement_families: [],
+    }
+    const receiptCanonicalJson = canonicalizeContentStoreObject(receipt).canonicalJson
+    await recordVerifiedContentRestore({
+      account_id: accountId, content_account_id: accountId, genstudio_origin: origin,
+      key_id: trustedKeyId, public_key_base64: publicBase64(trusted.publicKey), receipt_canonical_json: receiptCanonicalJson,
+      receipt_signature: sign(null, Buffer.from(receiptCanonicalJson), trusted.privateKey).toString('base64'),
+      verified_at: new Date().toISOString(), key_history: keyHistory,
+    })
+    const journalBefore = await fs.readFile(getContentStoreStatePath())
+    const anchorBefore = await fs.readFile(appSecretsPath())
+    assert.equal(await resolveVerifiedContentStoreSigningKey({ accountId, origin, keyId: trustedKeyId }), publicBase64(trusted.publicKey))
+
+    const nextKeyId = 'content-key-100'
+    const nextReceipt = {
+      typ: 'genstudio.content.restore.v1', key_id: nextKeyId, account_id: accountId,
+      content_account_id: accountId, entitlement_families: [],
+    }
+    const nextCanonicalJson = canonicalizeContentStoreObject(nextReceipt).canonicalJson
+    await assert.rejects(recordVerifiedContentRestore({
+      account_id: accountId, content_account_id: accountId, genstudio_origin: origin,
+      key_id: nextKeyId, public_key_base64: publicBase64(next.publicKey), receipt_canonical_json: nextCanonicalJson,
+      receipt_signature: sign(null, Buffer.from(nextCanonicalJson), next.privateKey).toString('base64'),
+      verified_at: new Date().toISOString(),
+      key_history: [{ key_id: nextKeyId, public_key_base64: publicBase64(next.publicKey) }],
+    }), /key history.*100|at most 100/i)
+
+    assert.deepEqual(await fs.readFile(getContentStoreStatePath()), journalBefore)
+    assert.deepEqual(await fs.readFile(appSecretsPath()), anchorBefore)
+    assert.equal((await readContentStoreCommerceState()).verified_restores?.[0]?.key_history?.length, 100)
+    assert.equal(await resolveVerifiedContentStoreSigningKey({ accountId, origin, keyId: trustedKeyId }), publicBase64(trusted.publicKey))
+  })
+
+  test('rejects a 101st direct OS anchor key without changing the safeStorage envelope', async () => {
+    await isolate()
+    const anchor = {
+      origin: 'https://api.genstudio.example', account_id: 'acct_a', content_account_id: 'acct_a',
+      keys: Array.from({ length: 100 }, (_, index) => ({
+        key_id: `content-key-${index}`, public_key_base64: Buffer.alloc(32, index).toString('base64'),
+      })),
+    }
+    await recordContentStoreKeyAnchor(anchor)
+    const before = await fs.readFile(appSecretsPath())
+    await assert.rejects(recordContentStoreKeyAnchor({
+      ...anchor,
+      keys: [{ key_id: 'content-key-100', public_key_base64: Buffer.alloc(32, 100).toString('base64') }],
+    }), /anchor exceeds.*100/i)
+    assert.deepEqual(await fs.readFile(appSecretsPath()), before)
+    assert.deepEqual(await readContentStoreKeyAnchor({
+      origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
+    }), anchor)
+  })
+
   test('rejects a journal receipt and key replacement under the same key id when offline', async () => {
     await isolate()
     const trusted = generateKeyPairSync('ed25519')

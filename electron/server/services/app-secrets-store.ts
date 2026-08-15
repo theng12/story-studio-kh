@@ -33,6 +33,7 @@ import { registerSecretForRedaction } from '../lib/redact-secrets.js'
 import { getUserDataDir } from './project-manager.js'
 
 export const APP_SECRETS_SCHEMA_VERSION = 3 as const
+const MAX_CONTENT_STORE_ANCHOR_KEYS = 100
 
 export const SECRET_PROVIDERS = [
   // GenStudio KH is the single generation credential.
@@ -260,7 +261,7 @@ async function mutateContentStoreAnchorState(
 
 /** Insert-only OS-protected key mapping; a named GenStudio key can never repoint. */
 export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor): Promise<void> {
-  if (!anchor.origin || !anchor.account_id || !anchor.content_account_id || !anchor.keys.length || anchor.keys.length > 100) {
+  if (!anchor.origin || !anchor.account_id || !anchor.content_account_id || !anchor.keys.length || anchor.keys.length > MAX_CONTENT_STORE_ANCHOR_KEYS) {
     throw new Error('GenStudio Content Store key anchor is invalid')
   }
   await mutateContentStoreAnchorState(state => {
@@ -273,13 +274,22 @@ export async function recordContentStoreKeyAnchor(anchor: ContentStoreKeyAnchor)
       state.contentStoreKeyAnchors = anchors
       return
     }
+    const additions = new Map<string, { key_id: string; public_key_base64: string }>()
     for (const key of anchor.keys) {
       const pinned = existing.keys.find(candidate => candidate.key_id === key.key_id)
       if (pinned && pinned.public_key_base64 !== key.public_key_base64) {
         throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed in the OS key anchor`)
       }
-      if (!pinned) existing.keys.push({ ...key })
+      const pending = additions.get(key.key_id)
+      if (pending && pending.public_key_base64 !== key.public_key_base64) {
+        throw new Error(`GenStudio Content Store signing key ${key.key_id} was repointed in the OS key anchor`)
+      }
+      if (!pinned) additions.set(key.key_id, { ...key })
     }
+    if (existing.keys.length + additions.size > MAX_CONTENT_STORE_ANCHOR_KEYS) {
+      throw new Error(`GenStudio Content Store key anchor exceeds ${MAX_CONTENT_STORE_ANCHOR_KEYS} keys`)
+    }
+    existing.keys.push(...additions.values())
   })
 }
 
