@@ -8,8 +8,8 @@ import express from 'express'
 import JSZip from 'jszip'
 import request from 'supertest'
 
-import { readContentStoreCommerceState } from '../content-store/commerce-state.js'
-import { readContentPackState } from '../content-packs/state.js'
+import { getContentStoreStatePath, readContentStoreCommerceState } from '../content-store/commerce-state.js'
+import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
 import { verifyContentPackRuntimeAtBoot } from '../content-packs/recovery.js'
 import {
   getGenStudioContentReceipts,
@@ -145,7 +145,7 @@ describe('Content Store commerce routes', () => {
     assert.deepEqual(installed.body.overview.installed, [{
       packId: 'com.storystudio.pack.free-recovery-test', version: '1.0.0',
       installState: 'installed_current', missingDependencies: [],
-      productId: 'cprod_a', title: 'Test Formula', kind: 'series_formula', ownedByActiveAccount: true,
+      productId: 'cprod_a', title: 'Test Formula', kind: 'series_formula', active: true, ownedByActiveAccount: true,
     }])
     assert.equal(mock.contentDownloadPostCount, 1)
     assert.equal(mock.contentArchiveGetCount, 1)
@@ -158,6 +158,22 @@ describe('Content Store commerce routes', () => {
     const state = await readContentPackState()
     assert.equal(state.packs['com.storystudio.pack.free-recovery-test'].active_version, '1.0.0')
     assert.doesNotMatch(JSON.stringify(installed.body), /receipt_signature|grant_signature|public_key_base64|download_url|"grant"|gsk_|\/Users\//i)
+
+    const commercePath = getContentStoreStatePath()
+    const commerce = JSON.parse(await fs.readFile(commercePath, 'utf8'))
+    delete commerce.verified_restore
+    await fs.writeFile(commercePath, JSON.stringify(commerce))
+    const unverified = await request(localApp).get('/api/content-store').expect(200)
+    assert.equal(unverified.body.account.owned[0].receiptVerification, 'unverified')
+    assert.equal(unverified.body.installed[0].ownedByActiveAccount, false, 'raw account ownership never upgrades local bytes')
+    await request(localApp).post('/api/content-store/restore').send({}).expect(200)
+
+    await mutateContentPackState(state => { delete state.packs['com.storystudio.pack.free-recovery-test'].active_version })
+    const retainedInactive = await request(localApp).get('/api/content-store').expect(200)
+    assert.equal(retainedInactive.body.installed.length, 1)
+    assert.equal(retainedInactive.body.installed[0].version, '1.0.0')
+    assert.equal(retainedInactive.body.installed[0].active, false)
+    await mutateContentPackState(state => { state.packs['com.storystudio.pack.free-recovery-test'].active_version = '1.0.0' })
 
     await setApiKey('genstudio', KEY_C)
     const otherAccount = await request(localApp).get('/api/content-store').expect(200)

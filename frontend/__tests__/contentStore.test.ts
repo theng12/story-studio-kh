@@ -109,6 +109,39 @@ describe('useContentStore explicit commerce state machine', () => {
     assert.equal(store.account.value?.availableCredits, 2_399)
   })
 
+  test('does not let an older refresh overwrite completed purchase reconciliation', async () => {
+    let releaseRefresh: ((value: unknown) => void) | undefined
+    const completed = {
+      quote_id: 'cq_purchase', account_id: 'acct_a', product_id: 'formula', release_id: 'rel_formula',
+      entitlement_family: 'formula.family', expires_at: '2026-08-14T10:15:00Z', status: 'completed' as const,
+      base_credit_price: 400, discount_credits: 0, quoted_credits: 400,
+      balance_before: 2_400, balance_after: 2_000, owned_components: [], sufficient_credits: true,
+      insufficient_reason: null, shortfall_credits: 0, ownership: 'owned_not_installed' as const,
+      credits_charged: 400, replayed: false, receipt_verification: 'unverified_phase1' as const,
+    }
+    const reconciled = structuredClone(completeOverview)
+    reconciled.account.availableCredits = 2_000
+    reconciled.attempts = [completed]
+    let overviewReads = 0
+    handler = path => {
+      if (path === '/api/content-store') {
+        overviewReads += 1
+        return overviewReads === 1 ? new Promise(resolve => { releaseRefresh = resolve }) : reconciled
+      }
+      if (path.endsWith('/purchase')) return completed
+      throw new Error(`Unexpected request: ${path}`)
+    }
+
+    const store = useContentStore()
+    const staleRefresh = store.refresh()
+    await Promise.resolve()
+    await store.confirmPurchase('cq_purchase')
+    releaseRefresh?.(structuredClone(completeOverview))
+    await staleRefresh
+    assert.equal(store.account.value?.availableCredits, 2_000)
+    assert.equal(store.attempts.value[0]?.status, 'completed')
+  })
+
   test('requests one exact quote only after the customer asks', async () => {
     const quoted = {
       quote_id: 'cq_1', account_id: 'acct_a', product_id: 'formula', release_id: 'rel_formula',

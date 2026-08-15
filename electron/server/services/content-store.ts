@@ -101,6 +101,7 @@ export type PublicContentAccount = Omit<GenStudioContentAccount, 'raw' | 'owned'
 export interface PublicContentInstalledPack {
   packId: string
   version: string
+  active: boolean
   installState: 'installed_current' | 'incomplete'
   missingDependencies: Array<{ packId: string; version: string; reason: string }>
   productId: string
@@ -433,7 +434,9 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     resolveContentStoreInstallSnapshot(account.owned.map(owned => owned.currentRelease)),
   ])
   const catalogByProduct = new Map(catalog.products.map(product => [product.productId, product]))
-  const ownedProductIds = new Set(account.owned.map(owned => owned.productId))
+  const verifiedOwnedProductIds = new Set(account.owned
+    .filter(owned => verifiedFamilies.has(owned.entitlementFamily))
+    .map(owned => owned.productId))
   return {
     phase: 'delivery_ready',
     account: await publicAccount(account, verifiedFamilies, installSnapshot.owned, recalledVersionsByFamily,
@@ -444,7 +447,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
         ...local,
         title: product?.title ?? local.packId,
         kind: product?.kind ?? 'unknown',
-        ownedByActiveAccount: ownedProductIds.has(local.productId),
+        ownedByActiveAccount: verifiedOwnedProductIds.has(local.productId),
       }
     }),
     products: catalog.products.map(publicProduct),

@@ -107,6 +107,7 @@ export interface ContentStoreAccount {
 export interface ContentStoreInstalledPack {
   packId: string
   version: string
+  active: boolean
   installState: 'installed_current' | 'incomplete'
   missingDependencies: Array<{ packId: string; version: string; reason: string }>
   productId: string
@@ -302,6 +303,7 @@ export function useContentStore(): {
   }
 
   async function confirmPurchase(quoteId: string): Promise<PublicContentPurchaseAttempt> {
+    const generation = beginOverviewRequest()
     error.value = null
     try {
       const attempt = await post<PublicContentPurchaseAttempt>(
@@ -312,12 +314,10 @@ export function useContentStore(): {
       if (attempt.status === 'completed') {
         try {
           const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
-          account.value = overview.account
-          products.value = overview.products
-          installed.value = overview.installed ?? []
-          attempts.value = overview.attempts.some(row => row.quote_id === attempt.quote_id)
-            ? overview.attempts
-            : [attempt, ...overview.attempts]
+          if (generation === overviewGeneration) {
+            applyOverview(overview, generation)
+            if (!overview.attempts.some(row => row.quote_id === attempt.quote_id)) attempts.value = [attempt, ...overview.attempts]
+          }
         } catch {
           // Ownership is already durable. A read-side refresh must not turn success into failure.
         }

@@ -17,6 +17,7 @@ export interface ContentStoreClosureState {
 export interface ContentStoreInstalledPackState {
   packId: string
   version: string
+  active: boolean
   installState: 'installed_current' | 'incomplete'
   missingDependencies: Array<{ packId: string; version: string; reason: string }>
   productId: string
@@ -118,14 +119,14 @@ export async function resolveContentStoreInstallSnapshot(
 
     const installed: ContentStoreInstalledPackState[] = []
     for (const [packId, pack] of Object.entries(state.packs)) {
-      const version = pack.active_version
-      const local = version ? pack.versions[version] : undefined
-      const evidence = local?.source === 'genstudio-store' ? local.delivery_attestation : undefined
-      if (!local || !evidence || local.recalled || local.pending_removal) continue
-      const closure = await inspect(packId, version!)
-      installed.push({ packId, version: version!, productId: evidence.product_id,
-        installState: closure.installState === 'incomplete' ? 'incomplete' : 'installed_current',
-        missingDependencies: closure.missingDependencies })
+      for (const [version, local] of Object.entries(pack.versions)) {
+        const evidence = local.source === 'genstudio-store' ? local.delivery_attestation : undefined
+        if (!evidence || local.recalled || local.pending_removal) continue
+        const closure = await inspect(packId, version)
+        installed.push({ packId, version, active: pack.active_version === version, productId: evidence.product_id,
+          installState: closure.installState === 'incomplete' ? 'incomplete' : 'installed_current',
+          missingDependencies: closure.missingDependencies })
+      }
     }
     return { owned, installed: installed.sort((left, right) => left.packId.localeCompare(right.packId) || left.version.localeCompare(right.version)) }
   }))

@@ -8,8 +8,9 @@ import { transform } from 'esbuild'
 import { filterCatalogProducts, orderShelfProducts } from '../content-store/catalog-presentation.js'
 import type { ContentStoreProduct, ContentStoreShelf, ContentStoreUiError } from '../composables/useContentStore.js'
 
-type SfcName = 'ContentProductDetail.vue' | 'ContentStoreShelf.vue' | 'ContentInstalledLibraryView.vue' | '[productId].vue'
+type SfcName = 'ContentProductCard.vue' | 'ContentProductDetail.vue' | 'ContentStoreShelf.vue' | 'ContentInstalledLibraryView.vue' | '[productId].vue'
 const sourceByName: Record<SfcName, string> = {
+  'ContentProductCard.vue': '../components/content-store/ContentProductCard.vue',
   'ContentProductDetail.vue': '../components/content-store/ContentProductDetail.vue',
   'ContentStoreShelf.vue': '../components/content-store/ContentStoreShelf.vue',
   'ContentInstalledLibraryView.vue': '../components/content-store/ContentInstalledLibraryView.vue',
@@ -102,11 +103,29 @@ describe('Content Store rendered catalog and proof regressions', () => {
     const rendered = await mount(Installed, { installed: [{
       packId: 'com.storystudio.local.withdrawn', version: '1.0.0', productId: 'withdrawn-product',
       title: 'com.storystudio.local.withdrawn', kind: 'unknown', ownedByActiveAccount: false,
-      installState: 'installed_current', missingDependencies: [],
+      installState: 'installed_current', active: false, missingDependencies: [],
     }] })
     assert.match(rendered.host.textContent || '', /com\.storystudio\.local\.withdrawn/)
     assert.match(rendered.host.textContent || '', /ownership is not verified/i)
     rendered.unmount()
+  })
+
+  test('withholds install actions for unavailable, recalled, or incompatible owned releases', async () => {
+    const Card = await loadComponent('ContentProductCard.vue')
+    const Detail = await loadComponent('ContentProductDetail.vue')
+    const blocked = { ...product('blocked', 'Blocked pack'), owned: true, compatible: false, compatibilityReason: 'Requires a newer Story Studio.', currentRelease: { ...product('blocked', 'Blocked pack').currentRelease!, archiveAvailable: false } }
+    const ownership = {
+      entitlementFamily: 'blocked.family', productId: 'blocked', title: 'Blocked pack', kind: 'series_formula' as const,
+      grantedAt: '2026-08-14T09:12:44Z', purchaseId: 'cpur_blocked', currentRelease: blocked.currentRelease,
+      showcaseVideos: [], recalledReleaseVersions: [blocked.currentRelease!.version], receiptVerification: 'verified' as const,
+      downloadAvailable: false, installState: 'unavailable' as const, installedVersion: null, missingDependencies: [],
+    }
+    const card = await mount(Card, { product: blocked, ownership })
+    const detail = await mount(Detail, { product: blocked, ownership })
+    assert.equal(card.host.querySelector('button.btn-primary'), null)
+    assert.equal(detail.host.querySelector('button.btn-primary'), null)
+    assert.match(card.host.textContent || '', /Not compatible/i)
+    card.unmount(); detail.unmount()
   })
 
   test('keeps server and final fallback shelf product order when the shelf is mounted', async () => {

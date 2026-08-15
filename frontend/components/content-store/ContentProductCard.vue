@@ -19,7 +19,7 @@
     <div class="product-action">
       <NuxtLink :to="`/content-store/${product.productId}`" class="proof-action">View proof</NuxtLink>
       <button v-if="!product.owned && !product.retired && product.compatible && product.currentRelease" type="button" class="btn btn-primary" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button>
-      <button v-else-if="product.owned && ownership?.downloadAvailable && ownership.installState !== 'installed_current' && product.currentRelease" type="button" class="btn btn-primary" :disabled="!!busy" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', product.currentRelease.releaseId)">{{ busy ? 'Installing…' : ownership.installState === 'update_available' ? 'Install update' : 'Install on this Mac' }}</button>
+      <button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="!!busy" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', product.currentRelease!.releaseId)">{{ busy ? 'Installing…' : ownership!.installState === 'update_available' ? 'Install update' : 'Install on this Mac' }}</button>
     </div>
   </article>
 </template>
@@ -53,6 +53,13 @@ const ownedStatus = computed(() => {
   return 'Verified ownership · ready to install on this Mac.'
 })
 const closureSummary = computed(() => props.ownership?.missingDependencies.map(dependency => `${dependency.packId} ${dependency.version} (${dependency.reason})`).join(', ') || '')
+const canInstall = computed(() => {
+  const ownership = props.ownership
+  const release = props.product.currentRelease
+  return !!(props.product.owned && props.product.compatible && ownership?.downloadAvailable && release
+    && !ownership.recalledReleaseVersions.includes(release.version)
+    && ['not_installed', 'installed_other_version', 'update_available', 'incomplete'].includes(ownership.installState))
+})
 </script>
 
 <style scoped>

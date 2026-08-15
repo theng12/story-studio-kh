@@ -19,7 +19,7 @@
 
     <section v-if="ownership?.recalledReleaseVersions.length" class="detail-warning" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><span>Ownership remains permanent. GenStudio stopped serving these exact versions.</span></section>
 
-    <footer class="detail-actions"><NuxtLink to="/content-store" class="back-to-store">Back to Content Store</NuxtLink><button v-if="!product.owned && !product.retired && product.compatible && release" type="button" class="btn btn-primary" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button><button v-else-if="product.owned && ownership?.downloadAvailable && ownership.installState !== 'installed_current' && release" type="button" class="btn btn-primary" :disabled="busy" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', release.releaseId)">{{ busy ? 'Installing…' : ownership.installState === 'update_available' ? 'Update' : 'Install' }}</button></footer>
+    <footer class="detail-actions"><NuxtLink to="/content-store" class="back-to-store">Back to Content Store</NuxtLink><button v-if="!product.owned && !product.retired && product.compatible && release" type="button" class="btn btn-primary" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button><button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="busy" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', release!.releaseId)">{{ busy ? 'Installing…' : ownership!.installState === 'update_available' ? 'Update' : 'Install' }}</button></footer>
   </article>
 </template>
 
@@ -43,6 +43,9 @@ const status = computed(() => {
   if (props.ownership?.installState === 'update_available') return 'Owned · update available'
   return 'Owned'
 })
+const canInstall = computed(() => !!(props.product.owned && props.product.compatible && props.ownership?.downloadAvailable && release.value
+  && !props.ownership.recalledReleaseVersions.includes(release.value.version)
+  && ['not_installed', 'installed_other_version', 'update_available', 'incomplete'].includes(props.ownership.installState)))
 const componentSummary = computed(() => Object.entries(release.value?.componentSummary || {}).flatMap(([key, value]) => {
   if (typeof value === 'number') return [{ label: factLabel(key), value: value.toLocaleString() }]
   if (Array.isArray(value)) return [{ label: factLabel(key), value: `${value.length.toLocaleString()} items` }]

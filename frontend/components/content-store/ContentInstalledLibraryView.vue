@@ -5,7 +5,7 @@
     <ul v-if="installed.length" class="installed-list">
       <li v-for="pack in installed" :key="`${pack.packId}@${pack.version}`">
         <div><h3>{{ pack.title }}</h3><p>{{ pack.packId }} · {{ pack.version }}</p></div>
-        <span :class="['status', pack.installState]">{{ pack.installState === 'incomplete' ? 'Incomplete' : 'Installed' }}</span>
+        <span :class="['status', pack.installState]">{{ pack.installState === 'incomplete' ? 'Incomplete' : pack.active ? 'Installed' : 'Retained' }}</span>
         <p v-if="pack.installState === 'incomplete'">{{ missing(pack) || 'Story Studio could not verify this installed pack.' }}</p>
         <p v-else-if="pack.ownedByActiveAccount">Owned by this GenStudio account.</p>
         <p v-else>Installed locally; ownership is not verified for this GenStudio account.</p>

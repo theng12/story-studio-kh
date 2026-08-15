@@ -45,3 +45,11 @@
 - Added executable regressions for cross-account local installation, stale refresh versus install, and a mounted local-installed renderer state. Existing lifecycle/delivery suites retain coverage for recalls, exact versions, safe download refusal, and closure integrity.
 
 Task 5's minor mobile polish is explicitly deferred; this round makes no mobile-specific layout change.
+
+## Fix round 2 — residual lifecycle findings
+
+- Installed enumerates every retained, non-recalled, non-pending Store version whose signed archive closure is locally verifiable. Each row includes its exact version and whether it is active; inactive retained versions are labelled Retained rather than being hidden or substituted with a current catalog release.
+- `ownedByActiveAccount` now requires a verified signed restore family for the active account. Raw account ownership remains visible as unverified account data but cannot upgrade local bytes to an ownership claim.
+- Completed-purchase reconciliation participates in the same monotonic overview generation as refresh, restore, and install. An older refresh cannot replace newly reconciled ownership or balances.
+- Card and detail install controls require a compatible, non-recalled, downloadable safe release and an actionable install state. Unavailable, recalled, incompatible, and no-download records keep their bounded explanatory status without an action.
+- Added executable regressions for inactive retained local installation, unverified ownership evidence, purchase-refresh ordering, and mounted blocked-action rendering.
