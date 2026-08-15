@@ -1,6 +1,7 @@
 {
   "revision": 1,
   "batches": [],
+  "transitions": [],
   "records": [
     {
       "receipt_ref": "baseline:com.storystudio.pack.formula.ancient-humans@1.0.0",

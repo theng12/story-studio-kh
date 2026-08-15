@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { cp, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { appendFile, cp, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -115,6 +115,39 @@ function reservationRecord(kind, slug) {
       family: { id: `com.storystudio.family.${name}.${slug}`, status: 'reserved' },
       sku: { id: `com.storystudio.sku.${name}.${slug}`, status: 'reserved' },
     },
+  }
+}
+
+async function materializeReservedStyle(root, record) {
+  const destination = join(root, record.source_path)
+  await cp(join(root, 'content-packs', 'free-starters', 'style', 'cinematic-photoreal'), destination, { recursive: true })
+  const manifestPath = join(destination, 'pack.json')
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+  Object.assign(manifest, {
+    pack_id: record.pack_id,
+    version: record.version,
+    publisher_id: record.publisher_id,
+    min_app_version: record.min_app_version,
+    entitlement: {
+      family: record.stocking_proposal.family.id,
+      sku: record.stocking_proposal.sku.id,
+    },
+  })
+  await writeFile(manifestPath, JSON.stringify(manifest), 'utf8')
+  const documentPath = join(destination, 'content', 'visual-style.json')
+  const document = JSON.parse(await readFile(documentPath, 'utf8'))
+  document.id = record.item_id
+  await writeFile(documentPath, JSON.stringify(document), 'utf8')
+}
+
+function transitionRequest(reservation, expectedRevision, changes) {
+  return {
+    expected_revision: expectedRevision,
+    coordinator: { task: 'content-pack-authoring', branch: 'codex/reserve-content-pack' },
+    receipt_ref: reservation.receipt_ref,
+    pack_id: reservation.record.pack_id,
+    version: reservation.record.version,
+    changes,
   }
 }
 
@@ -297,6 +330,7 @@ test('rejects tampered reserved identity fields while retaining the receipt', as
     ['source_path', (record) => { record.source_path = 'content-packs/reserved/style/tampered' }],
     ['family', (record) => { record.stocking_proposal.family.id = 'com.storystudio.family.style.tampered' }],
     ['sku', (record) => { record.stocking_proposal.sku.id = 'com.storystudio.sku.style.tampered' }],
+    ['lifecycle', (record) => { record.stocking_proposal.family = { ...record.stocking_proposal.family, status: 'confirmed', confirmation_ref: 'unpersisted' } }],
   ]
   for (const [label, mutate] of cases) {
     const tampered = structuredClone(accepted)
@@ -357,6 +391,7 @@ test('rejects non-canonical, external, aliased, and over-deep source paths witho
     ['POSIX absolute', '/outside/pack'],
     ['parent alias', 'content-packs/reserved/style/../reserved-style'],
     ['outside catalog', 'other/reserved/style/reserved-style'],
+    ['retired source monolith', 'content-packs/archival-ledger'],
     ['traversal depth', `content-packs/${Array.from({ length: 20 }, (_, index) => `l${index}`).join('/')}`],
   ]
   for (const [label, sourcePath] of cases) {
@@ -451,4 +486,217 @@ test('enforces exact semver and kind-qualified first-party namespaces without ch
     await assert.rejects(reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request }), error)
     assert.deepEqual(await readFile(copy), original)
   }
+})
+
+test('promotes an exact reserved source to authored and keeps its immutable receipt verifiable', async (t) => {
+  const { reserveAuthoringBatch, transitionAuthoringRecord, verifyAuthoringReceipt } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const request = reservationRequest()
+  const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
+  await materializeReservedStyle(root, request.records[0])
+
+  const transitioned = await transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: transitionRequest({ ...reserved, record: request.records[0] }, 2, { status: 'authored' }),
+  })
+  assert.equal(transitioned.revision, 3)
+  assert.match(transitioned.transition_ref, /^lifecycle:[a-f0-9]{64}$/)
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  assert.equal(registry.transitions.length, 1)
+  assert.equal(registry.records.at(-1).status, 'authored')
+  assert.equal((await verifyAuthoringReceipt({
+    registryPath: copy,
+    repositoryRoot: root,
+    revision: 2,
+    receiptRef: reserved.receipt_ref,
+    expectedIdentity: request.records[0],
+  })).receipt_ref, reserved.receipt_ref)
+})
+
+test('offers a coordinator transition CLI and enforces lifecycle CAS', async (t) => {
+  const { reserveAuthoringBatch, transitionAuthoringRecord } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const script = join(root, 'scripts', 'content-packs', 'authoring-registry.mjs')
+  await mkdir(dirname(script), { recursive: true })
+  await cp(fileURLToPath(registryModule), script)
+  const reservation = reservationRequest()
+  const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: reservation })
+  await materializeReservedStyle(root, reservation.records[0])
+  const request = transitionRequest({ ...reserved, record: reservation.records[0] }, 2, { status: 'authored' })
+  const requestPath = join(root, 'transition.json')
+  await writeFile(requestPath, JSON.stringify(request), 'utf8')
+
+  const [cli, competing] = await Promise.allSettled([
+    execFileAsync(process.execPath, [await realpath(script), 'transition', '--request', requestPath]),
+    transitionAuthoringRecord({ registryPath: copy, repositoryRoot: root, request }),
+  ])
+  assert.equal([cli, competing].filter((result) => result.status === 'fulfilled').length, 1)
+  assert.equal(JSON.parse(await readFile(copy, 'utf8')).revision, 3)
+  const winner = cli.status === 'fulfilled' ? JSON.parse(cli.value.stdout) : competing.value
+  assert.match(winner.transition_ref, /^lifecycle:[a-f0-9]{64}$/)
+})
+
+test('refuses authored promotion until the registered source is exact and leaves bytes unchanged', async (t) => {
+  const { reserveAuthoringBatch, transitionAuthoringRecord } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const request = reservationRequest()
+  const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
+  await materializeReservedStyle(root, request.records[0])
+  const documentPath = join(root, request.records[0].source_path, 'content', 'visual-style.json')
+  const document = JSON.parse(await readFile(documentPath, 'utf8'))
+  document.id = 'com.storystudio.style.wrong-source'
+  await writeFile(documentPath, JSON.stringify(document), 'utf8')
+  const before = await readFile(copy)
+
+  await assert.rejects(transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: transitionRequest({ ...reserved, record: request.records[0] }, 2, { status: 'authored' }),
+  }), /source|component identity/i)
+  assert.deepEqual(await readFile(copy), before)
+})
+
+test('advances stocking proposals proposed to reserved to confirmed with confirmation references', async (t) => {
+  const { reserveAuthoringBatch, transitionAuthoringRecord, verifyAuthoringReceipt } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const request = reservationRequest()
+  request.records[0].stocking_proposal.family.status = 'proposed'
+  request.records[0].stocking_proposal.sku.status = 'proposed'
+  const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
+  const assignment = { ...reserved, record: request.records[0] }
+
+  await transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: transitionRequest(assignment, 2, {
+      stocking_proposal: { family: { status: 'reserved' }, sku: { status: 'reserved' } },
+    }),
+  })
+  await transitionAuthoringRecord({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: transitionRequest(assignment, 3, {
+      stocking_proposal: {
+        family: { status: 'confirmed', confirmation_ref: 'genstudio:family-confirmation' },
+        sku: { status: 'confirmed', confirmation_ref: 'genstudio:sku-confirmation' },
+      },
+    }),
+  })
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  assert.deepEqual(registry.records.at(-1).stocking_proposal, {
+    family: { id: request.records[0].stocking_proposal.family.id, status: 'confirmed', confirmation_ref: 'genstudio:family-confirmation' },
+    sku: { id: request.records[0].stocking_proposal.sku.id, status: 'confirmed', confirmation_ref: 'genstudio:sku-confirmation' },
+  })
+  assert.equal((await verifyAuthoringReceipt({
+    registryPath: copy,
+    repositoryRoot: root,
+    revision: 2,
+    receiptRef: reserved.receipt_ref,
+    expectedIdentity: request.records[0],
+  })).receipt_ref, reserved.receipt_ref)
+})
+
+test('rejects skipped, reversed, or unconfirmed lifecycle changes without changing bytes', async (t) => {
+  const { reserveAuthoringBatch, transitionAuthoringRecord } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const request = reservationRequest()
+  request.records[0].stocking_proposal.family.status = 'proposed'
+  const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
+  const before = await readFile(copy)
+  const assignment = { ...reserved, record: request.records[0] }
+  for (const [changes, error] of [
+    [{ stocking_proposal: { family: { status: 'confirmed', confirmation_ref: 'too-soon' } } }, /proposed.*reserved.*confirmed|one step/i],
+    [{ stocking_proposal: { family: { status: 'confirmed' } } }, /confirmation_ref/i],
+    [{ stocking_proposal: { family: { status: 'proposed' } } }, /advance|transition/i],
+  ]) {
+    await assert.rejects(transitionAuthoringRecord({
+      registryPath: copy,
+      repositoryRoot: root,
+      request: transitionRequest(assignment, 2, changes),
+    }), error)
+    assert.deepEqual(await readFile(copy), before)
+  }
+})
+
+test('rejects a Channel Kit dependency on another coordinator even with complete creative kinds', async (t) => {
+  const { reserveAuthoringBatch } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  const deepTime = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.kit.deep-time')
+  const request = reservationRequest()
+  request.records[0] = {
+    ...request.records[0],
+    pack_id: 'com.storystudio.pack.kit.reserved-style',
+    bundle_id: 'com.storystudio.bundle.reserved-style',
+    kind: 'channel-kit',
+    source_path: 'content-packs/reserved/kit/reserved-style',
+    dependencies: [...deepTime.dependencies, { pack_id: 'com.storystudio.pack.kit.a-life-as', version: '1.0.0' }],
+    stocking_proposal: {
+      family: { id: 'com.storystudio.family.kit.reserved-style', status: 'reserved' },
+      sku: { id: 'com.storystudio.sku.kit.reserved-style', status: 'reserved' },
+    },
+  }
+  delete request.records[0].item_id
+  const before = await readFile(copy)
+
+  await assert.rejects(
+    reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request }),
+    /coordinator.*creative|creative.*coordinator/i,
+  )
+  assert.deepEqual(await readFile(copy), before)
+})
+
+test('rejects a registry file that grows beyond its bound after opening', async (t) => {
+  const { validateAuthoringRegistry } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const original = await readFile(copy)
+  await writeFile(copy, Buffer.concat([original, Buffer.alloc(7 * 1024 * 1024, 0x20)]))
+
+  const validating = validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+  await appendFile(copy, Buffer.alloc(2 * 1024 * 1024, 0x20))
+  await assert.rejects(validating, /byte limit|changed while being read|grew/i)
+})
+
+test('rejects a registry path replaced after its handle opens', async (t) => {
+  const { validateAuthoringRegistry } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const replacement = join(root, 'content-packs', 'replacement.json')
+  const original = await readFile(copy)
+  const padded = Buffer.concat([original, Buffer.alloc(4 * 1024 * 1024, 0x20)])
+  await writeFile(copy, padded)
+  await writeFile(replacement, padded)
+
+  const validating = validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+  await rename(replacement, copy)
+  await assert.rejects(validating, /replaced|identity changed|changed while being read/i)
+})
+
+test('rejects an already oversized registry handle before parsing', async (t) => {
+  const { validateAuthoringRegistry } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  await writeFile(copy, Buffer.alloc(8 * 1024 * 1024 + 1, 0x20))
+
+  await assert.rejects(
+    validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root }),
+    /byte limit/i,
+  )
 })

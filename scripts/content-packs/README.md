@@ -15,6 +15,7 @@ product/release/account identities, prices, shelves, signing, archives, or publi
 ```bash
 npm run content-pack:registry -- validate
 npm run content-pack:registry -- reserve --request ./reservation-request.json
+npm run content-pack:registry -- transition --request ./lifecycle-transition.json
 npm run content-pack:registry -- verify-receipt --revision 2 \
   --receipt authoring:<sha256> --expected-identity ./expected-identity.json
 ```
@@ -28,6 +29,28 @@ creating source files, a leaf writes its coordinator-issued complete record (wit
 to the expected-identity JSON file and runs `verify-receipt`. The command succeeds only when the
 revision, receipt, and every expected identity field match the persisted batch and current registry
 record. Leaf authors never mint or repair identities themselves.
+
+After exact source files exist, the coordinator uses `transition` to advance a reserved record to
+`authored`. The same command advances family and SKU proposals exactly one step at a time from
+`proposed` to `reserved` to `confirmed`; only a confirmed step accepts and requires a
+`confirmation_ref`. Each transition carries the current `expected_revision`, original receipt,
+pack ID, and exact version, and is written as a deterministic lifecycle event under the same CAS
+lock as reservations. Receipt verification remains bound to the immutable original identity while
+validation replays the event journal to reject skipped, reversed, or unrecorded mutable changes.
+
+```json
+{
+  "expected_revision": 2,
+  "coordinator": { "task": "content-pack-authoring", "branch": "codex/content-pack" },
+  "receipt_ref": "authoring:<sha256>",
+  "pack_id": "com.storystudio.pack.style.example",
+  "version": "1.0.0",
+  "changes": {
+    "status": "authored",
+    "stocking_proposal": { "family": { "status": "reserved" } }
+  }
+}
+```
 
 Generic discovery reconciles every `pack.json` source below `content-packs/`, including future
 catalog waves, while explicitly excluding only the retired source-only

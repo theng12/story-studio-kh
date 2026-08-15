@@ -84,6 +84,9 @@ function canonicalSourcePath(value, label) {
     fail(`${label} must be a canonical repository-contained forward-slash path under content-packs`)
   }
   if (segments.length > MAX_SOURCE_DEPTH) fail(`${label} exceeds the ${MAX_SOURCE_DEPTH}-segment traversal depth limit`)
+  if (value === RETIRED_SOURCE_ROOT || value.startsWith(`${RETIRED_SOURCE_ROOT}/`)) {
+    fail(`${label} must not use the retired source monolith ${RETIRED_SOURCE_ROOT}`)
+  }
   return value
 }
 
@@ -121,17 +124,43 @@ function assertBoundedJson(value, label, maximumBytes) {
 }
 
 async function readBoundedJson(path, maximumBytes, label) {
-  const info = await lstat(path).catch(() => undefined)
-  if (!info || !info.isFile() || info.isSymbolicLink()) fail(`${label} must be a regular file, not a symlink`)
-  if (info.size > maximumBytes) fail(`${label} exceeds the ${maximumBytes}-byte limit`)
   let handle
   try {
-    handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
-    const bytes = await handle.readFile()
-    if (bytes.byteLength > maximumBytes) fail(`${label} exceeds the ${maximumBytes}-byte limit`)
+    try {
+      handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+    } catch {
+      fail(`${label} must be a regular file, not a symlink`)
+    }
+    const before = await handle.stat({ bigint: true })
+    if (!before.isFile()) fail(`${label} must be a regular file, not a symlink`)
+    if (before.size > BigInt(maximumBytes)) fail(`${label} exceeds the ${maximumBytes}-byte limit`)
+    const bytes = Buffer.alloc(maximumBytes + 1)
+    let length = 0
+    let reachedEof = false
+    while (length < bytes.length) {
+      const chunkLength = Math.min(64 * 1024, bytes.length - length)
+      const result = await handle.read(bytes, length, chunkLength, length)
+      if (result.bytesRead === 0) {
+        reachedEof = true
+        break
+      }
+      length += result.bytesRead
+    }
+    if (!reachedEof || length > maximumBytes) fail(`${label} exceeds the ${maximumBytes}-byte limit`)
+    const after = await handle.stat({ bigint: true })
+    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+      || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs
+      || after.size !== BigInt(length)) {
+      fail(`${label} changed while being read`)
+    }
+    const pathInfo = await lstat(path, { bigint: true }).catch(() => undefined)
+    if (!pathInfo || !pathInfo.isFile() || pathInfo.isSymbolicLink()
+      || pathInfo.dev !== after.dev || pathInfo.ino !== after.ino) {
+      fail(`${label} path was replaced while being read`)
+    }
     let value
     try {
-      value = JSON.parse(bytes.toString('utf8'))
+      value = JSON.parse(bytes.subarray(0, length).toString('utf8'))
     } catch (error) {
       fail(`${label} must contain valid JSON: ${error.message}`)
     }
@@ -255,18 +284,116 @@ function receiptFor(request) {
   return `authoring:${createHash('sha256').update(canonical(request)).digest('hex')}`
 }
 
-function validateBatches(value, revision) {
+function transitionRequest(request) {
+  assertBoundedJson(request, 'lifecycle transition request', MAX_REQUEST_BYTES)
+  exactFields(request, new Set(['expected_revision', 'coordinator', 'receipt_ref', 'pack_id', 'version', 'changes']), 'lifecycle transition request')
+  if (!Number.isSafeInteger(request.expected_revision) || request.expected_revision < 1) fail('expected_revision must be a positive integer')
+  exactFields(request.coordinator, new Set(['task', 'branch']), 'lifecycle transition coordinator')
+  boundedString(request.coordinator.task, 'lifecycle transition coordinator task', 200)
+  boundedString(request.coordinator.branch, 'lifecycle transition coordinator branch', 200)
+  if (!AUTHORING_RECEIPT.test(request.receipt_ref)) fail('lifecycle transition receipt_ref must be a valid authoring receipt')
+  const packId = qualifiedId(request.pack_id, 'lifecycle transition pack_id', `${PUBLISHER_ID}.pack.`)
+  const version = exactSemver(request.version, 'lifecycle transition version')
+  exactFields(request.changes, new Set(['status', 'stocking_proposal']), 'lifecycle transition changes')
+  if (!Object.keys(request.changes).length) fail('lifecycle transition changes must not be empty')
+  const changes = {}
+  if ('status' in request.changes) {
+    if (request.changes.status !== 'authored') fail('lifecycle status transition must advance reserved to authored')
+    changes.status = 'authored'
+  }
+  if ('stocking_proposal' in request.changes) {
+    const stocking = request.changes.stocking_proposal
+    exactFields(stocking, new Set(['family', 'sku']), 'lifecycle transition stocking_proposal')
+    if (!Object.keys(stocking).length) fail('lifecycle transition stocking_proposal must not be empty')
+    changes.stocking_proposal = {}
+    for (const name of ['family', 'sku']) {
+      if (!(name in stocking)) continue
+      const change = stocking[name]
+      exactFields(change, new Set(['status', 'confirmation_ref']), `lifecycle transition ${name}`)
+      if (!PROPOSAL_STATUSES.has(change.status)) fail(`lifecycle transition ${name} has invalid status`)
+      if (change.status === 'confirmed') boundedString(change.confirmation_ref, `lifecycle transition ${name} confirmation_ref`, 500)
+      else if ('confirmation_ref' in change) fail(`lifecycle transition ${name} confirmation_ref is only allowed when confirmed`)
+      changes.stocking_proposal[name] = {
+        status: change.status,
+        ...(change.status === 'confirmed' ? { confirmation_ref: change.confirmation_ref } : {}),
+      }
+    }
+  }
+  return {
+    expected_revision: request.expected_revision,
+    coordinator: { task: request.coordinator.task, branch: request.coordinator.branch },
+    receipt_ref: request.receipt_ref,
+    pack_id: packId,
+    version,
+    changes,
+  }
+}
+
+function transitionFor(request) {
+  return `lifecycle:${createHash('sha256').update(canonical(request)).digest('hex')}`
+}
+
+function applyLifecycleTransition(record, changes) {
+  const next = {
+    ...record,
+    stocking_proposal: {
+      family: { ...record.stocking_proposal.family },
+      sku: { ...record.stocking_proposal.sku },
+    },
+  }
+  if ('status' in changes) {
+    if (record.status !== 'reserved' || changes.status !== 'authored') fail('lifecycle status must advance reserved to authored')
+    next.status = 'authored'
+  }
+  for (const name of ['family', 'sku']) {
+    const change = changes.stocking_proposal?.[name]
+    if (!change) continue
+    const states = ['proposed', 'reserved', 'confirmed']
+    if (states.indexOf(change.status) !== states.indexOf(record.stocking_proposal[name].status) + 1) {
+      fail(`lifecycle ${name} must advance one step from proposed to reserved to confirmed`)
+    }
+    next.stocking_proposal[name] = {
+      id: record.stocking_proposal[name].id,
+      status: change.status,
+      ...(change.status === 'confirmed' ? { confirmation_ref: change.confirmation_ref } : {}),
+    }
+  }
+  return next
+}
+
+function validateBatches(value) {
   if (!Array.isArray(value)) fail('registry batches must be an array')
-  if (value.length !== revision - 1) fail(`registry revision ${revision} must have exactly ${revision - 1} persisted reservation batches`)
   return value.map((batch, index) => {
     const label = `batch ${index}`
     exactFields(batch, new Set(['revision', 'receipt_ref', 'request']), label)
-    if (batch.revision !== index + 2) fail(`${label} revision must be ${index + 2}`)
+    if (!Number.isSafeInteger(batch.revision) || batch.revision < 2) fail(`${label} revision must be an integer of at least 2`)
     if (!AUTHORING_RECEIPT.test(batch.receipt_ref)) fail(`${label} receipt_ref must be a valid authoring receipt`)
     const request = reservationRequest(batch.request)
     if (request.expected_revision !== batch.revision - 1) fail(`${label} expected_revision must precede its revision`)
     if (receiptFor(request) !== batch.receipt_ref) fail(`${label} receipt does not match its persisted request metadata`)
     return { revision: batch.revision, receipt_ref: batch.receipt_ref, request }
+  })
+}
+
+function validateTransitions(value) {
+  if (!Array.isArray(value)) fail('registry transitions must be an array')
+  return value.map((transition, index) => {
+    const label = `transition ${index}`
+    exactFields(transition, new Set(['revision', 'transition_ref', 'request']), label)
+    if (!Number.isSafeInteger(transition.revision) || transition.revision < 2) fail(`${label} revision must be an integer of at least 2`)
+    if (typeof transition.transition_ref !== 'string' || !/^lifecycle:[a-f0-9]{64}$/.test(transition.transition_ref)) fail(`${label} transition_ref is invalid`)
+    const request = transitionRequest(transition.request)
+    if (request.expected_revision !== transition.revision - 1) fail(`${label} expected_revision must precede its revision`)
+    if (transitionFor(request) !== transition.transition_ref) fail(`${label} reference does not match its persisted request metadata`)
+    return { revision: transition.revision, transition_ref: transition.transition_ref, request }
+  })
+}
+
+function validateRevisionEvents(revision, batches, transitions) {
+  const events = [...batches, ...transitions].sort((left, right) => left.revision - right.revision)
+  if (events.length !== revision - 1) fail(`registry revision ${revision} must have exactly ${revision - 1} persisted mutation events`)
+  events.forEach((event, index) => {
+    if (event.revision !== index + 2) fail(`registry mutation event ${index} revision must be ${index + 2}`)
   })
 }
 
@@ -327,15 +454,16 @@ async function packPaths(repositoryRoot) {
   return paths.sort()
 }
 
-async function reconcileAuthored(records, repositoryRoot) {
+async function reconcileSources(records, repositoryRoot) {
   const paths = await packPaths(repositoryRoot)
-  const authored = records.filter((record) => record.status === 'authored')
-  const bySource = new Map(authored.map((record) => [record.source_path, record]))
+  const bySource = new Map(records.map((record) => [record.source_path, record]))
+  const discovered = new Set()
   const byIdentity = new Map(records.map((record) => [`${record.pack_id}@${record.version}`, record]))
   for (const packPath of paths) {
     const sourcePath = relative(repositoryRoot, dirname(packPath)).split(sep).join('/')
     const record = bySource.get(sourcePath)
     if (!record) fail(`authored source ${sourcePath} is not registered`)
+    discovered.add(sourcePath)
     const manifest = await readBoundedJson(packPath, MAX_MANIFEST_BYTES, `pack manifest ${sourcePath}`)
     const expectedDependencies = manifest.dependencies ?? []
     if (!same(record.dependencies, expectedDependencies)) fail(`dependency closure differs for ${sourcePath}`)
@@ -360,9 +488,9 @@ async function reconcileAuthored(records, repositoryRoot) {
       const document = await readBoundedJson(join(contentPath, jsonDocuments[0].name), MAX_MANIFEST_BYTES, `content document ${sourcePath}`)
       if (record.kind !== document.kind || record.item_id !== document.id) fail(`component identity differs for ${sourcePath}`)
     }
-    bySource.delete(sourcePath)
   }
-  if (bySource.size) fail(`registered authored source does not exist: ${[...bySource.keys()][0]}`)
+  const missingAuthored = records.find((record) => record.status === 'authored' && !discovered.has(record.source_path))
+  if (missingAuthored) fail(`registered authored source does not exist: ${missingAuthored.source_path}`)
 }
 
 function validateDependencyGraph(records) {
@@ -373,6 +501,7 @@ function validateDependencyGraph(records) {
     for (const dependency of record.dependencies) {
       const target = byIdentity.get(`${dependency.pack_id}@${dependency.version}`)
       if (!target) fail(`unknown dependency ${dependency.pack_id}@${dependency.version}`)
+      if (record.kind === 'channel-kit' && target.kind === 'channel-kit') fail(`coordinator ${record.pack_id} must depend only on creative components, not coordinator ${target.pack_id}`)
       if (record.kind !== 'channel-kit' && target.kind === 'channel-kit') fail(`creative pack ${record.pack_id} must not depend on coordinator ${target.pack_id}`)
       outgoing.get(dependency.pack_id).push(record.pack_id)
       indegree.set(record.pack_id, indegree.get(record.pack_id) + 1)
@@ -396,7 +525,32 @@ function validateDependencyGraph(records) {
   }
 }
 
-function bindReceipts(records, batches) {
+function immutableIdentity(record) {
+  return {
+    pack_id: record.pack_id,
+    ...(record.item_id ? { item_id: record.item_id } : { bundle_id: record.bundle_id }),
+    version: record.version,
+    publisher_id: record.publisher_id,
+    min_app_version: record.min_app_version,
+    min_app_version_status: record.min_app_version_status,
+    kind: record.kind,
+    source_path: record.source_path,
+    dependencies: record.dependencies,
+    stocking_proposal: {
+      family: { id: record.stocking_proposal.family.id },
+      sku: { id: record.stocking_proposal.sku.id },
+    },
+  }
+}
+
+function mutableLifecycle(record) {
+  return {
+    status: record.status,
+    stocking_proposal: record.stocking_proposal,
+  }
+}
+
+function bindReceipts(records, batches, transitions) {
   const authoringRecords = new Map()
   for (const record of records) {
     if (!AUTHORING_RECEIPT.test(record.receipt_ref)) continue
@@ -409,33 +563,53 @@ function bindReceipts(records, batches) {
     if (current.length !== batch.request.records.length) fail(`receipt ${batch.receipt_ref} identity count differs from persisted metadata`)
     for (const expected of batch.request.records) {
       const match = current.find((record) => record.pack_id === expected.pack_id && record.version === expected.version)
-      if (!match || !same(match, { receipt_ref: batch.receipt_ref, ...expected })) fail(`receipt ${batch.receipt_ref} identity differs from persisted metadata for pack_id ${expected.pack_id}`)
+      if (!match || !same(immutableIdentity(match), immutableIdentity(expected))) fail(`receipt ${batch.receipt_ref} identity differs from persisted metadata for pack_id ${expected.pack_id}`)
     }
     authoringRecords.delete(batch.receipt_ref)
   }
   if (authoringRecords.size) fail(`authoring receipt has no persisted batch metadata: ${authoringRecords.keys().next().value}`)
+
+  const lifecycle = new Map()
+  for (const batch of [...batches].sort((left, right) => left.revision - right.revision)) {
+    for (const record of batch.request.records) lifecycle.set(`${batch.receipt_ref}:${record.pack_id}@${record.version}`, record)
+  }
+  for (const transition of [...transitions].sort((left, right) => left.revision - right.revision)) {
+    const request = transition.request
+    const key = `${request.receipt_ref}:${request.pack_id}@${request.version}`
+    const record = lifecycle.get(key)
+    if (!record) fail(`lifecycle transition target is not bound to receipt ${request.receipt_ref}`)
+    lifecycle.set(key, applyLifecycleTransition(record, request.changes))
+  }
+  for (const record of records.filter((candidate) => AUTHORING_RECEIPT.test(candidate.receipt_ref))) {
+    const expected = lifecycle.get(`${record.receipt_ref}:${record.pack_id}@${record.version}`)
+    if (!expected || !same(mutableLifecycle(record), mutableLifecycle(expected))) {
+      fail(`receipt ${record.receipt_ref} lifecycle differs from persisted mutation metadata for pack_id ${record.pack_id}`)
+    }
+  }
 }
 
 async function validateRegistryDocument(registry, repositoryRoot) {
   assertBoundedJson(registry, 'registry', MAX_REGISTRY_BYTES)
-  exactFields(registry, new Set(['revision', 'batches', 'records']), 'registry')
+  exactFields(registry, new Set(['revision', 'batches', 'transitions', 'records']), 'registry')
   if (!Number.isSafeInteger(registry.revision) || registry.revision < 1) fail('revision must be a positive integer')
   if (!Array.isArray(registry.records)) fail('records must be an array')
   if (registry.records.length > MAX_REGISTRY_RECORDS) fail(`registry records must not exceed ${MAX_REGISTRY_RECORDS}`)
   const records = registry.records.map((record, index) => validateRecord(record, index))
-  const batches = validateBatches(registry.batches, registry.revision)
+  const batches = validateBatches(registry.batches)
+  const transitions = validateTransitions(registry.transitions)
+  validateRevisionEvents(registry.revision, batches, transitions)
   unique(records, function pack_id(record) { return record.pack_id })
   unique(records.filter((record) => record.item_id), function item_id(record) { return record.item_id })
   unique(records.filter((record) => record.bundle_id), function bundle_id(record) { return record.bundle_id })
   unique(records, function source_path(record) { return record.source_path })
   unique(records, function family(record) { return record.stocking_proposal.family.id })
   unique(records, function sku(record) { return record.stocking_proposal.sku.id })
-  bindReceipts(records, batches)
+  bindReceipts(records, batches, transitions)
   validateDependencyGraph(records)
   const resolvedRoot = resolve(repositoryRoot)
   for (const record of records) await assertSafeSourcePath(resolvedRoot, record)
-  await reconcileAuthored(records, resolvedRoot)
-  return { revision: registry.revision, batches, records }
+  await reconcileSources(records, resolvedRoot)
+  return { revision: registry.revision, batches, transitions, records }
 }
 
 export async function validateAuthoringRegistry({ registryPath = join(root, 'content-packs/authoring-registry.json'), repositoryRoot = root } = {}) {
@@ -481,11 +655,37 @@ export async function reserveAuthoringBatch({ registryPath = join(root, 'content
     const next = {
       revision,
       batches: [...validated.batches, { revision, receipt_ref, request: accepted }],
+      transitions: validated.transitions,
       records: [...validated.records, ...records],
     }
     await validateRegistryDocument(next, repositoryRoot)
     await atomicWrite(registryPath, `${JSON.stringify(next, null, 2)}\n`)
     return { revision, receipt_ref }
+  })
+}
+
+export async function transitionAuthoringRecord({ registryPath = join(root, 'content-packs/authoring-registry.json'), repositoryRoot = root, request } = {}) {
+  const accepted = transitionRequest(request)
+  return withRegistryLock(registryPath, async () => {
+    const current = await readBoundedJson(registryPath, MAX_REGISTRY_BYTES, 'registry')
+    const validated = await validateRegistryDocument(current, repositoryRoot)
+    if (validated.revision !== accepted.expected_revision) fail(`stale expected revision ${accepted.expected_revision}; current revision is ${validated.revision}`)
+    const index = validated.records.findIndex((record) => record.receipt_ref === accepted.receipt_ref
+      && record.pack_id === accepted.pack_id && record.version === accepted.version)
+    if (index < 0) fail(`lifecycle transition target is not bound to receipt ${accepted.receipt_ref}`)
+    const records = [...validated.records]
+    records[index] = applyLifecycleTransition(records[index], accepted.changes)
+    const revision = validated.revision + 1
+    const transition_ref = transitionFor(accepted)
+    const next = {
+      revision,
+      batches: validated.batches,
+      transitions: [...validated.transitions, { revision, transition_ref, request: accepted }],
+      records,
+    }
+    await validateRegistryDocument(next, repositoryRoot)
+    await atomicWrite(registryPath, `${JSON.stringify(next, null, 2)}\n`)
+    return { revision, transition_ref }
   })
 }
 
@@ -508,6 +708,9 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   } else if (process.argv[2] === 'reserve' && process.argv[3] === '--request' && process.argv[4] && process.argv.length === 5) {
     const request = await readBoundedJson(resolve(process.argv[4]), MAX_REQUEST_BYTES, 'reservation request file')
     process.stdout.write(`${JSON.stringify(await reserveAuthoringBatch({ request }))}\n`)
+  } else if (process.argv[2] === 'transition' && process.argv[3] === '--request' && process.argv[4] && process.argv.length === 5) {
+    const request = await readBoundedJson(resolve(process.argv[4]), MAX_REQUEST_BYTES, 'lifecycle transition request file')
+    process.stdout.write(`${JSON.stringify(await transitionAuthoringRecord({ request }))}\n`)
   } else if (process.argv[2] === 'verify-receipt' && process.argv[3] === '--revision' && process.argv[4]
     && process.argv[5] === '--receipt' && process.argv[6] && process.argv[7] === '--expected-identity'
     && process.argv[8] && process.argv.length === 9) {
@@ -518,6 +721,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       expectedIdentity,
     }))}\n`)
   } else {
-    fail('usage: authoring-registry.mjs validate | reserve --request <path> | verify-receipt --revision <revision> --receipt <receipt_ref> --expected-identity <path>')
+    fail('usage: authoring-registry.mjs validate | reserve --request <path> | transition --request <path> | verify-receipt --revision <revision> --receipt <receipt_ref> --expected-identity <path>')
   }
 }

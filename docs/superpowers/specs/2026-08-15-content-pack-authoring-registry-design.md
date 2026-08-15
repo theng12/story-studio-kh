@@ -56,11 +56,24 @@ Independent coordinators starting from the same revision produce an explicit Git
 than silently combining competing reservations; the later coordinator must rebase and reserve
 again against the new revision.
 
+## Lifecycle flow
+
+The coordinator records mutable lifecycle changes as revisioned CAS events. A reserved pack may
+advance to authored only after its registered source exists and reconciles to the exact immutable
+identity. Family and SKU proposals advance only `proposed` to `reserved` to `confirmed`, one step
+per transition; `confirmation_ref` is required only for `confirmed` and forbidden otherwise.
+Receipt binding covers the immutable identity from the accepted reservation, while registry
+validation replays persisted lifecycle events to prove that current mutable state was reached by
+monotonic validated transitions. The retired `content-packs/archival-ledger` source-only monolith
+cannot be reserved.
+
 ## Validation and migration
 
-The validator reconciles every `authored` registry record against its actual `pack.json`, including
+The validator reconciles every discovered registered source against its actual `pack.json`, including
 version, publisher, source path, item or bundle identity, dependency closure, family, and SKU. It
-also proves every authored source is registered and every registry source exists exactly once.
+also proves every authored source is registered and exists exactly once. All JSON inputs are opened
+without following symlinks, read through a bounded file handle to proven EOF, and rejected if the
+file grows, changes, or is replaced during the read.
 
 The four Story authoring skills name the real registry path and validation, reservation, and
 leaf-facing receipt-verification commands. They fail closed with `Registry task required` when the
