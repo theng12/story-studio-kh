@@ -80,6 +80,9 @@ describe('useContentStore explicit commerce state machine', () => {
 
     assert.equal(proof.products.value[0]?.productId, 'formula')
     assert.equal(proof.catalogFreshness.value, 'cached')
+    assert.deepEqual(proof.cachedProof.value, {
+      accountId: 'acct_a', origin: 'https://catalog.example.test', verifiedAt: shelf.lastVerifiedAt.value,
+    })
     await assert.rejects(proof.refresh())
     assert.equal(proof.catalogFreshness.value, 'cached')
     assert.equal(proof.lastVerifiedAt.value, shelf.lastVerifiedAt.value)
@@ -108,6 +111,9 @@ describe('useContentStore explicit commerce state machine', () => {
     assert.equal(accountB.account.value?.accountId, 'acct_b')
     assert.equal(offlineAfterAccountSwitch.account.value?.accountId, 'acct_b')
     assert.equal(offlineAfterAccountSwitch.products.value[0]?.productId, 'formula-b')
+    assert.deepEqual(offlineAfterAccountSwitch.cachedProof.value, {
+      accountId: 'acct_b', origin: 'https://two.example.test', verifiedAt: accountB.lastVerifiedAt.value,
+    })
   })
 
   for (const failure of [

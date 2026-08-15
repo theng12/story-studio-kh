@@ -1,4 +1,4 @@
-import { readonly, ref, type Ref } from 'vue'
+import { computed, readonly, ref, type Ref } from 'vue'
 import { useApi } from './useApi'
 
 export type ContentStoreProductKind =
@@ -181,6 +181,13 @@ export interface ContentStoreUiError {
 
 export type ContentStoreCatalogFreshness = 'fresh' | 'cached' | 'unavailable'
 
+/** Identity attached to a historical proof; it is never current-account state. */
+export interface ContentStoreCachedProof {
+  accountId: string
+  origin: string
+  verifiedAt: string
+}
+
 export interface ContentStoreErrorPresentation {
   title: string
   detail: string
@@ -269,6 +276,7 @@ export function useContentStore(): {
   attempts: Readonly<Ref<PublicContentPurchaseAttempt[]>>
   catalogFreshness: Readonly<Ref<ContentStoreCatalogFreshness>>
   lastVerifiedAt: Readonly<Ref<string | null>>
+  cachedProof: Readonly<Ref<ContentStoreCachedProof | null>>
   loading: Readonly<Ref<boolean>>
   error: Readonly<Ref<ContentStoreUiError | null>>
   refresh: () => Promise<void>
@@ -288,6 +296,11 @@ export function useContentStore(): {
   // network actions remain live until it completes its own explicit refresh.
   const catalogFreshness = ref<ContentStoreCatalogFreshness>(cached ? 'cached' : 'unavailable')
   const lastVerifiedAt = ref<string | null>(cached?.verifiedAt ?? null)
+  const lastVerifiedProof = ref<ContentStoreCachedProof | null>(cached
+    ? { accountId: cached.accountId, origin: cached.origin, verifiedAt: cached.verifiedAt }
+    : null)
+  const cachedProof = computed<ContentStoreCachedProof | null>(() =>
+    catalogFreshness.value === 'cached' ? lastVerifiedProof.value : null)
   const loading = ref(false)
   const error = ref<ContentStoreUiError | null>(null)
 
@@ -305,10 +318,12 @@ export function useContentStore(): {
     const origin = overview.origin
     if (!origin) {
       sessionOverview = null
+      lastVerifiedProof.value = null
       return
     }
     if (sessionOverview && (sessionOverview.accountId !== overview.account.accountId || sessionOverview.origin !== origin)) sessionOverview = null
     sessionOverview = { accountId: overview.account.accountId, origin, overview, verifiedAt: lastVerifiedAt.value }
+    lastVerifiedProof.value = { accountId: overview.account.accountId, origin, verifiedAt: lastVerifiedAt.value }
   }
 
   function replaceAttempt(attempt: PublicContentPurchaseAttempt): void {
@@ -461,6 +476,7 @@ export function useContentStore(): {
     attempts: readonly(attempts) as unknown as Readonly<Ref<PublicContentPurchaseAttempt[]>>,
     catalogFreshness: readonly(catalogFreshness),
     lastVerifiedAt: readonly(lastVerifiedAt),
+    cachedProof: readonly(cachedProof),
     loading: readonly(loading),
     error: readonly(error),
     refresh,

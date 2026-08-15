@@ -14,9 +14,15 @@
 - Dialog Escape stops at the focus trap, so it closes the dialog without triggering proof-route Escape navigation. Successful dialog completion focuses the extant Owned tab (or the detail route’s back link) instead of a removed trigger or `BODY`.
 - Fresh no-cache failure states render a retry boundary, not filters or a false empty catalog. Long detail proof, changelog, component, and license tokens wrap without horizontal overflow. Mobile tabs, search/select controls, actions, and checkbox labels now provide 44px hit areas; the 3px accent focus outline measures 3.70:1 on the light primary surface and 10.44:1 on the dark secondary surface.
 
+## Rendered-review hardening (round 2)
+
+- Cached proof now carries its explicit verified account ID, GenStudio origin, and timestamp. The product detail prefers that proof after an offline/500 refresh failure, labels it as historical, shows the bounded offline error alongside it, and leaves all network actions disabled.
+- A historical detail intentionally clears the product’s active ownership presentation and passes no ownership record into the detail component. It therefore never represents the cached account, balance, entitlement, or install state as current when offline. A later fresh response remains the only way to establish current identity; a verified account/origin response atomically replaces the session proof.
+- Dialog close focus now uses the same solid 3px accent outline (no translucent box shadow). Back to channels/detail and View proof links have 44px minimum hit areas without changing their visual hierarchy.
+
 ## Tests and checks
 
-- Focused frontend: 90 passing tests. Includes 42 table-driven public-code cases, same-account/origin session proof, account/origin replacement, mounted no-cache failure, roving tabs, Escape containment, and successful-purchase focus tests.
+- Focused frontend: 92 passing tests. Includes 42 table-driven public-code cases, same-account/origin session proof, account/origin replacement, mounted historical detail proof/no-action behavior, no-cache failure, roving tabs, Escape containment, successful-purchase focus, and focus/hit-area style checks.
 - Focused backend neighbors: 91 passing Content Store/delivery tests.
 - Frontend and Electron typechecks passed.
 - Production frontend build passed.

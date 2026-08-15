@@ -78,7 +78,7 @@ h3 { min-width: 0; overflow-wrap: anywhere; font-size: var(--font-xl); letter-sp
 .recall-message { display: grid; gap: 3px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }.recall-message strong { color: var(--warning); }
 .closure-message { display: grid; gap: 3px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }.closure-message strong { color: var(--warning); }
 .product-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
-.proof-action { color: var(--accent); font-size: var(--font-sm); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+.proof-action { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-size: var(--font-sm); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 .product-action .btn { margin-left: auto; min-height: var(--control-height-sm); padding: 7px 11px; font-size: var(--font-sm); }
 @media (max-width: 560px) { .product-action .btn { min-height: 44px; } }
 @media (max-width: 340px) { .product-title-row, .product-action { align-items: stretch; flex-direction: column; } .status-tag { align-self: flex-start; max-width: 100%; text-align: left; } .product-action .btn { width: 100%; margin-left: 0; justify-content: center; } }

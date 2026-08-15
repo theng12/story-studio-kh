@@ -10,6 +10,7 @@ const detail = readFileSync(fileURLToPath(new URL('../components/content-store/C
 const route = readFileSync(fileURLToPath(new URL('../pages/content-store/[productId].vue', import.meta.url)), 'utf8')
 const cover = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCover.vue', import.meta.url)), 'utf8')
 const storePage = readFileSync(fileURLToPath(new URL('../pages/content-store.vue', import.meta.url)), 'utf8')
+const purchaseDialog = readFileSync(fileURLToPath(new URL('../components/content-store/ContentPurchaseDialog.vue', import.meta.url)), 'utf8')
 
 async function loadComponent(relative: string): Promise<Component> {
   const filename = fileURLToPath(new URL(relative, import.meta.url))
@@ -44,6 +45,28 @@ async function loadStorePage(): Promise<Component> {
     const useAppSettingsModal = () => ({ open: () => undefined })
     const useRoute = () => ({ params: {} })
     const useAppTitle = () => undefined
+  `
+  const code = `${support}\n${script.content.replace(/^import .*$/gm, '').replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const transformed = await transform(code, { loader: 'ts', format: 'esm' })
+  return (await import(`data:text/javascript;base64,${Buffer.from(transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
+}
+
+async function loadDetailRoute(): Promise<Component> {
+  const filename = fileURLToPath(new URL('../pages/content-store/[productId].vue', import.meta.url))
+  const source = readFileSync(filename, 'utf8')
+  const { descriptor } = parse(source, { filename })
+  const script = compileScript(descriptor, { id: 'content-store-detail-route-state' })
+  const template = compileTemplate({ source: descriptor.template!.content, filename, id: 'content-store-detail-route-state', compilerOptions: { bindingMetadata: script.bindings } })
+  const vueUrl = await import.meta.resolve('vue')
+  const support = `
+    import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, defineComponent as _defineComponent } from "vue"
+    const ContentProductDetail = { props: ['product', 'ownership', 'networkUnavailable'], setup: (props) => () => h('div', { 'data-test': 'historical-proof', 'data-owned': String(props.product.owned), 'data-ownership': String(!!props.ownership), 'data-network-unavailable': String(props.networkUnavailable) }, props.product.title) }
+    const ContentPurchaseDialog = { render: () => null }
+    const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: 'Refresh the Store.' })
+    const useContentStore = () => globalThis.__contentStoreDetailStore
+    const useRoute = () => ({ params: { productId: 'formula' } })
+    const useAppTitle = () => undefined
+    const navigateTo = () => undefined
   `
   const code = `${support}\n${script.content.replace(/^import .*$/gm, '').replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
   const transformed = await transform(code, { loader: 'ts', format: 'esm' })
@@ -101,6 +124,29 @@ describe('Content Store proof route contract', () => {
     assert.match(rendered.host.textContent || '', /Content Store is unavailable/)
     assert.equal(rendered.host.querySelector('[data-test="catalog-filters"]'), null)
     assert.doesNotMatch(rendered.host.textContent || '', /No published products match these filters/)
+    rendered.unmount()
+  })
+
+  test('keeps cached A proof historical and disables actions when detail refresh fails', async () => {
+    const DetailRoute = await loadDetailRoute()
+    let actionCalls = 0
+    ;(globalThis as any).__contentStoreDetailStore = {
+      account: ref({ accountId: 'acct_a', owned: [{ entitlementFamily: 'formula-family' }] }),
+      products: ref([{ productId: 'formula', title: 'Account A Formula', entitlementFamily: 'formula-family', owned: true }]), attempts: ref([]),
+      cachedProof: ref({ accountId: 'acct_a', origin: 'https://a.example.test', verifiedAt: '2026-08-14T10:00:00Z' }),
+      catalogFreshness: ref('cached'), loading: ref(false), error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio is offline.' }),
+      refresh: async () => { throw new Error('offline') }, requestQuote: async () => { actionCalls++; throw new Error('not allowed') },
+      confirmPurchase: async () => { actionCalls++; throw new Error('not allowed') }, installRelease: async () => { actionCalls++; throw new Error('not allowed') },
+    }
+    const rendered = await mount(DetailRoute, {})
+    const proof = rendered.host.querySelector<HTMLElement>('[data-test="historical-proof"]')!
+    assert.match(rendered.host.textContent || '', /Last verified for GenStudio account acct_a at https:\/\/a\.example\.test/)
+    assert.match(rendered.host.textContent || '', /CONTENT_STORE_UNAVAILABLE: GenStudio is offline/)
+    assert.equal(proof.textContent, 'Account A Formula')
+    assert.equal(proof.dataset.owned, 'false', 'historical product proof must not assert active ownership')
+    assert.equal(proof.dataset.ownership, 'false')
+    assert.equal(proof.dataset.networkUnavailable, 'true')
+    assert.equal(actionCalls, 0)
     rendered.unmount()
   })
 
@@ -187,5 +233,12 @@ describe('Content Store proof route contract', () => {
     assert.match(cover, /:alt="coverAlt"/)
     assert.match(cover, /product\.free \? 'Free'/)
     assert.match(cover, /product\.creditPrice/)
+  })
+
+  test('uses a solid 3px focus outline for the dialog close control and 44px text-link targets', () => {
+    assert.match(purchaseDialog, /\.dialog-close:focus-visible\s*\{\s*outline:\s*3px solid var\(--accent\);\s*outline-offset:\s*2px;\s*box-shadow:\s*none;/)
+    assert.match(storePage, /\.back-link\s*\{[^}]*min-height:\s*44px/)
+    assert.match(route, /\.back-link\s*\{[^}]*min-height:\s*44px/)
+    assert.match(readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCard.vue', import.meta.url)), 'utf8'), /\.proof-action\s*\{[^}]*min-height:\s*44px/)
   })
 })

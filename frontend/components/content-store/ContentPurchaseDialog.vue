@@ -192,7 +192,7 @@ function formatExpiry(value: string): string {
 .purchase-header h2 { margin-top: 2px; overflow-wrap: anywhere; font-size: var(--font-2xl); line-height: 1.25; }
 .dialog-close { min-width: 44px; min-height: 44px; border: 1px solid var(--border); border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); cursor: pointer; }
 .dialog-close:hover { background: var(--bg-hover); color: var(--text-primary); }
-.dialog-close:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.dialog-close:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none; }
 .purchase-body { display: grid; gap: 16px; padding: 20px; }
 .ownership-statement { color: var(--text-primary); font-weight: 700; }
 .quote-grid,
