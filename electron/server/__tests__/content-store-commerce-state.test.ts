@@ -28,8 +28,9 @@ import {
   appSecretsPath,
   readContentStoreKeyAnchor,
   recordContentStoreKeyAnchor,
-  setContentStoreAnchorPlaintextTestSeamForTests,
+  setApiKey,
 } from '../services/app-secrets-store.js'
+import { setTestSafeStorageAvailable } from './safe-storage-test-double.js'
 
 const SIGNATURE = Buffer.alloc(64, 7).toString('base64')
 const HASH = 'a'.repeat(64)
@@ -233,6 +234,66 @@ describe('Content Store commerce state', () => {
     }), /anchor|disagrees/i)
   })
 
+  test('does not bless a plaintext rogue anchor during an ordinary provider-key save', async () => {
+    await isolate()
+    const trusted = generateKeyPairSync('ed25519')
+    const rogue = generateKeyPairSync('ed25519')
+    const keyId = 'content-key-laundering'
+    const publicBase64 = (key: typeof trusted.publicKey) => {
+      const der = key.export({ format: 'der', type: 'spki' })
+      return der.subarray(der.byteLength - 32).toString('base64')
+    }
+    const payload = {
+      typ: 'genstudio.content.restore.v1', key_id: keyId, account_id: 'acct_a',
+      content_account_id: 'acct_a', entitlement_families: [],
+    }
+    const canonical = canonicalizeContentStoreObject(payload).canonicalJson
+    await recordVerifiedContentRestore({
+      account_id: 'acct_a', content_account_id: 'acct_a', genstudio_origin: 'https://api.genstudio.example', key_id: keyId,
+      public_key_base64: publicBase64(trusted.publicKey), receipt_canonical_json: canonical,
+      receipt_signature: sign(null, Buffer.from(canonical), trusted.privateKey).toString('base64'), verified_at: new Date().toISOString(),
+      key_history: [{ key_id: keyId, public_key_base64: publicBase64(trusted.publicKey) }],
+    })
+
+    await fs.writeFile(appSecretsPath(), JSON.stringify({
+      schema_version: 3,
+      providers: {},
+      contentStoreKeyAnchors: [{
+        origin: 'https://api.genstudio.example', account_id: 'acct_a', content_account_id: 'acct_a',
+        keys: [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }],
+      }],
+    }))
+    await setApiKey('genstudio', 'gsk_provider_save')
+
+    const journal = JSON.parse(await fs.readFile(getContentStoreStatePath(), 'utf8'))
+    journal.verified_restore.public_key_base64 = publicBase64(rogue.publicKey)
+    journal.verified_restore.key_history = [{ key_id: keyId, public_key_base64: publicBase64(rogue.publicKey) }]
+    journal.verified_restore.receipt_signature = sign(null, Buffer.from(canonical), rogue.privateKey).toString('base64')
+    await fs.writeFile(getContentStoreStatePath(), `${JSON.stringify(journal)}\n`, { mode: 0o600 })
+
+    await assert.rejects(resolveVerifiedContentStoreSigningKey({
+      accountId: 'acct_a', origin: 'https://api.genstudio.example', keyId,
+    }), /OS-backed.*anchor|online revalidation|anchor/i)
+  })
+
+  test('preserves a valid encrypted anchor during an ordinary provider-key save', async () => {
+    await isolate()
+    const anchor = {
+      origin: 'https://api.genstudio.example', account_id: 'acct_a', content_account_id: 'acct_a',
+      keys: [{ key_id: 'key_anchor', public_key_base64: Buffer.alloc(32, 9).toString('base64') }],
+    }
+    await recordContentStoreKeyAnchor(anchor)
+    await setApiKey('genstudio', 'gsk_provider_save')
+    assert.deepEqual(await readContentStoreKeyAnchor({
+      origin: anchor.origin, account_id: anchor.account_id, content_account_id: anchor.content_account_id,
+    }), anchor)
+  })
+
+  test('does not expose the anchor plaintext test seam from the runtime module', async () => {
+    const runtime = await import('../services/app-secrets-store.js')
+    assert.equal('setContentStoreAnchorPlaintextTestSeamForTests' in runtime, false)
+  })
+
   test('requires a decryptable safeStorage envelope for production anchor reads and writes', async () => {
     await isolate()
     const anchor = {
@@ -241,7 +302,7 @@ describe('Content Store commerce state', () => {
     }
     const previousForce = process.env.STORY_STUDIO_FORCE_KEYCHAIN
     process.env.STORY_STUDIO_FORCE_KEYCHAIN = '1'
-    setContentStoreAnchorPlaintextTestSeamForTests(false)
+    setTestSafeStorageAvailable(false)
     try {
       await fs.writeFile(appSecretsPath(), JSON.stringify({ schema_version: 3, providers: {}, contentStoreKeyAnchors: [anchor] }))
       await assert.rejects(readContentStoreKeyAnchor({
@@ -255,7 +316,7 @@ describe('Content Store commerce state', () => {
     } finally {
       if (previousForce === undefined) delete process.env.STORY_STUDIO_FORCE_KEYCHAIN
       else process.env.STORY_STUDIO_FORCE_KEYCHAIN = previousForce
-      setContentStoreAnchorPlaintextTestSeamForTests(true)
+      setTestSafeStorageAvailable(true)
     }
   })
 

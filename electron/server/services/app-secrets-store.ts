@@ -67,16 +67,6 @@ interface EncryptedEnvelope {
   ciphertext: string
 }
 
-// The ordinary app-secret store intentionally supports a legacy plaintext
-// fallback. Receipt anchors do not: they are the independent integrity
-// boundary. Tests inject this seam explicitly because node:test has no OS
-// keychain; no environment variable can enable it in a packaged build.
-let contentStoreAnchorPlaintextTestSeam = false
-
-export function setContentStoreAnchorPlaintextTestSeamForTests(enabled: boolean): void {
-  contentStoreAnchorPlaintextTestSeam = enabled
-}
-
 function isEnvelope(raw: any): raw is EncryptedEnvelope {
   return !!raw && typeof raw === 'object' && raw.__encrypted === true
     && typeof raw.ciphertext === 'string'
@@ -104,6 +94,8 @@ async function readFileRaw(filePath: string): Promise<any> {
 
 interface UnwrapResult {
   v3: AppSecretsV3
+  /** True iff the on-disk payload was an unprotected legacy plaintext object. */
+  hadPlaintextPayload: boolean
   /**
    * True iff the on-disk file was an encrypted envelope we couldn't
    * decrypt on this machine. Callers that mutate (writeAppSecrets) use
@@ -114,12 +106,12 @@ interface UnwrapResult {
 }
 
 function unwrapPayload(raw: any): UnwrapResult {
-  if (raw == null) return { v3: emptyV3(), hadUndecryptableEnvelope: false }
+  if (raw == null) return { v3: emptyV3(), hadPlaintextPayload: false, hadUndecryptableEnvelope: false }
   if (isEnvelope(raw)) {
     try {
       const plain = decryptFromBase64(raw.ciphertext)
       const parsed = JSON.parse(plain)
-      return { v3: normaliseV3(parsed), hadUndecryptableEnvelope: false }
+      return { v3: normaliseV3(parsed), hadPlaintextPayload: false, hadUndecryptableEnvelope: false }
     } catch {
       // Cannot decrypt on this machine. Treat as empty rather than
       // throwing — the user can re-enter keys via the app-level
@@ -128,10 +120,10 @@ function unwrapPayload(raw: any): UnwrapResult {
       // before overwriting; otherwise a single PUT after a keychain
       // change would silently destroy the user's still-recoverable
       // keys.
-      return { v3: emptyV3(), hadUndecryptableEnvelope: true }
+      return { v3: emptyV3(), hadPlaintextPayload: false, hadUndecryptableEnvelope: true }
     }
   }
-  return { v3: normaliseV3(raw), hadUndecryptableEnvelope: false }
+  return { v3: normaliseV3(raw), hadPlaintextPayload: true, hadUndecryptableEnvelope: false }
 }
 
 function normaliseV3(raw: any): AppSecretsV3 {
@@ -197,8 +189,13 @@ export async function writeAppSecrets(
   let result = emptyV3()
   await withLock(filePath, async () => {
     const raw = await readFileRaw(filePath)
-    const { v3, hadUndecryptableEnvelope } = unwrapPayload(raw)
+    const { v3, hadPlaintextPayload, hadUndecryptableEnvelope } = unwrapPayload(raw)
     await mutate(v3)
+    // Legacy plaintext provider secrets remain supported, but plaintext Store
+    // anchors have no OS-backed provenance. A generic provider/settings save
+    // must never carry those bytes into a new safeStorage envelope and thereby
+    // bless an attacker-controlled anchor.
+    if (hadPlaintextPayload) delete v3.contentStoreKeyAnchors
     // Drop providers with empty keys.
     for (const pid of SECRET_PROVIDERS) {
       const bucket = v3.providers[pid]
@@ -235,7 +232,6 @@ function decodeContentStoreAnchorState(raw: unknown, allowPlaintextMigration: bo
       throw new Error('Content Store key anchor safeStorage envelope is undecryptable or tampered')
     }
   }
-  if (contentStoreAnchorPlaintextTestSeam) return normaliseV3(raw)
   if (allowPlaintextMigration) {
     const migrated = normaliseV3(raw)
     // A plaintext anchor never has provenance. Preserve unrelated legacy
@@ -255,7 +251,7 @@ async function mutateContentStoreAnchorState(
     const state = decodeContentStoreAnchorState(raw, true)
     await mutate(state)
     try { await fs.mkdir(path.dirname(filePath), { recursive: true }) } catch { /* race-safe */ }
-    if (!contentStoreAnchorPlaintextTestSeam && !isEncryptionAvailable()) {
+    if (!isEncryptionAvailable()) {
       throw new Error('Content Store key anchor requires available OS safeStorage')
     }
     await writeRaw(filePath, state)

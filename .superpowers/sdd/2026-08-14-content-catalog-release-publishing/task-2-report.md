@@ -166,3 +166,39 @@ probes set `STORY_STUDIO_FORCE_KEYCHAIN=1` with that seam disabled and prove:
 
 The full focused suite passed **132 tests**, with Electron typecheck, quiet
 lint, security check, and diff check also passing.
+
+## Fix round 4 — plaintext laundering and production seam removal
+
+The remaining anchor bypasses are closed at their source:
+
+- Every generic app-secrets read-modify-write now remembers whether its input
+  came from an unprotected legacy plaintext payload. After the requested
+  provider/settings mutation and before any output write, it discards all
+  plaintext-origin `contentStoreKeyAnchors`. An unrelated provider-key save can
+  therefore preserve legacy provider behavior but cannot wrap and bless a
+  rogue plaintext Store anchor in a fresh safeStorage envelope.
+- A valid anchor read from an existing decryptable safeStorage envelope
+  survives the same ordinary provider-key save unchanged.
+- The production `app-secrets-store` module no longer contains or exports a
+  plaintext-anchor test switch. Node tests install a deterministic Electron
+  `safeStorage` double from `electron/server/__tests__`, a directory excluded
+  by `electron/tsconfig.build.json`, so the packaged module has no equivalent
+  bypass surface.
+
+Observed RED → GREEN evidence:
+
+- A trusted commerce journal followed by plaintext rogue-anchor replacement,
+  an ordinary provider-key save, and matching offline journal repointing first
+  resolved the rogue key; it now fails closed for want of an OS-backed anchor.
+- Runtime-module export inspection first found the plaintext test seam and now
+  proves it absent.
+- Direct plaintext reads, unavailable safeStorage writes, malformed encrypted
+  envelopes, and missing anchors remain fail closed; the valid encrypted-anchor
+  preservation case remains GREEN.
+- The focused app-settings/secrets/commerce/routes/archive/installer/delivery
+  matrix passed **122/122** tests. Electron typecheck, quiet lint, source
+  security, production Electron compilation, compiled export inspection, and
+  diff check passed. The separately executed free-Starter integration fixture
+  still fails at its pre-existing publisher-profile archive because the newer
+  Store path requires `genstudio-store-receipt-v1`; the failure is outside this
+  anchor-only correction and occurs before anchor handling.
