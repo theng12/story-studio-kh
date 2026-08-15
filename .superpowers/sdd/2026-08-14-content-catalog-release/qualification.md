@@ -4,7 +4,8 @@ Date: 2026-08-16
 
 Status: **GO for the five reviewed integration corrections.** This is focused
 pre-release evidence, not the final Task 3 full-repository or Task 6 packaged
-artifact qualification. Versioning, packaging, production sealing, GenStudio
+artifact qualification. Release metadata is now bound to 1.0.842 in the direct
+child of this evidence commit; packaging, production sealing, GenStudio
 mutation, merge, push, install, restart and deployment were not performed.
 
 ## Immutable code identity
@@ -12,6 +13,12 @@ mutation, merge, push, install, restart and deployment were not performed.
 - integration base: `58dda52214a873cf0b697d961cae31c58b00a64b`
 - clean integration start: `26e2f025e5b10f46825a96934874ca4d839ad4b5`
 - qualified integrated code head: `15a46d48d95d46c2a74d199a27947db617bd5478`
+- integration evidence commit and release metadata parent: `a2b743f425cb0f7b9044f0b5228465cae6acc1c8`
+- release metadata version: `1.0.842`
+- release metadata identity: the direct child commit of the metadata parent
+  containing this report, the bounded version/changelog/migration files, and
+  the `ContentProductCard.vue` shared typography-token correction required by
+  the release source gate
 - base-exclusive commit count: 96
 - merge commits after the integration base: 0
 
@@ -75,7 +82,6 @@ test runner reported zero failures, cancellations, skips or todos.
 
 - Run the plan's full Task 3 `npm run verify` qualification at the final release
   commit and append its complete command/count/build evidence here.
-- Bind the owner-approved next version and newest changelog only after that gate.
 - Production sealing and archive ledger require their explicit owner authority.
 - Packaging/artifact QA, GenStudio mutation/publication, merge/push, and
   install/restart remain separate explicit gates.

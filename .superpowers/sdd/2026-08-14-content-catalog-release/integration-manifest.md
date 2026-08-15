@@ -2,9 +2,9 @@
 
 Date: 2026-08-16
 
-Status: Task 1 integration and the reviewed release-hardening corrections are
-complete. Version binding, production sealing, packaging, publication, merge,
-push, install, restart, and deployment remain outside this checkpoint.
+Status: Task 1 integration, reviewed release-hardening corrections, and release
+metadata binding are complete. Production sealing, packaging, publication,
+merge, push, install, restart, and deployment remain outside this checkpoint.
 
 ## Immutable integration identity
 
@@ -14,7 +14,14 @@ push, install, restart, and deployment remain outside this checkpoint.
 - Integration base: 58dda52214a873cf0b697d961cae31c58b00a64b
 - Integrated code head before the current evidence-only commit:
   15a46d48d95d46c2a74d199a27947db617bd5478
-- Package version intentionally retained: 1.0.841
+- Integration evidence commit: a2b743f425cb0f7b9044f0b5228465cae6acc1c8
+- Release metadata parent: a2b743f425cb0f7b9044f0b5228465cae6acc1c8
+- Release metadata version: 1.0.842
+- Release metadata identity: the direct child commit of the metadata parent
+  containing `package.json`, `package-lock.json`, `CHANGELOG.md`, this manifest,
+  the focused qualification, the new-computer migration checklist, and the
+  `ContentProductCard.vue` shared typography-token correction required by the
+  release source gate.
 - Merge commits in every source range: 0
 - Merge commits after the integration base: 0
 - Initial reviewed source commits checked: 57
@@ -388,8 +395,9 @@ Focused correction qualification at
 
 ## Deferred release and external gates
 
-- Final version and newest changelog entry are deliberately deferred. The
-  integration remains 1.0.841 until the release owner starts version binding.
+- Release metadata is bound to 1.0.842 with the newest dated changelog entry.
+  Full repository verification and packaged artifact qualification remain
+  separate later gates; no future artifact fact is asserted here.
 - The owner waived a separate Story production publisher key. Story has adopted
   GenStudio 1.14's field-exact delivery-attestation/archive profile with
   account-isolated retained proof, safeStorage-anchored historical keys, exact

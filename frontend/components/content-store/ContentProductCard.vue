@@ -70,7 +70,7 @@ const canInstall = computed(() => {
 .product-copy { display: grid; min-width: 0; gap: 6px; }
 .product-title-row { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
 h3 { min-width: 0; overflow-wrap: anywhere; font-size: var(--font-xl); letter-spacing: -.02em; line-height: 1.2; }
-.status-tag { flex: 0 0 auto; max-width: 48%; padding: 3px 7px; border: 1px solid var(--border-light); border-radius: 999px; color: var(--text-secondary); font-size: 11px; line-height: 1.25; text-align: right; }
+.status-tag { flex: 0 0 auto; max-width: 48%; padding: 3px 7px; border: 1px solid var(--border-light); border-radius: 999px; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.25; text-align: right; }
 .product-promise { color: var(--text-primary); font-size: var(--font-sm); font-weight: 650; line-height: 1.45; overflow-wrap: anywhere; }
 .product-transformation, .ownership-status { color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; overflow-wrap: anywhere; }
 .compatibility-message { display: grid; gap: 3px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; overflow-wrap: anywhere; }
