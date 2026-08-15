@@ -1,10 +1,10 @@
 # Content Catalog integration manifest
 
-Date: 2026-08-15
+Date: 2026-08-16
 
-Status: Task 1 integration is complete. Release preparation, version binding,
-production signing, packaging, publication, merge, push, install, restart, and
-deployment remain outside this checkpoint.
+Status: Task 1 integration and the reviewed release-hardening corrections are
+complete. Version binding, production sealing, packaging, publication, merge,
+push, install, restart, and deployment remain outside this checkpoint.
 
 ## Immutable integration identity
 
@@ -12,22 +12,22 @@ deployment remain outside this checkpoint.
 - Worktree: /build/Developer/story-studio-kh/.worktrees/content-store-release-foundation
 - Branch: codex/content-store-release-foundation
 - Integration base: 58dda52214a873cf0b697d961cae31c58b00a64b
-- Integrated code head before this manifest-only commit:
-  ad7cddc00a4281c54b4244386c3ec224d07a47a7
+- Integrated code head before the current evidence-only commit:
+  15a46d48d95d46c2a74d199a27947db617bd5478
 - Package version intentionally retained: 1.0.841
 - Merge commits in every source range: 0
 - Merge commits after the integration base: 0
-- Source commits checked: 57
-- Unique stable source patch IDs: 57
-- Duplicate stable source patch IDs: 0
-- Integrated commits before this manifest: 55
-- Unique stable integrated patch IDs: 55
-- Duplicate stable integrated patch IDs: 0
+- Initial reviewed source commits checked: 57
+- Initial integrated commits before the original manifest: 55
+- Current base-exclusive integrated commits before this evidence update: 96
+- Commits after the original manifest through the integrated code head: 40
 
 The pricing and exact video-operation work was already present in the selected
-main base. It was not cherry-picked again. Every other source range below was
-applied once in dependency order. The two additional integration commits are
-the navigation version deferral and the final combined-schema normalization.
+main base. It was not cherry-picked again. Every other initial source range
+below was applied once in dependency order. The two initial integration commits
+are the navigation version deferral and the final combined-schema normalization.
+The complete post-manifest range, including the five final reviewed correction
+commits, is recorded below.
 
 ## Validated source ranges
 
@@ -243,6 +243,66 @@ for every range.
 - review evidence: approved owner design and corrected dependency/range plans;
   these were applied last without conflict.
 
+### Post-manifest release hardening and authoring authority
+
+- original_manifest_commit: 471eb88d41098e2b91b2de6653c31d7f7492c24d
+- integration_start_head: 26e2f025e5b10f46825a96934874ca4d839ad4b5
+- integrated_code_head: 15a46d48d95d46c2a74d199a27947db617bd5478
+- included_sha, complete oldest-first after the original manifest:
+  1. d8d3a5bd837bd5b8e095f1de11d8dbe923177526
+  2. 922f3cbdd529ec6fc35f6eeb27d61d929c95b8d6
+  3. 4f7b27b64c98eac4173383e8ee81512847c35031
+  4. 66b366c38f8ce8c2fe3a4b1830c407b8eaf68536
+  5. a9918099a115ec2b5c2f649eaee41d77f4c83fde
+  6. 040acd29b97ef013ffe320aa3dc6073825d70ce3
+  7. ddc6bc062206ccd76d69088930ae7b99f997fd9a
+  8. 69618f36c4a56c82e23d0ce909c352f0e22bf580
+  9. 34f51043285fe6d2f120591ffcda246980f5e8d3
+  10. 0c2387043e424e3c284843fa736653e593045353
+  11. 90da31e832894d81df04a4dadfe67d2816e8c62c
+  12. c8a64308b290be013d0a7d474c545132a9aa8790
+  13. 2efd9950cd3754bc10b380ff07b11c9efd4064bf
+  14. b0d93c066fe2e773f1aa791cd170d1c3f12ca611
+  15. e8ba8d10fb37b44ad7daf3c25e1b867328aeb6e2
+  16. 487f4b9ef06eaf7f134152a80d025954ad00aeaa
+  17. e5752637e818b9c41ae4ba73a54de4565c090b08
+  18. 47d1282ffc01caa3f6d1a4da86b49bb56e1e444e
+  19. 7335535d7edac7036e1670cbdde84fcd35737537
+  20. 395d094e70b5af1d9b16238a75831621fd716b2b
+  21. 74656442550669a5c7d58b2d48dcdfe13499975f
+  22. df34463d9b4f554cebae4eae947baad041012827
+  23. e7af6fc530eb6c87ee8d1b0bca18fc34e3e1f4c7
+  24. a992397d42e1b416d9930eb507bf679647055f1e
+  25. 145b2b69cd44264be87ca918290a502bd67c412c
+  26. 9b1b146318c91bab839025afcd8f81ac83a67f7e
+  27. 8ae6cac50aca91e91c2293650f1d3a12c57b2a73
+  28. fc0dad7140451de8470f504355775416c7d25aaf
+  29. 68f2d86b0045a96ade4e811ecd2ad291ee10ede7
+  30. 81938bae3782bda3dda5bf1c84ea6a8d5798d3b6
+  31. 43d828d472f0caf62348c575e1028f629ab58fe7
+  32. 56823ea4fb7f6b46fdf6f42de59d9c7f0ca3ddf0
+  33. b26c452a2c877f7f714e5d0d110696def377a757
+  34. a24da5d75ff97b033e0be4e6d68f02cf52037e81
+  35. 26e2f025e5b10f46825a96934874ca4d839ad4b5
+  36. 2f086d613506bf7b35b44682686623a88416a2e1
+  37. a61a4de66fa5f7e65b3d3ad068a2c80fb611d7a8
+  38. 370891e64f8c5713e4319fe8ddb3a7c9e9660fcd
+  39. 564ad9f527d0200bec0d6d66c940f210c3936b57
+  40. 15a46d48d95d46c2a74d199a27947db617bd5478
+- final reviewed source-to-applied mapping:
+  1. 63525e2eb2b58f6bde609a7685d4888bdc080d5f -> 2f086d613506bf7b35b44682686623a88416a2e1
+  2. 2e8f7a668e7fba4d5940f1b0d902c68704b08462 -> a61a4de66fa5f7e65b3d3ad068a2c80fb611d7a8
+  3. 6bed1651b173b1442cfa9b39bd3d0421f1821a1d -> 370891e64f8c5713e4319fe8ddb3a7c9e9660fcd
+  4. b3ce6423c1528e3ca5f968f112cca2b5f7ee622b -> 564ad9f527d0200bec0d6d66c940f210c3936b57
+  5. c78383658e6cbd84371ba70f91907f8bf31c6941 -> 15a46d48d95d46c2a74d199a27947db617bd5478
+- conflicts: none. Git auto-merged both bundle corrections into the current
+  `electron/server/content-packs/installer.ts` without a conflict; the current
+  authoring-registry lifecycle and model-drift annotations were preserved.
+- review verdicts: the supplied isolated multi-account pair, bundle-transaction
+  pair, and video-validation commit were independently reviewed corrections.
+  Combined focused qualification at the applied head is GO with no open
+  Critical or Important integration finding.
+
 ## Conflict and normalization record
 
 1. Navigation test placement conflicted with the already-adopted recalled
@@ -282,7 +342,7 @@ for every range.
 
 ## Combined verification evidence
 
-Final integrated code at ad7cddc00a4281c54b4244386c3ec224d07a47a7:
+Original integrated code at ad7cddc00a4281c54b4244386c3ec224d07a47a7:
 
 - 287/287 broad backend tests passed: Content Pack archive, contracts,
   installer, adapters, migration goldens, free ownership, commerce routes,
@@ -308,24 +368,41 @@ Final integrated code at ad7cddc00a4281c54b4244386c3ec224d07a47a7:
 - The independent integration review found one Important plan-compliance gap
   and no code defect: this manifest was absent. This commit closes that gap.
 
+Focused correction qualification at
+15a46d48d95d46c2a74d199a27947db617bd5478:
+
+- 84/84 Content Pack source tests passed, including all 29 authoring-registry
+  lifecycle, namespace, reservation, receipt, source-dispatch, and bound checks.
+- 355/355 focused backend tests passed across Content Pack verification,
+  account-isolated commerce proof, safeStorage anchor history, Store routes,
+  exact installation state, delivery attestations, bundle transaction rollback
+  and serialization, GenStudio delivery, video variants/pricing, and motion.
+- 5/5 focused Motion Review tests passed.
+- Electron and Nuxt typechecks passed.
+- Quiet ESLint passed with zero errors.
+- Production security passed.
+- Model-drift passed across 563 source files with 26 annotated exceptions.
+- `git diff --check` passed, no generated PEM or `.sspack` remained under
+  `content-packs/` or `scripts/content-packs/`, and the integrated code tree was
+  clean before this evidence update.
+
 ## Deferred release and external gates
 
 - Final version and newest changelog entry are deliberately deferred. The
-  integration remains 1.0.841 until release Task 2 binds the next version.
-- The owner waived a separate Story production publisher key. Production Store
-  trust now waits for GenStudio 1.14's field-exact delivery-attestation/archive
-  profile; the current 900-second download grant is insufficient for permanent
-  offline verification. Recovery/local-import signing remains independently
-  isolated, and no Story production private key may enter this repository,
-  worktree, log, handoff, or command history.
+  integration remains 1.0.841 until the release owner starts version binding.
+- The owner waived a separate Story production publisher key. Story has adopted
+  GenStudio 1.14's field-exact delivery-attestation/archive profile with
+  account-isolated retained proof, safeStorage-anchored historical keys, exact
+  bundle closure and terminal recall. Recovery/local-import signing remains
+  independently isolated, and no Story production private key may enter this
+  repository, worktree, log, handoff, or command history.
 - Production archive sealing and immutable archive ledgers require Task 2's
   reviewed GenStudio delivery profile plus their explicit owner gate and
   GenStudio sealing operation.
-- GenStudio still owns the signed merchandising, bundle entitlement,
-  operator-discount quote, stocking, upload, and publication contracts. Story Studio
-  does not invent those fields. Catalog Experience work that consumes those
-  live contracts and paid Task 5 remain gated on the exact GenStudio contract
-  handoff and qualification.
+- GenStudio still owns signed merchandising, bundle entitlement,
+  operator-discount quote, stocking, upload, sealing and publication. Story
+  Studio does not invent those fields. Production archive and cross-app
+  qualification remain gated on their exact owner authorizations.
 - No desktop package, DMG, merge to main, push, tag, public release, install,
   restart, deploy, GenStudio mutation, purchase, or paid generation occurred.
 - This Mac remained control/development-only and performed no fleet generation,
