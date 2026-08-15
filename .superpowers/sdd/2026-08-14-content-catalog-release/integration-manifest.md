@@ -312,11 +312,15 @@ Final integrated code at ad7cddc00a4281c54b4244386c3ec224d07a47a7:
 
 - Final version and newest changelog entry are deliberately deferred. The
   integration remains 1.0.841 until release Task 2 binds the next version.
-- A production Ed25519 public key identity has not been supplied or committed.
-  No production private key may enter this repository, worktree, log, handoff,
-  or command history.
-- Production pack signing and immutable archive ledgers require their explicit
-  owner gate and external signing operation.
+- The owner waived a separate Story production publisher key. Production Store
+  trust now waits for GenStudio 1.14's field-exact delivery-attestation/archive
+  profile; the current 900-second download grant is insufficient for permanent
+  offline verification. Recovery/local-import signing remains independently
+  isolated, and no Story production private key may enter this repository,
+  worktree, log, handoff, or command history.
+- Production archive sealing and immutable archive ledgers require Task 2's
+  reviewed GenStudio delivery profile plus their explicit owner gate and
+  GenStudio sealing operation.
 - GenStudio still owns the signed merchandising, bundle entitlement,
   operator-discount quote, stocking, upload, and publication contracts. Story Studio
   does not invent those fields. Catalog Experience work that consumes those

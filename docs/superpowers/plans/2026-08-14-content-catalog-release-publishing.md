@@ -2,30 +2,57 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Integrate the reviewed Story/GenStudio/catalog work, bind one final Story version and first-party trust key, qualify deterministic production archives, package the desktop release, and prepare exact GenStudio stocking evidence behind explicit owner approval gates.
+**Goal:** Integrate the reviewed Story/GenStudio/catalog work, adopt the
+owner-approved single GenStudio commerce-keyring production trust model after
+its exact delivery contract is live, qualify deterministic production archives,
+package the desktop release, and prepare exact GenStudio stocking evidence
+behind explicit owner approval gates.
 
-**Architecture:** Build one clean integration branch from current `main`, cherry-pick only independently approved heads in dependency order, then compute the next patch version from the integration base. Ship the public trust record and schema/UI support before externally signing immutable archives; keep production private keys outside the repository and separate local qualification from every GenStudio draft/upload/publish or desktop push/install/restart action.
+**Architecture:** Build one clean integration branch from current `main`,
+cherry-pick only independently approved heads in dependency order, then compute
+the next patch version from the integration base. Production Store archives use
+only GenStudio's commerce authority once GenStudio 1.14 publishes an exact,
+deployed delivery-attestation/archive profile. Recovery and local-import
+publisher-signature paths remain independent. Do not implement the new delivery
+mode or seal production archives until that contract is verified.
 
-**Tech Stack:** Git, npm/TypeScript/Nuxt/Electron Builder, existing release scripts, Content Pack publisher/validator, Ed25519 public trust ring, GenStudio signed commerce/delivery APIs and admin handoffs.
+**Tech Stack:** Git, npm/TypeScript/Nuxt/Electron Builder, existing release
+scripts, Content Pack publisher/validator, recovery/local-import Ed25519 test
+trust, GenStudio signed commerce/delivery APIs, and admin handoffs.
 
 ## Global Constraints
 
 - Known approved heads are: catalog spec `2acf4168a9e51a3a38a5b6dfbbe32eeb7be60b1e`, GenStudio 1.7 + 1.9–1.11 adoption `35eb3942c0090925065d7268acb979105f77c086` (which contains `9c083083`), Archival source/runtime `18e6bbe02f382ee7dcd1868da7052296e24222d8`, and stale Scene Render reliability `b6143164f51e4061f8a75947c3a796cec746e110`.
 - Include stale Scene Render only when its task report/review is GO and focused tests remain green after catalog integration. Its exclusion must be recorded, not silently dropped.
 - Every shipped Story change bumps both package manifests and adds the matching newest-first changelog entry. Derive the next patch from the integration base; do not guess it in documentation.
-- Every production pack `min_app_version` equals the final Story version that ships its interpreter and public key. Publisher fails on mismatch.
-- Production private key remains outside repository, app, worktrees, logs, handoffs, and shell history. Only canonical Ed25519 SPKI public PEM and stable key ID enter `trust-keys.json`.
-- Free-recovery test key is never trusted for production catalog artifacts. Every archive is immutable, at most 52,428,800 bytes, and recorded with version/SHA-256/bytes/components/changelog.
+- Every production pack `min_app_version` equals the final Story version that
+  ships its interpreter and GenStudio-delivery verifier. Production sealing
+  fails on mismatch under GenStudio's documented profile.
+- There is no separate Story production publisher key or private-key operation.
+  The bundled recovery/local-import test key remains public-key-only, scoped to
+  those independent paths, and is never trusted for a production Store release.
+- The existing 900-second GenStudio download grant is insufficient for
+  permanent offline verification. No production-delivery code or production
+  sealing starts until GenStudio 1.14 supplies a field-exact signed
+  delivery-attestation/archive profile, key-history semantics, and deployed
+  evidence.
+- Every production archive is immutable, at most 52,428,800 bytes, and
+  recorded with version/SHA-256/bytes/components/changelog plus the exact
+  GenStudio evidence defined by that profile.
 - Story support ships before GenStudio exposes products requiring it. Free kits stock before Archival Ledger; later paid waves require separate reviewed plans.
-- No merge to `main`, push, tag, public package, production signing, GenStudio draft/upload/publish, purchase, install, restart, or deploy occurs without the explicit owner gate named in the task.
+- No merge to `main`, push, tag, public package, production sealing,
+  GenStudio draft/upload/publish, purchase, install, restart, or deploy occurs
+  without the explicit owner gate named in the task.
 - This Mac remains control/development-only and never performs fleet generation/model qualification.
 
 ## Dependencies and execution order
 
 1. Task 1 integrates reviewed branches and produces a reproducible manifest.
-2. Task 2 sets the final version/changelog and public trust record after owner supplies the public key identity.
+2. Task 2 waits for the exact deployed GenStudio 1.14 delivery profile before
+   any production-delivery code or release binding.
 3. Task 3 runs source/full-app qualification with ephemeral test keys.
-4. Task 4 requires owner authorization to access the external production signing operation.
+4. Task 4 waits for Task 2 and explicit owner authorization for GenStudio's
+   documented production sealing operation.
 5. Task 5 creates field-exact handoff records; GenStudio mutations require a separate owner approval.
 6. Task 6 packages/QA locally; merge/push/install/restart are three explicit owner gates.
 7. Task 7 is the final independent release/publishing review.
@@ -104,72 +131,33 @@ git commit -m "chore: record Content Catalog integration"
 
 Reviewer verifies ancestry, no missing reviewed correction, no duplicate cherry-pick, no user change overwritten, and exact optional-render disposition.
 
-### Task 2: Bind final Story version and first-party public trust
-
-**Files:**
-- Modify: `package.json`
-- Modify: `package-lock.json`
-- Modify: `CHANGELOG.md`
-- Modify: `electron/server/content-packs/recovery/trust-keys.json`
-- Modify: `electron/server/__tests__/content-pack-state.test.ts`
-- Modify: `electron/server/__tests__/content-pack-recovery.test.ts`
-- Create: `scripts/content-packs/__tests__/release-binding.test.mjs`
+### Task 2: Wait for and adopt the exact GenStudio production-delivery contract
 
 **Interfaces:**
-- Consumes: owner-supplied stable key ID and canonical Ed25519 SPKI public PEM; current integrated package version.
-- Produces `STORY_CATALOG_RELEASE_VERSION` as next patch and a public-key-only packaged trust record.
+- Consumes: a deployed GenStudio 1.14 handoff with field-exact signed
+  delivery-attestation/archive-profile semantics, archive-sealing workflow,
+  public-key history/rotation policy, recall behavior, and a redacted deployed
+  response fixture.
+- Produces: an approved implementation contract for a strict dual-mode
+  verifier; it does not itself change production code, package version,
+  changelog, or archive bytes.
 
-- [ ] **Step 1: Verify the owner-controlled public input gate**
+- [ ] **Step 1: Stop until the exact deployed contract exists**
 
-```bash
-test -n "$STORY_CATALOG_PUBLIC_KEY_ID"
-test -s "$STORY_CATALOG_PUBLIC_KEY_PEM_PATH"
-openssl pkey -pubin -in "$STORY_CATALOG_PUBLIC_KEY_PEM_PATH" -text -noout
-```
+The current signed download grant expires after 900 seconds. It authorizes a
+transfer but cannot be permanent offline verification evidence. Do not guess
+replacement fields, use a local Story publisher key, or begin
+production-delivery code until GenStudio 1.14 supplies the exact contract.
 
-Expected: an Ed25519 public key. If absent, stop; never derive it from a private key on this machine.
+- [ ] **Step 2: Review the dual-mode boundary, then implement and release-bind**
 
-- [ ] **Step 2: Write failing trust/release-binding tests**
-
-```js
-assert.equal(packageJson.version, packageLock.version)
-assert.equal(packageJson.version, packageLock.packages[''].version)
-assert.equal(changelogNewestVersion, packageJson.version)
-assert.equal(trust.keys.some(row => row.key_id === process.env.STORY_CATALOG_PUBLIC_KEY_ID), true)
-assert.equal(trustText.includes('PRIVATE KEY'), false)
-```
-
-Also assert every production source token is resolved only through explicit `--min-app-version` / `--key-id`, and any mismatch with package version fails.
-
-- [ ] **Step 3: Run RED, derive next patch, and update release records**
-
-```bash
-STORY_CATALOG_RELEASE_VERSION="$(node -e "const v=require('./package.json').version.split('.').map(Number); v[2]+=1; process.stdout.write(v.join('.'))")"
-npm version "$STORY_CATALOG_RELEASE_VERSION" --no-git-tag-version
-```
-
-Add a newest-first changelog entry naming catalog merchandising/proof/library, componentized kit schema, ten free source kits, Archival Ledger source, GenStudio 1.11 contract adoption, and Scene Render reliability only if included. Add the exact public record to `trust-keys.json`; never add private material.
-
-- [ ] **Step 4: Run GREEN and commit**
-
-```bash
-node --test scripts/content-packs/__tests__/release-binding.test.mjs
-STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 \
-  electron/server/__tests__/content-pack-state.test.ts \
-  electron/server/__tests__/content-pack-recovery.test.ts
-npm run check:changelog
-git diff --check
-git add package.json package-lock.json CHANGELOG.md \
-  electron/server/content-packs/recovery/trust-keys.json \
-  electron/server/__tests__/content-pack-state.test.ts \
-  electron/server/__tests__/content-pack-recovery.test.ts \
-  scripts/content-packs/__tests__/release-binding.test.mjs
-git commit -m "chore: prepare Content Catalog release"
-```
-
-- [ ] **Step 5: Obtain independent trust/release review**
-
-Reviewer validates the PEM/key ID, version/changelog agreement, packaged resource path, no private material, and key rotation compatibility.
+After the contract is live, require RED/GREEN coverage for valid/tampered
+delivery evidence; archive digest, byte-count, identity, signature, and
+key-history failures; no-network boot verification; state/archive tampering;
+exact dependency closure; historical key rotation; terminal recall; and
+local-import refusal. Preserve recovery and developer publisher-tool tests.
+Only then bind the next Story version/changelog. Do not add a Story production
+public key, private key, or production archive to the app.
 
 ### Task 3: Qualify sources and the complete Story application locally
 
@@ -178,7 +166,8 @@ Reviewer validates the PEM/key ID, version/changelog agreement, packaged resourc
 - Create: `.superpowers/sdd/2026-08-14-content-catalog-release/qualification.md`
 
 **Interfaces:**
-- Consumes: Task 2 release version/public trust, source packs, ephemeral test keys.
+- Consumes: Task 2's reviewed implementation when available, source packs, and
+  ephemeral recovery/local test keys.
 - Produces deterministic source qualification and full app verification; no retained distributable pack.
 
 - [ ] **Step 1: Run all Content Pack/source suites**
@@ -207,47 +196,51 @@ Expected: lint/typecheck/backend/frontend/release tests and production builds pa
 
 - [ ] **Step 3: Independently review qualification evidence**
 
-Record commands, counts, hashes of tested source trees, and any warnings. Reviewer must issue GO before production signing authority is requested.
+Record commands, counts, hashes of tested source trees, and any warnings.
+Reviewer must issue GO before production-sealing authority is requested.
 
-### Task 4: Build and verify production archives externally
+### Task 4: Seal and verify production archives through GenStudio
 
 **Files:**
-- External input: owner-controlled private key path
-- Output: immutable versioned `.sspack` archives outside the repository
+- External input: explicit owner authority and GenStudio's deployed sealing
+  workflow from Task 2
+- Output: immutable versioned `.sspack` archives and their GenStudio delivery
+  evidence outside the repository
 - Create: `.superpowers/sdd/2026-08-14-content-catalog-release/archive-ledger.json`
 
 **Interfaces:**
-- Consumes: explicit owner authorization, external key path, Task 2 key ID/version, accepted source packs.
-- Produces one ledger row per archive: `pack_id`, `version`, `sha256`, `bytes`, `min_app_version`, `key_id`, components, changelog.
+- Consumes: Task 2 implementation/GO evidence, explicit owner authorization,
+  GenStudio's field-exact sealing contract, final Story version, and accepted
+  source packs.
+- Produces one ledger row per archive using the exact immutable and
+  verification facts GenStudio publishes; no Story private key is involved.
 
 - [ ] **Step 1: Obtain explicit owner authority**
 
-Required wording: authorization to access the external signing key and create immutable production archives. Without it, stop after Task 3.
+Required wording: authorization to use GenStudio's documented production
+sealing workflow and create immutable production archives. Without it, stop
+after Task 3.
 
-- [ ] **Step 2: Validate paths and build without exposing secrets**
+- [ ] **Step 2: Stop unless Task 2's deployed 1.14 profile is GO**
 
-```bash
-test -s "$STORY_CATALOG_PRIVATE_KEY_PATH"
-test -d "$STORY_CATALOG_ARCHIVE_OUTPUT_DIR"
-test "${STORY_CATALOG_ARCHIVE_OUTPUT_DIR#$(git rev-parse --show-toplevel)}" = "$STORY_CATALOG_ARCHIVE_OUTPUT_DIR"
-```
+Do not upload, seal, or create a production archive from a Story private key.
+Use only GenStudio's documented workflow after its exact immutable evidence,
+offline-verification retention, key-history, and recall semantics have been
+implemented and reviewed in Story.
 
-For each accepted source, run `npm run content-pack:build` with explicit private-key path, Task 2 key ID, Task 2 Story version, and a new versioned output path. Never enable shell tracing or print PEM contents.
+- [ ] **Step 3: Validate every archive through the production delivery verifier**
 
-- [ ] **Step 3: Validate every archive using only the public key**
-
-```bash
-npm run content-pack:validate -- "$STORY_CATALOG_ARCHIVE_PATH" \
-  --key-id "$STORY_CATALOG_PUBLIC_KEY_ID" \
-  --publisher-id com.storystudio \
-  --public-key "$STORY_CATALOG_PUBLIC_KEY_PEM_PATH"
-```
-
-Additionally assert each archive is at most 52,428,800 bytes, its manifest version/minimum/key/dependencies match source/release, and archive SHA-256/bytes match the ledger.
+Validate each archive with the exact GenStudio evidence prescribed by Task 2,
+then assert its size, manifest identity, minimum version, dependencies, hash,
+and byte count match the ledger. Verify its retained evidence at no-network
+boot and prove that recall refuses further exact-version delivery without
+silently substituting content.
 
 - [ ] **Step 4: Independently review and freeze the archive ledger**
 
-No rebuild under `1.0.0` is allowed after acceptance. Any changed byte requires a new version/source review. Commit only the bounded ledger, never archives or keys:
+No rebuild under `1.0.0` is allowed after acceptance. Any changed byte requires
+a new version/source review. Commit only the bounded ledger, never archives,
+private material, or customer credentials:
 
 ```bash
 git add .superpowers/sdd/2026-08-14-content-catalog-release/archive-ledger.json
@@ -302,7 +295,10 @@ npm run verify:artifact -- \
   --dmg "dist/Story Studio KH ${STORY_CATALOG_RELEASE_VERSION}-arm64.dmg"
 ```
 
-Expected: unsigned DMG and artifact gates pass; packaged resources contain the public trust record, never the private key or production archives unless separately approved as recovery content.
+Expected: unsigned DMG and artifact gates pass; packaged resources retain only
+the recovery/local-import public verification resource and never contain a
+Story production key, private material, or production archives unless
+separately approved as recovery content.
 
 - [ ] **Step 2: Perform packaged visual/read-only QA**
 
@@ -330,7 +326,10 @@ Only after the Story minimum version is live may GenStudio publish ten free kits
 
 - [ ] **Step 6: Obtain independent artifact/rollout review**
 
-Before Task 7 relies on the result, a fresh reviewer compares the exact artifact checksum, installed version, What's New text, packaged trust key, main/pushed commit, and any authorized GenStudio publication facts against Tasks 1–5. Any mismatch is NO-GO.
+Before Task 7 relies on the result, a fresh reviewer compares the exact artifact
+checksum, installed version, What's New text, recovery-resource isolation,
+GenStudio-delivery implementation, main/pushed commit, and any authorized
+GenStudio publication facts against Tasks 1–5. Any mismatch is NO-GO.
 
 ### Task 7: Run final independent spec/compliance and code-quality review
 
@@ -366,10 +365,17 @@ Inspect branch ancestry, version/changelog, packaged resources, no secret/artifa
 
 - [ ] **Step 4: Report only concrete owner gates**
 
-If production signing, GenStudio drafts/publication, merge/push, or install/restart has not been explicitly authorized, report that exact action and recommendation. Never collapse multiple authorities into an implied blanket approval.
+If production sealing, GenStudio drafts/publication, merge/push, or
+install/restart has not been explicitly authorized, report that exact action
+and recommendation. Never collapse multiple authorities into an implied blanket
+approval.
 
 ## Self-review
 
-- Spec coverage: branch integration, GenStudio 1.7/1.11, optional Scene Render, final version/minimum, public trust/private separation, deterministic archives, GenStudio handoff/qualification, package/QA, merge/push/install/restart/publication gates are covered.
+- Spec coverage: branch integration, GenStudio 1.7/1.11, the required 1.14
+  production delivery profile, optional Scene Render, final version/minimum,
+  dual-mode trust separation, deterministic archives, GenStudio
+  handoff/qualification, package/QA, merge/push/install/restart/publication
+  gates are covered.
 - Placeholder scan: runtime values are derived from exact branch heads, package version, and owner-provided environment inputs; no guessed release/key/path is embedded.
 - Type consistency: the archive ledger is the single handoff/qualification source for versions, hashes, sizes, minimums, and component mappings.

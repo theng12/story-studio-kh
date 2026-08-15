@@ -623,28 +623,62 @@ No failure automatically purchases, retries a paid action under a new identity, 
 9. Recalled dangerous bytes are the sole emergency exception: the app preserves project evidence, blocks affected generation, and offers the newest safe owned release without silently rewriting pins.
 10. Legacy aliases remain until inventory proves no persisted project, preset, artifact, job, or import path requires them.
 
-## 19. Production signing and trust separation
+## 19. Production delivery trust amendment
 
-The launch uses three distinct trust domains:
+**Owner ruling, 2026-08-15:** production Content Packs use the GenStudio
+commerce-keyring authority only. Story will not create, receive, package, or
+pin a separate production `com.storystudio` publisher key. This deliberately
+collapses production commerce and content authenticity into one GenStudio trust
+domain. The owner accepts the resulting trade-off: compromise of that commerce
+authority can authorize both an entitlement and its content bytes.
 
-1. **Content publisher signature:** Story's pinned first-party Ed25519 public key verifies `.sspack` bytes.
-2. **GenStudio commerce signature:** GenStudio's live public-key keyring verifies quote/receipt/restore/download payloads.
-3. **Transport grant:** GenStudio's short-lived signed download grant authorizes immutable archive transfer.
+This does not weaken the two independent non-production paths:
 
-They are never substituted for one another.
+1. **Bundled recovery:** immutable recovery packs retain their independently
+   signed recovery/test key and packaged public verification resource.
+2. **Local import and developer tooling:** local archives remain subject to
+   the existing explicit publisher-signature path, using only local or
+   ephemeral test keys. That path is never a way to install a production Store
+   release.
+3. **Production Store delivery:** a distinct GenStudio-delivery authority
+   verifies a structurally valid archive only after GenStudio's commerce
+   evidence binds its immutable identity. It may not be selected by renderer
+   input or a local-import request.
 
-Production rules:
+The production implementation is deliberately **not** specified from the
+current grant alone. The live download grant has a 900-second lifetime. It is
+enough to authorize a transfer at install time, but is insufficient evidence
+for permanent offline verification of an installed archive after it expires.
+Before any Story production-delivery code or production archive sealing,
+GenStudio 1.14 must publish a field-exact, signed delivery-attestation/archive
+profile and deployed fixture. Story must not infer its wire fields.
 
-- the content publisher private key is generated and retained outside every repository, application bundle, worktree, log, and handoff;
-- Story ships only the matching public PEM and stable key ID in its first-party trust ring;
-- the free-recovery test key is never accepted as a production catalog key;
-- pack authoring may use ephemeral test keys, but production artifacts are rebuilt once under the production key and receive immutable hashes;
-- GenStudio publishes/records the exact archive SHA-256 and byte count and refuses publication above 52,428,800 bytes;
-- Story independently validates the final downloaded archive and its dependency closure;
-- key rotation adds a new trusted public key in an app release before new packs use it; old required keys remain while installed/pinned content needs them;
-- no production archive is signed until its source, version, release minimum, and component mapping pass independent review.
+Once that contract exists, Story's dual-mode implementation must:
 
-The exact first-party content key ID and public PEM are a release-operations input, not something this design invents. Artifact production remains gated until the owner-controlled key exists and its public half is registered in Story's trust ring.
+- preserve every existing ZIP, manifest, file-hash, schema, asset, size, and
+  exact dependency-closure check;
+- admit the GenStudio-delivery mode only when signed commerce evidence binds
+  the exact archive, release identity, publisher identity, byte count, and
+  minimum Story version;
+- retain bounded, non-secret offline verification evidence and the applicable
+  commerce public-key history with the installed immutable version, without
+  persisting an API key, download URL, or customer credential;
+- make boot verification, registry discovery, project pins, rollback,
+  uninstall guards, and dependency closure resolve the authority of each
+  retained version rather than applying one global publisher keyring;
+- preserve recall as a terminal delivery refusal for the exact recalled
+  version, with no current-version substitution or mutation of an installed
+  closure; and
+- keep the recovery/test key unavailable to production Store releases.
+
+Required implementation tests after the contract is deployed include valid and
+tampered delivery evidence; digest, byte-count, identity, signature, and
+key-history failures; no-network boot verification of installed Store packs;
+archive/materialized-file/state-proof tampering; exact mixed-mode dependency
+closures; historical-key rotation; terminal recall; and proof that local import
+cannot select the GenStudio-delivery mode. Production archives remain bounded
+to 52,428,800 bytes and are sealed only after their source, version, release
+minimum, and component mapping pass independent review.
 
 ## 20. GenStudio ownership and live contract
 
@@ -665,7 +699,8 @@ Story owns:
 - strict response parsing and preservation of signed bytes;
 - Store, proof/detail, Owned, Installed, and Updates UI;
 - local receipt cache and offline state;
-- pack publisher trust ring;
+- recovery/local-import signature verification and the production
+  GenStudio-delivery verifier once its contract is live;
 - signed archive and raster validation;
 - dependency closure installation, activation, rollback, disable, and uninstall guards;
 - exact project pins, provenance, compatibility, and explicit upgrade/rollback;
@@ -681,6 +716,10 @@ Live contracts already available and safe to adopt include:
 - owner access to withdrawn releases;
 - terminal recalled release behavior from GenStudio `1.9.0`.
 
+The production delivery-attestation/archive profile is not live yet. It is a
+GenStudio `1.14` release gate, not a field that Story may derive from the
+existing commerce response.
+
 ## 21. Required GenStudio handoff before stocking
 
 Story must not invent the remaining server contract. A field-exact GenStudio handoff is required for:
@@ -694,6 +733,12 @@ Story must not invent the remaining server contract. A field-exact GenStudio han
 7. **Product detail completeness:** confirm whether the existing product list is the detail source or provide an exact authenticated detail endpoint; Story must not manufacture missing license, media, or release facts.
 8. **License display:** publish the authoritative customer-facing license label/text or a stable operator-managed license reference for each product. The pack archive does not currently contain a commercial license contract, and Story must not invent one.
 9. **Operator discount quote semantics:** for Archival Ledger, confirm the field-exact signed facts for the 2,000-credit list price, owned-component deductions, the operator discount identity/percentage and optional end date, and the final server-calculated amount. The discount applies to every customer after the owned-component deduction; no eligibility, account-history, first-purchase, or discount-refusal fields are required. Story renders these facts without local calculation or eligibility checks. Final wire names must come from GenStudio's deployed reply.
+10. **Production delivery attestation/archive profile:** publish the exact
+    signed immutable evidence and key-history/rotation semantics that make a
+    downloaded production archive verifiable at later offline boot. It must
+    cover the immutable archive/release/publisher/minimum-version binding,
+    recall interaction, retention bounds, and GenStudio's production sealing
+    workflow. A 900-second download grant is not a substitute.
 
 Until those answers are live, Story may implement local fixtures and UI states, but production stocking remains blocked. This is a cross-app contract gate, not an unresolved owner product decision.
 
@@ -701,13 +746,22 @@ Until those answers are live, Story may implement local fixtures and UI states, 
 
 1. **Freeze the baseline.** Record all 21 Formula/niche configs, 26 Topic Packs, 17 styles, 6 recipes, effective loader decoration, previews, aliases, and representative prompt outputs.
 2. **Obtain GenStudio bundle/merchandising contract.** Resolve section 21 without client guesses.
-3. **Ship Story schema support.** Add bundle-only coordination manifests, exact dependency resolution using the live owned-release endpoint, recall handling, and publisher public key.
+3. **Wait for and adopt the production delivery profile.** Do not begin
+   production-delivery verifier code until the deployed GenStudio 1.14
+   attestation/archive profile resolves section 21. Then add the narrow
+   dual-mode verifier, exact dependency resolution, and recall handling while
+   preserving recovery/local-import signature paths.
 4. **Ship the approved Store journey.** Add catalog-published shelves, proof/detail, showcase videos, Owned, Installed, Updates, and accessible responsive states.
 5. **Author component sources.** Create the ten Formula editions, ten full Topic Packs, nine distinct styles, seven distinct recipes, and ten coordination manifests from the exact identities in this specification.
 6. **Review content independently.** Require schema, originality/coverage, compatibility, prompt-equivalence, visual, thumbnail, safety, copy, and commercial-boundary review.
 7. **Build with test trust.** Produce deterministic candidate archives under ephemeral test keys; retain no private test key or distributable artifact after qualification.
-8. **Bind the release minimum.** Set every production archive's `min_app_version` to the released Story version that contains its schema interpreter and publisher key.
-9. **Sign production artifacts externally.** Build and validate immutable production archives with the owner-controlled content key, recording version, SHA-256, bytes, component summary, and changelog.
+8. **Bind the release minimum.** Set every production archive's
+   `min_app_version` to the released Story version that contains its schema
+   interpreter and GenStudio-delivery verifier.
+9. **Seal production artifacts through GenStudio.** Only after the 1.14
+   profile and Story implementation are reviewed, use GenStudio's documented
+   production sealing workflow to produce immutable archives and their
+   recorded release evidence. No Story publisher private-key operation occurs.
 10. **Create GenStudio drafts.** Create component families/releases, ten zero-price kit products, exact bundle composition, catalog shelves, and Archival Ledger at the owner-approved live price.
 11. **Cross-app qualification.** Use local/mock financial tests first, then the authorized GenStudio release qualification flow. No real purchase or customer credit mutation occurs without explicit owner authority.
 12. **Publish compatibly.** Release Story with trust/schema/UI support before GenStudio exposes products whose `min_story_version` requires it.
@@ -723,7 +777,9 @@ Until those answers are live, Story may implement local fixtures and UI states, 
 - Every launch release uses exact version `1.0.0` and immutable bytes.
 - Bundle-only manifests validate only under the narrow coordination-pack rules.
 - Normal component manifests cannot use empty items/files.
-- Unknown keys, invalid signatures, namespace violations, undeclared files, unsafe archives, corrupt assets, and incompatible schemas fail closed.
+- Unknown keys, invalid signatures or delivery evidence, namespace violations,
+  undeclared files, unsafe archives, corrupt assets, and incompatible schemas
+  fail closed.
 - No private key, credential, account ID, provider/model routing, executable content, or arbitrary URL appears in a pack.
 - Every final archive is at or below 52,428,800 bytes and matches GenStudio's recorded digest/size.
 
@@ -785,7 +841,9 @@ The launch catalog is ready to publish only when:
 1. the bundle-only Story schema and exact GenStudio grant contract agree;
 2. the Store journey and catalog merchandising fields are live;
 3. all ten free coordination releases and their component closures pass independent review;
-4. the production public key is shipped and the private key remains externally controlled;
+4. the deployed GenStudio 1.14 delivery-attestation/archive profile is adopted
+   by Story's production verifier, while recovery/local-import signing remains
+   independently isolated;
 5. GenStudio drafts match exact IDs, hashes, sizes, versions, compatibility, prices, and zero-price grants;
 6. cross-app qualification proves ownership, shared components, installation, offline use, and legacy safety;
 7. the owner explicitly authorizes publication.
