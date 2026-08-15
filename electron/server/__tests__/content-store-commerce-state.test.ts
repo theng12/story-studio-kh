@@ -121,7 +121,7 @@ function release() {
 function purchase(overrides: Record<string, unknown> = {}) {
   const receipt = {
     typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a',
-    purchase_id: 'cpur_a', account_id: 'acct_a', entitlement_families: ['com.storystudio.test'],
+    purchase_id: 'cpur_a', quote_id: 'cq_test', account_id: 'acct_a', entitlement_families: ['com.storystudio.test'],
     granted_families: ['com.storystudio.test'], previously_owned_families: [], bundle_closure: [],
     base_credit_price: 400, component_discount_credits: 100,
     operator_discount: null, operator_discount_credits: 0,
@@ -326,7 +326,7 @@ describe('Content Store commerce state', () => {
       account_id: 'acct_other',
       receipt: {
         receipt: {
-          typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a', purchase_id: 'cpur_a',
+          typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a', purchase_id: 'cpur_a', quote_id: 'cq_test',
           account_id: 'acct_other', entitlement_families: ['com.storystudio.test'],
           granted_families: ['com.storystudio.test'], previously_owned_families: [], bundle_closure: [],
           base_credit_price: 400, component_discount_credits: 100, operator_discount: null, operator_discount_credits: 0,
@@ -339,6 +339,47 @@ describe('Content Store commerce state', () => {
     const wrongFamily = purchase()
     wrongFamily.entitlementFamilies = ['com.storystudio.other']
     await assert.rejects(recordCompletedPurchase('cq_test', wrongFamily), /entitlement/i)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
+  })
+
+  test('refuses a same-account signed receipt whose immutable quote identity differs before completion', async () => {
+    await isolate()
+    await saveQuotedAttempt(quote())
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    const wrongQuote = purchase({ receipt: {
+      receipt: {
+        typ: 'genstudio.content.receipt.v1', key_id: 'key-1', receipt_id: 'crc_a', purchase_id: 'cpur_a', quote_id: 'cq_different',
+        account_id: 'acct_a', entitlement_families: ['com.storystudio.test'],
+        granted_families: ['com.storystudio.test'], previously_owned_families: [], bundle_closure: [],
+        base_credit_price: 400, component_discount_credits: 100, operator_discount: null, operator_discount_credits: 0,
+        product: { product_id: 'cprod_a', entitlement_family: 'com.storystudio.test', title: 'Test Formula' },
+        release: release(), credits_charged: 300, issued_at: '2026-08-14T10:01:00Z',
+      }, receipt_signature: SIGNATURE, key_id: 'key-1',
+    } })
+    assert.equal(wrongQuote.quoteId, 'cq_different')
+    await assert.rejects(recordCompletedPurchase('cq_test', wrongQuote), /quote_id|saved quote/i)
+    assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
+  })
+
+  test('binds completed product, release, conveyed families, and closure to the durable quote without comparing price facts', async () => {
+    await isolate()
+    await saveQuotedAttempt(quote())
+    await beginPurchaseAttempt('cq_test', 'acct_a')
+    const wrongProduct = purchase()
+    wrongProduct.product.value.product_id = 'cprod_different'
+    await assert.rejects(recordCompletedPurchase('cq_test', wrongProduct), /product|release/i)
+    const wrongRelease = purchase()
+    wrongRelease.release.value.release_id = 'crel_different'
+    await assert.rejects(recordCompletedPurchase('cq_test', wrongRelease), /product|release/i)
+    const wrongFamilies = purchase()
+    wrongFamilies.entitlementFamilies = ['com.storystudio.different']
+    await assert.rejects(recordCompletedPurchase('cq_test', wrongFamilies), /entitlement families/i)
+    const wrongClosure = purchase()
+    wrongClosure.bundleClosure = [{
+      position: 0, productId: 'cprod_component', entitlementFamily: 'com.storystudio.component',
+      releaseId: 'crel_component', version: '1.0.0', archiveSha256: HASH,
+    }]
+    await assert.rejects(recordCompletedPurchase('cq_test', wrongClosure), /bundle closure/i)
     assert.equal((await readContentStoreCommerceState()).attempts.cq_test.status, 'submitting')
   })
 

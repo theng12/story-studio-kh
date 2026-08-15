@@ -107,7 +107,7 @@ function restorePayload(overrides: Record<string, unknown> = {}) {
 
 function purchasePayload(overrides: Record<string, unknown> = {}) {
   return {
-    typ: 'genstudio.content.receipt.v1', key_id: KEY_ID, receipt_id: 'crc_a', purchase_id: 'cpur_a',
+    typ: 'genstudio.content.receipt.v1', key_id: KEY_ID, receipt_id: 'crc_a', purchase_id: 'cpur_a', quote_id: 'cq_test',
     account_id: 'acct_a', entitlement_families: ['com.storystudio.test'],
     granted_families: ['com.storystudio.test'], previously_owned_families: [], bundle_closure: [],
     base_credit_price: 250, component_discount_credits: 0,

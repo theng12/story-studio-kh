@@ -630,6 +630,7 @@ export async function recordPurchaseRefusal(
 function cachedPurchase(purchase: GenStudioContentPurchase): CachedContentPurchase {
   return {
     purchase_id: purchase.purchaseId,
+    quote_id: purchase.quoteId,
     account_id: purchase.accountId,
     credits_charged: purchase.creditsCharged,
     discount_credits: purchase.discountCredits,
@@ -686,8 +687,27 @@ export async function recordCompletedPurchase(
     }
     if (attempt.status !== 'submitting') throw new Error('Only a submitting Content Store purchase can complete')
     if (purchase.accountId !== attempt.account_id) throw new Error('Completed Content Store purchase account does not match the quote account')
-    if (!purchase.entitlementFamilies.includes(attempt.entitlement_family)) {
-      throw new Error('Completed Content Store purchase does not include the quoted entitlement family')
+    if (purchase.quoteId !== attempt.quote_id) throw new Error('Completed Content Store purchase quote_id does not match the saved quote')
+    if (purchase.product.value.product_id !== attempt.product_id
+      || purchase.product.value.entitlement_family !== attempt.entitlement_family
+      || purchase.release.value.release_id !== attempt.release_id) {
+      throw new Error('Completed Content Store purchase product or release does not match the saved quote')
+    }
+    if (!attempt.entitlement_families
+      || JSON.stringify(purchase.entitlementFamilies) !== JSON.stringify(attempt.entitlement_families)) {
+      throw new Error('Completed Content Store purchase entitlement families do not match the saved quote')
+    }
+    const savedClosure = attempt.bundle_closure
+    const receivedClosure = purchase.bundleClosure.map(component => ({
+      position: component.position,
+      product_id: component.productId,
+      entitlement_family: component.entitlementFamily,
+      release_id: component.releaseId,
+      version: component.version,
+      archive_sha256: component.archiveSha256,
+    }))
+    if (!savedClosure || JSON.stringify(receivedClosure) !== JSON.stringify(savedClosure)) {
+      throw new Error('Completed Content Store purchase bundle closure does not match the saved quote')
     }
     const { uncertain_detail: _uncertainDetail, submission_owner: _submissionOwner, ...retained } = attempt
     const next = replaceAttempt(state, {

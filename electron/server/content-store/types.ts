@@ -95,6 +95,7 @@ export type CachedContentReceipt = z.infer<typeof CachedContentReceiptSchema>
 
 export const CachedContentPurchaseSchema = z.object({
   purchase_id: OpaqueIdSchema,
+  quote_id: OpaqueIdSchema.optional(),
   account_id: OpaqueIdSchema,
   credits_charged: CreditsSchema,
   discount_credits: CreditsSchema,

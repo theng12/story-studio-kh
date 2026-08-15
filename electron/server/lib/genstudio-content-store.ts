@@ -227,6 +227,8 @@ export interface GenStudioContentReceipt {
 
 export interface GenStudioContentPurchase {
   purchaseId: string
+  /** Immutable identity from the signed receipt; binds settlement to the saved quote. */
+  quoteId: string
   accountId: string
   creditsCharged: number
   discountCredits: number
@@ -898,6 +900,7 @@ export function parseContentStorePurchase(value: unknown): GenStudioContentPurch
   if (signedReceipt.value.typ !== RECEIPT_TYPE) throw new Error(`Signed receipt typ must be ${RECEIPT_TYPE}`)
   const receiptKeyId = text(receiptEnvelope, 'key_id')
   if (signedReceipt.value.key_id !== receiptKeyId) throw new Error('Signed receipt key_id does not match its envelope')
+  const quoteId = text(signedReceipt.value, 'quote_id')
 
   const product = canonicalizeContentStoreObject(row.product)
   const release = canonicalizeContentStoreObject(row.release)
@@ -929,6 +932,19 @@ export function parseContentStorePurchase(value: unknown): GenStudioContentPurch
     || JSON.stringify(previouslyOwnedFamilies) !== JSON.stringify([...previouslyOwnedFamilies].sort())) {
     throw new Error('previously_owned_families must be a sorted unique subset of entitlement_families')
   }
+  const grantedSet = new Set(grantedFamilies)
+  const previouslyOwnedSet = new Set(previouslyOwnedFamilies)
+  if (grantedFamilies.some(family => previouslyOwnedSet.has(family))) {
+    throw new Error('granted_families and previously_owned_families must be disjoint')
+  }
+  if (grantedSet.size + previouslyOwnedSet.size !== entitlementFamilies.length
+    || entitlementFamilies.some(family => !grantedSet.has(family) && !previouslyOwnedSet.has(family))) {
+    throw new Error('granted_families and previously_owned_families must completely partition entitlement_families')
+  }
+  const entitlementIds = textArray(row, 'entitlement_ids')
+  if (new Set(entitlementIds).size !== entitlementIds.length || entitlementIds.length !== grantedFamilies.length) {
+    throw new Error('entitlement_ids must be unique and correspond one-for-one with granted_families')
+  }
   const operatorDiscount = parseOperatorDiscount(row.operator_discount, 'operator_discount')
   const operatorDiscountCredits = uint(row, 'operator_discount_credits')
   if ((operatorDiscount === null) !== (operatorDiscountCredits === 0)) {
@@ -949,6 +965,7 @@ export function parseContentStorePurchase(value: unknown): GenStudioContentPurch
 
   return {
     purchaseId: text(row, 'purchase_id'),
+    quoteId,
     accountId: text(row, 'account_id'),
     creditsCharged: uint(row, 'credits_charged'),
     discountCredits: uint(row, 'discount_credits'),
@@ -958,7 +975,7 @@ export function parseContentStorePurchase(value: unknown): GenStudioContentPurch
     operatorDiscountCredits,
     balanceBefore: uint(row, 'balance_before'),
     balanceAfter: uint(row, 'balance_after'),
-    entitlementIds: textArray(row, 'entitlement_ids'),
+    entitlementIds,
     entitlementFamilies,
     grantedFamilies,
     previouslyOwnedFamilies,

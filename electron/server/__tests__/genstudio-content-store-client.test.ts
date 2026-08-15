@@ -141,6 +141,7 @@ function receiptPayload(overrides: Record<string, unknown> = {}) {
     key_id: 'key-1',
     receipt_id: 'crc_a',
     purchase_id: 'cpur_a',
+    quote_id: 'cq_test',
     account_id: 'acct_a',
     entitlement_families: ['com.storystudio.test'],
     granted_families: ['com.storystudio.test'],
@@ -343,6 +344,7 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
   test('accepts paid, free, and replayed purchases and preserves canonical receipt and snapshots', () => {
     const paid = parseContentStorePurchase(purchase())
     assert.equal(paid.creditsCharged, 300)
+    assert.equal(paid.quoteId, 'cq_test')
     assert.equal(paid.ledgerEventKey, 'content-purchase:cpur_a')
     assert.equal(paid.replayed, false)
     assert.deepEqual(paid.receipt.signedReceipt.value.future_receipt_fact, { preserved: true })
@@ -358,6 +360,40 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
     assert.equal(free.creditsCharged, 0)
     assert.equal(free.ledgerEventKey, null)
     assert.equal(parseContentStorePurchase(purchase({ replayed: true })).replayed, true)
+  })
+
+  test('requires the exact 1.14 entitlement grant partition and one entitlement row per new family', () => {
+    const bundledPurchase = () => {
+      const value = purchase()
+      const closure = [{
+        position: 0, product_id: 'cprod_component', entitlement_family: 'com.storystudio.component',
+        release_id: 'crel_component', version: '1.0.0', archive_sha256: HASH,
+      }]
+      const apply = (target: Record<string, unknown>) => {
+        target.entitlement_families = ['com.storystudio.test', 'com.storystudio.component']
+        target.granted_families = ['com.storystudio.test']
+        target.previously_owned_families = ['com.storystudio.component']
+        target.bundle_closure = closure
+      }
+      apply(value)
+      apply(value.receipt.receipt as Record<string, unknown>)
+      return value
+    }
+
+    assert.doesNotThrow(() => parseContentStorePurchase(bundledPurchase()))
+    for (const mutate of [
+      (value: Record<string, unknown>) => { value.previously_owned_families = ['com.storystudio.component', 'com.storystudio.test'] },
+      (value: Record<string, unknown>) => { value.previously_owned_families = [] },
+      (value: Record<string, unknown>) => { value.granted_families = ['com.storystudio.test', 'com.storystudio.other'] },
+    ]) {
+      const malformed = bundledPurchase()
+      mutate(malformed)
+      mutate(malformed.receipt.receipt as Record<string, unknown>)
+      assert.throws(() => parseContentStorePurchase(malformed), /partition|subset|disjoint/i)
+    }
+    const duplicateEntitlements = bundledPurchase()
+    duplicateEntitlements.entitlement_ids = ['cent_a', 'cent_b']
+    assert.throws(() => parseContentStorePurchase(duplicateEntitlements), /entitlement_ids|one-for-one/i)
   })
 
   test('rejects signed payload type, key, and envelope mismatches', () => {
