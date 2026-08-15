@@ -2,9 +2,10 @@
 
 Date: 2026-08-16
 
-Status: Task 1 integration, reviewed release-hardening corrections, and release
-metadata binding are complete. Production sealing, packaging, publication,
-merge, push, install, restart, and deployment remain outside this checkpoint.
+Status: Task 1 integration and the reviewed release-hardening corrections are
+complete. Final source/artifact qualification and packaged QA are GO; production
+sealing, GenStudio draft stocking, publication, installation, restart, merge,
+push, and deployment remain outside this checkpoint.
 
 ## Immutable integration identity
 
@@ -28,6 +29,18 @@ merge, push, install, restart, and deployment remain outside this checkpoint.
 - Initial integrated commits before the original manifest: 55
 - Current base-exclusive integrated commits before this evidence update: 96
 - Commits after the original manifest through the integrated code head: 40
+
+## Final code, artifact, and review identity
+
+- Final code/artifact head: `0664bf1dda8ccd067d67e5be41da01f4682f9a0c`
+- Release metadata version: `1.0.842`
+- Base-exclusive commits from `58dda52214a873cf0b697d961cae31c58b00a64b`
+  through the final code/artifact head: 101
+- Merge commits in that final range: 0
+- Final independent review: **GO — C0/I0/M0**
+- The subsequent evidence-only ledger commit changes these two documents only;
+  it does not change code, the qualified artifact, or the final code/artifact
+  range above.
 
 The pricing and exact video-operation work was already present in the selected
 main base. It was not cherry-picked again. Every other initial source range
@@ -393,25 +406,55 @@ Focused correction qualification at
   `content-packs/` or `scripts/content-packs/`, and the integrated code tree was
   clean before this evidence update.
 
+## Final release qualification ledger
+
+At clean final code/artifact head
+`0664bf1dda8ccd067d67e5be41da01f4682f9a0c`, `npm run verify` passed with
+2698/2698 backend tests (408 suites), 699/699 frontend tests (96 suites), and
+11/11 release tests (2 suites). Lint reported 0 errors and 1,721 existing
+warnings. Changelog, typography, source and built security, model drift,
+source and built release checks, Nuxt static build, and Electron compile passed.
+The verification log is
+`/build/Developer/_handoffs/story-studio-kh-v1.0.842-verify-0664bf1-20260816.log`
+with SHA-256 `e7e4a785bd7c534b2a8f4af63a0e10af03a2eda358f3ac654721cbc3e65f04ce`.
+
+The unsigned smoke package and an independent artifact verification both passed:
+
+- `dist/Story Studio KH 1.0.842-arm64.dmg`, 238,357,296 bytes, SHA-256
+  `15b06b69cbf76ae6ef34c210958c9105341584d602c04f9a7bbd06f6636ca2a7`;
+  bundle `com.storystudio.kh`, v1.0.842, arm64, ad-hoc/no-Developer-ID
+  signature, mounted read-only and detached.
+- Built package-input release check passed. Smoke, built-package, and artifact
+  log SHA-256 values are respectively
+  `4bf9cb5ff86ffcba0b104e07060f56912e2ec607228e380a52ec0fb78c3b3298`,
+  `2deb6aa4515930aee152286396f50c0aa1639649fb821123d501af4d920fe8f7`, and
+  `f1aced1d98ac40c761285e317cb93b029c77b3ce25cb4a64c0d3dd62729ef743`.
+- Packaged QA is GO: 44×44 minimum interactive targets and the critical Content
+  Store quote facts (total, discount, balance, expiry, status/refusal, and
+  explicit confirmation) were verified without a fabricated quote or spending
+  action.
+
 ## Deferred release and external gates
 
-- Release metadata is bound to 1.0.842 with the newest dated changelog entry.
-  Full repository verification and packaged artifact qualification remain
-  separate later gates; no future artifact fact is asserted here.
+- Release metadata is bound to 1.0.842 with the newest dated changelog entry;
+  final full-repository verification and unsigned packaged-artifact
+  qualification are recorded above.
 - The owner waived a separate Story production publisher key. Story has adopted
   GenStudio 1.14's field-exact delivery-attestation/archive profile with
   account-isolated retained proof, safeStorage-anchored historical keys, exact
   bundle closure and terminal recall. Recovery/local-import signing remains
   independently isolated, and no Story production private key may enter this
   repository, worktree, log, handoff, or command history.
-- Production archive sealing and immutable archive ledgers require Task 2's
-  reviewed GenStudio delivery profile plus their explicit owner gate and
-  GenStudio sealing operation.
+- Production archive sealing and immutable archive ledgers are not complete;
+  they require Task 2's reviewed GenStudio delivery profile, explicit owner
+  authority, and the GenStudio sealing operation.
 - GenStudio still owns signed merchandising, bundle entitlement,
-  operator-discount quote, stocking, upload, sealing and publication. Story
-  Studio does not invent those fields. Production archive and cross-app
-  qualification remain gated on their exact owner authorizations.
-- No desktop package, DMG, merge to main, push, tag, public release, install,
-  restart, deploy, GenStudio mutation, purchase, or paid generation occurred.
+  operator-discount quote, draft stocking, upload, sealing and publication.
+  Story Studio does not invent those fields. GenStudio draft stocking and
+  production archive/cross-app qualification remain gated on exact owner
+  authorizations.
+- An unsigned smoke DMG was built and verified, but no public package, merge to
+  main, push, tag, publication, install, restart, deploy, GenStudio mutation,
+  purchase, or paid generation occurred.
 - This Mac remained control/development-only and performed no fleet generation,
   rendering, voice, audio, video, image, transcription, chat, or transcoding.

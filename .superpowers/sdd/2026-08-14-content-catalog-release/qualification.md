@@ -2,11 +2,11 @@
 
 Date: 2026-08-16
 
-Status: **GO for the five reviewed integration corrections.** This is focused
-pre-release evidence, not the final Task 3 full-repository or Task 6 packaged
-artifact qualification. Release metadata is now bound to 1.0.842 in the direct
-child of this evidence commit; packaging, production sealing, GenStudio
-mutation, merge, push, install, restart and deployment were not performed.
+Status: **Final release qualification GO (C0/I0/M0).** The focused integration
+evidence below remains historical; the final full-repository verification,
+unsigned packaged-artifact qualification, and packaged QA are recorded in the
+final ledger below. This is not production sealing, GenStudio draft stocking,
+publication, installation, or restart authority.
 
 ## Immutable code identity
 
@@ -21,6 +21,16 @@ mutation, merge, push, install, restart and deployment were not performed.
   the release source gate
 - base-exclusive commit count: 96
 - merge commits after the integration base: 0
+
+## Final release identity and review
+
+- final code and artifact head: `0664bf1dda8ccd067d67e5be41da01f4682f9a0c`
+- release metadata version: `1.0.842`
+- final base-exclusive code/artifact commit count: 101
+- merge commits from integration base through final code/artifact head: 0
+- final independent review verdict: **GO — C0/I0/M0**
+- this ledger commit is documentation-only and follows the final code/artifact
+  head; it does not change the qualified code or artifact identity.
 
 ## Reviewed correction mapping
 
@@ -78,10 +88,54 @@ Expected negative-path error logs appeared only inside adversarial tests for
 corrupt archives, failed Store delivery, and invalid user-fork selection. The
 test runner reported zero failures, cancellations, skips or todos.
 
-## Remaining release gates
+## Final full-repository and packaged-artifact evidence
 
-- Run the plan's full Task 3 `npm run verify` qualification at the final release
-  commit and append its complete command/count/build evidence here.
-- Production sealing and archive ledger require their explicit owner authority.
-- Packaging/artifact QA, GenStudio mutation/publication, merge/push, and
-  install/restart remain separate explicit gates.
+All commands below ran once at final code/artifact head
+`0664bf1dda8ccd067d67e5be41da01f4682f9a0c`, with a clean worktree and
+`git diff --check` clean before and after qualification.
+
+1. `npm run verify`
+   - PASS, exit 0: backend 2698/2698 across 408 suites; frontend 699/699
+     across 96 suites; release 11/11 across 2 suites.
+   - Lint: 0 errors, 1,721 existing warnings (12 fixable). Changelog,
+     typography, source and built security, model drift (563 files, 26
+     annotated exceptions), source and built release checks, Nuxt static build,
+     and Electron compile passed.
+   - Durable log:
+     `/build/Developer/_handoffs/story-studio-kh-v1.0.842-verify-0664bf1-20260816.log`
+     — SHA-256 `e7e4a785bd7c534b2a8f4af63a0e10af03a2eda358f3ac654721cbc3e65f04ce`.
+2. `npm run dist:smoke`
+   - PASS, exit 0: unsigned arm64 DMG built, inspected, mounted read-only, and
+     detached. Artifact: `dist/Story Studio KH 1.0.842-arm64.dmg`.
+   - 238,357,296 bytes; SHA-256
+     `15b06b69cbf76ae6ef34c210958c9105341584d602c04f9a7bbd06f6636ca2a7`;
+     bundle `com.storystudio.kh`; version `1.0.842`; arm64; ad-hoc signature
+     with no Developer ID (expected for the unsigned smoke flow).
+   - Durable log:
+     `/build/Developer/_handoffs/story-studio-kh-v1.0.842-dist-smoke-0664bf1-20260816.log`
+     — SHA-256 `4bf9cb5ff86ffcba0b104e07060f56912e2ec607228e380a52ec0fb78c3b3298`.
+3. `npm run check:release -- --built --package-input`
+   - PASS, exit 0: source contract, built startup, and package inputs passed.
+   - Durable log:
+     `/build/Developer/_handoffs/story-studio-kh-v1.0.842-check-release-built-package-input-0664bf1-20260816.log`
+     — SHA-256 `2deb6aa4515930aee152286396f50c0aa1639649fb821123d501af4d920fe8f7`.
+4. `npm run verify:artifact -- --app "dist/mac-arm64/Story Studio KH.app" --dmg "dist/Story Studio KH 1.0.842-arm64.dmg"`
+   - PASS, exit 0: independently repeated the exact bundle/version/architecture,
+     ad-hoc signature, SHA-256, and read-only mount checks.
+   - Durable log:
+     `/build/Developer/_handoffs/story-studio-kh-v1.0.842-verify-artifact-0664bf1-20260816.log`
+     — SHA-256 `f1aced1d98ac40c761285e317cb93b029c77b3ce25cb4a64c0d3dd62729ef743`.
+5. Packaged QA
+   - GO: the packaged UI retained 44×44 minimum interactive targets and the
+     critical Content Store quote facts — total, discount, balance, expiry,
+     status/refusal, and explicit confirmation — without inventing a quote or
+     spending action.
+
+## Remaining external gates
+
+- Production sealing and the immutable archive ledger are not complete and
+  require explicit owner authority plus the GenStudio sealing operation.
+- GenStudio draft stocking is not performed.
+- No public publication, installation, restart, merge, push, deployment,
+  purchase, or live generation is authorized or recorded here. The unsigned
+  smoke artifact is not a customer distributable release.
