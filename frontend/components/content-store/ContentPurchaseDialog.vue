@@ -32,9 +32,14 @@
             </div>
           </div>
           <dl class="purchase-ledger">
+            <div><dt>Base price</dt><dd>{{ formatCredits(attempt.base_credit_price) }} credits</dd></div>
+            <div v-if="attempt.component_discount_credits !== undefined"><dt>Owned-component discount</dt><dd>−{{ formatCredits(attempt.component_discount_credits) }} credits</dd></div>
+            <div v-if="attempt.operator_discount && attempt.operator_discount_credits !== undefined"><dt>Operator discount credits</dt><dd>−{{ formatCredits(attempt.operator_discount_credits) }} credits</dd></div>
             <div><dt>Credits charged</dt><dd>{{ formatCredits(attempt.credits_charged ?? 0) }}</dd></div>
+            <div><dt>Balance before</dt><dd>{{ formatCredits(attempt.balance_before) }}</dd></div>
             <div><dt>Balance after</dt><dd>{{ formatCredits(attempt.balance_after) }}</dd></div>
           </dl>
+          <p v-if="attempt.operator_discount" class="discount-proof"><strong>Operator discount</strong> · {{ operatorDiscountProof }}</p>
           <p class="receipt-state">Signed receipt cached · use Restore purchases on the Owned shelf to verify and install.</p>
           <p v-if="attempt.replayed" class="replay-state">GenStudio safely replayed the saved purchase attempt.</p>
         </template>
@@ -45,11 +50,14 @@
           <dl class="quote-grid">
             <div><dt>Base price</dt><dd>{{ formatCredits(attempt.base_credit_price) }} credits</dd></div>
             <div><dt>Owned-content discount</dt><dd>−{{ formatCredits(attempt.discount_credits) }} credits</dd></div>
+            <div v-if="attempt.operator_discount && attempt.operator_discount_credits !== undefined"><dt>Operator discount</dt><dd>−{{ formatCredits(attempt.operator_discount_credits) }} credits</dd></div>
             <div class="quote-total"><dt>Maximum deduction</dt><dd>{{ formatCredits(attempt.quoted_credits) }} credits</dd></div>
             <div><dt>Content-spendable balance</dt><dd>{{ formatCredits(attempt.balance_before) }} credits</dd></div>
             <div><dt>After purchase</dt><dd>{{ formatCredits(attempt.balance_after) }} credits</dd></div>
             <div><dt>Quote expires</dt><dd>{{ formatExpiry(attempt.expires_at) }}</dd></div>
           </dl>
+
+          <p v-if="attempt.operator_discount" class="discount-proof"><strong>Operator discount</strong> · {{ operatorDiscountProof }}</p>
 
           <p class="ceiling-note">This is the maximum deduction. The final charge may be lower when GenStudio settles the purchase.</p>
 
@@ -78,14 +86,14 @@
           {{ attempt.status === 'completed' ? 'Done' : 'Cancel' }}
         </button>
         <button
-          v-if="attempt.status === 'uncertain' || attempt.status === 'refused'"
+          v-if="canRetryAttempt"
           type="button"
           class="btn btn-primary"
           :disabled="busy"
           @click="$emit('retry', attempt.quote_id)"
         >{{ busy ? 'Retrying…' : 'Retry this purchase' }}</button>
         <button
-          v-else-if="attempt.status !== 'completed'"
+          v-else-if="attempt.status === 'quoted' || attempt.status === 'submitting'"
           type="button"
           class="btn btn-primary"
           :disabled="busy || !attempt.sufficient_credits || attempt.status === 'submitting'"
@@ -162,7 +170,7 @@ const displayError = computed(() => {
   if (code === 'already_owned') {
     return {
       tone: 'neutral', title: 'Already owned in GenStudio',
-      detail: `${detail} Close this quote, then refresh the Store to see current ownership.`,
+      detail: `${detail} Close this quote, then refresh the Content Store to see current ownership.`,
       showCredits: false,
     }
   }
@@ -171,6 +179,20 @@ const displayError = computed(() => {
     return { tone: 'warning', title: presentation.title, detail: `${presentation.detail} ${presentation.recovery}`, showCredits: false }
   }
   return null
+})
+
+const canRetryAttempt = computed(() => {
+  if (props.attempt?.status === 'uncertain') return true
+  if (props.attempt?.status !== 'refused') return false
+  return !['quote_expired', 'quote_rejected', 'already_owned'].includes(props.attempt.refusal?.code || '')
+})
+
+const operatorDiscountProof = computed(() => {
+  const discount = props.attempt?.operator_discount
+  if (!discount) return ''
+  const start = discount.starts_on ? ` · Starts ${discount.starts_on}` : ''
+  const end = discount.ends_on ? ` · Ends ${discount.ends_on}` : ' · No published end date'
+  return `${discount.percent}% · ${discount.discount_id} v${discount.version}${start}${end} · ${discount.timezone}`
 })
 
 function formatCredits(value: number): string {
@@ -206,9 +228,11 @@ function formatExpiry(value: string): string {
 .quote-grid .quote-total { background: var(--accent-dim); }
 .quote-grid .quote-total dd { color: var(--accent); }
 .ceiling-note,
+.discount-proof,
 .receipt-state,
 .replay-state { color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.55; }
 .receipt-state { padding: 10px 12px; border-radius: var(--radius-md); background: var(--bg-tertiary); }
+.discount-proof { overflow-wrap: anywhere; }
 .outcome { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px; padding: 13px; border-radius: var(--radius-md); background: var(--bg-tertiary); }
 .outcome svg { width: 22px; height: 22px; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .outcome strong { display: block; color: var(--text-primary); }

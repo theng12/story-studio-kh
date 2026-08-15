@@ -31,7 +31,7 @@ function product(
     bundleComponents: [],
     ownedComponentCreditValue: 0,
     showcaseVideos: [],
-    presentation: { cover: null, licenseLabel: null, tags: [] },
+    presentation: { cover: null, hero: null, licenseLabel: null, licenseText: null, tags: [] },
     discount: null,
     ...overrides,
   }

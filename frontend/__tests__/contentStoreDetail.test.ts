@@ -199,6 +199,59 @@ describe('Content Store proof route contract', () => {
     rendered.unmount()
   })
 
+  test('renders final signed operator and component discount facts without exposing signing material', async () => {
+    const Dialog = await loadComponent('../components/content-store/ContentPurchaseDialog.vue')
+    const rendered = await mount(Dialog, {
+      visible: true,
+      busy: false,
+      product: { title: 'Archive Formula', free: false },
+      attempt: {
+        quote_id: 'quote_1', status: 'completed', base_credit_price: 2_000, discount_credits: 400,
+        component_discount_credits: 400, operator_discount_credits: 1_440, quoted_credits: 160,
+        credits_charged: 160, balance_before: 2_000, balance_after: 1_840,
+        expires_at: '2026-08-14T10:15:00Z', sufficient_credits: true, shortfall_credits: 0,
+        operator_discount: { discount_id: 'cdsc_archival_launch', version: 1, percent: 90, starts_on: null, ends_on: '2026-12-31', timezone: 'Asia/Phnom_Penh' },
+        quote_signature: 'must-not-render', receipt_signature: 'must-not-render', canonical_json: 'must-not-render',
+      },
+      error: null,
+    })
+    const proof = rendered.host.textContent || ''
+    assert.match(proof, /Base price[\s\S]*2,000/)
+    assert.match(proof, /Owned-component discount[\s\S]*400/)
+    assert.match(proof, /Operator discount[\s\S]*90%[\s\S]*cdsc_archival_launch/)
+    assert.match(proof, /Operator discount credits[\s\S]*1,440/)
+    assert.match(proof, /Credits charged[\s\S]*160/)
+    assert.match(proof, /Balance before[\s\S]*2,000[\s\S]*Balance after[\s\S]*1,840/)
+    assert.match(proof, /Ends 2026-12-31/)
+    assert.doesNotMatch(proof, /must-not-render|signature|canonical/i)
+    rendered.unmount()
+  })
+
+  test('does not offer exact-attempt retry for terminal or refetch-required refusals', async () => {
+    const Dialog = await loadComponent('../components/content-store/ContentPurchaseDialog.vue')
+    for (const [code, recovery] of [
+      ['quote_expired', /request a new exact quote/i],
+      ['quote_rejected', /request a new exact quote/i],
+      ['already_owned', /refresh the Content Store/i],
+    ] as const) {
+      const rendered = await mount(Dialog, {
+        visible: true,
+        busy: false,
+        product: { title: 'Archive Formula', free: false },
+        attempt: {
+          quote_id: `quote_${code}`, status: 'refused', base_credit_price: 400, discount_credits: 0, quoted_credits: 400,
+          balance_before: 500, balance_after: 100, expires_at: '2026-08-14T10:15:00Z', sufficient_credits: true, shortfall_credits: 0,
+          refusal: { status: 409, code, detail: 'GenStudio refused this saved attempt.' },
+        },
+        error: null,
+      })
+      assert.match(rendered.host.textContent || '', recovery, code)
+      assert.equal([...rendered.host.querySelectorAll('button')].some(button => /Retry this purchase/.test(button.textContent || '')), false, code)
+      assert.equal([...rendered.host.querySelectorAll('button')].some(button => /Confirm/.test(button.textContent || '')), false, code)
+      rendered.unmount()
+    }
+  })
+
   test('renders proof and opens showcase links externally', () => {
     assert.match(detail, /Watch example videos/)
     assert.match(detail, /openExternalShowcase/)
@@ -213,7 +266,8 @@ describe('Content Store proof route contract', () => {
     assert.match(detail, /Changelog/)
     assert.match(detail, /License/)
     assert.match(detail, /componentSummary/)
-    assert.match(detail, /versionFromSignedSummary/)
+    assert.match(detail, /attempt\?\.dependencies/)
+    assert.doesNotMatch(detail, /versionFromSignedSummary/)
     assert.match(route, /Unknown Content Store product/)
     assert.doesNotMatch(route, /project selection|select a project/i)
   })

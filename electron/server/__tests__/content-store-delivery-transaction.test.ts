@@ -132,14 +132,13 @@ function activationSnapshot(state: Awaited<ReturnType<typeof readContentPackStat
 }
 
 function ownershipIdentity(state: Awaited<ReturnType<typeof readContentStoreCommerceState>>) {
-  const restore = state.verified_restore
-  return restore ? {
+  return (state.verified_restores ?? []).map(restore => ({
     account_id: restore.account_id,
     content_account_id: restore.content_account_id,
     genstudio_origin: restore.genstudio_origin,
     key_id: restore.key_id,
     key_history: restore.key_history,
-  } : null
+  }))
 }
 
 async function createPinnedBaseline(packId: string, releaseId: string, name: string) {
@@ -151,11 +150,13 @@ async function createPinnedBaseline(packId: string, releaseId: string, name: str
   const pinned = await setProjectContentPin(project.slug, {
     pack_id: packId, version: '1.0.0', archive_sha256: installed.archive_sha256,
   })
+  const ownership = ownershipIdentity(await readContentStoreCommerceState())
+  assert.ok(ownership.length > 0, 'the transaction invariant must capture verified ownership identity')
   return {
     projectSlug: project.slug,
     projectPins: structuredClone(pinned.content_pack_versions),
     activation: activationSnapshot(await readContentPackState(paths)),
-    ownership: ownershipIdentity(await readContentStoreCommerceState()),
+    ownership,
   }
 }
 

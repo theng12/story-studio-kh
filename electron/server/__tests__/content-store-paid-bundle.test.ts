@@ -136,6 +136,29 @@ test('qualifies the Archival nine-family atomic grant through a genuine shared-f
   assert.equal(service.contentPurchasePostCount, 2, 'a completed confirmation remains local')
 })
 
+test('normalizes exact signed bundle dependencies and authoritative release states for the renderer', async () => {
+  const service = await setup()
+  await acquireSharedFamily()
+  service.setContentOwnedReleaseState('crel_cprod_archival_component_7', { state: 'withdrawn' })
+
+  const quoted = facts(await createContentStoreQuote({ product_id: 'cprod_archival_kit', release_id: null }))
+  const style = quoted.dependencies.find((dependency: Record<string, unknown>) => dependency.entitlementFamily === STYLE_FAMILY)
+  assert.deepEqual(style, {
+    position: 6,
+    productId: 'cprod_archival_component_7',
+    entitlementFamily: STYLE_FAMILY,
+    releaseId: 'crel_cprod_archival_component_7',
+    version: '1.0.0',
+    archiveSha256: 'a'.repeat(64),
+    title: 'cprod_archival_component_7',
+    kind: 'visual_style',
+    states: ['free', 'owned', 'included', 'unavailable', 'withdrawn'],
+  })
+  assert.equal(quoted.dependencies[0].version, '1.0.0')
+  assert.equal(JSON.stringify(quoted).includes('canonical_json'), false)
+  assert.equal(JSON.stringify(quoted).includes('signature'), false)
+})
+
 test('keeps nine-family bundle refusals non-mutating and retries uncertainty once without duplicate debit or grant', async () => {
   const service = await setup()
   const refusedQuote = facts(await createContentStoreQuote({ product_id: 'cprod_archival_kit', release_id: null }))

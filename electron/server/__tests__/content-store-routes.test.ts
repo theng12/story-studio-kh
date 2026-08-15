@@ -104,6 +104,26 @@ afterEach(async () => {
 })
 
 describe('Content Store commerce routes', () => {
+  test('projects authoritative hero and complete license fields without raw upstream proof bytes', async () => {
+    const { app: localApp } = await setup({ products: [product({
+      cover: { url: 'https://cdn.example.test/cover.webp', alt: 'Published cover' },
+      hero: { url: 'https://cdn.example.test/hero.webp', alt: 'Published hero' },
+      tags: ['documentary'],
+      license: { label: 'Content Pack License', text: 'Monetized Story Studio videos are permitted; source redistribution is prohibited.' },
+    })] })
+
+    const response = await request(localApp).get('/api/content-store').expect(200)
+    assert.deepEqual(response.body.products[0].presentation, {
+      cover: { src: 'https://cdn.example.test/cover.webp', alt: 'Published cover' },
+      hero: { src: 'https://cdn.example.test/hero.webp', alt: 'Published hero' },
+      licenseLabel: 'Content Pack License',
+      licenseText: 'Monetized Story Studio videos are permitted; source redistribution is prohibited.',
+      tags: ['documentary'],
+    })
+    assert.equal(JSON.stringify(response.body.products[0]).includes('canonicalJson'), false)
+    assert.equal(JSON.stringify(response.body.products[0]).includes('canonicalBytes'), false)
+  })
+
   test('restores same-account ownership and explicitly installs verified bytes without spending credits', async () => {
     const archive = await asStoreDeliveryArchive(await fs.readFile(new URL('./fixtures/content-packs/free-recovery-test/free-recovery-test.sspack', import.meta.url)))
     const ownedRelease = {
@@ -380,14 +400,17 @@ describe('Content Store commerce routes', () => {
     ])
     assert.equal(response.body.products[0].presentation.cover.src, merchandising.cover.url)
     assert.equal(response.body.products[0].presentation.cover.alt, merchandising.cover.alt)
+    assert.equal(response.body.products[0].presentation.hero.src, merchandising.hero.url)
+    assert.equal(response.body.products[0].presentation.hero.alt, merchandising.hero.alt)
     assert.equal(response.body.products[0].presentation.licenseLabel, merchandising.license.label)
+    assert.equal(response.body.products[0].presentation.licenseText, merchandising.license.text)
     assert.deepEqual(response.body.products[0].presentation.tags, merchandising.tags)
     assert.deepEqual(response.body.products[0].discount, {
       id: 'cdsc_test_formula', version: 1, percent: 25,
       startsOn: null, endsOn: '2026-12-31', timezone: 'Asia/Phnom_Penh',
       listCreditPrice: 300, discountedCreditPrice: 225,
     })
-    assert.doesNotMatch(JSON.stringify(response.body), /Customer-facing terms|test-formula-hero|canonicalJson|canonicalBytes|"raw"/)
+    assert.doesNotMatch(JSON.stringify(response.body), /canonicalJson|canonicalBytes|"raw"/)
     assert.equal(mock.requests.filter(row => row.path === '/v1/content/shelves').length, 1)
   })
 

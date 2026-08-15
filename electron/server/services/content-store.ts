@@ -4,6 +4,7 @@ import {
   canonicalizeContentStoreObject,
   getGenStudioContentAccount,
   getGenStudioContentReceipts,
+  listGenStudioOwnedContentReleases,
   listGenStudioContentProducts,
   listGenStudioContentStoreShelves,
   purchaseGenStudioContentProduct,
@@ -12,6 +13,7 @@ import {
   resolveStoryStudioVersion,
   type GenStudioContentAccount,
   type GenStudioContentProduct,
+  type GenStudioOwnedContentRelease,
 } from '../lib/genstudio-content-store.js'
 import { verifyContentStoreRestoreReceipt } from '../lib/genstudio-content-store-trust.js'
 import { getApiKey } from './app-secrets-store.js'
@@ -60,6 +62,7 @@ export interface PublicContentPurchaseAttempt {
     version: string
     archive_sha256: string
   }>
+  dependencies?: PublicContentDependency[]
   operator_discount?: {
     discount_id: string
     version: number
@@ -117,8 +120,26 @@ export type PublicContentRelease = Omit<GenStudioContentProduct['currentRelease'
 
 export interface PublicContentProductPresentation {
   cover: { src: string; alt: string } | null
+  hero: { src: string; alt: string } | null
   licenseLabel: string | null
+  licenseText: string | null
   tags: string[]
+}
+
+export type PublicContentDependencyState =
+  | 'free' | 'owned' | 'included' | 'installed'
+  | 'unavailable' | 'withdrawn' | 'recalled'
+
+export interface PublicContentDependency {
+  position: number
+  productId: string
+  entitlementFamily: string
+  releaseId: string
+  version: string
+  archiveSha256: string
+  title: string
+  kind: GenStudioContentProduct['kind'] | 'unknown'
+  states: PublicContentDependencyState[]
 }
 
 export interface PublicContentProductDiscount {
@@ -229,7 +250,10 @@ async function cachedVerifiedFamilies(accountId: string): Promise<Set<string>> {
   }
 }
 
-function publicAttempt(attempt: CachedContentQuote): PublicContentPurchaseAttempt {
+function publicAttempt(
+  attempt: CachedContentQuote,
+  dependencies?: PublicContentDependency[],
+): PublicContentPurchaseAttempt {
   const completed = attempt.completed_purchase
   const finalOperatorDiscount = completed?.operator_discount !== undefined
     ? completed.operator_discount
@@ -260,6 +284,7 @@ function publicAttempt(attempt: CachedContentQuote): PublicContentPurchaseAttemp
     ...((completed?.bundle_closure ?? attempt.bundle_closure) ? {
       bundle_closure: structuredClone(completed?.bundle_closure ?? attempt.bundle_closure) as NonNullable<PublicContentPurchaseAttempt['bundle_closure']>,
     } : {}),
+    ...(dependencies ? { dependencies } : {}),
     ...(finalOperatorDiscount !== undefined ? {
       operator_discount: structuredClone(finalOperatorDiscount) as PublicContentPurchaseAttempt['operator_discount'],
       operator_discount_credits: finalOperatorDiscountCredits,
@@ -325,7 +350,9 @@ function publicProduct(product: GenStudioContentProduct): PublicContentProduct {
     showcaseVideos: product.showcaseVideos,
     presentation: {
       cover: product.cover ? { src: product.cover.url, alt: product.cover.alt } : null,
+      hero: product.hero ? { src: product.hero.url, alt: product.hero.alt } : null,
       licenseLabel: product.license?.label ?? null,
+      licenseText: product.license?.text ?? null,
       tags: [...product.tags],
     },
     discount: product.discount ? {
@@ -385,12 +412,102 @@ async function activeKey(): Promise<string> {
   return apiKey
 }
 
-async function localAttempts(accountId: string): Promise<PublicContentPurchaseAttempt[]> {
+interface PublicDependencyContext {
+  apiKey: string
+  catalog: GenStudioContentProduct[]
+  installed: PublicContentInstalledPack[]
+  releaseHistory: Map<string, Promise<GenStudioOwnedContentRelease[]>>
+}
+
+function dependencyContext(
+  apiKey: string,
+  catalog: GenStudioContentProduct[],
+  installed: PublicContentInstalledPack[],
+): PublicDependencyContext {
+  return { apiKey, catalog, installed, releaseHistory: new Map() }
+}
+
+function ownedReleaseHistory(
+  context: PublicDependencyContext,
+  entitlementFamily: string,
+): Promise<GenStudioOwnedContentRelease[]> {
+  let pending = context.releaseHistory.get(entitlementFamily)
+  if (!pending) {
+    pending = listGenStudioOwnedContentReleases(context.apiKey, entitlementFamily)
+      .then(history => history.releases)
+    context.releaseHistory.set(entitlementFamily, pending)
+  }
+  return pending
+}
+
+async function publicDependencies(
+  attempt: CachedContentQuote,
+  context: PublicDependencyContext,
+): Promise<PublicContentDependency[] | undefined> {
+  const closure = attempt.completed_purchase?.bundle_closure ?? attempt.bundle_closure
+  if (!closure) return undefined
+  const completedOwnedFamilies = attempt.completed_purchase
+    ? [...(attempt.completed_purchase.granted_families ?? []), ...(attempt.completed_purchase.previously_owned_families ?? [])]
+    : []
+  const ownedFamilies = new Set(completedOwnedFamilies.length > 0 ? completedOwnedFamilies : attempt.owned_components)
+  const histories = new Map<string, GenStudioOwnedContentRelease[]>()
+  await Promise.all([...ownedFamilies].map(async family => {
+    histories.set(family, await ownedReleaseHistory(context, family))
+  }))
+  const root = context.catalog.find(product => product.productId === attempt.product_id)
+  return closure.map(component => {
+    const product = context.catalog.find(candidate => candidate.productId === component.product_id)
+    const catalogComponent = root?.bundleComponents.find(candidate => candidate.productId === component.product_id)
+    const history = histories.get(component.entitlement_family)?.find(release => (
+      release.releaseId === component.release_id
+      && release.version === component.version
+      && release.archiveSha256 === component.archive_sha256
+    ))
+    const currentIsExact = !!product?.currentRelease
+      && product.currentRelease.releaseId === component.release_id
+      && product.currentRelease.version === component.version
+      && product.currentRelease.archiveSha256 === component.archive_sha256
+    const withdrawn = history?.state === 'withdrawn'
+    const recalled = history?.state === 'recalled'
+    const unavailable = withdrawn || recalled || (!currentIsExact && history?.state !== 'published')
+    const states: PublicContentDependencyState[] = []
+    if (product?.free) states.push('free')
+    if (ownedFamilies.has(component.entitlement_family)) states.push('owned')
+    states.push('included')
+    if (context.installed.some(installed => installed.productId === component.product_id && installed.version === component.version)) {
+      states.push('installed')
+    }
+    if (unavailable) states.push('unavailable')
+    if (withdrawn) states.push('withdrawn')
+    if (recalled) states.push('recalled')
+    return {
+      position: component.position,
+      productId: component.product_id,
+      entitlementFamily: component.entitlement_family,
+      releaseId: component.release_id,
+      version: component.version,
+      archiveSha256: component.archive_sha256,
+      title: catalogComponent?.title ?? product?.title ?? component.product_id,
+      kind: product?.kind ?? catalogComponent?.kind ?? 'unknown',
+      states,
+    }
+  })
+}
+
+async function localAttempts(
+  accountId: string,
+  context: PublicDependencyContext,
+): Promise<PublicContentPurchaseAttempt[]> {
   const state = await readContentStoreCommerceState()
-  return Object.values(state.attempts)
+  const attempts = Object.values(state.attempts)
     .filter(attempt => attempt.account_id === accountId)
     .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
-    .map(publicAttempt)
+  const enrichedProducts = new Set<string>()
+  return Promise.all(attempts.map(async attempt => {
+    if (enrichedProducts.has(attempt.product_id)) return publicAttempt(attempt)
+    enrichedProducts.add(attempt.product_id)
+    return publicAttempt(attempt, await publicDependencies(attempt, context))
+  }))
 }
 
 export async function loadContentStoreOverview(): Promise<ContentStoreOverview> {
@@ -439,20 +556,22 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
   const verifiedOwnedProductIds = new Set(account.owned
     .filter(owned => verifiedFamilies.has(owned.entitlementFamily))
     .map(owned => owned.productId))
+  const installed: PublicContentInstalledPack[] = installSnapshot.installed.map(local => {
+    const product = catalogByProduct.get(local.productId)
+    return {
+      ...local,
+      title: product?.title ?? local.packId,
+      kind: product?.kind ?? 'unknown',
+      ownedByActiveAccount: verifiedOwnedProductIds.has(local.productId),
+    }
+  })
+  const dependencies = dependencyContext(apiKey, catalog.products, installed)
   return {
     phase: 'delivery_ready',
     origin: await currentGenStudioOrigin(),
     account: await publicAccount(account, verifiedFamilies, installSnapshot.owned, recalledVersionsByFamily,
       new Map(catalog.products.map(product => [product.productId, product.compatible]))),
-    installed: installSnapshot.installed.map(local => {
-      const product = catalogByProduct.get(local.productId)
-      return {
-        ...local,
-        title: product?.title ?? local.packId,
-        kind: product?.kind ?? 'unknown',
-        ownedByActiveAccount: verifiedOwnedProductIds.has(local.productId),
-      }
-    }),
+    installed,
     products: catalog.products.map(publicProduct),
     shelves: [
       ...shelfResponse.shelves.map(shelf => ({ id: shelf.shelfId, title: shelf.title, productIds: [...shelf.productIds] })),
@@ -460,7 +579,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
         ? [{ id: 'fallback', title: 'More Content', productIds: [...shelfResponse.fallbackProductIds] }]
         : []),
     ],
-    attempts: await localAttempts(account.accountId),
+    attempts: await localAttempts(account.accountId, dependencies),
     capabilities: {
       purchase: true,
       receipt_verification: true,
@@ -495,7 +614,17 @@ export async function createContentStoreQuote(input: {
   const catalog = await listGenStudioContentProducts(apiKey, await resolveStoryStudioVersion())
   requirePurchasableProduct(catalog.products, input)
   const quote = await quoteGenStudioContentProduct(apiKey, input)
-  return publicAttempt(await saveQuotedAttempt(quote))
+  const saved = await saveQuotedAttempt(quote)
+  const installSnapshot = await resolveContentStoreInstallSnapshot(catalog.products.map(product => product.currentRelease))
+  const catalogByProduct = new Map(catalog.products.map(product => [product.productId, product]))
+  const installed: PublicContentInstalledPack[] = installSnapshot.installed.map(local => ({
+    ...local,
+    title: catalogByProduct.get(local.productId)?.title ?? local.packId,
+    kind: catalogByProduct.get(local.productId)?.kind ?? 'unknown',
+    ownedByActiveAccount: false,
+  }))
+  const dependencies = await publicDependencies(saved, dependencyContext(apiKey, catalog.products, installed))
+  return publicAttempt(saved, dependencies)
 }
 
 function refusalFrom(error: GenStudioContentStoreApiError): CachedContentRefusal | null {

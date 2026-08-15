@@ -79,7 +79,7 @@ function product(productId: string, title: string, kind: ContentStoreProduct['ki
     compatible: true, compatibilityReason: null,
     currentRelease: { releaseId: `rel_${productId}`, packId: `pack_${productId}`, version: '9.9.9', archiveSha256: 'a'.repeat(64), archiveBytes: 10, archiveAvailable: true, minStoryVersion: '1.0.0', changelog: 'Published.', componentSummary: {} },
     bundleComponents: [], ownedComponentCreditValue: 0, showcaseVideos: [],
-    presentation: { cover: null, licenseLabel: 'Content Pack License', tags: [] }, discount: null,
+    presentation: { cover: null, hero: null, licenseLabel: 'Content Pack License', licenseText: null, tags: [] }, discount: null,
   }
 }
 
@@ -154,17 +154,41 @@ describe('Content Store rendered catalog and proof regressions', () => {
     rendered.unmount()
   })
 
-  test('renders only the signed exact included component version', async () => {
+  test('renders signed exact dependency versions and authoritative states without current-version substitution', async () => {
     const Detail = await loadComponent('ContentProductDetail.vue')
     const bundle = product('bundle', 'Bundle')
-    bundle.bundleComponents = [{ productId: 'component', entitlementFamily: 'component.family', title: 'Component', kind: 'topic_pack', componentCreditValue: 0, owned: false }]
-    bundle.currentRelease!.componentSummary = { components: [{ productId: 'another-component', version: '1.2.3' }] }
+    bundle.bundleComponents = [
+      { productId: 'free-component', entitlementFamily: 'free.family', title: 'Free component', kind: 'topic_pack', componentCreditValue: 0, owned: false },
+      { productId: 'owned-component', entitlementFamily: 'owned.family', title: 'Owned component', kind: 'visual_style', componentCreditValue: 400, owned: true },
+      { productId: 'recalled-component', entitlementFamily: 'recalled.family', title: 'Recalled component', kind: 'thumbnail_recipe', componentCreditValue: 0, owned: false },
+    ]
     const currentCatalogComponent = product('component', 'Component')
     currentCatalogComponent.currentRelease!.version = '9.9.9'
-    const rendered = await mount(Detail, { product: bundle, catalogProducts: [bundle, currentCatalogComponent] })
-    const includedVersion = rendered.host.querySelector('.component-list li span:last-child')?.textContent || ''
-    assert.match(includedVersion, /Exact included version is not published in this signed release\./)
-    assert.doesNotMatch(includedVersion, /9\.9\.9/)
+    const rendered = await mount(Detail, { product: bundle, attempt: {
+      dependencies: [
+        { position: 0, productId: 'free-component', entitlementFamily: 'free.family', releaseId: 'rel_free_123', version: '1.2.3', archiveSha256: 'a'.repeat(64), title: 'Free component', kind: 'topic_pack', states: ['free', 'included'] },
+        { position: 1, productId: 'owned-component', entitlementFamily: 'owned.family', releaseId: 'rel_owned_234', version: '2.3.4', archiveSha256: 'b'.repeat(64), title: 'Owned component', kind: 'visual_style', states: ['owned', 'included', 'installed', 'withdrawn'] },
+        { position: 2, productId: 'recalled-component', entitlementFamily: 'recalled.family', releaseId: 'rel_recalled_345', version: '3.4.5', archiveSha256: 'c'.repeat(64), title: 'Recalled component', kind: 'thumbnail_recipe', states: ['included', 'unavailable', 'recalled'] },
+      ],
+    }, catalogProducts: [bundle, currentCatalogComponent] })
+    const proof = rendered.host.querySelector('.component-list')?.textContent || ''
+    assert.match(proof, /Free component[\s\S]*1\.2\.3[\s\S]*Free[\s\S]*Included/)
+    assert.match(proof, /Owned component[\s\S]*2\.3\.4[\s\S]*Owned[\s\S]*Included[\s\S]*Installed[\s\S]*Withdrawn/)
+    assert.match(proof, /Recalled component[\s\S]*3\.4\.5[\s\S]*Included[\s\S]*Unavailable[\s\S]*Recalled/)
+    assert.doesNotMatch(proof, /9\.9\.9/)
+    rendered.unmount()
+  })
+
+  test('renders the published hero and complete license text on product detail', async () => {
+    const Detail = await loadComponent('ContentProductDetail.vue')
+    const item = product('proof', 'Proof product')
+    item.presentation.hero = { src: 'https://cdn.example.test/proof-hero.webp', alt: 'Published proof hero' }
+    item.presentation.licenseText = 'Use in monetized Story Studio videos; redistribution of the source pack is prohibited.'
+    const rendered = await mount(Detail, { product: item, attempt: null })
+    const hero = rendered.host.querySelector<HTMLImageElement>('img.detail-hero-media')
+    assert.equal(hero?.src, 'https://cdn.example.test/proof-hero.webp')
+    assert.equal(hero?.alt, 'Published proof hero')
+    assert.match(rendered.host.textContent || '', /redistribution of the source pack is prohibited/)
     rendered.unmount()
   })
 

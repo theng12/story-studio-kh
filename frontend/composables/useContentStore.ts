@@ -37,7 +37,9 @@ export interface ContentStoreShowcaseVideo {
 
 export interface ContentStoreProductPresentation {
   cover: { src: string; alt: string } | null
+  hero: { src: string; alt: string } | null
   licenseLabel: string | null
+  licenseText: string | null
   tags: string[]
 }
 
@@ -118,6 +120,22 @@ export interface ContentStoreInstalledPack {
 
 export type ContentPurchaseStatus = 'quoted' | 'submitting' | 'uncertain' | 'refused' | 'completed'
 
+export type ContentStoreDependencyState =
+  | 'free' | 'owned' | 'included' | 'installed'
+  | 'unavailable' | 'withdrawn' | 'recalled'
+
+export interface ContentStoreDependency {
+  position: number
+  productId: string
+  entitlementFamily: string
+  releaseId: string
+  version: string
+  archiveSha256: string
+  title: string
+  kind: ContentStoreProductKind | 'unknown'
+  states: ContentStoreDependencyState[]
+}
+
 export interface PublicContentPurchaseAttempt {
   quote_id: string
   account_id: string
@@ -128,6 +146,25 @@ export interface PublicContentPurchaseAttempt {
   status: ContentPurchaseStatus
   base_credit_price: number
   discount_credits: number
+  entitlement_families?: string[]
+  bundle_closure?: Array<{
+    position: number
+    product_id: string
+    entitlement_family: string
+    release_id: string
+    version: string
+    archive_sha256: string
+  }>
+  dependencies?: ContentStoreDependency[]
+  operator_discount?: {
+    discount_id: string
+    version: number
+    percent: number
+    starts_on: string | null
+    ends_on: string | null
+    timezone: 'Asia/Phnom_Penh'
+  } | null
+  operator_discount_credits?: number
   quoted_credits: number
   balance_before: number
   balance_after: number
@@ -146,6 +183,9 @@ export interface PublicContentPurchaseAttempt {
   uncertain_detail?: string
   ownership?: 'owned_not_installed'
   credits_charged?: number
+  component_discount_credits?: number
+  granted_families?: string[]
+  previously_owned_families?: string[]
   replayed?: boolean
   receipt_verification?: 'unverified_phase1'
 }
@@ -345,7 +385,8 @@ export function useContentStore(): {
   function applyFailedAttempt(quoteId: string, cause: any): void {
     const data = cause?.data || cause?.response?._data || {}
     if (data.attempt && typeof data.attempt === 'object') {
-      replaceAttempt(data.attempt as PublicContentPurchaseAttempt)
+      const current = sharedAttempts.value.find(row => row.quote_id === quoteId)
+      replaceAttempt({ ...current, ...data.attempt } as PublicContentPurchaseAttempt)
       return
     }
     const current = sharedAttempts.value.find(row => row.quote_id === quoteId)

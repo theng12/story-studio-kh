@@ -71,4 +71,3 @@
 - [ ] **Step 3: Verify the skills contain no GenStudio identity creation, pricing, publication, signing, or control-Mac generation instruction.**
 - [ ] **Step 4: Run registry tests, Content Pack source suites, typecheck, lint, security, and diff checks; record evidence.**
 - [ ] **Step 5: Request independent specification/security review and resolve all Critical/Important findings before closing.**
-
