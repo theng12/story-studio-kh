@@ -9,6 +9,7 @@
         :product="product"
         :ownership="ownershipFor(product.entitlementFamily)"
         :busy="busyProductId === product.productId || busyReleaseId === product.currentRelease?.releaseId"
+        :network-unavailable="networkUnavailable"
         @quote="$emit('quote', $event)"
         @install="$emit('install', $event)"
       />
@@ -31,6 +32,7 @@ const props = defineProps<{
   emptyDescription: string
   busyProductId: string
   busyReleaseId: string
+  networkUnavailable?: boolean
 }>()
 defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
 function ownershipFor(entitlementFamily: string) { return props.account?.owned.find(item => item.entitlementFamily === entitlementFamily) || null }

@@ -2,13 +2,115 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, test } from 'node:test'
+import { createApp, defineComponent, h, nextTick, ref, type Component } from 'vue'
+import { parse, compileScript, compileTemplate } from '@vue/compiler-sfc'
+import { transform } from 'esbuild'
 
 const detail = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductDetail.vue', import.meta.url)), 'utf8')
 const route = readFileSync(fileURLToPath(new URL('../pages/content-store/[productId].vue', import.meta.url)), 'utf8')
 const cover = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCover.vue', import.meta.url)), 'utf8')
 const storePage = readFileSync(fileURLToPath(new URL('../pages/content-store.vue', import.meta.url)), 'utf8')
 
+async function loadComponent(relative: string): Promise<Component> {
+  const filename = fileURLToPath(new URL(relative, import.meta.url))
+  const source = readFileSync(filename, 'utf8')
+  const { descriptor } = parse(source, { filename })
+  const script = compileScript(descriptor, { id: `content-store-state-${relative}` })
+  const template = compileTemplate({ source: descriptor.template!.content, filename, id: `content-store-state-${relative}`, compilerOptions: { bindingMetadata: script.bindings } })
+  const vueUrl = await import.meta.resolve('vue')
+  const code = `${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const transformed = await transform(code, { loader: 'ts', format: 'esm' })
+  return (await import(`data:text/javascript;base64,${Buffer.from(transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
+}
+
+async function loadStorePage(): Promise<Component> {
+  const filename = fileURLToPath(new URL('../pages/content-store.vue', import.meta.url))
+  const source = readFileSync(filename, 'utf8')
+  const { descriptor } = parse(source, { filename })
+  const script = compileScript(descriptor, { id: 'content-store-page-state' })
+  const template = compileTemplate({ source: descriptor.template!.content, filename, id: 'content-store-page-state', compilerOptions: { bindingMetadata: script.bindings } })
+  const vueUrl = await import.meta.resolve('vue')
+  const support = `
+    import { computed, onMounted, ref, defineComponent as _defineComponent } from "vue"
+    const ContentStoreFilters = { render: () => null }
+    const ContentStoreShelf = { render: () => null }
+    const ContentLibraryView = { render: () => null }
+    const ContentInstalledLibraryView = { render: () => null }
+    const ContentPurchaseDialog = { render: () => null }
+    const filterCatalogProducts = (items) => items
+    const orderShelfProducts = (items) => items
+    const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
+    const useContentStore = () => globalThis.__contentStorePageStore
+    const useAppSettingsModal = () => ({ open: () => undefined })
+    const useRoute = () => ({ params: {} })
+    const useAppTitle = () => undefined
+  `
+  const code = `${support}\n${script.content.replace(/^import .*$/gm, '').replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
+  const transformed = await transform(code, { loader: 'ts', format: 'esm' })
+  return (await import(`data:text/javascript;base64,${Buffer.from(transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl))).toString('base64')}`)).default
+}
+
+async function mount(component: Component, props: Record<string, unknown>) {
+  document.body.innerHTML = ''
+  const host = document.body.appendChild(document.createElement('div'))
+  const app = createApp(component, props)
+  app.component('Modal', defineComponent({ props: { visible: Boolean }, setup(props, { slots }) { return () => props.visible ? h('section', { role: 'dialog' }, slots.default?.()) : null } }))
+  app.component('NuxtLink', defineComponent({ props: { to: String }, setup(_props, { slots }) { return () => h('a', slots.default?.()) } }))
+  app.component('NuxtPage', defineComponent({ setup: () => () => null }))
+  app.component('LoadingSpinner', defineComponent({ setup: () => () => h('span', 'loading') }))
+  app.mount(host)
+  await nextTick(); await nextTick(); await new Promise(resolve => setTimeout(resolve, 0))
+  return { host, unmount: () => app.unmount() }
+}
+
 describe('Content Store proof route contract', () => {
+  test('mounts semantic roving tabs and moves focus with ArrowRight, Home, and End', async () => {
+    const Page = await loadStorePage()
+    ;(globalThis as any).__contentStorePageStore = {
+      account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
+      catalogFreshness: ref('fresh'), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
+      refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
+      confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
+    }
+    const rendered = await mount(Page, {})
+    const tabs = [...rendered.host.querySelectorAll<HTMLButtonElement>('[role="tab"]')]
+    assert.equal(tabs.length, 4)
+    tabs[0]!.focus()
+    tabs[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    await nextTick()
+    assert.equal(document.activeElement?.id, 'content-store-tab-owned')
+    tabs[1]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    await nextTick()
+    assert.equal(document.activeElement?.id, 'content-store-tab-updates')
+    tabs[3]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    await nextTick()
+    assert.equal(document.activeElement?.id, 'content-store-tab-discover')
+    rendered.unmount()
+  })
+
+  test('mounts the purchase refusal as text, announces it, and focuses the non-spending close control', async () => {
+    const Dialog = await loadComponent('../components/content-store/ContentPurchaseDialog.vue')
+    const visible = ref(false)
+    const rendered = await mount(defineComponent({ setup: () => () => h(Dialog, {
+      visible: visible.value,
+      busy: false,
+      product: { title: 'Archive Formula', free: false },
+      attempt: {
+        quote_id: 'quote_1', status: 'refused', base_credit_price: 400, discount_credits: 0, quoted_credits: 400,
+        balance_before: 500, balance_after: 100, expires_at: '2026-08-14T10:15:00Z', sufficient_credits: true, shortfall_credits: 0,
+        refusal: { status: 409, code: 'quote_rejected', detail: '<strong>Quote expired</strong>' },
+      },
+      error: null,
+    }) }), {})
+    visible.value = true
+    await nextTick(); await nextTick(); await new Promise(resolve => setTimeout(resolve, 0))
+    assert.equal(document.activeElement?.getAttribute('aria-label'), 'Close purchase dialog')
+    assert.match(rendered.host.textContent || '', /Quote expired/)
+    assert.equal(rendered.host.querySelector('strong strong'), null, 'server detail is rendered as text, not HTML')
+    assert.equal(rendered.host.querySelector('[role="status"]')?.textContent?.includes('quote can no longer be used'), true)
+    rendered.unmount()
+  })
+
   test('renders proof and opens showcase links externally', () => {
     assert.match(detail, /Watch example videos/)
     assert.match(detail, /openExternalShowcase/)

@@ -19,7 +19,7 @@
 
     <section v-if="ownership?.recalledReleaseVersions.length" class="detail-warning" role="status"><strong>Recalled {{ ownership.recalledReleaseVersions.join(', ') }}</strong><span>Ownership remains permanent. GenStudio stopped serving these exact versions.</span></section>
 
-    <footer class="detail-actions"><NuxtLink to="/content-store" class="back-to-store">Back to Content Store</NuxtLink><button v-if="!product.owned && !product.retired && product.compatible && release" type="button" class="btn btn-primary" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button><button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="busy" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', release!.releaseId)">{{ busy ? 'Installing…' : ownership!.installState === 'update_available' ? 'Update' : 'Install' }}</button></footer>
+    <footer class="detail-actions"><NuxtLink to="/content-store" class="back-to-store">Back to Content Store</NuxtLink><button v-if="!product.owned && !product.retired && product.compatible && release" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button><button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="busy || networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', release!.releaseId)">{{ busy ? 'Installing…' : ownership!.installState === 'update_available' ? 'Update' : 'Install' }}</button></footer>
   </article>
 </template>
 
@@ -30,7 +30,7 @@ import { contentStoreKindLabel } from '~/content-store/catalog-presentation'
 import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShowcaseVideo } from '~/composables/useContentStore'
 
 type OwnedContent = ContentStoreAccount['owned'][number]
-const props = defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean }>()
+const props = defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; networkUnavailable?: boolean }>()
 defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
 const kindLabel = computed(() => contentStoreKindLabel(props.product.kind))
 const release = computed(() => props.product.currentRelease)

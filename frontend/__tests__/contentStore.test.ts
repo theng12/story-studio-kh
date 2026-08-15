@@ -54,7 +54,7 @@ let handler: (path: string, options: Record<string, unknown>) => unknown
   return handler(path, options)
 }
 
-const { useContentStore } = await import('../composables/useContentStore.js')
+const { useContentStore, contentStoreErrorPresentation } = await import('../composables/useContentStore.js')
 
 beforeEach(() => {
   calls = []
@@ -65,6 +65,71 @@ beforeEach(() => {
 })
 
 describe('useContentStore explicit commerce state machine', () => {
+  for (const failure of [
+    ['CONTENT_STORE_SCOPE_REQUIRED', 'Content Store access is needed'],
+    ['incompatible_story_version', 'A newer Story Studio version is needed'],
+    ['insufficient_credits', 'More credits are needed'],
+    ['quote_expired', 'This quote can no longer be used'],
+    ['quote_rejected', 'This quote can no longer be used'],
+    ['CONTENT_PURCHASE_OUTCOME_UNCERTAIN', 'GenStudio’s answer is uncertain'],
+    ['signing_unavailable', 'The Content Store is not open yet'],
+    ['CONTENT_STORE_ACCOUNT_MISMATCH', 'Ownership could not be confirmed'],
+    ['download_grant_expired', 'The download authorization expired'],
+    ['archive_limit_exceeded', 'This archive is too large to install safely'],
+    ['CONTENT_PACK_SIGNATURE_INVALID', 'This Content Pack could not be verified'],
+    ['CONTENT_PACK_ARCHIVE_HASH_MISMATCH', 'This Content Pack could not be verified'],
+    ['CONTENT_PACK_SCHEMA_INVALID', 'This Content Pack could not be verified'],
+    ['CONTENT_PACK_ASSET_INVALID', 'This Content Pack could not be verified'],
+    ['CONTENT_PACK_DEPENDENCY_CYCLE', 'This Content Pack cannot be installed'],
+    ['release_recalled', 'A Content Pack release was recalled'],
+    ['CONTENT_PACK_DISK_UNAVAILABLE', 'This Mac could not prepare the install'],
+    ['CONTENT_PACK_STAGING_FAILED', 'This Mac could not prepare the install'],
+    ['CONTENT_PACK_ACTIVATION_FAILED', 'This Mac could not prepare the install'],
+  ] as const) {
+    test(`turns ${failure[0]} into a distinct recovery state`, () => {
+      const presentation = contentStoreErrorPresentation({ status: failure[0] === 'release_recalled' ? 410 : 409, code: failure[0], detail: 'Exact local failure detail.' })
+      assert.equal(presentation.title, failure[1])
+      assert.match(presentation.detail, /Exact local failure detail/)
+    })
+  }
+
+  test('keeps the last verified catalog and marks it cached when a later refresh is unavailable', async () => {
+    let overviewReads = 0
+    handler = path => {
+      if (path !== '/api/content-store') throw new Error(`Unexpected request: ${path}`)
+      overviewReads += 1
+      if (overviewReads === 1) return structuredClone(completeOverview)
+      const unavailable: any = new Error('offline')
+      unavailable.data = { code: 'CONTENT_STORE_UNAVAILABLE', detail: 'The catalog could not be reached.' }
+      throw unavailable
+    }
+
+    const store = useContentStore()
+    await store.refresh()
+    const verifiedAt = store.lastVerifiedAt.value
+    await assert.rejects(store.refresh())
+
+    assert.equal(store.catalogFreshness.value, 'cached')
+    assert.equal(store.lastVerifiedAt.value, verifiedAt)
+    assert.equal(store.products.value[0]?.title, 'Archive Formula')
+    assert.equal(store.error.value?.code, 'CONTENT_STORE_UNAVAILABLE')
+  })
+
+  test('marks an initial unavailable catalog as unavailable instead of presenting an empty authenticated catalog', async () => {
+    handler = () => {
+      const unavailable: any = new Error('offline')
+      unavailable.data = { code: 'CONTENT_STORE_UNAVAILABLE', detail: 'The catalog could not be reached.' }
+      throw unavailable
+    }
+    const store = useContentStore()
+
+    await assert.rejects(store.refresh())
+
+    assert.equal(store.catalogFreshness.value, 'unavailable')
+    assert.equal(store.account.value, null)
+    assert.deepEqual(store.products.value, [])
+  })
+
   test('retains server-normalized merchandising facts without deriving a price or shelf', async () => {
     const store = useContentStore()
     await store.refresh()

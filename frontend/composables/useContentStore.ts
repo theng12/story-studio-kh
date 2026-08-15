@@ -178,6 +178,44 @@ export interface ContentStoreUiError {
   recalledAt?: string | null
 }
 
+export type ContentStoreCatalogFreshness = 'fresh' | 'cached' | 'unavailable'
+
+export interface ContentStoreErrorPresentation {
+  title: string
+  detail: string
+  recovery: string
+}
+
+/** Maps the backend's public, exact error codes to recovery copy without inventing facts. */
+export function contentStoreErrorPresentation(error: ContentStoreUiError): ContentStoreErrorPresentation {
+  const failure = (title: string, recovery: string): ContentStoreErrorPresentation => ({ title, detail: error.detail, recovery })
+  switch (error.code) {
+    case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Content Store access is needed', 'Open Settings and test the Content Store scope, then refresh.')
+    case 'incompatible_story_version': return failure('A newer Story Studio version is needed', 'Update Story Studio before requesting this release.')
+    case 'insufficient_credits': return failure('More credits are needed', 'Add credits, then request a new exact quote.')
+    case 'quote_expired':
+    case 'quote_rejected': return failure('This quote can no longer be used', 'Close it and request a new exact quote.')
+    case 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN': return failure('GenStudio’s answer is uncertain', 'Retry this exact purchase; Story Studio will reuse its saved attempt.')
+    case 'signing_unavailable': return failure('The Content Store is not open yet', 'Try again after GenStudio can sign Content Store evidence.')
+    case 'CONTENT_STORE_ACCOUNT_MISMATCH':
+    case 'CONTENT_PACK_OWNED_RELEASE_MISMATCH':
+    case 'not_entitled': return failure('Ownership could not be confirmed', 'Restore purchases to verify the active GenStudio account.')
+    case 'download_grant_expired': return failure('The download authorization expired', 'Request the owned release again to receive a new authorization.')
+    case 'archive_limit_exceeded': return failure('This archive is too large to install safely', 'Choose another published release or contact the publisher.')
+    case 'CONTENT_PACK_SIGNATURE_INVALID':
+    case 'CONTENT_PACK_ARCHIVE_HASH_MISMATCH':
+    case 'CONTENT_PACK_SCHEMA_INVALID':
+    case 'CONTENT_PACK_ASSET_INVALID': return failure('This Content Pack could not be verified', 'Do not retry this archive; refresh for a safe published release.')
+    case 'CONTENT_PACK_DEPENDENCY_CYCLE':
+    case 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH': return failure('This Content Pack cannot be installed', 'Refresh the owned release and its required dependencies before trying again.')
+    case 'release_recalled': return failure('A Content Pack release was recalled', 'Ownership remains permanent. Install the newest safe owned release when available.')
+    case 'CONTENT_PACK_DISK_UNAVAILABLE':
+    case 'CONTENT_PACK_STAGING_FAILED':
+    case 'CONTENT_PACK_ACTIVATION_FAILED': return failure('This Mac could not prepare the install', 'Check available disk space, then install the owned release again.')
+    default: return failure('The Content Store is unavailable', 'Refresh the Store before trying again.')
+  }
+}
+
 function uiError(cause: any, fallback: string): ContentStoreUiError {
   const data = cause?.data || cause?.response?._data || {}
   return {
@@ -204,6 +242,8 @@ export function useContentStore(): {
   installed: Readonly<Ref<ContentStoreInstalledPack[]>>
   shelves: Readonly<Ref<ContentStoreShelf[]>>
   attempts: Readonly<Ref<PublicContentPurchaseAttempt[]>>
+  catalogFreshness: Readonly<Ref<ContentStoreCatalogFreshness>>
+  lastVerifiedAt: Readonly<Ref<string | null>>
   loading: Readonly<Ref<boolean>>
   error: Readonly<Ref<ContentStoreUiError | null>>
   refresh: () => Promise<void>
@@ -218,6 +258,8 @@ export function useContentStore(): {
   const installed = ref<ContentStoreInstalledPack[]>([])
   const shelves = ref<ContentStoreShelf[]>([])
   const attempts = ref<PublicContentPurchaseAttempt[]>([])
+  const catalogFreshness = ref<ContentStoreCatalogFreshness>('unavailable')
+  const lastVerifiedAt = ref<string | null>(null)
   const loading = ref(false)
   const error = ref<ContentStoreUiError | null>(null)
 
@@ -230,6 +272,8 @@ export function useContentStore(): {
     installed.value = overview.installed ?? []
     shelves.value = overview.shelves
     attempts.value = overview.attempts
+    catalogFreshness.value = 'fresh'
+    lastVerifiedAt.value = new Date().toISOString()
   }
 
   function replaceAttempt(attempt: PublicContentPurchaseAttempt): void {
@@ -274,11 +318,15 @@ export function useContentStore(): {
       applyOverview(overview, generation)
     } catch (cause: any) {
       if (generation === overviewGeneration) {
-        account.value = null
-        products.value = []
-        installed.value = []
-        shelves.value = []
-        attempts.value = []
+        const hasVerifiedOverview = lastVerifiedAt.value !== null
+        if (!hasVerifiedOverview) {
+          account.value = null
+          products.value = []
+          installed.value = []
+          shelves.value = []
+          attempts.value = []
+        }
+        catalogFreshness.value = hasVerifiedOverview ? 'cached' : 'unavailable'
         error.value = uiError(cause, 'The Content Store could not be loaded.')
       }
       throw cause
@@ -376,6 +424,8 @@ export function useContentStore(): {
     installed: readonly(installed) as unknown as Readonly<Ref<ContentStoreInstalledPack[]>>,
     shelves: readonly(shelves) as unknown as Readonly<Ref<ContentStoreShelf[]>>,
     attempts: readonly(attempts) as unknown as Readonly<Ref<PublicContentPurchaseAttempt[]>>,
+    catalogFreshness: readonly(catalogFreshness),
+    lastVerifiedAt: readonly(lastVerifiedAt),
     loading: readonly(loading),
     error: readonly(error),
     refresh,

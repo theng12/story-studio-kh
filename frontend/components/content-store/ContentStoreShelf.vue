@@ -2,7 +2,7 @@
   <section class="content-store-shelf" :aria-labelledby="`shelf-${shelf.id}`">
     <header><h2 :id="`shelf-${shelf.id}`">{{ shelf.title }}</h2><span>{{ products.length }} {{ products.length === 1 ? 'product' : 'products' }}</span></header>
     <div class="shelf-grid">
-      <ContentProductCard v-for="product in products" :key="product.productId" :product="product" :ownership="ownershipFor(product.entitlementFamily)" :busy="busyProductId === product.productId || busyReleaseId === product.currentRelease?.releaseId" @quote="$emit('quote', $event)" @install="$emit('install', $event)" />
+      <ContentProductCard v-for="product in products" :key="product.productId" :product="product" :ownership="ownershipFor(product.entitlementFamily)" :busy="busyProductId === product.productId || busyReleaseId === product.currentRelease?.releaseId" :network-unavailable="networkUnavailable" @quote="$emit('quote', $event)" @install="$emit('install', $event)" />
     </div>
   </section>
 </template>
@@ -11,7 +11,7 @@
 import ContentProductCard from './ContentProductCard.vue'
 import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShelf } from '~/composables/useContentStore'
 
-const props = defineProps<{ shelf: ContentStoreShelf; products: readonly ContentStoreProduct[]; account: ContentStoreAccount | null; busyProductId: string; busyReleaseId: string }>()
+const props = defineProps<{ shelf: ContentStoreShelf; products: readonly ContentStoreProduct[]; account: ContentStoreAccount | null; busyProductId: string; busyReleaseId: string; networkUnavailable?: boolean }>()
 defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
 function ownershipFor(entitlementFamily: string) { return props.account?.owned.find(item => item.entitlementFamily === entitlementFamily) || null }
 </script>

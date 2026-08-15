@@ -18,8 +18,8 @@
 
     <div class="product-action">
       <NuxtLink :to="`/content-store/${product.productId}`" class="proof-action">View proof</NuxtLink>
-      <button v-if="!product.owned && !product.retired && product.compatible && product.currentRelease" type="button" class="btn btn-primary" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button>
-      <button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="!!busy" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', product.currentRelease!.releaseId)">{{ busy ? 'Installing…' : ownership!.installState === 'update_available' ? 'Install update' : 'Install on this Mac' }}</button>
+      <button v-if="!product.owned && !product.retired && product.compatible && product.currentRelease" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button>
+      <button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="!!busy || networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', product.currentRelease!.releaseId)">{{ busy ? 'Installing…' : ownership!.installState === 'update_available' ? 'Install update' : 'Install on this Mac' }}</button>
     </div>
   </article>
 </template>
@@ -30,7 +30,7 @@ import ContentProductCover from './ContentProductCover.vue'
 import type { ContentStoreAccount, ContentStoreProduct } from '~/composables/useContentStore'
 
 type OwnedContent = ContentStoreAccount['owned'][number]
-const props = defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean }>()
+const props = defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; networkUnavailable?: boolean }>()
 defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
 
 const status = computed(() => {

@@ -103,6 +103,7 @@ import type {
   ContentStoreUiError,
   PublicContentPurchaseAttempt,
 } from '~/composables/useContentStore'
+import { contentStoreErrorPresentation } from '~/composables/useContentStore'
 
 const props = defineProps<{
   visible: boolean
@@ -155,7 +156,7 @@ const displayError = computed(() => {
   if (props.error?.status === 401 || code === 'CONTENT_STORE_SCOPE_REQUIRED') {
     return { tone: 'warning', title: 'This key needs another Content Store scope', detail, showCredits: false }
   }
-  if (code === 'quote_rejected') {
+  if (code === 'quote_expired' || code === 'quote_rejected') {
     return { tone: 'warning', title: 'This quote can no longer be used', detail: `${detail} Close this quote and request a new exact quote.`, showCredits: false }
   }
   if (code === 'already_owned') {
@@ -166,7 +167,8 @@ const displayError = computed(() => {
     }
   }
   if (code || (attempt?.status === 'refused' && detail)) {
-    return { tone: 'warning', title: 'GenStudio did not complete this purchase', detail, showCredits: false }
+    const presentation = contentStoreErrorPresentation({ status: refusal?.status || props.error?.status || null, code: code || 'CONTENT_STORE_UPSTREAM_REFUSED', detail: detail || 'GenStudio did not complete this purchase.' })
+    return { tone: 'warning', title: presentation.title, detail: `${presentation.detail} ${presentation.recovery}`, showCredits: false }
   }
   return null
 })
