@@ -152,6 +152,7 @@ export interface PublicContentPurchaseAttempt {
 
 interface ContentStoreOverview {
   phase: 'delivery_ready'
+  origin: string
   account: ContentStoreAccount
   installed: ContentStoreInstalledPack[]
   products: ContentStoreProduct[]
@@ -190,31 +191,55 @@ export interface ContentStoreErrorPresentation {
 export function contentStoreErrorPresentation(error: ContentStoreUiError): ContentStoreErrorPresentation {
   const failure = (title: string, recovery: string): ContentStoreErrorPresentation => ({ title, detail: error.detail, recovery })
   switch (error.code) {
-    case 'CONTENT_STORE_SCOPE_REQUIRED': return failure('Content Store access is needed', 'Open Settings and test the Content Store scope, then refresh.')
+    case 'CONTENT_STORE_KEY_REQUIRED':
+    case 'CONTENT_STORE_SCOPE_REQUIRED':
+    case 'CONTENT_STORE_SIGNING_KEY_MISSING': return failure('Content Store access is needed', 'Open Settings and test the Content Store scope, then refresh.')
+    case 'CONTENT_PRODUCT_NOT_AVAILABLE': return failure('This product is not available', 'Refresh the Store to see currently published products.')
+    case 'CONTENT_PRODUCT_ALREADY_OWNED': return failure('Already owned in GenStudio', 'Restore purchases to verify ownership on this Mac.')
+    case 'CONTENT_PRODUCT_RETIRED': return failure('This product is retired', 'Choose a currently published product instead.')
+    case 'CONTENT_PRODUCT_INCOMPATIBLE':
     case 'incompatible_story_version': return failure('A newer Story Studio version is needed', 'Update Story Studio before requesting this release.')
+    case 'CONTENT_RELEASE_NOT_AVAILABLE': return failure('This release is not available', 'Refresh the Store and choose a published release.')
+    case 'CONTENT_STORE_QUOTE_NOT_FOUND': return failure('This quote is no longer available', 'Close it and request a new exact quote.')
+    case 'CONTENT_PURCHASE_NOT_SENT': return failure('This purchase was not sent', 'Request or retry the saved exact quote when GenStudio is available.')
     case 'insufficient_credits': return failure('More credits are needed', 'Add credits, then request a new exact quote.')
     case 'quote_expired':
     case 'quote_rejected': return failure('This quote can no longer be used', 'Close it and request a new exact quote.')
     case 'CONTENT_PURCHASE_OUTCOME_UNCERTAIN': return failure('GenStudio’s answer is uncertain', 'Retry this exact purchase; Story Studio will reuse its saved attempt.')
     case 'signing_unavailable': return failure('The Content Store is not open yet', 'Try again after GenStudio can sign Content Store evidence.')
     case 'CONTENT_STORE_ACCOUNT_MISMATCH':
+    case 'CONTENT_PURCHASE_ACCOUNT_MISMATCH':
     case 'CONTENT_PACK_OWNED_RELEASE_MISMATCH':
+    case 'CONTENT_PACK_NOT_OWNED':
     case 'not_entitled': return failure('Ownership could not be confirmed', 'Restore purchases to verify the active GenStudio account.')
     case 'download_grant_expired': return failure('The download authorization expired', 'Request the owned release again to receive a new authorization.')
-    case 'archive_limit_exceeded': return failure('This archive is too large to install safely', 'Choose another published release or contact the publisher.')
+    case 'archive_limit_exceeded':
+    case 'CONTENT_PACK_TOO_LARGE_FOR_THIS_APP': return failure('This archive is too large to install safely', 'Choose another published release or contact the publisher.')
+    case 'CONTENT_PACK_REQUIRES_NEWER_APP': return failure('A newer Story Studio version is needed', 'Update Story Studio before installing this release.')
+    case 'CONTENT_PACK_ARCHIVE_UNAVAILABLE': return failure('This archive is not available', 'Refresh the owned release and try again later.')
     case 'CONTENT_PACK_SIGNATURE_INVALID':
     case 'CONTENT_PACK_ARCHIVE_HASH_MISMATCH':
     case 'CONTENT_PACK_SCHEMA_INVALID':
     case 'CONTENT_PACK_ASSET_INVALID': return failure('This Content Pack could not be verified', 'Do not retry this archive; refresh for a safe published release.')
     case 'CONTENT_PACK_DEPENDENCY_CYCLE':
-    case 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH': return failure('This Content Pack cannot be installed', 'Refresh the owned release and its required dependencies before trying again.')
+    case 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH':
+    case 'CONTENT_PACK_DEPENDENCY_NOT_OWNED':
+    case 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED': return failure('This Content Pack cannot be installed', 'Refresh the owned release and its required dependencies before trying again.')
+    case 'CONTENT_PACK_RECEIPT_MISSING':
+    case 'CONTENT_PACK_REMOTE_IDENTITY_MISMATCH': return failure('This Content Pack could not be verified', 'Restore purchases, then refresh the owned release before trying again.')
     case 'release_recalled': return failure('A Content Pack release was recalled', 'Ownership remains permanent. Install the newest safe owned release when available.')
     case 'CONTENT_PACK_DISK_UNAVAILABLE':
     case 'CONTENT_PACK_STAGING_FAILED':
     case 'CONTENT_PACK_ACTIVATION_FAILED': return failure('This Mac could not prepare the install', 'Check available disk space, then install the owned release again.')
+    case 'CONTENT_STORE_REQUEST_INVALID':
+    case 'CONTENT_STORE_REQUEST_TOO_LARGE': return failure('This Content Store request is invalid', 'Refresh the Store and try the action again.')
+    case 'CONTENT_STORE_UPSTREAM_REFUSED': return failure('GenStudio could not complete this request', 'Refresh the Store before trying again.')
     default: return failure('The Content Store is unavailable', 'Refresh the Store before trying again.')
   }
 }
+
+let sessionOverview: { accountId: string; origin: string; overview: ContentStoreOverview; verifiedAt: string } | null = null
+export function _clearContentStoreSessionCacheForTests(): void { sessionOverview = null }
 
 function uiError(cause: any, fallback: string): ContentStoreUiError {
   const data = cause?.data || cause?.response?._data || {}
@@ -253,13 +278,16 @@ export function useContentStore(): {
   installRelease: (releaseId: string) => Promise<{ pack_id: string; version: string; activated: boolean }>
 } {
   const { get, post } = useApi()
-  const account = ref<ContentStoreAccount | null>(null)
-  const products = ref<ContentStoreProduct[]>([])
-  const installed = ref<ContentStoreInstalledPack[]>([])
-  const shelves = ref<ContentStoreShelf[]>([])
-  const attempts = ref<PublicContentPurchaseAttempt[]>([])
-  const catalogFreshness = ref<ContentStoreCatalogFreshness>('unavailable')
-  const lastVerifiedAt = ref<string | null>(null)
+  const cached = sessionOverview
+  const account = ref<ContentStoreAccount | null>(cached?.overview.account ?? null)
+  const products = ref<ContentStoreProduct[]>(cached?.overview.products ?? [])
+  const installed = ref<ContentStoreInstalledPack[]>(cached?.overview.installed ?? [])
+  const shelves = ref<ContentStoreShelf[]>(cached?.overview.shelves ?? [])
+  const attempts = ref<PublicContentPurchaseAttempt[]>(cached?.overview.attempts ?? [])
+  // A new route can render a verified session snapshot, but cannot assume its
+  // network actions remain live until it completes its own explicit refresh.
+  const catalogFreshness = ref<ContentStoreCatalogFreshness>(cached ? 'cached' : 'unavailable')
+  const lastVerifiedAt = ref<string | null>(cached?.verifiedAt ?? null)
   const loading = ref(false)
   const error = ref<ContentStoreUiError | null>(null)
 
@@ -274,6 +302,13 @@ export function useContentStore(): {
     attempts.value = overview.attempts
     catalogFreshness.value = 'fresh'
     lastVerifiedAt.value = new Date().toISOString()
+    const origin = overview.origin
+    if (!origin) {
+      sessionOverview = null
+      return
+    }
+    if (sessionOverview && (sessionOverview.accountId !== overview.account.accountId || sessionOverview.origin !== origin)) sessionOverview = null
+    sessionOverview = { accountId: overview.account.accountId, origin, overview, verifiedAt: lastVerifiedAt.value }
   }
 
   function replaceAttempt(attempt: PublicContentPurchaseAttempt): void {

@@ -90,6 +90,25 @@ describe('useFocusTrap', () => {
     assert.equal(escCount, 1, 'Escape after deactivation is ignored')
   })
 
+  test('Escape closes only the dialog instead of bubbling to a route shortcut', async () => {
+    const container = setupContainer()
+    const containerRef = ref<HTMLElement | null>(container)
+    const active = ref(false)
+    let dialogEscapes = 0
+    let routeEscapes = 0
+    const routeListener = () => { routeEscapes++ }
+    window.addEventListener('keydown', routeListener)
+    useFocusTrap(containerRef, active, () => { dialogEscapes++ })
+
+    active.value = true
+    await nextTick()
+    dispatchKey('Escape')
+
+    assert.equal(dialogEscapes, 1)
+    assert.equal(routeEscapes, 0, 'dialog Escape must not trigger the detail route Escape handler')
+    window.removeEventListener('keydown', routeListener)
+  })
+
   test('Tab wraps from the last focusable to the first', async () => {
     const container = setupContainer()
     const containerRef = ref<HTMLElement | null>(container)

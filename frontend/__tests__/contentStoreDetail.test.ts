@@ -31,12 +31,12 @@ async function loadStorePage(): Promise<Component> {
   const template = compileTemplate({ source: descriptor.template!.content, filename, id: 'content-store-page-state', compilerOptions: { bindingMetadata: script.bindings } })
   const vueUrl = await import.meta.resolve('vue')
   const support = `
-    import { computed, onMounted, ref, defineComponent as _defineComponent } from "vue"
-    const ContentStoreFilters = { render: () => null }
-    const ContentStoreShelf = { render: () => null }
+    import { computed, h, nextTick, onMounted, ref, defineComponent as _defineComponent } from "vue"
+    const ContentStoreFilters = { render: () => h('div', { 'data-test': 'catalog-filters' }) }
+    const ContentStoreShelf = { props: ['products'], emits: ['quote'], setup: (props, { emit }) => () => props.products?.[0] ? h('button', { 'data-test': 'request-quote', onClick: () => emit('quote', props.products[0]) }, 'See exact quote') : null }
     const ContentLibraryView = { render: () => null }
     const ContentInstalledLibraryView = { render: () => null }
-    const ContentPurchaseDialog = { render: () => null }
+    const ContentPurchaseDialog = { props: ['visible', 'attempt'], emits: ['close', 'confirm'], setup: (props, { emit }) => () => props.visible ? h('div', { role: 'dialog' }, [h('button', { 'data-test': 'confirm-purchase', onClick: () => emit('confirm', props.attempt.quote_id) }, 'Confirm'), h('button', { 'data-test': 'purchase-done', onClick: () => emit('close') }, 'Done')]) : null }
     const filterCatalogProducts = (items) => items
     const orderShelfProducts = (items) => items
     const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
@@ -85,6 +85,48 @@ describe('Content Store proof route contract', () => {
     tabs[3]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
     await nextTick()
     assert.equal(document.activeElement?.id, 'content-store-tab-discover')
+    rendered.unmount()
+  })
+
+  test('mounts an unavailable no-cache state without catalog filters or a false empty result', async () => {
+    const Page = await loadStorePage()
+    ;(globalThis as any).__contentStorePageStore = {
+      account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
+      catalogFreshness: ref('unavailable'), lastVerifiedAt: ref(null), loading: ref(false),
+      error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio could not be reached.' }),
+      refresh: async () => { throw new Error('offline') }, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
+      confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
+    }
+    const rendered = await mount(Page, {})
+    assert.match(rendered.host.textContent || '', /Content Store is unavailable/)
+    assert.equal(rendered.host.querySelector('[data-test="catalog-filters"]'), null)
+    assert.doesNotMatch(rendered.host.textContent || '', /No published products match these filters/)
+    rendered.unmount()
+  })
+
+  test('moves successful purchase completion to an extant Owned tab, not the removed quote trigger', async () => {
+    const Page = await loadStorePage()
+    const attempt = {
+      quote_id: 'quote_1', status: 'quoted', product_id: 'formula', credits_charged: 400,
+      base_credit_price: 400, discount_credits: 0, quoted_credits: 400, balance_before: 500, balance_after: 100,
+      expires_at: '2026-08-14T10:15:00Z', sufficient_credits: true, shortfall_credits: 0,
+    }
+    const attempts = ref<any[]>([])
+    const product = { productId: 'formula', entitlementFamily: 'formula-family', owned: false, retired: false, compatible: true, free: false, currentRelease: { releaseId: 'release_1' }, presentation: { tags: [] } }
+    ;(globalThis as any).__contentStorePageStore = {
+      account: ref({ contentAccountId: 'content_a', availableCredits: 500, contentSpendableCredits: 500, owned: [] }), products: ref([product]), installed: ref([]), shelves: ref([{ id: 'featured', productIds: ['formula'] }]), attempts,
+      catalogFreshness: ref('fresh'), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
+      refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { attempts.value = [attempt]; return attempt },
+      confirmPurchase: async () => { attempts.value = [{ ...attempt, status: 'completed' }]; return attempts.value[0] }, installRelease: async () => ({ activated: false }),
+    }
+    const rendered = await mount(Page, {})
+    rendered.host.querySelector<HTMLButtonElement>('[data-test="request-quote"]')!.click()
+    await nextTick(); await nextTick()
+    rendered.host.querySelector<HTMLButtonElement>('[data-test="confirm-purchase"]')!.click()
+    await nextTick(); await nextTick()
+    rendered.host.querySelector<HTMLButtonElement>('[data-test="purchase-done"]')!.click()
+    await nextTick(); await nextTick()
+    assert.equal(document.activeElement?.id, 'content-store-tab-owned')
     rendered.unmount()
   })
 

@@ -42,6 +42,7 @@ export function useFocusTrap(
 
     if (ev.key === 'Escape') {
       ev.preventDefault()
+      ev.stopPropagation()
       onEscape?.()
       return
     }

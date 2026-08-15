@@ -190,7 +190,7 @@ function formatExpiry(value: string): string {
 .purchase-header { border-bottom: 1px solid var(--border); }
 .purchase-header span { color: var(--text-secondary); font-size: var(--font-xs); font-weight: 700; }
 .purchase-header h2 { margin-top: 2px; overflow-wrap: anywhere; font-size: var(--font-2xl); line-height: 1.25; }
-.dialog-close { min-width: 44px; min-height: 36px; border: 1px solid var(--border); border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); cursor: pointer; }
+.dialog-close { min-width: 44px; min-height: 44px; border: 1px solid var(--border); border-radius: var(--radius-md); background: transparent; color: var(--text-secondary); cursor: pointer; }
 .dialog-close:hover { background: var(--bg-hover); color: var(--text-primary); }
 .dialog-close:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .purchase-body { display: grid; gap: 16px; padding: 20px; }
@@ -223,7 +223,7 @@ function formatExpiry(value: string): string {
   .quote-grid,
   .purchase-ledger { grid-template-columns: 1fr; }
   .purchase-actions { align-items: stretch; flex-direction: column-reverse; }
-  .purchase-actions .btn { width: 100%; justify-content: center; }
+  .purchase-actions .btn { width: 100%; min-height: 44px; justify-content: center; }
 }
 </style>
 

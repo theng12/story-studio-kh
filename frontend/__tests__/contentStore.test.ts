@@ -5,6 +5,7 @@ import { beforeEach, describe, test } from 'node:test'
 
 const completeOverview = {
   phase: 'delivery_ready' as const,
+  origin: 'https://catalog.example.test',
   account: {
     accountId: 'acct_a',
     contentAccountId: 'content_acct_a',
@@ -54,9 +55,10 @@ let handler: (path: string, options: Record<string, unknown>) => unknown
   return handler(path, options)
 }
 
-const { useContentStore, contentStoreErrorPresentation } = await import('../composables/useContentStore.js')
+const { useContentStore, contentStoreErrorPresentation, _clearContentStoreSessionCacheForTests } = await import('../composables/useContentStore.js')
 
 beforeEach(() => {
+  _clearContentStoreSessionCacheForTests()
   calls = []
   handler = path => {
     if (path === '/api/content-store') return structuredClone(completeOverview)
@@ -65,8 +67,61 @@ beforeEach(() => {
 })
 
 describe('useContentStore explicit commerce state machine', () => {
+  test('shares only same-account same-origin verified catalog proof with a new route instance offline', async () => {
+    const overview = { ...structuredClone(completeOverview), origin: 'https://catalog.example.test' }
+    handler = path => {
+      if (path !== '/api/content-store') throw new Error(`Unexpected request: ${path}`)
+      if (calls.filter(call => call.path === path).length === 1) return overview
+      throw Object.assign(new Error('offline'), { data: { code: 'CONTENT_STORE_UNAVAILABLE', detail: 'Offline.' } })
+    }
+    const shelf = useContentStore()
+    await shelf.refresh()
+    const proof = useContentStore()
+
+    assert.equal(proof.products.value[0]?.productId, 'formula')
+    assert.equal(proof.catalogFreshness.value, 'cached')
+    await assert.rejects(proof.refresh())
+    assert.equal(proof.catalogFreshness.value, 'cached')
+    assert.equal(proof.lastVerifiedAt.value, shelf.lastVerifiedAt.value)
+  })
+
+  test('replaces shared proof when GenStudio verifies a different account or origin', async () => {
+    const first = { ...structuredClone(completeOverview), origin: 'https://one.example.test' }
+    const second = {
+      ...structuredClone(completeOverview),
+      origin: 'https://two.example.test',
+      account: { ...completeOverview.account, accountId: 'acct_b', contentAccountId: 'content_b' },
+      products: [{ ...completeOverview.products[0]!, productId: 'formula-b', title: 'Account B Formula' }],
+    }
+    let reads = 0
+    handler = path => {
+      if (path !== '/api/content-store') throw new Error(`Unexpected request: ${path}`)
+      reads += 1
+      return reads === 1 ? first : second
+    }
+    const accountA = useContentStore()
+    await accountA.refresh()
+    const accountB = useContentStore()
+    await accountB.refresh()
+    const offlineAfterAccountSwitch = useContentStore()
+
+    assert.equal(accountB.account.value?.accountId, 'acct_b')
+    assert.equal(offlineAfterAccountSwitch.account.value?.accountId, 'acct_b')
+    assert.equal(offlineAfterAccountSwitch.products.value[0]?.productId, 'formula-b')
+  })
+
   for (const failure of [
+    ['CONTENT_STORE_KEY_REQUIRED', 'Content Store access is needed'],
     ['CONTENT_STORE_SCOPE_REQUIRED', 'Content Store access is needed'],
+    ['CONTENT_PRODUCT_NOT_AVAILABLE', 'This product is not available'],
+    ['CONTENT_PRODUCT_ALREADY_OWNED', 'Already owned in GenStudio'],
+    ['CONTENT_PRODUCT_RETIRED', 'This product is retired'],
+    ['CONTENT_PRODUCT_INCOMPATIBLE', 'A newer Story Studio version is needed'],
+    ['CONTENT_RELEASE_NOT_AVAILABLE', 'This release is not available'],
+    ['CONTENT_STORE_QUOTE_NOT_FOUND', 'This quote is no longer available'],
+    ['CONTENT_PURCHASE_NOT_SENT', 'This purchase was not sent'],
+    ['CONTENT_PACK_TOO_LARGE_FOR_THIS_APP', 'This archive is too large to install safely'],
+    ['CONTENT_PACK_REQUIRES_NEWER_APP', 'A newer Story Studio version is needed'],
     ['incompatible_story_version', 'A newer Story Studio version is needed'],
     ['insufficient_credits', 'More credits are needed'],
     ['quote_expired', 'This quote can no longer be used'],
@@ -74,6 +129,19 @@ describe('useContentStore explicit commerce state machine', () => {
     ['CONTENT_PURCHASE_OUTCOME_UNCERTAIN', 'GenStudio’s answer is uncertain'],
     ['signing_unavailable', 'The Content Store is not open yet'],
     ['CONTENT_STORE_ACCOUNT_MISMATCH', 'Ownership could not be confirmed'],
+    ['CONTENT_PURCHASE_ACCOUNT_MISMATCH', 'Ownership could not be confirmed'],
+    ['CONTENT_PACK_NOT_OWNED', 'Ownership could not be confirmed'],
+    ['CONTENT_STORE_SIGNING_KEY_MISSING', 'Content Store access is needed'],
+    ['CONTENT_PACK_OWNED_RELEASE_MISMATCH', 'Ownership could not be confirmed'],
+    ['CONTENT_PACK_ARCHIVE_UNAVAILABLE', 'This archive is not available'],
+    ['CONTENT_PACK_DEPENDENCY_NOT_OWNED', 'This Content Pack cannot be installed'],
+    ['CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'This Content Pack cannot be installed'],
+    ['CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'This Content Pack cannot be installed'],
+    ['CONTENT_PACK_RECEIPT_MISSING', 'This Content Pack could not be verified'],
+    ['CONTENT_PACK_REMOTE_IDENTITY_MISMATCH', 'This Content Pack could not be verified'],
+    ['CONTENT_STORE_REQUEST_INVALID', 'This Content Store request is invalid'],
+    ['CONTENT_STORE_REQUEST_TOO_LARGE', 'This Content Store request is invalid'],
+    ['CONTENT_STORE_UPSTREAM_REFUSED', 'GenStudio could not complete this request'],
     ['download_grant_expired', 'The download authorization expired'],
     ['archive_limit_exceeded', 'This archive is too large to install safely'],
     ['CONTENT_PACK_SIGNATURE_INVALID', 'This Content Pack could not be verified'],
@@ -92,6 +160,12 @@ describe('useContentStore explicit commerce state machine', () => {
       assert.match(presentation.detail, /Exact local failure detail/)
     })
   }
+
+  test('uses one generic recovery boundary for an unrecognized public code', () => {
+    const presentation = contentStoreErrorPresentation({ status: 502, code: 'CONTENT_STORE_FUTURE_REFUSAL', detail: 'Safe exact detail.' })
+    assert.equal(presentation.title, 'The Content Store is unavailable')
+    assert.match(presentation.detail, /Safe exact detail/)
+  })
 
   test('keeps the last verified catalog and marks it cached when a later refresh is unavailable', async () => {
     let overviewReads = 0

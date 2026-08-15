@@ -47,5 +47,5 @@ label:first-child { flex: 1 1 240px; }
 input[type='search'], select { width: 100%; min-height: var(--control-height-sm); padding: 6px 9px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--bg-primary); color: var(--text-primary); font: inherit; }
 .compatible-filter { display: inline-flex; grid-template-columns: auto 1fr; align-items: center; min-height: var(--control-height-sm); gap: 7px; padding: 0 2px; }
 .compatible-filter input { width: 16px; height: 16px; accent-color: var(--accent); }
-@media (max-width: 560px) { .store-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } label, label:first-child { min-width: 0; } .compatible-filter { grid-column: 1 / -1; } }
+@media (max-width: 560px) { .store-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } label, label:first-child { min-width: 0; } input[type='search'], select, .compatible-filter { min-height: 44px; } .compatible-filter { grid-column: 1 / -1; padding: 0 8px; } .compatible-filter input { width: 22px; height: 22px; } }
 </style>

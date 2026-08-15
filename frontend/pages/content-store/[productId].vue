@@ -10,7 +10,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import ContentProductDetail from '~/components/content-store/ContentProductDetail.vue'
 import ContentPurchaseDialog from '~/components/content-store/ContentPurchaseDialog.vue'
 import { contentStoreErrorPresentation, type ContentStoreProduct, type ContentStoreUiError } from '~/composables/useContentStore'
@@ -32,7 +32,7 @@ function retryStore() { if (loading.value) return; hasResolvedStore.value = fals
 async function openQuote(item: ContentStoreProduct) { if (catalogFreshness.value !== 'fresh' || quoteBusy.value) return; quoteBusy.value = true; dialogError.value = null; try { const attempt = await store.requestQuote(item.productId, item.currentRelease?.releaseId ?? null); selectedQuoteId.value = attempt.quote_id; dialogOpen.value = true } catch { /* quote errors remain at the established commerce boundary */ } finally { quoteBusy.value = false } }
 async function installRelease(releaseId: string) { if (catalogFreshness.value !== 'fresh' || installBusy.value) return; installBusy.value = true; try { await store.installRelease(releaseId) } catch { /* error stays in the Store state */ } finally { installBusy.value = false } }
 async function confirmPurchase(quoteId: string) { if (catalogFreshness.value !== 'fresh' || purchaseBusy.value) return; purchaseBusy.value = true; dialogError.value = null; try { await store.confirmPurchase(quoteId) } catch { dialogError.value = error.value } finally { purchaseBusy.value = false } }
-function closeDialog() { if (purchaseBusy.value) return; dialogOpen.value = false; selectedQuoteId.value = ''; dialogError.value = null }
+async function closeDialog() { if (purchaseBusy.value) return; const completed = selectedAttempt.value?.status === 'completed'; dialogOpen.value = false; selectedQuoteId.value = ''; dialogError.value = null; if (completed) { await nextTick(); (document.querySelector('.content-store-detail-page .back-link') as HTMLElement | null)?.focus() } }
 function leaveProofOnEscape(event: KeyboardEvent) { if (event.key === 'Escape' && !dialogOpen.value) void navigateTo('/content-store') }
 onMounted(() => { window.addEventListener('keydown', leaveProofOnEscape); void loadStore() })
 onBeforeUnmount(() => window.removeEventListener('keydown', leaveProofOnEscape))

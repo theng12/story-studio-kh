@@ -148,6 +148,7 @@ export type PublicContentProduct = Omit<GenStudioContentProduct,
 
 export interface ContentStoreOverview {
   phase: 'delivery_ready'
+  origin: string
   account: PublicContentAccount
   installed: PublicContentInstalledPack[]
   products: PublicContentProduct[]
@@ -439,6 +440,7 @@ export async function loadContentStoreOverview(): Promise<ContentStoreOverview> 
     .map(owned => owned.productId))
   return {
     phase: 'delivery_ready',
+    origin: await currentGenStudioOrigin(),
     account: await publicAccount(account, verifiedFamilies, installSnapshot.owned, recalledVersionsByFamily,
       new Map(catalog.products.map(product => [product.productId, product.compatible]))),
     installed: installSnapshot.installed.map(local => {

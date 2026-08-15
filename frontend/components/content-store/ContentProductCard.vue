@@ -80,5 +80,6 @@ h3 { min-width: 0; overflow-wrap: anywhere; font-size: var(--font-xl); letter-sp
 .product-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
 .proof-action { color: var(--accent); font-size: var(--font-sm); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 .product-action .btn { margin-left: auto; min-height: var(--control-height-sm); padding: 7px 11px; font-size: var(--font-sm); }
+@media (max-width: 560px) { .product-action .btn { min-height: 44px; } }
 @media (max-width: 340px) { .product-title-row, .product-action { align-items: stretch; flex-direction: column; } .status-tag { align-self: flex-start; max-width: 100%; text-align: left; } .product-action .btn { width: 100%; margin-left: 0; justify-content: center; } }
 </style>
