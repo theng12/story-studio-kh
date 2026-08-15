@@ -416,7 +416,12 @@ interface PublicDependencyContext {
   apiKey: string
   catalog: GenStudioContentProduct[]
   installed: PublicContentInstalledPack[]
-  releaseHistory: Map<string, Promise<GenStudioOwnedContentRelease[]>>
+  releaseHistory: Map<string, Promise<PublicOwnedReleaseEvidence>>
+}
+
+interface PublicOwnedReleaseEvidence {
+  releases: GenStudioOwnedContentRelease[]
+  unavailable: boolean
 }
 
 function dependencyContext(
@@ -430,11 +435,17 @@ function dependencyContext(
 function ownedReleaseHistory(
   context: PublicDependencyContext,
   entitlementFamily: string,
-): Promise<GenStudioOwnedContentRelease[]> {
+): Promise<PublicOwnedReleaseEvidence> {
   let pending = context.releaseHistory.get(entitlementFamily)
   if (!pending) {
     pending = listGenStudioOwnedContentReleases(context.apiKey, entitlementFamily)
-      .then(history => history.releases)
+      .then(history => ({ releases: history.releases, unavailable: false }))
+      .catch(error => {
+        if (error instanceof GenStudioContentStoreApiError && (error.status === 403 || error.status === 404)) {
+          return { releases: [], unavailable: true }
+        }
+        throw error
+      })
     context.releaseHistory.set(entitlementFamily, pending)
   }
   return pending
@@ -450,7 +461,7 @@ async function publicDependencies(
     ? [...(attempt.completed_purchase.granted_families ?? []), ...(attempt.completed_purchase.previously_owned_families ?? [])]
     : []
   const ownedFamilies = new Set(completedOwnedFamilies.length > 0 ? completedOwnedFamilies : attempt.owned_components)
-  const histories = new Map<string, GenStudioOwnedContentRelease[]>()
+  const histories = new Map<string, PublicOwnedReleaseEvidence>()
   await Promise.all([...ownedFamilies].map(async family => {
     histories.set(family, await ownedReleaseHistory(context, family))
   }))
@@ -458,18 +469,15 @@ async function publicDependencies(
   return closure.map(component => {
     const product = context.catalog.find(candidate => candidate.productId === component.product_id)
     const catalogComponent = root?.bundleComponents.find(candidate => candidate.productId === component.product_id)
-    const history = histories.get(component.entitlement_family)?.find(release => (
+    const evidence = histories.get(component.entitlement_family)
+    const history = evidence?.releases.find(release => (
       release.releaseId === component.release_id
       && release.version === component.version
       && release.archiveSha256 === component.archive_sha256
     ))
-    const currentIsExact = !!product?.currentRelease
-      && product.currentRelease.releaseId === component.release_id
-      && product.currentRelease.version === component.version
-      && product.currentRelease.archiveSha256 === component.archive_sha256
     const withdrawn = history?.state === 'withdrawn'
     const recalled = history?.state === 'recalled'
-    const unavailable = withdrawn || recalled || (!currentIsExact && history?.state !== 'published')
+    const unavailable = evidence?.unavailable === true || withdrawn || recalled
     const states: PublicContentDependencyState[] = []
     if (product?.free) states.push('free')
     if (ownedFamilies.has(component.entitlement_family)) states.push('owned')

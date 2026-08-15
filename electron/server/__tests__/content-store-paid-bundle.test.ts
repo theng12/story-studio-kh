@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs/promises'
 import { afterEach, test } from 'node:test'
 
-import { ContentStoreUpstreamRefusal, confirmContentStorePurchase, createContentStoreQuote } from '../services/content-store.js'
+import { ContentStoreUpstreamRefusal, confirmContentStorePurchase, createContentStoreQuote, loadContentStoreOverview } from '../services/content-store.js'
 import { purchaseGenStudioContentProduct, quoteGenStudioContentProduct } from '../lib/genstudio-content-store.js'
 import { getContentStoreStatePath, readContentStoreCommerceState } from '../content-store/commerce-state.js'
 import { setApiKey } from '../services/app-secrets-store.js'
@@ -157,6 +157,39 @@ test('normalizes exact signed bundle dependencies and authoritative release stat
   assert.equal(quoted.dependencies[0].version, '1.0.0')
   assert.equal(JSON.stringify(quoted).includes('canonical_json'), false)
   assert.equal(JSON.stringify(quoted).includes('signature'), false)
+})
+
+test('does not mark an exact signed dependency unavailable only because catalog current advanced', async () => {
+  const service = await setup()
+  const quoted = facts(await createContentStoreQuote({ product_id: 'cprod_archival_kit', release_id: null }))
+  const first = service.contentProducts.find(product => product.product_id === 'cprod_archival_component_1')!
+  first.current_release = {
+    ...(first.current_release as Record<string, unknown>),
+    release_id: 'crel_cprod_archival_component_1_v2',
+    version: '2.0.0',
+    archive_sha256: 'b'.repeat(64),
+  }
+
+  const overview = facts(await loadContentStoreOverview())
+  const attempt = overview.attempts.find((candidate: Record<string, unknown>) => candidate.quote_id === quoted.quote_id)
+  const dependency = attempt.dependencies.find((candidate: Record<string, unknown>) => candidate.productId === 'cprod_archival_component_1')
+  assert.equal(dependency.version, '1.0.0')
+  assert.deepEqual(dependency.states, ['included'])
+})
+
+test('normalizes owned-history 403 and 404 as unavailable without failing overview or leaking refusal detail', async () => {
+  const service = await setup()
+  await acquireSharedFamily()
+  const quoted = facts(await createContentStoreQuote({ product_id: 'cprod_archival_kit', release_id: null }))
+
+  for (const status of [403, 404] as const) {
+    service.setContentOwnedReleaseRefusal(STYLE_FAMILY, status)
+    const overview = facts(await loadContentStoreOverview())
+    const attempt = overview.attempts.find((candidate: Record<string, unknown>) => candidate.quote_id === quoted.quote_id)
+    const dependency = attempt.dependencies.find((candidate: Record<string, unknown>) => candidate.entitlementFamily === STYLE_FAMILY)
+    assert.deepEqual(dependency.states, ['free', 'owned', 'included', 'unavailable'])
+    assert.doesNotMatch(JSON.stringify(dependency), /history_forbidden|not_entitled|Sensitive|internal_path/)
+  }
 })
 
 test('keeps nine-family bundle refusals non-mutating and retries uncertainty once without duplicate debit or grant', async () => {

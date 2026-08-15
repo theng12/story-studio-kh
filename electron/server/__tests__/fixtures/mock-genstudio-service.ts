@@ -348,6 +348,7 @@ export class MockGenStudioService {
   private readonly contentSigningKey = generateKeyPairSync('ed25519')
   private readonly contentArchives = new Map<string, Uint8Array>()
   private readonly contentOwnedReleaseStates = new Map<string, MockOwnedContentReleaseState>()
+  private readonly contentOwnedReleaseRefusals = new Map<string, 403 | 404>()
   private readonly queuedContentPurchaseOutcomes: MockContentPurchaseOutcome[] = []
   contentProducts: Array<Record<string, unknown>> = []
   contentShelves: { shelves: Array<Record<string, unknown>>; fallback_product_ids: string[] } | null = null
@@ -501,6 +502,10 @@ export class MockGenStudioService {
       throw new Error(`Unknown mock Content Store release: ${releaseId}`)
     }
     this.contentOwnedReleaseStates.set(releaseId, { ...state })
+  }
+
+  setContentOwnedReleaseRefusal(entitlementFamily: string, status: 403 | 404): void {
+    this.contentOwnedReleaseRefusals.set(entitlementFamily, status)
   }
 
   pauseNextContentArchiveResponse(): { started: Promise<void>; release: () => void } {
@@ -1326,8 +1331,18 @@ export class MockGenStudioService {
       }
       const ownedReleasesMatch = url.pathname.match(/^\/v1\/content\/entitlements\/([^/]+)\/releases$/)
       if (method === 'GET' && ownedReleasesMatch) {
+        const entitlementFamily = decodeURIComponent(ownedReleasesMatch[1]!)
+        const refusal = this.contentOwnedReleaseRefusals.get(entitlementFamily)
+        if (refusal) {
+          json(response, refusal, {
+            code: refusal === 403 ? 'history_forbidden' : 'not_entitled',
+            detail: 'Sensitive owned-release refusal detail.',
+            internal_path: '/srv/private/content/releases',
+          })
+          return
+        }
         try {
-          json(response, 200, this.contentOwnedReleasesBody(request, decodeURIComponent(ownedReleasesMatch[1]!)))
+          json(response, 200, this.contentOwnedReleasesBody(request, entitlementFamily))
         } catch (error) {
           const shaped = error as Error & { mockStatus?: number; mockCode?: string }
           json(response, shaped.mockStatus || 500, { code: shaped.mockCode, detail: shaped.message })
