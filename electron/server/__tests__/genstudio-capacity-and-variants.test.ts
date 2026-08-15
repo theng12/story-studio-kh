@@ -31,6 +31,7 @@ import {
   readGenStudioCapacityReason,
   readGenStudioPollHintMs,
   supportsGenStudioVideoMode,
+  variantsForGenStudioVideoOperation,
   type GenStudioVideoVariant,
 } from '../lib/genstudio-client.js'
 import { selectSceneClipGenStudioVariant } from '../generators/scene-clip.js'
@@ -127,6 +128,47 @@ test('a 4k and an 8-second variant published today reach the catalogue intact', 
     assert.equal(supportsGenStudioVideoMode(model), true)
     assert.equal(supportsGenStudioVideoMode(model, 'text-to-video'), true)
     assert.equal(supportsGenStudioVideoMode(model, 'audio-to-video'), false)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
+test('video catalog drops malformed price rows before choosing an image-to-video default', async () => {
+  const originalFetch = globalThis.fetch
+  const valid = {
+    operation: 'image-to-video', duration_seconds: 21, resolution: 'cinematic-ultra',
+    credits_per_video: 0, minimum_credits: 0, price_version: 'catalog-2026-08',
+  }
+  try {
+    globalThis.fetch = async (input) => {
+      assert.match(String(input), /\/v1\/videos\/models$/)
+      return Response.json([{
+        id: 'gs-video-validation-v1',
+        display_name: 'Validation',
+        available: true,
+        modes: ['image-to-video'],
+        aspect_ratios: ['16:9'],
+        variants: [
+          { ...valid, price_version: '  catalog-2026-08  ' },
+          { ...valid, credits_per_video: -1 },
+          { ...valid, credits_per_video: 0.5 },
+          { ...valid, minimum_credits: -1 },
+          { ...valid, minimum_credits: 0.5 },
+          { ...valid, duration_seconds: 0 },
+          { ...valid, duration_seconds: -1 },
+          { ...valid, duration_seconds: 2.5 },
+          { ...valid, duration_seconds: Number.MAX_SAFE_INTEGER + 1 },
+          { ...valid, price_version: '' },
+          { ...valid, price_version: '   ' },
+        ],
+      }])
+    }
+
+    const [model] = await listVideoModels('video-validation-key')
+    assert.deepEqual(model?.variants, [valid])
+    const imageToVideo = variantsForGenStudioVideoOperation(model?.variants, 'image-to-video')
+    assert.deepEqual(imageToVideo, [valid])
+    assert.deepEqual(cheapestGenStudioVideoVariant(imageToVideo), valid)
   } finally {
     globalThis.fetch = originalFetch
   }

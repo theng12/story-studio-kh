@@ -3801,28 +3801,32 @@ export async function listVideoModelsSnapshot(
       ? value.aspect_ratios.filter((item: unknown): item is string => typeof item === 'string')
       : [],
     // SHAPE, not membership. A variant is kept when it is well-formed: a
-    // positive finite duration, a non-empty resolution label, finite prices
-    // and a price version. A 4k or 8-second product GenStudio publishes today
-    // therefore reaches the UI unchanged; the old filter dropped it silently,
-    // leaving the model looking as if it had no variants at all.
+    // positive safe-integer duration, a non-empty resolution label,
+    // non-negative safe-integer prices, and a non-empty price version. A 4k
+    // or 8-second product GenStudio publishes today therefore reaches the UI
+    // unchanged; the old filter dropped it silently, leaving the model looking
+    // as if it had no variants at all.
     variants: Array.isArray(value?.variants)
       ? value.variants.filter((item: any) => (
-          Number.isFinite(item?.duration_seconds)
+          Number.isSafeInteger(item?.duration_seconds)
           && item.duration_seconds > 0
           && typeof item?.operation === 'string'
           && item.operation.trim().length > 0
           && typeof item?.resolution === 'string'
           && item.resolution.trim().length > 0
-          && Number.isFinite(item?.credits_per_video)
-          && Number.isFinite(item?.minimum_credits)
+          && Number.isSafeInteger(item?.credits_per_video)
+          && item.credits_per_video >= 0
+          && Number.isSafeInteger(item?.minimum_credits)
+          && item.minimum_credits >= 0
           && typeof item?.price_version === 'string'
+          && item.price_version.trim().length > 0
         )).map((item: any): GenStudioVideoVariant => ({
           operation: item.operation.trim(),
           duration_seconds: item.duration_seconds,
           resolution: item.resolution.trim(),
           credits_per_video: item.credits_per_video,
           minimum_credits: item.minimum_credits,
-          price_version: item.price_version,
+          price_version: item.price_version.trim(),
         }))
       : [],
     // Tri-state. An absent or non-boolean field is `null` ("GenStudio did not
