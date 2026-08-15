@@ -121,8 +121,8 @@ const titleId = `picker-dialog-title-${(sequence += 1)}`
 .pd-count { color: var(--text-muted); font-size: var(--font-xs); white-space: nowrap; }
 .pd-close {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   flex: 0 0 auto;
   place-items: center;
   border: 1px solid var(--border);

@@ -112,6 +112,13 @@ describe('Modal style contract', () => {
     ].join('\n')
     document.head.appendChild(consumers)
 
+    const pickerChrome = document.createElement('style')
+    pickerChrome.textContent = styleBlocks(pickerSfc)
+      .filter((block) => block.scoped)
+      .map((block) => applyScope(block.css, SCOPE))
+      .join('\n')
+    document.head.appendChild(pickerChrome)
+
     const modal = document.createElement('style')
     modal.textContent = emittedCss(modalSfc)
     document.head.appendChild(modal)
@@ -177,6 +184,23 @@ describe('Modal style contract', () => {
     assert.equal(styles.maxHeight, 'min(760px, calc(100dvh - 40px))')
     // Modal still supplies the size cap the picker did not override.
     assert.equal(styles.maxWidth, '720px')
+  })
+
+  test('PickerDialog close control keeps a 44px minimum target at 320px', () => {
+    const priorWidth = window.innerWidth
+    const close = document.createElement('button')
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 320 })
+    try {
+      close.className = 'pd-close'
+      close.setAttribute(SCOPE, '')
+      document.body.appendChild(close)
+      const styles = getComputedStyle(close)
+      assert.ok(Number.parseFloat(styles.width) >= 44, `expected width >= 44px, got ${styles.width}`)
+      assert.ok(Number.parseFloat(styles.height) >= 44, `expected height >= 44px, got ${styles.height}`)
+    } finally {
+      close.remove()
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: priorWidth })
+    }
   })
 
   test('AppSettingsModal keeps its own frame and takes padding from the API', () => {
