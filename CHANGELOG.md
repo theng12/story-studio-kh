@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.843 — 2026-08-16
+
+- Added explicit deterministic build and validation support for GenStudio delivery-attested Content Pack archives without publisher key IDs or archive signatures.
+- Kept the publisher-signed local import and recovery paths independent, rejecting any attempt to mix the two trust modes.
+
 ## v1.0.842 — 2026-08-16
 
 - Added a complete Content Store experience with curated shelves, search and filters, release-proof details, separate Owned, Installed, and Updates libraries, accessible status announcements, and truthful offline and account-scoped states.
