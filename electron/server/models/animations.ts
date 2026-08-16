@@ -1,11 +1,16 @@
 /**
- * Scene animation registry — every motion the video assembler can apply
- * to an individual scene image while it's on screen. Mirrors transitions.ts
- * in shape so the frontend's AnimationPicker can use the same pattern.
+ * Scene animation registry — every motion the video assembler can apply to an
+ * individual scene image while it's on screen. Mirrors transitions.ts in shape
+ * so the frontend's AnimationPicker can use the same pattern.
  *
- * The filter strings themselves live in lib/animation-filters.ts — this file
- * is only the user-facing catalog.
+ * v1.2.0: this is now a PROJECTION of the declarative registry in
+ * `contracts/scene-effect-presets.ts`, not a second list beside it. Adding an
+ * animation means adding a document there; the catalogue, the picker and the
+ * filter builder all follow. `approximation` is carried through so the UI can
+ * say plainly where FFmpeg cannot do what a name promises.
  */
+
+import { BUILT_IN_SCENE_MOTIONS } from '../contracts/scene-effect-presets.js'
 
 export type AnimationCategory = 'zoom' | 'pan' | 'ambient' | 'rotate' | 'effect' | 'static'
 
@@ -14,45 +19,17 @@ export interface AnimationDef {
   label: string
   category: AnimationCategory
   hint?: string
+  /** Honest note about what FFmpeg cannot render exactly. Shown in the UI. */
+  approximation?: string
 }
 
-export const ANIMATIONS: AnimationDef[] = [
-  // ── Zoom ────────────────────────────────────────────────────────────────
-  { id: 'ken-burns',         label: 'Ken Burns',         category: 'zoom',   hint: 'Classic documentary slow zoom' },
-  { id: 'ken-burns-reverse', label: 'Ken Burns Reverse', category: 'zoom',   hint: 'Starts zoomed in, slowly pulls back — reveals the wider frame' },
-  { id: 'zoom-in',           label: 'Zoom In',           category: 'zoom',   hint: 'Straight zoom from 100% to 112%' },
-  { id: 'zoom-out',          label: 'Zoom Out',          category: 'zoom',   hint: 'Pull back from 112% to 100%' },
-  { id: 'slow-push',         label: 'Slow Push',         category: 'zoom',   hint: 'Gentler zoom-in (100% → 106%) — subtle drift toward subject' },
-  { id: 'slow-pull',         label: 'Slow Pull',         category: 'zoom',   hint: 'Gentler zoom-out (106% → 100%) — subtle drift away' },
-  { id: 'dolly-in',          label: 'Dolly In',          category: 'zoom',   hint: 'Slow zoom with a gentle downward tilt' },
-
-  // ── Pan ─────────────────────────────────────────────────────────────────
-  { id: 'parallax-drift',label: 'Parallax Drift', category: 'pan',    hint: 'Slow directional pan (configurable direction)' },
-  { id: 'pan-left',      label: 'Pan Left',       category: 'pan' },
-  { id: 'pan-right',     label: 'Pan Right',      category: 'pan' },
-  { id: 'pan-up',        label: 'Pan Up',         category: 'pan' },
-  { id: 'pan-down',      label: 'Pan Down',       category: 'pan' },
-  { id: 'pan-diag-tl',   label: 'Pan Diagonal TL', category: 'pan',  hint: 'Slow pan up and to the left' },
-  { id: 'pan-diag-tr',   label: 'Pan Diagonal TR', category: 'pan',  hint: 'Slow pan up and to the right' },
-  { id: 'pan-diag-bl',   label: 'Pan Diagonal BL', category: 'pan',  hint: 'Slow pan down and to the left' },
-  { id: 'pan-diag-br',   label: 'Pan Diagonal BR', category: 'pan',  hint: 'Slow pan down and to the right' },
-
-  // ── Ambient ─────────────────────────────────────────────────────────────
-  { id: 'breathe',       label: 'Breathe',        category: 'ambient', hint: 'Gentle sine-wave pulse zoom' },
-  { id: 'pulse',         label: 'Pulse',          category: 'ambient', hint: 'More pronounced breathing rhythm' },
-
-  // ── Rotate ──────────────────────────────────────────────────────────────
-  { id: 'rotate-cw',     label: 'Rotate CW',      category: 'rotate',  hint: 'Subtle clockwise drift' },
-  { id: 'rotate-ccw',    label: 'Rotate CCW',     category: 'rotate',  hint: 'Subtle counter-clockwise drift' },
-
-  // ── Effect ──────────────────────────────────────────────────────────────
-  { id: 'fade-in',       label: 'Fade In',        category: 'effect',  hint: 'Scene fades up from black' },
-  { id: 'fade-out',      label: 'Fade Out',       category: 'effect',  hint: 'Scene fades down to black at the end' },
-  { id: 'blur-focus',    label: 'Blur → Focus',   category: 'effect',  hint: 'Starts blurred, comes into focus' },
-
-  // ── Static ──────────────────────────────────────────────────────────────
-  { id: 'none',          label: 'None (static)',  category: 'static',  hint: 'No motion — fastest render' },
-]
+export const ANIMATIONS: AnimationDef[] = BUILT_IN_SCENE_MOTIONS.map(m => ({
+  id: m.id,
+  label: m.name,
+  category: m.category as AnimationCategory,
+  hint: m.description,
+  ...(m.approximation ? { approximation: m.approximation } : {}),
+}))
 
 const BY_ID = new Map<string, AnimationDef>(ANIMATIONS.map(a => [a.id, a] as const))
 

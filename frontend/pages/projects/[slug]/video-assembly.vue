@@ -1325,6 +1325,17 @@
         </div>
       </div>
 
+      <!-- Effect library (v1.2.0) -->
+      <div class="settings-section mt-2">
+        <SceneEffectLibrary
+          v-model="sceneEffects"
+          :slug="slug"
+          :episode-id="episodeId"
+          :get="get"
+          :post="post"
+        />
+      </div>
+
       <!-- Simple single-source green-screen overlay -->
       <div class="settings-section mt-2">
         <div class="flex gap-2 items-center">
@@ -3171,6 +3182,18 @@ const letterbox = reactive({
   color: 'black',
 })
 
+/**
+ * v1.2.0 — overlays chosen from the declarative effect library.
+ *
+ * Only the SELECTION is held here: an id, whether it is on, and the fields the
+ * customer changed. The document is resolved from the current built-in at
+ * render time, so improving a built-in reaches every project that chose it.
+ */
+const sceneEffects = reactive<{ enabled: boolean; overlays: Array<{ id: string; enabled: boolean; params?: Record<string, unknown> }> }>({
+  enabled: false,
+  overlays: [],
+})
+
 const frame = reactive({
   enabled: false,
   inset_pct: 4,
@@ -3424,6 +3447,7 @@ const effectsPresets = usePresets({
     film_grain: { ...filmGrain },
     aged_archive_film: { ...agedArchiveFilm },
     letterbox: { ...letterbox },
+    scene_effects: { enabled: sceneEffects.enabled, overlays: sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })) },
     frame: { ...frame },
     chroma_key: { ...chromaKey },
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
@@ -3450,6 +3474,11 @@ const effectsPresets = usePresets({
     if (data.film_grain) Object.assign(filmGrain, data.film_grain)
     if (data.aged_archive_film) Object.assign(agedArchiveFilm, data.aged_archive_film)
     if (data.letterbox) Object.assign(letterbox, data.letterbox)
+    if (data.scene_effects && Array.isArray(data.scene_effects.overlays)) {
+      sceneEffects.enabled = !!data.scene_effects.enabled
+      sceneEffects.overlays.splice(0, sceneEffects.overlays.length,
+        ...data.scene_effects.overlays.map((o: any) => ({ ...o, params: { ...(o.params || {}) } })))
+    }
     if (data.frame) Object.assign(frame, data.frame)
     if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
     if (data.overlays && Array.isArray(data.overlays.layers)) {
@@ -3574,6 +3603,7 @@ function snapshotEffectsData() {
     film_grain: { ...filmGrain },
     aged_archive_film: { ...agedArchiveFilm },
     letterbox: { ...letterbox },
+    scene_effects: { enabled: sceneEffects.enabled, overlays: sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })) },
     chroma_key: { ...chromaKey },
     overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
@@ -3606,6 +3636,11 @@ function applyEffectsData(data: any) {
   if (data.film_grain) Object.assign(filmGrain, data.film_grain)
   if (data.aged_archive_film) Object.assign(agedArchiveFilm, data.aged_archive_film)
   if (data.letterbox) Object.assign(letterbox, data.letterbox)
+  if (data.scene_effects && Array.isArray(data.scene_effects.overlays)) {
+    sceneEffects.enabled = !!data.scene_effects.enabled
+    sceneEffects.overlays.splice(0, sceneEffects.overlays.length,
+      ...data.scene_effects.overlays.map((o: any) => ({ ...o, params: { ...(o.params || {}) } })))
+  }
   if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
   if (data.overlays && Array.isArray(data.overlays.layers)) {
     overlays.enabled = !!data.overlays.enabled
@@ -4650,7 +4685,7 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
   slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenes,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
-  colorGrading, vignette, filmGrain, agedArchiveFilm, letterbox, frame, chromaKey,
+  colorGrading, vignette, filmGrain, agedArchiveFilm, letterbox, frame, chromaKey, sceneEffects,
   overlays,
   compilationLayout: {
     layout: computed({

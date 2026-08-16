@@ -890,16 +890,33 @@ watch(() => form.episode_id, (newEp, oldEp) => {
   }
 })
 
-// Motion catalogue (UI source — mirrors lib/broll-motion.ts BROLL_MOTIONS).
-const motionOptions = [
-  { id: 'static',    label: 'Static',        hint: 'No camera move' },
-  { id: 'zoom-in',   label: 'Slow Zoom In',  hint: 'Subtle push toward subject' },
-  { id: 'zoom-out',  label: 'Slow Zoom Out', hint: 'Subtle pull-back reveal' },
-  { id: 'pan-left',  label: 'Pan Left',      hint: 'Drift left' },
-  { id: 'pan-right', label: 'Pan Right',     hint: 'Drift right' },
-  { id: 'pan-up',    label: 'Pan Up',        hint: 'Drift upward' },
-  { id: 'pan-down',  label: 'Pan Down',      hint: 'Drift downward' },
-]
+/**
+ * Motion catalogue, FETCHED from the backend registry.
+ *
+ * This used to be a hand-written copy of `lib/broll-motion.ts` with a comment
+ * saying it mirrored it. By v1.1.0 every hint had already drifted from the
+ * original, and nothing failed when it did. It is now served by
+ * `/video-editor/effects/catalog`, so a motion added to the registry appears
+ * here with no edit to this file.
+ *
+ * The seeded fallback is only for the moment before the fetch lands, and for a
+ * backend that is still starting: the picker keeps working with the ids the
+ * renderer has always had rather than presenting an empty list.
+ */
+const motionOptions = ref<Array<{ id: string; label: string; hint: string }>>([
+  { id: 'static', label: 'Static', hint: 'No camera move.' },
+])
+
+async function loadMotionCatalogue() {
+  try {
+    const data = await get<{ footage_motions: Array<{ id: string; name: string; description: string }> }>(
+      `/projects/${slug}/video-editor/effects/catalog`,
+    )
+    if (Array.isArray(data?.footage_motions) && data.footage_motions.length) {
+      motionOptions.value = data.footage_motions.map(m => ({ id: m.id, label: m.name, hint: m.description }))
+    }
+  } catch { /* keep the fallback; the picker must not go blank */ }
+}
 
 // Manual selection state: ordered list of {filename, target_duration}.
 const manualSelection = ref<Array<{ filename: string; target_duration: number }>>([])
@@ -1019,6 +1036,7 @@ async function loadPoolClips(): Promise<void> {
 watch(subscribedPoolId, () => { void loadPoolClips() })
 
 onMounted(async () => {
+  void loadMotionCatalogue()
   await broll.loadPools()
   await loadConfig()
   await loadPoolClips()

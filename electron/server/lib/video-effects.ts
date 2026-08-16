@@ -1,17 +1,43 @@
+/**
+ * Video Assembly's effect filters.
+ *
+ * v1.2.0: the three effects that are ALSO in the overlay registry — vignette,
+ * letterbox bars, and the corner-logo anchor maths — no longer build their own
+ * filters. They call the shared compiler in `lib/scene-effect-compiler.ts`, so
+ * the Video Assembly checkbox and a registry overlay of the same name cannot
+ * drift apart. Their emitted strings are unchanged, and
+ * `__tests__/scene-effect-registry.test.ts` pins that against output captured
+ * from v1.1.0.
+ *
+ * Colour grading and the aged-archive treatment stay here: they are not part
+ * of the starter library and were not in this release's scope.
+ */
+
 import type { VideoColorGrading } from '../models/types.js'
+import { anchorOverlayPosition, letterboxBarHeight, letterboxBars, vignetteAngle } from './scene-effect-compiler.js'
 
 /** Build the `:enable` suffix supported by FFmpeg's visual filters. */
 export function buildGateEnable(start: number, end: number): string {
-  if (start > 0 && end > 0) return `:enable='between(t,${start.toFixed(2)},${end.toFixed(2)})'`
-  if (start > 0) return `:enable='gt(t,${start.toFixed(2)})'`
-  if (end > 0) return `:enable='lt(t,${end.toFixed(2)})'`
+  const expression = buildGateExpression(start, end)
+  return expression ? `:enable='${expression}'` : ''
+}
+
+/**
+ * The same gate as a bare EXPRESSION, for callers that need to AND it with
+ * another window. FFmpeg has no boolean `and`, so conjunction is a product of
+ * two 0/1 expressions and the `:enable='…'` wrapper has to go on the outside.
+ */
+export function buildGateExpression(start: number, end: number): string {
+  if (start > 0 && end > 0) return `between(t,${start.toFixed(2)},${end.toFixed(2)})`
+  if (start > 0) return `gt(t,${start.toFixed(2)})`
+  if (end > 0) return `lt(t,${end.toFixed(2)})`
   return ''
 }
 
 /** FFmpeg's vignette grows stronger as its lens angle approaches PI/2. */
 export function computeVignetteAngle(strengthValue: unknown): number {
   const strength = Math.max(0, Math.min(Number(strengthValue) || 0, 1))
-  return 0.45 + strength * (1.25 - 0.45)
+  return vignetteAngle(strength)
 }
 
 /** Draw cinematic bars over the frame without scaling or cropping it. */
@@ -23,12 +49,9 @@ export function buildLetterboxFilter(
   ratioName: string,
   color: string,
 ): string | null {
-  const ratioMap: Record<string, number> = { '2.35:1': 2.35, '2.00:1': 2.0, '1.85:1': 1.85 }
-  const pictureHeight = Math.floor((width / (ratioMap[ratioName] || 2.35)) / 2) * 2
-  const barHeight = Math.max(0, Math.floor(((height - pictureHeight) / 2) / 2) * 2)
+  const barHeight = letterboxBarHeight(width, height, ratioName)
   if (barHeight <= 0) return null
-  return `${inputLabel}drawbox=x=0:y=0:w=iw:h=${barHeight}:color=${color}:t=fill,` +
-    `drawbox=x=0:y=ih-${barHeight}:w=iw:h=${barHeight}:color=${color}:t=fill${outputLabel}`
+  return `${inputLabel}${letterboxBars(barHeight, color)}${outputLabel}`
 }
 
 /**
@@ -122,6 +145,15 @@ export function buildColorGradingFilters(cg: VideoColorGrading, gateSuffix = '')
   return parts.join(',')
 }
 
+/**
+ * Where the logo sits, as `overlay` filter coordinates.
+ *
+ * The nine named anchors are the registry's, shared with every overlay that
+ * hangs off a corner — there is one implementation of this arithmetic now.
+ * `custom` stays here because it is not an anchor at all: it is a literal
+ * coordinate pair the customer typed, and only the Video Assembly logo control
+ * offers it.
+ */
 export function calculateLogoPosition(
   position: string,
   margin: number,
@@ -129,10 +161,5 @@ export function calculateLogoPosition(
   customY?: number,
 ): { x: string; y: string } {
   if (position === 'custom' && customX !== undefined && customY !== undefined) return { x: String(customX), y: String(customY) }
-  const positions: Record<string, { x: string; y: string }> = {
-    'top-left': { x: `${margin}`, y: `${margin}` }, 'top-center': { x: '(W-w)/2', y: `${margin}` }, 'top-right': { x: `W-w-${margin}`, y: `${margin}` },
-    'center-left': { x: `${margin}`, y: '(H-h)/2' }, center: { x: '(W-w)/2', y: '(H-h)/2' }, 'center-right': { x: `W-w-${margin}`, y: '(H-h)/2' },
-    'bottom-left': { x: `${margin}`, y: `H-h-${margin}` }, 'bottom-center': { x: '(W-w)/2', y: `H-h-${margin}` }, 'bottom-right': { x: `W-w-${margin}`, y: `H-h-${margin}` },
-  }
-  return positions[position] || positions['bottom-right']!
+  return anchorOverlayPosition(position, margin)
 }

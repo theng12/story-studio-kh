@@ -15,7 +15,21 @@ import { buildAnimationFilter } from '../lib/animation-filters.js'
 import { cacheToken, cachedFileForToken, getOrRender } from '../services/preview-cache.js'
 import { readManifest } from '../services/task-manifest.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
-import { runFfmpeg, hasLibass, getAudioDuration, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
+import { runFfmpeg, hasDrawtextFilter, hasLibass, getAudioDuration, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
+import { compileSceneMotion, compileSceneOverlay } from '../lib/scene-effect-compiler.js'
+import {
+  BUILT_IN_OVERLAYS,
+  findBuiltInOverlay,
+  findFootageMotion,
+  findSceneMotion,
+  sceneEffectCatalog,
+} from '../contracts/scene-effect-presets.js'
+import { normalizeSceneOverlay, type SceneMotionDocument, type SceneOverlayDocument } from '../contracts/scene-effects.js'
+import {
+  SceneEffectValidationError,
+  parseSceneMotionDocument,
+  parseSceneOverlayDocument,
+} from '../contracts/scene-effects-schema.js'
 import { buildSubtitleAssDocument, normalizeSrtOrVtt, parseSrt } from '../lib/subtitle-builder.js'
 import { normalizeSubtitleStyle, type SubtitleStyleDocument } from '../contracts/subtitle-style.js'
 import { SubtitleStyleValidationError, parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.js'
@@ -700,7 +714,12 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
         args.push(
           '-f', 'lavfi',
           '-t', DURATION.toString(),
-          '-i', `gradients=size=${W * 2}x${H * 2}:type=linear:c0=0xD38B5D:c1=0x5D8FD3:r=${FPS}`,
+          // Pinned, as the effect preview is: `gradients` randomises its ramp
+          // endpoints AND its seed when they are left unset, so every tile in
+          // the picker grid used to sit over a different-looking backdrop and
+          // no two animations could be compared side by side.
+          '-i', `gradients=size=${W * 2}x${H * 2}:type=linear:c0=0xD38B5D:c1=0x5D8FD3`
+            + `:x0=0:y0=0:x1=${W * 2}:y1=0:nb_colors=2:seed=0:speed=0:r=${FPS}`,
         )
       }
       const vfChain = buildAnimationFilter({
@@ -730,6 +749,200 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Animation preview render failed'))
   }
+})
+
+// ── Effect library: catalogue + preview ─────────────────────────────────────
+//
+// One catalogue for every effect the app can render — scene motions, B-Roll
+// motions and overlays — served from the declarative registry rather than from
+// three lists maintained by hand. `broll.vue` used to keep its own copy of the
+// motion list; its hints had already drifted from the backend's by v1.1.0.
+//
+// The preview reuses `preview-cache.ts` and the POST-returns-a-token pattern
+// v1.1.0 established for subtitles, for the same reason: an overlay stack is
+// far too large for a querystring, but a `<video src>` needs a plain GET.
+
+router.get('/projects/:slug/video-editor/effects/catalog', async (_req, res) => {
+  res.json({
+    ...sceneEffectCatalog(),
+    // Both are FFmpeg build features, and both degrade an effect rather than
+    // the whole render. The UI says so at the point of choosing instead of
+    // letting the customer discover it in a finished video.
+    supports_text_overlays: await hasDrawtextFilter(),
+    supports_subtitles: await hasLibass(),
+  })
+})
+
+const EFFECT_PREVIEW_W = 480
+const EFFECT_PREVIEW_H = 270
+const EFFECT_PREVIEW_FPS = 24
+/** Long enough for a drifting light leak or a slow push to read. */
+const EFFECT_PREVIEW_DURATION = 3
+
+/**
+ * Render one motion + overlay stack over the episode's first scene, or over a
+ * synthetic gradient when there is no episode to borrow from.
+ *
+ * The cache key is the serialised documents, so it covers every field that can
+ * affect the image by construction — a new field cannot be forgotten here and
+ * serve a stale frame.
+ */
+async function renderEffectPreview(
+  motion: SceneMotionDocument | null,
+  overlays: SceneOverlayDocument[],
+  backdrop: string | null,
+): Promise<string> {
+  const W = EFFECT_PREVIEW_W, H = EFFECT_PREVIEW_H
+  const FPS = EFFECT_PREVIEW_FPS, DURATION = EFFECT_PREVIEW_DURATION
+  const key = [
+    'effect-v1',
+    backdrop || 'synthetic',
+    `${W}x${H}@${DURATION}`,
+    JSON.stringify(motion),
+    JSON.stringify(overlays),
+  ].join('|')
+
+  await getOrRender(key, 'webm', async (outPath) => {
+    const args: string[] = ['-y']
+    if (backdrop && existsSync(backdrop)) {
+      args.push(...(await stillDecoderArgs(backdrop)), '-loop', '1', '-t', DURATION.toString(), '-i', backdrop)
+    } else {
+      // Supersampled so a zoom has real pixels to move into, exactly as the
+      // animation preview does.
+      //
+      // Every parameter here is pinned, and both of the pins are load-bearing.
+      // `gradients` ANIMATES by default, so an un-pinned backdrop would make a
+      // static effect look like it was moving. It also picks its ramp endpoints
+      // at RANDOM when they are left unset, so two previews of the same effect
+      // came out over different backdrops — which is confusing to look at and
+      // made this suite's own before/after pixel comparisons meaningless until
+      // it was tracked down.
+      args.push('-f', 'lavfi', '-t', DURATION.toString(),
+        '-i', `gradients=size=${W * 2}x${H * 2}:type=linear:c0=0xD38B5D:c1=0x5D8FD3`
+          + `:x0=0:y0=0:x1=${W * 2}:y1=0:nb_colors=2:seed=0:speed=0:r=${FPS}`)
+    }
+
+    // The motion is a linear chain; the overlays are labelled statements that
+    // may branch. One filtergraph carries both.
+    const motionChain = motion
+      ? compileSceneMotion(motion, { w: W, h: H, fps: FPS, duration: DURATION })
+      : [`scale=${W}:${H}:force_original_aspect_ratio=decrease`,
+         `pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black`, 'setsar=1']
+
+    let index = 0
+    const alloc = () => `[e${index++}]`
+    let label = alloc()
+    const statements: string[] = [`[0:v]${motionChain.join(',')}${label}`]
+    for (const overlay of overlays) {
+      const next = alloc()
+      const compiled = compileSceneOverlay(overlay, {
+        input: label, output: next, allocLabel: alloc,
+        w: W, h: H, duration: DURATION,
+      })
+      if (!compiled) continue
+      statements.push(...compiled)
+      label = next
+    }
+    // `setparams` is load-bearing, not decoration. A `movie=` branch converted
+    // to RGBA tags the composed frames with a GBR colour matrix that survives
+    // `format=yuv420p`, and libvpx-vp9 writes that tag into a Profile-0 stream
+    // no decoder will accept — the clip encodes without error and then plays
+    // back as zero frames. Retagging bt709 before the encoder sees it is the
+    // fix. The real render path is unaffected: its base is a decoded yuv420p
+    // mp4, so the overlay never negotiates RGB in the first place.
+    statements.push(
+      `${label}format=yuv420p,setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709[vout]`,
+    )
+
+    args.push('-filter_complex', statements.join(';'))
+    args.push('-map', '[vout]')
+    args.push('-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-deadline', 'realtime', '-row-mt', '1')
+    args.push('-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-an')
+    args.push('-t', DURATION.toString())
+    args.push(outPath)
+    // Previews are short clips; 90s only trips on a genuine wedge (the five
+    // zombie preview ffmpegs of 2026-07-05 ran 30+ minutes unbounded).
+    await runFfmpeg(args, { timeoutMs: 90_000 })
+  })
+
+  return cacheToken(key, 'webm')
+}
+
+/**
+ * Resolve what the client asked to preview.
+ *
+ * An overlay may arrive either as a library id (with optional field patches) or
+ * as a complete document. A complete document is validated STRICTLY, so an
+ * effect authored for a newer engine names its unknown field instead of quietly
+ * previewing as something else.
+ */
+function resolvePreviewOverlays(body: any): SceneOverlayDocument[] {
+  const requested: any[] = Array.isArray(body?.overlays) ? body.overlays
+    : body?.overlay ? [body.overlay]
+    : []
+  return requested.slice(0, 8).map((item) => {
+    if (item && typeof item.id === 'string') {
+      const entry = findBuiltInOverlay(item.id)
+      if (!entry) throw new SceneEffectValidationError([`unknown effect "${item.id}"`])
+      return item.params
+        ? normalizeSceneOverlay({ ...entry.document, ...item.params, kind: entry.document.kind })
+        : entry.document
+    }
+    return parseSceneOverlayDocument(item)
+  })
+}
+
+/**
+ * Resolve the motion to preview.
+ *
+ * `motion_source` is required to disambiguate, not optional politeness: six of
+ * the seven footage ids also name a scene animation, and the two render
+ * differently on purpose (see MOTION_SOURCES). Searching one registry then the
+ * other would have made `pan-left` silently mean the still version forever.
+ */
+function resolvePreviewMotion(body: any): SceneMotionDocument | null {
+  if (body?.motion && typeof body.motion === 'object') return parseSceneMotionDocument(body.motion)
+  if (typeof body?.motion_id !== 'string') return null
+  const footage = body?.motion_source === 'footage'
+  const entry = footage ? findFootageMotion(body.motion_id) : findSceneMotion(body.motion_id)
+  if (entry) return entry.document
+  throw new SceneEffectValidationError([
+    `unknown ${footage ? 'B-Roll' : 'scene'} motion "${body.motion_id}"`,
+  ])
+}
+
+router.post('/projects/:slug/video-editor/preview-effect', async (req, res) => {
+  const { slug } = req.params
+  try {
+    const body = req.body || {}
+    const overlays = resolvePreviewOverlays(body)
+    const motion = resolvePreviewMotion(body)
+    if (overlays.some(o => o.kind === 'lower-third') && !await hasDrawtextFilter()) {
+      return res.status(501).json({ detail: 'FFmpeg build lacks drawtext — text overlays cannot be rendered' })
+    }
+    const backdrop = await subtitlePreviewBackdrop(slug, typeof body.episode === 'string' ? body.episode : undefined)
+    const token = await renderEffectPreview(motion, overlays, backdrop)
+    res.json({
+      token,
+      url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-effect?token=${encodeURIComponent(token)}`,
+      duration_sec: EFFECT_PREVIEW_DURATION,
+      width: EFFECT_PREVIEW_W,
+      height: EFFECT_PREVIEW_H,
+      approximations: overlays
+        .map(o => BUILT_IN_OVERLAYS.find(b => b.document.kind === o.kind)?.approximation)
+        .filter(Boolean),
+    })
+  } catch (e: any) {
+    if (e instanceof SceneEffectValidationError) return res.status(400).json({ detail: e.message })
+    res.status(500).json(humanizeBackendError(e, 'Effect preview failed'))
+  }
+})
+
+router.get('/projects/:slug/video-editor/preview-effect', async (req, res) => {
+  const token = typeof req.query.token === 'string' ? req.query.token : ''
+  const file = token ? cachedFileForToken(token) : null
+  if (!file) return res.status(404).json({ detail: 'Preview expired — render it again.' })
+  streamPreview(res, file)
 })
 
 // ── Subtitles ────────────────────────────────────────────────────────────

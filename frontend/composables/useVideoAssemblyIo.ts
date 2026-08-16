@@ -90,6 +90,8 @@ export interface VideoAssemblyIoState {
   filmGrain: any
   agedArchiveFilm: any
   letterbox: any
+  /** v1.2.0 — the effect-library selection. Absent means "no overlays". */
+  sceneEffects?: { enabled: boolean; overlays: Array<{ id: string; enabled: boolean; params?: Record<string, unknown> }> }
   frame?: any
   chromaKey: any
   /** Multi-layer overlay system (v1.0.53+). Authoritative when present;
@@ -328,6 +330,16 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     if (s.filmGrain.enabled)    payload.film_grain    = { ...s.filmGrain }
     if (s.agedArchiveFilm.enabled) payload.aged_archive_film = { ...s.agedArchiveFilm }
     if (s.letterbox.enabled)    payload.letterbox     = { ...s.letterbox }
+    // Only emitted when something is actually selected. An empty list is not
+    // sent at all, so a config written before v1.2.0 produces a byte-identical
+    // request and renders exactly as it always did.
+    const chosenEffects = (s.sceneEffects?.overlays || []).filter(o => o.enabled)
+    if (s.sceneEffects?.enabled && chosenEffects.length) {
+      payload.scene_effects = {
+        enabled: true,
+        overlays: chosenEffects.map(o => ({ id: o.id, enabled: true, params: { ...(o.params || {}) } })),
+      }
+    }
     if (s.frame?.enabled)       payload.frame         = { ...s.frame }
 
     payload.exclude_intro_from_effects = s.excludeIntroFromEffects.value

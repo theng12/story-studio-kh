@@ -3114,8 +3114,40 @@ export interface VideoSubtitleConfig {
   hide_during_intro?: boolean
 }
 
-export type SceneAnimationType = 'ken-burns' | 'parallax-drift' | 'breathe' | 'fade-in' | 'none'
+/**
+ * A scene animation id.
+ *
+ * Until v1.2.0 this was a five-name union that had been wrong for a long time:
+ * the catalogue offered twenty-four animations and the renderer implemented all
+ * twenty-four, so any project using one of the other nineteen — every plain
+ * pan, every diagonal, `pulse`, `blur-focus`, both rotations — held a value
+ * this type said was impossible. It compiled only because the value reached the
+ * renderer as a `string`.
+ *
+ * It is now a string, and the REGISTRY is the authority on which ids exist:
+ * `findSceneMotion()` resolves one, and an id it does not know renders static
+ * rather than failing. A closed union here would have to be regenerated every
+ * time the library grows, which is the coupling this release exists to remove.
+ */
+export type SceneAnimationType = string
 export type ParallaxDirection = 'left' | 'right' | 'up' | 'down'
+
+/** One overlay applied to a render, chosen from the built-in effect library. */
+export interface AppliedSceneOverlay {
+  /** Registry id, e.g. `vignette-soft`. Unknown ids are skipped, never fatal. */
+  id: string
+  enabled: boolean
+  /**
+   * Field-level overrides on top of the built-in's document. Validated
+   * strictly at the API boundary, clamped leniently when read back off disk.
+   */
+  params?: Record<string, unknown>
+}
+
+export interface SceneEffectsConfig {
+  enabled: boolean
+  overlays: AppliedSceneOverlay[]
+}
 
 export interface VideoSceneAnimation {
   type: SceneAnimationType
@@ -3232,6 +3264,16 @@ export interface GenerateVideoRequest {
   contextual_cues?: ContextualCue[]
   /** Hydrated exclusively from approved sound_design.json at preflight. */
   sound_design?: { cues: SoundDesignCue[]; ducking_profile: SoundDesignSettings['ducking_profile'] }
+  /**
+   * v1.2.0 — overlays chosen from the declarative effect library.
+   *
+   * Purely additive: an absent or empty list renders exactly as before, so
+   * every preset and every saved config written before this release is
+   * unaffected. Each entry names a built-in and may patch its fields; the
+   * document itself is never persisted, so a later change to a built-in
+   * reaches projects that selected it.
+   */
+  scene_effects?: SceneEffectsConfig
   exclude_intro_from_effects?: boolean  // default true — don't apply grading/vignette to intro
   /** @deprecated Whole-Introduction skipping is retired. New plans persist an
    * exact opening_reserved_sec in scene_plan.json. */

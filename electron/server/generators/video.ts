@@ -43,10 +43,13 @@ import {
   buildColorGradingFilters,
   buildAgedArchiveFilmFilters,
   buildGateEnable,
+  buildGateExpression,
   buildLetterboxFilter,
   calculateLogoPosition,
   computeVignetteAngle,
 } from '../lib/video-effects.js'
+import { compileSceneOverlay } from '../lib/scene-effect-compiler.js'
+import { resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import {
   assertContextualCueReadiness,
@@ -1262,6 +1265,7 @@ export async function generateVideo(job: Job): Promise<void> {
           frame: req.frame,
           subtitles: req.subtitles,
           contextualCues: req.contextual_cues,
+          sceneEffects: req.scene_effects,
           // Compilation has no intro/title/outro segments in v1, so the
           // intro-exclusion gate is a no-op. Effects play through the
           // entire bg-plate duration.
@@ -1853,6 +1857,7 @@ export async function generateVideo(job: Job): Promise<void> {
         frame: req.frame,
         subtitles: req.subtitles,
         contextualCues: req.contextual_cues,
+        sceneEffects: req.scene_effects,
         excludeIntroFromEffects: req.exclude_intro_from_effects,
         preSceneDuration,
         postAudioStart: sceneEndTime,
@@ -3740,6 +3745,8 @@ interface CompositionOpts {
   frame?: VideoFrameConfig
   subtitles?: import('../models/types.js').VideoSubtitleConfig
   contextualCues?: ContextualCue[]
+  /** v1.2.0 — overlays chosen from the declarative effect library. */
+  sceneEffects?: import('../models/types.js').SceneEffectsConfig
   excludeIntroFromEffects?: boolean
   /** Seconds of intro+title that should be left untouched by filters when
    *  `excludeIntroFromEffects` is on. Ignored when the flag is false. */
@@ -3768,6 +3775,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     videoInputPath, premixedAudioPath, logo,
     targetDuration, w, h, quality, format, outputFile,
     colorGrading, vignette, chromaKey, overlays, filmGrain, agedArchiveFilm, letterbox, frame, subtitles, contextualCues,
+    sceneEffects,
     excludeIntroFromEffects,
     preSceneDuration,
     postAudioStart,
@@ -4071,6 +4079,46 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     job.output_lines.push(
       `Frame: ${frame.inset_pct ?? 4}% inset · ${frame.border_width ?? 12}px border · ${frame.corner_radius ?? 28}px corners`,
     )
+  }
+
+  // 6a-ii. Effect-library overlays (v1.2.0).
+  //
+  // Deliberately BEFORE subtitles. A gradient scrim exists so captions read
+  // over a bright scene; drawn on top of them it would defeat its own purpose.
+  // Lower thirds and corner logos occupy different bands from the caption line,
+  // so nothing is lost by putting the whole stage here.
+  //
+  // Each overlay carries the same intro/outro gate the other effects use,
+  // ANDed with its own window rather than replacing it.
+  if (sceneEffects?.enabled) {
+    const { resolved, unknownIds } = resolveAppliedOverlays(sceneEffects)
+    for (const overlay of resolved) {
+      const next = vn()
+      const statements = compileSceneOverlay(overlay.document, {
+        input: vLabel,
+        output: next,
+        allocLabel: vn,
+        w, h,
+        duration: targetDuration,
+        gateExpression: buildGateExpression(startSec, endSec),
+      })
+      if (!statements) {
+        // Nothing to draw — an unset logo path, bars that round to zero. Say so
+        // rather than leaving the customer to wonder where the effect went.
+        job.output_lines.push(`Effect "${overlay.name}" had nothing to draw and was skipped.`)
+        continue
+      }
+      filterParts.push(...statements)
+      vLabel = next
+      job.output_lines.push(
+        `Effect: ${overlay.name}${overlay.approximation ? ' (approximation — see its note)' : ''}`,
+      )
+    }
+    for (const id of unknownIds) {
+      // Not fatal: a project authored against an effect this build does not
+      // have must still render. It must not do so silently.
+      job.output_lines.push(`Effect "${id}" is not in this build's library and was skipped.`)
+    }
   }
 
   // 6b. Subtitles (libass burn-in). Placed after letterbox so subtitles
