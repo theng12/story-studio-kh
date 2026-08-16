@@ -60,7 +60,7 @@ async function archive(packId: string, family: string, version: string, dependen
     style_bible: 'Keep the scene clear.', negative_prompt: 'No text.', preview_assets: ['assets/preview.png'], compatible_formula_ids: [],
   }))
   const manifest = Buffer.from(JSON.stringify({
-    pack_format: 1, pack_id: packId, publisher_id: 'com.storystudio', key_id: 'com.storystudio.test-key', version,
+    pack_format: 1, pack_id: packId, publisher_id: 'com.storystudio', version,
     min_app_version: '1.0.0', lifecycle: 'active', delivery_profile: 'genstudio-store-receipt-v1',
     entitlement: { sku: `${packId}.sku`, family }, dependencies, bundles: [],
     items: [{ id: `${packId}.style`, kind: 'visual-style', schema_version: 1, path: 'content/visual-style.json' }],
@@ -71,7 +71,6 @@ async function archive(packId: string, family: string, version: string, dependen
   }))
   const zip = new JSZip()
   zip.file('manifest.json', manifest, { createFolders: false })
-  zip.file('signature.ed25519', Buffer.alloc(64), { createFolders: false })
   zip.file('content/visual-style.json', document, { createFolders: false })
   zip.file('assets/preview.png', PNG_1PX, { createFolders: false })
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })

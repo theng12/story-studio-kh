@@ -1,7 +1,7 @@
 # Story Studio Content Pack publisher tools
 
 These first-party tools build and validate immutable `.sspack` archives through the same strict
-schemas, signature policy, ZIP checks, and raster decoding used by Story Studio. They do not
+schemas, trust profile, ZIP checks, and raster decoding used by Story Studio. They do not
 contact GenStudio, purchase content, activate a pack, or modify customer content.
 
 ## Authoring registry
@@ -141,6 +141,22 @@ second build races the final write. Choose a new versioned output path for every
 
 ## Build
 
+Production Store delivery uses GenStudio's signed purchase receipt as the permanent archive
+authority. Select that profile explicitly; it accepts no publisher private key and emits neither
+`key_id` nor `signature.ed25519`. The source `key_id` is authoring metadata for the independent
+local/recovery publisher path and is removed only from this derived Store archive manifest.
+
+```bash
+npm run content-pack:build -- ./content-packs/free-starters/formula/ancient-humans \
+  --delivery-profile genstudio-store-receipt-v1 \
+  --min-app-version 1.0.842 \
+  --output ./dist/formula-ancient-humans-1.0.0.sspack
+```
+
+The builder immediately runs the delivery-attested structural verifier over the completed bytes.
+It reports the exact SHA-256 and byte count needed for the GenStudio draft release. The publisher-
+signed command below remains the separate local/recovery developer path and is still the default.
+
 Use an explicit path to an Ed25519 PKCS#8 private-key PEM:
 
 ```bash
@@ -196,8 +212,19 @@ thumbnail, and planner support has an agreed version.
 
 ## Validate
 
-Validation requires the intended key identity and an explicit public-key PEM. It reports only the
-verified pack ID, version, and archive SHA-256:
+Validate a production Store archive structurally without a publisher key:
+
+```bash
+npm run content-pack:validate -- ./dist/formula-ancient-humans-1.0.0.sspack \
+  --delivery-profile genstudio-store-receipt-v1
+```
+
+This proves the bounded archive, manifest, documents, hashes, assets, and dependency shape. At
+installation time Story separately requires GenStudio's signed receipt to bind these exact bytes
+to the release, entitlement family, publisher, version, minimum Story version, and kit closure.
+
+Publisher-signed validation requires the intended key identity and an explicit public-key PEM. It
+reports only the verified pack ID, version, archive SHA-256, and byte count:
 
 ```bash
 npm run content-pack:validate -- ./dist/example-1.0.0.sspack \

@@ -154,6 +154,53 @@ test('build-pack creates a deterministic signed archive that validate-pack verif
   assert.equal((await readFile(first)).includes(Buffer.from(privateKey)), false)
 })
 
+test('build-pack creates a deterministic delivery-attested archive without publisher key material', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'story-content-pack-delivery-cli-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const source = await writeSource(root, {
+    config: {
+      key_id: '{{KEY_ID}}',
+      min_app_version: '{{MIN_APP_VERSION}}',
+    },
+  })
+  const first = join(root, 'first.sspack')
+  const second = join(root, 'second.sspack')
+  const profile = 'genstudio-store-receipt-v1'
+
+  const buildOne = run(BUILD, [
+    source,
+    '--delivery-profile', profile,
+    '--min-app-version', '1.0.842',
+    '--output', first,
+  ])
+  assert.equal(buildOne.status, 0, buildOne.stderr)
+  const buildTwo = run(BUILD, [
+    source,
+    '--delivery-profile', profile,
+    '--min-app-version', '1.0.842',
+    '--output', second,
+  ])
+  assert.equal(buildTwo.status, 0, buildTwo.stderr)
+  assert.deepEqual(await readFile(first), await readFile(second))
+  assert.deepEqual(await readArchiveOrder(first), [
+    'manifest.json',
+    'assets/preview.png',
+    'content/visual-style.json',
+  ])
+
+  const archive = await JSZip.loadAsync(await readFile(first))
+  const manifest = JSON.parse(await archive.file('manifest.json').async('text'))
+  assert.equal(manifest.delivery_profile, profile)
+  assert.equal(manifest.min_app_version, '1.0.842')
+  assert.equal(Object.hasOwn(manifest, 'key_id'), false)
+  assert.equal(archive.file('signature.ed25519'), null)
+
+  const validation = run(VALIDATE, [first, '--delivery-profile', profile])
+  assert.equal(validation.status, 0, validation.stderr)
+  assert.match(validation.stdout, /com\.storystudio\.pack\.test 1\.0\.0/)
+  assert.match(validation.stdout, /sha256=[a-f0-9]{64} bytes=\d+/)
+})
+
 test('build-pack accepts the deliberate private-key environment path and refuses a missing key', async (t) => {
   const fixture = await makeFixture()
   t.after(() => rm(fixture.root, { recursive: true, force: true }))

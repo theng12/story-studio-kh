@@ -489,7 +489,7 @@ export const ContentPackManifestSchema = z.object({
   pack_format: z.literal(CONTENT_PACK_FORMAT),
   pack_id: qualifiedId,
   publisher_id: qualifiedId,
-  key_id: qualifiedId,
+  key_id: qualifiedId.optional(),
   version: exactSemver,
   min_app_version: exactSemver,
   lifecycle: z.enum(['active', 'retired', 'replaced']),
@@ -546,7 +546,11 @@ export const ContentPackManifestSchema = z.object({
   if (!withinPublisher(manifest.pack_id)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['pack_id'], message: 'pack_id must be within the publisher namespace' })
   }
-  if (!withinPublisher(manifest.key_id)) {
+  if (manifest.delivery_profile && manifest.key_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['key_id'], message: 'delivery-attested manifests must not declare a publisher key ID' })
+  } else if (!manifest.delivery_profile && !manifest.key_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['key_id'], message: 'local and recovery manifests require a publisher key ID' })
+  } else if (manifest.key_id && !withinPublisher(manifest.key_id)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['key_id'], message: 'key_id must be within the publisher namespace' })
   }
   if (!withinPublisher(manifest.entitlement.sku)) {

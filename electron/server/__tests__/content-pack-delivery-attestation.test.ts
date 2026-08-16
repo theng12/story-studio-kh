@@ -22,7 +22,7 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-async function deliveryArchive(): Promise<Uint8Array> {
+async function deliveryArchive(options: { keyId?: string; signature?: Uint8Array } = {}): Promise<Uint8Array> {
   const document = Buffer.from(JSON.stringify({
     kind: 'visual-style', schema_version: 1, id: 'com.storystudio.delivery-test.style', name: 'Delivery Test',
     description: 'A delivery-attested fixture.', category: 'Test', tags: ['test'],
@@ -31,7 +31,8 @@ async function deliveryArchive(): Promise<Uint8Array> {
   }), 'utf8')
   const manifest = Buffer.from(JSON.stringify({
     pack_format: 1, pack_id: 'com.storystudio.delivery-test', publisher_id: 'com.storystudio',
-    key_id: 'com.storystudio.delivery-test', version: '1.0.0', min_app_version: '1.0.0', lifecycle: 'active',
+    ...(options.keyId ? { key_id: options.keyId } : {}),
+    version: '1.0.0', min_app_version: '1.0.0', lifecycle: 'active',
     delivery_profile: 'genstudio-store-receipt-v1',
     entitlement: { sku: 'com.storystudio.delivery-test.sku', family: 'com.storystudio.delivery-test.family' },
     bundles: [], items: [{ id: 'com.storystudio.delivery-test.style', kind: 'visual-style', schema_version: 1, path: 'content/visual-style.json' }],
@@ -42,6 +43,7 @@ async function deliveryArchive(): Promise<Uint8Array> {
   }), 'utf8')
   const zip = new JSZip()
   zip.file('manifest.json', manifest, { createFolders: false })
+  if (options.signature) zip.file('signature.ed25519', options.signature, { createFolders: false })
   zip.file('content/visual-style.json', document, { createFolders: false })
   zip.file('assets/preview.png', PNG_1PX, { createFolders: false })
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
@@ -58,6 +60,17 @@ describe('delivery-attested Content Pack archive boundary', () => {
     await assert.rejects(verifyContentPackArchive(archive, localPolicy), /signature|publisher/i)
     const verified = await verifyDeliveryAttestedContentPackArchive(archive)
     assert.equal(verified.manifest.delivery_profile, 'genstudio-store-receipt-v1')
+  })
+
+  test('rejects publisher key identity and signature entries from a delivery-attested archive', async () => {
+    await assert.rejects(
+      verifyDeliveryAttestedContentPackArchive(await deliveryArchive({ keyId: 'com.storystudio.delivery-test' })),
+      /key_id|publisher key|delivery-attested/i,
+    )
+    await assert.rejects(
+      verifyDeliveryAttestedContentPackArchive(await deliveryArchive({ signature: Buffer.alloc(64) })),
+      /signature|delivery-attested/i,
+    )
   })
 
   test('binds a Store archive to the permanent signed receipt rather than the transport grant', () => {

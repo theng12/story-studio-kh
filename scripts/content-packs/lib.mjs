@@ -7,7 +7,7 @@ import JSZip from 'jszip'
 import { register } from 'tsx/esm/api'
 
 const unregisterTsx = register()
-const [{ ContentPackDocumentSchema, ContentPackManifestSchema, isBundleOnlyCoordinationManifest }, { verifyContentPackArchive }] = await Promise.all([
+const [{ ContentPackDocumentSchema, ContentPackManifestSchema, isBundleOnlyCoordinationManifest }, { verifyContentPackArchive, verifyDeliveryAttestedContentPackArchive }] = await Promise.all([
   import('../../electron/server/content-packs/schemas.ts'),
   import('../../electron/server/content-packs/archive.ts'),
 ])
@@ -19,6 +19,8 @@ const MAX_SOURCE_JSON_BYTES = 1024 * 1024
 const MAX_SOURCE_RASTER_BYTES = 15 * 1024 * 1024
 const MIN_APP_VERSION_TOKEN = '{{MIN_APP_VERSION}}'
 const KEY_ID_TOKEN = '{{KEY_ID}}'
+// model-drift-allow: Frozen Content Store receipt profile selects the production archive trust mode.
+const DELIVERY_PROFILE = 'genstudio-store-receipt-v1'
 const SOURCE_ONLY_MONOLITH_PACK_IDS = new Set([
   'com.storystudio.pack.archival-ledger',
 ])
@@ -86,16 +88,16 @@ async function physicalPathForPotentialOutput(path) {
 }
 
 async function assertOutputSeparatedFromInputs(sourcePath, privateKeyPath, outputPath) {
-  if (outputPath === privateKeyPath) fail('output path must not overwrite the private key')
+  if (privateKeyPath && outputPath === privateKeyPath) fail('output path must not overwrite the private key')
   if (isSameOrInside(outputPath, sourcePath)) fail('output path must be outside the source directory')
   const sourceStat = await lstat(sourcePath).catch(() => undefined)
   if (!sourceStat || !sourceStat.isDirectory() || sourceStat.isSymbolicLink()) fail('source directory must be a real directory')
   const [physicalSource, physicalPrivateKey, physicalOutput] = await Promise.all([
     realpath(sourcePath),
-    realpath(privateKeyPath).catch(() => privateKeyPath),
+    privateKeyPath ? realpath(privateKeyPath).catch(() => privateKeyPath) : undefined,
     physicalPathForPotentialOutput(outputPath),
   ])
-  if (physicalOutput === physicalPrivateKey) fail('output path must not overwrite the private key')
+  if (physicalPrivateKey && physicalOutput === physicalPrivateKey) fail('output path must not overwrite the private key')
   if (isSameOrInside(physicalOutput, physicalSource)) fail('output path must be outside the source directory')
 }
 
@@ -268,7 +270,7 @@ function sourceManifestToArchiveManifest(sourceManifest, items, files) {
   }
 }
 
-function substituteReleaseInputs(sourceManifest, { minAppVersion, keyId }) {
+function substituteReleaseInputs(sourceManifest, { minAppVersion, keyId, deliveryProfile }) {
   if (!sourceManifest || typeof sourceManifest !== 'object' || Array.isArray(sourceManifest)) return sourceManifest
   const assertTokenPlacement = (value, path = []) => {
     if (typeof value === 'string') {
@@ -291,7 +293,12 @@ function substituteReleaseInputs(sourceManifest, { minAppVersion, keyId }) {
     if (!minAppVersion) fail(`pack.json ${MIN_APP_VERSION_TOKEN} requires minAppVersion`)
     manifest.min_app_version = minAppVersion
   }
-  if (manifest.key_id === KEY_ID_TOKEN) {
+  if (deliveryProfile) {
+    if (deliveryProfile !== DELIVERY_PROFILE) fail(`unsupported delivery profile: ${deliveryProfile}`)
+    if (manifest.delivery_profile !== undefined) fail('delivery_profile is selected by the build command, not pack.json')
+    delete manifest.key_id
+    manifest.delivery_profile = deliveryProfile
+  } else if (manifest.key_id === KEY_ID_TOKEN) {
     if (!keyId) fail(`pack.json ${KEY_ID_TOKEN} requires keyId`)
     manifest.key_id = keyId
   }
@@ -361,7 +368,7 @@ async function deterministicArchive(manifestBytes, signatureBytes, files) {
   const archive = new JSZip()
   const options = { date: FIXED_ARCHIVE_DATE, createFolders: false, unixPermissions: 0o100644 }
   archive.file('manifest.json', manifestBytes, options)
-  archive.file('signature.ed25519', signatureBytes, options)
+  if (signatureBytes) archive.file('signature.ed25519', signatureBytes, options)
   for (const file of files) archive.file(file.path, file.bytes, options)
   return archive.generateAsync({
     type: 'uint8array',
@@ -395,21 +402,27 @@ async function writeOutput(path, bytes) {
   }
 }
 
-export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath, minAppVersion, keyId, onSourceEnumerated, onBeforeSourceRead, onBeforeOutputCommit }) {
-  if (!sourceDirectory || !privateKeyPath || !outputPath) fail('source directory, private key, and output path are required')
+export async function buildContentPack({ sourceDirectory, privateKeyPath, outputPath, minAppVersion, keyId, deliveryProfile, onSourceEnumerated, onBeforeSourceRead, onBeforeOutputCommit }) {
+  if (!sourceDirectory || !outputPath) fail('source directory and output path are required')
+  if (deliveryProfile && privateKeyPath) fail('delivery-attested builds must not receive a private key')
+  if (!deliveryProfile && !privateKeyPath) fail('local publisher builds require a private key')
   const sourcePath = resolve(sourceDirectory)
-  const privateKey = resolve(privateKeyPath)
+  const privateKey = privateKeyPath ? resolve(privateKeyPath) : undefined
   const output = resolve(outputPath)
   await assertOutputSeparatedFromInputs(sourcePath, privateKey, output)
-  const privateKeyObject = parsePrivateKey(await readFile(privateKey, 'utf8'))
-  const source = await loadSourceManifest(sourcePath, onSourceEnumerated, onBeforeSourceRead, { minAppVersion, keyId })
+  const privateKeyObject = privateKey ? parsePrivateKey(await readFile(privateKey, 'utf8')) : undefined
+  const source = await loadSourceManifest(sourcePath, onSourceEnumerated, onBeforeSourceRead, { minAppVersion, keyId, deliveryProfile })
   const manifestBytes = Buffer.from(canonicalJson(source.manifest), 'utf8')
-  const signatureBytes = sign(null, manifestBytes, privateKeyObject)
+  const signatureBytes = privateKeyObject ? sign(null, manifestBytes, privateKeyObject) : undefined
   const archiveBytes = await deterministicArchive(manifestBytes, signatureBytes, source.files)
-  const publicKeyPem = createPublicKey(privateKeyObject).export({ type: 'spki', format: 'pem' }).toString()
-  const verified = await verifyContentPackArchive(archiveBytes, {
-    publisherKeys: new Map([[source.manifest.key_id, { publisherId: source.manifest.publisher_id, publicKeyPem }]]),
-  })
+  const verified = privateKeyObject
+    ? await verifyContentPackArchive(archiveBytes, {
+      publisherKeys: new Map([[source.manifest.key_id, {
+        publisherId: source.manifest.publisher_id,
+        publicKeyPem: createPublicKey(privateKeyObject).export({ type: 'spki', format: 'pem' }).toString(),
+      }]]),
+    })
+    : await verifyDeliveryAttestedContentPackArchive(archiveBytes)
   await assertOutputSeparatedFromInputs(sourcePath, privateKey, output)
   await onBeforeOutputCommit?.()
   const writtenOutput = await writeOutput(output, archiveBytes)
@@ -421,9 +434,17 @@ export async function buildContentPack({ sourceDirectory, privateKeyPath, output
   }
 }
 
-export async function validateContentPack({ archivePath, keyId, publisherId, publicKeyPath }) {
-  if (!archivePath || !keyId || !publisherId || !publicKeyPath) fail('archive path, key ID, publisher ID, and public key path are required')
+export async function validateContentPack({ archivePath, keyId, publisherId, publicKeyPath, deliveryProfile }) {
+  if (!archivePath) fail('archive path is required')
+  if (deliveryProfile && (keyId || publisherId || publicKeyPath)) fail('delivery-attested validation must not receive publisher key options')
+  if (!deliveryProfile && (!keyId || !publisherId || !publicKeyPath)) fail('local publisher validation requires key ID, publisher ID, and public key path')
+  if (deliveryProfile && deliveryProfile !== DELIVERY_PROFILE) fail(`unsupported delivery profile: ${deliveryProfile}`)
   const archive = resolve(archivePath)
+  if (deliveryProfile) {
+    const archiveBytes = await readFile(archive)
+    const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)
+    return { packId: verified.manifest.pack_id, version: verified.manifest.version, sha256: sha256(archiveBytes) }
+  }
   const publicKey = resolve(publicKeyPath)
   if (archive === publicKey || await pathsResolveToSameFile(archive, publicKey)) fail('archive path must not be the public key path')
   const archiveBytes = await readFile(archive)
@@ -459,8 +480,8 @@ export function parseOptions(argv, requiredPositionals, flags) {
   return { positionals, options }
 }
 
-export function report(result) {
-  process.stdout.write(`Content Pack ${result.packId} ${result.version} sha256=${result.sha256}\n`)
+export function report(result, { bytes } = {}) {
+  process.stdout.write(`Content Pack ${result.packId} ${result.version} sha256=${result.sha256}${bytes === undefined ? '' : ` bytes=${bytes}`}\n`)
 }
 
 export function reportError(error) {

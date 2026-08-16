@@ -346,14 +346,18 @@ async function verifyArchive(
     fail(`manifest.json does not match the Content Pack contract (${error instanceof Error ? error.message : 'unknown error'})`)
   }
   if (policy) {
+    if (!manifest.key_id) fail('local publisher verification requires a manifest key_id')
     const key = policy.publisherKeys.get(manifest.key_id)
     if (!key) fail(`unknown publisher key: ${manifest.key_id}`)
     if (key.publisherId !== manifest.publisher_id) fail('publisher key does not match manifest publisher')
     if (!signatureBytes || !verifyEd25519Signature(manifestBytes, signatureBytes, key.publicKeyPem)) fail('manifest signature verification failed')
     if (manifest.delivery_profile) fail('delivery-attested profile must not use the local publisher verifier')
-  // model-drift-allow: Frozen Content Store receipt profile identifies the signed delivery attestation format.
-  } else if (manifest.delivery_profile !== 'genstudio-store-receipt-v1') {
-    fail('delivery-attested archive must declare the GenStudio Store receipt profile')
+  } else {
+    // model-drift-allow: Frozen Content Store receipt profile identifies the signed delivery attestation format.
+    if (manifest.delivery_profile !== 'genstudio-store-receipt-v1') {
+      fail('delivery-attested archive must declare the GenStudio Store receipt profile')
+    }
+    if (signatureEntry) fail('delivery-attested archive must not contain a publisher signature')
   }
 
   const declaredPaths = new Set(manifest.files.map(file => file.path))

@@ -57,8 +57,10 @@ function product(overrides: Record<string, unknown> = {}) {
 async function asStoreDeliveryArchive(bytes: Uint8Array): Promise<Uint8Array> {
   const zip = await JSZip.loadAsync(bytes)
   const manifest = JSON.parse(await zip.file('manifest.json')!.async('text'))
+  delete manifest.key_id
   manifest.delivery_profile = 'genstudio-store-receipt-v1'
   zip.file('manifest.json', JSON.stringify(manifest))
+  zip.remove('signature.ed25519')
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
