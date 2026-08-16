@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.0.844 — 2026-08-16
+
+- Prevented delayed test-only Job Queue persistence from falling through to the configured customer projects folder after temporary test storage is released.
+- Added a byte-for-byte regression using an isolated fake projects root, covering both unexpected `jobs.json` updates and unexpected project-directory creation.
+- Made the official backend test command create and verify its own disposable per-machine home, settings, and projects boundary instead of reading the developer's live Story Studio configuration.
+
 ## v1.0.843 — 2026-08-16
 
 - Added explicit deterministic build and validation support for GenStudio delivery-attested Content Pack archives without publisher key IDs or archive signatures.

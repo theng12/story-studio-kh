@@ -1,7 +1,7 @@
 {
   "name": "story-studio-kh",
   "productName": "Story Studio KH",
-  "version": "1.0.843",
+  "version": "1.0.844",
   "private": true,
   "description": "Story Studio KH — continuity-first video pipeline for YouTube channels. Research, scripts, voice, narration-timed scenes, optional motion, and assembly across scenes, listicle, and character-locked formats.",
   "author": "",
@@ -31,7 +31,7 @@
     "content-pack:validate": "node scripts/content-packs/validate-pack.mjs",
     "content-pack:registry": "node scripts/content-packs/authoring-registry.mjs",
     "start": "electron .",
-    "test:backend": "cd electron && STORY_STUDIO_DISABLE_LISTEN=1 npx tsx --test --test-concurrency=1 --test-force-exit server/__tests__/*.test.ts",
+    "test:backend": "node scripts/testing/run-backend-tests.mjs",
     "test:frontend": "cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/*.test.ts",
     "test:release": "node --test scripts/release/__tests__/*.test.mjs",
     "test": "npm run test:backend && npm run test:frontend && npm run test:release",

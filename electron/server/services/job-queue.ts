@@ -17,6 +17,7 @@ import { randomUUID } from 'node:crypto'
 import { projectsRoot, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
+import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
@@ -839,6 +840,7 @@ function jobsPath(projectSlug: string): string {
 
 async function persistProjectSnapshot(projectSlug: string): Promise<void> {
   const p = jobsPath(projectSlug)
+  assertWriteIsolatedInTests(p, 'job-queue')
   await withLock(p, async () => {
     const remaining = retainJobsForPersistence(Array.from(jobs.values())
       .filter(j => j.project_slug === projectSlug)
@@ -909,6 +911,7 @@ function serializeJob(job: Job): Job {
 
 async function persistJob(job: Job): Promise<void> {
   const p = jobsPath(job.project_slug)
+  assertWriteIsolatedInTests(p, 'job-queue')
   // Lock + atomic write: concurrent generators can finish at the same time and
   // would otherwise race `read → splice → write` on this shared file.
   await withLock(p, async () => {
