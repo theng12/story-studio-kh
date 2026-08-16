@@ -545,7 +545,7 @@
           :episode-id="form.episode_id"
           :style="brollSubtitles.style"
           :sample-text="'The forest whispered secrets older than memory.'"
-          @update:style="(s) => Object.assign(brollSubtitles.style, s)"
+          @update:style="(s: SubtitleStyleDocument) => { brollSubtitles.style = s }"
         />
       </div>
     </section>
@@ -579,6 +579,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, reactive } from 'vue'
+import { defaultSubtitleStyle, normalizeSubtitleStyle, type SubtitleStyleDocument } from '@shared/subtitle-style'
 import {
   DEFAULT_TRANSCRIPTION_LANGUAGE,
   defaultTranscriptionLanguage,
@@ -698,18 +699,10 @@ watch(brollGenstudioSelectedModel, (model) => {
 // VideoSubtitleStyle interface.
 const brollSubtitles = reactive({
   enabled: false,
-  style: {
-    font_family: 'Helvetica',
-    font_size_px: 28,
-    color_hex: '#FFFFFF',
-    outline_color_hex: '#000000',
-    outline_px: 2,
-    background: 'none' as 'none' | 'semi' | 'full',
-    position: 'bottom' as 'top' | 'center' | 'bottom',
-    align: 'center' as 'left' | 'center' | 'right',
-    max_chars_per_line: 42,
-    max_lines: 2,
-  },
+  // v1.1.0 — the shared v2 caption document, same as Video Assembly. A project
+  // holding the old flat shape is upgraded on load by `normalizeSubtitleStyle`
+  // and renders identically.
+  style: defaultSubtitleStyle() as SubtitleStyleDocument,
 })
 
 // v1.0.127+ — Persist brollSubtitles to config.broll_subtitles whenever it
@@ -724,7 +717,7 @@ const brollSubsAutoSave = useAutoSave({
     await put(`/projects/${slug.value}/settings/config`, {
       broll_subtitles: {
         enabled: brollSubtitles.enabled,
-        style: { ...brollSubtitles.style },
+        style: JSON.parse(JSON.stringify(brollSubtitles.style)),
       },
     })
   },
@@ -998,7 +991,9 @@ async function loadConfig(): Promise<void> {
     const saved = cfg?.broll_subtitles
     if (saved && typeof saved === 'object') {
       if (typeof saved.enabled === 'boolean') brollSubtitles.enabled = saved.enabled
-      if (saved.style && typeof saved.style === 'object') Object.assign(brollSubtitles.style, saved.style)
+      // Replace, never shallow-merge: a project saved under the old flat shape
+      // would otherwise leave a half-upgraded hybrid document behind.
+      if (saved.style && typeof saved.style === 'object') brollSubtitles.style = normalizeSubtitleStyle(saved.style)
     }
   } catch { /* tolerate */ }
 }

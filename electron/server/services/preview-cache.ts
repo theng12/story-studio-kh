@@ -56,6 +56,35 @@ export function cachePath(key: string, ext: string): string {
 }
 
 /**
+ * The opaque token identifying one cache entry.
+ *
+ * Needed by previews whose input is too large for a querystring: the client
+ * POSTs the full description, the server renders and returns this token, and a
+ * plain GET streams the result so it can be used as a `<video src>`. Derived
+ * from the same hash `cachePath` uses, so the two can never disagree.
+ */
+export function cacheToken(key: string, ext: string): string {
+  const ensuredExt = ext.startsWith('.') ? ext.slice(1) : ext
+  return `${hashKey(key)}.${ensuredExt}`
+}
+
+/**
+ * Resolve a client-supplied token back to a cached file, or null.
+ *
+ * The token arrives over HTTP, so the shape check is a security boundary, not
+ * a convenience: it must never be able to name a path outside the cache root.
+ */
+export function cachedFileForToken(token: string): string | null {
+  if (!/^[a-f0-9]{20}\.[a-z0-9]{2,5}$/.test(token)) return null
+  const target = path.join(resolveCacheRoot(), token)
+  try {
+    const stat = fs.statSync(target)
+    if (stat.isFile() && stat.size > 0) return target
+  } catch { /* not cached */ }
+  return null
+}
+
+/**
  * Return the cached path if present; otherwise invoke `render(targetPath)`
  * and return the produced path. `render` must write to `targetPath` — the
  * cache confirms the file exists and is non-empty before returning.

@@ -40,11 +40,11 @@ import { getFFmpegPath, getFFprobePath } from '../services/ffmpeg-manager.js'
 import { buildBrollMotion, type BrollMotion, pickRotatedMotion } from '../lib/broll-motion.js'
 import { getTransition } from '../models/transitions.js'
 import {
-  buildAssStyle,
-  hasPreciseSubtitlePlacement,
+  buildSubtitleAssDocument,
+  buildSubtitleForceStyle,
   parseSrt,
-  srtToAss,
 } from '../lib/subtitle-builder.js'
+import { normalizeSubtitleStyle } from '../contracts/subtitle-style.js'
 import { resolveBurnSubtitle } from '../lib/subtitle-selection.js'
 import type { Job, BrollUsageEntry, VideoSubtitleStyle } from '../models/types.js'
 
@@ -220,35 +220,36 @@ export async function generateBrollAssemble(job: Job): Promise<void> {
   function escapeForceStyleValue(v: string): string {
     return v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
   }
-  const forceStyleClause = (subPath && subtitles_style)
-    ? `:force_style='${escapeForceStyleValue(buildAssStyle(subtitles_style))}'`
-    : ''
-
-  // Precise percentage placement and caption animation both need a full ASS
-  // document. Keep this path aligned with the primary scene assembler so a
-  // preset never shifts merely because the episode uses an image/B-Roll pool.
+  // v1.1.0 — the full ASS document is the ONLY styled path, exactly as in the
+  // scene assembler. `force_style` remains solely as the fallback for a
+  // subtitle file that will not parse; it can express no word mode, no
+  // animation, no precise placement, and it ignores the style's line-wrapping
+  // entirely. Keeping both assemblers on one renderer is what guarantees a
+  // preset looks the same whether the episode uses scenes or a B-Roll pool.
+  const normalizedSubtitleStyle = subtitles_style ? normalizeSubtitleStyle(subtitles_style) : null
   let generatedSubtitleAssPath: string | null = null
-  if (subPath && subtitles_style && (
-    hasPreciseSubtitlePlacement(subtitles_style) ||
-    (subtitles_style.animation && subtitles_style.animation !== 'none')
-  )) {
+  if (subPath && normalizedSubtitleStyle) {
     try {
       const cues = parseSrt(await fsp.readFile(subPath, 'utf-8'))
       if (cues.length > 0) {
+        const rendered = buildSubtitleAssDocument(cues, normalizedSubtitleStyle, { width: 1920, height: 1080 })
+        if (!rendered.events) throw new Error('subtitle document contained no events')
         generatedSubtitleAssPath = path.join(finalDir, `.tmp-${Date.now()}-${episode_id}-subtitles.ass`)
-        await fsp.writeFile(generatedSubtitleAssPath, srtToAss(cues, subtitles_style, {
-          width: 1920,
-          height: 1080,
-          animation: subtitles_style.animation || 'none',
-        }), 'utf-8')
+        await fsp.writeFile(generatedSubtitleAssPath, rendered.ass, 'utf-8')
+        if (normalizedSubtitleStyle.word.mode !== 'off') {
+          job.output_lines.push(`Subtitles: word mode ${normalizedSubtitleStyle.word.mode} using ${rendered.wordPrecision} word timing (${rendered.events} events).`)
+        }
       } else {
-        job.output_lines.push('Subtitles: selected file could not be converted for precise placement; using its original formatting.')
+        job.output_lines.push('Subtitles: selected file could not be converted for styling; using its original formatting.')
       }
     } catch (error: any) {
-      job.output_lines.push(`Subtitles: precise placement preparation failed (${error?.message || error}); using legacy anchors.`)
+      job.output_lines.push(`Subtitles: styled document preparation failed (${error?.message || error}); falling back to coarse anchors, which cannot render word modes, animation or line wrapping.`)
       generatedSubtitleAssPath = null
     }
   }
+  const forceStyleClause = (subPath && normalizedSubtitleStyle)
+    ? `:force_style='${escapeForceStyleValue(buildSubtitleForceStyle(normalizedSubtitleStyle))}'`
+    : ''
 
   // ── Resolve per-segment motion + transition for this episode ──────
   //

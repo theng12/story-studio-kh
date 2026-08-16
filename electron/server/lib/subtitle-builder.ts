@@ -12,6 +12,20 @@
  */
 
 import type { VideoSubtitleStyle } from '../models/types.js'
+import {
+  CUE_ANIMATION_DEFAULTS,
+  hasPreciseSubtitleAnchor,
+  normalizeSubtitleStyle,
+  SUBTITLE_REFERENCE_HEIGHT,
+  type SubtitleStyleDocument,
+} from '../contracts/subtitle-style.js'
+import {
+  estimatedWordTimingSource,
+  splitCueWords,
+  type TimedWord,
+  type WordTimingPrecision,
+  type WordTimingSource,
+} from './subtitle-word-timing.js'
 
 export interface Chapter {
   title: string
@@ -228,73 +242,42 @@ export function resolveSubtitlePlacement(
     alignment: vBase + hAlign,
   }
 }
-
 /**
- * Build the libass `force_style=...` fragment for the `subtitles=` filter.
- * Colours are encoded as `&HBBGGRR&` (yes, reversed — that's an ASS quirk).
- * Alignment / outline / background controls map to libass's Style Override
- * parameter names. Pixel values are pre-scaled from the 1080 reference into
- * the SRT-default 384×288 PlayRes space (see the scaling note above).
+ * ── The caption engine (v1.1.0) ────────────────────────────────────────────
+ *
+ * One renderer, driven entirely by a declarative `SubtitleStyleDocument`. It
+ * does not add a new rendering technology — every effect below is a libass
+ * override tag that the `ass=` filter already understood. What changed is that
+ * the tags are now PARAMETERISED by data instead of hardcoded per animation.
+ *
+ * Tag vocabulary used, and what each field drives:
+ *   `\pos` `\move`   precise placement, slide-up / slide-down
+ *   `\fad`           cue animation in_ms / out_ms
+ *   `\fscx` `\fscy`  cue `pop`, word `pop`
+ *   `\t(...)`        every timed transition (colour, scale, alpha, border)
+ *   `\1c` `\3c`      word active/inactive colour, active outline
+ *   `\1a` `\alpha`   opacity, and the word `reveal` / `typewriter` modes
+ *   `\bord` `\3c`    the word highlighter blob
+ *   `\blur`          edge.blur_px
+ *   `\shad` `\xshad` `\yshad`   shadow depth and explicit offsets
+ *   `\fsp`           letter spacing (also the ASS `Spacing` style field)
+ *
+ * ── Why every word block restates its resting state ────────────────────────
+ *
+ * libass applies override blocks strictly in text order, so a `\t` attached to
+ * word 2 keeps animating words 3, 4, … unless a LATER block sets the same
+ * property statically. Each word's block therefore begins by re-asserting the
+ * resting value of every property that mode animates, and only then adds its
+ * own transitions. Drop that and a highlight sweep smears across the rest of
+ * the line.
+ *
+ * ── The scale contract ─────────────────────────────────────────────────────
+ *
+ * PlayResX/Y are the real output size and every `_px` field is multiplied by
+ * `height / 1080`, so a 640x360 preview and a 1920x1080 burn describe the same
+ * caption at different resolutions. `subtitle-ass.test.ts` asserts that
+ * equality directly — it is the property that makes the preview trustworthy.
  */
-export function buildAssStyle(style: VideoSubtitleStyle): string {
-  const fontName = style.font_family || 'Helvetica'
-  const scale = SRT_DEFAULT_PLAYRES_Y / REFERENCE_HEIGHT
-  const fontSize = round2((style.font_size_px || 28) * scale)
-
-  // Libass numeric alignment: 1=bottom-left, 2=bottom-center, 3=bottom-right,
-  // 4=middle-left, 5=middle-center, 6=middle-right,
-  // 7=top-left, 8=top-center, 9=top-right.
-  const vBase = style.position === 'top' ? 7 : style.position === 'center' ? 4 : 1
-  const hOffset = style.align === 'center' ? 1 : style.align === 'right' ? 2 : 0
-  const alignment = vBase + hOffset
-
-  // Libass BorderStyle: 1 = outlined, 3 = opaque box.
-  const borderStyle = style.background === 'full' ? 3 : style.background === 'semi' ? 3 : 1
-  const backColour = style.background === 'full'
-    ? '&H00000000&'   // solid black box
-    : style.background === 'semi'
-      ? '&H80000000&'  // 50% black
-      : '&H00000000&'  // invisible (outlined mode ignores BackColour anyway)
-
-  const outline = round2(Math.max(0, Math.min(style.outline_px ?? 2, 6)) * scale)
-  const margin = Math.round(40 * scale)
-
-  const parts: Record<string, string | number> = {
-    FontName: fontName,
-    FontSize: fontSize,
-    PrimaryColour: hexToAss(style.color_hex || '#FFFFFF'),
-    OutlineColour: hexToAss(style.outline_color_hex || '#000000'),
-    BackColour: backColour,
-    BorderStyle: borderStyle,
-    Outline: outline,
-    Shadow: 0,
-    Alignment: alignment,
-    MarginV: margin,
-    MarginL: margin,
-    MarginR: margin,
-  }
-
-  return Object.entries(parts).map(([k, v]) => `${k}=${v}`).join(',')
-}
-
-/** Convert `#RRGGBB` to libass `&HBBGGRRAA&` (alpha = 0 = opaque). */
-function hexToAss(hex: string): string {
-  const cleaned = hex.replace('#', '').padStart(6, '0').toLowerCase()
-  const r = cleaned.slice(0, 2)
-  const g = cleaned.slice(2, 4)
-  const b = cleaned.slice(4, 6)
-  return `&H00${b}${g}${r}&`
-}
-
-// ── v1.0.353 — animated captions (full ASS document) ────────────────────────
-//
-// `force_style` on the `subtitles=` filter can only set a static style — it
-// can't animate or place a caption at an arbitrary point. For animation or
-// precise placement we render a complete ASS file and burn it with the `ass=`
-// filter instead. SRT cues → ASS Dialogue lines, each prefixed with the chosen
-// positioning / animation override tags.
-
-export type SubtitleAnimation = 'none' | 'fade' | 'pop' | 'slide-up'
 
 /** ASS timestamp: `H:MM:SS.cc` (centiseconds). */
 function assTime(totalSec: number): string {
@@ -307,95 +290,519 @@ function assTime(totalSec: number): string {
   return `${h}:${pad2(m)}:${pad2(s)}.${pad2(c)}`
 }
 
-/** Per-line override tags for the entrance animation. `\move`/`\pos` anchor on
- *  the style's alignment point, so slide-up's coords are derived from the
- *  resolution + position/align + margin. */
-function animationTag(animation: SubtitleAnimation, style: VideoSubtitleStyle, w: number, h: number): string {
-  const precise = hasPreciseSubtitlePlacement(style)
-  const placement = resolveSubtitlePlacement(style, w, h)
-  const pos = precise ? `\\pos(${placement.x},${placement.y})` : ''
-  if (animation === 'fade') return `{${pos}\\fad(180,180)}`
-  if (animation === 'pop') return `{${pos}\\fad(60,60)\\fscx72\\fscy72\\t(0,150,\\fscx100\\fscy100)}`
-  if (animation === 'slide-up') {
-    const scale = h / REFERENCE_HEIGHT
-    const rise = Math.round(36 * scale)
-    const x = placement.x
-    const yEnd = placement.y
-    const safeTop = placement.safeMarginPx
-    const safeBottom = h - placement.safeMarginPx
-    const below = yEnd + rise
-    const yStart = below <= safeBottom ? below : Math.max(safeTop, yEnd - rise)
-    return `{\\fad(160,80)\\move(${x},${yStart},${x},${yEnd})}`
+/** ASS colour override value, `&HBBGGRR&` — no alpha (that is `\1a`/`\3a`). */
+function assColorTag(hex: string): string {
+  const cleaned = hex.replace('#', '').padStart(6, '0').toLowerCase()
+  return `&H${cleaned.slice(4, 6)}${cleaned.slice(2, 4)}${cleaned.slice(0, 2)}&`
+}
+
+/** ASS alpha override value, `&HAA&`. Opacity 1 → `&H00&` (fully opaque). */
+function assAlphaTag(opacity: number): string {
+  const a = Math.max(0, Math.min(255, Math.round((1 - opacity) * 255)))
+  return `&H${a.toString(16).padStart(2, '0').toUpperCase()}&`
+}
+
+/** Style-line colour, `&HAABBGGRR` (no trailing `&` — the style line has none). */
+function assStyleColor(hex: string, opacity: number): string {
+  const cleaned = hex.replace('#', '').padStart(6, '0').toLowerCase()
+  const a = Math.max(0, Math.min(255, Math.round((1 - opacity) * 255)))
+  return `&H${a.toString(16).padStart(2, '0').toLowerCase()}${cleaned.slice(4, 6)}${cleaned.slice(2, 4)}${cleaned.slice(0, 2)}`
+}
+
+/** Convert `#RRGGBB` to libass `&HBBGGRR&` (force_style form, alpha = opaque). */
+function hexToAss(hex: string): string {
+  return `&H00${assColorTag(hex).slice(2)}`
+}
+
+/** Resolve the style's own colour+opacity into a `\Nc\Na` override pair. */
+function colorOverride(channel: '1' | '3' | '4', hex: string, opacity: number): string {
+  const tag = `\\${channel}c${assColorTag(hex)}`
+  return opacity >= 1 ? tag : `${tag}\\${channel}a${assAlphaTag(opacity)}`
+}
+
+/** Placement resolved against a v2 document rather than the legacy shape. */
+export interface ResolvedSubtitleAnchor extends ResolvedSubtitlePlacement {
+  precise: boolean
+}
+
+export function resolveSubtitleAnchor(
+  style: SubtitleStyleDocument,
+  width: number,
+  height: number,
+): ResolvedSubtitleAnchor {
+  const legacy: VideoSubtitleStyle = {
+    font_family: style.typography.font_family,
+    font_size_px: style.typography.font_size_px,
+    color_hex: style.color.primary_hex,
+    outline_color_hex: style.color.outline_hex,
+    outline_px: style.edge.outline_px,
+    background: style.box.mode === 'rounded' ? 'none' : style.box.mode,
+    position: style.placement.position,
+    align: style.placement.align,
+    max_chars_per_line: style.typography.max_chars_per_line,
+    max_lines: style.typography.max_lines,
+    safe_margin_pct: style.placement.safe_margin_pct,
+    ...(style.placement.position_x_pct !== null ? { position_x_pct: style.placement.position_x_pct } : {}),
+    ...(style.placement.position_y_pct !== null ? { position_y_pct: style.placement.position_y_pct } : {}),
   }
-  return precise ? `{${pos}}` : ''
+  return { ...resolveSubtitlePlacement(legacy, width, height), precise: hasPreciseSubtitleAnchor(style) }
+}
+
+/** ASS `WrapStyle` for the document's wrap mode. */
+function assWrapStyle(style: SubtitleStyleDocument): number {
+  switch (style.typography.wrap_style) {
+    case 'balanced': return 0
+    case 'end-of-line': return 1
+    case 'bottom-wider': return 3
+    default: return 2   // 'engine' — Story Studio pre-wraps, libass must not re-wrap
+  }
 }
 
 /**
- * Render SRT cues into a complete ASS document with the user's style + an
- * entrance animation per line. Used when animation or precise placement needs
- * a full ASS document; legacy static coarse anchors keep the force_style path.
+ * The `[V4+ Styles]` line and the numbers every per-line override builds on.
+ * Shared by the ASS document and the legacy `force_style` fallback so the two
+ * can never disagree about what a style means.
  */
-export function srtToAss(
-  cues: SrtCue[],
-  style: VideoSubtitleStyle,
-  opts: { width: number; height: number; animation: SubtitleAnimation },
+interface ResolvedStyleNumbers {
+  fontName: string
+  fontSize: number
+  bold: number
+  italic: number
+  spacing: number
+  primary: string
+  secondary: string
+  outlineCol: string
+  backColour: string
+  shadowCol: string
+  borderStyle: number
+  /** ASS `Outline` — the stroke width, or the box padding when BorderStyle=3. */
+  outline: number
+  shadow: number
+  alignment: number
+  margin: number
+  scale: number
+}
+
+function resolveStyleNumbers(
+  style: SubtitleStyleDocument,
+  scale: number,
+  alignment: number,
+): ResolvedStyleNumbers {
+  const rounded = style.box.mode === 'rounded'
+  const opaqueBox = style.box.mode === 'full' || style.box.mode === 'semi'
+  // libass BorderStyle: 1 = outlined, 3 = opaque box. A 'rounded' box has no
+  // libass equivalent, so it is drawn as a thick round-joined outline in the
+  // box colour — see SubtitleBox.mode.
+  const borderStyle = opaqueBox ? 3 : 1
+  // With BorderStyle 3 the ASS `Outline` value IS the box padding, which is
+  // why box.padding_px defaults to null ("follow the outline width").
+  const outlinePx = rounded
+    ? style.box.corner_radius_px
+    : opaqueBox
+      ? (style.box.padding_px ?? style.edge.outline_px)
+      : style.edge.outline_px
+  return {
+    fontName: style.typography.font_family || 'Helvetica',
+    fontSize: round2(style.typography.font_size_px * scale),
+    bold: style.typography.bold ? 1 : 0,
+    italic: style.typography.italic ? 1 : 0,
+    spacing: round2(style.typography.letter_spacing_px * scale),
+    primary: assStyleColor(style.color.primary_hex, style.color.primary_opacity),
+    secondary: assStyleColor(
+      style.color.secondary_hex ?? style.color.primary_hex,
+      style.color.secondary_hex === null ? style.color.primary_opacity : style.color.secondary_opacity,
+    ),
+    // In 'rounded' mode the outline IS the backdrop, so it takes the box colour.
+    outlineCol: rounded
+      ? assStyleColor(style.color.box_hex, style.color.box_opacity)
+      : assStyleColor(style.color.outline_hex, style.color.outline_opacity),
+    backColour: assStyleColor(style.color.box_hex, opaqueBox ? style.color.box_opacity : 1),
+    shadowCol: assStyleColor(style.color.shadow_hex, style.color.shadow_opacity),
+    borderStyle,
+    outline: round2(outlinePx * scale),
+    shadow: round2(style.edge.shadow_px * scale),
+    alignment,
+    margin: Math.round(style.placement.margin_px * scale),
+    scale,
+  }
+}
+
+/**
+ * Per-cue override tags: precise placement plus the entrance animation.
+ * Fragments are emitted in a fixed order so the output is stable and
+ * diff-able, and so a style with every new field at its default reproduces the
+ * v1 engine's bytes exactly.
+ */
+function cueOverrideFragments(style: SubtitleStyleDocument, w: number, h: number): string[] {
+  const anchor = resolveSubtitleAnchor(style, w, h)
+  const a = style.animation
+  const pos = anchor.precise ? `\\pos(${anchor.x},${anchor.y})` : ''
+  const fragments: string[] = []
+
+  if (a.type === 'slide-up' || a.type === 'slide-down') {
+    const scale = h / SUBTITLE_REFERENCE_HEIGHT
+    const travel = Math.round(a.travel_px * scale)
+    const x = anchor.x
+    const yEnd = anchor.y
+    const safeTop = anchor.safeMarginPx
+    const safeBottom = h - anchor.safeMarginPx
+    // Slide-up starts BELOW its resting place and rises; slide-down mirrors it.
+    // Either way the start point is clamped inside the safe band, and flips to
+    // the other side when the preferred one would leave the frame.
+    const preferred = a.type === 'slide-up' ? yEnd + travel : yEnd - travel
+    const inside = a.type === 'slide-up' ? preferred <= safeBottom : preferred >= safeTop
+    const yStart = inside
+      ? preferred
+      : a.type === 'slide-up'
+        ? Math.max(safeTop, yEnd - travel)
+        : Math.min(safeBottom, yEnd + travel)
+    fragments.push(`\\fad(${a.in_ms},${a.out_ms})`)
+    fragments.push(`\\move(${x},${yStart},${x},${yEnd})`)
+  } else {
+    if (pos) fragments.push(pos)
+    if (a.type === 'fade' || a.type === 'pop') fragments.push(`\\fad(${a.in_ms},${a.out_ms})`)
+    if (a.type === 'pop') {
+      fragments.push(`\\fscx${a.pop_from_pct}\\fscy${a.pop_from_pct}\\t(0,${a.transform_ms},\\fscx100\\fscy100)`)
+    }
+  }
+
+  // Everything below is new in v1.1.0 and silent at its default, which is what
+  // keeps a legacy style byte-identical to the v1 output.
+  if (style.edge.blur_px > 0) fragments.push(`\\blur${round2(style.edge.blur_px * (h / SUBTITLE_REFERENCE_HEIGHT))}`)
+  if (style.edge.shadow_offset_x_px !== 0) {
+    fragments.push(`\\xshad${round2(style.edge.shadow_offset_x_px * (h / SUBTITLE_REFERENCE_HEIGHT))}`)
+  }
+  if (style.edge.shadow_offset_y_px !== 0) {
+    fragments.push(`\\yshad${round2(style.edge.shadow_offset_y_px * (h / SUBTITLE_REFERENCE_HEIGHT))}`)
+  }
+  return fragments
+}
+
+/** Neutralise braces so cue text can never be read as an override block. */
+function escapeAssText(text: string): string {
+  return text.replace(/\{/g, '(').replace(/\}/g, ')')
+}
+
+/**
+ * Join wrapped lines. libass has no line-spacing property, so a positive
+ * `line_spacing_px` inserts a spacer line — a hard space at the requested
+ * height — between them. See SubtitleTypography.line_spacing_px for the
+ * caveats; at the default 0 this emits a plain `\N` and nothing else.
+ */
+function joinLines(lines: string[], style: SubtitleStyleDocument, scale: number): string {
+  const gap = style.typography.line_spacing_px
+  if (gap <= 0) return lines.join('\\N')
+  const gapSize = round2(gap * scale)
+  const bodySize = round2(style.typography.font_size_px * scale)
+  return lines.join(`\\N{\\fs${gapSize}}\\h{\\fs${bodySize}}\\N`)
+}
+
+/**
+ * The resting state a word block must re-assert before its own transitions,
+ * for exactly the properties this mode animates. See the note at the top of
+ * the engine for why omitting any of these smears the effect down the line.
+ */
+function wordRestingState(style: SubtitleStyleDocument, numbers: ResolvedStyleNumbers): string {
+  const w = style.word
+  const inactiveHex = w.inactive_color_hex ?? style.color.primary_hex
+  switch (w.mode) {
+    case 'highlight':
+    case 'pop': {
+      let out = colorOverride('1', inactiveHex, w.inactive_opacity)
+      if (w.mode === 'pop') out += '\\fscx100\\fscy100'
+      if (w.active_outline_hex !== null || w.highlight_box) {
+        out += colorOverride('3', style.color.outline_hex, style.color.outline_opacity)
+      }
+      if (w.highlight_box) out += `\\bord${numbers.outline}`
+      return out
+    }
+    case 'reveal':
+    case 'typewriter':
+      return `\\alpha${assAlphaTag(0)}`
+    case 'single':
+      return colorOverride('1', w.active_color_hex, w.active_opacity)
+    default:
+      return ''
+  }
+}
+
+/** The timed part of a word block: what changes, when, for how long. */
+function wordTransitions(
+  style: SubtitleStyleDocument,
+  numbers: ResolvedStyleNumbers,
+  startMs: number,
+  endMs: number,
 ): string {
+  const w = style.word
+  const inactiveHex = w.inactive_color_hex ?? style.color.primary_hex
+  // A zero-length `\t` window is not an animation libass can interpolate, so
+  // an instant change still needs one millisecond to happen in.
+  const ease = Math.max(1, Math.round(w.transition_ms))
+  const on: string[] = []
+  const off: string[] = []
+
+  switch (w.mode) {
+    case 'highlight':
+    case 'pop': {
+      on.push(colorOverride('1', w.active_color_hex, w.active_opacity))
+      off.push(colorOverride('1', inactiveHex, w.inactive_opacity))
+      if (w.mode === 'pop') {
+        on.push(`\\fscx${w.active_scale_pct}\\fscy${w.active_scale_pct}`)
+        off.push('\\fscx100\\fscy100')
+      }
+      if (w.active_outline_hex !== null) {
+        on.push(colorOverride('3', w.active_outline_hex, w.active_outline_opacity))
+        off.push(colorOverride('3', style.color.outline_hex, style.color.outline_opacity))
+      }
+      if (w.highlight_box) {
+        on.push(`\\bord${round2(w.highlight_box_px * numbers.scale)}`)
+        on.push(colorOverride('3', w.highlight_box_hex, w.highlight_box_opacity))
+        off.push(`\\bord${numbers.outline}`)
+        off.push(colorOverride('3', style.color.outline_hex, style.color.outline_opacity))
+      }
+      break
+    }
+    case 'reveal':
+      on.push(`\\alpha${assAlphaTag(1)}`)
+      break
+    case 'typewriter':
+      // Same mechanism as reveal, but deliberately un-eased: a typewriter
+      // letter does not fade in.
+      return `\\t(${startMs},${startMs + 1},\\alpha${assAlphaTag(1)})`
+    default:
+      return ''
+  }
+
+  const parts = [`\\t(${startMs},${startMs + ease},${on.join('')})`]
+  if (off.length) parts.push(`\\t(${endMs},${endMs + ease},${off.join('')})`)
+  return parts.join('')
+}
+
+/** Word modes that stay hidden until their moment start from `\alpha` opaque. */
+function wordHiddenPrefix(style: SubtitleStyleDocument): string {
+  return (style.word.mode === 'reveal' || style.word.mode === 'typewriter')
+    ? `\\alpha${assAlphaTag(0)}`
+    : ''
+}
+
+export interface SubtitleAssResult {
+  /** The complete ASS document, ready for `ass=filename=…`. */
+  ass: string
+  /** Whether the word timings used were measured or interpolated. */
+  wordPrecision: WordTimingPrecision | null
+  /** How many Dialogue events were emitted — a completion check, not a guess. */
+  events: number
+}
+
+export interface SubtitleAssOptions {
+  width: number
+  height: number
+  /**
+   * Where per-word times come from. Defaults to interpolation from the cue,
+   * which stamps every word `estimated`. See `lib/subtitle-word-timing.ts`.
+   */
+  wordTiming?: WordTimingSource
+}
+
+/**
+ * Render cues into a complete ASS document using a v2 style.
+ *
+ * This is the ONLY renderer. Both burn paths and the preview endpoint call it,
+ * which is what makes the preview faithful: the preview is literally the same
+ * document at a smaller PlayRes.
+ */
+export function buildSubtitleAssDocument(
+  cues: SrtCue[],
+  style: SubtitleStyleDocument,
+  opts: SubtitleAssOptions,
+): SubtitleAssResult {
   const w = Math.max(2, Math.round(opts.width || 1920))
   const h = Math.max(2, Math.round(opts.height || 1080))
-  const fontName = style.font_family || 'Helvetica'
-  // PlayRes below is the real output size, so "px at 1080" values scale by
-  // h/1080 — a no-op for 1080p exports, proportional for 720p/4K.
-  const scale = h / REFERENCE_HEIGHT
-  const fontSize = round2((style.font_size_px || 28) * scale)
-  const vBase = style.position === 'top' ? 7 : style.position === 'center' ? 4 : 1
-  const hOffset = style.align === 'center' ? 1 : style.align === 'right' ? 2 : 0
-  const alignment = hasPreciseSubtitlePlacement(style)
-    ? resolveSubtitlePlacement(style, w, h).alignment
-    : vBase + hOffset
-  const borderStyle = (style.background === 'full' || style.background === 'semi') ? 3 : 1
-  const backColour = style.background === 'full' ? '&H00000000' : style.background === 'semi' ? '&H80000000' : '&H00000000'
-  const outline = round2(Math.max(0, Math.min(style.outline_px ?? 2, 6)) * scale)
-  const margin = Math.round(40 * scale)
-  const primary = hexToAss(style.color_hex || '#FFFFFF').replace(/&$/, '')
-  const outlineCol = hexToAss(style.outline_color_hex || '#000000').replace(/&$/, '')
-  const maxChars = style.max_chars_per_line ?? 42
-  const maxLines = style.max_lines ?? 2
+  const scale = h / SUBTITLE_REFERENCE_HEIGHT
+  const anchor = resolveSubtitleAnchor(style, w, h)
+  const vBase = style.placement.position === 'top' ? 7 : style.placement.position === 'center' ? 4 : 1
+  const hOffset = style.placement.align === 'center' ? 1 : style.placement.align === 'right' ? 2 : 0
+  const alignment = anchor.precise ? anchor.alignment : vBase + hOffset
+  const n = resolveStyleNumbers(style, scale, alignment)
 
   const header = [
     '[Script Info]',
     'ScriptType: v4.00+',
     `PlayResX: ${w}`,
     `PlayResY: ${h}`,
-    'WrapStyle: 2',
+    `WrapStyle: ${assWrapStyle(style)}`,
     'ScaledBorderAndShadow: yes',
     '',
     '[V4+ Styles]',
     'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
-    `Style: Default,${fontName},${fontSize},${primary},${primary},${outlineCol},${backColour},0,0,0,0,100,100,0,0,${borderStyle},${outline},0,${alignment},${margin},${margin},${margin},1`,
+    `Style: Default,${n.fontName},${n.fontSize},${n.primary},${n.secondary},${n.outlineCol},${n.backColour},${n.bold},${n.italic},0,0,100,100,${n.spacing},0,${n.borderStyle},${n.outline},${n.shadow},${n.alignment},${n.margin},${n.margin},${n.margin},1`,
     '',
     '[Events]',
     'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
   ]
 
+  const cueFragments = cueOverrideFragments(style, w, h)
+  const cueTag = cueFragments.length ? `{${cueFragments.join('')}}` : ''
+  const maxChars = style.typography.max_chars_per_line
+  const maxLines = style.typography.max_lines
+  const wordMode = style.word.mode !== 'off'
+  const source = opts.wordTiming ?? estimatedWordTimingSource
+
   const events: string[] = []
+  let wordPrecision: WordTimingPrecision | null = null
+
   for (const c of cues) {
-    const tag = animationTag(opts.animation, style, w, h)
-    // v1.0.438 — split (don't truncate) a cue that's too long for maxLines so
-    // no spoken words are lost. Each chunk gets an equal slice of the cue's
-    // [start,end] window and shows sequentially. Hard-break lines with \N and
-    // neutralise braces so source text can't be read as ASS override blocks.
-    const chunks = wrapTextToChunks(c.text, maxChars, maxLines)
-    const n = chunks.length
-    const span = Math.max(0, c.end_sec - c.start_sec)
-    chunks.forEach((chunk, i) => {
-      const start = n === 1 ? c.start_sec : c.start_sec + (span * i) / n
-      const end = n === 1 ? c.end_sec : c.start_sec + (span * (i + 1)) / n
-      const text = chunk.replace(/\r?\n/g, '\\N').replace(/\{/g, '(').replace(/\}/g, ')')
-      events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Default,,0,0,0,,${tag}${text}`)
-    })
+    const display = style.typography.all_caps ? c.text.toUpperCase() : c.text
+    if (!display.trim()) continue
+
+    if (!wordMode) {
+      // v1.0.438 — SPLIT (never truncate) a cue too long for maxLines, so no
+      // spoken words are lost. Each chunk takes an equal slice of the window.
+      const chunks = wrapTextToChunks(display, maxChars, maxLines)
+      const count = chunks.length
+      const span = Math.max(0, c.end_sec - c.start_sec)
+      chunks.forEach((chunk, i) => {
+        const start = count === 1 ? c.start_sec : c.start_sec + (span * i) / count
+        const end = count === 1 ? c.end_sec : c.start_sec + (span * (i + 1)) / count
+        const text = joinLines(chunk.split('\n').map(escapeAssText), style, scale)
+        events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Default,,0,0,0,,${cueTag}${text}`)
+      })
+      continue
+    }
+
+    // ── Word modes ───────────────────────────────────────────────────────
+    const words = source.forCue({ ...c, text: display })
+    if (!words.length) continue
+    wordPrecision = wordPrecision === 'estimated' ? 'estimated' : source.precision
+    if (words.some(word => word.precision === 'estimated')) wordPrecision = 'estimated'
+
+    if (style.word.mode === 'single') {
+      // Exactly one word on screen: one Dialogue per word, no per-word blocks
+      // needed because there is nothing else on the line to bleed into.
+      const resting = wordRestingState(style, n)
+      for (const word of words) {
+        const tag = resting ? `{${cueFragments.join('')}${resting}}` : cueTag
+        events.push(
+          `Dialogue: 0,${assTime(word.start_sec)},${assTime(word.end_sec)},Default,,0,0,0,,${tag}${escapeAssText(word.text)}`,
+        )
+      }
+      continue
+    }
+
+    const chunks = wrapTextToChunks(display, maxChars, maxLines)
+    let cursor = 0
+    for (const chunk of chunks) {
+      const lines = chunk.split('\n')
+      const chunkWordCount = lines.reduce((sum, line) => sum + splitCueWords(line).length, 0)
+      const chunkWords = words.slice(cursor, cursor + chunkWordCount)
+      cursor += chunkWordCount
+      if (!chunkWords.length) continue
+      const start = chunkWords[0]!.start_sec
+      const end = chunkWords[chunkWords.length - 1]!.end_sec
+      const rendered = renderWordLines(lines, chunkWords, style, n, start, scale)
+      events.push(`Dialogue: 0,${assTime(start)},${assTime(end)},Default,,0,0,0,,${cueTag}${rendered}`)
+    }
   }
 
-  return [...header, ...events].join('\n') + '\n'
+  return {
+    ass: [...header, ...events].join('\n') + '\n',
+    wordPrecision: wordMode ? (wordPrecision ?? source.precision) : null,
+    events: events.length,
+  }
+}
+
+/** Build one Dialogue body: each word carrying its own override block. */
+function renderWordLines(
+  lines: string[],
+  words: TimedWord[],
+  style: SubtitleStyleDocument,
+  numbers: ResolvedStyleNumbers,
+  lineStartSec: number,
+  scale: number,
+): string {
+  const hidden = wordHiddenPrefix(style)
+  const resting = wordRestingState(style, numbers)
+  let index = 0
+  const out: string[] = []
+  for (const line of lines) {
+    const lineWords = splitCueWords(line)
+    const pieces: string[] = []
+    for (const raw of lineWords) {
+      const timed = words[index]
+      index++
+      if (!timed) { pieces.push(escapeAssText(raw)); continue }
+      const startMs = Math.max(0, Math.round((timed.start_sec - lineStartSec) * 1000))
+      const endMs = Math.max(startMs, Math.round((timed.end_sec - lineStartSec) * 1000))
+      const block = `${hidden || resting}${wordTransitions(style, numbers, startMs, endMs)}`
+      pieces.push(block ? `{${block}}${escapeAssText(raw)}` : escapeAssText(raw))
+    }
+    out.push(pieces.join(' '))
+  }
+  return joinLines(out, style, scale)
+}
+
+/**
+ * The lossy fallback: a `force_style=` fragment for the `subtitles=` filter.
+ *
+ * Kept only for the case where the ASS document could not be built (an
+ * unparseable subtitle file), because it can express NONE of: word modes, cue
+ * animation, precise placement, blur, shadow offsets, line spacing, all-caps,
+ * or the engine's own line wrapping — `max_chars_per_line` and `max_lines` are
+ * silently ignored on this path because libass wraps the raw SRT itself.
+ * Anything that reaches here renders differently from the preview. Callers say
+ * so in the job log.
+ *
+ * Pixel values are pre-scaled from the 1080 reference into the SRT-default
+ * 384x288 PlayRes space that force_style is interpreted in (see the scaling
+ * note above `SRT_DEFAULT_PLAYRES_Y`).
+ */
+export function buildSubtitleForceStyle(style: SubtitleStyleDocument): string {
+  const scale = SRT_DEFAULT_PLAYRES_Y / REFERENCE_HEIGHT
+  const vBase = style.placement.position === 'top' ? 7 : style.placement.position === 'center' ? 4 : 1
+  const hOffset = style.placement.align === 'center' ? 1 : style.placement.align === 'right' ? 2 : 0
+  const n = resolveStyleNumbers(style, scale, vBase + hOffset)
+  // v1 capped the outline at 6px here; the schema's own 0-40 bound now governs,
+  // and the UI never offered more than 6, so no stored style changes meaning.
+  const parts: Record<string, string | number> = {
+    FontName: n.fontName,
+    FontSize: n.fontSize,
+    PrimaryColour: hexToAss(style.color.primary_hex),
+    OutlineColour: hexToAss(style.box.mode === 'rounded' ? style.color.box_hex : style.color.outline_hex),
+    BackColour: `${n.backColour}&`,
+    BorderStyle: n.borderStyle,
+    Outline: n.outline,
+    Shadow: n.shadow,
+    Alignment: n.alignment,
+    MarginV: n.margin,
+    MarginL: n.margin,
+    MarginR: n.margin,
+  }
+  return Object.entries(parts).map(([k, v]) => `${k}=${v}`).join(',')
+}
+
+// ── Legacy adapters ─────────────────────────────────────────────────────────
+//
+// Both signatures predate the style document and are still what the older call
+// sites and tests use. They normalise and delegate — there is no second
+// implementation to drift. `subtitle-ass.test.ts` pins their output against
+// golden fixtures captured from the v1 engine, so "identical rendering for an
+// old-shaped style" is a checked property rather than a claim.
+
+/** @deprecated Use `buildSubtitleForceStyle(normalizeSubtitleStyle(style))`. */
+export function buildAssStyle(style: VideoSubtitleStyle): string {
+  return buildSubtitleForceStyle(normalizeSubtitleStyle(style))
+}
+
+export type SubtitleAnimation = 'none' | 'fade' | 'pop' | 'slide-up'
+
+/** @deprecated Use `buildSubtitleAssDocument`. */
+export function srtToAss(
+  cues: SrtCue[],
+  style: VideoSubtitleStyle,
+  opts: { width: number; height: number; animation: SubtitleAnimation },
+): string {
+  const normalized = normalizeSubtitleStyle({ ...style, animation: opts.animation })
+  return buildSubtitleAssDocument(cues, normalized, { width: opts.width, height: opts.height }).ass
 }
 
 /**

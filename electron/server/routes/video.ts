@@ -3,7 +3,7 @@
  */
 
 import { Router } from 'express'
-import { existsSync } from 'fs'
+import { createReadStream, existsSync, statSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
@@ -12,10 +12,13 @@ import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } fro
 import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transitions.js'
 import { ANIMATIONS, groupedAnimations, getAnimation } from '../models/animations.js'
 import { buildAnimationFilter } from '../lib/animation-filters.js'
-import { getOrRender } from '../services/preview-cache.js'
+import { cacheToken, cachedFileForToken, getOrRender } from '../services/preview-cache.js'
+import { readManifest } from '../services/task-manifest.js'
 import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasLibass, getAudioDuration, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
-import { normalizeSrtOrVtt, parseSrt, srtToAss } from '../lib/subtitle-builder.js'
+import { buildSubtitleAssDocument, normalizeSrtOrVtt, parseSrt } from '../lib/subtitle-builder.js'
+import { normalizeSubtitleStyle, type SubtitleStyleDocument } from '../contracts/subtitle-style.js'
+import { SubtitleStyleValidationError, parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.js'
 import { resolveSubtitlesDir, resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
@@ -751,7 +754,20 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       path: string
       filename: string
       mtime: number
+      /**
+       * v1.1.0 — whether this transcript was requested WITH per-word timings.
+       *   'banked'  — asked for and stored upstream, so word-by-word captions
+       *               can become exact for free once GenStudio serves them.
+       *   'none'    — transcribed before Story Studio started asking. Word
+       *               modes interpolate unless it is re-transcribed.
+       *   'unknown' — imported, stitched, or otherwise not the direct output of
+       *               a transcription request this episode has a record of.
+       */
+      word_timings: 'banked' | 'none' | 'unknown'
     }
+    // The transcription manifest is the only local record of what was asked
+    // for. No manifest entry means 'unknown' — the honest answer, not a guess.
+    const transcriptionManifest = await readManifest(subtitlesDir).catch(() => null)
     const existingSrts: ExistingSrt[] = []
     try {
       const entries = await fs.readdir(subtitlesDir)
@@ -759,7 +775,11 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
         if (!/\.(srt|vtt|ass)$/i.test(f)) continue
         const full = path.join(subtitlesDir, f)
         const stat = await fs.stat(full)
-        existingSrts.push({ path: full, filename: f, mtime: stat.mtimeMs })
+        const task = transcriptionManifest?.tasks?.[f]
+        const wordTimings: ExistingSrt['word_timings'] = !task || task.operation !== 'transcription'
+          ? 'unknown'
+          : task.word_timestamps === true ? 'banked' : 'none'
+        existingSrts.push({ path: full, filename: f, mtime: stat.mtimeMs, word_timings: wordTimings })
       }
       existingSrts.sort((a, b) => b.mtime - a.mtime)
     } catch { /* no dir yet — fine */ }
@@ -1039,17 +1059,170 @@ router.put('/projects/:slug/video-editor/subtitles/select/:episodeId', async (re
   }
 })
 
-/** Render a ~1.5 s preview clip showing the user's chosen subtitle style
- *  burned over the first scene image. Mirrors the transition/animation
- *  preview endpoints. */
+// ── Subtitle style preview ──────────────────────────────────────────────────
+//
+// The preview is the SAME ASS document the real burn produces, rendered at a
+// smaller PlayRes. That is the whole point of it: `buildSubtitleAssDocument`
+// scales every `_px` field by height/1080 and sets PlayRes to the output size,
+// so a 640x360 preview and a 1920x1080 burn describe one caption at two
+// resolutions. If this endpoint ever grows its own styling logic, the preview
+// stops being evidence and becomes decoration.
+//
+// v1.1.0 changed three things:
+//   - 4 seconds, not 1.5, and a twelve-word sentence, not one short line. A
+//     word-by-word sweep cannot be judged in 1.5 seconds on four words.
+//   - The style arrives as a v2 document in a POST body. Thirty-plus scalars
+//     in a querystring was already at its limit and the schema is far larger
+//     now; the POST renders and returns a cache token, and a plain GET streams
+//     it so the result is still usable as a `<video src>`.
+//   - The legacy scalar querystring still works, normalised through the same
+//     path, so nothing that already links at this endpoint breaks.
+
+const SUBTITLE_PREVIEW_W = 640
+const SUBTITLE_PREVIEW_H = 360
+const SUBTITLE_PREVIEW_FPS = 24
+/** Long enough for a word-mode sweep to actually be visible. */
+const SUBTITLE_PREVIEW_DURATION = 4
+const SUBTITLE_PREVIEW_SAMPLE =
+  'The forest whispered secrets older than memory, and the quiet river answered.'
+
+/** Resolve the backdrop for a preview — the episode's first scene, or null. */
+async function subtitlePreviewBackdrop(slug: string, episodeId?: string): Promise<string | null> {
+  if (!episodeId) return null
+  try {
+    const assets = await scanEpisodeAssets(slug, episodeId)
+    return assets.scenes[0]?.path || null
+  } catch {
+    return null   // fall through to the synthetic gradient
+  }
+}
+
+/**
+ * Render the preview clip for one style, returning its cache token.
+ *
+ * The cache key is the serialised style document itself, so it covers every
+ * field that can affect the image by construction — a new field cannot be
+ * forgotten here and serve a stale frame.
+ */
+async function renderSubtitlePreview(
+  style: SubtitleStyleDocument,
+  sampleText: string,
+  backdrop: string | null,
+): Promise<string> {
+  const W = SUBTITLE_PREVIEW_W
+  const H = SUBTITLE_PREVIEW_H
+  const FPS = SUBTITLE_PREVIEW_FPS
+  const DURATION = SUBTITLE_PREVIEW_DURATION
+  const key = [
+    'subtitle-v4',
+    sampleText.slice(0, 160),
+    backdrop || 'synthetic',
+    `${W}x${H}@${DURATION}`,
+    JSON.stringify(style),
+  ].join('|')
+
+  await getOrRender(key, 'webm', async (outPath) => {
+    // One cue spanning the clip, wrapped in the same SRT the burn would read.
+    const cueText = sampleText.replace(/\r?\n/g, ' ')
+    const srt = `1\n00:00:00,150 --> 00:00:0${Math.max(1, Math.floor(DURATION))},000\n${cueText}\n`
+    const assFile = path.join(path.dirname(outPath), `${path.basename(outPath, '.webm')}.ass`)
+    const rendered = buildSubtitleAssDocument(parseSrt(srt), style, { width: W, height: H })
+    await fs.writeFile(assFile, rendered.ass, 'utf-8')
+    const args: string[] = ['-y']
+    if (backdrop && existsSync(backdrop)) {
+      args.push(...(await stillDecoderArgs(backdrop)), '-loop', '1', '-t', DURATION.toString(), '-i', backdrop)
+    } else {
+      args.push('-f', 'lavfi', '-t', DURATION.toString(),
+        '-i', `gradients=size=${W}x${H}:type=linear:c0=0x1a1a2e:c1=0x16213e:r=${FPS}`)
+    }
+    args.push('-vf',
+      `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,ass=filename=${escapeFilterPath(assFile)},format=yuv420p`,
+    )
+    args.push('-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-deadline', 'realtime', '-row-mt', '1')
+    args.push('-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-an')
+    args.push('-t', DURATION.toString())
+    args.push(outPath)
+    // v1.0.515 — previews are short clips; 90s only trips on a genuine wedge
+    // (the 5 zombie preview ffmpegs of 2026-07-05 ran 30+ min unbounded).
+    try {
+      await runFfmpeg(args, { timeoutMs: 90_000 })
+    } finally {
+      // A failed preview must not accumulate subtitle documents in cache.
+      try { await fs.unlink(assFile) } catch {}
+    }
+  })
+
+  return cacheToken(key, 'webm')
+}
+
+function streamPreview(res: any, file: string): void {
+  const stat = statSync(file)
+  res.set('Content-Type', 'video/webm')
+  res.set('Content-Length', stat.size.toString())
+  res.set('Cache-Control', 'public, max-age=86400')
+  createReadStream(file).pipe(res)
+}
+
+/**
+ * POST the style document; get back a token plus the URL that streams it.
+ * The body is validated strictly — an unknown field is named in the error
+ * rather than silently ignored, so a style authored for a newer engine fails
+ * loudly instead of previewing as something else.
+ */
+router.post('/projects/:slug/video-editor/preview-subtitles', async (req, res) => {
+  const { slug } = req.params
+  if (!await hasLibass()) {
+    return res.status(501).json({ detail: 'FFmpeg build lacks libass — subtitles cannot be rendered' })
+  }
+  try {
+    const body = req.body || {}
+    const style = body.style && typeof body.style === 'object'
+      ? parseSubtitleStyleDocument(body.style)
+      : normalizeSubtitleStyle(body.style)
+    const sampleText = typeof body.text === 'string' && body.text.trim()
+      ? String(body.text).slice(0, 400)
+      : SUBTITLE_PREVIEW_SAMPLE
+    const backdrop = await subtitlePreviewBackdrop(slug, typeof body.episode === 'string' ? body.episode : undefined)
+    const token = await renderSubtitlePreview(style, sampleText, backdrop)
+    res.json({
+      token,
+      url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-subtitles?token=${encodeURIComponent(token)}`,
+      duration_sec: SUBTITLE_PREVIEW_DURATION,
+      width: SUBTITLE_PREVIEW_W,
+      height: SUBTITLE_PREVIEW_H,
+      word_precision: style.word.mode === 'off' ? null : 'estimated',
+    })
+  } catch (e: any) {
+    if (e instanceof SubtitleStyleValidationError) return res.status(400).json({ detail: e.message })
+    res.status(500).json(humanizeBackendError(e, 'Subtitle preview failed'))
+  }
+})
+
+/**
+ * GET the rendered clip.
+ *
+ * `?token=` streams a clip a POST already produced — the normal path. Without
+ * a token the legacy flat query parameters are accepted and normalised, which
+ * keeps every previously-shipped caller working unchanged.
+ */
 router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) => {
   const { slug } = req.params
+  const token = typeof req.query.token === 'string' ? req.query.token : ''
+  if (token) {
+    const file = cachedFileForToken(token)
+    if (!file) return res.status(404).json({ detail: 'Preview expired — render it again.' })
+    return streamPreview(res, file)
+  }
 
+  if (!await hasLibass()) {
+    return res.status(501).json({ detail: 'FFmpeg build lacks libass — subtitles cannot be rendered' })
+  }
   const sampleText = typeof req.query.text === 'string' && req.query.text.length > 0
     ? String(req.query.text)
-    : 'The forest whispered secrets older than memory.'
-  const episodeId = req.query.episode as string | undefined
-  const style: VideoSubtitleStyle = {
+    : SUBTITLE_PREVIEW_SAMPLE
+  // Legacy flat query shape. `normalizeSubtitleStyle` upgrades it to a v2
+  // document, so this path and the POST path render through identical code.
+  const legacy: VideoSubtitleStyle = {
     font_family: (req.query.font_family as string) || 'Helvetica',
     font_size_px: Number(req.query.font_size_px) || 28,
     color_hex: (req.query.color_hex as string) || '#FFFFFF',
@@ -1065,73 +1238,12 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
     max_lines: Number(req.query.max_lines) || 2,
     animation: ((req.query.animation as any) || 'none'),
   }
-  if (!await hasLibass()) {
-    return res.status(501).json({ detail: 'FFmpeg build lacks libass — subtitles cannot be rendered' })
-  }
-
-  let bg: string | null = null
-  if (episodeId) {
-    try {
-      const assets = await scanEpisodeAssets(slug, episodeId)
-      bg = assets.scenes[0]?.path || null
-    } catch { /* synthetic fallback */ }
-  }
-
-  const W = 640, H = 360, FPS = 24, DURATION = 1.5
-  const key = [
-    // v3: precise safe-area placement + exact animation preview.
-    'subtitle-v3', sampleText.slice(0, 64), bg || 'synthetic',
-    style.font_family, style.font_size_px, style.color_hex, style.outline_color_hex,
-    style.outline_px, style.background, style.position, style.align,
-    style.position_x_pct, style.position_y_pct, style.safe_margin_pct,
-    style.max_chars_per_line, style.max_lines, style.animation,
-  ].join('|')
-
   try {
-    const cached = await getOrRender(key, 'webm', async (outPath) => {
-      // Write a tiny one-cue SRT spanning the whole preview clip.
-      const srtFile = path.join(path.dirname(outPath), `${path.basename(outPath, '.webm')}.srt`)
-      const oneCue = `1\n00:00:00,100 --> 00:00:${(DURATION).toFixed(0).padStart(2, '0')},000\n${sampleText}\n`
-      await fs.writeFile(srtFile, oneCue, 'utf-8')
-
-      const assFile = path.join(path.dirname(outPath), `${path.basename(outPath, '.webm')}.ass`)
-      const assDoc = srtToAss(parseSrt(oneCue), style, {
-        width: W,
-        height: H,
-        animation: style.animation || 'none',
-      })
-      await fs.writeFile(assFile, assDoc, 'utf-8')
-      const args: string[] = ['-y']
-      if (bg && existsSync(bg)) {
-        args.push(...(await stillDecoderArgs(bg)), '-loop', '1', '-t', DURATION.toString(), '-i', bg)
-      } else {
-        args.push('-f', 'lavfi', '-t', DURATION.toString(),
-          '-i', `gradients=size=${W}x${H}:type=linear:c0=0x1a1a2e:c1=0x16213e:r=${FPS}`)
-      }
-      args.push('-vf',
-        `scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,ass=filename=${escapeFilterPath(assFile)},format=yuv420p`,
-      )
-      args.push('-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-deadline', 'realtime', '-row-mt', '1')
-      args.push('-pix_fmt', 'yuv420p', '-r', FPS.toString(), '-an')
-      args.push('-t', DURATION.toString())
-      args.push(outPath)
-      // v1.0.515 — previews are ~1-2s clips; 90s only trips on a genuine wedge
-      // (the 5 zombie preview ffmpegs of 2026-07-05 ran 30+ min unbounded).
-      try {
-        await runFfmpeg(args, { timeoutMs: 90_000 })
-      } finally {
-        // A failed preview must not accumulate subtitle documents in cache.
-        try { await fs.unlink(srtFile) } catch {}
-        try { await fs.unlink(assFile) } catch {}
-      }
-    })
-
-    const stat = await fs.stat(cached)
-    res.set('Content-Type', 'video/webm')
-    res.set('Content-Length', stat.size.toString())
-    res.set('Cache-Control', 'public, max-age=86400')
-    const stream = (await import('fs')).createReadStream(cached)
-    stream.pipe(res)
+    const backdrop = await subtitlePreviewBackdrop(slug, req.query.episode as string | undefined)
+    const produced = await renderSubtitlePreview(normalizeSubtitleStyle(legacy), sampleText, backdrop)
+    const file = cachedFileForToken(produced)
+    if (!file) throw new Error('preview render produced no readable output')
+    streamPreview(res, file)
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Subtitle preview failed'))
   }

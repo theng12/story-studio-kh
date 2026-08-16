@@ -5,7 +5,9 @@
       "~/*": ["./*"],
       "@/*": ["./*"],
       "@shared/contracts": ["../electron/server/contracts/index.ts"],
-      "@shared/pacing": ["../electron/server/contracts/pacing.ts"]
+      "@shared/pacing": ["../electron/server/contracts/pacing.ts"],
+      "@shared/subtitle-style": ["../electron/server/contracts/subtitle-style.ts"],
+      "@shared/subtitle-presets": ["../electron/server/contracts/subtitle-presets.ts"]
     },
     "noUncheckedIndexedAccess": false,
     "noImplicitAny": false,

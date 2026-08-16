@@ -1951,7 +1951,7 @@
             :style="subtitles.style"
             :backdrop-url="subtitleBackdropUrl"
             :sample-text="sampleSubtitleText"
-            @update:style="(s: any) => Object.assign(subtitles.style, s)"
+            @update:style="(s: SubtitleStyleDocument) => { subtitles.style = s }"
           />
         </div>
       </div>
@@ -2346,6 +2346,12 @@
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
+import {
+  defaultSubtitleStyle,
+  mergeSubtitleStyle,
+  normalizeSubtitleStyle,
+  type SubtitleStyleDocument,
+} from '@shared/subtitle-style'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Video Assembly')
@@ -3187,23 +3193,14 @@ const subtitles = reactive({
   // project's skip-intro setting; user can override per episode. The full SRT
   // sidecar is untouched — only the burned-in copy is trimmed.
   hide_during_intro: false,
-  style: {
-    font_family: 'Helvetica',
-    font_size_px: 28,
-    color_hex: '#FFFFFF',
-    outline_color_hex: '#000000',
-    outline_px: 2,
-    background: 'none' as 'none' | 'semi' | 'full',
-    position: 'bottom' as 'top' | 'center' | 'bottom',
-    align: 'center' as 'left' | 'center' | 'right',
-    position_x_pct: 50,
-    position_y_pct: 92,
-    safe_margin_pct: 8,
-    max_chars_per_line: 42,
-    max_lines: 2,
-    // Static precise placement and animations use a generated ASS document.
-    animation: 'none' as 'none' | 'fade' | 'pop' | 'slide-up',
-  },
+  // v1.1.0 — the caption style is now the shared v2 document
+  // (`@shared/subtitle-style`). A project saved under the old flat shape loads
+  // through `normalizeSubtitleStyle`, which renders identically, so nothing on
+  // disk needs rewriting. The default keeps this page's long-standing precise
+  // bottom-centre anchor.
+  style: mergeSubtitleStyle(defaultSubtitleStyle(), {
+    placement: { position_x_pct: 50, position_y_pct: 92 },
+  }) as SubtitleStyleDocument,
 })
 
 // v1.0.423 — default "hide captions during intro" to the project's skip-intro
@@ -3481,6 +3478,15 @@ const effectsPresets = usePresets({
   },
 })
 
+/**
+ * Deep copy for a preset snapshot. The style is a nested document, so a shallow
+ * spread would store live references to the page's reactive groups and let a
+ * later edit rewrite an already-saved preset.
+ */
+function cloneSubtitleStyle(style: SubtitleStyleDocument): SubtitleStyleDocument {
+  return JSON.parse(JSON.stringify(style))
+}
+
 const subtitlesPresets = usePresets({
   slug: slug.value,
   configKey: 'subtitles',
@@ -3490,13 +3496,15 @@ const subtitlesPresets = usePresets({
     // srt_path is episode-specific (points at a file on disk for this
     // episode). Intentionally excluded from the preset — re-generate per
     // episode via the Step 5 buttons.
-    style: { ...subtitles.style },
+    style: cloneSubtitleStyle(subtitles.style),
   }),
   apply: (data: any) => {
     if (!data) return
     if (typeof data.enabled === 'boolean') subtitles.enabled = data.enabled
     if (data.source) subtitles.source = data.source
-    if (data.style) Object.assign(subtitles.style, data.style)
+    // Replace, never shallow-merge: the style is a nested document and a
+    // legacy flat preset would otherwise leave a half-upgraded hybrid behind.
+    if (data.style) subtitles.style = normalizeSubtitleStyle(data.style)
   },
 })
 
@@ -3633,14 +3641,14 @@ function snapshotSubtitlesData() {
     // when `srt_path` exists (video.ts), so omitting it here silently dropped
     // the subtitle track from every render even after an .srt was picked.
     srt_path: subtitles.srt_path,
-    style: { ...subtitles.style },
+    style: cloneSubtitleStyle(subtitles.style),
   }
 }
 function applySubtitlesData(data: any) {
   if (!data) return
   if (typeof data.enabled === 'boolean') subtitles.enabled = data.enabled
   if (data.source) subtitles.source = data.source
-  if (data.style) Object.assign(subtitles.style, data.style)
+  if (data.style) subtitles.style = normalizeSubtitleStyle(data.style)
 }
 
 function snapshotExportData() { return { ...exportSettings } }

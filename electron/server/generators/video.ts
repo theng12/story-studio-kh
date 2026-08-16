@@ -4077,22 +4077,29 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   //     sit inside the safe area; placed before the logo so the logo
   //     always renders on top.
   if (subtitles?.enabled && subtitles.srt_path && existsSync(subtitles.srt_path)) {
-    const anim = subtitles.style?.animation || 'none'
-    const { hasPreciseSubtitlePlacement, parseSrt, srtToAss } = await import('../lib/subtitle-builder.js')
-    const precisePlacement = hasPreciseSubtitlePlacement(subtitles.style)
+    const { buildSubtitleAssDocument, parseSrt } = await import('../lib/subtitle-builder.js')
+    const { normalizeSubtitleStyle } = await import('../contracts/subtitle-style.js')
+    // v1.1.0 — ONE renderer. Every style now burns through the full ASS
+    // document, not just animated or precisely-placed ones. The `force_style`
+    // path below survives only as the fallback for a subtitle file we cannot
+    // parse, because it can express none of the word modes and — the reason
+    // this changed — it silently ignores `max_chars_per_line` / `max_lines`,
+    // so a caption previewed wrapped burned in unwrapped.
+    const style = normalizeSubtitleStyle(subtitles.style)
     const st = vn()
     let wired = false
-    if (anim !== 'none' || precisePlacement) {
-      // v1.0.353 — animated captions need a full ASS document (force_style
-      // can't animate). Render the SRT into ASS with the entrance animation,
-      // then burn it with the `ass=` filter. Falls back to the static path on
-      // any error so a malformed ASS never silently drops the subtitles.
+    {
       try {
         const cues = parseSrt(await fs.readFile(subtitles.srt_path, 'utf-8'))
         if (cues.length) {
-          const assDoc = srtToAss(cues, subtitles.style, { width: w, height: h, animation: anim })
+          // Word timings are derived AFTER any intro offset is already baked
+          // into the cue timestamps (see the note below) — the derivation reads
+          // each cue's own window, so it inherits whatever shift was applied
+          // upstream rather than re-deriving from an unshifted timeline.
+          const rendered = buildSubtitleAssDocument(cues, style, { width: w, height: h })
+          if (!rendered.events) throw new Error('subtitle document contained no events')
           const assPath = path.join(os.tmpdir(), `ssk-subs-${Date.now()}.ass`)
-          await fs.writeFile(assPath, assDoc, 'utf-8')
+          await fs.writeFile(assPath, rendered.ass, 'utf-8')
           generatedSubtitleFiles.push(assPath)
           // NOTE: do NOT append `gateEnable` here. FFmpeg's libass filters
           // (`ass` / `subtitles`) do NOT support the timeline `enable` option —
@@ -4103,17 +4110,24 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
           // excluded because the stitched SRT's cue timestamps are offset past
           // the intro/title lead-in, so there are no cues to suppress in 0–startSec.
           filterParts.push(`${vLabel}ass=filename=${escapeFilterPath(assPath)}${st}`)
-          const mode = anim !== 'none' ? `animated (${anim})` : 'precisely positioned'
-          job.output_lines.push(`Burning in ${mode} subtitles: ${path.basename(subtitles.srt_path)}`)
+          const notes = [
+            style.word.mode !== 'off' ? `word mode ${style.word.mode} (${rendered.wordPrecision} timing)` : null,
+            style.animation.type !== 'none' ? `animation ${style.animation.type}` : null,
+          ].filter(Boolean)
+          job.output_lines.push(
+            `Burning in subtitles: ${path.basename(subtitles.srt_path)}`
+            + (notes.length ? ` — ${notes.join(', ')}` : '')
+            + ` · ${rendered.events} caption event${rendered.events === 1 ? '' : 's'}`,
+          )
           wired = true
         }
       } catch (e: any) {
-        job.output_lines.push(`Subtitle document build failed (${e?.message || e}) — using coarse static anchors.`)
+        job.output_lines.push(`Subtitle document build failed (${e?.message || e}) — falling back to coarse static anchors, which cannot render word modes, animation or line wrapping.`)
       }
     }
     if (!wired) {
-      const { buildAssStyle } = await import('../lib/subtitle-builder.js')
-      const ass = buildAssStyle(subtitles.style).replace(/'/g, "\\'")
+      const { buildSubtitleForceStyle } = await import('../lib/subtitle-builder.js')
+      const ass = buildSubtitleForceStyle(style).replace(/'/g, "\\'")
       // No `gateEnable` — same FFmpeg libass limitation as the `ass` filter
       // above (timeline `enable` is unsupported and breaks the whole graph).
       // Intro suppression comes from the cue timestamps, not a filter gate.

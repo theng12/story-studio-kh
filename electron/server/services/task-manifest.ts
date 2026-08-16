@@ -74,6 +74,16 @@ export interface TaskManifestEntry {
    * re-attaches to the already-paid job instead of creating a second one.
    */
   request_scope?: string
+  /**
+   * Whether this transcription was REQUESTED with per-word timestamps.
+   *
+   * The only local record of it. Story Studio started asking for word timings
+   * in v1.1.0; transcripts made before that stay coarse unless the customer
+   * deliberately re-transcribes, and nothing else on disk distinguishes the
+   * two. The Subtitles page reads this so the difference is visible instead of
+   * being an unexplained quality gap between two episodes in one project.
+   */
+  word_timestamps?: boolean
 }
 
 export interface Manifest {

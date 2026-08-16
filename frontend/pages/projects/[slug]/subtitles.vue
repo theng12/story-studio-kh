@@ -190,6 +190,9 @@
         <ul v-else class="sub-file-list mt-2">
           <li v-for="srt in status.existing_srts" :key="srt.path" class="sub-file-row">
             <span class="sub-file-name">{{ srt.filename }}</span>
+            <span :class="['word-timing-tag', `wt-${srt.word_timings || 'unknown'}`]" :title="wordTimingHint(srt.word_timings)">
+              {{ wordTimingLabel(srt.word_timings) }}
+            </span>
             <button
               class="btn-icon"
               :class="{ active: previewFilename === srt.filename }"
@@ -214,6 +217,14 @@
           @close="closePreview"
         />
 
+        <p v-if="anyTranscriptWithoutWordTimings" class="text-muted text-xs mt-2">
+          Word-by-word caption styles need per-word timings. Story Studio asks for them on every
+          transcription from v1.1.0 onward; a transcript made before that has none, so those styles
+          estimate word timing from the caption timings instead. Transcribe the episode again above
+          to collect them — there is no extra charge for the timings themselves, but the
+          transcription itself is billed as usual. Tick "Re-run chapters that already have a
+          verified SRT" first — without it, chapters that already have an SRT are skipped.
+        </p>
         <p class="text-muted text-xs mt-2">Folder: <code class="sub-dir">{{ status?.subtitles_dir }}</code></p>
       </section>
 
@@ -291,7 +302,35 @@ import {
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Subtitles')
 
-interface ExistingSrt { path: string; filename: string; mtime: number }
+interface ExistingSrt {
+  path: string
+  filename: string
+  mtime: number
+  /**
+   * v1.1.0 — whether this transcript was asked for WITH per-word timings.
+   * Story Studio started asking in 1.1.0; transcripts from before that stay
+   * coarse unless the customer deliberately re-transcribes, and word-by-word
+   * caption styles interpolate for them. Surfacing it is the only thing that
+   * explains why two episodes in one project can differ.
+   */
+  word_timings?: 'banked' | 'none' | 'unknown'
+}
+/**
+ * Say what is actually known, in three states, without alarm. 'unknown' is a
+ * real answer for an imported or stitched file — claiming either of the other
+ * two for it would be a guess.
+ */
+function wordTimingLabel(state?: string): string {
+  if (state === 'banked') return 'word timings'
+  if (state === 'none') return 'no word timings'
+  return ''
+}
+function wordTimingHint(state?: string): string {
+  if (state === 'banked') return 'Transcribed with per-word timings, so word-by-word caption styles can be exact.'
+  if (state === 'none') return 'Transcribed before Story Studio asked for word timings. Word-by-word styles estimate from the caption timings. Re-transcribe to collect them.'
+  return 'Imported or stitched — Story Studio has no record of how it was transcribed.'
+}
+
 interface SubtitleStatus {
   has_libass: boolean
   has_merged_audio: boolean
@@ -416,6 +455,10 @@ async function viewSrt(filename: string): Promise<void> {
 }
 
 const codeUpper = computed(() => episodeId.value.toUpperCase())
+/** True when at least one transcript on disk predates word-timing collection. */
+const anyTranscriptWithoutWordTimings = computed(() =>
+  (status.value?.existing_srts || []).some(s => s.word_timings === 'none'))
+
 const srtNames = computed(() => new Set((status.value?.existing_srts || []).map(s => s.filename.toLowerCase())))
 function chapterHasSrt(secSlug: string): boolean {
   if (status.value?.completion?.mode === 'full-track') return true
@@ -636,6 +679,19 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.word-timing-tag {
+  font-size: var(--font-xs);
+  letter-spacing: 0.02em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.word-timing-tag:empty { display: none; }
+.wt-banked { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text-primary); }
+.wt-none { background: color-mix(in srgb, var(--text-secondary) 18%, transparent); color: var(--text-secondary); }
+.wt-unknown { display: none; }
+
 .inline-link { color: var(--accent); text-decoration: underline; }
 .inline-link:hover { text-decoration: none; }
 

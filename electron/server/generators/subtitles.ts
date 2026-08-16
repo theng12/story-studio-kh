@@ -36,6 +36,29 @@ import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../servi
 import type { Job } from '../models/types.js'
 import { requireAudioAssemblyReady } from '../services/audio-workflow-readiness.js'
 
+/**
+ * Ask GenStudio for per-word timings on every transcription Story Studio runs.
+ *
+ * The capability is real and proven: Voice Studio's MLX Whisper Large v3 Turbo
+ * returns validated per-word times, GenStudio forwards the flag to the fleet
+ * and stores the words, and it costs NOTHING extra — transcription is priced
+ * as `duration x rate` and the flag appears nowhere in the cost function.
+ *
+ * Story Studio does not consume the words yet (GenStudio has not published the
+ * endpoint that serves them, and the caption engine still interpolates and
+ * labels its word timings `estimated`). We set the flag anyway so the exact
+ * timings are BANKED from now on. A transcription made today without them can
+ * only get them back by re-transcribing, which spends the customer's credits
+ * for data that was free to collect the first time.
+ *
+ * IMPORTANT: this value must be folded into BOTH the local task-reuse hash and
+ * the GenStudio idempotency key. Leaving either at a hardcoded `false` makes a
+ * with-timestamps request hash identically to the without-timestamps job that
+ * already ran, so GenStudio replays the old word-less result while every
+ * status in the app reports success.
+ */
+export const TRANSCRIPTION_WORD_TIMESTAMPS = true
+
 export interface TranscribeSubtitlesRequest {
   episode_id: string
   audio_path?: string        // overrides the default merged-audio discovery
@@ -138,6 +161,7 @@ async function markTerminalTranscriptionRequest(input: {
     input_hash: input.inputHash,
     idempotency_key: input.idempotencyKey,
     operation: 'transcription',
+    word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
     last_state: lastState,
   })
   await checkpointGenStudioAsset(input.job, input.manifestKey, {
@@ -309,7 +333,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       audioHash: currentAudioHash,
       modelId: genstudio.modelId,
       language: genstudio.language,
-      wordTimestamps: false,
+      wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
     }))
     const reusableTask = savedTask?.provider === 'genstudio'
       && (savedTask.input_hash === currentInputHash
@@ -328,6 +352,8 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
         fileSha256: currentAudioHash.slice('sha256:'.length),
         modelId: genstudio.modelId,
         language: genstudio.language,
+        // Must match the request below — see TRANSCRIPTION_WORD_TIMESTAMPS.
+        wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
       })
     let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
     if (terminalFailure) {
@@ -340,6 +366,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       input_hash: currentInputHash,
       idempotency_key: idempotencyKey,
       operation: 'transcription',
+      word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
       last_state: recoveryTask?.last_state || 'prepared',
     })
     await checkpointGenStudioAsset(job, manifestKey, {
@@ -355,6 +382,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       requestIdentity,
       idempotencyKey,
       language: genstudio.language,
+      wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
       signal: controller.signal,
       isCancelled: () => jq.isCancelled(job.job_id),
       onState: async (state, providerJobId) => {
@@ -375,6 +403,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
           input_hash: currentInputHash,
           idempotency_key: idempotencyKey,
           operation: 'transcription',
+          word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
           last_state: state,
         })
         await checkpointGenStudioAsset(job, manifestKey, {
@@ -392,6 +421,7 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
           input_hash: currentInputHash,
           idempotency_key: idempotencyKey,
           operation: 'transcription',
+          word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
           last_state: 'accepted',
         })
         await checkpointGenStudioAsset(job, manifestKey, {
@@ -434,12 +464,15 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
           fileSha256: currentAudioHash.slice('sha256:'.length),
           modelId: genstudio.modelId,
           language: genstudio.language,
+          // Must match the request below — see TRANSCRIPTION_WORD_TIMESTAMPS.
+          wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
         })
         submittedAt = new Date().toISOString()
         transcriptionRequest.idempotencyKey = idempotencyKey
         await recordTaskStrict(outDir, manifestKey, {
           provider: 'genstudio', task_id: '', submitted_at: submittedAt,
           input_hash: currentInputHash, idempotency_key: idempotencyKey,
+          word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
           operation: 'transcription', last_state: 'prepared',
         })
         await checkpointGenStudioAsset(job, manifestKey, {
@@ -616,7 +649,7 @@ async function transcribePerChapter(
         audioHash: currentAudioHash,
         modelId: genstudio.modelId,
         language: genstudio.language,
-        wordTimestamps: false,
+        wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
       }))
       const reusableTask = savedTask?.provider === 'genstudio'
         && (savedTask.input_hash === currentInputHash
@@ -635,6 +668,8 @@ async function transcribePerChapter(
           fileSha256: currentAudioHash.slice('sha256:'.length),
           modelId: genstudio.modelId,
           language: genstudio.language,
+          // Must match the request below — see TRANSCRIPTION_WORD_TIMESTAMPS.
+          wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
         })
       let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
       if (terminalFailure) {
@@ -648,6 +683,7 @@ async function transcribePerChapter(
         input_hash: currentInputHash,
         idempotency_key: idempotencyKey,
         operation: 'transcription',
+        word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
         last_state: recoveryTask?.last_state || 'prepared',
       })
       await checkpointGenStudioAsset(job, manifestKey, {
@@ -664,6 +700,7 @@ async function transcribePerChapter(
         requestIdentity,
         idempotencyKey,
         language: genstudio.language,
+        wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
         signal: controller.signal,
         isCancelled: () => jq.isCancelled(job.job_id),
         onState: async (state, providerJobId) => {
@@ -674,6 +711,7 @@ async function transcribePerChapter(
             input_hash: currentInputHash,
             idempotency_key: idempotencyKey,
             operation: 'transcription',
+            word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
             last_state: state,
           })
           await checkpointGenStudioAsset(job, manifestKey, {
@@ -691,6 +729,7 @@ async function transcribePerChapter(
             input_hash: currentInputHash,
             idempotency_key: idempotencyKey,
             operation: 'transcription',
+            word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
             last_state: 'accepted',
           })
           await checkpointGenStudioAsset(job, manifestKey, {
@@ -726,12 +765,15 @@ async function transcribePerChapter(
             fileSha256: currentAudioHash.slice('sha256:'.length),
             modelId: genstudio.modelId,
             language: genstudio.language,
+            // Must match the request below — see TRANSCRIPTION_WORD_TIMESTAMPS.
+            wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
           })
           submittedAt = new Date().toISOString()
           transcriptionRequest.idempotencyKey = idempotencyKey
           await recordTaskStrict(outDir, manifestKey, {
             provider: 'genstudio', task_id: '', submitted_at: submittedAt,
             input_hash: currentInputHash, idempotency_key: idempotencyKey,
+            word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
             operation: 'transcription', last_state: 'prepared',
           })
           await checkpointGenStudioAsset(job, manifestKey, {
