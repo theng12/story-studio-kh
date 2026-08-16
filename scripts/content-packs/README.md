@@ -149,7 +149,7 @@ local/recovery publisher path and is removed only from this derived Store archiv
 ```bash
 npm run content-pack:build -- ./content-packs/free-starters/formula/ancient-humans \
   --delivery-profile genstudio-store-receipt-v1 \
-  --min-app-version 1.0.842 \
+  --min-app-version 1.0.843 \
   --output ./dist/formula-ancient-humans-1.0.0.sspack
 ```
 
