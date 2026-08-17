@@ -45,6 +45,58 @@ describe('contextual cue FFmpeg treatments', () => {
     assert.ok(filter.includes('expansion=none'))
   })
 
+  // ── The derived intro offset ─────────────────────────────────────────────
+  // A cue is reviewed against Scene Plan time; the composed video may open with
+  // a branded opening the plan does not carry. Video Assembly measures that
+  // opening from the real clips and hands the difference in here, so the owner
+  // never restates how long his intro is. See `sceneTimelineOffsetSec` in
+  // `generators/video.ts`.
+  test('no intro means no shift — the reviewed window renders exactly as approved', () => {
+    // The requirement stated as a test rather than assumed: an episode with
+    // nothing before its scenes must render byte-identically to before.
+    const unshifted = buildContextualCueDrawtextFilters(cue('documentary-label'))
+    for (const offset of [0, undefined as unknown as number]) {
+      assert.deepEqual(
+        buildContextualCueDrawtextFilters(cue('documentary-label'), offset),
+        unshifted,
+        'a zero/absent offset must not change a single character of the filter',
+      )
+    }
+    assert.ok(unshifted.every(filter => filter.includes('enable=between(t\\,10.000\\,13.500)')))
+  })
+
+  test('a branded opening moves every timing expression by exactly the measured length', () => {
+    // 10s intro, plan starting at 0 — the live Boundless case, where cues used
+    // to fire 10s early because nothing added the opening to their times.
+    const shifted = buildContextualCueDrawtextFilters(cue('documentary-label'), 10)
+    assert.ok(shifted.every(filter => filter.includes('enable=between(t\\,20.000\\,23.500)')))
+    // Every clock in the filter has to move together, not just the gate: an
+    // alpha ramp or slide left on the old clock would fade in over the intro.
+    assert.match(shifted[0]!, /alpha=if\(lt\(t\\,20\.200\)/)
+    const slide = buildContextualCueDrawtextFilters(cue('documentary-label', 'slide'), 10)[0]!
+    assert.match(slide, /x=if\(lt\(t\\,20\.280\)/)
+    assert.ok(!slide.includes('10.280'), 'no expression may keep the unshifted clock')
+    // Both label filters of a two-part treatment move as one.
+    const pin = buildContextualCueDrawtextFilters(cue('map-pin'), 10)
+    assert.equal(pin.length, 2)
+    assert.ok(pin.every(filter => filter.includes('enable=between(t\\,20.000\\,23.500)')))
+  })
+
+  test('a negative shift is applied too, because the cue follows its scene', () => {
+    // Legacy plans begin their scenes after the merged audio's lead-in. With a
+    // shorter opening the scene track lands EARLIER than plan time, and the cue
+    // has to come with it.
+    const shifted = buildContextualCueDrawtextFilters(cue('documentary-label'), -6.066)
+    assert.ok(shifted.every(filter => filter.includes('enable=between(t\\,3.934\\,7.434)')))
+  })
+
+  test('shifting does not mutate the caller\'s approved cue', () => {
+    const approved = cue('documentary-label')
+    buildContextualCueDrawtextFilters(approved, 10)
+    assert.equal(approved.start_sec, 10, 'the reviewed timeline is immutable')
+    assert.equal(approved.end_sec, 13.5)
+  })
+
   test('an apostrophe in approved copy stays inside the text value', () => {
     const withQuote = buildContextualCueDrawtextFilters({
       ...cue('map-pin'), subtitle: "Constantinople's main avenue",

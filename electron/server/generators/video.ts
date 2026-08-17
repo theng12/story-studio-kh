@@ -59,6 +59,7 @@ import {
 } from '../services/contextual-cues.js'
 import {
   assertSoundDesignReadiness,
+  DEFAULT_SOUND_DESIGN_SETTINGS,
   normalizeSoundDesignConfig,
   readSoundDesignTimeline,
 } from '../services/sound-design.js'
@@ -857,6 +858,12 @@ export async function prepareUnifiedVideoAssemblyInputs(
   slug: string,
   episodeId: string,
   req: GenerateVideoRequest,
+  /** Render job, when there is one. Contextual Cues and Sound Design are
+   *  optional and no longer block an episode that never proposed anything —
+   *  but "renders with none" must still SAY so, so the absence is never a
+   *  surprise in the finished video. The preflight route has no job and just
+   *  omits it. */
+  job?: Job,
 ): Promise<ScannedAssets> {
   const assets = await scanEpisodeAssets(slug, episodeId)
   const timing = assets.scene_plan_timing
@@ -917,11 +924,35 @@ export async function prepareUnifiedVideoAssemblyInputs(
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
   const cueTimeline = await readContextualCueTimeline(planPath)
   req.contextual_cues = assertContextualCueReadiness(cueConfig, cueTimeline, plan, req.subtitles)
+  // Rendering with none is allowed, but never silent: an optional feature that
+  // is switched on and contributes nothing has to say so, or its absence in the
+  // finished video reads as a bug.
+  if (cueConfig.enabled && !req.contextual_cues.length) {
+    job?.output_lines.push(
+      cueTimeline
+        ? 'Contextual Cues: none approved on this episode — rendering without them.'
+        : 'Contextual Cues: nothing was ever proposed for this episode — rendering without them. This is optional and does not block the render.',
+    )
+  }
   const soundConfig = normalizeSoundDesignConfig((await pm.getConfig(slug))?.sound_design)
   const soundTimeline = await readSoundDesignTimeline(planPath)
   const approvedSoundCues = assertSoundDesignReadiness(soundConfig, soundTimeline, plan)
+  if (soundConfig.enabled && !approvedSoundCues.length) {
+    job?.output_lines.push(
+      soundTimeline
+        ? 'Sound Design: no approved cues on this episode — rendering without them.'
+        : 'Sound Design: nothing was ever added for this episode — rendering without it. This is optional and does not block the render.',
+    )
+  }
+  // `soundTimeline` is null exactly when nothing was ever added, which now
+  // reaches here instead of throwing — so the ducking profile falls back to the
+  // shipped default rather than dereferencing null. With no approved cues the
+  // mixer is a no-op either way; the field only exists to keep the shape stable.
   req.sound_design = soundConfig.enabled
-    ? { cues: approvedSoundCues, ducking_profile: soundTimeline!.settings.ducking_profile }
+    ? {
+        cues: approvedSoundCues,
+        ducking_profile: soundTimeline?.settings.ducking_profile ?? DEFAULT_SOUND_DESIGN_SETTINGS.ducking_profile,
+      }
     : undefined
   return assets
 }
@@ -961,7 +992,7 @@ export async function generateVideo(job: Job): Promise<void> {
   // Re-resolve the authoritative Scene Plan immediately before work starts.
   // This self-heals stale browser payloads and makes Pipeline/manual/Hub jobs
   // share one exact input contract.
-  const authoritativeAssets = await prepareUnifiedVideoAssemblyInputs(project_slug, code, req)
+  const authoritativeAssets = await prepareUnifiedVideoAssemblyInputs(project_slug, code, req, job)
 
   // Per-episode free-disk-space precheck. The run-batch route does this
   // up front for the whole batch; this is a defence-in-depth gate for
@@ -1272,6 +1303,10 @@ export async function generateVideo(job: Job): Promise<void> {
           // entire bg-plate duration.
           excludeIntroFromEffects: false,
           preSceneDuration: 0,
+          // Compilation lays its chapter overlays out from t=0 against the same
+          // audio the cues were reviewed against, and prepends nothing — so the
+          // scene clock and the composed clock are already the same clock.
+          sceneTimelineOffsetSec: 0,
           postAudioStart: undefined,
           encodingEffort: req.encoding_effort,
           codec: req.codec,
@@ -1691,6 +1726,60 @@ export async function generateVideo(job: Job): Promise<void> {
       preSceneDuration += (await getAudioDuration(titleClipPath)) || 5
     }
 
+    // ── The one derived intro offset ────────────────────────────────────────
+    //
+    // `preSceneDuration` above is where the SCENE TRACK actually begins in the
+    // composed video, measured from the real opening assets — never a number
+    // the user has to remember or restate per episode. `buildConcatList` emits
+    // the same four head buckets (before_intro → intro → title → after_intro)
+    // and accumulates the same probed durations, so the two are the same
+    // number by construction.
+    //
+    // Scene Plan, meanwhile, times everything against the merged audio: its
+    // first scene starts at 0 for a "from-start" plan and at the reserved
+    // opening for a "branded-opening" plan. Anything reviewed against plan
+    // time — contextual cues today — must be shifted by the gap between the
+    // two clocks:
+    //
+    //     composed_time = preSceneDuration + (plan_time − plan_scene_origin)
+    //
+    // Both terms are measured facts, so the three real cases fall out with
+    // nothing to configure:
+    //   • no opening at all   → 0 − 0                = 0, nothing shifts
+    //   • the plan reserved the opening (the strict path above trims the intro
+    //     to exactly that window and drops title cards)
+    //                         → reserved − reserved  = 0, nothing shifts
+    //   • intro enabled, plan reserved nothing (the live Boundless case)
+    //                         → openingLength − 0    = openingLength
+    // A legacy plan whose scenes begin after the merged audio's lead-in gives a
+    // negative shift, which is equally correct: the cue follows its scene.
+    const planSceneOriginSec = planCoverageScenes[0]?.start_sec ?? 0
+    const sceneTimelineOffsetSec = Math.round((preSceneDuration - planSceneOriginSec) * 1000) / 1000
+    if (Math.abs(sceneTimelineOffsetSec) >= 0.05) {
+      // The reverse of the guard above, and the owner's live situation: an
+      // intro is enabled while the plan reserved nothing for it. Deriving the
+      // offset puts the CUES back on their scenes, but it cannot put the scenes
+      // back on their narration — the scene track really does start
+      // `sceneTimelineOffsetSec` away from where the plan timed it, and the
+      // merged audio is not delayed to match. That was silent before; it is a
+      // real editorial fact and it says so now. Not fatal: refusing to render
+      // would strand every episode planned "from first second", and the render
+      // is still the one the customer asked for.
+      job.output_lines.push(
+        `Warning: the composed opening measures ${preSceneDuration.toFixed(2)}s but Scene Plan starts its first scene at ` +
+        `${planSceneOriginSec.toFixed(2)}s, so every scene appears ${Math.abs(sceneTimelineOffsetSec).toFixed(2)}s ` +
+        `${sceneTimelineOffsetSec > 0 ? 'later than' : 'earlier than'} the narration it was planned against. ` +
+        'To lock them together, rebuild the Scene Plan timeline with a branded opening of ' +
+        `${preSceneDuration.toFixed(1)}s, or remove the opening clips.`,
+      )
+      if (req.contextual_cues?.length) {
+        job.output_lines.push(
+          `Contextual cues shifted ${sceneTimelineOffsetSec > 0 ? '+' : ''}${sceneTimelineOffsetSec.toFixed(2)}s ` +
+          'so each one stays on the scene it annotates. Measured from the opening clips — nothing to configure.',
+        )
+      }
+    }
+
     // Measure outro length so the final encode's `-t` flag covers it.
     // Without this, the outro IS appended to the concat list (so it lives
     // in the intermediate video) but the encoder's `-t targetDuration`
@@ -1861,6 +1950,7 @@ export async function generateVideo(job: Job): Promise<void> {
         sceneEffects: req.scene_effects,
         excludeIntroFromEffects: req.exclude_intro_from_effects,
         preSceneDuration,
+        sceneTimelineOffsetSec,
         postAudioStart: sceneEndTime,
         encodingEffort: req.encoding_effort,
         codec: req.codec,
@@ -3758,6 +3848,13 @@ interface CompositionOpts {
   /** Seconds of intro+title that should be left untouched by filters when
    *  `excludeIntroFromEffects` is on. Ignored when the flag is false. */
   preSceneDuration?: number
+  /** Seconds to add to every Scene-Plan-timed overlay so it lands on the scene
+   *  it annotates rather than on the branded opening. Derived from the real
+   *  opening assets minus the plan's own first-scene start — never a setting.
+   *  See the derivation at the `sceneTimelineOffsetSec` definition. Unlike
+   *  `preSceneDuration` this applies unconditionally: it is about WHERE a
+   *  reviewed window lands, not about opting out of an effect. */
+  sceneTimelineOffsetSec?: number
   /** Time (seconds) at which the post-audio segment starts. Effects are
    *  cleared from this point forward so the black/fade tail + optional
    *  outro clip don't get noised/graded/vignetted — which used to blow
@@ -3785,6 +3882,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
     sceneEffects,
     excludeIntroFromEffects,
     preSceneDuration,
+    sceneTimelineOffsetSec,
     postAudioStart,
     encodingEffort,
     codec,
@@ -4171,9 +4269,22 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
           // adding it makes the WHOLE filtergraph fail to initialise
           // ("Timeline ('enable' option) not supported with filter 'ass'"),
           // which drops the encode to the no-effects recovery tier (losing the
-          // grade, vignette, grain, logo AND subtitles). The intro is already
-          // excluded because the stitched SRT's cue timestamps are offset past
-          // the intro/title lead-in, so there are no cues to suppress in 0–startSec.
+          // grade, vignette, grain, logo AND subtitles).
+          //
+          // Nor is a gate wanted. Captions answer to the WORDS, and the merged
+          // narration is not delayed — it plays from the composed video's t=0,
+          // under the (silent) opening clips — so a caption at its stitched-SRT
+          // timestamp is already in sync with the voice by construction. This
+          // comment previously claimed the SRT was "offset past the intro/title
+          // lead-in", conflating two unrelated numbers: the stitcher's lead-in
+          // is the non-narration AUDIO at the head of the merged track (music /
+          // intro audio), while the intro/title clips are VIDEO. On a real
+          // Boundless episode those are 16.07s and 10.00s — they are not the
+          // same quantity and are not required to agree. Captions therefore
+          // need no shift, while contextual cues (which answer to the PICTURE)
+          // do — see `sceneTimelineOffsetSec`. Suppressing captions during a
+          // spoken intro is a separate, deliberate feature:
+          // `subtitles.hide_during_intro`, applied by trimming the burn copy.
           filterParts.push(`${vLabel}ass=filename=${escapeFilterPath(assPath)}${st}`)
           const notes = [
             style.word.mode !== 'off' ? `word mode ${style.word.mode} (${rendered.wordPrecision} timing)` : null,
@@ -4213,9 +4324,16 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // Video Assembly. drawtext supports timeline enable expressions, unlike the
   // libass subtitle filters above, so each restrained label can appear only in
   // its exact reviewed window.
+  //
+  // The reviewed WINDOW is immutable; where that window lands on the composed
+  // clock is not, because the branded opening pushes every scene later by its
+  // own measured length. `sceneTimelineOffsetSec` carries that derived shift
+  // (0 when nothing precedes the scenes), so the cue stays on the scene it
+  // annotates without the user ever restating how long the intro is.
   if (contextualCues?.length) {
+    const cueOffset = sceneTimelineOffsetSec || 0
     for (const cue of contextualCues) {
-      for (const filter of buildContextualCueDrawtextFilters(cue)) {
+      for (const filter of buildContextualCueDrawtextFilters(cue, cueOffset)) {
         const next = vn()
         filterParts.push(`${vLabel}${filter}${next}`)
         vLabel = next

@@ -60,8 +60,21 @@ function drawCueText(label: string, options: string): string {
  * Builds the exact drawtext filters for an already-approved cue. It consumes
  * only the reviewed text, timing, placement, treatment, and transitions—no
  * model call or timing inference happens at video-assembly time.
+ *
+ * `offsetSec` moves the reviewed window onto the COMPOSED video's clock. A cue
+ * is reviewed against Scene Plan time, but the composed video may open with a
+ * branded opening (before-intro clips + intro + after-intro clips + title
+ * card) that the plan does not carry, which pushes every scene later by
+ * exactly the opening's measured length. Video Assembly derives that number
+ * from the real opening assets and hands it in here; see
+ * `sceneTimelineOffsetSec` in `generators/video.ts`. It is 0 when nothing
+ * precedes the scenes, so an intro-less episode renders byte-identically to
+ * before. The reviewed window itself is never mutated — only where it lands.
  */
-export function buildContextualCueDrawtextFilters(cue: ContextualCue): string[] {
+export function buildContextualCueDrawtextFilters(cue: ContextualCue, offsetSec = 0): string[] {
+  if (offsetSec) {
+    cue = { ...cue, start_sec: cue.start_sec + offsetSec, end_sec: cue.end_sec + offsetSec }
+  }
   const label = cue.subtitle ? `${cue.title}\n${cue.subtitle}` : cue.title
   const top = cue.placement.startsWith('top')
   const left = cue.placement.endsWith('left')

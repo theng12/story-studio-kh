@@ -1670,15 +1670,22 @@
 
       <!-- Intro + title exclusion -->
       <div
-        v-if="(intro.enabled || titleImage.enabled) && (colorGrading.enabled || vignette.enabled || filmGrain.enabled || (logo.enabled && logo.image_path) || (chromaKey.enabled && chromaKey.source_path) || (subtitles.enabled && subtitles.srt_path))"
+        v-if="(intro.enabled || titleImage.enabled) && (colorGrading.enabled || vignette.enabled || filmGrain.enabled || (logo.enabled && logo.image_path) || (chromaKey.enabled && chromaKey.source_path))"
         class="settings-section mt-2"
       >
         <label class="checkbox-label">
           <input type="checkbox" v-model="excludeIntroFromEffects" />
           Exclude intro and title from effects
         </label>
+        <!-- Subtitles used to be named here, and to be one of the conditions
+             that revealed this whole block. They never belonged: the burn-in
+             filter is libass, which FFmpeg accepts no timeline `enable=` gate
+             on (see the comment beside the filter in generators/video.ts), so
+             this checkbox has never affected a single caption. Promising that
+             it did also made "Hide captions during the intro" — which really
+             works — look redundant. -->
         <p class="text-muted text-xs hint-line">
-          Color grading, vignette, film grain, subtitles, logo, and chroma key only start after the title image ends. Letterbox still applies throughout (it changes the frame shape).
+          Color grading, vignette, film grain, logo, and chroma key only start after the title image ends. Letterbox still applies throughout (it changes the frame shape). Captions are not affected — use "Hide captions during the intro" in the Subtitles section.
         </p>
       </div>
 

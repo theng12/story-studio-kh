@@ -9,8 +9,18 @@
         <div class="workspace-metrics">
           <span class="workspace-metric"><strong>{{ selectedEpisodes.size }}</strong> episodes selected</span>
           <span class="workspace-metric"><strong>{{ checkedStepCount }}</strong> steps selected</span>
-          <span class="workspace-metric" :data-tone="blockingIssues.length ? 'warning' : 'success'">
-            <strong>{{ blockingIssues.length }}</strong> blockers
+          <!-- This counts THIS PAGE's setup problems only: no step picked, no
+               episode picked, a stage with no active preset. Per-episode
+               preflight is a separate, later check that runs when Run Batch is
+               pressed. Labelling this one "blockers" let the header read
+               "0 blockers" while preflight was reporting eighteen — both
+               numbers correct, one word doing two jobs. -->
+          <span
+            class="workspace-metric"
+            :data-tone="blockingIssues.length ? 'warning' : 'success'"
+            title="Problems with the choices on this page — steps, episodes, presets. Each episode is checked separately by preflight when you press Run Batch, and anything it finds is reported then."
+          >
+            <strong>{{ blockingIssues.length }}</strong> setup blockers
           </span>
         </div>
       </template>
@@ -1226,7 +1236,9 @@ function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | 
     // v1.0.363 — audio-paced format steps.
     case 'subtitles':          return !!s.subtitles
     case 'scene_plan':         return !!s.scene_plan
-    case 'contextual_cues':    return !!s.contextual_cues
+    // Mirrors the backend: an episode with nothing outstanding but nothing
+    // proposed either is NOT done — a selected step still has work to do.
+    case 'contextual_cues':    return !!s.contextual_cues_generated && !!s.contextual_cues
     case 'scene_review':       return !!s.scene_review
     case 'motion_review':      return !!s.motion_review
     case 'character_sheet':    return !!s.character_sheet

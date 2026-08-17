@@ -76,7 +76,12 @@ export function validateSoundDesignTimeline(
   settings: SoundDesignSettings,
   options: { requireResolved?: boolean } = {},
 ): SoundDesignIssue[] {
-  if (!timeline) return [{ detail: 'No Sound Design timeline exists. Add and approve cues before assembling.' }]
+  // Same ruling as Contextual Cues: Sound Design is optional, and an episode
+  // where no cue was ever added has nothing for a reviewer to approve or
+  // exclude. Treating that emptiness as a validation failure made an optional
+  // feature block Final Video the moment the project setting was switched on.
+  // A timeline that exists with unresolved cues still blocks below.
+  if (!timeline) return []
   const issues: SoundDesignIssue[] = []
   if (timeline.source_scene_plan_generated_at !== plan.generated_at) {
     issues.push({ detail: 'Sound Design is based on an older Scene Plan. Re-open it, check the timeline, and save it again.' })
@@ -146,7 +151,8 @@ export function assertSoundDesignReadiness(
   if (issues.length) {
     throw new Error(`Sound Design needs review: ${issues.slice(0, 5).map(issue => issue.cue_id ? `${issue.cue_id} — ${issue.detail}` : issue.detail).join('; ')} Open Sound Design, resolve every cue, then retry.`)
   }
-  return timeline!.cues.filter(cue => cue.status === 'approved')
+  // No timeline is no cues, not a failure — see `validateSoundDesignTimeline`.
+  return timeline ? timeline.cues.filter(cue => cue.status === 'approved') : []
 }
 
 function isCue(value: unknown): value is SoundDesignCue {

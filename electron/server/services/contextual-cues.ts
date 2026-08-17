@@ -215,7 +215,16 @@ export function validateContextualCueTimeline(
   plan: ScenePlan,
   options: { subtitles?: VideoSubtitleConfig; requireResolved?: boolean } = {},
 ): ContextualCueIssue[] {
-  if (!timeline) return [{ detail: 'No contextual cue timeline exists. Generate and review cues before assembling.' }]
+  // Nothing was ever proposed. The project setting's own promise is that
+  // "every PROPOSED cue must be approved or excluded" — with zero proposals
+  // that is vacuously true, so there is nothing here to report and nothing for
+  // a reviewer to resolve. Returning an issue instead made an OPTIONAL feature
+  // block every render on an episode that had simply never generated cues,
+  // which is the same shape AGENTS.md already rules out for Research: an
+  // optional evidence workflow must never block generation or assembly.
+  // A timeline that DOES exist with unresolved proposals still blocks below —
+  // that gate is doing real work; only the nothing-exists case was wrong.
+  if (!timeline) return []
   const issues: ContextualCueIssue[] = []
   const seen = new Set<string>()
   const approved = timeline.cues.filter(cue => cue.status === 'approved').sort((a, b) => a.start_sec - b.start_sec)
@@ -321,7 +330,8 @@ export function assertContextualCueReadiness(
   if (issues.length) {
     throw new Error(`Contextual Cues need review: ${issues.slice(0, 5).map(issue => issue.cue_id ? `${issue.cue_id} — ${issue.detail}` : issue.detail).join('; ')} Open Contextual Cues, resolve every proposal, then retry.`)
   }
-  return timeline!.cues.filter(cue => cue.status === 'approved')
+  // No timeline is no cues, not a failure — see `validateContextualCueTimeline`.
+  return timeline ? timeline.cues.filter(cue => cue.status === 'approved') : []
 }
 
 function isPlacement(value: unknown): value is ContextualCuePlacement {

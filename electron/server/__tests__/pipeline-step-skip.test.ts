@@ -99,7 +99,7 @@ describe('isStepAlreadyDone — truth table', () => {
     assert.equal(isStepAlreadyDone(fullStatus({ subtitles: true }), 'subtitles'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ subtitles: false }), 'subtitles'), false)
     assert.equal(isStepAlreadyDone(fullStatus({ scene_plan: true }), 'scene_plan'), true)
-    assert.equal(isStepAlreadyDone(fullStatus({ contextual_cues: true }), 'contextual_cues'), true)
+    assert.equal(isStepAlreadyDone(fullStatus({ contextual_cues: true, contextual_cues_generated: true }), 'contextual_cues'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ contextual_cues: false }), 'contextual_cues'), false)
     assert.equal(isStepAlreadyDone(fullStatus({ scene_review: true }), 'scene_review'), true)
     assert.equal(isStepAlreadyDone(fullStatus({ character_sheet: true }), 'character_sheet'), true)
@@ -582,9 +582,29 @@ test('YouTube Finalizer requires measured audio timing but treats subtitles as w
   assert.ok(!prerequisitesForStep('metadata').includes('subtitles'))
 })
 
-test('enabled contextual cues place a review gate between Scene Plan and Scene Review', async () => {
+// v1.2.7 — the gate still exists; its TRIGGER is narrower. It used to fire on
+// the project-level `contextual_cues.enabled` flag alone, so switching an
+// OPTIONAL feature on made Scene Review unrunnable across the whole library —
+// eighteen "scene_review needs contextual_cues" messages from one checkbox, for
+// episodes that had never proposed a cue. A gate holds work back until a person
+// decides something; with zero proposals there is nothing to decide, which is
+// the same answer `validateContextualCueTimeline` and Video Assembly now give
+// for that episode. The argument is therefore "a review is pending", not "the
+// feature is enabled" — see `prerequisitesForStep`.
+test('a pending contextual-cue review gates Scene Review; nothing to review does not', async () => {
   const { prerequisitesForStep } = await import('../routes/pipeline.js')
   assert.deepEqual(prerequisitesForStep('contextual_cues'), ['scene_plan'])
   assert.deepEqual(prerequisitesForStep('scene_review', true), ['scene_plan', 'contextual_cues'])
   assert.deepEqual(prerequisitesForStep('scene_review', false), ['scene_plan'])
+})
+
+test('Contextual Cues counts as done only when a timeline actually exists', async () => {
+  // "Nothing outstanding" and "already produced" are different questions. An
+  // episode that never proposed a cue answers yes to the first and no to the
+  // second — so it must not block Scene Review, and must still RUN when the
+  // step is explicitly selected. Conflating them would have made the
+  // idempotency skip silently cancel the very work the user asked for.
+  assert.equal(isStepAlreadyDone(fullStatus({ contextual_cues: true, contextual_cues_generated: true }), 'contextual_cues'), true)
+  assert.equal(isStepAlreadyDone(fullStatus({ contextual_cues: true, contextual_cues_generated: false }), 'contextual_cues'), false)
+  assert.equal(isStepAlreadyDone(fullStatus({ contextual_cues: false, contextual_cues_generated: true }), 'contextual_cues'), false)
 })

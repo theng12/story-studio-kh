@@ -145,6 +145,31 @@ describe('Contextual Cues contract', () => {
   test('disabled feature does not block Video Assembly', () => {
     assert.deepEqual(assertContextualCueReadiness({ enabled: false, auto_approve_cues: false }, null, plan), [])
   })
+
+  // Reported on EP0046: "it says contextual cue is blocking the render as it
+  // needs approval but i don't remember adding contextual cue at all… i went to
+  // the context cue tab and sees nothing there." The ABSENCE of a timeline was
+  // returned as a validation issue, so an OPTIONAL feature refused to render on
+  // any episode that had simply never proposed a cue — 70 episodes' worth of
+  // forced cue generation just to earn permission to render.
+  test('an episode that never proposed a cue renders — nothing exists to resolve', () => {
+    assert.deepEqual(validateContextualCueTimeline(null, plan, { requireResolved: true }), [])
+    assert.deepEqual(assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, null, plan), [])
+    assert.deepEqual(assertContextualCueReadiness({ enabled: true, auto_approve_cues: true }, null, plan), [])
+  })
+
+  test('but a real timeline with unresolved proposals still blocks', () => {
+    // The other half of the same fix: only nothing-exists is vacuous. A cue that
+    // was proposed and left unreviewed is still waiting on a person.
+    const proposed = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [cue({ status: 'proposed' })] } as any
+    assert.throws(
+      () => assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, proposed, plan),
+      /needs review/i,
+    )
+    // An existing timeline holding zero cues is the same vacuous case as none.
+    const empty = { schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [] } as any
+    assert.deepEqual(assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, empty, plan), [])
+  })
 })
 
 describe('Automatic cue approval (auto_approve_cues)', () => {

@@ -52,7 +52,7 @@ import { inspectMetadataCompletion } from './metadata-completion.js'
 import { inspectScenePlanCoverage } from './scene-planner.js'
 import { inspectSceneReviewCompletion } from './scene-review-completion.js'
 import { normalizeContextualCueConfig, readContextualCueTimeline, validateContextualCueTimeline } from './contextual-cues.js'
-import { normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
+import { DEFAULT_SOUND_DESIGN_SETTINGS, normalizeSoundDesignConfig, readSoundDesignTimeline, validateSoundDesignTimeline } from './sound-design.js'
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
@@ -642,9 +642,27 @@ export interface EpisodeStatus {
   // scene_images/<id>.png layout). Drives the Scene Review "pending" filter.
   // NOT folded into all_done.
   scene_review: boolean
-  /** An approved-or-excluded contextual cue timeline is available for this plan. */
+  /**
+   * Contextual Cues has NOTHING OUTSTANDING on this episode: the feature is
+   * off, or no cue was ever proposed, or every proposed cue is resolved. It is
+   * the readiness question every gate asks — Video Assembly, Pipeline
+   * prerequisites, pending filters — and all of them get it from the one
+   * `validateContextualCueTimeline` rule so they can never disagree.
+   *
+   * It is deliberately NOT "output exists": an optional feature that nobody
+   * used has nothing to wait for. `contextual_cues_generated` answers that
+   * separate question; conflating the two is what made an episode with no cues
+   * both unrenderable and unrunnable.
+   */
   contextual_cues?: boolean
-  /** An approved-or-excluded Sound Design timeline is available for this plan. */
+  /** A cue timeline file exists for this plan — i.e. cues were actually
+   *  proposed at some point. Only Pipeline's idempotency skip wants this: an
+   *  explicitly selected Contextual Cues step must still RUN on an episode
+   *  that has nothing outstanding precisely because it has nothing at all. */
+  contextual_cues_generated?: boolean
+  /** Sound Design has nothing outstanding on this episode — same rule as
+   *  `contextual_cues` above. Sound Design is not a Pipeline step, so it needs
+   *  no separate "was it generated" signal. */
   sound_design?: boolean
   // Motion Review is complete when every planned scene has either an approved,
   // fresh image-to-video clip or an explicit "use still" decision.
@@ -996,12 +1014,23 @@ export async function computeEpisodeStatus(
           && promptIntegrity.complete
           && subtitleIntegrity.complete
           && (!coverageIntegrity.authoritative || coverageIntegrity.complete)
+        // Both are OPTIONAL features. An episode that never proposed a cue has
+        // nothing outstanding, so it is not pending — the same rule Video
+        // Assembly now applies, kept identical here so the Production Board and
+        // the renderer can never disagree about whether an episode is ready.
+        // A timeline that DOES exist with unresolved cues still reports
+        // incomplete, because there really is something waiting on a reviewer.
         const contextualCueTimeline = await readContextualCueTimeline(planPath)
-        status.contextual_cues = !cueConfig.enabled || (!!contextualCueTimeline
-          && validateContextualCueTimeline(contextualCueTimeline, plan, { requireResolved: true }).length === 0)
+        status.contextual_cues = !cueConfig.enabled
+          || validateContextualCueTimeline(contextualCueTimeline, plan, { requireResolved: true }).length === 0
+        status.contextual_cues_generated = !!contextualCueTimeline
         const soundDesignTimeline = await readSoundDesignTimeline(planPath)
-        status.sound_design = !soundConfig.enabled || (!!soundDesignTimeline
-          && validateSoundDesignTimeline(soundDesignTimeline, plan, soundDesignTimeline.settings, { requireResolved: true }).length === 0)
+        status.sound_design = !soundConfig.enabled
+          || validateSoundDesignTimeline(
+            soundDesignTimeline, plan,
+            soundDesignTimeline?.settings || DEFAULT_SOUND_DESIGN_SETTINGS,
+            { requireResolved: true },
+          ).length === 0
         // Scene Review done = the plan is complete, every scene has a generated
         // image ON DISK, AND every scene is explicitly approved. Rendering is
         // not approval: even one unapproved scene must remain in Pending.

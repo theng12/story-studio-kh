@@ -224,9 +224,28 @@ const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
   video_assembly: ['scene_review', 'audio_merge'],
 }
 
-export function prerequisitesForStep(step: BatchStep, contextualCuesEnabled = false): BatchStep[] {
+/**
+ * The Contextual Cues review gate between Scene Plan and Scene Review still
+ * exists — its TRIGGER is narrower as of 1.2.7.
+ *
+ * It used to fire on the project-level `contextual_cues.enabled` flag alone, so
+ * switching an OPTIONAL feature on turned every episode in the library into
+ * `EP####: scene_review needs contextual_cues earlier in this run or already
+ * complete` — eighteen at once on a single Pipeline run, for episodes that had
+ * never proposed a cue and so had nothing whatsoever to review.
+ *
+ * A gate exists to hold work back until a person decides something. With zero
+ * proposals there is nothing to decide, exactly as `validateContextualCueTimeline`
+ * now reports for the same episode, and as Video Assembly now allows. Both gates
+ * answer the same question from that one rule so they cannot drift apart.
+ *
+ * `cueReviewPending` is therefore the real trigger: cues are enabled AND either
+ * this run generates them (keep the ordering honest) or the episode already has
+ * something outstanding.
+ */
+export function prerequisitesForStep(step: BatchStep, cueReviewPending = false): BatchStep[] {
   const base = [...(STEP_PREREQUISITES[step] || [])]
-  return step === 'scene_review' && contextualCuesEnabled ? [...base, 'contextual_cues'] : base
+  return step === 'scene_review' && cueReviewPending ? [...base, 'contextual_cues'] : base
 }
 
 function collectMissingLocalAssets(value: unknown, out = new Set<string>()): Set<string> {
@@ -331,7 +350,13 @@ async function preflightBatch(
         available.add(step)
         continue
       }
-      const missing = prerequisitesForStep(step, contextualCuesEnabled).filter(required => !available.has(required))
+      // `status.contextual_cues` is the readiness answer (nothing outstanding),
+      // NOT the "already produced" answer `available` carries — see
+      // `prerequisitesForStep`. An episode that never proposed a cue is not
+      // held back; one with an unresolved proposal still is.
+      const cueReviewPending = contextualCuesEnabled
+        && (steps.includes('contextual_cues') || status.contextual_cues === false)
+      const missing = prerequisitesForStep(step, cueReviewPending).filter(required => !available.has(required))
       for (const required of missing) {
         issues.push({
           code: 'missing_prerequisite',
@@ -406,7 +431,12 @@ export function isStepAlreadyDone(status: EpisodeStatus, step: BatchStep, format
     // v1.0.363 — audio-paced format steps.
     case 'subtitles':         return status.subtitles
     case 'scene_plan':        return status.scene_plan
-    case 'contextual_cues':    return !!status.contextual_cues
+    // "Nothing outstanding" is not the same as "already produced". An episode
+    // that never proposed a cue has nothing outstanding — which is why it no
+    // longer blocks Scene Review — but an explicitly selected Contextual Cues
+    // step must still RUN on it, or the idempotency skip would quietly cancel
+    // the very work the user asked for.
+    case 'contextual_cues':   return !!status.contextual_cues_generated && !!status.contextual_cues
     case 'scene_review':      return status.scene_review
     case 'motion_review':     return status.motion_review
     case 'character_sheet':   return status.character_sheet

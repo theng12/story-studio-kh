@@ -47,6 +47,20 @@ describe('Sound Design contract', () => {
     assert.ok(issues.some(issue => /outside/.test(issue.detail)))
   })
 
+  // Same defect as Contextual Cues, found by auditing for the shape rather than
+  // by waiting for a second report: the absence of a timeline was returned as a
+  // validation issue, so switching an OPTIONAL feature on refused Final Video
+  // on every episode that had never added a cue.
+  test('an episode that never added a cue renders — nothing exists to resolve', () => {
+    assert.deepEqual(validateSoundDesignTimeline(null, plan, DEFAULT_SOUND_DESIGN_SETTINGS, { requireResolved: true }), [])
+    assert.deepEqual(assertSoundDesignReadiness({ enabled: true }, null, plan), [])
+    // …and the other half still holds: a real timeline with an unresolved cue
+    // is still someone's outstanding decision.
+    const pending = timeline([cue({ status: 'proposed' })])
+    assert.throws(() => assertSoundDesignReadiness({ enabled: true }, pending, plan), /Sound Design needs review/)
+    assert.deepEqual(assertSoundDesignReadiness({ enabled: true }, timeline([]), plan), [])
+  })
+
   test('rejects stale timelines and unknown cue states instead of silently mixing them', () => {
     const stale = timeline([cue({ status: 'unknown' as any })])
     stale.source_scene_plan_generated_at = 'older-plan'

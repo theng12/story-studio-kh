@@ -354,7 +354,15 @@ describe('research status through computeEpisodeStatus', () => {
     assert.equal(status.research_reviewed, false)
   })
 
-  test('disabled optional timelines are complete without sidecars, while enabled timelines stay strict', async () => {
+  // v1.2.7 — REWRITTEN, not deleted. This used to assert that enabling either
+  // optional timeline made an episode with no sidecar incomplete. That WAS the
+  // defect: switching an optional feature on then blocked Video Assembly and
+  // Pipeline right across a library, over cues nobody had ever proposed. The
+  // rule now matches the Research rule these tests sit beside — an optional
+  // workflow with nothing in it has nothing outstanding. What still holds
+  // strict is a sidecar that EXISTS with something unresolved in it; that is
+  // asserted in `episode-status-cache.test.ts` and in both services' suites.
+  test('optional timelines with no sidecar are complete whether the feature is on or off', async () => {
     const epDir = await makeProject()
     await fs.writeFile(path.join(pm.projectsRoot(), SLUG, 'config.json'), JSON.stringify({
       contextual_cues: { enabled: false }, sound_design: { enabled: false },
@@ -372,8 +380,11 @@ describe('research status through computeEpisodeStatus', () => {
       contextual_cues: { enabled: true }, sound_design: { enabled: true },
     }))
     status = await assetStatus.computeEpisodeStatus(SLUG, CODE)
-    assert.equal(status.contextual_cues, false, 'enabled Contextual Cues need a resolved timeline')
-    assert.equal(status.sound_design, false, 'enabled Sound Design needs a resolved timeline')
+    assert.equal(status.contextual_cues, true, 'enabling the feature does not invent work nobody created')
+    assert.equal(status.sound_design, true, 'same rule, same reason')
+    // …but "nothing outstanding" is not "already produced". Pipeline must still
+    // run a Contextual Cues step the customer explicitly selected.
+    assert.equal(status.contextual_cues_generated, false)
   })
 
   test('an empty sidecar is never complete, reviewed or not', async () => {

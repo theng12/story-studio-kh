@@ -494,4 +494,65 @@ describe('episode-status-cache', () => {
     assert.equal(status.scene_plan, false, '5s internal gap must surface in Pending only')
     assert.equal(status.scene_review, false, 'Scene Review cannot be complete while coverage is unsafe')
   })
+
+  // v1.2.7 — Contextual Cues is OPTIONAL, and an episode that never proposed a
+  // cue has nothing outstanding. Before this, enabling the project setting made
+  // every such episode read as incomplete, which is what turned one checkbox
+  // into eighteen "scene_review needs contextual_cues" preflight failures and a
+  // Video Assembly that refused to render. The readiness answer and the
+  // "was anything produced" answer are now separate fields, because Pipeline's
+  // idempotency skip needs the second one or it would cancel a selected
+  // Contextual Cues step on exactly the episodes that need it most.
+  test('contextual cues: enabled with nothing ever proposed is not outstanding, but is not produced either', async () => {
+    const { epDir, projDir } = await makeProject()
+    await fs.writeFile(path.join(projDir, 'config.json'), JSON.stringify({ contextual_cues: { enabled: true } }))
+    const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)
+    await fs.rm(scenePromptsDir, { recursive: true, force: true })
+    await fs.mkdir(scenePromptsDir, { recursive: true })
+    await fs.writeFile(path.join(scenePromptsDir, 'scene_plan.json'), JSON.stringify({
+      generated_at: '2026-08-17T00:00:00.000Z',
+      total_duration_sec: 12,
+      scenes: [
+        { id: 's1', scene_index: 1, start_sec: 0, end_sec: 6, visual_prompt: 'first unique visual' },
+        { id: 's2', scene_index: 2, start_sec: 6, end_sec: 12, visual_prompt: 'second unique visual' },
+      ],
+    }))
+    await writeVerifiedSubtitleTimeline(epDir)
+
+    const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
+    assert.equal(status.contextual_cues, true, 'no proposals means nothing for a reviewer to resolve')
+    assert.equal(status.contextual_cues_generated, false, 'but no timeline was ever written')
+  })
+
+  test('contextual cues: an unresolved proposal still reads as outstanding', async () => {
+    const { epDir, projDir } = await makeProject()
+    await fs.writeFile(path.join(projDir, 'config.json'), JSON.stringify({ contextual_cues: { enabled: true } }))
+    const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)
+    await fs.rm(scenePromptsDir, { recursive: true, force: true })
+    await fs.mkdir(scenePromptsDir, { recursive: true })
+    await fs.writeFile(path.join(scenePromptsDir, 'scene_plan.json'), JSON.stringify({
+      generated_at: '2026-08-17T00:00:00.000Z',
+      total_duration_sec: 12,
+      scenes: [
+        { id: 's1', scene_index: 1, start_sec: 0, end_sec: 6, visual_prompt: 'first unique visual' },
+        { id: 's2', scene_index: 2, start_sec: 6, end_sec: 12, visual_prompt: 'second unique visual' },
+      ],
+    }))
+    await fs.writeFile(path.join(scenePromptsDir, 'contextual_cues.json'), JSON.stringify({
+      schema_version: 1,
+      generated_at: '2026-08-17T00:00:00.000Z',
+      source_scene_plan_generated_at: '2026-08-17T00:00:00.000Z',
+      cues: [{
+        id: 'cue-1', scene_id: 's1', start_sec: 0.5, end_sec: 3.5,
+        title: 'Basra', subtitle: '869 CE', kind: 'location_date', placement: 'top-right',
+        template: 'documentary-label', entrance: 'fade', exit: 'fade', status: 'proposed',
+        created_at: '2026-08-17T00:00:00.000Z', updated_at: '2026-08-17T00:00:00.000Z',
+      }],
+    }))
+    await writeVerifiedSubtitleTimeline(epDir)
+
+    const status = await cacheMod.episodeStatusCache.get(SLUG, CODE)
+    assert.equal(status.contextual_cues, false, 'a proposal nobody reviewed is still outstanding')
+    assert.equal(status.contextual_cues_generated, true)
+  })
 })
