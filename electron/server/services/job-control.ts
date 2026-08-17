@@ -4,6 +4,7 @@ import type {
   JobControlCapabilities,
   JobRemoteOperation,
 } from '../models/types.js'
+import { GENSTUDIO_TASK_NOT_CREATED_STATE } from '../lib/provider-task-state.js'
 import { isProvenLocalStopCapableJob as isSafelyStoppableLocalJob } from './job-retry-policy.js'
 
 export { isSafelyStoppableLocalJob as isProvenLocalStopCapableJob }
@@ -20,7 +21,10 @@ const REMOTE_OPERATIONS = new Set<JobRemoteOperation>([
   'music.generation',
 ])
 
-const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled'])
+// `not_created` is Story Studio's record that GenStudio answered and has no
+// such task (v1.2.8). It belongs here for the same reason `failed` does:
+// nothing about it can change again.
+const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled', GENSTUDIO_TASK_NOT_CREATED_STATE])
 const PENDING_CANCELLATION_STATES = new Set(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
 const PAUSABLE_SUBMISSION_TYPES = new Set<Job['type']>([
   // These executors check the cooperative pause marker between submissions.
@@ -121,14 +125,61 @@ function unsettledHistoryControl(
 }
 
 /**
+ * v1.2.8 — the owner override.
+ *
+ * Every other control here is earned: it is offered only when Story Studio can
+ * prove the action is safe. That is the right default and it is unchanged. But
+ * taken absolutely it produced a job with no exit at all — a
+ * `reconciliation_error` disabled cancel, Delete refused a non-terminal job,
+ * and the only remaining button said "Checking provider status" forever. Three
+ * of the owner's jobs reached that state at once, and nothing in the product
+ * could clear them.
+ *
+ * So this one is not earned from evidence. It is available because he says so,
+ * and it is honest in the same breath about the three things it cannot do. The
+ * wording is the confirmation the user reads before clicking — it is not a
+ * warning designed to frighten, because he has already accepted every one of
+ * these consequences; it is a statement of what will and will not happen.
+ */
+const FORCE_ABANDON_REASON =
+  'Story Studio stops tracking this job and the queue moves on. '
+  + 'It does not cancel provider work GenStudio has already accepted. '
+  + 'It does not refund credits already spent. '
+  + 'Output may still arrive, and it stays recoverable from the episode afterwards. '
+  + 'Use this when a job is stuck and you would rather move on than keep waiting.'
+
+function forceAbandonControl(): JobControl {
+  return control(
+    'force-abandon', true, 'Abandon this job', FORCE_ABANDON_REASON,
+    'OWNER_OVERRIDE', 'provider-work-may-settle',
+  )
+}
+
+function isFinishedJob(status: Job['status']): boolean {
+  return status === 'done' || status === 'error' || status === 'cancelled'
+}
+
+/**
  * The single authority for active-job controls. It deliberately needs actual
  * GenStudio evidence before offering a provider cancellation request.
  */
 function classifyProviderJobControl(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned'>,
   capabilities: JobControlCapabilities,
 ): JobControl {
   const evidence = job.genstudio_jobs || []
+  // An abandoned job is one the owner told Story Studio to stop tracking. The
+  // unsettled-evidence gate below would immediately re-trap it in exactly the
+  // dead end he just escaped, so it does not apply here. Nothing is discarded:
+  // the provider evidence, the files and the billing record all survive
+  // removing the row, and the reason says so.
+  if (job.force_abandoned && isFinishedJob(job.status)) {
+    return control(
+      'clear-history', true, 'Remove from history',
+      'You abandoned this job, so Story Studio is no longer waiting on it. Removing the row leaves its files, its provider evidence and its billing record untouched.',
+      'READY', 'history-only',
+    )
+  }
   const unsettledEvidence = evidence.some(entry => (
     entry.cancelled !== true && !TERMINAL_STATES.has(entry.state)
   )) || Object.values(job.remote_cancellations || {}).some(record => PENDING_CANCELLATION_STATES.has(record.status))
@@ -233,26 +284,39 @@ function classifyProviderJobControl(
  * Neither action is allowed to impersonate the other.
  */
 export function classifyJobControls(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned'>,
   capabilities: JobControlCapabilities,
 ): JobControl[] {
   const provider = classifyProviderJobControl(job, capabilities)
   const canPause = job.status === 'running' && PAUSABLE_SUBMISSION_TYPES.has(job.type)
-  if (!canPause) return [provider]
-  const pause = control(
-    'pause-submissions',
-    true,
-    'Pause new submissions',
-    'Story Studio will stop claiming new items. Already accepted work will finish settling and checkpointing.',
-    'READY',
-    'none',
-  )
-  return provider.action === 'pause-submissions' ? [pause] : [pause, provider]
+  const pause = canPause
+    ? control(
+      'pause-submissions',
+      true,
+      'Pause new submissions',
+      'Story Studio will stop claiming new items. Already accepted work will finish settling and checkpointing.',
+      'READY',
+      'none',
+    )
+    : null
+  const controls = !pause
+    ? [provider]
+    : provider.action === 'pause-submissions' ? [pause] : [pause, provider]
+
+  // v1.2.8 — the guarantee is that there is always a way out. Offer the
+  // override on any unfinished job, and on any finished one whose only control
+  // is disabled — the two shapes that can otherwise become a dead end. A job
+  // already abandoned does not offer it again.
+  const deadEnd = controls.every(candidate => !candidate.enabled)
+  if (!job.force_abandoned && (!isFinishedJob(job.status) || deadEnd)) {
+    controls.push(forceAbandonControl())
+  }
+  return controls
 }
 
 /** Backwards-compatible primary control; public snapshots also include all controls. */
 export function classifyJobControl(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check' | 'force_abandoned'>,
   capabilities: JobControlCapabilities,
 ): JobControl {
   return classifyProviderJobControl(job, capabilities)

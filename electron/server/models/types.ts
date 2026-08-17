@@ -2109,6 +2109,13 @@ export type JobControlAction =
   | 'clear-history'
   /** v1.2.6 — re-ask GenStudio for the current state of stored non-terminal evidence. */
   | 'recheck-provider-status'
+  /**
+   * v1.2.8 — the owner override. Stops tracking an unfinished job locally
+   * without waiting for, or claiming, provider confirmation. Always offered on
+   * an unfinished job, because every other route out of a job can legitimately
+   * be closed and a job with no way out at all is not acceptable.
+   */
+  | 'force-abandon'
   | 'none'
 
 export type JobControlCode =
@@ -2119,6 +2126,8 @@ export type JobControlCode =
   | 'JOB_NOT_AT_SAFE_LOCAL_STOP'
   /** v1.2.6 — Story Studio asked GenStudio and could not get an answer. */
   | 'PROVIDER_STATUS_UNREACHABLE'
+  /** v1.2.8 — available on the owner's say-so, not on provider evidence. */
+  | 'OWNER_OVERRIDE'
 
 export type JobRemoteOperation =
   | 'voice.tts'
@@ -2144,7 +2153,12 @@ export interface JobControlCapabilities {
 
 /** Per-provider-task cancellation evidence, keyed by `${operation}:${provider_job_id}`. */
 export interface JobRemoteCancellation {
-  status: 'queued' | 'submitting' | 'requested' | 'reconciling' | 'confirmed' | 'rejected' | 'unknown'
+  /**
+   * `absent` (v1.2.8) means GenStudio answered the status lookup and said it
+   * has no such task. It is terminal, and it is deliberately distinct from
+   * `unknown`, which means Story Studio could not get an answer at all.
+   */
+  status: 'queued' | 'submitting' | 'requested' | 'reconciling' | 'confirmed' | 'rejected' | 'unknown' | 'absent'
   operation: JobRemoteOperation
   provider_job_id: string
   requested_at: string
@@ -2368,6 +2382,23 @@ export interface Job {
   remote_cancellations?: Record<string, JobRemoteCancellation>
   /** Redacted reason the restart-safe provider reconciliation is still waiting. */
   reconciliation_error?: string
+  /**
+   * v1.2.8 — the owner chose to stop tracking this job without provider
+   * confirmation.
+   *
+   * Deliberately a JOB-level marker and not a rewrite of `genstudio_jobs`.
+   * Abandoning teaches Story Studio nothing about the provider, so the
+   * provider evidence is left exactly as it stands: output may still land and
+   * stays recoverable, and credits already spent are unaffected. What the
+   * marker changes is only Story Studio's own bookkeeping — this job stops
+   * holding the queue, stops being re-asked about, can be removed from
+   * history, and can be run again.
+   */
+  force_abandoned?: {
+    at: string
+    /** What was still unsettled at the moment it was abandoned, for the audit trail. */
+    unsettled: string[]
+  }
   /**
    * v1.2.6 — the result of the last provider re-check run for a FINISHED job
    * whose stored evidence was still non-terminal.

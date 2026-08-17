@@ -287,6 +287,7 @@
       v-if="repairOpen"
       :visible="true"
       :slug="slug"
+      :episode-code="repairEpisode"
       @close="onRepairClosed"
     />
   </div>
@@ -326,6 +327,12 @@ const importEp = ref<any | null>(null) // episode row whose import dialog is ope
 // is reached via ?repair=1 — the entry point used by the dashboard + Jobs
 // "Repair" CTAs that previously deep-linked to the retired Assets tab.
 const repairOpen = ref(route.query.repair === '1')
+// v1.2.8 — `?repair=1&episode=EP0053` scopes the same dialog to one episode.
+// That is the targeted-recovery entry point used from a failed job's own row,
+// where the episode is already known and scanning the whole library is waste.
+// The board's own "↻ Repair…" button leaves this empty and still searches
+// everything, which is what it is for.
+const repairEpisode = ref(typeof route.query.episode === 'string' ? route.query.episode : undefined)
 
 function openImport(ep: any) { importEp.value = ep }
 
@@ -333,6 +340,7 @@ function openImport(ep: any) { importEp.value = ep }
 // flip its step done on the board.
 function onRepairClosed() {
   repairOpen.value = false
+  repairEpisode.value = undefined
   void revalidate()
 }
 function onImported() {

@@ -376,6 +376,18 @@
             <span v-if="repairOutcome[job.job_id]" class="repair-chip" :class="`rc-${repairOutcome[job.job_id].kind}`">
               {{ repairOutcome[job.job_id].text }}
             </span>
+            <!-- v1.2.8 — targeted recovery for the job types the per-job
+                 Repair above does not cover. Same machinery, one episode:
+                 scanning the whole library to fix the episode you are looking
+                 at is the wrong shape, and slow enough to be unusable. -->
+            <NuxtLink
+              v-if="episodeRecoveryLink(job)"
+              :to="episodeRecoveryLink(job)!"
+              class="btn btn-xs btn-primary"
+              title="SAFE — Checks THIS episode only for output the provider already finished but that never landed on disk, and pulls it in for free. No credits consumed, nothing re-submitted, and no other episode is scanned."
+            >
+              Recover this episode
+            </NuxtLink>
             <button
               v-if="job.status === 'error' || job.status === 'cancelled'"
               class="btn btn-xs btn-secondary"
@@ -651,6 +663,15 @@
               <span v-if="repairOutcome[job.job_id]" class="repair-chip" :class="`rc-${repairOutcome[job.job_id].kind}`">
                 {{ repairOutcome[job.job_id].text }}
               </span>
+              <!-- v1.2.8 — targeted recovery (mirror of the expanded view). -->
+              <NuxtLink
+                v-if="episodeRecoveryLink(job)"
+                :to="episodeRecoveryLink(job)!"
+                class="btn btn-xs btn-primary"
+                title="SAFE — Checks THIS episode only for output the provider already finished but that never landed on disk, and pulls it in for free. No credits consumed, nothing re-submitted, and no other episode is scanned."
+              >
+                Recover this episode
+              </NuxtLink>
               <button
                 v-if="job.status === 'error' || job.status === 'cancelled'"
                 class="btn btn-xs btn-secondary"
@@ -1738,9 +1759,25 @@ function jobControls(job: RJob): JobControl[] {
 async function runJobControl(job: RJob, requestedControl?: JobControl) {
   const control = requestedControl || job.control
   if (!control?.enabled || controlBusy.value.has(job.job_id)) return
+  // v1.2.8 — the one control on this page that cannot be undone by clicking it
+  // again. The dialog is populated from the backend's own wording (the pattern
+  // already proven on Scene Review), so what the server promises and what the
+  // user agrees to cannot drift apart.
+  if (control.action === 'force-abandon') {
+    const { ask } = useConfirm()
+    if (!await ask({
+      title: `Abandon ${job.title || job.type}?`,
+      message: control.reason,
+      confirmLabel: 'Abandon this job',
+    })) return
+  }
   controlBusy.value = new Set(controlBusy.value).add(job.job_id)
   try {
-    if (control.action === 'cancel-before-submit' || control.action === 'stop-local' || control.action === 'request-remote-cancel') {
+    if (control.action === 'force-abandon') {
+      await post(`${jobQueuePath(job)}/abandon`, {})
+      success('Abandoned. The queue has moved on — use Retry on this row to run the step again.')
+      return
+    } else if (control.action === 'cancel-before-submit' || control.action === 'stop-local' || control.action === 'request-remote-cancel') {
       await post(`${jobQueuePath(job)}/cancel`, {})
     } else if (control.action === 'pause-submissions') {
       await post(`${jobQueuePath(job)}/pause`, {})
@@ -1786,6 +1823,25 @@ function jobQueuePath(job: Pick<RJob, 'project_slug' | 'job_id'>): string {
   return jobProjectSlug(job) === '_app_'
     ? `/jobs/all/${job.job_id}`
     : `/projects/${jobProjectSlug(job)}/jobs/${job.job_id}`
+}
+
+/**
+ * v1.2.8 — the targeted-recovery entry point, or null when it does not apply.
+ *
+ * Shown only where the per-job Repair above cannot help: that button covers
+ * four job types, and the wedges the owner actually hit — a scene render, a
+ * scene plan — are not among them. For those, the only recovery on offer used
+ * to be the library-wide Repair on another page, which scans every episode.
+ * His objection was exact: *"we know exactly which one, so we don't need to go
+ * to the repair thing."* This is that same recovery, scoped to the episode
+ * whose row he is already looking at.
+ */
+function episodeRecoveryLink(job: RJob): string | null {
+  if (job.status !== 'error' && job.status !== 'cancelled') return null
+  if (jobCanBeRepaired(job)) return null
+  const project = jobProjectSlug(job)
+  if (!project || project === '_app_' || !job.episode_id) return null
+  return `/projects/${project}/board?repair=1&episode=${encodeURIComponent(job.episode_id)}`
 }
 
 function hasPendingCancellation(job: RJob): boolean {

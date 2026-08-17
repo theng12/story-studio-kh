@@ -3,9 +3,15 @@
     <div class="dialog-head">
       <h2 id="repair-title" class="dialog-title">
         <span aria-hidden="true">&#8635;</span>
-        Repair — generated but not received
+        {{ episodeCode ? `Recover ${episodeCode} — generated but not received` : 'Repair — generated but not received' }}
       </h2>
-      <p class="dialog-sub text-muted">
+      <p v-if="episodeCode" class="dialog-sub text-muted">
+        Checks <strong>{{ episodeCode }}</strong> only for gaps the provider might already have finished, then
+        re-downloads its audio and images from provider history. <strong>No credits consumed.</strong>
+        Nothing else in the library is scanned or touched.
+        Files without a stored task ID come back as "needs fresh generation" in the job log.
+      </p>
+      <p v-else class="dialog-sub text-muted">
         Scans every accepted episode for gaps the provider might already have finished, then
         re-downloads audio and images from provider history. <strong>No credits consumed.</strong> Use this
         after an app crash, network blip, or timeout left provider-completed output unsaved locally.
@@ -29,11 +35,15 @@
           :disabled="repairing || repairableCounts.total === 0"
           :title="repairableCounts.total === 0
             ? 'No gaps detected — nothing to repair. Rescan after a generation attempt if you think something is missing.'
-            : 'Queues repair jobs for every episode with missing audio or images. Reads provider history; no credits consumed.'"
+            : episodeCode
+              ? `Recovers this episode's missing audio and images from provider history. No credits consumed.`
+              : 'Queues repair jobs for every episode with missing audio or images. Reads provider history; no credits consumed.'"
           @click="repairAll"
         >
           <LoadingSpinner v-if="repairing" size="sm" />
-          {{ repairing ? 'Queuing…' : `Repair all (${repairableCounts.total})` }}
+          {{ repairing
+            ? 'Queuing…'
+            : episodeCode ? `Recover ${episodeCode}` : `Repair all (${repairableCounts.total})` }}
         </button>
       </div>
     </div>
@@ -41,13 +51,21 @@
     <div v-if="error" class="text-danger mt-2" style="font-size: 13px;">{{ error }}</div>
 
     <div v-if="loading && !rows.length" class="repair-empty">
-      <LoadingSpinner size="sm" /> Scanning every episode — this may take a few seconds for large projects…
+      <LoadingSpinner size="sm" />
+      {{ episodeCode
+        ? `Checking ${episodeCode}…`
+        : 'Scanning every episode — this may take a few seconds for large projects…' }}
     </div>
     <div v-else-if="!loading && !rows.length && !error" class="repair-empty">
-      No accepted ideas yet. Accept some in the Ideas Generator first.
+      {{ episodeCode
+        ? `${episodeCode} is not an accepted episode, so it has nothing to recover.`
+        : 'No accepted ideas yet. Accept some in the Ideas Generator first.' }}
     </div>
     <div v-else-if="repairableCounts.total === 0" class="repair-empty">
-      <span aria-hidden="true">&#9989;</span> Everything generated is on disk — nothing to repair.
+      <span aria-hidden="true">&#9989;</span>
+      {{ episodeCode
+        ? `Everything ${episodeCode} generated is already on disk — nothing to recover.`
+        : 'Everything generated is on disk — nothing to repair.' }}
     </div>
 
     <div v-else class="repair-list mt-2">
@@ -108,8 +126,18 @@
  *
  * Still uses GET /assets-audit to compute what's missing (that endpoint feeds
  * the gap counts below); only the on-page audit *visualisation* was dropped.
+ *
+ * v1.2.8 — `episodeCode` turns this same dialog into a targeted recovery.
+ * Library-wide Repair is a SEARCH tool: it scans everything because the usual
+ * question is "which episode is broken?". When the user already knows — he is
+ * looking straight at the job that failed — scanning seventy episodes to fix
+ * one is slow and the wrong shape. The owner's words: *"it's never something i
+ * will want to do intentionally at all… our case, we know exactly which one."*
+ * Only the scope and the entry point change; the recovery machinery, the
+ * endpoints and the no-credits guarantee are identical, which is exactly why
+ * this is a prop and not a second dialog.
  */
-const props = defineProps<{ visible: boolean; slug: string }>()
+const props = defineProps<{ visible: boolean; slug: string; episodeCode?: string }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { get, post } = useApi()
@@ -152,7 +180,8 @@ async function runAudit() {
   loading.value = true
   error.value = ''
   try {
-    const r = await get<{ episodes: AuditRow[] }>(`/projects/${props.slug}/assets-audit`)
+    const scope = props.episodeCode ? `?episode=${encodeURIComponent(props.episodeCode)}` : ''
+    const r = await get<{ episodes: AuditRow[] }>(`/projects/${props.slug}/assets-audit${scope}`)
     rows.value = r.episodes || []
     lastRunAt.value = new Date().toLocaleString()
   } catch (e: any) {
@@ -200,7 +229,9 @@ async function repairAll() {
       enqueued: Array<{ episode_id: string; type: string }>
       audio_repair_candidates: string[]
       total_repair_jobs: number
-    }>(`/projects/${props.slug}/assets/repair-all`, {})
+    // v1.2.8 — narrowing the request as well as the scan. The endpoint has
+    // always accepted `episode_codes`; until now nothing sent them.
+    }>(`/projects/${props.slug}/assets/repair-all`, props.episodeCode ? { episode_codes: [props.episodeCode] } : {})
 
     // Kick off audio repairs one by one (they run inline server-side;
     // serializing avoids blasting the history API with parallel lookups for

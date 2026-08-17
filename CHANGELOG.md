@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.2.8 — 2026-08-17
+
+- Closing Story Studio in the middle of a batch no longer leaves a job stuck forever. When a request was still being sent at the moment the app closed, it never reached GenStudio at all — and on reopening, Story Studio would sit waiting for an answer about a request that does not exist. One batch waited twenty-two minutes with forty-eight further images queued behind it, and nothing in the app could clear it.
+- Story Studio now understands the difference between "GenStudio says it does not have this" and "Story Studio could not reach GenStudio". The first is a final answer: the request was never created, so nothing was generated and nothing was charged. The batch stops waiting, says so in the log in exactly those words, and finishes.
+- The second is still treated as a temporary problem and keeps waiting, because it is. Getting that backwards would mean re-sending — and paying twice for — work a provider had already accepted, so a network failure, a server error, a rejected key and a "gone" response all hold exactly as before. Story Studio never re-sends anything by itself on the back of this.
+- Every job now has a way out. A job stuck waiting on something Story Studio cannot resolve used to have its Cancel disabled, its Delete refused, and only a greyed-out button reading "Checking provider status" left — no exit by any button or any route. There is now an **Abandon this job** control, always offered on an unfinished job.
+- It says plainly what it does not do, in the confirmation itself: it does not cancel provider work GenStudio has already accepted, it does not refund credits already spent, and output may still arrive and stays recoverable. What it does is stop Story Studio waiting and let the queue move on. The ordinary Cancel is unchanged and still does the careful thing whenever the provider's state is genuinely knowable.
+- After abandoning, **Retry** sits on the same row. Generating a replacement is one click from where you gave up, not a hunt on another page.
+- New **Recover this episode** button on a failed job's own row. It does what Repair does — pull back output the provider finished but that never landed on disk, at no credit cost — for that one episode, without scanning the library. Repair itself is unchanged and still searches everything, which is what it is for when you do not yet know which episode is at fault.
+- Fixed while in there: "Repair all" has always accepted a list of episodes to limit itself to, but audited every episode anyway and then discarded the rows it did not want. The limit was real in what it repaired and imaginary in how long it took.
+
 ## v1.2.7 — 2026-08-17
 
 - Contextual cues now appear on the scene they were written for. On any episode with a branded opening they were landing early by exactly the length of that opening — ten seconds on Boundless — because a cue is reviewed against Scene Plan time while the finished video starts with an intro the plan knows nothing about.

@@ -19,6 +19,7 @@ import {
   type GenStudioServiceTierStanding,
 } from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
+import { isNeverCreatedProviderTask } from './provider-task-state.js'
 import {
   hasTtsControlValues,
   orderedTtsControlValues,
@@ -268,9 +269,48 @@ export function isTerminalGenStudioJobState(state: unknown): state is GenStudioT
   return state === 'succeeded' || state === 'failed'
 }
 
-/** A GenStudio job that will never produce an artifact, for any reason. */
+export { GENSTUDIO_TASK_NOT_CREATED_STATE } from './provider-task-state.js'
+export { isNeverCreatedProviderTask }
+
+/**
+ * v1.2.8 — the one predicate that separates "the provider answered, and does
+ * not have this" from "Story Studio could not reach the provider".
+ *
+ * A 404 on a control-plane job GET is an ANSWER. GenStudio looked the id up
+ * against this account and found nothing, which means nothing was created,
+ * nothing was reserved, and nothing was charged. There is no outcome left to
+ * wait for, so continuing to poll wedges the job forever — the defect this
+ * fixes.
+ *
+ * Everything else stays transient, deliberately and by construction:
+ *
+ *   - a network failure, DNS failure, socket error or timeout never becomes a
+ *     `GenStudioApiError` at all (see `requestJsonWithRetry`), so it cannot
+ *     reach this predicate;
+ *   - 5xx is GenStudio failing to answer, not answering;
+ *   - 401/403 is a credential problem — the task's existence was never
+ *     established either way;
+ *   - 410 is deliberately excluded. "Gone" says the record EXISTED and was
+ *     removed, which is the opposite claim, and a task that existed may have
+ *     been charged.
+ *
+ * An exact allow-list of one status, for the same reason
+ * `isGenStudioRouteExhausted` is an allow-list of one failure code: being
+ * wrong in the "keep waiting" direction costs one manual click, being wrong in
+ * the "it was never created" direction is how you pay twice. Story Studio also
+ * never resubmits off the back of this on its own, so even a mistaken 404
+ * cannot spend money.
+ */
+export function isGenStudioTaskAbsent(error: unknown): error is GenStudioApiError {
+  return error instanceof GenStudioApiError && error.status === 404
+}
+
+/**
+ * A GenStudio job that will never produce an artifact, for any reason —
+ * including a task GenStudio has told us it does not have.
+ */
 export function isSettledGenStudioJob(job: { state?: unknown; cancelled?: boolean | null }): boolean {
-  return isTerminalGenStudioJobState(job.state) || job.cancelled === true
+  return isTerminalGenStudioJobState(job.state) || isNeverCreatedProviderTask(job) || job.cancelled === true
 }
 
 /** Every GenStudio product family Story Studio submits durable work to. */

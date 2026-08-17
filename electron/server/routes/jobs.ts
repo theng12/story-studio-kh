@@ -208,6 +208,19 @@ router.post('/jobs/all/:jobId/recheck-provider-status', async (req, res, next) =
   }
 })
 
+// v1.2.8 — the owner override. Deliberately never refuses on provider
+// evidence: it exists precisely for the jobs every evidence-gated control has
+// already refused, and refusing it there too would reproduce the dead end.
+router.post('/jobs/all/:jobId/abandon', async (req, res, next) => {
+  const existing = await findUniversalJob(req.params.jobId)
+  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  try {
+    res.json({ ok: true, job: await jq.forceAbandonJob(existing.project_slug, req.params.jobId) })
+  } catch (error) {
+    next(error)
+  }
+})
+
 router.delete('/jobs/all/:jobId', async (req, res) => {
   const existing = await findUniversalJob(req.params.jobId)
   if (!existing) return res.status(404).json({ detail: 'Job not found' })
@@ -357,6 +370,17 @@ router.post('/projects/:slug/jobs/:jobId/recheck-provider-status', async (req, r
   if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
   try {
     res.json({ ok: true, job: await jq.recheckJobProviderStatus(req.params.slug, req.params.jobId) })
+  } catch (error) {
+    next(error)
+  }
+})
+
+// v1.2.8 — see the /jobs/all sibling above.
+router.post('/projects/:slug/jobs/:jobId/abandon', async (req, res, next) => {
+  const existing = (await jq.getJobs(req.params.slug)).find(job => job.job_id === req.params.jobId)
+  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  try {
+    res.json({ ok: true, job: await jq.forceAbandonJob(req.params.slug, req.params.jobId) })
   } catch (error) {
     next(error)
   }

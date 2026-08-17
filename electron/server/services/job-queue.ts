@@ -26,6 +26,7 @@ import { getAppSetting, setAppSetting } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
+import { isNeverCreatedProviderTask } from '../lib/provider-task-state.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
 import {
@@ -202,9 +203,13 @@ export async function reconcileRemoteCancellationFromProvider(
   const previous = job?.remote_cancellations?.[key]
   if (!job || !previous) return
   const settled = evidence.cancelled === true || evidence.state === 'succeeded' || evidence.state === 'failed'
+    || isNeverCreatedProviderTask(evidence)
   if (!settled) return
   await recordRemoteCancellation(storyJobId, operation, providerJobId, {
-    status: evidence.cancelled === true ? 'confirmed' : 'rejected',
+    status: evidence.cancelled === true
+      ? 'confirmed'
+      // Nothing was rejected — there was never a task to reject.
+      : isNeverCreatedProviderTask(evidence) ? 'absent' : 'rejected',
     state: evidence.state,
     ...(evidence.dispatch_state !== undefined ? { dispatch_state: evidence.dispatch_state } : {}),
     ...(evidence.cancellable !== undefined && evidence.cancellable !== null ? { cancellable: evidence.cancellable } : {}),
@@ -377,6 +382,21 @@ function hasPendingRemoteCancellation(job: Pick<Job, 'remote_cancellations'>): b
 }
 
 /**
+ * One recorded provider task whose outcome can still change.
+ *
+ * v1.2.8 — every unsettled test in this file used to spell this out inline, so
+ * teaching them about a fourth terminal case would have meant four chances to
+ * miss one. `not_created` is terminal for the same reason `succeeded` and
+ * `failed` are: GenStudio has answered, and no later answer is coming.
+ */
+function isUnsettledProviderEntry(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
+  return entry.cancelled !== true
+    && entry.state !== 'succeeded'
+    && entry.state !== 'failed'
+    && !isNeverCreatedProviderTask(entry)
+}
+
+/**
  * A Story executor returning is not a provider settlement.  Keep its duplicate
  * lock until every durable GenStudio target has an authoritative terminal
  * state; a target excluded from the Cancel button still counts.
@@ -388,18 +408,12 @@ export function hasUnsettledProviderWork(job: Pick<Job, 'genstudio_jobs' | 'remo
   // established retry/reconciliation path.
   if (Object.keys(job.remote_cancellations || {}).length === 0) return false
   if (hasPendingRemoteCancellation(job)) return true
-  return (job.genstudio_jobs || []).some(entry => (
-    entry.cancelled !== true
-    && entry.state !== 'succeeded'
-    && entry.state !== 'failed'
-  ))
+  return (job.genstudio_jobs || []).some(isUnsettledProviderEntry)
 }
 
 /** Any durable provider identity is authoritative over a stale local terminal status. */
 export function hasUnsettledProviderEvidence(job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>): boolean {
-  return hasPendingRemoteCancellation(job) || (job.genstudio_jobs || []).some(entry => (
-    entry.cancelled !== true && entry.state !== 'succeeded' && entry.state !== 'failed'
-  ))
+  return hasPendingRemoteCancellation(job) || (job.genstudio_jobs || []).some(isUnsettledProviderEntry)
 }
 
 function hasCancellationContext(job: Pick<Job, 'remote_cancellations'>): boolean {
@@ -409,9 +423,7 @@ function hasCancellationContext(job: Pick<Job, 'remote_cancellations'>): boolean
 function hasRecoverableUnsettledGenStudioEvidence(job: Pick<Job, 'genstudio_jobs'>): boolean {
   return (job.genstudio_jobs || []).some(entry => (
     RECOVERABLE_GENSTUDIO_OPERATIONS.has(entry.operation)
-    && entry.cancelled !== true
-    && entry.state !== 'succeeded'
-    && entry.state !== 'failed'
+    && isUnsettledProviderEntry(entry)
     && ((entry.id && !entry.id.startsWith('pending:')) || Boolean(entry.request?.idempotency_key))
   ))
 }
@@ -480,6 +492,35 @@ function mergeGenStudioReconciliationEvidence(
 }
 
 /**
+ * v1.2.8 — say, in the job's own log, that GenStudio has no record of a task
+ * Story Studio was waiting on.
+ *
+ * The reason this is spelled out rather than left to a status change: the user
+ * is looking at a request that appears to have vanished, and the only question
+ * that matters to him is whether he paid for it. GenStudio answering "no such
+ * request" is also the answer to that question — a request that was never
+ * created was never reserved against and never billed — so the log says so
+ * instead of leaving him to infer it. It also states plainly that Story Studio
+ * will not resend it, because deciding to resend paid work is his call.
+ */
+function reportNeverCreatedProviderTasks(
+  job: Job,
+  absent: Array<{ operation: string; evidence_id: string }>,
+): void {
+  if (!absent.length) return
+  const already = new Set(job.output_lines.slice(-40))
+  for (const item of absent) {
+    const line = `GenStudio has no record of ${item.operation} ${item.evidence_id}. `
+      + 'That request was never created, so nothing was generated and nothing was charged for it.'
+    if (!already.has(line)) job.output_lines.push(line)
+  }
+  const summary = absent.length === 1
+    ? 'Story Studio has stopped waiting for it and will not resend it on its own — running this step again is safe, and costs only what the missing item costs.'
+    : `Story Studio has stopped waiting for these ${absent.length} requests and will not resend them on its own — running this step again is safe, and costs only what the missing items cost.`
+  if (!already.has(summary)) job.output_lines.push(summary)
+}
+
+/**
  * Reconciliation has its own persisted set, not a queue worker slot. This is
  * critical after restart: it retains the duplicate lock while allowing normal
  * generation work in the same lane to proceed.
@@ -513,6 +554,7 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     if (outcome.reason && outcome.reason !== job.reconciliation_error) job.output_lines.push(outcome.reason)
     job.reconciliation_error = outcome.reason
     for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
+    reportNeverCreatedProviderTasks(job, outcome.absent)
 
     if (outcome.kind === 'pending') {
       const line = job.status === 'paused'
@@ -592,8 +634,13 @@ function isFinishedStatus(status: Job['status']): boolean {
 /** The gate's own predicate: which finished jobs still carry non-terminal evidence. */
 function needsHistoryEvidenceRefresh(job: Job): boolean {
   if (!isFinishedStatus(job.status)) return false
+  // v1.2.8 — an abandoned job is one the owner told Story Studio to stop
+  // tracking. Re-asking GenStudio about it would re-block the very history row
+  // he just cleared himself out of, and would be asking a question he has
+  // already said he does not want answered.
+  if (job.force_abandoned) return false
   return (job.genstudio_jobs || []).some(entry => (
-    entry.cancelled !== true && entry.state !== 'succeeded' && entry.state !== 'failed' && entry.state !== 'cancelled'
+    entry.state !== 'cancelled' && isUnsettledProviderEntry(entry)
   )) || hasPendingRemoteCancellation(job)
 }
 
@@ -616,6 +663,7 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
     const outcome = await reconcilePendingJobCancellation(job, apiKey, { readOnly: true })
     job.remote_cancellations = outcome.records
     for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
+    reportNeverCreatedProviderTasks(job, outcome.absent)
 
     if (!needsHistoryEvidenceRefresh(job)) {
       // GenStudio confirmed everything is terminal. Nothing is outstanding, so
@@ -704,6 +752,20 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
       job.status = 'error'
       job.error = 'Provider work settled with mixed completed and cancelled tasks. Repair missing output before Retry.'
       job.result = { ...(job.result || {}), provider_settled: 'mixed', repair_required: true }
+      job.output_lines.push(job.error)
+    } else if (evidence.some(isNeverCreatedProviderTask)) {
+      // v1.2.8 — GenStudio has no record of at least one request this job was
+      // waiting on. That is a definite answer, so the job STOPS here instead of
+      // falling through to the "terminal but not classifiable" hold below and
+      // staying running forever. It is an error rather than a success because
+      // whatever that request was for does not exist; it is not a provider
+      // failure, and the wording refuses to call it one.
+      const missing = evidence.filter(isNeverCreatedProviderTask).length
+      job.status = 'error'
+      job.error = `GenStudio has no record of ${missing} request${missing === 1 ? '' : 's'} from this job. `
+        + `${missing === 1 ? 'It' : 'They'} never reached the provider, so nothing was generated and nothing was charged. `
+        + 'Every other request settled. Retry resubmits only what is missing.'
+      job.result = { ...(job.result || {}), provider_settled: 'never-created', repair_required: true }
       job.output_lines.push(job.error)
     } else if (evidence.length && evidence.every(entry => entry.state === 'succeeded')) {
       const auditor = getJobCancellationAuditor(job.type)
@@ -2145,7 +2207,12 @@ export function retryTerminalJob(
   const chapterRetryMode = chatBackedRetry
     ? chapterChatRetryMode(original)
     : undefined
-  if (hasUnsettledProviderEvidence(original) && !(chatBackedRetry && chapterRetryMode === 'exact-replay')) {
+  // v1.2.8 — an abandoned job is exempt. "Generate a new one in its
+  // replacement" is the other half of the escape hatch, and refusing the retry
+  // on evidence the owner has explicitly chosen to stop waiting for would leave
+  // him abandoned AND stuck. Retry never reuses a provider identity here: it
+  // submits fresh work, which is what he asked for and what he is paying for.
+  if (!original.force_abandoned && hasUnsettledProviderEvidence(original) && !(chatBackedRetry && chapterRetryMode === 'exact-replay')) {
     throw Object.assign(
       new Error('This job still has unsettled provider evidence. Story Studio will reconcile it before any fresh retry.'),
       { status: 409, expose: true },
@@ -2408,11 +2475,75 @@ export async function requestJobCancellation(projectSlug: string, jobId: string)
   throw new JobControlError(control)
 }
 
+/**
+ * v1.2.8 — the owner override: stop tracking this job, whatever state it is in.
+ *
+ * Every other exit from a job is gated on evidence, correctly. This one is not,
+ * because "no exit exists" is not an acceptable outcome for a piece of software
+ * the customer has to live in. It makes exactly one claim — that Story Studio
+ * has stopped waiting — and deliberately makes no claim about the provider.
+ *
+ * That is why `genstudio_jobs` and `remote_cancellations` are left byte-for-byte
+ * as they stand: abandoning teaches Story Studio nothing about GenStudio, so
+ * rewriting the provider record to look settled would be inventing evidence.
+ * Any output those tasks produce is still recoverable afterwards, and the log
+ * names them so the user knows what he is walking away from.
+ */
+export async function forceAbandonJob(projectSlug: string, jobId: string): Promise<Job> {
+  await loadPersistedJobs(projectSlug)
+  const job = jobs.get(jobId)
+  if (!job || job.project_slug !== projectSlug) {
+    throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+  }
+  if (job.force_abandoned) return serializeJob(job)
+
+  const unsettled = [
+    ...(job.genstudio_jobs || [])
+      .filter(isUnsettledProviderEntry)
+      .map(entry => `${entry.operation} ${entry.id || 'with no provider job ID'}`),
+    ...Object.values(job.remote_cancellations || {})
+      .filter(record => PENDING_REMOTE_CANCELLATION_STATUSES.has(record.status))
+      .map(record => `${record.operation} ${record.provider_job_id}`),
+  ]
+
+  cancelled.add(job.job_id)
+  pauseRequested.delete(job.job_id)
+  const queue = queues[job.type]
+  if (queue) queue.pending = queue.pending.filter(candidate => candidate.job_id !== job.job_id)
+  killChildrenFor(job.job_id)
+  const timer = cancellationReconcileTimers.get(job.job_id)
+  if (timer) {
+    clearTimeout(timer)
+    cancellationReconcileTimers.delete(job.job_id)
+  }
+
+  job.force_abandoned = { at: new Date().toISOString(), unsettled: [...new Set(unsettled)] }
+  job.status = 'cancelled'
+  job.pause_requested = false
+  job.pause_origin = undefined
+  job.local_execution_complete = true
+  job.reconciliation_error = undefined
+  delete job.history_evidence_check
+  job.finished_at = new Date().toISOString()
+  job.output_lines.push('Abandoned at your request. Story Studio has stopped tracking this job and the queue has moved on.')
+  job.output_lines.push(job.force_abandoned.unsettled.length
+    ? `No cancellation was sent to GenStudio and nothing was refunded. ${job.force_abandoned.unsettled.length === 1 ? 'This provider task was' : `These ${job.force_abandoned.unsettled.length} provider tasks were`} still unresolved and may yet finish: ${job.force_abandoned.unsettled.join(', ')}. Anything they produce can still be recovered from the episode.`
+    : 'No provider work was outstanding when it was abandoned.')
+  job.output_lines.push('Run this step again whenever you are ready — Retry on this row starts it fresh.')
+  await persistJob(job)
+  emitUpdate(job)
+  return serializeJob(job)
+}
+
 /** Remove terminal history only. Generated files and provider evidence remain intact. */
 export function removeTerminalJob(projectSlug: string, jobId: string): boolean {
   const job = jobs.get(jobId)
   if (!job || job.project_slug !== projectSlug) return false
-  if (!TERMINAL_JOB_STATUSES.has(job.status) || hasUnsettledProviderEvidence(job)) return false
+  // An abandoned job is already the owner's explicit decision to stop waiting;
+  // re-applying the unsettled-evidence hold here would put the row back in the
+  // dead end that abandoning exists to escape.
+  if (!TERMINAL_JOB_STATUSES.has(job.status)) return false
+  if (!job.force_abandoned && hasUnsettledProviderEvidence(job)) return false
   jobs.delete(jobId)
   if (job.type === 'continuity_render') {
     void deactivateSceneRenderStatus(job.project_slug, job.episode_id, job.job_id).catch(() => {})
@@ -2428,7 +2559,7 @@ export async function clearFinished(projectSlug: string): Promise<number> {
   const clearedIds: string[] = []
   const clearedSceneRenderJobs: Array<Pick<Job, 'episode_id' | 'job_id'>> = []
   for (const [id, job] of jobs.entries()) {
-    if (job.project_slug === projectSlug && ['done', 'error', 'cancelled'].includes(job.status) && !hasUnsettledProviderEvidence(job)) {
+    if (job.project_slug === projectSlug && ['done', 'error', 'cancelled'].includes(job.status) && (job.force_abandoned || !hasUnsettledProviderEvidence(job))) {
       jobs.delete(id)
       clearedIds.push(id)
       if (job.type === 'continuity_render') clearedSceneRenderJobs.push(job)

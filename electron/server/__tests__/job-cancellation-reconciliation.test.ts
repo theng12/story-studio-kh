@@ -286,7 +286,21 @@ test('reconciles pending Chat and Music evidence by the saved key without genera
   }
 })
 
-test('keeps missing-by-key provider evidence locked without a generation POST', async () => {
+/**
+ * REWRITTEN, NOT DELETED — v1.2.8.
+ *
+ * Until 1.2.7 this asserted `kind: 'pending'`: a by-key lookup that 404s was
+ * treated as "keep waiting". That is the exact defect this release fixes. The
+ * owner quit mid-batch, one submission was in flight and therefore never
+ * created, and GenStudio answered every subsequent lookup with 404 — so the
+ * job polled a task that does not exist for twenty-two minutes and would have
+ * done so forever, with forty-eight further items stuck behind it.
+ *
+ * The half of the old test that still matters is kept and is still the point:
+ * exactly ONE GET, and never a POST. Story Studio must not resubmit off the
+ * back of a 404; it must only stop waiting for it.
+ */
+test('a by-key 404 is terminal "never created", with one GET and no generation POST', async () => {
   const original = globalThis.fetch
   const requests: Array<{ method: string; path: string }> = []
   globalThis.fetch = async (input, init) => {
@@ -303,10 +317,59 @@ test('keeps missing-by-key provider evidence locked without a generation POST', 
 
     const result = await reconcilePendingJobCancellation(input, 'test-key')
 
-    assert.equal(result.kind, 'pending')
+    // Terminal, and terminal as an incomplete output set rather than a success.
+    assert.equal(result.kind, 'failed')
+    assert.deepEqual(result.absent, [{ operation: 'music.generation', evidence_id: 'pending:music-key' }])
+    // No lingering "still waiting" explanation — the question was answered.
+    assert.equal(result.reason, undefined)
+    assert.equal(result.providerJobs[0]?.job.state, 'not_created')
+    assert.equal(result.providerJobs[0]?.job.settled_credits, 0)
     assert.deepEqual(requests, [{ method: 'GET', path: '/v1/music/jobs/by-idempotency-key/music-key' }])
   } finally {
     globalThis.fetch = original
+  }
+})
+
+/**
+ * The other direction, and the one that costs money to get wrong.
+ *
+ * A provider Story Studio could not REACH must keep its hold. If an outage
+ * were read as "never created", the queue would release the duplicate lock and
+ * a later Retry would resubmit work the provider had already taken and billed.
+ * That is strictly worse than the wedge this release fixes, so both directions
+ * are asserted side by side and deliberately share one fixture shape.
+ */
+test('an unreachable provider is NOT "never created" — the hold is kept', async () => {
+  const original = globalThis.fetch
+  for (const failure of [
+    { label: 'network failure', respond: async () => { throw new TypeError('fetch failed') } },
+    { label: 'HTTP 500', respond: async () => Response.json({ detail: 'boom' }, { status: 500 }) },
+    { label: 'HTTP 503', respond: async () => Response.json({ detail: 'unavailable' }, { status: 503 }) },
+    { label: 'HTTP 401', respond: async () => Response.json({ detail: 'bad key' }, { status: 401 }) },
+    { label: 'HTTP 410', respond: async () => Response.json({ detail: 'gone' }, { status: 410 }) },
+  ]) {
+    const posts: string[] = []
+    globalThis.fetch = async (input, init) => {
+      if ((init?.method || 'GET').toUpperCase() === 'POST') posts.push(String(input))
+      return failure.respond()
+    }
+    try {
+      const input = job('unknown')
+      input.genstudio_jobs = [{
+        id: 'pending:music-key', operation: 'music.generation', state: 'submitting', updated_at: new Date().toISOString(),
+        request: { method: 'POST', path: '/v1/test', captured_at: '2026-08-12T00:00:00.000Z', idempotency_key: 'music-key' },
+      }]
+      input.remote_cancellations = {}
+
+      const result = await reconcilePendingJobCancellation(input, 'test-key')
+
+      assert.equal(result.kind, 'pending', failure.label)
+      assert.deepEqual(result.absent, [], failure.label)
+      assert.ok(result.reason, `${failure.label} must explain that Story Studio is still waiting`)
+      assert.deepEqual(posts, [], `${failure.label} must never resubmit`)
+    } finally {
+      globalThis.fetch = original
+    }
   }
 })
 

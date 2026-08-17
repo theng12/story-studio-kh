@@ -519,11 +519,11 @@ export const GenerateAudioSchema = z.object({
 export type GenerateAudioBody = z.infer<typeof GenerateAudioSchema>
 
 export interface JobControlResponse {
-  action: 'cancel-before-submit' | 'stop-local' | 'request-remote-cancel' | 'pause-submissions' | 'return-later' | 'clear-history' | 'recheck-provider-status' | 'none'
+  action: 'cancel-before-submit' | 'stop-local' | 'request-remote-cancel' | 'pause-submissions' | 'return-later' | 'clear-history' | 'recheck-provider-status' | 'force-abandon' | 'none'
   enabled: boolean
   label: string
   reason: string
-  code: 'READY' | 'PROVIDER_WORK_ALREADY_STARTED' | 'CANCELLATION_STATUS_UNKNOWN' | 'REMOTE_CANCELLATION_NOT_SUPPORTED' | 'JOB_NOT_AT_SAFE_LOCAL_STOP' | 'PROVIDER_STATUS_UNREACHABLE'
+  code: 'READY' | 'PROVIDER_WORK_ALREADY_STARTED' | 'CANCELLATION_STATUS_UNKNOWN' | 'REMOTE_CANCELLATION_NOT_SUPPORTED' | 'JOB_NOT_AT_SAFE_LOCAL_STOP' | 'PROVIDER_STATUS_UNREACHABLE' | 'OWNER_OVERRIDE'
   financial_effect: 'no-provider-request' | 'local-only' | 'remote-result-required' | 'provider-work-may-settle' | 'history-only' | 'none'
   targets?: Array<{
     operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation' | 'chat.response' | 'music.generation'
@@ -532,7 +532,9 @@ export interface JobControlResponse {
 }
 
 export interface JobRemoteCancellationResponse {
-  status: 'queued' | 'submitting' | 'requested' | 'reconciling' | 'confirmed' | 'rejected' | 'unknown'
+  /** `absent` (v1.2.8): GenStudio answered and has no such task — terminal,
+   *  and distinct from `unknown`, which is "no answer was obtained". */
+  status: 'queued' | 'submitting' | 'requested' | 'reconciling' | 'confirmed' | 'rejected' | 'unknown' | 'absent'
   operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation' | 'chat.response' | 'music.generation'
   provider_job_id: string
   requested_at: string
@@ -663,6 +665,11 @@ export interface JobEnqueuedResponse {
     state: 'checking' | 'unreachable' | 'unsettled'
     at: string
     detail?: string
+  }
+  /** v1.2.8 — the owner stopped tracking this job without provider confirmation. */
+  force_abandoned?: {
+    at: string
+    unsettled: string[]
   }
   /**
    * Directory containing the job's primary output (audio dir, image dir,

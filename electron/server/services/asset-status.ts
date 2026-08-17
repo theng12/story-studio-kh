@@ -501,7 +501,23 @@ export interface EpisodeAuditRow {
  * swallowed and reported as zero with a reason in `errors`, so one bad
  * episode doesn't break the whole table.
  */
-export async function auditProjectAssets(slug: string): Promise<EpisodeAuditRow[]> {
+export async function auditProjectAssets(
+  slug: string,
+  /**
+   * v1.2.8 — narrow the audit to named episodes.
+   *
+   * Repair is a SEARCH tool: it scans the library because the usual question
+   * is "which episode has a problem?". When the answer is already known — the
+   * user is looking straight at the job that failed — scanning seventy
+   * episodes to fix one is the wrong shape, and slow enough that the owner
+   * said he would never choose to use it. Filtering here, before the workers
+   * start, is what makes the targeted path cheap; filtering the finished rows
+   * afterwards saves nothing.
+   *
+   * Undefined means the whole project, so library-wide Repair is untouched.
+   */
+  episodeCodes?: readonly string[],
+): Promise<EpisodeAuditRow[]> {
   const ideas = await im.getIdeas(slug, 'accepted')
   const rows: EpisodeAuditRow[] = []
 
@@ -578,7 +594,8 @@ export async function auditProjectAssets(slug: string): Promise<EpisodeAuditRow[
   // Keep it bounded so a 100-episode project doesn't open 400 concurrent
   // filesystem scans.
   const CONCURRENCY = 8
-  const queue = ideas.filter(i => i.episode_code)
+  const wanted = episodeCodes?.length ? new Set(episodeCodes) : null
+  const queue = ideas.filter(i => i.episode_code && (!wanted || wanted.has(i.episode_code)))
   let idx = 0
   async function worker() {
     while (idx < queue.length) {

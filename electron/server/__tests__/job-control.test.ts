@@ -124,7 +124,9 @@ describe('server-owned job controls', () => {
       ],
     }), { remoteCancellationAudited: true })
 
-    assert.deepEqual(controls.map(control => control.action), ['pause-submissions', 'request-remote-cancel'])
+    // v1.2.8 appends the always-available owner override as a third control.
+    // The first two are unchanged and still say exactly what they said before.
+    assert.deepEqual(controls.map(control => control.action), ['pause-submissions', 'request-remote-cancel', 'force-abandon'])
     assert.equal(controls[0]?.enabled, true)
     assert.deepEqual(controls[1]?.targets, [{ operation: 'image.generation', provider_job_id: 'not-dispatched' }])
     assert.match(controls[0]?.reason || '', /already accepted work will finish/i)

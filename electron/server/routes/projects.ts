@@ -190,10 +190,17 @@ router.delete('/formats/custom/:id', async (req, res) => {
 // Project-wide asset audit: per-episode presence counts across audio,
 // scenes, thumbnails, video clips, merged audio. Powers the Settings →
 // Assets matrix.
+//
+// v1.2.8 — `?episode=EP0053` (repeatable) narrows the scan to named episodes,
+// for the case where the user already knows which one is broken. Omitted, the
+// behaviour is exactly as before: the whole project.
 router.get('/projects/:slug/assets-audit', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    const rows = await auditProjectAssets(req.params.slug)
+    const requested = ([] as unknown[]).concat(req.query.episode ?? [])
+      .filter((code): code is string => typeof code === 'string' && !!code.trim())
+      .map(code => code.trim())
+    const rows = await auditProjectAssets(req.params.slug, requested.length ? requested : undefined)
     res.json({ episodes: rows })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Audit failed'))
@@ -239,14 +246,16 @@ router.post('/projects/:slug/assets/repair-all', async (req, res) => {
       ? req.body.modalities.filter((m: any) => m === 'audio' || m === 'images')
       : ['audio', 'images']
 
-    const rows = await auditProjectAssets(slug)
+    // v1.2.8 — fixed in passing: this endpoint has always ACCEPTED
+    // `episode_codes`, but audited the whole project anyway and then discarded
+    // the rows it did not want. The narrowing was real in its results and
+    // imaginary in its cost. The filter now reaches the audit itself.
+    const rows = await auditProjectAssets(slug, requestedCodes)
     const enqueued: Array<{ episode_id: string; type: JobType; job_id: string }> = []
     const skipped: Array<{ episode_id: string; modality: string; reason: string }> = []
     const audio_queued: string[] = []
 
     for (const row of rows) {
-      if (requestedCodes && !requestedCodes.includes(row.episode_id)) continue
-
       // Images repair — covers scenes + thumbnails together (the endpoint
       // reconciles both sides in a single job).
       if (requestedModalities.includes('images')
