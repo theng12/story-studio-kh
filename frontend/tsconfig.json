@@ -5,6 +5,7 @@
       "~/*": ["./*"],
       "@/*": ["./*"],
       "@shared/contracts": ["../electron/server/contracts/index.ts"],
+      "@shared/contextual-cue-position": ["../electron/server/contracts/contextual-cue-position.ts"],
       "@shared/pacing": ["../electron/server/contracts/pacing.ts"],
       "@shared/subtitle-style": ["../electron/server/contracts/subtitle-style.ts"],
       "@shared/subtitle-presets": ["../electron/server/contracts/subtitle-presets.ts"]

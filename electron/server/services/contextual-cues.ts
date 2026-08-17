@@ -14,6 +14,7 @@ import type {
   VideoSubtitleConfig,
 } from '../models/types.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { isContextualCueCorner, resolveContextualCuePosition } from '../contracts/contextual-cue-position.js'
 
 export const CONTEXTUAL_CUES_FILENAME = 'contextual_cues.json'
 export const CONTEXTUAL_CUES_PROGRESS_FILENAME = 'contextual_cues.progress.json'
@@ -38,14 +39,56 @@ export function normalizeContextualCueConfig(value: unknown): ContextualCueProje
   }
 }
 
+/**
+ * The single place a placement value is accepted, so the four corners cannot
+ * drift apart again across the six call sites that each used to decide this
+ * for themselves.
+ */
+export function normalizeCuePlacement(value: unknown): ContextualCuePlacement {
+  return isPlacement(value) ? value : 'top-right'
+}
+
+/**
+ * A percentage anchor is kept only when it is a real number in range.
+ *
+ * Deliberately `typeof value === 'number'` rather than `Number(value)`:
+ * `Number(null)` is 0, so coercing would turn a CLEARED anchor into a
+ * deliberate placement at the top-left corner of the frame.
+ */
+function normalizePositionPct(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  return value < 0 || value > 100 ? null : value
+}
+
+/**
+ * Both axes or neither, matching the caption rule in `normalizeSubtitleStyle`.
+ * A half-written anchor is not a position, and silently keeping one axis would
+ * move a label along it while leaving the other wherever it happened to be.
+ */
+export function normalizeCuePositionPair(
+  x: unknown,
+  y: unknown,
+): { position_x_pct: number | null; position_y_pct: number | null } {
+  const position_x_pct = normalizePositionPct(x)
+  const position_y_pct = normalizePositionPct(y)
+  return position_x_pct === null || position_y_pct === null
+    ? { position_x_pct: null, position_y_pct: null }
+    : { position_x_pct, position_y_pct }
+}
+
 /** Keep user-facing proposal controls independent from old project config. */
 export function normalizeContextualCueProposalSettings(value: unknown): ContextualCueProposalSettings {
   const raw = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   return {
     model: typeof raw.model === 'string' ? raw.model.trim() : '',
     density: raw.density === 'standard' || raw.density === 'editorial' ? raw.density : 'restrained',
-    // Cue defaults intentionally use only subtitle-safe top corners.
-    placement: raw.placement === 'top-left' ? 'top-left' : 'top-right',
+    // All four corners, because all four render and all four always have.
+    // This used to collapse anything that was not 'top-left' to 'top-right',
+    // which is what made the bottom half of a fully implemented, fully
+    // validated feature unreachable — including for the customer whose logo
+    // sits in a top corner.
+    placement: normalizeCuePlacement(raw.placement),
+    ...normalizeCuePositionPair(raw.position_x_pct, raw.position_y_pct),
     auto_approve: raw.auto_approve === true,
   }
 }
@@ -202,7 +245,50 @@ export async function writeContextualCueTimeline(scenePlanPath: string, timeline
 export interface ContextualCueIssue {
   cue_id?: string
   detail: string
+  /**
+   * `'warning'` entries are shown and never block. Anything without a severity
+   * is an error, so every rule written before this field existed keeps its
+   * exact force. See `assertContextualCueReadiness`.
+   */
+  severity?: 'error' | 'warning'
 }
+
+/**
+ * The shortest a cue may stay on screen — and the one timing rule that is
+ * still a refusal.
+ *
+ * A cue arrives unannounced. Unlike a subtitle, the eye is not already
+ * tracking the spot it appears in, so the viewer has to FIND the label before
+ * reading it. Broadcast practice puts the floor for a subtitle the reader is
+ * already following near 0.83s; a label that must be noticed first needs
+ * meaningfully more than that. 2.25s is what this feature shipped with, it has
+ * never been complained about, and a cue that flashes past unread is a genuine
+ * defect in the output rather than a matter of taste — so it stays hard.
+ */
+export const CUE_MIN_DURATION_SEC = 2.25
+
+/**
+ * The point past which a cue is worth MENTIONING — and only mentioning.
+ *
+ * Derived, not chosen. The longest cue this validator accepts is an
+ * 80-character title plus a 100-character subtitle: 180 characters. At the
+ * ~15 characters per second that broadcast subtitling treats as a comfortable
+ * reading rate (~180 wpm at ~5 characters a word), that text takes about 12
+ * seconds to read. So 12s is the longest that any legal cue can still be doing
+ * reading work; beyond it the label is being HELD, and holding a label is an
+ * editorial choice about the pace of your own film.
+ *
+ * This replaces a hard 4.5s ceiling that refused the render outright. That
+ * number was never anyone's decision — it arrived with the first commit of the
+ * feature carrying no reasoning — and it is barely a third of what the longest
+ * label the same function accepts actually needs in order to be read. It also
+ * made the app overrule its own editor about taste, which is not its job.
+ *
+ * Nothing downstream depends on a cue being short: the 0.5s anti-crowding rule
+ * below still keeps approved cues off each other, and a cue still cannot
+ * outlast the scene it belongs to.
+ */
+export const CUE_LONG_DURATION_SEC = 12
 
 export function normalizeContextualCueTemplate(value: unknown): ContextualCueTemplate {
   return value === 'map-pin' || value === 'archival-caption' || value === 'chapter-plate'
@@ -242,7 +328,15 @@ export function validateContextualCueTimeline(
       issues.push({ cue_id: cue.id, detail: 'Cue must remain inside its scene timing.' })
     }
     const duration = cue.end_sec - cue.start_sec
-    if (duration < 2.25 || duration > 4.5) issues.push({ cue_id: cue.id, detail: 'Cue must remain readable for 2.25–4.5 seconds.' })
+    if (duration < CUE_MIN_DURATION_SEC) {
+      issues.push({ cue_id: cue.id, detail: `Cue must stay readable for at least ${CUE_MIN_DURATION_SEC} seconds.` })
+    } else if (duration > CUE_LONG_DURATION_SEC) {
+      issues.push({
+        cue_id: cue.id,
+        severity: 'warning',
+        detail: `Cue holds for ${duration.toFixed(1)}s — longer than the ~${CUE_LONG_DURATION_SEC}s even the longest label needs to be read. That is allowed; check it is deliberate.`,
+      })
+    }
     if (!cue.title.trim() || cue.title.length > 80 || (cue.subtitle?.length || 0) > 100) {
       issues.push({ cue_id: cue.id, detail: 'Cue text is empty or too long for a restrained on-screen label.' })
     }
@@ -250,8 +344,22 @@ export function validateContextualCueTimeline(
       issues.push({ cue_id: cue.id, detail: 'Cue treatment is invalid.' })
     }
     if (!isPlacement(cue.placement)) issues.push({ cue_id: cue.id, detail: 'Cue placement is invalid.' })
-    if (options.subtitles?.enabled && cue.placement.startsWith('bottom-')) {
-      issues.push({ cue_id: cue.id, detail: 'Bottom-corner cues conflict with enabled subtitles. Use a top corner.' })
+    // Captions live low in the frame, so a label placed low may sit on them.
+    // Two things changed here, both deliberate:
+    //
+    //  * It is a WARNING. As a refusal it made "put the label at the bottom"
+    //    impossible for anyone burning in subtitles — which is nearly
+    //    everyone — so unlocking the bottom corners anywhere else would have
+    //    just moved the dead end to render time.
+    //  * It asks where the cue ACTUALLY lands, not which corner it names. A
+    //    cue holding a precise anchor at 40% of frame height is nowhere near
+    //    the captions, whatever corner it happens to still carry.
+    if (options.subtitles?.enabled && resolveContextualCuePosition(cue).yPct >= 60) {
+      issues.push({
+        cue_id: cue.id,
+        severity: 'warning',
+        detail: 'Cue sits low in the frame where burned-in subtitles are drawn; check the two do not overlap.',
+      })
     }
   }
   for (let index = 1; index < approved.length; index++) {
@@ -298,7 +406,11 @@ export function autoApproveEligibleCues(
       source_scene_plan_generated_at: plan.generated_at,
       cues: [...otherPrior, ...runningApproved, trialCue],
     }
-    const issues = validateContextualCueTimeline(trial, plan, { subtitles }).filter(issue => issue.cue_id === cue.id)
+    // Warnings never hold a cue back. A note about taste — a long hold, or a
+    // label low in the frame — is not a structural failure, and holding a cue
+    // for one would put it in front of a reviewer with nothing to fix.
+    const issues = validateContextualCueTimeline(trial, plan, { subtitles })
+      .filter(issue => issue.cue_id === cue.id && issue.severity !== 'warning')
     if (issues.length) {
       holds.push({ cue_id: cue.id, reasons: issues.map(issue => issue.detail) })
       decided.set(cue.id, cue)
@@ -327,16 +439,18 @@ export function assertContextualCueReadiness(
   // exists to remove. Every other structural rule below still applies
   // unconditionally; only this one check differs between the two modes.
   const issues = validateContextualCueTimeline(timeline, plan, { subtitles, requireResolved: !config.auto_approve_cues })
-  if (issues.length) {
-    throw new Error(`Contextual Cues need review: ${issues.slice(0, 5).map(issue => issue.cue_id ? `${issue.cue_id} — ${issue.detail}` : issue.detail).join('; ')} Open Contextual Cues, resolve every proposal, then retry.`)
+  // Only errors stop a render. Warnings are shown on the review screen, where
+  // the person who can judge them is; refusing to assemble an episode over a
+  // matter of taste is how a 4.5s ceiling nobody chose came to block real work.
+  const blocking = issues.filter(issue => issue.severity !== 'warning')
+  if (blocking.length) {
+    throw new Error(`Contextual Cues need review: ${blocking.slice(0, 5).map(issue => issue.cue_id ? `${issue.cue_id} — ${issue.detail}` : issue.detail).join('; ')} Open Contextual Cues, resolve every proposal, then retry.`)
   }
   // No timeline is no cues, not a failure — see `validateContextualCueTimeline`.
   return timeline ? timeline.cues.filter(cue => cue.status === 'approved') : []
 }
 
-function isPlacement(value: unknown): value is ContextualCuePlacement {
-  return value === 'top-left' || value === 'top-right' || value === 'bottom-left' || value === 'bottom-right'
-}
+const isPlacement = isContextualCueCorner
 
 function isCue(value: unknown): value is ContextualCue {
   if (!value || typeof value !== 'object') return false

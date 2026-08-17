@@ -5,6 +5,7 @@
 import type { GenStudioRequestPreview } from '../lib/genstudio-request-preview.js'
 import type { ContentPackProvenance } from '../content-packs/runtime-types.js'
 import type { ContentPackItemKind } from '../content-packs/types.js'
+import type { ContextualCueCorner } from '../contracts/contextual-cue-position.js'
 
 // ── Project ─────────────────────────────────────────────────────────────────
 
@@ -4005,7 +4006,12 @@ export interface ScenePlan {
 // subtitles: subtitle timing remains narration, while cues are optional visual
 // annotations that Video Assembly renders exactly as approved.
 export type ContextualCueKind = 'location_date' | 'historical_context' | 'person' | 'chapter'
-export type ContextualCuePlacement = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+/**
+ * Re-exported from `contracts/contextual-cue-position.ts`, which the frontend
+ * imports too. Spelling the four corners out a second time here is what let
+ * "four are legal" and "two are reachable" coexist; there is now one list.
+ */
+export type ContextualCuePlacement = ContextualCueCorner
 export type ContextualCueTransition = 'fade' | 'slide' | 'dissolve'
 export type ContextualCueStatus = 'proposed' | 'approved' | 'disabled'
 export type ContextualCueDensity = 'restrained' | 'standard' | 'editorial'
@@ -4020,7 +4026,25 @@ export interface ContextualCue {
   title: string
   subtitle?: string
   kind: ContextualCueKind
+  /**
+   * Quick corner preset. Still the only thing most cues carry, and still what
+   * renders when no precise anchor is set — every cue written before v1.3.0
+   * has exactly this and nothing else, and renders byte-identically.
+   */
   placement: ContextualCuePlacement
+  /**
+   * Precise anchor as a percentage of the frame, deliberately named and
+   * scaled to match `VideoSubtitleStyle.position_x_pct` / `position_y_pct`:
+   * 0–100, `y` measured from the TOP, and BOTH must be set for either to
+   * apply. Unset (the default, and the state of every pre-1.3.0 cue) means
+   * "use `placement`".
+   *
+   * Additive on purpose. Nothing rewrites a stored cue to carry these; a cue
+   * gains them only when a person drags it or a proposal stamps the setting
+   * they chose.
+   */
+  position_x_pct?: number | null
+  position_y_pct?: number | null
   template: ContextualCueTemplate
   entrance: ContextualCueTransition
   exit: ContextualCueTransition
@@ -4055,8 +4079,11 @@ export interface ContextualCueProjectConfig {
    * Default OFF — manual review stays the default until a project earns
    * trust. When true, a proposal pass auto-approves any cue that clears
    * every structural rule `validateContextualCueTimeline` already enforces
-   * (in-scene timing, 2.25–4.5s duration, title/subtitle length, valid
-   * template/placement, no crowding within 0.5s of another approved cue).
+   * (in-scene timing, at least `CUE_MIN_DURATION_SEC` on screen,
+   * title/subtitle length, valid template/placement, no crowding within 0.5s
+   * of another approved cue). A cue held only by a WARNING — a long hold, or
+   * sitting in caption territory — is approved, because a warning is a note
+   * about taste, never a structural failure.
    * A cue that fails any of those stays `proposed` instead of being silently
    * dropped; see `auto_approval_holds`. This never weakens a structural
    * rule — see `autoApproveEligibleCues` and `assertContextualCueReadiness`.
@@ -4073,6 +4100,14 @@ export interface ContextualCueProposalSettings {
   model: string
   density: ContextualCueDensity
   placement: ContextualCuePlacement
+  /**
+   * Default precise anchor stamped onto every cue a proposal creates, exactly
+   * as `placement` already is. This is how "keep labels off my logo" is said
+   * once instead of per cue; a reviewer can still drag any single cue
+   * afterwards. Unset means new cues carry only their corner.
+   */
+  position_x_pct?: number | null
+  position_y_pct?: number | null
   /**
    * Explicit opt-in for trusted presets, remembered per browser/preset —
    * independent from the persisted project default `auto_approve_cues`

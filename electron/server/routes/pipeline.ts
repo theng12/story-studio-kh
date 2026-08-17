@@ -33,6 +33,7 @@ import {
   providerForResearchMode,
 } from '../services/research/index.js'
 import { normalizeDomainList } from '../services/research/web-capability.js'
+import { normalizeCuePlacement, normalizeCuePositionPair } from '../services/contextual-cues.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { SCENE_IMAGES_SUBFOLDER, resolveSceneImagesDir } from '../generators/scene-image.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
@@ -852,11 +853,17 @@ export function resolveStepParams(
     }
   }
   if (step === 'contextual_cues') {
+    // Batch runs read the same saved preset the Contextual Cues page writes,
+    // so this has to accept everything that page can now save. While it
+    // collapsed the two bottom corners to 'top-right', a preset placing cues
+    // at the bottom worked by hand and silently moved back to the top the
+    // moment it was run from Pipeline.
     return {
       episode_id: episodeId,
       model: typeof data.model === 'string' ? data.model : '',
       density: data.density === 'standard' || data.density === 'editorial' ? data.density : 'restrained',
-      placement: data.placement === 'top-left' ? 'top-left' : 'top-right',
+      placement: normalizeCuePlacement(data.placement),
+      ...normalizeCuePositionPair(data.position_x_pct, data.position_y_pct),
       auto_approve: data.auto_approve === true,
     }
   }

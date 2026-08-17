@@ -46,10 +46,12 @@
         <h2>Approve cues automatically</h2>
         <p>
           Every cue still has to pass the exact same structural checks as manual review — inside its scene,
-          2.25–4.5 seconds readable, no crowding within 0.5s of another approved cue, valid treatment and
-          placement. This never skips those checks; it only skips waiting for you once a preset has earned
-          your trust. Run proposals manually a few times first — anything that fails a check is held back
-          here with the reason, never silently dropped, so you can approve or exclude it yourself.
+          on screen long enough to read, no crowding within 0.5s of another approved cue, valid treatment
+          and placement. This never skips those checks; it only skips waiting for you once a preset has
+          earned your trust. Run proposals manually a few times first — anything that fails a check is held
+          back here with the reason, never silently dropped, so you can approve or exclude it yourself.
+          Notes about a long hold or a label low in the frame are advice, not failures, and never hold a
+          cue back.
         </p>
       </div>
       <label class="cue-switch">
@@ -75,10 +77,53 @@
         </label>
         <label>Default corner
           <select v-model="form.placement" class="select">
-            <option value="top-right">Top right</option>
-            <option value="top-left">Top left</option>
+            <option v-for="corner in CORNERS" :key="corner" :value="corner">{{ cornerLabel(corner) }}</option>
           </select>
         </label>
+        <div class="cue-default-position">
+          <div class="cue-default-position-copy">
+            <strong>Default position</strong>
+            <p class="text-muted text-xs">
+              Drag to place new cues precisely instead of in a corner — useful when a channel logo
+              always sits in the same place. Every cue a proposal creates starts here; you can still
+              move any single cue afterwards.
+            </p>
+            <button
+              v-if="form.position_x_pct !== null && form.position_y_pct !== null"
+              type="button"
+              class="btn btn-sm btn-secondary"
+              @click="form.position_x_pct = null; form.position_y_pct = null"
+            >Use the corner instead</button>
+          </div>
+          <div
+            class="cue-frame cue-frame-default"
+            role="application"
+            aria-label="Default contextual cue position"
+            @pointerdown="startDefaultDrag"
+            @pointermove="moveDefaultDrag"
+            @pointerup="stopCueDrag"
+            @pointercancel="stopCueDrag"
+          >
+            <div class="cue-safe-boundary" :style="safeBoundaryStyle" />
+            <span class="cue-frame-chip" :style="cueChipStyle(form as any)">Cue</span>
+          </div>
+          <div class="cue-axis-fields">
+            <label>Across ({{ cuePosition(form as any).xPct.toFixed(0) }}%)
+              <input
+                type="range" :min="CUE_SAFE_MARGIN_PCT" :max="100 - CUE_SAFE_MARGIN_PCT" step="0.5"
+                :value="cuePosition(form as any).xPct"
+                @input="setDefaultAxis('x', Number(($event.target as HTMLInputElement).value))"
+              />
+            </label>
+            <label>Down ({{ cuePosition(form as any).yPct.toFixed(0) }}%)
+              <input
+                type="range" :min="CUE_SAFE_MARGIN_PCT" :max="100 - CUE_SAFE_MARGIN_PCT" step="0.5"
+                :value="cuePosition(form as any).yPct"
+                @input="setDefaultAxis('y', Number(($event.target as HTMLInputElement).value))"
+              />
+            </label>
+          </div>
+        </div>
         <label class="cue-auto-approve">
           <input v-model="form.auto_approve" type="checkbox" />
           <span><strong>Auto-approve safe proposals</strong><small>Off by default. Use only after you trust this preset; Pipeline can then continue automatically.</small></span>
@@ -103,8 +148,8 @@
         during the last automatic pass and stayed in review instead of being approved — see the reason marked on
         each cue below. This episode will render without them until you approve or exclude them yourself.
       </WorkspaceNotice>
-      <WorkspaceNotice v-else-if="validation.length" tone="warning" title="Resolve these cues before Video Assembly">
-        {{ validation[0]?.detail }}
+      <WorkspaceNotice v-else-if="blockingValidation.length" tone="warning" title="Resolve these cues before Video Assembly">
+        {{ blockingValidation[0]?.detail }}
       </WorkspaceNotice>
       <WorkspaceNotice v-else-if="timeline && !proposedCount" tone="success" title="Cue timeline ready">
         Every cue is resolved. Approved cues will render exactly as reviewed; disabled cues will not render.
@@ -133,14 +178,32 @@
           <p v-if="holdReasons.get(cue.id)?.length" class="cue-hold-reason">
             Held back from auto-approval: {{ holdReasons.get(cue.id)!.join('; ') }}
           </p>
+          <p v-if="cueWarnings.get(cue.id)?.length" class="cue-warning">
+            {{ cueWarnings.get(cue.id)!.join(' ') }}
+          </p>
           <div class="cue-time">{{ time(cue.start_sec) }}–{{ time(cue.end_sec) }}</div>
-          <div class="cue-preview" :class="`preview-${cue.template}`" aria-label="Cue treatment preview">
-            <span v-if="cue.template === 'map-pin'" class="cue-preview-pin">●</span>
-            <span v-else-if="cue.template === 'archival-caption'" class="cue-preview-kicker">ARCHIVE</span>
-            <span v-else-if="cue.template === 'chapter-plate'" class="cue-preview-kicker">CHAPTER</span>
-            <span v-else class="cue-preview-kicker">CONTEXT</span>
-            <strong>{{ cue.title || 'Cue title' }}</strong>
-            <small v-if="cue.subtitle">{{ cue.subtitle }}</small>
+          <!-- The frame preview IS the position control: drag the label to
+               place it. It draws each cue where the renderer will draw it,
+               which is also the first time this preview has shown placement
+               at all rather than treatment alone. -->
+          <div
+            class="cue-frame"
+            role="application"
+            :aria-label="`Position for ${cue.title || 'this cue'}`"
+            @pointerdown="startCueDrag(cue, $event)"
+            @pointermove="moveCueDrag(cue, $event)"
+            @pointerup="stopCueDrag"
+            @pointercancel="stopCueDrag"
+          >
+            <div class="cue-safe-boundary" :style="safeBoundaryStyle" />
+            <div class="cue-preview" :class="`preview-${cue.template}`" :style="cueChipStyle(cue)">
+              <span v-if="cue.template === 'map-pin'" class="cue-preview-pin">●</span>
+              <span v-else-if="cue.template === 'archival-caption'" class="cue-preview-kicker">ARCHIVE</span>
+              <span v-else-if="cue.template === 'chapter-plate'" class="cue-preview-kicker">CHAPTER</span>
+              <span v-else class="cue-preview-kicker">CONTEXT</span>
+              <strong>{{ cue.title || 'Cue title' }}</strong>
+              <small v-if="cue.subtitle">{{ cue.subtitle }}</small>
+            </div>
           </div>
           <div class="cue-fields">
             <input v-model="cue.title" class="input" maxlength="80" placeholder="Main label" @input="dirty = true" />
@@ -148,10 +211,40 @@
             <div class="cue-meta">
               <select v-model="cue.kind" class="select select-sm" @change="dirty = true"><option value="location_date">Location / date</option><option value="historical_context">Historical context</option><option value="person">Person</option><option value="chapter">Chapter</option></select>
               <select v-model="cue.template" class="select select-sm" @change="dirty = true"><option value="documentary-label">Documentary label</option><option value="map-pin">Location pin</option><option value="archival-caption">Archival caption</option><option value="chapter-plate">Chapter plate</option></select>
-              <select v-model="cue.placement" class="select select-sm" @change="dirty = true"><option value="top-right">Top right</option><option value="top-left">Top left</option></select>
+              <select
+                class="select select-sm"
+                :value="hasPreciseCuePosition(cue) ? '' : cue.placement"
+                :title="ignoresCorner(cue) ? 'A chapter plate is drawn centred, so the corner does not move it. Drag the preview to place it precisely.' : 'Quick corner preset'"
+                @change="useCueCorner(cue, ($event.target as HTMLSelectElement).value as any)"
+              >
+                <option v-if="hasPreciseCuePosition(cue)" value="" disabled>Placed by hand</option>
+                <option v-for="corner in CORNERS" :key="corner" :value="corner">{{ cornerLabel(corner) }}</option>
+              </select>
               <select class="select select-sm" :value="cue.entrance" @change="setTransition(cue, ($event.target as HTMLSelectElement).value)"><option value="fade">Fade</option><option value="dissolve">Dissolve</option><option value="slide">Slide</option></select>
               <label>Start <input v-model.number="cue.start_sec" class="input input-time" type="number" step="0.1" @input="dirty = true" /></label>
               <label>End <input v-model.number="cue.end_sec" class="input input-time" type="number" step="0.1" @input="dirty = true" /></label>
+              <!-- Keyboard path for the drag pad above, exactly as the
+                   subtitle picker pairs its pad with plain range inputs. -->
+              <label>Across
+                <input
+                  class="input input-time" type="number" :min="CUE_SAFE_MARGIN_PCT" :max="100 - CUE_SAFE_MARGIN_PCT" step="0.5"
+                  :value="cuePosition(cue).xPct"
+                  @input="setCueAxis(cue, 'x', Number(($event.target as HTMLInputElement).value))"
+                />
+              </label>
+              <label>Down
+                <input
+                  class="input input-time" type="number" :min="CUE_SAFE_MARGIN_PCT" :max="100 - CUE_SAFE_MARGIN_PCT" step="0.5"
+                  :value="cuePosition(cue).yPct"
+                  @input="setCueAxis(cue, 'y', Number(($event.target as HTMLInputElement).value))"
+                />
+              </label>
+              <button
+                v-if="hasPreciseCuePosition(cue)"
+                class="btn btn-sm btn-secondary"
+                title="Apply this cue's position to every other cue on this episode"
+                @click="applyPositionToAll(cue)"
+              >Use everywhere</button>
             </div>
           </div>
           <div class="cue-actions">
@@ -177,17 +270,37 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { cuesAwaitingApproval } from '../../../utils/contextual-cues.js'
+import {
+  CONTEXTUAL_CUE_CORNERS,
+  CONTEXTUAL_CUE_CORNER_LABELS,
+  CUE_SAFE_MARGIN_PCT,
+  clampCuePct,
+  hasPreciseCuePosition,
+  isContextualCueCorner,
+  nearestCueCorner,
+  resolveContextualCuePosition,
+  type ContextualCueCorner,
+} from '@shared/contextual-cue-position'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Contextual Cues')
 
 type Cue = {
   id: string; scene_id: string; start_sec: number; end_sec: number; title: string; subtitle?: string
-  kind: 'location_date' | 'historical_context' | 'person' | 'chapter'; placement: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  kind: 'location_date' | 'historical_context' | 'person' | 'chapter'; placement: ContextualCueCorner
+  position_x_pct?: number | null; position_y_pct?: number | null
   template: 'documentary-label' | 'map-pin' | 'archival-caption' | 'chapter-plate'; entrance: 'fade' | 'slide' | 'dissolve'; exit: 'fade' | 'slide' | 'dissolve'; status: 'proposed' | 'approved' | 'disabled'; created_at: string; updated_at: string
 }
 type CueConfig = { enabled: boolean; auto_approve_cues: boolean }
-type CueProposalForm = { model: string; density: 'restrained' | 'standard' | 'editorial'; placement: 'top-left' | 'top-right'; auto_approve: boolean }
+type CueProposalForm = {
+  model: string
+  density: 'restrained' | 'standard' | 'editorial'
+  /** All four corners — see `@shared/contextual-cue-position`. */
+  placement: ContextualCueCorner
+  position_x_pct?: number | null
+  position_y_pct?: number | null
+  auto_approve: boolean
+}
 type AutoApprovalHold = { cue_id: string; reasons: string[] }
 type Timeline = { schema_version: 1; generated_at: string; source_scene_plan_generated_at: string; cues: Cue[]; auto_approval_holds?: AutoApprovalHold[] }
 type ProposalProgress = { total_scenes: number; total_batches: number; completed_batches: Array<{ scene_ids: string[] }>; provisional_cues?: Cue[] }
@@ -199,11 +312,11 @@ const { success, error: showError } = useToast()
 const { isJobActiveFor } = useJobs()
 const episodeId = ref('')
 const config = ref<CueConfig>({ enabled: false, auto_approve_cues: false })
-const form = ref<CueProposalForm>({ model: '', density: 'restrained', placement: 'top-right', auto_approve: false })
-useRememberedForm('contextual-cues', slug, form, { include: ['model', 'density', 'placement', 'auto_approve'], version: 1 })
+const form = ref<CueProposalForm>({ model: '', density: 'restrained', placement: 'top-right', position_x_pct: null, position_y_pct: null, auto_approve: false })
+useRememberedForm('contextual-cues', slug, form, { include: ['model', 'density', 'placement', 'position_x_pct', 'position_y_pct', 'auto_approve'], version: 1 })
 const timeline = ref<Timeline | null>(null)
 const proposalProgress = ref<ProposalProgress | null>(null)
-const validation = ref<Array<{ cue_id?: string; detail: string }>>([])
+const validation = ref<Array<{ cue_id?: string; detail: string; severity?: 'error' | 'warning' }>>([])
 const loadError = ref('')
 const proposing = ref(false)
 const saving = ref(false)
@@ -231,6 +344,140 @@ const proposalStatus = computed(() => {
 
 function time(value: number): string { const minutes = Math.floor(value / 60); const seconds = Math.floor(value % 60); return `${minutes}:${String(seconds).padStart(2, '0')}` }
 function setStatus(cue: Cue, status: Cue['status']): void { cue.status = status; dirty.value = true }
+
+// ── Placement ───────────────────────────────────────────────────────────────
+//
+// The four corners stay one-click presets; dragging the frame preview sets a
+// precise anchor that overrides the corner. Every interaction funnels through
+// `setCuePosition`/`useCueCorner` so the two can never disagree — the same
+// single-setter discipline `SubtitleStylePicker` uses for captions.
+//
+// Geometry itself is imported, never re-derived here: the preview has to draw
+// each label exactly where FFmpeg will, and a preview that lies is worse than
+// no preview at all.
+
+const CORNERS = CONTEXTUAL_CUE_CORNERS
+const cornerLabel = (corner: ContextualCueCorner): string => CONTEXTUAL_CUE_CORNER_LABELS[corner]
+
+/** Where this cue will actually be drawn, corner or precise anchor alike. */
+function cuePosition(cue: Pick<Cue, 'placement' | 'position_x_pct' | 'position_y_pct'>) {
+  return resolveContextualCuePosition(cue)
+}
+
+/**
+ * A chapter plate is a centred title card and ignores the corner preset, as it
+ * always has. Saying so on the row keeps the corner menu from looking broken.
+ */
+const ignoresCorner = (cue: Cue): boolean => cue.template === 'chapter-plate' && !hasPreciseCuePosition(cue)
+
+function setCuePosition(cue: Cue, xPct: number, yPct: number): void {
+  cue.position_x_pct = Number(clampCuePct(xPct).toFixed(1))
+  cue.position_y_pct = Number(clampCuePct(yPct).toFixed(1))
+  // Keep the stored corner honest, so a cue that later drops its precise
+  // anchor falls back to the corner it was nearest rather than the one it
+  // happened to be proposed with.
+  cue.placement = nearestCueCorner(cue.position_x_pct, cue.position_y_pct)
+  dirty.value = true
+}
+
+/** Back to a plain corner preset — the precise anchor is dropped, not hidden. */
+function useCueCorner(cue: Cue, corner: ContextualCueCorner): void {
+  cue.placement = corner
+  cue.position_x_pct = null
+  cue.position_y_pct = null
+  dirty.value = true
+}
+
+function setCueAxis(cue: Cue, axis: 'x' | 'y', value: number): void {
+  const current = cuePosition(cue)
+  setCuePosition(cue, axis === 'x' ? value : current.xPct, axis === 'y' ? value : current.yPct)
+}
+
+const draggingCueId = ref('')
+function positionFromPointer(cue: Cue, event: PointerEvent): void {
+  const target = event.currentTarget as HTMLElement | null
+  const rect = target?.getBoundingClientRect()
+  if (!rect?.width || !rect.height) return
+  setCuePosition(cue, ((event.clientX - rect.left) / rect.width) * 100, ((event.clientY - rect.top) / rect.height) * 100)
+}
+function startCueDrag(cue: Cue, event: PointerEvent): void {
+  draggingCueId.value = cue.id
+  ;(event.currentTarget as HTMLElement | null)?.setPointerCapture(event.pointerId)
+  positionFromPointer(cue, event)
+}
+function moveCueDrag(cue: Cue, event: PointerEvent): void {
+  if (draggingCueId.value === cue.id) positionFromPointer(cue, event)
+}
+function stopCueDrag(event: PointerEvent): void {
+  draggingCueId.value = ''
+  const target = event.currentTarget as HTMLElement | null
+  if (target?.hasPointerCapture(event.pointerId)) target.releasePointerCapture(event.pointerId)
+}
+
+// The proposal form carries the same two fields as a cue, so the default pad
+// reuses the same geometry — it just has no `dirty` flag to raise.
+function setDefaultPosition(xPct: number, yPct: number): void {
+  form.value.position_x_pct = Number(clampCuePct(xPct).toFixed(1))
+  form.value.position_y_pct = Number(clampCuePct(yPct).toFixed(1))
+  form.value.placement = nearestCueCorner(form.value.position_x_pct, form.value.position_y_pct)
+}
+function setDefaultAxis(axis: 'x' | 'y', value: number): void {
+  const current = cuePosition(form.value as any)
+  setDefaultPosition(axis === 'x' ? value : current.xPct, axis === 'y' ? value : current.yPct)
+}
+function defaultFromPointer(event: PointerEvent): void {
+  const rect = (event.currentTarget as HTMLElement | null)?.getBoundingClientRect()
+  if (!rect?.width || !rect.height) return
+  setDefaultPosition(((event.clientX - rect.left) / rect.width) * 100, ((event.clientY - rect.top) / rect.height) * 100)
+}
+function startDefaultDrag(event: PointerEvent): void {
+  draggingCueId.value = '__default__'
+  ;(event.currentTarget as HTMLElement | null)?.setPointerCapture(event.pointerId)
+  defaultFromPointer(event)
+}
+function moveDefaultDrag(event: PointerEvent): void {
+  if (draggingCueId.value === '__default__') defaultFromPointer(event)
+}
+
+/** Inline style putting the preview label where the render will put it. */
+function cueChipStyle(cue: Pick<Cue, 'placement' | 'position_x_pct' | 'position_y_pct'>) {
+  const { xPct, yPct } = cuePosition(cue)
+  // Anchor at the outer thirds, mirroring `customAxis` in the renderer, so the
+  // chip grows away from the edge exactly as the drawn label does.
+  const tx = xPct <= 33 ? '0%' : xPct >= 67 ? '-100%' : '-50%'
+  const ty = yPct <= 33 ? '0%' : yPct >= 67 ? '-100%' : '-50%'
+  return { left: `${xPct}%`, top: `${yPct}%`, transform: `translate(${tx}, ${ty})` }
+}
+const safeBoundaryStyle = { inset: `${CUE_SAFE_MARGIN_PCT}%` }
+
+/**
+ * Put every cue where this one sits. Explicit, named with its count, and it
+ * only marks the form dirty — Save changes stays the single write path, so
+ * nothing on disk moves until the customer says so.
+ */
+function applyPositionToAll(source: Cue): void {
+  const cues = timeline.value?.cues || []
+  const { xPct, yPct } = cuePosition(source)
+  const custom = hasPreciseCuePosition(source)
+  for (const cue of cues) {
+    if (cue.id === source.id) continue
+    if (custom) setCuePosition(cue, xPct, yPct)
+    else useCueCorner(cue, source.placement)
+  }
+  dirty.value = true
+  success(`Moved ${cues.length - 1} other cue${cues.length === 2 ? '' : 's'} to match. Click Save changes to keep this.`)
+}
+
+/** Warnings never block; they are shown beside the cue they belong to. */
+const cueWarnings = computed(() => {
+  const map = new Map<string, string[]>()
+  for (const issue of validation.value) {
+    if (issue.severity !== 'warning' || !issue.cue_id) continue
+    map.set(issue.cue_id, [...(map.get(issue.cue_id) || []), issue.detail])
+  }
+  return map
+})
+const blockingValidation = computed(() => validation.value.filter(issue => issue.severity !== 'warning'))
 /**
  * v1.2.6 — approve every cue still awaiting review, in one click.
  *
@@ -302,7 +549,14 @@ const cuePresets = usePresets<CueProposalForm>({
   apply: (data) => {
     if (typeof data?.model === 'string') form.value.model = data.model
     if (data?.density === 'restrained' || data?.density === 'standard' || data?.density === 'editorial') form.value.density = data.density
-    if (data?.placement === 'top-left' || data?.placement === 'top-right') form.value.placement = data.placement
+    // All four corners. While this accepted only the two top ones, a preset
+    // that stored a bottom corner silently lost it on every apply.
+    if (isContextualCueCorner(data?.placement)) form.value.placement = data.placement
+    // `typeof`, not `Number(...)` — `Number(null)` is 0, which would restore a
+    // preset that stores no position as one pinned to the top-left corner.
+    const precise = hasPreciseCuePosition(data as any)
+    form.value.position_x_pct = precise ? Number(data.position_x_pct) : null
+    form.value.position_y_pct = precise ? Number(data.position_y_pct) : null
     form.value.auto_approve = data?.auto_approve === true
   },
 })
@@ -316,8 +570,33 @@ onMounted(async () => { await loadConfig(); await cuePresets.load() })
 .section-kicker { display:block; color:var(--accent-gold); text-transform:uppercase; letter-spacing:.09em; font-weight:700; font-size:.72rem; }.cue-switch { display:flex; gap:.55rem; align-items:center; font-weight:700; white-space:nowrap; }.cue-switch input { width:1.2rem; height:1.2rem; accent-color:var(--accent-gold); }
 .cues-auto-command { margin-top:-.3rem; border-left:3px solid var(--accent-gold); }.cues-auto-command .cue-toggle-copy p { max-width:52rem; }
 .cue-hold-reason { grid-column:1/-1; margin:.85rem 0 -.35rem; padding:.5rem .7rem; color:var(--text-primary); background:color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); border:1px solid color-mix(in srgb, var(--warning) 42%, var(--border)); border-radius:.35rem; font-size:.8rem; line-height:1.4; }
+/* Advisory only — deliberately quieter than .cue-hold-reason, which marks a
+   cue that is actually held back. A note the customer may ignore must not
+   look like one they must act on. */
+.cue-warning { grid-column:1/-1; margin:.85rem 0 -.35rem; padding:.4rem .7rem; color:var(--text-muted); background:var(--bg-secondary); border-left:2px solid color-mix(in srgb, var(--warning) 55%, var(--border)); border-radius:.25rem; font-size:var(--font-xs); line-height:1.45; }
+/* The frame preview doubles as the position pad. 16:9 so the label sits where
+   it will sit on the delivered video, not on an arbitrary rectangle. */
+.cue-frame { position:relative; aspect-ratio:16/9; background:#0b1220; border:1px solid #364152; border-radius:.45rem; overflow:hidden; cursor:crosshair; touch-action:none; }
+.cue-safe-boundary { position:absolute; border:1px dashed color-mix(in srgb, var(--accent-gold) 38%, transparent); border-radius:.25rem; pointer-events:none; }
+/* The chip must read as a LABEL SITTING SOMEWHERE, not as the panel itself.
+   At full size it filled most of the miniature and a bottom-anchored one
+   overflowed and was clipped, so the very thing this control exists to show —
+   position — was the thing you could not see. Held to a fraction of the frame
+   and shrunk to match. */
+.cue-frame .cue-preview { position:absolute; max-width:64%; max-height:62%; min-height:0; gap:0; padding:.2rem .3rem; border-radius:.2rem; overflow:hidden; pointer-events:none; }
+.cue-frame .cue-preview strong { font-size:.62rem; line-height:1.1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cue-frame .cue-preview small,.cue-frame .cue-preview-kicker { font-size:.5rem; line-height:1.15; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cue-frame .cue-preview-pin { font-size:.7rem; }
+.cue-frame-default { width:12rem; }
+.cue-frame-chip { position:absolute; padding:.2rem .45rem; color:#fff; background:#111827; border:1px solid #364152; border-radius:.25rem; font-size:var(--font-xs); pointer-events:none; }
+.cue-default-position { grid-column:1/-1; display:grid; grid-template-columns:minmax(14rem,1fr) auto auto; gap:1rem; align-items:center; padding:.7rem .8rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:.4rem; }
+.cue-default-position-copy p { margin:.2rem 0 .45rem; }
+.cue-axis-fields { display:grid; gap:.35rem; min-width:9rem; }
+.cue-axis-fields label { display:grid; gap:.15rem; color:var(--text-muted); font-size:var(--font-xs); }
 .cue-settings { display:grid; grid-template-columns:minmax(16rem, .85fr) minmax(30rem, 1.6fr); align-items:end; gap:1.5rem; margin-bottom:1rem; padding:1.25rem 1.5rem; }.cue-settings-controls { display:grid; grid-template-columns:minmax(16rem, 1.6fr) minmax(11rem, 1fr) minmax(9rem, .8fr); gap:1rem; align-items:end; }.cue-settings-controls > label { display:grid; gap:.4rem; color:var(--text-muted); font-size:.82rem; }.cue-auto-approve { grid-column:1/-1; display:flex !important; align-items:flex-start; gap:.55rem; padding:.55rem .65rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:.4rem; }.cue-auto-approve input { margin-top:.14rem; accent-color:var(--accent-gold); }.cue-auto-approve strong,.cue-auto-approve small { display:block; }.cue-auto-approve small { margin-top:.15rem; color:var(--text-muted); line-height:1.35; }
-.cue-list { padding:1.25rem; }.cue-list-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }.cue-list-actions { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }.cue-row { display:grid; grid-template-columns:7.5rem 11rem minmax(20rem,1fr) auto; gap:1rem; padding:1rem 0; border-top:1px solid var(--border-color); }.cue-row.is-approved { border-left:3px solid var(--success); padding-left:.75rem; }.cue-row.is-disabled { opacity:.55; }.cue-time { color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; padding-top:.55rem; }.cue-preview { min-height:4.8rem; display:flex; flex-direction:column; justify-content:center; gap:.13rem; padding:.65rem .8rem; color:#fff; background:#111827; border:1px solid #364152; border-radius:.45rem; overflow:hidden; }.cue-preview strong { font-size:.78rem; line-height:1.15; }.cue-preview small,.cue-preview-kicker { color:#b6c0d1; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; }.cue-preview-pin { color:#f4c75d; font-size:1rem; line-height:.7; }.preview-map-pin { border-left:3px solid #f4c75d; }.preview-archival-caption { color:#f4ead1; background:#2c211b; border-color:#66513f; font-family:Georgia,serif; }.preview-chapter-plate { text-align:center; background:linear-gradient(135deg,#111827,#2b3445); }.cue-fields { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }.cue-meta { grid-column:1/-1; display:flex; gap:.55rem; align-items:center; flex-wrap:wrap; }.cue-meta label { display:flex; gap:.3rem; align-items:center; color:var(--text-muted); font-size:.78rem; }.input-time { width:5.5rem; }.cue-actions { display:flex; gap:.4rem; align-items:start; }.is-active { outline:1px solid var(--accent-gold); }
+.cue-list { padding:1.25rem; }.cue-list-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }.cue-list-actions { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }/* The placement column is wider than the old 11rem preview: it now has to
+   show WHERE a label sits, which needs frame around the label to sit in. */
+.cue-row { display:grid; grid-template-columns:7.5rem 15rem minmax(20rem,1fr) auto; gap:1rem; padding:1rem 0; border-top:1px solid var(--border-color); }.cue-row.is-approved { border-left:3px solid var(--success); padding-left:.75rem; }.cue-row.is-disabled { opacity:.55; }.cue-time { color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; padding-top:.55rem; }.cue-preview { min-height:4.8rem; display:flex; flex-direction:column; justify-content:center; gap:.13rem; padding:.65rem .8rem; color:#fff; background:#111827; border:1px solid #364152; border-radius:.45rem; overflow:hidden; }.cue-preview strong { font-size:.78rem; line-height:1.15; }.cue-preview small,.cue-preview-kicker { color:#b6c0d1; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; }.cue-preview-pin { color:#f4c75d; font-size:1rem; line-height:.7; }.preview-map-pin { border-left:3px solid #f4c75d; }.preview-archival-caption { color:#f4ead1; background:#2c211b; border-color:#66513f; font-family:Georgia,serif; }.preview-chapter-plate { text-align:center; background:linear-gradient(135deg,#111827,#2b3445); }.cue-fields { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }.cue-meta { grid-column:1/-1; display:flex; gap:.55rem; align-items:center; flex-wrap:wrap; }.cue-meta label { display:flex; gap:.3rem; align-items:center; color:var(--text-muted); font-size:.78rem; }.input-time { width:5.5rem; }.cue-actions { display:flex; gap:.4rem; align-items:start; }.is-active { outline:1px solid var(--accent-gold); }
 @media (max-width:980px) { .cue-settings,.cue-settings-controls { grid-template-columns:1fr; } }
 @media (max-width:1000px) { .cue-row { grid-template-columns:7.5rem 1fr auto; }.cue-preview { grid-column:2; } }
 @media (max-width:800px) { .cues-command { align-items:stretch; flex-direction:column; }.cue-row { grid-template-columns:1fr; }.cue-preview { grid-column:auto; }.cue-fields { grid-template-columns:1fr; }.cue-actions { justify-content:flex-start; } }

@@ -15,6 +15,8 @@ import { requireJobCompletion } from '../services/job-completion.js'
 import {
   autoApproveEligibleCues,
   contextualCueProgressFingerprint,
+  CUE_MIN_DURATION_SEC,
+  normalizeCuePositionPair,
   isReleasedContextualCueBackpressure,
   normalizeContextualCueConfig,
   readContextualCueProgress,
@@ -29,7 +31,7 @@ import {
   type ContextualCueProgress,
 } from '../services/contextual-cues.js'
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
-import type { ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan } from '../models/types.js'
+import type { ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueProposalSettings, ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan } from '../models/types.js'
 import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
 import { GenStudioChatTerminalFailureError, genStudioAdmissionSnapshot, listChatModels } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
@@ -73,7 +75,12 @@ function safeCandidate(
   candidate: CueCandidate,
   plan: ScenePlan,
   density: 'restrained' | 'standard' | 'editorial',
-  placement: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
+  /**
+   * The reviewer's saved default placement, stamped onto every proposal
+   * exactly as the corner always has been — which is how "keep labels off my
+   * logo" is said once for a whole project instead of dragged cue by cue.
+   */
+  defaults: Pick<ContextualCueProposalSettings, 'placement' | 'position_x_pct' | 'position_y_pct'>,
   now: string,
 ): ContextualCue | null {
   const scene = plan.scenes.find(row => row.id === candidate.scene_id)
@@ -82,8 +89,11 @@ function safeCandidate(
   const subtitle = candidate.subtitle?.trim().replace(/\s+/g, ' ').slice(0, 100) || undefined
   if (!title) return null
   const sceneDuration = scene.end_sec - scene.start_sec
-  if (sceneDuration < 2.25) return null
-  const dwell = Math.min(density === 'editorial' ? 4 : 3.5, 4.5, sceneDuration)
+  if (sceneDuration < CUE_MIN_DURATION_SEC) return null
+  // An editorial default for a freshly proposed cue, not a limit. The
+  // validator's own ceiling is advisory and far higher; a reviewer is free to
+  // stretch any of these afterwards.
+  const dwell = Math.min(density === 'editorial' ? 4 : 3.5, sceneDuration)
   const offset = Math.max(0, Math.min(sceneDuration - dwell, Number(candidate.anchor_offset_sec) || 0.15))
   const start = Number((scene.start_sec + offset).toFixed(3))
   const end = Number((start + dwell).toFixed(3))
@@ -108,7 +118,8 @@ function safeCandidate(
     title,
     ...(subtitle ? { subtitle } : {}),
     kind,
-    placement,
+    placement: defaults.placement,
+    ...normalizeCuePositionPair(defaults.position_x_pct, defaults.position_y_pct),
     template,
     entrance: 'fade',
     exit: 'dissolve',
@@ -241,7 +252,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
       ...progress,
       completed_batches: [...completed.values()].sort((a, b) => a.index - b.index),
       provisional_cues: applySafePacing(
-        candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings.placement, new Date().toISOString())).filter((cue): cue is ContextualCue => !!cue),
+        candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings, new Date().toISOString())).filter((cue): cue is ContextualCue => !!cue),
         settings.density,
         plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0,
       ),
@@ -255,7 +266,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
   }
   const now = new Date().toISOString()
   let proposed = applySafePacing(
-    candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings.placement, now)).filter((cue): cue is ContextualCue => !!cue),
+    candidates.map(candidate => safeCandidate(candidate, plan, settings.density, settings, now)).filter((cue): cue is ContextualCue => !!cue),
     settings.density,
     plan.total_duration_sec || plan.scenes[plan.scenes.length - 1]?.end_sec || 0,
   )

@@ -27,6 +27,18 @@ const plan = {
   ],
 } as any
 
+/**
+ * A plan with one long scene, so a cue can legitimately be held past the ~12s
+ * advisory without falling outside the scene it belongs to. Both rules are
+ * live at once and this keeps them from being confused for each other.
+ */
+const planWithLongScene = {
+  generated_at: '2026-07-26T00:00:00.000Z',
+  scenes: [
+    { id: 'scene-3', scene_index: 1, start_sec: 12, end_sec: 30, transcript_segment: '', visual_prompt: '' },
+  ],
+} as any
+
 function cue(overrides: Record<string, unknown> = {}) {
   return {
     id: 'cue-scene-1', scene_id: 'scene-1', start_sec: 0.2, end_sec: 3.5,
@@ -105,13 +117,46 @@ describe('Contextual Cues contract', () => {
 
   test('proposal controls use their own safe defaults instead of Scene Plan settings', () => {
     assert.deepEqual(normalizeContextualCueProposalSettings(undefined), {
-      model: '', density: 'restrained', placement: 'top-right', auto_approve: false,
+      model: '', density: 'restrained', placement: 'top-right',
+      position_x_pct: null, position_y_pct: null, auto_approve: false,
     })
     assert.deepEqual(normalizeContextualCueProposalSettings({
       model: 'genstudio-current-text', density: 'editorial', placement: 'top-left', auto_approve: true,
     }), {
-      model: 'genstudio-current-text', density: 'editorial', placement: 'top-left', auto_approve: true,
+      model: 'genstudio-current-text', density: 'editorial', placement: 'top-left',
+      position_x_pct: null, position_y_pct: null, auto_approve: true,
     })
+  })
+
+  /**
+   * Rewritten for v1.3.0, not added alongside the old assertion.
+   *
+   * Until v1.3.0 this normaliser collapsed anything that was not 'top-left'
+   * to 'top-right', and a test asserted that it did. Between them they made a
+   * fully implemented four-corner feature reachable in two corners only — the
+   * customer whose channel logo sits in a top corner had labels drawn over it
+   * with no way to move them. The old narrowing was never an owner decision;
+   * it arrived in the feature's first commit with no reasoning recorded.
+   */
+  test('every corner survives the proposal normaliser, not just the two top ones', () => {
+    for (const placement of ['top-left', 'top-right', 'bottom-left', 'bottom-right'] as const) {
+      assert.equal(normalizeContextualCueProposalSettings({ placement }).placement, placement)
+    }
+    assert.equal(normalizeContextualCueProposalSettings({ placement: 'middle' }).placement, 'top-right')
+  })
+
+  test('a precise default anchor is kept only when both axes are given', () => {
+    const both = normalizeContextualCueProposalSettings({ position_x_pct: 22, position_y_pct: 71 })
+    assert.equal(both.position_x_pct, 22)
+    assert.equal(both.position_y_pct, 71)
+    // Half an anchor is not a position — honouring it would slide a label on
+    // one axis and leave the other wherever it happened to be.
+    const half = normalizeContextualCueProposalSettings({ position_x_pct: 22 })
+    assert.equal(half.position_x_pct, null)
+    assert.equal(half.position_y_pct, null)
+    const outOfRange = normalizeContextualCueProposalSettings({ position_x_pct: 140, position_y_pct: 50 })
+    assert.equal(outOfRange.position_x_pct, null)
+    assert.equal(outOfRange.position_y_pct, null)
   })
 
   test('enabled projects reject unresolved proposals before assembly', () => {
@@ -119,14 +164,51 @@ describe('Contextual Cues contract', () => {
     assert.throws(() => assertContextualCueReadiness({ enabled: true, auto_approve_cues: false }, timeline, plan), /needs review/i)
   })
 
-  test('pacing validator rejects overlap and subtitle-region collision', () => {
+  /**
+   * Rewritten for v1.3.0. Crowding is unchanged and still an error; the
+   * caption-region rule changed force and basis, deliberately.
+   *
+   * It used to REFUSE any bottom-corner cue whenever subtitles were enabled.
+   * That made "put the label at the bottom" impossible for anyone burning in
+   * captions — nearly everyone — so unlocking the bottom corners in the UI
+   * alone would only have moved the dead end to render time. It is now a
+   * warning, and it asks where the cue actually LANDS rather than which corner
+   * it happens to name, so a precisely placed cue in the middle of the frame
+   * is not accused of colliding with captions at the bottom of it.
+   */
+  test('crowding still fails, while a caption-region cue only warns', () => {
     const timeline = {
       schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
       cues: [cue({ placement: 'bottom-right' }), cue({ id: 'cue-scene-2', scene_id: 'scene-2', start_sec: 3.8, end_sec: 7, title: 'Next' })],
     } as any
     const issues = validateContextualCueTimeline(timeline, plan, { subtitles: { enabled: true }, requireResolved: true } as any)
-    assert.ok(issues.some(issue => /Bottom-corner/.test(issue.detail)))
-    assert.ok(issues.some(issue => /overlaps or crowds/.test(issue.detail)))
+    const caption = issues.find(issue => /subtitles are drawn/.test(issue.detail))
+    assert.ok(caption, 'a bottom cue under enabled subtitles should still say something')
+    assert.equal(caption!.severity, 'warning', 'it must not block the render')
+    const crowding = issues.find(issue => /overlaps or crowds/.test(issue.detail))
+    assert.ok(crowding, 'crowding is a real defect and stays an error')
+    assert.notEqual(crowding!.severity, 'warning')
+  })
+
+  test('a bottom-corner cue with captions on still renders', () => {
+    const timeline = {
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      cues: [cue({ placement: 'bottom-left' })],
+    } as any
+    const approved = assertContextualCueReadiness(
+      { enabled: true, auto_approve_cues: false }, timeline, plan, { enabled: true } as any,
+    )
+    assert.equal(approved.length, 1, 'the caption warning must not stop assembly')
+  })
+
+  test('a precisely placed cue clear of the caption band says nothing at all', () => {
+    const timeline = {
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at,
+      // Still carries 'bottom-right', but anchored high in the frame.
+      cues: [cue({ placement: 'bottom-right', position_x_pct: 50, position_y_pct: 30 })],
+    } as any
+    const issues = validateContextualCueTimeline(timeline, plan, { subtitles: { enabled: true } } as any)
+    assert.equal(issues.filter(issue => /subtitles are drawn/.test(issue.detail)).length, 0)
   })
 
   test('all reviewed visual treatments are accepted, while unknown treatments are rejected', () => {
@@ -181,17 +263,62 @@ describe('Automatic cue approval (auto_approve_cues)', () => {
     assert.equal(result.cues[0]!.status, 'approved')
   })
 
-  test('holds back a candidate whose duration fails the 2.25–4.5s readability rule', () => {
+  /**
+   * Rewritten for v1.3.0, carrying its reasoning like
+   * `continuityPresetPacing.test.ts` does — this was a decision, not a
+   * regression, and the next reader should be able to see that.
+   *
+   * The rule used to be "2.25–4.5 seconds", both ends a hard refusal, and this
+   * test asserted both ends. The floor survives untouched: a label that
+   * flashes past unread is a defect in the output. The CEILING is gone as a
+   * refusal, because 4.5s is barely a third of the ~12s that the longest label
+   * this same validator accepts (80-char title + 100-char subtitle, at ~15
+   * characters a second) actually needs in order to be read — and because how
+   * long to hold a label is the editor's call about his own film, not the
+   * app's. Reported on Boundful EP0047: "the contextual cue exist but it
+   * disappears too fast."
+   */
+  test('holds back a candidate too brief to read, and only that', () => {
     const tooShort = cue({ id: 'cue-scene-2', scene_id: 'scene-2', start_sec: 6.1, end_sec: 7.1, status: 'proposed' }) // 1.0s
-    const tooLong = cue({ id: 'cue-scene-1', scene_id: 'scene-1', start_sec: 0, end_sec: 5, status: 'proposed' }) // 5.0s
-    for (const candidate of [tooShort, tooLong]) {
-      const result = autoApproveEligibleCues([candidate], [], plan)
-      assert.equal(result.approvedCount, 0)
-      assert.equal(result.cues[0]!.status, 'proposed', 'stays proposed, never silently dropped')
-      assert.equal(result.holds.length, 1)
-      assert.equal(result.holds[0]!.cue_id, candidate.id)
-      assert.ok(/readable for 2\.25.?4\.5 seconds/.test(result.holds[0]!.reasons.join(' ')))
-    }
+    const result = autoApproveEligibleCues([tooShort], [], plan)
+    assert.equal(result.approvedCount, 0)
+    assert.equal(result.cues[0]!.status, 'proposed', 'stays proposed, never silently dropped')
+    assert.equal(result.holds.length, 1)
+    assert.equal(result.holds[0]!.cue_id, tooShort.id)
+    assert.ok(/at least 2\.25 seconds/.test(result.holds[0]!.reasons.join(' ')))
+  })
+
+  test('a cue held longer than the old 4.5s ceiling is approved, not held back', () => {
+    // 5 seconds — refused outright before v1.3.0.
+    const longer = cue({ id: 'cue-scene-1', scene_id: 'scene-1', start_sec: 0, end_sec: 5, status: 'proposed' })
+    const result = autoApproveEligibleCues([longer], [], plan)
+    assert.equal(result.holds.length, 0, 'a readable hold is not a structural failure')
+    assert.equal(result.approvedCount, 1)
+    assert.equal(result.cues[0]!.status, 'approved')
+  })
+
+  test('an unusually long hold warns without blocking anything', () => {
+    // scene-2 spans 6–12s, so a 6s cue fits its scene but passes the ~12s
+    // reading estimate only when stretched; use the full scene to trip it.
+    const held = cue({ id: 'cue-scene-2', scene_id: 'scene-2', start_sec: 6, end_sec: 12, status: 'approved' })
+    const under = validateContextualCueTimeline({
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [held],
+    } as any, plan)
+    assert.equal(under.filter(issue => /holds for/.test(issue.detail)).length, 0, '6s is well inside the advisory')
+
+    const veryLong = cue({ id: 'cue-scene-3', scene_id: 'scene-3', start_sec: 13, end_sec: 27, status: 'approved' })
+    const issues = validateContextualCueTimeline({
+      schema_version: 1, generated_at: '', source_scene_plan_generated_at: plan.generated_at, cues: [veryLong],
+    } as any, planWithLongScene)
+    const note = issues.find(issue => /holds for/.test(issue.detail))
+    assert.ok(note, 'a 14s label should be mentioned')
+    assert.equal(note!.severity, 'warning')
+    // And it must not stop the render.
+    assert.doesNotThrow(() => assertContextualCueReadiness(
+      { enabled: true, auto_approve_cues: false },
+      { schema_version: 1, generated_at: '', source_scene_plan_generated_at: planWithLongScene.generated_at, cues: [veryLong] } as any,
+      planWithLongScene,
+    ))
   })
 
   test('holds back a candidate whose timing falls outside its own scene', () => {

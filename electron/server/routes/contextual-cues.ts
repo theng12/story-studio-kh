@@ -10,6 +10,8 @@ import {
   normalizeContextualCueConfig,
   normalizeContextualCueProposalSettings,
   normalizeContextualCueTemplate,
+  normalizeCuePlacement,
+  normalizeCuePositionPair,
   readContextualCueProgress,
   removeContextualCueProgress,
   readContextualCueTimeline,
@@ -95,7 +97,8 @@ router.put('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
       ...(typeof cue.subtitle === 'string' && cue.subtitle.trim() ? { subtitle: cue.subtitle.trim() } : {}),
       start_sec: Number(cue.start_sec), end_sec: Number(cue.end_sec),
       kind: cue.kind === 'location_date' || cue.kind === 'person' || cue.kind === 'chapter' ? cue.kind : 'historical_context',
-      placement: ['top-left', 'top-right', 'bottom-left', 'bottom-right'].includes(cue.placement) ? cue.placement : 'top-right',
+      placement: normalizeCuePlacement(cue.placement),
+      ...normalizeCuePositionPair(cue.position_x_pct, cue.position_y_pct),
       template: normalizeContextualCueTemplate(cue.template), entrance: cue.entrance === 'slide' || cue.entrance === 'dissolve' ? cue.entrance : 'fade',
       exit: cue.exit === 'slide' || cue.exit === 'dissolve' ? cue.exit : 'fade',
       status: cue.status === 'approved' || cue.status === 'disabled' ? cue.status : 'proposed',
@@ -105,10 +108,14 @@ router.put('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
       schema_version: 1, generated_at: now, source_scene_plan_generated_at: plan.generated_at, cues,
     }
     const issues = validateContextualCueTimeline(timeline, plan)
-    if (issues.length) return res.status(422).json({ detail: 'Cue timeline is not safe to save.', issues })
+    // Only errors refuse the save. A warning is a note for the person editing
+    // — it comes back with the saved timeline so the page can show it, rather
+    // than standing between them and their own work.
+    const blocking = issues.filter(issue => issue.severity !== 'warning')
+    if (blocking.length) return res.status(422).json({ detail: 'Cue timeline is not safe to save.', issues: blocking })
     await writeContextualCueTimeline(path, timeline)
     await removeContextualCueProgress(path)
-    res.json({ timeline, validation: [] })
+    res.json({ timeline, validation: issues })
   } catch (error: any) {
     res.status(400).json({ detail: error?.message || 'Could not save contextual cues.' })
   }

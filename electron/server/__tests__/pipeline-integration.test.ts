@@ -27,12 +27,38 @@ test('Contextual Cues pipeline params preserve the preset review decision', () =
     },
   } as any, null)
   assert.deepEqual(review, {
-    episode_id: 'EP0042', model: 'genstudio-text', density: 'restrained', placement: 'top-right', auto_approve: false,
+    episode_id: 'EP0042', model: 'genstudio-text', density: 'restrained', placement: 'top-right',
+    // v1.3.0 — a preset may now carry a precise default anchor. Absent here,
+    // so it stays null and the corner answers.
+    position_x_pct: null, position_y_pct: null, auto_approve: false,
   })
   const trusted = resolveStepParams('contextual_cues' as any, 'EP0042', 'Berlin story', {
     id: 'cue-auto', name: 'Trusted automated', data: { model: 'genstudio-text', auto_approve: true },
   } as any, null)
   assert.equal(trusted.auto_approve, true)
+})
+
+/**
+ * v1.3.0 regression guard. Pipeline used to collapse anything that was not
+ * 'top-left' to 'top-right' in its own separate copy of that rule, so a preset
+ * placing cues at the bottom worked by hand and silently moved back to the top
+ * the moment the same preset was run as a batch.
+ */
+test('Contextual Cues pipeline params keep a bottom corner and a precise anchor', () => {
+  const bottom = resolveStepParams('contextual_cues' as any, 'EP0042', 'Berlin story', {
+    id: 'cue-bottom', name: 'Below the logo', data: {
+      model: 'genstudio-text', placement: 'bottom-left', auto_approve: false,
+    },
+  } as any, null)
+  assert.equal(bottom.placement, 'bottom-left')
+
+  const placed = resolveStepParams('contextual_cues' as any, 'EP0042', 'Berlin story', {
+    id: 'cue-placed', name: 'Hand placed', data: {
+      model: 'genstudio-text', position_x_pct: 24, position_y_pct: 68, auto_approve: false,
+    },
+  } as any, null)
+  assert.equal(placed.position_x_pct, 24)
+  assert.equal(placed.position_y_pct, 68)
 })
 
 test('subtitles pipeline params preserve the preset language without guessing English', () => {
