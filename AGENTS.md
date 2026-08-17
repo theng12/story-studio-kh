@@ -158,9 +158,51 @@ not a note about one page:
   restored onto a different episode.
 - `pacing` in Character Sheet presets — the customer chose "1–3 seconds", applied a preset to
   set the **art style**, and silently got that preset's rhythm instead. 50 of 53 episodes in a
-  real project ended up at 4–8s, none of it chosen.
+  real project ended up at 4–8s, none of it chosen. **This one incident is superseded — for
+  `pacing` only — by the owner's reversal below. It is kept here because it is still the
+  evidence the other two exclusions stand on, and still the reason this whole section exists.**
 - `references.sheet` in the same presets — ORed into `use_episode_sheet`, so applying any
   preset turned "Use episode anchor" **on**, pointing at a sheet that may not exist.
+
+### Scene rhythm is preset data again — reinstated 2026-08-18
+
+**`pacing` belongs in Character Sheet presets. The owner reversed the 2026-08-03 exclusion
+himself, and this is his call to make.** He was shown the original incident, including the 50
+of 53 episodes, and was offered a safer alternative — a separate, explicit bulk pacing action
+that could never fire as a side effect. He declined it and chose the full reversal: *"Put
+pacing back in presets."*
+
+Do not "fix" this back. If a future reader thinks scene rhythm has wrongly crept into presets,
+that reader is looking at a deliberate 2026-08-18 decision, not at a regression.
+
+The reversal is scoped to `pacing`. Two things did NOT change:
+
+- **`use_episode_sheet` and `sheet` stay excluded.** He asked about rhythm only. Those two
+  carry the separate anchor defect above, and widening the reversal past what he asked for is
+  not licensed by it.
+- The exclusion mechanism itself is unchanged. `usePresets` still strips excluded keys on read
+  as well as write, and stored preset files are still never rewritten.
+
+**The reversal has a mirror-image trap, and it is handled explicitly.** Because `usePresets`
+stripped `pacing` on **save** as well as load, every preset saved between 2026-08-03 and
+2026-08-18 contains no `pacing` at all — for anyone who kept working through August, that is
+most of them. Un-excluding the key alone would let `normalizeContinuityConfig` fall back to
+`DEFAULT_SCENE_PACING` for those presets and reset the customer's chosen rhythm to 1–3s: the
+same discard as the original incident, only in the other direction. The rule is therefore
+explicit in both directions:
+
+- A preset that **stores** a rhythm applies it.
+- A preset that stores **none** leaves the episode's live rhythm exactly as it is, and a
+  half-written band (one end missing) counts as none.
+- **The Character Sheet says which of the two happened.** A rhythm that correctly does not
+  move is indistinguishable on screen from a feature that does not work, so the page states
+  that the preset carries no saved rhythm and that saving over it captures the current one.
+
+`storedPresetPacing` / `applyContinuityPagePreset` in
+`frontend/composables/useContinuityConfig.ts` own this, and
+`frontend/__tests__/continuityPresetPacing.test.ts` asserts both directions. That test file was
+**rewritten, not deleted** — it carries the reversal's date and reasoning at the top so the
+next reader can see this was decided rather than quietly dropped.
 
 The test to apply when deciding whether a key belongs in a preset:
 
@@ -168,28 +210,42 @@ The test to apply when deciding whether a key belongs in a preset:
   transition type, duration, enabled state.
 - **Episode-specific state → exclude.** Anything naming or depending on one episode's files,
   images, or anchors.
-- **A deliberate choice the customer makes elsewhere → exclude.** Scene rhythm is chosen in its
-  own control; an art-style preset must not overwrite it. If two controls are set in different
-  places, one must not silently decide the other.
+- **A deliberate choice the customer makes elsewhere → the owner decides.** Two controls set in
+  different places, where one silently decides the other, is the shape of this whole defect
+  class — but whether a given pair is a defect or a convenience is a product call, not one to
+  settle from the code. Scene rhythm was excluded on exactly this reasoning and then reinstated
+  by the owner. Raise it; do not rule on it.
 
-Two practical requirements, both learned the hard way:
+Two practical requirements, both learned the hard way, and both still binding in either
+direction:
 
-- **Excluding a key is usually only half the fix.** `usePresets`' `excludeKeys` strips on read
-  as well as write, so already-saved presets stop restoring the key — but if the normaliser
-  then falls back to a built-in default, the customer's live value is still discarded, just to
-  a different wrong number. Carry the live value across the apply explicitly.
-- **Never rewrite stored presets or project data to fix this.** Stop honouring the key; leave
-  what is on disk alone. Silently mutating saved files is the same disease.
+- **Changing whether a key is excluded is usually only half the fix.** `usePresets`'
+  `excludeKeys` strips on read as well as write. Excluding a key stops already-saved presets
+  restoring it — but if the normaliser then falls back to a built-in default, the customer's
+  live value is still discarded, just to a different wrong number. **Un-excluding a key has the
+  same failure**, because presets saved during the exclusion never stored it: the normaliser
+  supplies its default for a value the preset never had an opinion about. Either way, carry the
+  live value across the apply explicitly, and check for the value's real presence rather than
+  trusting the merge.
+- **Never rewrite stored presets or project data to fix this.** Whichever way the exclusion
+  moves, leave what is on disk alone — do not back-fill a rhythm into presets that lack one.
+  Silently mutating saved files is the same disease.
 
 Reusable title-image settings — enabled state, duration, transition type and duration — may
 remain in Video Assembly presets.
 
 **Scene rhythm stays per-episode. Do not add a project-level pacing default.** Proposed and
 rejected by the owner, 2026-08-03: *"it needs to be a deliberate choice on each episode by the
-user. not all stories or videos need the same pacing."* Every episode chooses its own band on
-the Character Sheet, and nothing — not a project setting, not a format, not a preset — may
-choose it on the customer's behalf. A tempting-looking gap (53 episodes each needing the
-setting) is the intended cost of that decision, not a problem to engineer away.
+user. not all stories or videos need the same pacing."* **This rule was NOT reversed on
+2026-08-18 and still stands in full.** Every episode chooses its own band on the Character
+Sheet, and no project setting and no format may choose it on the customer's behalf. A
+tempting-looking gap (53 episodes each needing the setting) is the intended cost of that
+decision, not a problem to engineer away.
+
+A preset is not a counter-example to this. A project-level default applies itself, to every
+episode, unasked; a preset does nothing until the customer selects it on one episode and clicks
+Apply. That single deliberate act on a single episode is precisely the per-episode choice this
+rule protects — which is why the owner could reinstate one without disturbing the other.
 
 ## Generator Model Defaults
 

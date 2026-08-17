@@ -135,21 +135,37 @@
           </div>
         </header>
         <div class="cs-rhythm-control form-group">
-          <label>Visual pacing</label>
-          <select v-model="pacingPreset" class="select" @change="applyPacingPreset">
+          <label for="cs-visual-pacing">Visual pacing</label>
+          <select id="cs-visual-pacing" v-model="pacingPreset" class="select" @change="applyPacingPreset">
             <option v-if="formulaPacingProfile" value="formula-documentary">{{ formulaPacingLabel }}</option>
             <option v-for="preset in PACING_PRESETS" :key="preset.id" :value="preset.id">{{ preset.label }}</option>
             <option value="custom">Custom range…</option>
           </select>
           <div v-if="pacingPreset === 'custom'" class="cs-range-row mt-1">
-            <input v-model.number="config.pacing.min_sec" type="number" min="1" max="60" class="input input-sm input-inline" />
+            <input v-model.number="config.pacing.min_sec" type="number" min="1" max="60" class="input input-sm input-inline" aria-label="Shortest scene, in seconds" @input="onPacingEdited" />
             <span class="text-muted">to</span>
-            <input v-model.number="config.pacing.max_sec" type="number" min="1" max="60" class="input input-sm input-inline" />
+            <input v-model.number="config.pacing.max_sec" type="number" min="1" max="60" class="input input-sm input-inline" aria-label="Longest scene, in seconds" @input="onPacingEdited" />
           </div>
           <span class="text-muted text-xs">{{ formulaPacingProfile && pacingPreset === 'formula-documentary'
             ? `The Formula uses a denser first ${Math.round(formulaPacingProfile.opening_duration_sec / 60)} minutes, then longer settled holds. Choose another option to override it for this episode.`
             : 'Scene Plan keeps cuts inside this range and divides long narration at safe word or sentence boundaries.' }}</span>
         </div>
+
+        <WorkspaceNotice
+          v-if="pacingPresetNotice"
+          class="cs-rhythm-notice"
+          :tone="pacingPresetNotice.applied ? 'success' : 'info'"
+          :title="pacingPresetNotice.applied ? 'The preset set this episode\'s scene rhythm' : 'That preset has no saved scene rhythm'"
+        >
+          <template v-if="pacingPresetNotice.applied">
+            It stores {{ pacingPresetNotice.band }}, and this episode now uses that. Save visual setup to keep it.
+          </template>
+          <template v-else>
+            It was saved while presets did not record rhythm, so this episode stays on
+            {{ pacingPresetNotice.band }} — nothing was reset. Choose the rhythm you want, then
+            save over the preset to capture it for next time.
+          </template>
+        </WorkspaceNotice>
       </section>
 
     </template>
@@ -165,6 +181,7 @@ import {
   applyContinuityPagePreset,
   continuityDefaults,
   normalizeContinuityConfig,
+  storedPresetPacing,
 } from '../../../composables/useContinuityConfig.js'
 import type { ContinuityConfig, ContinuityPagePreset } from '../../../composables/useContinuityConfig.js'
 
@@ -222,6 +239,7 @@ function syncPacingPreset(): void {
   )?.id || 'custom'
 }
 function applyPacingPreset(): void {
+  onPacingEdited()
   if (pacingPreset.value === 'formula-documentary' && formulaPacingProfile.value) {
     config.value.pacing = formulaPacingConfig(formulaPacingProfile.value)
     return
@@ -229,6 +247,18 @@ function applyPacingPreset(): void {
   const preset = PACING_PRESETS.find(entry => entry.id === pacingPreset.value)
   if (preset) config.value.pacing = { min_sec: preset.min, max_sec: preset.max }
 }
+
+// v1.2.5 — a Character Sheet preset carries the scene rhythm again (AGENTS.md,
+// Preset Boundaries; the owner's reversal of 2026-08-03, made 2026-08-18).
+// Presets saved during the exclusion window store NO rhythm, so applying one
+// correctly leaves the episode's rhythm alone — which looks exactly like a
+// feature that does not work. Say which of the two happened, every time.
+const pacingPresetNotice = ref<{ applied: boolean; band: string } | null>(null)
+function pacingBandLabel(pacing: ContinuityConfig['pacing']): string {
+  return `${pacing.min_sec}–${pacing.max_sec} seconds`
+}
+/** Any hand edit of the rhythm supersedes what the last applied preset said. */
+function onPacingEdited(): void { pacingPresetNotice.value = null }
 watch(() => [config.value.pacing.min_sec, config.value.pacing.max_sec, config.value.pacing.opening_duration_sec, config.value.pacing.settled_min_sec, config.value.pacing.settled_max_sec], syncPacingPreset, { immediate: true })
 
 // v1.0.356 — ONE whole-page preset for the entire continuity setup. Replaces
@@ -243,9 +273,9 @@ watch(() => [config.value.pacing.min_sec, config.value.pacing.max_sec, config.va
 // settings to persist it into this episode).
 //
 // Snapshot/apply cover the FULL config minus the transient `updated_at` and
-// minus the episode's own pacing and anchor toggle — a preset is a LOOK, and
-// the look/episode-state boundary is documented on
-// CONTINUITY_PRESET_EXCLUDE_KEYS / applyContinuityPagePreset.
+// minus the episode's own anchor toggle — the look/episode-state boundary is
+// documented on CONTINUITY_PRESET_EXCLUDE_KEYS / applyContinuityPagePreset.
+// Scene rhythm is part of a preset again as of v1.2.5.
 const pagePresets = usePresets<ContinuityPagePreset>({
   slug: slug.value,
   configKey: 'continuity_page',
@@ -258,7 +288,11 @@ const pagePresets = usePresets<ContinuityPagePreset>({
     return JSON.parse(JSON.stringify(rest)) as ContinuityPagePreset
   },
   apply: (data) => {
+    // Read the stored rhythm BEFORE the fold, because after it the live and
+    // preset values are indistinguishable when the two happen to agree.
+    const applied = storedPresetPacing(data) !== null
     config.value = applyContinuityPagePreset(config.value, data)
+    pacingPresetNotice.value = { applied, band: pacingBandLabel(config.value.pacing) }
   },
 })
 
@@ -426,6 +460,7 @@ async function loadRefs(): Promise<void> {
 watch(episodeId, () => {
   masterExists.value = null
   masterVersion.value++
+  onPacingEdited()   // the last apply said nothing about the episode now open
   void loadCharacters()
   void loadConfig()
   void loadRefs()
@@ -483,6 +518,7 @@ watch(episodeId, () => {
 .input-inline { width: 70px; }
 .cs-look-card :deep(.style-picker) { margin-top: 14px; }
 .cs-rhythm-control { max-width: 560px; margin-top: 14px; }
+.cs-rhythm-notice { max-width: 560px; margin-top: 14px; }
 @media (max-width: 900px) {
   .cs-anchor-layout { grid-template-columns: 1fr; }
   .cs-episode-anchor { padding: 18px 0 0; border-top: 1px solid var(--border); border-left: 0; }

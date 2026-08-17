@@ -1,29 +1,45 @@
 /**
- * Regression: a Character Sheet preset is a LOOK. Applying one must not
- * change per-episode decisions the customer made deliberately.
+ * Character Sheet presets: what a preset may and may not re-decide.
  *
- * Two reported instances of the same defect class — the one AGENTS.md
- * already documents for Video Assembly presets and `title_image.image_path`:
+ * ── THIS FILE WAS REVERSED ON 2026-08-18, DELIBERATELY ──────────────────────
  *
- *  1. PACING. The owner set "Visual pacing" to 1–3 seconds, then applied a
- *     preset to change the ART STYLE. The preset's saved `pacing` silently
- *     replaced that choice, and every episode in the channel ended up on the
- *     preset's 4–8s band (~6s midpoint) — exactly the 5.6–8s scenes Scene
- *     Plan then produced from `continuity.json`.
+ * It was written on 2026-08-03 to enforce the opposite of what it now asserts.
+ * The incident behind it was real: the owner set "Visual pacing" to 1–3
+ * seconds, applied a preset to change the ART STYLE, and the preset's stored
+ * `pacing` silently replaced that choice — 50 of 53 episodes in a live project
+ * ended up on a 4–8s band nobody picked. `pacing` was excluded from Character
+ * Sheet presets in response.
  *
- *  2. EPISODE ANCHOR. Every one of the owner's stored presets carries
- *     `references.sheet: true`, which `normalizeContinuityConfig` ORs into
- *     `use_episode_sheet` — so applying any of them switched "Use episode
- *     anchor" ON, pointing an episode at a sheet it may never have uploaded.
+ * On 2026-08-18 the owner reversed that decision himself, with the incident in
+ * front of him. He was offered a safer alternative — a separate, explicit bulk
+ * pacing action that could never fire as a side effect — and declined it:
+ * *"Put pacing back in presets."* Scene rhythm is preset data again.
  *
- * The property under test is behavioural: applying a preset whose STORED data
- * contains these keys must leave the live values untouched. That has to hold
- * for the presets the owner has ALREADY saved, so the exclusion must work on
- * read, not only on future writes — stored files are never rewritten.
+ * So this file now asserts the NEW rule, and the reversal is recorded in
+ * AGENTS.md → Preset Boundaries. It was rewritten rather than deleted because
+ * the reversal has a sharp edge that still needs guarding, and because the
+ * history is the only thing that explains why the code looks like this:
  *
- * Both halves of each fix are exercised through the real code: the real
- * `usePresets` strip driven by the real `CONTINUITY_PRESET_EXCLUDE_KEYS`,
- * and the real `applyContinuityPagePreset` the page hands to it.
+ *  1. A preset that STORES a rhythm applies it. That is the new behaviour.
+ *  2. A preset that stores NO rhythm leaves the episode's live rhythm exactly
+ *     as it is. `usePresets` strips excluded keys on SAVE as well as on load,
+ *     so every preset saved between 2026-08-03 and 2026-08-18 contains no
+ *     `pacing` whatsoever. Un-excluding the key without this rule would let
+ *     `normalizeContinuityConfig` fall back to DEFAULT_SCENE_PACING and reset
+ *     those episodes to 1–3s — the original incident, mirrored.
+ *
+ * ── STILL BINDING, NOT REVERSED ─────────────────────────────────────────────
+ *
+ * The EPISODE ANCHOR half of the 2026-08-03 fix stands unchanged and is
+ * asserted below. Every one of the owner's stored presets carries
+ * `references.sheet: true`, which `normalizeContinuityConfig` ORs into
+ * `use_episode_sheet` — so applying any of them switched "Use episode anchor"
+ * ON, pointing an episode at a sheet it may never have uploaded. The owner
+ * asked about rhythm only; the reversal was not widened past that.
+ *
+ * Both halves are exercised through the real code: the real `usePresets` strip
+ * driven by the real `CONTINUITY_PRESET_EXCLUDE_KEYS`, and the real
+ * `applyContinuityPagePreset` the page hands to it.
  */
 
 import assert from 'node:assert/strict'
@@ -53,6 +69,7 @@ const {
   applyContinuityPagePreset,
   continuityDefaults,
   normalizeContinuityConfig,
+  storedPresetPacing,
 } = await import('../composables/useContinuityConfig.js')
 // Imported from the same shared module continuityDefaults() itself imports
 // (electron/server/contracts/pacing.ts, via the @shared/pacing alias) so
@@ -76,6 +93,9 @@ beforeEach(() => {
  */
 function makeCharacterSheetPresets(slug: string) {
   const config = { value: continuityDefaults() as AnyConfig }
+  // Mirrors the page's own notice bookkeeping: it must be able to tell an
+  // applied rhythm from a preserved one, and it reads that BEFORE the fold.
+  const notices: { applied: boolean }[] = []
   const presets = usePresets<any>({
     slug,
     configKey: 'continuity_page',
@@ -86,12 +106,19 @@ function makeCharacterSheetPresets(slug: string) {
       const { updated_at: _drop, ...rest } = config.value
       return JSON.parse(JSON.stringify(rest))
     },
-    apply: (data) => { config.value = applyContinuityPagePreset(config.value, data) },
+    apply: (data) => {
+      notices.push({ applied: storedPresetPacing(data) !== null })
+      config.value = applyContinuityPagePreset(config.value, data)
+    },
   })
-  return { presets, config }
+  return { presets, config, notices }
 }
 
-// The owner's real presets, shapes taken verbatim from boundful/config.json.
+/**
+ * Presets saved BEFORE 2026-08-03, shapes taken verbatim from
+ * boundful/config.json. These still carry a stored `pacing` — under the
+ * reversed rule, that rhythm is now theirs to apply.
+ */
 function storedOwnerPresets() {
   return [
     {
@@ -127,70 +154,102 @@ function storedOwnerPresets() {
   ]
 }
 
+/**
+ * A preset saved between 2026-08-03 and 2026-08-18, i.e. while `pacing` was an
+ * excluded key. `usePresets` stripped the key on the way to disk, so there is
+ * no `pacing` in the record at all. This is the SHAPE THAT DOMINATES for
+ * anybody who kept working through August.
+ */
+function pacinglessOwnerPreset() {
+  return {
+    id: 'preset-august-sepia',
+    name: 'BL - Sepia Ink',
+    type: 'continuity-page',
+    data: {
+      schema_version: 1,
+      anchor_character_ids: [],
+      references: { prev_render: true, characters: false, style: true },
+      denoise_strength: 0.35,
+      style_bible: 'sepia ink look',
+      negative_prompt: 'no colour',
+    },
+  }
+}
+
 function seedOwnerConfig(slug = 'boundful') {
   configStore[slug] = {
-    continuity_page_presets: storedOwnerPresets(),
+    continuity_page_presets: [...storedOwnerPresets(), pacinglessOwnerPreset()],
     'continuity_page_last_preset_continuity-page': '',
   }
 }
 
-describe('Character Sheet preset / episode pacing boundary', () => {
-  test('applying an already-saved preset leaves the chosen pacing untouched', async () => {
+describe('Character Sheet presets carry the scene rhythm again (2026-08-18 reversal)', () => {
+  test('a preset that stores a rhythm applies it', async () => {
     seedOwnerConfig()
     const { presets, config } = makeCharacterSheetPresets('boundful')
     await presets.load()
 
-    // The owner picks "1–3 seconds — Rapid & lively"…
+    // The episode is on the dense default…
     config.value.pacing = { min_sec: 1, max_sec: 3 }
 
-    // …then applies a preset purely to change the art style.
-    presets.activeId.value = 'preset-prehistoric'
+    // …and the applied preset stores 5–10s, so the episode moves to 5–10s.
+    presets.activeId.value = 'preset-ms-paint'
     assert.ok(presets.applyActive(), 'the stored preset must be applicable')
 
     assert.deepEqual(
       config.value.pacing,
-      { min_sec: 1, max_sec: 3 },
-      'a style preset must not overwrite the pacing the customer just chose',
+      { min_sec: 5, max_sec: 10 },
+      'the preset\'s stored rhythm is what the episode now uses',
     )
-    // …and the LOOK it was applied for did land, so the assertion above
-    // cannot be satisfied by an apply that quietly did nothing.
-    assert.equal(config.value.style_bible, 'prehistoric cave-art look')
-    assert.equal(config.value.negative_prompt, 'no modern objects')
-    assert.equal(config.value.references.prev_render, true)
+    // …and the LOOK landed too, so this cannot pass on a wholesale overwrite
+    // of something unrelated.
+    assert.equal(config.value.style_bible, 'MS Paint look')
+    assert.equal(config.value.denoise_strength, 0.4)
   })
 
-  test('the exclusion is on read — the stored preset file is not rewritten', async () => {
+  test('a preset saved WITHOUT a rhythm leaves the live rhythm untouched', async () => {
     seedOwnerConfig()
     const { presets, config } = makeCharacterSheetPresets('boundful')
     await presets.load()
+
+    // The customer deliberately chose 1–3s on this episode.
     config.value.pacing = { min_sec: 1, max_sec: 3 }
-    presets.activeId.value = 'preset-ms-paint'
+
+    presets.activeId.value = 'preset-august-sepia'
+    assert.ok(presets.applyActive())
+
+    assert.deepEqual(
+      config.value.pacing,
+      { min_sec: 1, max_sec: 3 },
+      'a preset with no stored rhythm must not touch the episode\'s rhythm',
+    )
+    // …and the look it was applied for did land.
+    assert.equal(config.value.style_bible, 'sepia ink look')
+    assert.equal(config.value.denoise_strength, 0.35)
+  })
+
+  test('the built-in default is never what a rhythm-less preset leaves behind', async () => {
+    // The dangerous case hides when the live value happens to equal the
+    // default: a fallback would look like a no-op. Use a NON-default live
+    // value that a fallback would visibly clobber, and assert the default is
+    // not what came out.
+    seedOwnerConfig()
+    const { presets, config } = makeCharacterSheetPresets('boundful')
+    await presets.load()
+    config.value.pacing = { min_sec: 12, max_sec: 20 }
+
+    presets.activeId.value = 'preset-august-sepia'
     presets.applyActive()
 
-    assert.deepEqual(config.value.pacing, { min_sec: 1, max_sec: 3 })
-    assert.deepEqual(
-      configStore['boundful'].continuity_page_presets[1].data.pacing,
-      { min_sec: 5, max_sec: 10 },
-      'applying must not rewrite the customer\'s stored preset',
+    assert.deepEqual(config.value.pacing, { min_sec: 12, max_sec: 20 })
+    assert.notDeepEqual(
+      config.value.pacing,
+      DEFAULT_SCENE_PACING,
+      'the normaliser\'s default must never be what a rhythm-less preset leaves behind',
     )
   })
 
-  test('switching between several stored presets never drifts the pacing', async () => {
-    seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
-    await presets.load()
-    config.value.pacing = { min_sec: 1, max_sec: 3 }
-
-    for (const id of ['preset-prehistoric', 'preset-ms-paint', 'preset-prehistoric']) {
-      presets.activeId.value = id
-      presets.applyActive()
-      assert.deepEqual(config.value.pacing, { min_sec: 1, max_sec: 3 }, `pacing survived applying ${id}`)
-    }
-    assert.equal(config.value.style_bible, 'prehistoric cave-art look')
-    assert.equal(config.value.denoise_strength, 0.5)
-  })
-
-  test('a documentary pacing profile survives an applied preset intact', async () => {
+  test('an extended documentary pacing profile survives a rhythm-less preset intact', async () => {
     seedOwnerConfig()
     const { presets, config } = makeCharacterSheetPresets('boundful')
     await presets.load()
@@ -201,12 +260,88 @@ describe('Character Sheet preset / episode pacing boundary', () => {
     }
     config.value.pacing = { ...profile }
 
-    presets.activeId.value = 'preset-prehistoric'
+    presets.activeId.value = 'preset-august-sepia'
     presets.applyActive()
     assert.deepEqual(config.value.pacing, profile, 'the extended formula-pacing fields survive too')
   })
 
-  test('newly saved presets no longer store pacing at all', async () => {
+  test('a preset storing a plain band replaces an extended profile wholesale', async () => {
+    // Otherwise a 5–10s band would inherit the previous episode's
+    // `settled_*` holds and produce a hybrid nobody configured.
+    seedOwnerConfig()
+    const { presets, config } = makeCharacterSheetPresets('boundful')
+    await presets.load()
+    config.value.pacing = {
+      min_sec: 2, max_sec: 5,
+      opening_duration_sec: 180,
+      settled_min_sec: 6, settled_max_sec: 12,
+    }
+
+    presets.activeId.value = 'preset-ms-paint'
+    presets.applyActive()
+    assert.deepEqual(config.value.pacing, { min_sec: 5, max_sec: 10 })
+  })
+
+  test('a half-written band is treated as no stored rhythm, not as a partial one', async () => {
+    seedOwnerConfig()
+    ;(configStore['boundful'].continuity_page_presets[1].data as any).pacing = { max_sec: 10 }
+    const { presets, config } = makeCharacterSheetPresets('boundful')
+    await presets.load()
+    config.value.pacing = { min_sec: 1, max_sec: 3 }
+
+    presets.activeId.value = 'preset-ms-paint'
+    presets.applyActive()
+
+    assert.deepEqual(
+      config.value.pacing,
+      { min_sec: 1, max_sec: 3 },
+      'half a band cannot express a range; merging it with the default invents one',
+    )
+  })
+
+  test('switching between stored presets tracks each preset\'s own rhythm', async () => {
+    seedOwnerConfig()
+    const { presets, config } = makeCharacterSheetPresets('boundful')
+    await presets.load()
+    config.value.pacing = { min_sec: 1, max_sec: 3 }
+
+    const expected: Record<string, { min_sec: number; max_sec: number }> = {
+      'preset-prehistoric': { min_sec: 4, max_sec: 8 },
+      'preset-ms-paint': { min_sec: 5, max_sec: 10 },
+    }
+    for (const id of ['preset-prehistoric', 'preset-ms-paint', 'preset-prehistoric']) {
+      presets.activeId.value = id
+      presets.applyActive()
+      assert.deepEqual(config.value.pacing, expected[id], `rhythm followed ${id}`)
+    }
+
+    // …and a rhythm-less preset applied after them holds the last rhythm.
+    presets.activeId.value = 'preset-august-sepia'
+    presets.applyActive()
+    assert.deepEqual(config.value.pacing, { min_sec: 4, max_sec: 8 })
+  })
+
+  test('applying never rewrites the customer\'s stored preset', async () => {
+    seedOwnerConfig()
+    const { presets, config } = makeCharacterSheetPresets('boundful')
+    await presets.load()
+    config.value.pacing = { min_sec: 1, max_sec: 3 }
+    presets.activeId.value = 'preset-august-sepia'
+    presets.applyActive()
+
+    assert.equal(
+      'pacing' in configStore['boundful'].continuity_page_presets[2].data,
+      false,
+      'a rhythm-less preset is not silently back-filled on disk',
+    )
+    assert.deepEqual(
+      configStore['boundful'].continuity_page_presets[1].data.pacing,
+      { min_sec: 5, max_sec: 10 },
+      'and a stored rhythm is left exactly as saved',
+    )
+  })
+
+  test('newly saved presets DO store the rhythm — that is the whole reversal', async () => {
     configStore['boundful'] = {}
     const { presets, config } = makeCharacterSheetPresets('boundful')
     await presets.load()
@@ -215,23 +350,91 @@ describe('Character Sheet preset / episode pacing boundary', () => {
 
     assert.ok(await presets.saveAs('BL - Sepia Ink'))
     const stored = configStore['boundful'].continuity_page_presets[0]
-    assert.equal('pacing' in stored.data, false, 'a style preset must not snapshot episode pacing')
+    assert.deepEqual(stored.data.pacing, { min_sec: 1, max_sec: 3 }, 'the rhythm is preset data now')
     assert.equal(stored.data.style_bible, 'sepia ink', 'the look is still saved')
   })
 
-  test('the exclusion list keeps usePresets\' per-episode identifiers', () => {
+  test('re-saving a rhythm-less preset captures the current rhythm — the UI\'s advice works', async () => {
+    // The Character Sheet tells the customer that saving over the preset
+    // captures the rhythm. That instruction has to be true.
+    seedOwnerConfig()
+    const { presets, config } = makeCharacterSheetPresets('boundful')
+    await presets.load()
+    presets.activeId.value = 'preset-august-sepia'
+    presets.applyActive()
+    config.value.pacing = { min_sec: 8, max_sec: 15 }
+
+    assert.ok(await presets.overwrite())
+    const stored = configStore['boundful'].continuity_page_presets
+      .find((p: any) => p.id === 'preset-august-sepia')
+    assert.deepEqual(stored.data.pacing, { min_sec: 8, max_sec: 15 })
+  })
+
+  test('the page can tell an applied rhythm from a preserved one', async () => {
+    seedOwnerConfig()
+    const { presets, notices } = makeCharacterSheetPresets('boundful')
+    await presets.load()
+
+    presets.activeId.value = 'preset-ms-paint'
+    presets.applyActive()
+    presets.activeId.value = 'preset-august-sepia'
+    presets.applyActive()
+
+    assert.deepEqual(notices, [{ applied: true }, { applied: false }])
+  })
+
+  test('the reversal is scoped: pacing is out of the exclusion list, nothing else moved', () => {
+    assert.equal(
+      CONTINUITY_PRESET_EXCLUDE_KEYS.includes('pacing'),
+      false,
+      'pacing is preset data again as of 2026-08-18',
+    )
     // usePresets only falls back to DEFAULT_EXCLUDE_KEYS when excludeKeys is
     // omitted, so a page passing its own list must carry these itself.
-    for (const key of ['pacing', 'episode_id', 'episodeId', 'episode', 'title']) {
+    for (const key of ['episode_id', 'episodeId', 'episode', 'title']) {
       assert.ok(CONTINUITY_PRESET_EXCLUDE_KEYS.includes(key), `must exclude ${key}`)
     }
   })
+
+  test('storedPresetPacing reads a rhythm only when the preset really has one', () => {
+    assert.deepEqual(storedPresetPacing({ pacing: { min_sec: 5, max_sec: 10 } }), { min_sec: 5, max_sec: 10 })
+    assert.equal(storedPresetPacing({}), null)
+    assert.equal(storedPresetPacing(null), null)
+    assert.equal(storedPresetPacing(undefined), null)
+    assert.equal(storedPresetPacing({ pacing: null } as any), null)
+    assert.equal(storedPresetPacing({ pacing: {} } as any), null)
+    assert.equal(storedPresetPacing({ pacing: { min_sec: 5 } } as any), null)
+    assert.equal(storedPresetPacing({ pacing: [] } as any), null)
+    assert.equal(storedPresetPacing({ pacing: { min_sec: 'a', max_sec: 10 } } as any), null)
+  })
+
+  test('the page surfaces which of the two happened', () => {
+    // A rhythm that correctly does not move is indistinguishable from a
+    // feature that does not work, so the page must say so in the UI.
+    assert.match(characterSheet, /storedPresetPacing\(data\) !== null/)
+    assert.match(characterSheet, /pacingPresetNotice\.value = \{ applied, band:/)
+    assert.match(characterSheet, /<WorkspaceNotice/)
+    assert.match(characterSheet, /has no saved scene rhythm/)
+    assert.match(characterSheet, /save over the preset to capture it/)
+  })
+
+  test('the rhythm controls carry accessible names', () => {
+    // Found in passing while verifying this release in a browser: the rhythm
+    // select had no id and its <label> no `for`, so assistive technology
+    // announced an unnamed combobox, and the custom min/max inputs announced
+    // nothing at all. The repo's convention is label[for] + matching id.
+    assert.match(characterSheet, /<label for="cs-visual-pacing">Visual pacing<\/label>/)
+    assert.match(characterSheet, /<select id="cs-visual-pacing"/)
+    assert.match(characterSheet, /aria-label="Shortest scene, in seconds"/)
+    assert.match(characterSheet, /aria-label="Longest scene, in seconds"/)
+  })
 })
 
-describe('Character Sheet preset / episode anchor boundary', () => {
+describe('Character Sheet preset / episode anchor boundary — NOT reversed', () => {
   // Every stored preset the owner owns carries `references.sheet: true`, which
   // normalizeContinuityConfig ORs into `use_episode_sheet`. Applying one to
-  // change the art style therefore switched the episode anchor ON.
+  // change the art style therefore switched the episode anchor ON. The
+  // 2026-08-18 reversal covered scene rhythm only; this rule still stands.
 
   test('applying a preset does not switch the episode anchor ON', async () => {
     seedOwnerConfig()
@@ -341,14 +544,14 @@ describe('Character Sheet preset / episode anchor boundary', () => {
     assert.equal(stored.data.style_bible, 'sepia ink')
   })
 
-  test('reusable look references are deliberately NOT excluded', () => {
+  test('reusable look and rhythm data are deliberately NOT excluded', () => {
     for (const key of ['use_episode_sheet', 'sheet']) {
       assert.ok(CONTINUITY_PRESET_EXCLUDE_KEYS.includes(key), `must exclude ${key}`)
     }
     // Scope check: the exclusion is surgical. Blanket-excluding `references`
     // would have taken the reusable look data with it.
-    for (const key of ['references', 'prev_render', 'style', 'style_bible', 'negative_prompt', 'denoise_strength', 'anchor_character_ids']) {
-      assert.equal(CONTINUITY_PRESET_EXCLUDE_KEYS.includes(key), false, `${key} is reusable look data and must stay in presets`)
+    for (const key of ['references', 'prev_render', 'style', 'style_bible', 'negative_prompt', 'denoise_strength', 'anchor_character_ids', 'pacing']) {
+      assert.equal(CONTINUITY_PRESET_EXCLUDE_KEYS.includes(key), false, `${key} is preset data and must stay in presets`)
     }
   })
 
