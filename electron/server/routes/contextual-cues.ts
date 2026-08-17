@@ -3,6 +3,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
@@ -60,7 +61,7 @@ router.get('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
       scenes: plan.scenes.map(scene => ({ id: scene.id, scene_index: scene.scene_index, start_sec: scene.start_sec, end_sec: scene.end_sec, transcript_segment: scene.transcript_segment })),
     })
   } catch (error: any) {
-    res.status(400).json({ detail: error?.message || 'Could not load contextual cues.' })
+    res.status(400).json(humanizeBackendError(error, 'Could not load contextual cues.'))
   }
 })
 
@@ -117,7 +118,15 @@ router.put('/projects/:slug/contextual-cues/:episodeId', async (req, res) => {
     await removeContextualCueProgress(path)
     res.json({ timeline, validation: issues })
   } catch (error: any) {
-    res.status(400).json({ detail: error?.message || 'Could not save contextual cues.' })
+    // v1.3.3 — this route sent `error.message` straight out, so a disk failure
+    // reached the page as "EACCES: permission denied, open '/…/contextual_cues
+    // .json.54526.1787002021329.rc2eu3.tmp'". Auto-save made that visible on
+    // every keystroke rather than once per deliberate click. The humanizer
+    // rewrites the errno shapes, redacts secrets and logs the raw trace, and
+    // passes ordinary domain messages ("Build Scene Plan before working with
+    // contextual cues.") through untouched. The 400 is kept deliberately: the
+    // frontend and the route's own tests treat it as "this save was refused".
+    res.status(400).json(humanizeBackendError(error, 'Could not save contextual cues.'))
   }
 })
 

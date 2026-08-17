@@ -204,6 +204,37 @@ explicit in both directions:
 **rewritten, not deleted** — it carries the reversal's date and reasoning at the top so the
 next reader can see this was decided rather than quietly dropped.
 
+### Auto-approve is preset data on Contextual Cues, and is announced — decided 2026-08-17
+
+**`auto_approve` belongs in Contextual Cues presets. It is deliberately carried, and the page
+says so every time a preset changes it.** This is the fourth instance of the shape above, and
+the second the owner has ruled on rather than had excluded.
+
+The report: he applied his `Contextual Cues - DeepSeek` preset for its model and density and
+found **Auto-approve safe proposals** switched on — *"i don't remember telling you that the
+it's preset for auto approved is being applied or not."* The preset genuinely stores
+`auto_approve: true`, and the control's own label reads *"Off by default. Use only after you
+trust this preset"*, so a preset chosen for one reason was re-deciding a trust question.
+
+Shown the alternatives, he **declined removing it from the preset** and chose announcement
+instead — consistent with reversing the `pacing` exclusion the same day, and with not wanting
+presets made less capable. Do not "fix" this back by adding `auto_approve` to an exclude list.
+
+The announcement is `WorkspaceNotice`, built on 1.2.5's scene-rhythm pattern, and symmetric:
+
+- A preset that stores `true` says the setting is now on and what that means.
+- A preset that stores `false` says that too. A silent switch-off is the same defect in the
+  opposite direction.
+- A preset that stores **neither** leaves the live setting exactly as it is and says nothing.
+  This is the same trap `useContinuityConfig.ts`'s `storedPresetPacing` documents: the apply
+  handler read `data?.auto_approve === true`, which collapses "no opinion" into `false` and
+  switches the setting off for every preset saved before the field existed.
+  `storedPresetAutoApprove` in `frontend/utils/contextual-cues.ts` is what makes that third
+  case expressible, and `frontend/__tests__/contextualCuesAutoSave.test.ts` asserts all three.
+- The notice is cleared by a hand edit of the tick-box and by an episode change, and it never
+  fires for the preset re-apply `usePresets.load()` performs on mount — that is a restore, not
+  a change the customer just made.
+
 The test to apply when deciding whether a key belongs in a preset:
 
 - **Reusable look or configuration → include.** Style bible, negative prompt, recipe,

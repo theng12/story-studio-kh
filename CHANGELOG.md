@@ -4,6 +4,20 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.3.3 — 2026-08-18
+
+- **Contextual Cues saves itself.** You said you keep forgetting to click Save changes, so you no longer have to. Every edit — a title, a time, an approval, a dragged label — writes itself a moment after you stop. Leaving the page, switching episode or reloading the timeline writes first, so nothing is left behind by walking away.
+- **Save changes is still there, and still does something.** Press it and it writes whatever is pending straight away. Press it when everything is already written and it tells you so, instead of sitting there greyed out looking broken.
+- **The page says where it has got to** — "Unsaved changes — saving in a moment", "Saving…", "Saved at 21:14" — next to the buttons, so you never have to guess whether your last edit is safe.
+- **If a save fails, nothing is lost.** Your edits stay exactly where they are, the row says plainly that it did not save, and Save changes tries again. It will not quietly retry on a timer, so a backend that is down does not get hammered while you read the message.
+- Two saves can no longer overlap, and a reply that arrives late can no longer overwrite what you typed while it was travelling — so a cue title never reverts under the cursor.
+- **Approve all saves like everything else.** Making a bulk approval wait for review was considered and rejected: approving fifteen cues one at a time would save, approving the same fifteen in one click would not, and that difference is invisible until it loses work. Nothing is committed by saving an approval — the cue only reaches the video when you render, and it stays one click from undone until then.
+- **A preset now tells you when it changes Auto-approve safe proposals.** You applied your "Contextual Cues - DeepSeek" preset for its model and pacing and found automatic approval switched on without being told. The preset really does carry that setting, and it is staying — you asked for presets to keep everything they can — but it announces itself now, in both directions: switched on, switched off, and, when a preset has nothing saved for it, left alone with nothing said.
+- Fixed while in there: applying a preset saved before that setting existed used to switch automatic approval **off**, because "this preset says nothing about it" and "this preset says no" were being read as the same thing. They are now different, and a preset with no opinion changes nothing.
+- Fixed while in there: a save started just before you switched episode addressed whichever episode you had switched *to*. It now addresses the episode the cues actually came from.
+
+---
+
 ## v1.3.2 — 2026-08-18
 
 - **You can now open the assets in Video Assembly before you render.** Step 1 listed scene numbers, thumbnails and the merged audio track and let you open none of them. Click any scene number or thumbnail chip to see the picture full-screen, and browse the whole episode with the arrow keys. The merged track gets a player, so a quick listen no longer means leaving the page.

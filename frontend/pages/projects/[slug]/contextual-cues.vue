@@ -125,9 +125,30 @@
           </div>
         </div>
         <label class="cue-auto-approve">
-          <input v-model="form.auto_approve" type="checkbox" />
+          <input v-model="form.auto_approve" type="checkbox" @change="onAutoApproveEdited" />
           <span><strong>Auto-approve safe proposals</strong><small>Off by default. Use only after you trust this preset; Pipeline can then continue automatically.</small></span>
         </label>
+        <WorkspaceNotice
+          v-if="autoApproveNotice"
+          class="cue-auto-approve-notice"
+          :tone="autoApproveNotice.on ? 'warning' : 'info'"
+          :title="autoApproveNotice.on
+            ? (autoApproveNotice.changed ? 'That preset switched on Auto-approve safe proposals' : 'That preset keeps Auto-approve safe proposals on')
+            : (autoApproveNotice.changed ? 'That preset switched off Auto-approve safe proposals' : 'That preset keeps Auto-approve safe proposals off')"
+        >
+          <template v-if="autoApproveNotice.on">
+            A preset carries this setting along with the model and the density, so choosing one for
+            its model changes this too. Proposals that pass every structural check will now be
+            approved without you looking at them. Untick it above if you would rather review this
+            batch yourself — that leaves the preset alone until you save over it.
+          </template>
+          <template v-else>
+            A preset carries this setting along with the model and the density, so choosing one for
+            its model changes this too. Every proposed cue will now wait for your approval. Tick it
+            above if you want this preset to approve safe cues for you, then save over the preset to
+            keep that.
+          </template>
+        </WorkspaceNotice>
       </div>
     </section>
 
@@ -159,10 +180,13 @@
         <div class="cue-list-heading">
           <div><span class="section-kicker">Reviewed timeline</span><h2>{{ timeline.cues.length }} cue{{ timeline.cues.length === 1 ? '' : 's' }}</h2></div>
           <div class="cue-list-actions">
+            <!-- v1.3.3 — edits save themselves; this says where that has got
+                 to, and never claims "saved" for a write that failed. -->
+            <span class="cue-save-state" :data-state="saveState" role="status">{{ saveStateLabel }}</span>
             <!-- v1.2.6 — bulk approve for the still-unreviewed cues only. It
-                 names its own count, never touches a cue the customer already
-                 excluded, and marks the form dirty like every other edit so
-                 Save changes stays the one thing that writes. -->
+                 names its own count and never touches a cue the customer
+                 already excluded. Since v1.3.3 it marks the form dirty like
+                 every other edit and rides the same auto-save. -->
             <button
               v-if="proposedCount"
               class="btn btn-secondary btn-sm"
@@ -170,7 +194,9 @@
               title="Approves the cues still awaiting review. Cues you excluded are left as they are."
               @click="approveAllProposed"
             >Approve all {{ proposedCount }}</button>
-            <button class="btn btn-secondary btn-sm" :disabled="saving || !dirty" @click="saveTimeline">Save changes</button>
+            <!-- Not disabled when everything is saved: pressing it then must
+                 confirm that rather than look broken. -->
+            <button class="btn btn-secondary btn-sm" :disabled="saving" @click="saveTimeline">Save changes</button>
           </div>
         </div>
         <p v-if="!timeline.cues.length" class="text-muted">No cues were proposed. That is valid—this episode will continue without contextual labels.</p>
@@ -206,11 +232,11 @@
             </div>
           </div>
           <div class="cue-fields">
-            <input v-model="cue.title" class="input" maxlength="80" placeholder="Main label" @input="dirty = true" />
-            <input v-model="cue.subtitle" class="input" maxlength="100" placeholder="Optional second line" @input="dirty = true" />
+            <input v-model="cue.title" class="input" maxlength="80" placeholder="Main label" @input="markDirty()" />
+            <input v-model="cue.subtitle" class="input" maxlength="100" placeholder="Optional second line" @input="markDirty()" />
             <div class="cue-meta">
-              <select v-model="cue.kind" class="select select-sm" @change="dirty = true"><option value="location_date">Location / date</option><option value="historical_context">Historical context</option><option value="person">Person</option><option value="chapter">Chapter</option></select>
-              <select v-model="cue.template" class="select select-sm" @change="dirty = true"><option value="documentary-label">Documentary label</option><option value="map-pin">Location pin</option><option value="archival-caption">Archival caption</option><option value="chapter-plate">Chapter plate</option></select>
+              <select v-model="cue.kind" class="select select-sm" @change="markDirty()"><option value="location_date">Location / date</option><option value="historical_context">Historical context</option><option value="person">Person</option><option value="chapter">Chapter</option></select>
+              <select v-model="cue.template" class="select select-sm" @change="markDirty()"><option value="documentary-label">Documentary label</option><option value="map-pin">Location pin</option><option value="archival-caption">Archival caption</option><option value="chapter-plate">Chapter plate</option></select>
               <select
                 class="select select-sm"
                 :value="hasPreciseCuePosition(cue) ? '' : cue.placement"
@@ -221,8 +247,8 @@
                 <option v-for="corner in CORNERS" :key="corner" :value="corner">{{ cornerLabel(corner) }}</option>
               </select>
               <select class="select select-sm" :value="cue.entrance" @change="setTransition(cue, ($event.target as HTMLSelectElement).value)"><option value="fade">Fade</option><option value="dissolve">Dissolve</option><option value="slide">Slide</option></select>
-              <label>Start <input v-model.number="cue.start_sec" class="input input-time" type="number" step="0.1" @input="dirty = true" /></label>
-              <label>End <input v-model.number="cue.end_sec" class="input input-time" type="number" step="0.1" @input="dirty = true" /></label>
+              <label>Start <input v-model.number="cue.start_sec" class="input input-time" type="number" step="0.1" @input="markDirty()" /></label>
+              <label>End <input v-model.number="cue.end_sec" class="input input-time" type="number" step="0.1" @input="markDirty()" /></label>
               <!-- Keyboard path for the drag pad above, exactly as the
                    subtitle picker pairs its pad with plain range inputs. -->
               <label>Across
@@ -268,8 +294,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { cuesAwaitingApproval } from '../../../utils/contextual-cues.js'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { cuesAwaitingApproval, storedPresetAutoApprove } from '../../../utils/contextual-cues.js'
 import {
   CONTEXTUAL_CUE_CORNERS,
   CONTEXTUAL_CUE_CORNER_LABELS,
@@ -315,6 +341,10 @@ const config = ref<CueConfig>({ enabled: false, auto_approve_cues: false })
 const form = ref<CueProposalForm>({ model: '', density: 'restrained', placement: 'top-right', position_x_pct: null, position_y_pct: null, auto_approve: false })
 useRememberedForm('contextual-cues', slug, form, { include: ['model', 'density', 'placement', 'position_x_pct', 'position_y_pct', 'auto_approve'], version: 1 })
 const timeline = ref<Timeline | null>(null)
+// Which episode the loaded timeline belongs to. `episodeId` is the SELECTION
+// and can move while a write is in flight; a save must address the episode its
+// cues came from, never whichever one is selected by the time it fires.
+const timelineEpisodeId = ref('')
 const proposalProgress = ref<ProposalProgress | null>(null)
 const validation = ref<Array<{ cue_id?: string; detail: string; severity?: 'error' | 'warning' }>>([])
 const loadError = ref('')
@@ -343,7 +373,23 @@ const proposalStatus = computed(() => {
 })
 
 function time(value: number): string { const minutes = Math.floor(value / 60); const seconds = Math.floor(value % 60); return `${minutes}:${String(seconds).padStart(2, '0')}` }
-function setStatus(cue: Cue, status: Cue['status']): void { cue.status = status; dirty.value = true }
+function setStatus(cue: Cue, status: Cue['status']): void { cue.status = status; markDirty() }
+
+// ── The preset says what it changed ─────────────────────────────────────────
+//
+// v1.3.3. The owner applied his "Contextual Cues - DeepSeek" preset for its
+// model and density and found "Auto-approve safe proposals" switched on: "i
+// don't remember telling you that the it's preset for auto approved is being
+// applied or not." The preset genuinely stores it, and it stays there — he was
+// offered removal and declined (AGENTS.md, Preset Boundaries, 2026-08-18).
+//
+// So it is announced instead, in BOTH directions, exactly as v1.2.5 announces
+// scene rhythm on the Character Sheet. A silent switch-OFF is the same defect
+// as a silent switch-on; a preset that stores nothing changes nothing and says
+// nothing, which is why `storedPresetAutoApprove` has three answers and not two.
+const autoApproveNotice = ref<{ on: boolean; changed: boolean } | null>(null)
+/** Any hand edit of the tick-box supersedes what the last applied preset said. */
+function onAutoApproveEdited(): void { autoApproveNotice.value = null }
 
 // ── Placement ───────────────────────────────────────────────────────────────
 //
@@ -377,7 +423,7 @@ function setCuePosition(cue: Cue, xPct: number, yPct: number): void {
   // anchor falls back to the corner it was nearest rather than the one it
   // happened to be proposed with.
   cue.placement = nearestCueCorner(cue.position_x_pct, cue.position_y_pct)
-  dirty.value = true
+  markDirty()
 }
 
 /** Back to a plain corner preset — the precise anchor is dropped, not hidden. */
@@ -385,7 +431,7 @@ function useCueCorner(cue: Cue, corner: ContextualCueCorner): void {
   cue.placement = corner
   cue.position_x_pct = null
   cue.position_y_pct = null
-  dirty.value = true
+  markDirty()
 }
 
 function setCueAxis(cue: Cue, axis: 'x' | 'y', value: number): void {
@@ -451,9 +497,9 @@ function cueChipStyle(cue: Pick<Cue, 'placement' | 'position_x_pct' | 'position_
 const safeBoundaryStyle = { inset: `${CUE_SAFE_MARGIN_PCT}%` }
 
 /**
- * Put every cue where this one sits. Explicit, named with its count, and it
- * only marks the form dirty — Save changes stays the single write path, so
- * nothing on disk moves until the customer says so.
+ * Put every cue where this one sits. Explicit and named with its count. Like
+ * every other edit on this page it goes through `markDirty`, so it rides the
+ * same auto-save rather than writing on its own (v1.3.3).
  */
 function applyPositionToAll(source: Cue): void {
   const cues = timeline.value?.cues || []
@@ -464,8 +510,8 @@ function applyPositionToAll(source: Cue): void {
     if (custom) setCuePosition(cue, xPct, yPct)
     else useCueCorner(cue, source.placement)
   }
-  dirty.value = true
-  success(`Moved ${cues.length - 1} other cue${cues.length === 2 ? '' : 's'} to match. Click Save changes to keep this.`)
+  markDirty()
+  success(`Moved ${cues.length - 1} other cue${cues.length === 2 ? '' : 's'} to match. Saving now.`)
 }
 
 /** Warnings never block; they are shown beside the cue they belong to. */
@@ -484,20 +530,37 @@ const blockingValidation = computed(() => validation.value.filter(issue => issue
  * Deliberately scoped to `proposed`. An excluded cue is a decision the
  * customer already made, and a bulk action that silently re-decides it is the
  * exact defect class AGENTS.md's "Preset Boundaries" section exists for. This
- * only resolves what was never resolved, and saves nothing on its own — it
- * marks the form dirty and leaves Save changes as the single write path.
+ * only resolves what was never resolved.
+ *
+ * v1.3.3 — it auto-saves, on the same debounce as every other edit, and gets
+ * no special case. Considered and rejected: leaving a bulk approval in the
+ * unsaved state for review. Two reasons.
+ *
+ * Approving fifteen cues one at a time would write them; approving the same
+ * fifteen in one click would not. That is two save rules for one kind of edit,
+ * distinguishable only by how the customer got there — the sort of difference
+ * that is invisible until it loses work, which is the very complaint this
+ * release answers.
+ *
+ * And the review it would protect happens later anyway. Saving an approval
+ * commits nothing: an approved cue is written to the timeline, it is not
+ * rendered, and it stays freely reversible right here until Video Assembly
+ * runs. The counts in the page header and the status beside these buttons say
+ * what just happened, so an accidental click is visible and one click away
+ * from undone — and, because the write is debounced rather than immediate,
+ * excluding a few straight afterwards coalesces into a single write.
  */
 function approveAllProposed(): void {
   const pending = cuesAwaitingApproval(timeline.value?.cues || [])
   if (!pending.length) return
   for (const cue of pending) setStatus(cue, 'approved')
-  success(`Approved ${pending.length} cue${pending.length === 1 ? '' : 's'}. Excluded cues were left as they are — click Save changes to keep this.`)
+  success(`Approved ${pending.length} cue${pending.length === 1 ? '' : 's'}. Excluded cues were left as they are — saving now.`)
 }
 function setTransition(cue: Cue, value: string): void {
   const transition = value === 'slide' || value === 'dissolve' ? value : 'fade'
   cue.entrance = transition
   cue.exit = transition
-  dirty.value = true
+  markDirty()
 }
 async function loadConfig(): Promise<void> { try { config.value = await get<CueConfig>(`/projects/${slug.value}/contextual-cues/config`) } catch (e: any) { showError(e?.data?.detail || 'Could not load contextual cue settings') } }
 async function saveConfig(): Promise<void> { savingConfig.value = true; try { config.value = await put<CueConfig>(`/projects/${slug.value}/contextual-cues/config`, config.value); success(config.value.enabled ? 'Contextual Cues enabled' : 'Contextual Cues disabled — Video Assembly is no longer gated.') } catch (e: any) { showError(e?.data?.detail || 'Could not save contextual cue settings') } finally { savingConfig.value = false } }
@@ -521,9 +584,13 @@ async function setAutoApproveCues(v: boolean): Promise<void> {
   }
 }
 async function loadTimeline(): Promise<void> {
-  timeline.value = null; proposalProgress.value = null; validation.value = []; loadError.value = ''; dirty.value = false
+  // Never read over unsaved work. Every caller — the episode picker, the
+  // enable switch, a finished proposal job — used to wipe `dirty` and discard
+  // whatever had not been written yet.
+  await saveNow()
+  timeline.value = null; timelineEpisodeId.value = ''; proposalProgress.value = null; validation.value = []; loadError.value = ''; dirty.value = false; saveError.value = ''; savedAt.value = ''
   if (!episodeId.value || !config.value.enabled) return
-  try { const data = await get<any>(`/projects/${slug.value}/contextual-cues/${episodeId.value}`); timeline.value = data.timeline; proposalProgress.value = data.proposal_progress || null; validation.value = data.validation || [] } catch (e: any) { loadError.value = e?.data?.detail || 'Could not load the episode cue timeline.' }
+  try { const data = await get<any>(`/projects/${slug.value}/contextual-cues/${episodeId.value}`); timeline.value = data.timeline; timelineEpisodeId.value = episodeId.value; proposalProgress.value = data.proposal_progress || null; validation.value = data.validation || [] } catch (e: any) { loadError.value = e?.data?.detail || 'Could not load the episode cue timeline.' }
 }
 async function propose(): Promise<void> {
   if (!episodeId.value || !config.value.enabled || !form.value.model) return
@@ -534,8 +601,123 @@ async function propose(): Promise<void> {
     setTimeout(() => { void loadTimeline() }, 1200)
   } catch (e: any) { showError(e?.data?.detail || 'Could not propose contextual cues') } finally { proposing.value = false }
 }
-async function saveTimeline(): Promise<void> { if (!timeline.value) return; saving.value = true; try { const data = await put<any>(`/projects/${slug.value}/contextual-cues/${episodeId.value}`, { cues: timeline.value.cues }); timeline.value = data.timeline; validation.value = data.validation || []; dirty.value = false; success('Contextual cue timeline saved') } catch (e: any) { showError(e?.data?.detail || 'Could not save the cue timeline') } finally { saving.value = false } }
-watch(episodeId, () => { void loadTimeline() })
+// ── Saving ──────────────────────────────────────────────────────────────────
+//
+// v1.3.3. "i keep forgetting to click save changes. so i want it to be
+// automatic as well as a manual one for people who wants to click it again
+// just to safe." Both, then: edits write themselves after a short pause, and
+// Save changes stays — it flushes the pending write, or confirms there is
+// nothing to write.
+//
+// Three things this must not do, in order of how badly they would hurt:
+//   1. Lose an edit. A failed write keeps every change on screen and says so;
+//      nothing is reverted and no toast is thrown over what he is typing.
+//   2. Let an older write land last. Writes are queued on one tail, exactly as
+//      `usePresets.persistNow()` does, so two are never in flight at once.
+//   3. Revert a field under the cursor. A response that comes back to find the
+//      timeline edited since it was sent is already stale — its copy of the
+//      cues is dropped rather than written over what he typed meanwhile.
+
+/**
+ * How long the page waits after the last edit before writing.
+ *
+ * 800ms. Above it he types through: gaps between keystrokes inside a word run
+ * roughly 200–400ms even for slow typists, so a cue title is one write and not
+ * twenty. Below the ~1s mark where a pause starts reading as "nothing is
+ * happening", which matters because the row beside the buttons says "saving in
+ * a moment" until it fires.
+ *
+ * The debounce is deliberately not the only thing standing between an edit and
+ * disk: leaving the page, switching episode, and reloading the timeline each
+ * flush it first, so the interval never decides whether work survives.
+ */
+const AUTO_SAVE_DELAY_MS = 800
+const savedAt = ref('')
+const saveError = ref('')
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+/**
+ * Bumped by every local edit. A write records the value it was sent with; if
+ * it has moved by the time the response arrives, the customer edited during
+ * the round trip and the server's copy is out of date.
+ */
+let editSeq = 0
+/** One write at a time, in order. */
+let saveTail: Promise<void> = Promise.resolve()
+
+/** The single entry point for "something on this page changed". */
+function markDirty(): void {
+  dirty.value = true
+  editSeq += 1
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  autoSaveTimer = setTimeout(() => { autoSaveTimer = null; void saveNow() }, AUTO_SAVE_DELAY_MS)
+}
+
+/** Write now, cancelling any pending debounce. No-ops when nothing is dirty. */
+function saveNow(): Promise<void> {
+  if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null }
+  const run = saveTail.then(writeTimeline, writeTimeline)
+  saveTail = run.then(() => undefined, () => undefined)
+  return run
+}
+
+async function writeTimeline(): Promise<void> {
+  if (!timeline.value || !timelineEpisodeId.value || !dirty.value) return
+  const sentAt = editSeq
+  const episode = timelineEpisodeId.value
+  const cues = JSON.parse(JSON.stringify(timeline.value.cues))
+  saving.value = true
+  try {
+    const data = await put<any>(`/projects/${slug.value}/contextual-cues/${episode}`, { cues })
+    saveError.value = ''
+    savedAt.value = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    if (editSeq !== sentAt) return   // edited mid-flight; `dirty` stays true and the next write covers it
+    if (timelineEpisodeId.value !== episode) return
+    timeline.value = data.timeline
+    validation.value = data.validation || []
+    dirty.value = false
+  } catch (e: any) {
+    // Keep the edits. `dirty` stays true, so the next edit or Save changes
+    // retries — but nothing retries on a timer, because a backend that is down
+    // would then be asked every 800ms forever.
+    saveError.value = e?.data?.detail || 'Could not save the cue timeline.'
+  } finally {
+    saving.value = false
+  }
+}
+
+/**
+ * Save changes. It must stay useful once saving is automatic: pressing it when
+ * everything is already written confirms that rather than doing nothing
+ * visible, and it never claims to have saved when the write failed.
+ */
+async function saveTimeline(): Promise<void> {
+  if (!timeline.value) return
+  if (!dirty.value) { success(saveError.value ? 'Nothing left to save.' : 'Everything here is already saved.'); return }
+  await saveNow()
+  if (saveError.value) showError(saveError.value)
+  else success('Contextual cue timeline saved')
+}
+
+const saveState = computed<'saving' | 'error' | 'unsaved' | 'saved'>(() => {
+  if (saving.value) return 'saving'
+  if (saveError.value) return 'error'
+  if (dirty.value) return 'unsaved'
+  return 'saved'
+})
+const saveStateLabel = computed(() => {
+  if (saving.value) return 'Saving…'
+  if (saveError.value) return `Not saved — ${saveError.value} Your changes are still here; Save changes tries again.`
+  if (dirty.value) return 'Unsaved changes — saving in a moment'
+  return savedAt.value ? `Saved at ${savedAt.value}` : 'Saved'
+})
+
+// Leaving the page flushes whatever the debounce is still holding. The request
+// outlives the component, so navigating away a moment after typing is safe.
+onBeforeUnmount(() => { void saveNow() })
+
+// A different episode makes the last preset's announcement stale — it
+// described something that happened on the episode you just left.
+watch(episodeId, () => { autoApproveNotice.value = null; void loadTimeline() })
 watch(() => config.value.enabled, () => { void loadTimeline() })
 watch(() => config.value.auto_approve_cues, () => { void loadTimeline() })
 watch(cueJobActive, (active, wasActive) => {
@@ -557,10 +739,25 @@ const cuePresets = usePresets<CueProposalForm>({
     const precise = hasPreciseCuePosition(data as any)
     form.value.position_x_pct = precise ? Number(data.position_x_pct) : null
     form.value.position_y_pct = precise ? Number(data.position_y_pct) : null
-    form.value.auto_approve = data?.auto_approve === true
+    // Read the live value BEFORE the write, because afterwards "the preset set
+    // it" and "it was already like that" are indistinguishable. A preset with
+    // no stored opinion leaves the setting — and the notice — alone; it must
+    // never fall back to `false`, which is what `=== true` used to do.
+    const storedAutoApprove = storedPresetAutoApprove(data)
+    autoApproveNotice.value = storedAutoApprove === null
+      ? null
+      : { on: storedAutoApprove, changed: form.value.auto_approve !== storedAutoApprove }
+    if (storedAutoApprove !== null) form.value.auto_approve = storedAutoApprove
   },
 })
-onMounted(async () => { await loadConfig(); await cuePresets.load() })
+onMounted(async () => {
+  await loadConfig()
+  await cuePresets.load()
+  // `load()` re-applies the active preset on every mount to restore the form.
+  // That is a restore, not a change the customer just made, so it announces
+  // nothing — only an explicit Apply does.
+  autoApproveNotice.value = null
+})
 </script>
 
 <style scoped>
@@ -594,7 +791,13 @@ onMounted(async () => { await loadConfig(); await cuePresets.load() })
 .cue-axis-fields { display:grid; gap:.35rem; min-width:9rem; }
 .cue-axis-fields label { display:grid; gap:.15rem; color:var(--text-muted); font-size:var(--font-xs); }
 .cue-settings { display:grid; grid-template-columns:minmax(16rem, .85fr) minmax(30rem, 1.6fr); align-items:end; gap:1.5rem; margin-bottom:1rem; padding:1.25rem 1.5rem; }.cue-settings-controls { display:grid; grid-template-columns:minmax(16rem, 1.6fr) minmax(11rem, 1fr) minmax(9rem, .8fr); gap:1rem; align-items:end; }.cue-settings-controls > label { display:grid; gap:.4rem; color:var(--text-muted); font-size:.82rem; }.cue-auto-approve { grid-column:1/-1; display:flex !important; align-items:flex-start; gap:.55rem; padding:.55rem .65rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:.4rem; }.cue-auto-approve input { margin-top:.14rem; accent-color:var(--accent-gold); }.cue-auto-approve strong,.cue-auto-approve small { display:block; }.cue-auto-approve small { margin-top:.15rem; color:var(--text-muted); line-height:1.35; }
-.cue-list { padding:1.25rem; }.cue-list-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }.cue-list-actions { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }/* The placement column is wider than the old 11rem preview: it now has to
+.cue-auto-approve-notice { grid-column:1/-1; margin:0; }
+.cue-list { padding:1.25rem; }.cue-list-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }.cue-list-actions { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }
+/* Saved is the resting state and must not compete with the buttons beside it;
+   only the states that need something from the customer take a colour. */
+.cue-save-state { max-width:32rem; color:var(--text-muted); font-size:var(--font-xs); line-height:1.35; }
+.cue-save-state[data-state="unsaved"],.cue-save-state[data-state="saving"] { color:var(--accent-gold); }
+.cue-save-state[data-state="error"] { color:var(--warning); font-weight:600; }/* The placement column is wider than the old 11rem preview: it now has to
    show WHERE a label sits, which needs frame around the label to sit in. */
 .cue-row { display:grid; grid-template-columns:7.5rem 15rem minmax(20rem,1fr) auto; gap:1rem; padding:1rem 0; border-top:1px solid var(--border-color); }.cue-row.is-approved { border-left:3px solid var(--success); padding-left:.75rem; }.cue-row.is-disabled { opacity:.55; }.cue-time { color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; padding-top:.55rem; }.cue-preview { min-height:4.8rem; display:flex; flex-direction:column; justify-content:center; gap:.13rem; padding:.65rem .8rem; color:#fff; background:#111827; border:1px solid #364152; border-radius:.45rem; overflow:hidden; }.cue-preview strong { font-size:.78rem; line-height:1.15; }.cue-preview small,.cue-preview-kicker { color:#b6c0d1; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; }.cue-preview-pin { color:#f4c75d; font-size:1rem; line-height:.7; }.preview-map-pin { border-left:3px solid #f4c75d; }.preview-archival-caption { color:#f4ead1; background:#2c211b; border-color:#66513f; font-family:Georgia,serif; }.preview-chapter-plate { text-align:center; background:linear-gradient(135deg,#111827,#2b3445); }.cue-fields { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }.cue-meta { grid-column:1/-1; display:flex; gap:.55rem; align-items:center; flex-wrap:wrap; }.cue-meta label { display:flex; gap:.3rem; align-items:center; color:var(--text-muted); font-size:.78rem; }.input-time { width:5.5rem; }.cue-actions { display:flex; gap:.4rem; align-items:start; }.is-active { outline:1px solid var(--accent-gold); }
 @media (max-width:980px) { .cue-settings,.cue-settings-controls { grid-template-columns:1fr; } }
