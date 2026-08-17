@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.2.9 — 2026-08-18
+
+- Regenerating a thumbnail now changes the picture you are looking at. The small image on the row always updated, but opening the large preview kept showing the previous artwork — so a re-render looked like it had done nothing, and the only way to see the new picture was to restart the app.
+- The artwork itself was never the problem. Every re-render wrote the new file correctly; it was the enlarged preview that kept showing an old copy it was holding on to, because a regenerated image keeps the same filename and the browser had no way of knowing anything had changed. It now knows, and swaps the picture the moment the render finishes.
+- The same stale-picture fault was found and fixed in four more places before anyone hit them: the Browse Existing Images grid, the thumbnail board after a Repair, the thumbnail shown on the YouTube Upload page, and the scene frames shown in Video Assembly. All five had one cause and now behave the same way.
+- Refresh buttons now refresh the pictures, not just the file list. "Refresh" on the image browser re-read what was on disk but kept re-drawing the old artwork, which is precisely what that button exists to disprove.
+- Nothing changed on the server. It was already sending the right instructions and already reading each file fresh — the old preview was being shown without the app ever asking for it, so no amount of server-side care could have prevented it.
+- The preview's own "couldn't load — retry" recovery is untouched and still works exactly as before.
+
 ## v1.2.8 — 2026-08-17
 
 - Closing Story Studio in the middle of a batch no longer leaves a job stuck forever. When a request was still being sent at the moment the app closed, it never reached GenStudio at all — and on reopening, Story Studio would sit waiting for an answer about a request that does not exist. One batch waited twenty-two minutes with forty-eight further images queued behind it, and nothing in the app could clear it.

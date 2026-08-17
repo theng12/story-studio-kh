@@ -451,6 +451,12 @@ watch(
     if (props.episodeId) {
       void loadPrompts()
       void loadScan()
+      // v1.2.9: `refreshKey` moves when the PARENT knows the files on disk may
+      // have been rewritten — a repair, an import, a render from the sibling
+      // panel. Re-scanning alone only refreshes the file list; without the
+      // bump the rows kept the pre-change pixels, since regeneration reuses
+      // the same paths and an unchanged src issues no request at all.
+      cacheKey.value++
     }
   },
   { immediate: true },

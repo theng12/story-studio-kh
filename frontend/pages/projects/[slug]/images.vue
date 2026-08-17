@@ -531,6 +531,7 @@
       v-model:index="lightboxIndex"
       :images="allEditableImagesWithPin"
       :project-slug="slug"
+      :version="igPanelRefreshKey"
       :pin-enabled="currentLightboxIsThumbnail"
       @pin-toggle="onLightboxPinToggle"
     />
@@ -1376,8 +1377,12 @@ const lastRepairJobText = computed(() => {
 
 watch(() => lastRepairJob.value?.status, (status) => {
   if (status !== 'done' && status !== 'error' && status !== 'cancelled') return
-  void refreshImageStatus()
-  void loadEditScan()
+  // v1.2.9: repair restores artwork at the same paths, so it is a
+  // bytes-changed event exactly like a regeneration. It previously re-scanned
+  // without bumping the cache key, which re-read the file list but left every
+  // preview showing the pre-repair pixels. onPanelRefresh() does the re-scan
+  // AND the bump.
+  onPanelRefresh()
 })
 
 async function refreshImageStatus() {
@@ -1462,13 +1467,17 @@ const activeEditImages = computed(() => form.mode === 'thumbs' ? editThumbs.valu
 // so the parent Edit gallery + image-integrity card can pick up the
 // new files on the next refresh. Mirrors the pattern used by the
 // Prompts page (reviewRefreshKey for PromptReviewPanel).
+//
+// v1.2.9: this is now the page's ONE "the pixels on disk may have changed"
+// signal. It feeds the panels' `refreshKey`, the Browse grid's URLs and the
+// lightbox's `version`, and `loadEditScan()` bumps it, so every path that
+// re-reads the disk also re-fetches the images.
 const igPanelRefreshKey = ref(0)
 
 function onPanelRefresh() {
-  igPanelRefreshKey.value++
   // Re-run the Edit gallery's scan so its grid + the integrity card stay
-  // in sync with whatever the panels just wrote. The integrity card has
-  // its own refresh on the existing watcher; this just nudges the scan.
+  // in sync with whatever the panels just wrote — loadEditScan() bumps
+  // igPanelRefreshKey, which is what actually re-fetches the pixels.
   void loadEditScan()
   refreshImageStatus()
 }
@@ -1485,6 +1494,12 @@ async function loadEditScan() {
       (a, b) => (a.scene_number ?? 999) - (b.scene_number ?? 999),
     )
     editThumbs.value = r.thumbnails || []
+    // v1.2.9: re-reading the disk must also re-fetch the pixels. The scan
+    // returns paths, and regeneration reuses the same paths, so a changed
+    // image is invisible in the response — refreshing only the list left the
+    // "Refresh" button re-rendering the pre-change picture, which is exactly
+    // what the button exists to disprove.
+    igPanelRefreshKey.value++
     // v1.0.41: refresh pin state alongside the scan so the badge +
     // hint stay in sync with what's actually on disk after edits /
     // re-renders / external file moves.
@@ -1601,10 +1616,13 @@ async function toggleThumbnailPin(filename: string) {
 async function onLightboxPinToggle(payload: { filename: string; pin: boolean }) {
   await setThumbnailPin(payload.pin ? payload.filename : null)
 }
-// Cache-buster for refreshed disk previews.
-const _editKey = ref(0)
+// Cache-buster for refreshed disk previews. v1.2.9: this used to read a
+// private `_editKey` ref that nothing ever incremented — a cache-buster that
+// never busted, so the Browse grid kept showing pre-regeneration pixels for
+// as long as the page stayed mounted. It now shares `igPanelRefreshKey`, the
+// one signal this page has that the files on disk may have been rewritten.
 function getImagePreviewUrlImages(path: string): string {
-  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(path)}&k=${_editKey.value}`
+  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(path)}&k=${igPanelRefreshKey.value}`
 }
 
 // Episode-id watcher MUST come after the editScenes/editThumbs

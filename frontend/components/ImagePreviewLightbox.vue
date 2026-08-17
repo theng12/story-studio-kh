@@ -38,7 +38,7 @@
         <div class="ipl-image-wrap">
           <img
             v-if="currentImage"
-            :key="currentImage.path"
+            :key="renderKey"
             :src="previewUrl"
             :alt="currentFilename"
             class="ipl-image"
@@ -125,10 +125,22 @@ const props = withDefaults(defineProps<{
    * `pin-toggle` emit.
    */
   pinEnabled?: boolean
+  /**
+   * v1.2.9 — bumped by the parent whenever the bytes behind these paths may
+   * have changed on disk (a per-row or bulk regeneration, a repair, an
+   * import). Regeneration overwrites in place, so the path alone cannot tell
+   * the browser anything changed: same `src` means no request is issued at
+   * all, and no server cache header can help a request that never happens.
+   * The version goes into both the URL and the <img> key so the element is
+   * remounted rather than patched. Mirrors `cacheKey` in ImageGeneratorPanel,
+   * which is why the row thumbnails were already correct while this was not.
+   */
+  version?: number | string
 }>(), {
   images: () => [],
   index: 0,
   pinEnabled: false,
+  version: 0,
 })
 
 const emit = defineEmits<{
@@ -172,13 +184,22 @@ const positionLabel = computed(() => {
   return `${i} / ${total}`
 })
 
+// Identity of the pixels currently on screen: which file, and which
+// generation of that file. Regeneration overwrites in place, so the path
+// alone is not enough — see the `version` prop. Used as the <img> :key so a
+// new generation remounts the element instead of patching an attribute the
+// browser may satisfy from its in-memory image cache.
+const renderKey = computed(() => `${currentImage.value?.path ?? ''}#${props.version}`)
+
 const previewUrl = computed(() => {
   const c = currentImage.value
   if (!c) return ''
   // Same endpoint images.vue + video-assembly already use for in-app
-  // image previews. Cache-bust with the path so swaps render the
-  // right pixels even when the lightbox stays mounted.
-  return `/api/projects/${props.projectSlug}/video-editor/preview-image?path=${encodeURIComponent(c.path)}&preview_retry=${previewAttempt.value}`
+  // image previews. Two independent busters, doing two different jobs:
+  // `v` tracks new bytes at the same path (parent-driven), `preview_retry`
+  // re-asks the server after a failed load (error-driven). Neither
+  // substitutes for the other.
+  return `/api/projects/${props.projectSlug}/video-editor/preview-image?path=${encodeURIComponent(c.path)}&v=${encodeURIComponent(String(props.version))}&preview_retry=${previewAttempt.value}`
 })
 
 // ── Loading state ───────────────────────────────────────────────────────
@@ -186,12 +207,14 @@ const imgLoading = ref(false)
 const loadError = ref(false)
 const previewAttempt = ref(0)
 
-watch(currentImage, (cur, prev) => {
-  if (cur && cur.path !== prev?.path) {
-    previewAttempt.value = 0
-    imgLoading.value = true
-    loadError.value = false
-  }
+// Keyed on renderKey rather than the image object: the parent's list is
+// recomputed (new object identities, same paths) on unrelated changes such
+// as a pin toggle, and those must not restart the load.
+watch(renderKey, () => {
+  if (!currentImage.value) return
+  previewAttempt.value = 0
+  imgLoading.value = true
+  loadError.value = false
 })
 function onImgError() {
   if (previewAttempt.value === 0) {

@@ -5163,8 +5163,18 @@ const uploadPreviewThumbUrl = computed(() => {
   return selectedPath ? uploadPreviewThumbnailUrl(selectedPath) : ''
 })
 
+// v1.2.9 — per-visit cache key. Thumbnails are regenerated in place on the
+// Thumbnail Generator, so the path alone never changes; without this, coming
+// back to Upload after a re-render shows the OLD artwork, because an
+// unchanged src is served from the browser's in-memory image cache without
+// any request reaching the server (its `no-cache` header and ETag cannot help
+// a request that is never made). Nothing rewrites images while this page is
+// mounted, so a value fixed at mount is enough — and it keeps the images
+// cached for the life of the visit instead of re-reading them per render.
+const previewCacheKey = Date.now()
+
 function uploadPreviewThumbnailUrl(filePath: string): string {
-  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(filePath)}`
+  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(filePath)}&k=${previewCacheKey}`
 }
 
 function selectUploadPreviewThumbnail(filename: string): void {

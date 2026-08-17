@@ -4667,8 +4667,19 @@ const customPresetActive = computed(() => {
     || Math.abs(colorGrading.tint || 0) > 0.001
 })
 
+// v1.2.9 — per-visit cache key. Scene images and thumbnails are regenerated
+// in place elsewhere (Scene Review, Thumbnail Generator), so the path alone
+// never changes; without this, arriving here after a re-render shows the OLD
+// frames in the timeline, because an unchanged src is served from the
+// browser's in-memory image cache without any request reaching the server
+// (its `no-cache` header and ETag cannot help a request that is never made).
+// This page never rewrites image files itself, so a value fixed at mount is
+// enough — and it keeps a long timeline's images cached for the visit rather
+// than re-reading every frame.
+const previewCacheKey = Date.now()
+
 function getImagePreviewUrl(filePath: string): string {
-  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(filePath)}`
+  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(filePath)}&k=${previewCacheKey}`
 }
 
 function getMediaPreviewUrl(filePath: string): string {

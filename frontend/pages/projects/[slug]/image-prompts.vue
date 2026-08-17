@@ -1959,9 +1959,15 @@ onMounted(async () => {
 })
 
 // ── Vision / style-extraction ──────────────────────────────────────────
+// v1.2.9 — per-visit cache key, matching every other preview-image consumer.
+// The reference is a file the user picks, so the path usually changes with
+// the picture; but re-picking the same path after editing that file would
+// otherwise show the pre-edit image, since an unchanged src is served from
+// the browser's in-memory image cache without reaching the server.
+const previewCacheKey = Date.now()
 const referencePreviewUrl = computed(() => {
   if (!referenceImagePath.value) return ''
-  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(referenceImagePath.value)}`
+  return `/api/projects/${slug.value}/video-editor/preview-image?path=${encodeURIComponent(referenceImagePath.value)}&k=${previewCacheKey}`
 })
 
 const referenceImageName = computed(() => {
