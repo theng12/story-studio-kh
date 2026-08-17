@@ -1,5 +1,15 @@
 import { computed, readonly, ref, type Ref } from 'vue'
 import { useApi } from './useApi'
+import {
+  clearStoredCatalog,
+  contentAccountFingerprint,
+  persistableCatalog,
+  readStoredCatalog,
+  restoredCatalogProducts,
+  restoredCatalogShelves,
+  storedCatalogFingerprint,
+  writeStoredCatalog,
+} from '../content-store/persisted-catalog'
 
 export type ContentStoreProductKind =
   | 'series_formula'
@@ -219,7 +229,23 @@ export interface ContentStoreUiError {
   recalledAt?: string | null
 }
 
-export type ContentStoreCatalogFreshness = 'fresh' | 'cached' | 'unavailable'
+/**
+ * How much of what is on screen GenStudio has actually confirmed.
+ *
+ * - `'fresh'`   — GenStudio answered this session. Everything is verified and
+ *                 buying and installing are available.
+ * - `'restored'`— the published catalogue saved on this Mac is drawn, and
+ *                 NOTHING about this account is known yet. Ownership, install
+ *                 state and the balance are unresolved, not negative.
+ * - `'cached'`  — GenStudio verified this session and a later fetch failed, so
+ *                 the last verified catalogue stays up and is labelled stale.
+ * - `'unavailable'` — there is nothing trustworthy to show.
+ *
+ * Only `'fresh'` enables commerce; `networkActionsDisabled` on the Store page
+ * is `catalogFreshness !== 'fresh'`, so `'restored'` disables purchase,
+ * install and Restore purchases without needing a flag of its own.
+ */
+export type ContentStoreCatalogFreshness = 'fresh' | 'restored' | 'cached' | 'unavailable'
 
 /**
  * How long a verified overview may back a SILENT background revalidation.
@@ -315,7 +341,17 @@ const sharedLastVerifiedAt = ref<string | null>(null)
 const sharedLastVerifiedProof = ref<ContentStoreCachedProof | null>(null)
 const sharedCachedProof = computed<ContentStoreCachedProof | null>(() =>
   sharedCatalogFreshness.value === 'cached' ? sharedLastVerifiedProof.value : null)
+/**
+ * False for exactly one state: a catalogue restored from disk, before
+ * GenStudio has answered. Every surface that would otherwise show ownership,
+ * install state or a balance must show that it is still being checked instead.
+ * An unverified absence is not the same fact as "you do not own this", and
+ * rendering it as one is the mistake this flag exists to prevent.
+ */
+const sharedOwnershipResolved = computed<boolean>(() => sharedCatalogFreshness.value !== 'restored')
 let sharedOverviewGeneration = 0
+let catalogHydrationAttempted = false
+let lastCatalogPersist: Promise<void> = Promise.resolve()
 
 /**
  * True while a verified catalog is on screen and still inside its TTL.
@@ -334,6 +370,62 @@ function warmVerifiedCatalog(now: number): boolean {
   return Number.isFinite(age) && age >= 0 && age < CONTENT_STORE_CACHE_TTL_MS
 }
 
+/**
+ * Draw the published catalogue saved on this Mac, once, before the first fetch.
+ *
+ * Only the catalogue is restored. `sharedAccount`, `sharedInstalled` and
+ * `sharedAttempts` stay empty and `sharedLastVerifiedAt` stays null, because
+ * nothing here was verified this session and `lastVerifiedAt` means exactly
+ * that. Freshness becomes `'restored'`, which keeps commerce switched off and
+ * tells every surface to say it is still checking.
+ *
+ * Nothing runs if a live overview has already landed — a real answer is never
+ * replaced by a saved one.
+ */
+function hydrateRestoredCatalog(): void {
+  if (catalogHydrationAttempted) return
+  catalogHydrationAttempted = true
+  if (sharedCatalogFreshness.value !== 'unavailable') return
+  const stored = readStoredCatalog()
+  if (!stored) return
+  sharedProducts.value = restoredCatalogProducts(stored)
+  sharedShelves.value = restoredCatalogShelves(stored)
+  sharedCatalogFreshness.value = 'restored'
+}
+
+/**
+ * Save the catalogue GenStudio just published, and only the catalogue.
+ *
+ * Runs after the shared state is already updated, so a slow or failing write
+ * can never delay or break what is on screen. If the account that wrote the
+ * saved catalogue is not the account GenStudio just verified, the saved one is
+ * deleted before anything replaces it — so even if this write then fails, the
+ * other account's catalogue is gone rather than left behind. Web Crypto
+ * missing means no fingerprint, which means no way to detect an account
+ * change, which means we decline to save at all.
+ */
+async function persistVerifiedCatalog(overview: ContentStoreOverview, origin: string): Promise<void> {
+  const fingerprint = await contentAccountFingerprint({
+    accountId: overview.account.accountId,
+    contentAccountId: overview.account.contentAccountId,
+    origin,
+  })
+  if (!fingerprint) { clearStoredCatalog(); return }
+  const existing = storedCatalogFingerprint()
+  if (existing !== null && existing !== fingerprint) clearStoredCatalog()
+  writeStoredCatalog(persistableCatalog({
+    products: overview.products,
+    shelves: overview.shelves,
+    accountFingerprint: fingerprint,
+    capturedAt: new Date().toISOString(),
+  }))
+}
+
+/** Resolves once the fire-and-forget catalogue save has finished, so tests need no sleep. */
+export function _contentStoreCatalogPersistedForTests(): Promise<void> {
+  return lastCatalogPersist
+}
+
 export function _clearContentStoreSessionCacheForTests(): void {
   sessionOverview = null
   sharedAccount.value = null
@@ -345,6 +437,8 @@ export function _clearContentStoreSessionCacheForTests(): void {
   sharedLastVerifiedAt.value = null
   sharedLastVerifiedProof.value = null
   sharedOverviewGeneration = 0
+  catalogHydrationAttempted = false
+  clearStoredCatalog()
 }
 
 function uiError(cause: any, fallback: string): ContentStoreUiError {
@@ -374,6 +468,7 @@ export function useContentStore(): {
   shelves: Readonly<Ref<ContentStoreShelf[]>>
   attempts: Readonly<Ref<PublicContentPurchaseAttempt[]>>
   catalogFreshness: Readonly<Ref<ContentStoreCatalogFreshness>>
+  ownershipResolved: Readonly<Ref<boolean>>
   lastVerifiedAt: Readonly<Ref<string | null>>
   cachedProof: Readonly<Ref<ContentStoreCachedProof | null>>
   loading: Readonly<Ref<boolean>>
@@ -387,6 +482,9 @@ export function useContentStore(): {
   const { get, post } = useApi()
   const loading = ref(false)
   const error = ref<ContentStoreUiError | null>(null)
+  // Before the first render, not after it: the whole point is that the Store
+  // paints its catalogue without ever showing an empty frame.
+  hydrateRestoredCatalog()
 
   function beginOverviewRequest(): number { sharedOverviewGeneration += 1; return sharedOverviewGeneration }
   function applyOverview(overview: ContentStoreOverview, generation: number): void {
@@ -410,6 +508,10 @@ export function useContentStore(): {
     if (sessionOverview && (sessionOverview.accountId !== overview.account.accountId || sessionOverview.origin !== origin)) sessionOverview = null
     sessionOverview = { accountId: overview.account.accountId, origin, verifiedAt }
     sharedLastVerifiedProof.value = { accountId: overview.account.accountId, origin, verifiedAt }
+    lastCatalogPersist = persistVerifiedCatalog(overview, origin).catch(() => {
+      // Saving the catalogue is an optimisation for the next launch. It must
+      // never turn a verified overview that is already on screen into an error.
+    })
   }
 
   function replaceAttempt(attempt: PublicContentPurchaseAttempt): void {
@@ -471,14 +573,19 @@ export function useContentStore(): {
     } catch (cause: any) {
       if (generation === sharedOverviewGeneration) {
         const hasVerifiedOverview = sharedLastVerifiedAt.value !== null
-        if (!hasVerifiedOverview) {
+        // A launch with no network keeps the saved catalogue up rather than
+        // throwing away the one thing it can honestly show. It stays
+        // `'restored'` — not `'cached'`, which promises a catalogue GenStudio
+        // verified in this session, and which this is not.
+        const hasRestoredCatalog = sharedCatalogFreshness.value === 'restored'
+        if (!hasVerifiedOverview && !hasRestoredCatalog) {
           sharedAccount.value = null
           sharedProducts.value = []
           sharedInstalled.value = []
           sharedShelves.value = []
           sharedAttempts.value = []
         }
-        sharedCatalogFreshness.value = hasVerifiedOverview ? 'cached' : 'unavailable'
+        sharedCatalogFreshness.value = hasVerifiedOverview ? 'cached' : hasRestoredCatalog ? 'restored' : 'unavailable'
         if (!silent) error.value = uiError(cause, 'The Content Store could not be loaded.')
       }
       throw cause
@@ -577,6 +684,7 @@ export function useContentStore(): {
     shelves: readonly(sharedShelves) as unknown as Readonly<Ref<ContentStoreShelf[]>>,
     attempts: readonly(sharedAttempts) as unknown as Readonly<Ref<PublicContentPurchaseAttempt[]>>,
     catalogFreshness: readonly(sharedCatalogFreshness),
+    ownershipResolved: readonly(sharedOwnershipResolved),
     lastVerifiedAt: readonly(sharedLastVerifiedAt),
     cachedProof: readonly(sharedCachedProof),
     loading: readonly(loading),

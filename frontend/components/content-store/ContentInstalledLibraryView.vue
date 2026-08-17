@@ -1,8 +1,11 @@
 <template>
   <section class="installed-library" aria-labelledby="installed-library-heading">
-    <header><h2 id="installed-library-heading">Installed</h2><span>{{ installed.length }} {{ installed.length === 1 ? 'pack' : 'packs' }}</span></header>
+    <header><h2 id="installed-library-heading">Installed</h2><span>{{ ownershipResolved ? `${installed.length} ${installed.length === 1 ? 'pack' : 'packs'}` : 'Not checked yet' }}</span></header>
     <p>Verified signed packs available on this Mac. Local installation does not grant ownership.</p>
-    <ul v-if="installed.length" class="installed-list">
+    <!-- Install state is read alongside the verified overview, so before that
+         answer arrives "no installed packs" would be a guess, not a fact. -->
+    <div v-if="!ownershipResolved" class="library-empty" role="status" aria-live="polite"><h3>Not checked yet</h3><p>Story Studio is checking which signed packs are installed on this Mac. This list appears as soon as GenStudio answers.</p></div>
+    <ul v-else-if="installed.length" class="installed-list">
       <li v-for="pack in installed" :key="`${pack.packId}@${pack.version}`">
         <div><h3>{{ pack.title }}</h3><p>{{ pack.packId }} · {{ pack.version }}</p></div>
         <span :class="['status', pack.installState]">{{ pack.installState === 'incomplete' ? 'Incomplete' : pack.active ? 'Installed' : 'Retained' }}</span>
@@ -18,7 +21,7 @@
 <script setup lang="ts">
 import type { ContentStoreInstalledPack } from '~/composables/useContentStore'
 
-defineProps<{ installed: readonly ContentStoreInstalledPack[] }>()
+withDefaults(defineProps<{ installed: readonly ContentStoreInstalledPack[]; ownershipResolved?: boolean }>(), { ownershipResolved: true })
 function missing(pack: ContentStoreInstalledPack): string { return pack.missingDependencies.map(dependency => `${dependency.packId} ${dependency.version} (${dependency.reason})`).join(', ') }
 </script>
 

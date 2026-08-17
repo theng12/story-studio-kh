@@ -1,5 +1,5 @@
 <template>
-  <article class="content-product-card" :data-owned="product.owned" :data-compatible="product.compatible">
+  <article class="content-product-card" :data-owned="ownershipResolved ? product.owned : undefined" :data-compatible="product.compatible">
     <NuxtLink :to="`/content-store/${product.productId}`" class="product-proof-link" :aria-label="`View proof for ${product.title}`">
       <ContentProductCover :product="product" />
       <div class="product-copy">
@@ -9,7 +9,8 @@
       </div>
     </NuxtLink>
 
-    <p v-if="!product.compatible" class="compatibility-message" role="status"><strong>Not compatible with this Story Studio version.</strong>{{ product.compatibilityReason }}</p>
+    <p v-if="!ownershipResolved" class="ownership-status">Checking with GenStudio what this account owns, what is installed here, and whether this works with this version.</p>
+    <p v-else-if="!product.compatible" class="compatibility-message" role="status"><strong>Not compatible with this Story Studio version.</strong>{{ product.compatibilityReason }}</p>
     <p v-else-if="product.owned" class="ownership-status">{{ ownedStatus }}</p>
     <p v-else-if="product.retired" class="ownership-status">No longer available for new ownership.</p>
     <p v-else class="ownership-status">GenStudio supplies the exact quote before any purchase.</p>
@@ -18,7 +19,7 @@
 
     <div class="product-action">
       <NuxtLink :to="`/content-store/${product.productId}`" class="proof-action">View proof</NuxtLink>
-      <button v-if="!product.owned && !product.retired && product.compatible && product.currentRelease" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button>
+      <button v-if="ownershipResolved && !product.owned && !product.retired && product.compatible && product.currentRelease" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button>
       <button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="!!busy || networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', product.currentRelease!.releaseId)">{{ busy ? 'Installing…' : ownership!.installState === 'update_available' ? 'Install update' : 'Install on this Mac' }}</button>
     </div>
   </article>
@@ -30,11 +31,22 @@ import ContentProductCover from './ContentProductCover.vue'
 import type { ContentStoreAccount, ContentStoreProduct } from '~/composables/useContentStore'
 
 type OwnedContent = ContentStoreAccount['owned'][number]
-const props = defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; networkUnavailable?: boolean }>()
+/**
+ * `ownershipResolved: false` means the catalogue came off this Mac and
+ * GenStudio has not answered yet. Everything the card would say about this
+ * account — owned, installed, compatible, buyable — is unknown, not false, so
+ * the card says it is checking and offers no action. Defaults to true because
+ * every other caller renders a verified overview.
+ */
+const props = withDefaults(
+  defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; networkUnavailable?: boolean; ownershipResolved?: boolean }>(),
+  { ownershipResolved: true },
+)
 defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
 
 const status = computed(() => {
   if (props.product.retired) return 'Retired'
+  if (!props.ownershipResolved) return 'Checking…'
   if (!props.product.compatible) return 'Not compatible'
   if (!props.product.owned) return props.product.free ? 'Free to claim' : 'Available'
   if (props.ownership?.installState === 'installed_current') return 'Installed'

@@ -91,7 +91,7 @@ describe('Content Store proof route contract', () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = {
       account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
-      catalogFreshness: ref('fresh'), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
+      catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
       refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
       confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
     }
@@ -115,7 +115,7 @@ describe('Content Store proof route contract', () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = {
       account: ref(null), products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
-      catalogFreshness: ref('unavailable'), lastVerifiedAt: ref(null), loading: ref(false),
+      catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), loading: ref(false),
       error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio could not be reached.' }),
       refresh: async () => { throw new Error('offline') }, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
       confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
@@ -134,7 +134,7 @@ describe('Content Store proof route contract', () => {
       account: ref({ accountId: 'acct_a', owned: [{ entitlementFamily: 'formula-family' }] }),
       products: ref([{ productId: 'formula', title: 'Account A Formula', entitlementFamily: 'formula-family', owned: true }]), attempts: ref([]),
       cachedProof: ref({ accountId: 'acct_a', origin: 'https://a.example.test', verifiedAt: '2026-08-14T10:00:00Z' }),
-      catalogFreshness: ref('cached'), loading: ref(false), error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio is offline.' }),
+      catalogFreshness: ref('cached'), ownershipResolved: ref(true), loading: ref(false), error: ref({ code: 'CONTENT_STORE_UNAVAILABLE', detail: 'GenStudio is offline.' }),
       refresh: async () => { throw new Error('offline') }, requestQuote: async () => { actionCalls++; throw new Error('not allowed') },
       confirmPurchase: async () => { actionCalls++; throw new Error('not allowed') }, installRelease: async () => { actionCalls++; throw new Error('not allowed') },
     }
@@ -161,7 +161,7 @@ describe('Content Store proof route contract', () => {
     const product = { productId: 'formula', entitlementFamily: 'formula-family', owned: false, retired: false, compatible: true, free: false, currentRelease: { releaseId: 'release_1' }, presentation: { tags: [] } }
     ;(globalThis as any).__contentStorePageStore = {
       account: ref({ contentAccountId: 'content_a', availableCredits: 500, contentSpendableCredits: 500, owned: [] }), products: ref([product]), installed: ref([]), shelves: ref([{ id: 'featured', productIds: ['formula'] }]), attempts,
-      catalogFreshness: ref('fresh'), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
+      catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-14T10:00:00Z'), loading: ref(false), error: ref(null),
       refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { attempts.value = [attempt]; return attempt },
       confirmPurchase: async () => { attempts.value = [{ ...attempt, status: 'completed' }]; return attempts.value[0] }, installRelease: async () => ({ activated: false }),
     }
@@ -256,7 +256,7 @@ describe('Content Store proof route contract', () => {
     return {
       account: ref({ contentAccountId: 'content_a', availableCredits: 500, contentSpendableCredits: 500, owned: [] }),
       products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
-      catalogFreshness: ref('fresh'), lastVerifiedAt: ref('2026-08-17T10:00:00Z'), loading: ref(false), error: ref(null),
+      catalogFreshness: ref('fresh'), ownershipResolved: ref(true), lastVerifiedAt: ref('2026-08-17T10:00:00Z'), loading: ref(false), error: ref(null),
       refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
       confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
       ...overrides,
@@ -282,10 +282,35 @@ describe('Content Store proof route contract', () => {
     rendered.unmount()
   })
 
+  test('a relaunch paints the saved catalogue at once and shows the account as unchecked, not as empty', async () => {
+    const Page = await loadStorePage()
+    ;(globalThis as any).__contentStorePageStore = pageStore({
+      account: ref(null), ownershipResolved: ref(false), catalogFreshness: ref('restored'),
+      lastVerifiedAt: ref(null), loading: ref(true),
+      products: ref([catalogProduct({})]), shelves: ref([{ id: 's1', productIds: ['p1'] }]),
+    })
+    const rendered = await mount(Page, {})
+    const text = rendered.host.textContent || ''
+
+    assert.doesNotMatch(text, /Loading the GenStudio catalog/, 'there is a catalogue to show, so there is no loading screen')
+    assert.equal(rendered.host.querySelector('[data-test="request-quote"]') !== null, true, 'the saved shelf is already on screen')
+    assert.match(text, /Showing the published catalogue saved on this Mac/)
+    assert.match(text, /buying and installing stay off until they are/)
+    assert.match(text, /Checking with GenStudio…/, 'the account strip holds its place without inventing a balance')
+    assert.doesNotMatch(text, /content_a|500 credits/, 'no account id and no balance before GenStudio answers')
+
+    const tabCounts = [...rendered.host.querySelectorAll('[role="tab"] span')].map(node => node.textContent)
+    assert.deepEqual(tabCounts, ['1', '—', '—', '—'], 'the published count is a catalogue fact; the rest are not counted yet')
+
+    const restore = [...rendered.host.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Restore purchases')
+    assert.equal(restore?.disabled, true, 'commerce stays off until ownership is verified')
+    rendered.unmount()
+  })
+
   test('a genuine cold start with nothing cached still shows the loading state', async () => {
     const Page = await loadStorePage()
     ;(globalThis as any).__contentStorePageStore = pageStore({
-      catalogFreshness: ref('unavailable'), lastVerifiedAt: ref(null), loading: ref(true),
+      catalogFreshness: ref('unavailable'), ownershipResolved: ref(true), lastVerifiedAt: ref(null), loading: ref(true),
     })
     const rendered = await mount(Page, {})
     assert.match(rendered.host.textContent || '', /Loading the GenStudio catalog/)

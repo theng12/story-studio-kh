@@ -1,8 +1,11 @@
 <template>
   <section class="content-library" :aria-labelledby="headingId">
-    <header><h2 :id="headingId">{{ title }}</h2><span>{{ products.length }} {{ products.length === 1 ? 'pack' : 'packs' }}</span></header>
+    <header><h2 :id="headingId">{{ title }}</h2><span>{{ ownershipResolved ? `${products.length} ${products.length === 1 ? 'pack' : 'packs'}` : 'Not checked yet' }}</span></header>
     <p v-if="description" class="library-description">{{ description }}</p>
-    <div v-if="products.length" class="library-grid">
+    <!-- An empty list is only news once GenStudio has answered. Until then this
+         says nothing has been checked, never that nothing is owned. -->
+    <div v-if="!ownershipResolved" class="library-empty" role="status" aria-live="polite"><h3>Not checked yet</h3><p>Story Studio is asking GenStudio what this account owns and what is installed on this Mac. This list appears as soon as it answers.</p></div>
+    <div v-else-if="products.length" class="library-grid">
       <ContentProductCard
         v-for="product in products"
         :key="product.productId"
@@ -10,6 +13,7 @@
         :ownership="ownershipFor(product.entitlementFamily)"
         :busy="busyProductId === product.productId || busyReleaseId === product.currentRelease?.releaseId"
         :network-unavailable="networkUnavailable"
+        :ownership-resolved="ownershipResolved"
         @quote="$emit('quote', $event)"
         @install="$emit('install', $event)"
       />
@@ -22,7 +26,7 @@
 import ContentProductCard from './ContentProductCard.vue'
 import type { ContentStoreAccount, ContentStoreProduct } from '~/composables/useContentStore'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   headingId: string
   title: string
   description?: string
@@ -33,7 +37,8 @@ const props = defineProps<{
   busyProductId: string
   busyReleaseId: string
   networkUnavailable?: boolean
-}>()
+  ownershipResolved?: boolean
+}>(), { ownershipResolved: true })
 defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
 function ownershipFor(entitlementFamily: string) { return props.account?.owned.find(item => item.entitlementFamily === entitlementFamily) || null }
 </script>

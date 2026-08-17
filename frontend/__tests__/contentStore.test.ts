@@ -59,8 +59,16 @@ const {
   useContentStore,
   contentStoreErrorPresentation,
   _clearContentStoreSessionCacheForTests,
+  _contentStoreCatalogPersistedForTests,
   CONTENT_STORE_CACHE_TTL_MS,
 } = await import('../composables/useContentStore.js')
+const {
+  CONTENT_STORE_CATALOG_MAX_AGE_MS,
+  CONTENT_STORE_CATALOG_STORAGE_KEY,
+  contentAccountFingerprint,
+  persistableCatalog,
+  serializePersistedCatalog,
+} = await import('../content-store/persisted-catalog.js')
 
 function goOffline(): void {
   handler = () => {
@@ -826,6 +834,152 @@ describe('Content Store stale-while-revalidate', () => {
   })
 })
 
+describe('the Content Store catalogue that survives a relaunch', () => {
+  /** The save is deliberately fire-and-forget, so wait on it rather than on a clock. */
+  const settled = () => _contentStoreCatalogPersistedForTests()
+  const stored = () => localStorage.getItem(CONTENT_STORE_CATALOG_STORAGE_KEY)
+
+  async function saveCatalogueOnThisMac(overrides: {
+    accountId?: string; contentAccountId?: string; origin?: string; capturedAt?: string; title?: string
+  } = {}): Promise<void> {
+    const overview = structuredClone(completeOverview)
+    if (overrides.title) overview.products[0]!.title = overrides.title
+    const fingerprint = await contentAccountFingerprint({
+      accountId: overrides.accountId ?? overview.account.accountId,
+      contentAccountId: overrides.contentAccountId ?? overview.account.contentAccountId,
+      origin: overrides.origin ?? overview.origin,
+    })
+    localStorage.setItem(CONTENT_STORE_CATALOG_STORAGE_KEY, serializePersistedCatalog(persistableCatalog({
+      products: overview.products as any, shelves: overview.shelves,
+      accountFingerprint: fingerprint!, capturedAt: overrides.capturedAt ?? new Date().toISOString(),
+    })))
+  }
+
+  test('a launch paints the saved catalogue before anything is fetched, and claims nothing about the account', async () => {
+    await saveCatalogueOnThisMac({ title: 'Saved Formula' })
+    let fetches = 0
+    handler = path => { fetches += 1; if (path === '/api/content-store') return structuredClone(completeOverview); throw new Error(path) }
+
+    const store = useContentStore()
+    assert.equal(fetches, 0, 'the catalogue is on screen before a single request is made')
+    assert.equal(store.catalogFreshness.value, 'restored')
+    assert.equal(store.products.value[0]?.title, 'Saved Formula')
+    assert.equal(store.shelves.value[0]?.id, 'cshf_featured')
+
+    assert.equal(store.ownershipResolved.value, false, 'ownership is unresolved, which is not the same fact as not owned')
+    assert.equal(store.account.value, null, 'no balance and no content-account id exist until GenStudio answers')
+    assert.deepEqual(store.installed.value, [], 'install state is never restored from disk')
+    assert.deepEqual(store.attempts.value, [], 'purchases, quotes and receipts are never restored from disk')
+    assert.equal(store.lastVerifiedAt.value, null, 'nothing here was verified in this session')
+    assert.equal(store.cachedProof.value, null)
+  })
+
+  test('the live answer replaces the saved catalogue and resolves ownership', async () => {
+    await saveCatalogueOnThisMac({ title: 'Saved Formula' })
+    const owned = structuredClone(completeOverview)
+    owned.products[0]!.owned = true
+    handler = path => { if (path === '/api/content-store') return structuredClone(owned); throw new Error(path) }
+
+    const store = useContentStore()
+    assert.equal(store.catalogFreshness.value, 'restored')
+    await store.refresh({ background: true })
+
+    assert.equal(store.catalogFreshness.value, 'fresh')
+    assert.equal(store.ownershipResolved.value, true)
+    assert.equal(store.products.value[0]?.title, 'Archive Formula')
+    assert.equal(store.products.value[0]?.owned, true)
+    assert.equal(store.account.value?.contentAccountId, 'content_acct_a')
+  })
+
+  test('a launch with a saved catalogue loads in the open, because ownership is genuinely still unknown', async () => {
+    await saveCatalogueOnThisMac()
+    const store = useContentStore()
+    const pending = store.refresh({ background: true })
+    assert.equal(store.loading.value, true, 'a restored catalogue is never treated as a warm verified one')
+    await pending
+    assert.equal(store.catalogFreshness.value, 'fresh')
+  })
+
+  test('a launch with no network keeps the saved catalogue instead of emptying the Store', async () => {
+    await saveCatalogueOnThisMac({ title: 'Saved Formula' })
+    goOffline()
+    const store = useContentStore()
+    await assert.rejects(store.refresh({ background: true }))
+
+    assert.equal(store.catalogFreshness.value, 'restored', 'never "cached", which would promise a catalogue verified this session')
+    assert.equal(store.products.value[0]?.title, 'Saved Formula')
+    assert.equal(store.ownershipResolved.value, false)
+    assert.equal(store.account.value, null)
+    assert.equal(store.error.value?.code, 'CONTENT_STORE_UNAVAILABLE', 'the failure is still reported')
+    assert.notEqual(stored(), null, 'a failed fetch is not a reason to throw the catalogue away')
+  })
+
+  test('a verified overview saves the catalogue, and nothing that belongs to the account', async () => {
+    const owned = structuredClone(completeOverview)
+    owned.products[0]!.owned = true
+    ;(owned.account as any).owned = [{
+      entitlementFamily: 'formula.family', productId: 'formula', title: 'Archive Formula',
+      kind: 'series_formula', grantedAt: '2026-08-01T00:00:00Z', purchaseId: 'purchase_secret',
+      currentRelease: null, showcaseVideos: [], recalledReleaseVersions: [],
+      receiptVerification: 'verified', downloadAvailable: true,
+      installState: 'installed_current', installedVersion: '1.0.0', missingDependencies: [],
+    }]
+    handler = path => { if (path === '/api/content-store') return structuredClone(owned); throw new Error(path) }
+
+    await useContentStore().refresh()
+    await settled()
+
+    const written = stored()
+    assert.ok(written, 'the published catalogue is saved for the next launch')
+    assert.match(written, /"Archive Formula"/)
+    assert.doesNotMatch(written, /"owned"/)
+    assert.doesNotMatch(written, /purchase_secret|content_acct_a|acct_a/)
+    assert.doesNotMatch(written, /installState|installed_current|availableCredits|contentSpendableCredits|receiptVerification/)
+    assert.doesNotMatch(written, /2400|1650/, 'no balance figure reaches disk')
+  })
+
+  test('a catalogue written under another account is deleted the moment GenStudio names a different one', async () => {
+    await saveCatalogueOnThisMac({ accountId: 'acct_other', contentAccountId: 'content_other', title: 'Account B Formula' })
+    assert.match(stored()!, /Account B Formula/)
+
+    const store = useContentStore()
+    assert.equal(store.products.value[0]?.title, 'Account B Formula')
+    await store.refresh()
+    await settled()
+
+    assert.doesNotMatch(stored()!, /Account B Formula/, 'the other account’s catalogue is gone, not merged with')
+    assert.equal(store.products.value[0]?.title, 'Archive Formula')
+    assert.equal(store.account.value?.accountId, 'acct_a')
+  })
+
+  test('a catalogue saved at another origin is discarded the same way', async () => {
+    await saveCatalogueOnThisMac({ origin: 'https://other.example.test', title: 'Other Origin Formula' })
+    const store = useContentStore()
+    await store.refresh()
+    await settled()
+    assert.doesNotMatch(stored()!, /Other Origin Formula/)
+  })
+
+  test('an overview with no origin is not a verified catalogue and is never saved', async () => {
+    handler = path => {
+      if (path !== '/api/content-store') throw new Error(path)
+      return { ...structuredClone(completeOverview), origin: '' }
+    }
+    await useContentStore().refresh()
+    await settled()
+    assert.equal(stored(), null)
+  })
+
+  test('a saved catalogue past its age bound is ignored and the Store cold-loads as before', async () => {
+    await saveCatalogueOnThisMac({
+      capturedAt: new Date(Date.now() - CONTENT_STORE_CATALOG_MAX_AGE_MS - 60_000).toISOString(),
+    })
+    const store = useContentStore()
+    assert.equal(store.catalogFreshness.value, 'unavailable')
+    assert.deepEqual(store.products.value, [])
+  })
+})
+
 describe('Content Store renderer contract', () => {
   const page = readFileSync(fileURLToPath(new URL('../pages/content-store.vue', import.meta.url)), 'utf8')
   const card = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCard.vue', import.meta.url)), 'utf8')
@@ -834,6 +988,35 @@ describe('Content Store renderer contract', () => {
   const dialog = readFileSync(fileURLToPath(new URL('../components/content-store/ContentPurchaseDialog.vue', import.meta.url)), 'utf8')
   const home = readFileSync(fileURLToPath(new URL('../pages/index.vue', import.meta.url)), 'utf8')
   const dashboard = readFileSync(fileURLToPath(new URL('../layouts/dashboard.vue', import.meta.url)), 'utf8')
+
+  const libraryView = readFileSync(fileURLToPath(new URL('../components/content-store/ContentLibraryView.vue', import.meta.url)), 'utf8')
+  const detail = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductDetail.vue', import.meta.url)), 'utf8')
+
+  test('an unresolved account renders as unresolved, never as a negative fact', () => {
+    // Every surface that would otherwise state ownership, install state or a
+    // balance has to say it is still checking while `ownershipResolved` is
+    // false. Nothing here may say "not owned", "0 packs" or "no installed
+    // packs" on evidence nobody has yet.
+    assert.match(card, /v-if="!ownershipResolved" class="ownership-status">Checking with GenStudio/)
+    assert.match(card, /if \(!props\.ownershipResolved\) return 'Checking…'/)
+    assert.match(card, /v-if="ownershipResolved && !product\.owned && !product\.retired/, 'no purchase action against unverified ownership')
+    assert.match(card, /:data-owned="ownershipResolved \? product\.owned : undefined"/)
+
+    for (const source of [libraryView, installedView]) {
+      assert.match(source, /v-if="!ownershipResolved"[^>]*role="status"/)
+      assert.match(source, /Not checked yet/)
+    }
+    assert.match(libraryView, /ownershipResolved \? `\$\{products\.length\}/, 'a pack count is only shown once it has been counted')
+    assert.match(detail, /v-if="!ownershipResolved" class="detail-pending"/)
+    assert.match(detail, /v-if="ownershipResolved && !product\.owned/)
+
+    assert.match(page, /catalogFreshness === 'restored'/)
+    assert.match(page, /Showing the published catalogue saved on this Mac/)
+    assert.match(page, /function tabCountLabel\(tab: StoreTab\): string \{ return !ownershipResolved\.value && tab !== 'discover' \? '—'/)
+    assert.match(page, /:ownership-resolved="ownershipResolved"/)
+    assert.match(page, /const networkActionsDisabled = computed\(\(\) => catalogFreshness\.value !== 'fresh'\)/,
+      'restored reuses the existing disabled-actions machinery rather than a second flag')
+  })
 
   test('separates Discover, Owned, Installed, and Updates with truthful counts and empty states', () => {
     assert.match(page, /role="tablist"/)
