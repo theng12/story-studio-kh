@@ -162,3 +162,41 @@ describe('the picker covers the library it is given', () => {
       'a build that cannot draw text must disable those effects with a reason')
   })
 })
+
+/**
+ * v1.2.1 — the catalogue can now contain effects from installed Content Packs.
+ *
+ * Two things must be visible in the tile, and both are about the day the pack
+ * goes away rather than the day it arrives.
+ */
+describe('the picker says where an effect came from', () => {
+  const source = fs.readFileSync(
+    new URL('../components/SceneEffectLibrary.vue', import.meta.url), 'utf-8',
+  )
+
+  test('a pack effect is marked, and names its pack', () => {
+    assert.match(source, /entry\.origin\?\.origin === 'content-pack'/,
+      'a pack effect must be distinguishable from one that ships with the app')
+    assert.match(source, /packLabel/)
+    assert.match(source, /pack_id/)
+  })
+
+  test('the mark explains what uninstalling the pack does', () => {
+    // A built-in is always there. A pack effect an episode still uses stops
+    // that render by name — the customer should learn that before choosing it,
+    // not from a failed job.
+    assert.match(source, /the render stops and names it/i)
+  })
+
+  test('a refused pack effect is shown rather than silently missing', () => {
+    assert.match(source, /refusals/)
+    assert.match(source, /refusal\.reason/)
+  })
+
+  test('the picker still holds no copy of the library', () => {
+    for (const entry of BUILT_IN_OVERLAYS) {
+      assert.ok(!source.includes(`'${entry.id}'`),
+        `"${entry.id}" is named in the component — the library must come from the catalogue`)
+    }
+  })
+})

@@ -431,9 +431,33 @@ export function defaultSceneOverlay(kind: OverlayKind): SceneOverlayDocument {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * The user-facing wrapper around one built-in document. This is the shape a
- * content pack item would carry when `'scene-effect'` / `'overlay'` are added
- * to `ContentPackItemKindSchema` — deliberately NOT added in this release.
+ * Picker groups for camera moves. App-owned on purpose, exactly as
+ * `RECENCY_STRATEGY_IDS` is: a content pack chooses which existing group its
+ * move belongs to, and cannot invent a new section of the picker — a new
+ * section is engine behaviour, and a pack ships data.
+ *
+ * `groupedAnimations()` in `models/animations.ts` builds a fixed record from
+ * these six, so an unlisted category would land on `undefined` and throw.
+ */
+export const SCENE_MOTION_CATEGORIES = ['zoom', 'pan', 'ambient', 'rotate', 'effect', 'static'] as const
+export type SceneMotionCategory = (typeof SCENE_MOTION_CATEGORIES)[number]
+
+/** Footage moves are one group of their own — they render on a different engine. */
+export const FOOTAGE_MOTION_CATEGORY = 'footage' as const
+
+/** Every group a camera move may claim, still or footage. */
+export type MotionCategory = SceneMotionCategory | typeof FOOTAGE_MOTION_CATEGORY
+
+/** Picker groups for overlays. App-owned for the same reason. */
+export const OVERLAY_CATEGORIES = ['light', 'texture', 'framing', 'title', 'brand'] as const
+export type OverlayCategory = (typeof OVERLAY_CATEGORIES)[number]
+
+/**
+ * The user-facing wrapper around one built-in document. This is also the shape
+ * a content pack item carries: `'scene-effect'` and `'overlay'` were added to
+ * `ContentPackItemKindSchema` in v1.2.1, and the pack loader produces exactly
+ * this record so a pack entry and a built-in are interchangeable everywhere
+ * downstream except in their `origin`.
  */
 export interface SceneEffectDescriptor<TDoc> {
   id: string

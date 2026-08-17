@@ -5,7 +5,7 @@
       <header class="ssp-gallery-head">
         <div>
           <strong>Caption looks</strong>
-          <p class="text-muted">Sixteen built-in styles. Applying one changes the LOOK only — it never touches which subtitle file this episode burns, or whether subtitles are on.</p>
+          <p class="text-muted">{{ galleryBlurb }} Applying one changes the LOOK only — it never touches which subtitle file this episode burns, or whether subtitles are on.</p>
         </div>
         <button type="button" class="btn btn-sm btn-secondary" @click="galleryOpen = !galleryOpen">
           {{ galleryOpen ? 'Hide looks' : 'Show looks' }}
@@ -13,7 +13,7 @@
       </header>
       <div v-if="galleryOpen" class="ssp-gallery-grid">
         <button
-          v-for="p in BUILT_IN_SUBTITLE_PRESETS"
+          v-for="p in presets"
           :key="p.id"
           type="button"
           :class="['ssp-preset-card', appliedPresetId === p.id ? 'is-active' : '']"
@@ -26,12 +26,24 @@
             <span class="ssp-preset-name">
               {{ p.name }}
               <span v-if="p.wordLevel" class="ssp-chip">word-by-word</span>
+              <span
+                v-if="p.origin?.origin === 'content-pack'"
+                class="ssp-chip ssp-chip-pack"
+                :title="packChipTitle(p)"
+              >from a pack</span>
             </span>
             <span class="ssp-preset-desc">{{ p.description }}</span>
             <span v-if="p.approximation" class="ssp-preset-approx" :title="p.approximation">Approximation — hover for detail</span>
           </span>
         </button>
       </div>
+      <p v-if="galleryOpen && refusals.length" class="ssp-refusals">
+        <span
+          v-for="refusal in refusals"
+          :key="refusal.item_id"
+          class="ssp-refusal"
+        >{{ refusal.item_id }} — {{ refusal.reason }}</span>
+      </p>
     </section>
 
     <!-- ── Live preview ─────────────────────────────────────────────── -->
@@ -422,10 +434,55 @@ function setAnimationType(type: string) {
  * Preset Boundaries rule rather than a promise to remember it.
  */
 const appliedPresetId = ref('')
-function applyBuiltInPreset(p: BuiltInSubtitlePreset) {
+function applyBuiltInPreset(p: SubtitleStylePreset) {
   appliedPresetId.value = p.id
   emit('update:style', normalizeSubtitleStyle(p.style))
 }
+
+// ── The gallery: built-in looks, plus anything an installed pack adds ───────
+//
+// v1.2.1. The bundled sixteen are the INITIAL value, not a fallback bolted on
+// afterwards: the component renders its full free library on the first frame
+// and before any request, so a slow, failed or absent backend leaves the
+// gallery exactly as v1.2.0 had it. The fetch can only ever append.
+//
+// Applying a pack look copies its finished style document into this episode's
+// own config — the same thing applying a built-in does. That is why
+// uninstalling the pack later cannot change how the episode's captions burn;
+// it only removes the card from this gallery.
+
+interface SubtitleStylePreset extends BuiltInSubtitlePreset {
+  origin?: { origin: 'built-in' | 'content-pack'; pack_id?: string; pack_version?: string }
+}
+interface PresetRefusal { item_id: string; reason: string }
+
+const presets = ref<SubtitleStylePreset[]>([...BUILT_IN_SUBTITLE_PRESETS])
+const refusals = ref<PresetRefusal[]>([])
+
+const galleryBlurb = computed(() => {
+  const fromPacks = presets.value.filter(p => p.origin?.origin === 'content-pack').length
+  if (!fromPacks) return `${presets.value.length} built-in styles.`
+  return `${presets.value.length - fromPacks} built-in styles and ${fromPacks} from installed Content Packs.`
+})
+
+function packChipTitle(p: SubtitleStylePreset): string {
+  const pack = [p.origin?.pack_id, p.origin?.pack_version].filter(Boolean).join(' ')
+  return `From the Content Pack ${pack || '(unnamed)'}. Uninstalling that pack removes this look from the gallery. `
+    + 'It does not change any episode already using it — applying a look copies the style into the episode.'
+}
+
+onMounted(async () => {
+  try {
+    const res = await get<{ presets: SubtitleStylePreset[]; refusals: PresetRefusal[] }>(
+      `/projects/${props.slug}/video-editor/subtitles/catalog`,
+    )
+    if (Array.isArray(res?.presets) && res.presets.length) presets.value = res.presets
+    refusals.value = Array.isArray(res?.refusals) ? res.refusals : []
+  } catch {
+    // The free library is already on screen. A caption gallery is not worth an
+    // error banner when the customer can still use every style that ships.
+  }
+})
 
 // ── Placement pad ──────────────────────────────────────────────────────────
 
@@ -611,7 +668,7 @@ function swatchTextStyle(p: BuiltInSubtitlePreset) {
 
 // ── Exact render ───────────────────────────────────────────────────────────
 
-const { post } = useApi()
+const { get, post } = useApi()
 const rendering = ref(false)
 const exactUrl = ref<string | null>(null)
 const previewError = ref('')
@@ -698,6 +755,21 @@ defineExpose({ defaultSubtitleStyle })
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 25%, transparent);
 }
+/* Provenance, not decoration — a neutral tint so it reads as a fact about the
+   look rather than as a second capability badge beside "word-by-word". */
+.ssp-chip-pack {
+  background: color-mix(in srgb, var(--text-secondary) 18%, transparent);
+  color: var(--text-secondary);
+}
+.ssp-refusals {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0 0;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+.ssp-refusal { overflow-wrap: anywhere; }
 
 .ssp-group { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .ssp-group-head {

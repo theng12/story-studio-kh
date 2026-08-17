@@ -7,7 +7,7 @@ import type { Niche, ProjectMeta, ThumbnailTemplate, TopicPack, UpdateConfigRequ
 import * as projectManager from '../services/project-manager.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
 import { withContentPackCoordinationLock } from './state.js'
-import type { ContentPackItemKind } from './types.js'
+import type { ContentPackItemKind, UserForkableContentPackItemKind } from './types.js'
 import type { ContentCatalogSource, ContentPackRegistryOptions } from './registry.js'
 
 export type UserForkId = `user:${string}`
@@ -16,7 +16,7 @@ export type UserForkDocument = Niche | TopicPack | ThumbnailTemplate
 export interface UserForkRecord {
   schema_version: 1
   fork_id: UserForkId
-  kind: Exclude<ContentPackItemKind, 'visual-style'>
+  kind: UserForkableContentPackItemKind
   source: {
     catalog_source: 'legacy-builtin' | 'legacy-user-fork'
     legacy_id: string
@@ -144,7 +144,7 @@ export async function readUserFork(id: string, options: UserForkOptions = {}): P
 }
 
 export async function listUserForks(
-  kind?: Exclude<ContentPackItemKind, 'visual-style'>,
+  kind?: UserForkableContentPackItemKind,
   options: UserForkOptions = {},
 ): Promise<UserForkRecord[]> {
   const root = userForkRoot(pathsFor(options))
@@ -174,7 +174,7 @@ export async function listUserForks(
 }
 
 async function loadLegacySource(
-  kind: Exclude<ContentPackItemKind, 'visual-style'>,
+  kind: UserForkableContentPackItemKind,
   legacyId: string,
 ): Promise<{ document: UserForkDocument; source: 'legacy-builtin' | 'legacy-user-fork' }> {
   if (!LEGACY_ID.test(legacyId)) throw Object.assign(new Error('Invalid legacy content id'), { statusCode: 400, expose: true })
@@ -213,7 +213,7 @@ function removeSignedSelection(project: ProjectMeta, kind: ContentPackItemKind, 
 
 async function selectForkForProject(
   projectSlug: string,
-  kind: Exclude<ContentPackItemKind, 'visual-style'>,
+  kind: UserForkableContentPackItemKind,
   legacyId: string,
   forkId: UserForkId,
 ): Promise<void> {
@@ -251,7 +251,7 @@ async function selectForkForProject(
 
 async function assertProjectSelectsLegacySource(
   projectSlug: string,
-  kind: Exclude<ContentPackItemKind, 'visual-style'>,
+  kind: UserForkableContentPackItemKind,
   legacyId: string,
 ): Promise<void> {
   const project = await projectManager.readProjectMetaConsistently(projectSlug)
@@ -275,10 +275,14 @@ export async function forkLegacyContentForEdit(input: {
   legacyId: string
   projectSlug?: string
 }, options: UserForkOptions = {}): Promise<{ fork_id: UserForkId; source: ContentCatalogSource }> {
-  if (input.kind === 'visual-style') {
-    throw Object.assign(new Error('Legacy visual-style user overrides are not supported'), { statusCode: 400, expose: true })
+  if (input.kind === 'visual-style' || input.kind === 'subtitle-style'
+    || input.kind === 'scene-effect' || input.kind === 'overlay') {
+    throw Object.assign(
+      new Error(`Legacy ${input.kind} user overrides are not supported`),
+      { statusCode: 400, expose: true },
+    )
   }
-  const kind: Exclude<ContentPackItemKind, 'visual-style'> = input.kind
+  const kind: UserForkableContentPackItemKind = input.kind
   const paths = pathsFor(options)
   return withContentPackCoordinationLock(paths, async () => {
     if (input.projectSlug) await assertProjectSelectsLegacySource(input.projectSlug, kind, input.legacyId)
@@ -339,7 +343,7 @@ export async function saveUserForkDocument(id: string, document: UserForkDocumen
   })
 }
 
-async function legacyFilesForKind(kind: Exclude<ContentPackItemKind, 'visual-style'>): Promise<string[]> {
+async function legacyFilesForKind(kind: UserForkableContentPackItemKind): Promise<string[]> {
   let directory: string
   if (kind === 'series-formula') directory = (await import('../services/niche-loader.js'))._userNichesDir()
   else if (kind === 'topic-pack') directory = path.dirname((await import('../services/topic-pack-loader.js')).topicPackFilePath('probe'))
@@ -352,7 +356,7 @@ async function legacyFilesForKind(kind: Exclude<ContentPackItemKind, 'visual-sty
   }
 }
 
-async function hasLegacyBuiltin(kind: Exclude<ContentPackItemKind, 'visual-style'>, id: string): Promise<boolean> {
+async function hasLegacyBuiltin(kind: UserForkableContentPackItemKind, id: string): Promise<boolean> {
   let filePath: string
   if (kind === 'series-formula') {
     filePath = path.join((await import('../services/niche-loader.js')).BUILTIN_NICHES_DIR, `${id}.json`)
@@ -370,7 +374,7 @@ async function hasLegacyBuiltin(kind: Exclude<ContentPackItemKind, 'visual-style
   }
 }
 
-async function referencingProjects(kind: Exclude<ContentPackItemKind, 'visual-style'>, id: string): Promise<string[]> {
+async function referencingProjects(kind: UserForkableContentPackItemKind, id: string): Promise<string[]> {
   const matches: string[] = []
   for (const summary of await projectManager.listProjects()) {
     const project = await projectManager.getProject(summary.slug).catch(() => null)

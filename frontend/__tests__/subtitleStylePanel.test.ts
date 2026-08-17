@@ -188,3 +188,47 @@ describe('both host pages are on the new document', () => {
     })
   }
 })
+
+/**
+ * v1.2.1 — the gallery can now contain caption looks from installed Content
+ * Packs, which cannot be bundled and therefore have to be fetched.
+ *
+ * The risk this introduces is that the sixteen FREE looks come to depend on a
+ * network round-trip inside a desktop app. They must not: the bundled list is
+ * the initial value, and the fetch may only ever append to it.
+ */
+describe('the gallery merges installed packs without depending on them', () => {
+  test('the bundled built-ins are the initial value, not a fallback', () => {
+    assert.match(panel, /ref<SubtitleStylePreset\[\]>\(\[\.\.\.BUILT_IN_SUBTITLE_PRESETS\]\)/,
+      'the free library must be on screen before any request is made')
+    assert.match(panel, /import \{ BUILT_IN_SUBTITLE_PRESETS/,
+      'the built-ins must still be bundled, not fetched')
+  })
+
+  test('the catalogue is fetched and a failure is survivable', () => {
+    assert.match(panel, /video-editor\/subtitles\/catalog/)
+    assert.match(panel, /res\.presets\.length/,
+      'an empty or malformed response must leave the built-in gallery in place')
+    assert.match(panel, /} catch \{/, 'a failed catalogue fetch must not blank the gallery')
+  })
+
+  test('a pack look says which pack it came from', () => {
+    assert.match(panel, /origin\?\.origin === 'content-pack'/)
+    assert.match(panel, /packChipTitle/)
+    assert.match(panel, /pack_id/)
+    // And what uninstalling that pack will and will not do, because that is the
+    // whole reason provenance is worth showing.
+    assert.match(panel, /does not change any episode already using it/i)
+  })
+
+  test('a refused pack look is shown rather than silently missing', () => {
+    assert.match(panel, /refusals/)
+  })
+
+  test('applying a pack look still emits STYLE and nothing else', () => {
+    // The Preset Boundaries rule does not get an exception for pack content.
+    assert.match(panel, /function applyBuiltInPreset\(p: SubtitleStylePreset\) \{[\s\S]{0,200}?emit\('update:style'/)
+    assert.ok(!/applyBuiltInPreset[\s\S]{0,400}?emit\('update:(?!style)/.test(panel),
+      'applying a look must emit no event other than update:style')
+  })
+})

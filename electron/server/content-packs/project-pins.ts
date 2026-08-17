@@ -186,6 +186,21 @@ const CONSUMERS: Record<ContentPackItemKind, readonly JobType[]> = {
   // strand usable downstream work.
   'visual-style': ['image_prompts'],
   'thumbnail-recipe': ['image_prompts'],
+  // v1.2.1, and the opposite case to the two above — worth stating plainly. A
+  // visual style has already done its work by the time a render starts, but a
+  // scene effect has NOT: Video Assembly resolves the effect document afresh on
+  // every render, so a pack that is gone changes the finished picture.
+  // `video_assembly` is therefore fail-closed for these kinds.
+  //
+  // A caption look is in between and is listed anyway. Applying one copies the
+  // finished style document into the episode's own config (SubtitleStylePicker
+  // emits STYLE and nothing else), so an uninstalled pack cannot silently
+  // change how captions burn — but a project that pinned the pack should be
+  // told the pack is missing, not left to discover it when the look quietly
+  // disappears from the gallery.
+  'subtitle-style': ['video_assembly'],
+  'scene-effect': ['video_assembly'],
+  overlay: ['video_assembly'],
 }
 
 function pathsFor(options: ContentPackProjectPinOptions): ContentPackRuntimePaths {

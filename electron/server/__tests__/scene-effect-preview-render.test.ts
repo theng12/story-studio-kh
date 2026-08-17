@@ -38,6 +38,7 @@ import {
   BUILT_IN_OVERLAYS,
   BUILT_IN_SCENE_MOTIONS,
 } from '../contracts/scene-effect-presets.js'
+import { BUILT_IN_SUBTITLE_PRESETS } from '../contracts/subtitle-presets.js'
 import { router as videoRouter } from '../routes/video.js'
 
 const execFileAsync = promisify(execFile)
@@ -388,5 +389,20 @@ describe('the preview endpoint refuses what it cannot honour', () => {
     // point of labelling an approximation.
     const scrim = res.body.overlays.find((o: { id: string }) => o.id === 'scrim-bottom')
     assert.ok(scrim.approximation.includes('gradient'), 'the scrim must admit it is banded')
+    // v1.2.1 — every entry says where it came from, and nothing was left out.
+    assert.deepEqual(res.body.refusals, [])
+    assert.ok(res.body.overlays.every((o: { origin?: { origin: string } }) => o.origin?.origin === 'built-in'))
+    assert.ok(res.body.scene_motions.every((m: { origin?: { origin: string } }) => m.origin?.origin === 'built-in'))
+  })
+
+  test('the caption catalogue serves the free gallery with no pack installed', async () => {
+    const res = await request(app()).get('/api/projects/demo/video-editor/subtitles/catalog')
+    assert.equal(res.status, 200)
+    assert.deepEqual(
+      res.body.presets.map((preset: { id: string }) => preset.id),
+      BUILT_IN_SUBTITLE_PRESETS.map(preset => preset.id),
+    )
+    assert.deepEqual(res.body.refusals, [])
+    assert.ok(res.body.presets.every((p: { origin?: { origin: string } }) => p.origin?.origin === 'built-in'))
   })
 })

@@ -28,6 +28,10 @@
 
     <p v-if="loadError" class="text-muted text-sm mt-1">{{ loadError }}</p>
 
+    <div v-if="refusals.length" class="effect-refusals text-muted">
+      <span v-for="refusal in refusals" :key="refusal.item_id">{{ refusal.item_id }} — {{ refusal.reason }}</span>
+    </div>
+
     <div v-if="model.enabled" class="mt-2">
       <p class="text-muted text-sm">
         Overlays composite on top of the finished picture, in the order listed.
@@ -52,6 +56,11 @@
                 @change="toggle(entry)"
               />
               <span class="effect-name">{{ entry.name }}</span>
+              <span
+                v-if="entry.origin?.origin === 'content-pack'"
+                class="effect-pack-chip"
+                :title="packLabel(entry)"
+              >from a pack</span>
             </label>
             <p class="effect-description">{{ entry.description }}</p>
             <p v-if="!isAvailable(entry)" class="effect-unavailable">
@@ -138,7 +147,12 @@ interface OverlayEntry {
   category: string
   approximation?: string
   document: Record<string, any>
+  /** v1.2.1 — where the effect came from. Absent on a pre-1.2.1 payload. */
+  origin?: { origin: 'built-in' | 'content-pack'; pack_id?: string; pack_version?: string }
 }
+
+/** An installed pack item the merge refused, shown rather than left to vanish. */
+interface EffectRefusal { item_id: string; reason: string }
 
 interface AppliedOverlay {
   id: string
@@ -164,6 +178,7 @@ const catalog = reactive<{
 }>({ grouped_overlays: [], supports_text_overlays: true })
 
 const loadError = ref('')
+const refusals = ref<EffectRefusal[]>([])
 const previewingId = ref('')
 const previewUrls = reactive<Record<string, string>>({})
 
@@ -180,11 +195,26 @@ function groupLabel(category: string): string {
   return GROUP_LABELS[category] || category
 }
 
+/**
+ * v1.2.1 — say where an effect came from.
+ *
+ * It matters because the two behave differently the day a pack is uninstalled:
+ * a built-in is always there, and a pack effect an episode still uses stops
+ * that episode's render with a named error rather than quietly rendering
+ * without it.
+ */
+function packLabel(entry: OverlayEntry): string {
+  const pack = [entry.origin?.pack_id, entry.origin?.pack_version].filter(Boolean).join(' ')
+  return `From the Content Pack ${pack || '(unnamed)'}. If that pack is uninstalled while an episode still uses this effect, `
+    + 'the render stops and names it rather than publishing the video without it.'
+}
+
 onMounted(async () => {
   try {
     const data = await props.get(`/projects/${props.slug}/video-editor/effects/catalog`)
     catalog.grouped_overlays = data.grouped_overlays || []
     catalog.supports_text_overlays = data.supports_text_overlays !== false
+    refusals.value = Array.isArray(data.refusals) ? data.refusals : []
   } catch {
     loadError.value = 'The effect library could not be loaded. The backend may still be starting.'
   }
@@ -350,6 +380,28 @@ async function preview(entry: OverlayEntry): Promise<void> {
   cursor: pointer;
 }
 .effect-name { font-weight: 600; }
+/* Provenance, not a warning: a neutral tint, so it never competes with the
+   amber "not exact" and "unavailable" notes below it. */
+.effect-pack-chip {
+  margin-left: auto;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-secondary) 18%, transparent);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.effect-refusals {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
 .effect-description { font-size: 0.8rem; opacity: 0.75; margin: 0; }
 .effect-approximation,
 .effect-unavailable {

@@ -10,7 +10,7 @@ import * as pm from '../services/project-manager.js'
 import { enqueue, isDuplicate } from '../services/job-queue.js'
 import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } from '../generators/video.js'
 import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transitions.js'
-import { ANIMATIONS, groupedAnimations, getAnimation } from '../models/animations.js'
+import { getAnimation, groupAnimationDefs, toAnimationDef } from '../models/animations.js'
 import { buildAnimationFilter } from '../lib/animation-filters.js'
 import { cacheToken, cachedFileForToken, getOrRender } from '../services/preview-cache.js'
 import { readManifest } from '../services/task-manifest.js'
@@ -18,12 +18,10 @@ import { resolveAssetPath } from '../services/path-resolver.js'
 import { runFfmpeg, hasDrawtextFilter, hasLibass, getAudioDuration, stillDecoderArgs, escapeFilterPath } from '../lib/ffmpeg-utils.js'
 import { compileSceneMotion, compileSceneOverlay } from '../lib/scene-effect-compiler.js'
 import {
-  BUILT_IN_OVERLAYS,
-  findBuiltInOverlay,
-  findFootageMotion,
-  findSceneMotion,
-  sceneEffectCatalog,
-} from '../contracts/scene-effect-presets.js'
+  listSceneEffectLibrary,
+  listSubtitleStylePresets,
+  type SceneEffectLibrary,
+} from '../services/style-effect-loader.js'
 import { normalizeSceneOverlay, type SceneMotionDocument, type SceneOverlayDocument } from '../contracts/scene-effects.js'
 import {
   SceneEffectValidationError,
@@ -671,9 +669,11 @@ router.get('/projects/:slug/video-editor/preview-transition', async (req, res) =
 
 // ── Animations catalog + previews ───────────────────────────────────────
 
-router.get('/projects/:slug/video-editor/animations/catalog', async (req, res) => {
-  const { slug } = req.params
-  res.json({ animations: ANIMATIONS, grouped: groupedAnimations() })
+router.get('/projects/:slug/video-editor/animations/catalog', async (_req, res) => {
+  // v1.2.1 — the same projection, over the merged built-in + installed-pack
+  // registry. With zero packs installed this is `ANIMATIONS` exactly.
+  const animations = (await listSceneEffectLibrary()).scene_motions.map(toAnimationDef)
+  res.json({ animations, grouped: groupAnimationDefs(animations) })
 })
 
 /**
@@ -764,13 +764,30 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
 
 router.get('/projects/:slug/video-editor/effects/catalog', async (_req, res) => {
   res.json({
-    ...sceneEffectCatalog(),
+    // v1.2.1 — built-ins plus anything an installed Content Pack adds. Every
+    // entry carries `origin`, and `refusals` names any pack item that was left
+    // out rather than letting it disappear without explanation.
+    ...await listSceneEffectLibrary(),
     // Both are FFmpeg build features, and both degrade an effect rather than
     // the whole render. The UI says so at the point of choosing instead of
     // letting the customer discover it in a finished video.
     supports_text_overlays: await hasDrawtextFilter(),
     supports_subtitles: await hasLibass(),
   })
+})
+
+/**
+ * The caption gallery.
+ *
+ * New in v1.2.1 and it exists for one reason: `SubtitleStylePicker.vue` used to
+ * import the sixteen built-in looks straight out of the contract module through
+ * the `@shared` alias, which is fine for data that ships in the bundle and
+ * impossible for data that arrives in a pack after the build. The component now
+ * asks for the list and keeps its bundled copy as the offline fallback, so the
+ * zero-packs case is byte-identical to v1.2.0.
+ */
+router.get('/projects/:slug/video-editor/subtitles/catalog', async (_req, res) => {
+  res.json(await listSubtitleStylePresets())
 })
 
 const EFFECT_PREVIEW_W = 480
@@ -876,13 +893,13 @@ async function renderEffectPreview(
  * effect authored for a newer engine names its unknown field instead of quietly
  * previewing as something else.
  */
-function resolvePreviewOverlays(body: any): SceneOverlayDocument[] {
+function resolvePreviewOverlays(body: any, library: SceneEffectLibrary): SceneOverlayDocument[] {
   const requested: any[] = Array.isArray(body?.overlays) ? body.overlays
     : body?.overlay ? [body.overlay]
     : []
   return requested.slice(0, 8).map((item) => {
     if (item && typeof item.id === 'string') {
-      const entry = findBuiltInOverlay(item.id)
+      const entry = library.overlays.find(candidate => candidate.id === item.id)
       if (!entry) throw new SceneEffectValidationError([`unknown effect "${item.id}"`])
       return item.params
         ? normalizeSceneOverlay({ ...entry.document, ...item.params, kind: entry.document.kind })
@@ -900,11 +917,12 @@ function resolvePreviewOverlays(body: any): SceneOverlayDocument[] {
  * differently on purpose (see MOTION_SOURCES). Searching one registry then the
  * other would have made `pan-left` silently mean the still version forever.
  */
-function resolvePreviewMotion(body: any): SceneMotionDocument | null {
+function resolvePreviewMotion(body: any, library: SceneEffectLibrary): SceneMotionDocument | null {
   if (body?.motion && typeof body.motion === 'object') return parseSceneMotionDocument(body.motion)
   if (typeof body?.motion_id !== 'string') return null
   const footage = body?.motion_source === 'footage'
-  const entry = footage ? findFootageMotion(body.motion_id) : findSceneMotion(body.motion_id)
+  const registry = footage ? library.footage_motions : library.scene_motions
+  const entry = registry.find(candidate => candidate.id === body.motion_id)
   if (entry) return entry.document
   throw new SceneEffectValidationError([
     `unknown ${footage ? 'B-Roll' : 'scene'} motion "${body.motion_id}"`,
@@ -915,8 +933,9 @@ router.post('/projects/:slug/video-editor/preview-effect', async (req, res) => {
   const { slug } = req.params
   try {
     const body = req.body || {}
-    const overlays = resolvePreviewOverlays(body)
-    const motion = resolvePreviewMotion(body)
+    const library = await listSceneEffectLibrary()
+    const overlays = resolvePreviewOverlays(body, library)
+    const motion = resolvePreviewMotion(body, library)
     if (overlays.some(o => o.kind === 'lower-third') && !await hasDrawtextFilter()) {
       return res.status(501).json({ detail: 'FFmpeg build lacks drawtext — text overlays cannot be rendered' })
     }
@@ -929,7 +948,7 @@ router.post('/projects/:slug/video-editor/preview-effect', async (req, res) => {
       width: EFFECT_PREVIEW_W,
       height: EFFECT_PREVIEW_H,
       approximations: overlays
-        .map(o => BUILT_IN_OVERLAYS.find(b => b.document.kind === o.kind)?.approximation)
+        .map(o => library.overlays.find(b => b.document.kind === o.kind)?.approximation)
         .filter(Boolean),
     })
   } catch (e: any) {

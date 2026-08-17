@@ -5,7 +5,7 @@ import { listVerifiedRecoveryPacks } from './recovery.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
 import type { ContentPackVersionRef } from './runtime-types.js'
 import { readContentPackState } from './state.js'
-import type { ContentPackDocument, ContentPackItemKind } from './types.js'
+import type { ContentPackDocument, ContentPackItemKind, UserForkableContentPackItemKind } from './types.js'
 import {
   listUserForks,
   readUserFork,
@@ -52,7 +52,7 @@ export interface ContentPackRegistryOptions {
 /** Resolve one explicit local user fork without exposing its storage path. */
 export async function resolveUserForkCatalogItem(
   id: string,
-  kind: Exclude<ContentPackItemKind, 'visual-style'>,
+  kind: UserForkableContentPackItemKind,
   options: Pick<ContentPackRegistryOptions, 'paths'> = {},
 ): Promise<CatalogEntry<UserForkDocument> | null> {
   const record = await readUserFork(id, { paths: options.paths })
@@ -62,7 +62,7 @@ export async function resolveUserForkCatalogItem(
 
 /** List explicit local user forks after signed discovery and before raw legacy compatibility entries. */
 export async function listUserForkCatalogEntries(
-  kind: Exclude<ContentPackItemKind, 'visual-style'>,
+  kind: UserForkableContentPackItemKind,
   options: Pick<ContentPackRegistryOptions, 'paths'> = {},
 ): Promise<Array<CatalogEntry<UserForkDocument>>> {
   return (await listUserForks(kind, { paths: options.paths }))

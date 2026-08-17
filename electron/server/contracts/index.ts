@@ -255,6 +255,7 @@ export interface ProjectMetaResponse {
   content_pack_items?: Record<string, {
     pack_id: string
     kind: 'series-formula' | 'topic-pack' | 'visual-style' | 'thumbnail-recipe'
+      | 'subtitle-style' | 'scene-effect' | 'overlay'
   }>
   continuity_mode?: 'character-continuity' | 'independent-stills' | 'explainer-stills'
 }

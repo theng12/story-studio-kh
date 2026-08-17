@@ -2,6 +2,21 @@ import { z } from 'zod'
 import { MOTION_PROFILE_IDS } from '../services/motion-profiles.js'
 import { RECENCY_STRATEGY_IDS } from '../services/recency-strategies.js'
 import { METADATA_SECTION_IDS } from '../lib/metadata-sections.js'
+import { SUBTITLE_STYLE_SCHEMA_VERSION } from '../contracts/subtitle-style.js'
+import { parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.js'
+import {
+  FOOTAGE_MOTION_CATEGORY,
+  OVERLAY_CATEGORIES,
+  SCENE_EFFECT_SCHEMA_VERSION,
+  SCENE_MOTION_CATEGORIES,
+} from '../contracts/scene-effects.js'
+import { parseSceneMotionDocument, parseSceneOverlayDocument } from '../contracts/scene-effects-schema.js'
+import { BUILT_IN_SUBTITLE_PRESETS } from '../contracts/subtitle-presets.js'
+import {
+  BUILT_IN_FOOTAGE_MOTIONS,
+  BUILT_IN_OVERLAYS,
+  BUILT_IN_SCENE_MOTIONS,
+} from '../contracts/scene-effect-presets.js'
 import type { ContentPackDocument, ContentPackItemKind, ContentPackManifest } from './types.js'
 
 export const CONTENT_PACK_FORMAT = 1 as const
@@ -134,6 +149,14 @@ export const ContentPackItemKindSchema = z.enum([
   'topic-pack',
   'visual-style',
   'thumbnail-recipe',
+  // v1.2.1 — the caption engine (v1.1.0) and the effect engine (v1.2.0) were
+  // both built so that a look is a DESCRIPTION the engine interprets. These
+  // three kinds are the payoff: a pack ships one of those descriptions and
+  // nothing else. Anything a pack could want that the engine cannot already do
+  // from plain data is refused by name rather than approximated.
+  'subtitle-style',
+  'scene-effect',
+  'overlay',
 ])
 
 const baseDocument = {
@@ -270,13 +293,206 @@ const ThumbnailRecipeDocumentSchema = z.object({
   compatible_formula_ids: z.array(qualifiedId).max(MAX_LIST),
 }).strict()
 
+// ── Caption looks and scene effects (v1.2.1) ────────────────────────────────
+//
+// These three carry an APP-OWNED engine document verbatim rather than
+// re-declaring its fields. Re-declaring forty caption fields in a second place
+// is precisely how two schemas drift apart, and the engine's own validators
+// (`parseSubtitleStyleDocument`, `parseSceneMotionDocument`,
+// `parseSceneOverlayDocument`) are already strict in exactly the way a pack
+// needs: `.strict()` objects that reject an unknown field BY NAME, so a pack
+// authored against a newer engine says which key it used.
+//
+// The nested body therefore arrives here as an opaque object and is validated
+// in the union refinement below, which is also where the engine schema version
+// is gated and where the built-in namespace is protected.
+
+const engineBody = z.record(z.unknown())
+
+const SubtitleStyleDocumentPackSchema = z.object({
+  kind: z.literal('subtitle-style'),
+  ...baseDocument,
+  /** Honest note about what libass cannot render exactly. Shown in the gallery. */
+  approximation: safeText(2000).optional(),
+  /** A complete v2 `SubtitleStyleDocument`. No patches — a pack ships a finished look. */
+  style: engineBody,
+}).strict()
+
+const SceneEffectDocumentPackSchema = z.object({
+  kind: z.literal('scene-effect'),
+  ...baseDocument,
+  /** Which existing picker group the move joins. A pack cannot invent a group. */
+  category: z.enum([...SCENE_MOTION_CATEGORIES, FOOTAGE_MOTION_CATEGORY]),
+  approximation: safeText(2000).optional(),
+  /** A complete `SceneMotionDocument`. `motion.source` decides which registry it joins. */
+  motion: engineBody,
+}).strict()
+
+const OverlayDocumentPackSchema = z.object({
+  kind: z.literal('overlay'),
+  ...baseDocument,
+  category: z.enum(OVERLAY_CATEGORIES),
+  approximation: safeText(2000).optional(),
+  /** A complete `SceneOverlayDocument` of one of the seven engine overlay kinds. */
+  overlay: engineBody,
+}).strict()
+
+/** Built-in ids a pack must never claim, per kind. */
+const BUILT_IN_IDS: Readonly<Record<'subtitle-style' | 'scene-effect' | 'overlay', ReadonlySet<string>>> = {
+  'subtitle-style': new Set(BUILT_IN_SUBTITLE_PRESETS.map(preset => preset.id)),
+  'scene-effect': new Set([...BUILT_IN_SCENE_MOTIONS, ...BUILT_IN_FOOTAGE_MOTIONS].map(entry => entry.id)),
+  overlay: new Set(BUILT_IN_OVERLAYS.map(entry => entry.id)),
+}
+
+/**
+ * Walk every string inside an engine document and hold it to the same content
+ * rules the pack's own prose obeys.
+ *
+ * The engine schemas validate SHAPE — that `font_family` is a string of at most
+ * 120 characters. They have no opinion about whether that string is a URL, a
+ * provider routing directive or a pasted API key, because nothing inside Story
+ * Studio would ever put one there. A pack is not Story Studio.
+ */
+function assertPackSafeStrings(body: unknown, ctx: z.RefinementCtx, at: Array<string | number>, depth = 0): void {
+  if (depth > 8 || body === null || typeof body !== 'object') return
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    const path = [...at, key]
+    if (typeof value === 'string') {
+      const problem = UNSAFE_REFERENCE.test(value) ? 'URI references are not permitted in content packs'
+        : ROUTING_DIRECTIVE.test(value) ? 'provider or model routing directives are not permitted in content packs'
+          : PRIVATE_KEY_PEM.test(value) ? 'private key PEM blocks are not permitted in content packs'
+            : (SENSITIVE_ASSIGNMENT.test(value) || SECRET_SHAPED_CONTEXT.test(value) || AUTHORIZATION_BEARER_SECRET.test(value))
+                ? 'credential, token, or account assignments are not permitted in content packs'
+                : null
+      if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: problem })
+      continue
+    }
+    if (value && typeof value === 'object') assertPackSafeStrings(value, ctx, path, depth + 1)
+  }
+}
+
+/**
+ * Validate one nested engine document.
+ *
+ * The engine schema version is checked FIRST and returns early on a mismatch,
+ * so a pack built for a newer engine gets one sentence naming the version it
+ * needs instead of a wall of "unknown field" noise about fields this build has
+ * simply never heard of.
+ */
+function refineEngineDocument(
+  ctx: z.RefinementCtx,
+  spec: {
+    at: string
+    body: unknown
+    supported: number
+    label: string
+    parse: (input: unknown) => unknown
+  },
+): void {
+  const declared = (spec.body as { schema_version?: unknown } | null)?.schema_version
+  if (typeof declared !== 'number' || !Number.isInteger(declared)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [spec.at, 'schema_version'],
+      message: `a ${spec.label} must declare an integer schema_version; this Story Studio build implements version ${spec.supported}`,
+    })
+    return
+  }
+  if (declared !== spec.supported) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [spec.at, 'schema_version'],
+      message: declared > spec.supported
+        ? `this ${spec.label} needs ${spec.label} schema version ${declared}; this Story Studio build implements version ${spec.supported} — update Story Studio before installing this pack`
+        : `this ${spec.label} declares retired ${spec.label} schema version ${declared}; this Story Studio build implements version ${spec.supported}`,
+    })
+    return
+  }
+  try {
+    spec.parse(spec.body)
+  } catch (error) {
+    const issues = (error as { issues?: string[] }).issues
+    for (const issue of issues?.length ? issues : [(error as Error).message]) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [spec.at], message: issue })
+    }
+    return
+  }
+  assertPackSafeStrings(spec.body, ctx, [spec.at])
+}
+
 /** Content documents are deliberately limited to Story-owned, already-supported fields. */
 export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
   SeriesFormulaDocumentSchema,
   TopicPackDocumentSchema,
   VisualStyleDocumentSchema,
   ThumbnailRecipeDocumentSchema,
+  SubtitleStyleDocumentPackSchema,
+  SceneEffectDocumentPackSchema,
+  OverlayDocumentPackSchema,
 ]).superRefine((document, ctx) => {
+  if (document.kind === 'subtitle-style' || document.kind === 'scene-effect' || document.kind === 'overlay') {
+    // A pack ADDS to the library. It never replaces a built-in, and it never
+    // shadows one silently: the free starter sets keep working with any pack
+    // installed, and a pack claiming a built-in id is refused here rather than
+    // quietly winning a lookup somewhere downstream.
+    if (BUILT_IN_IDS[document.kind].has(document.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['id'],
+        message: `id collides with the built-in ${document.kind} "${document.id}" — a Content Pack adds to the library and may never replace or shadow a built-in`,
+      })
+    }
+    if (document.kind === 'subtitle-style') {
+      refineEngineDocument(ctx, {
+        at: 'style',
+        body: document.style,
+        supported: SUBTITLE_STYLE_SCHEMA_VERSION,
+        label: 'subtitle style',
+        parse: parseSubtitleStyleDocument,
+      })
+      return
+    }
+    if (document.kind === 'scene-effect') {
+      refineEngineDocument(ctx, {
+        at: 'motion',
+        body: document.motion,
+        supported: SCENE_EFFECT_SCHEMA_VERSION,
+        label: 'scene effect',
+        parse: parseSceneMotionDocument,
+      })
+      // The two engines are separate pipelines with separate picker groups, so
+      // a footage move filed under `zoom` would appear beside the still moves
+      // and render on the wrong one.
+      const isFootage = (document.motion as { source?: unknown }).source === FOOTAGE_MOTION_CATEGORY
+      if (isFootage !== (document.category === FOOTAGE_MOTION_CATEGORY)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['category'],
+          message: `category "${FOOTAGE_MOTION_CATEGORY}" and motion.source "${FOOTAGE_MOTION_CATEGORY}" must be used together`,
+        })
+      }
+      return
+    }
+    refineEngineDocument(ctx, {
+      at: 'overlay',
+      body: document.overlay,
+      supported: SCENE_EFFECT_SCHEMA_VERSION,
+      label: 'scene overlay',
+      parse: parseSceneOverlayDocument,
+    })
+    // A corner logo names a file on the customer's own machine. A pack cannot
+    // know that path, and a pack that supplies one is either guessing or
+    // pointing the compiler at a file it was never meant to read.
+    if ((document.overlay as { kind?: unknown; image_path?: unknown }).kind === 'corner-logo'
+      && (document.overlay as { image_path?: unknown }).image_path) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['overlay', 'image_path'],
+        message: 'a Content Pack must not supply overlay.image_path — the corner mark is a file on the customer\'s machine, so ship the overlay with an empty image_path and let them choose it',
+      })
+    }
+    return
+  }
   if (document.kind === 'topic-pack') {
     const groups = document.coverage_groups
     const profiles = document.coverage_profiles

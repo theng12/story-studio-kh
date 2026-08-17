@@ -49,7 +49,8 @@ import {
   computeVignetteAngle,
 } from '../lib/video-effects.js'
 import { compileSceneOverlay } from '../lib/scene-effect-compiler.js'
-import { resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
+import { assertNoUnavailablePackOverlays, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
+import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
 import {
   assertContextualCueReadiness,
@@ -2254,6 +2255,11 @@ async function prepareSceneClips(
   const clipPaths: string[] = new Array(scenes.length)
   const defaultDuration = recycling.seconds_per_scene || 10
 
+  // v1.2.1 — resolved ONCE for the whole render, not per scene. A camera move
+  // may now come from an installed Content Pack, and reading the pack state
+  // inside the parallel clip pool would re-read it for every scene.
+  const motionLibrary = (await listSceneEffectLibrary()).scene_motions
+
   // Pre-pick an animation type for each scene. 'off' = use the primary type;
   // 'single' = one random type for all scenes; 'per-scene' = different each time.
   const picks = pickAnimationsPerScene(
@@ -2336,6 +2342,7 @@ async function prepareSceneClips(
       : buildAnimationFilter({
           type: pickedType,
           params: sceneAnimation,
+          library: motionLibrary,
           w, h,
           fps: quality.fps,
           // Pace Ken Burns over the FULL rendered length (window + xfade
@@ -2429,7 +2436,7 @@ async function prepareSceneClips(
     //      builds the whole clip from a single frame; looping made ffmpeg
     //      re-decode + supersample-upscale the same image ~25×duration times.
     const stillDecoder = isVideoScene ? [] : await stillDecoderArgs(scene.image_path)
-    const singleFrameStill = !isVideoScene && isZoompanAnimation(pickedType)
+    const singleFrameStill = !isVideoScene && isZoompanAnimation(pickedType, motionLibrary)
     const inputArgs = isVideoScene
       ? (naturalVideo
           ? ['-i', scene.image_path]
@@ -4091,7 +4098,16 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // Each overlay carries the same intro/outro gate the other effects use,
   // ANDed with its own window rather than replacing it.
   if (sceneEffects?.enabled) {
-    const { resolved, unknownIds } = resolveAppliedOverlays(sceneEffects)
+    // v1.2.1 — resolved against built-ins PLUS installed packs. The library is
+    // read here rather than passed in because this is the only place in the
+    // composition pass that needs it.
+    const { overlays: overlayLibrary } = await listSceneEffectLibrary()
+    const { resolved, unavailable } = resolveAppliedOverlays(sceneEffects, overlayLibrary)
+    // A qualified id that no longer resolves came from a pack that has been
+    // uninstalled, disabled or recalled. Carrying on would publish a video
+    // missing a look the customer configured, so the job stops and says which
+    // pack to reinstall — the Verified Completion Contract, applied to effects.
+    assertNoUnavailablePackOverlays(unavailable)
     for (const overlay of resolved) {
       const next = vn()
       const statements = compileSceneOverlay(overlay.document, {
@@ -4114,10 +4130,11 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
         `Effect: ${overlay.name}${overlay.approximation ? ' (approximation — see its note)' : ''}`,
       )
     }
-    for (const id of unknownIds) {
-      // Not fatal: a project authored against an effect this build does not
-      // have must still render. It must not do so silently.
-      job.output_lines.push(`Effect "${id}" is not in this build's library and was skipped.`)
+    for (const entry of unavailable) {
+      // Everything reaching here is a BARE id — a hand-edited or ancient
+      // config. Not fatal: a project naming an effect this build does not have
+      // must still render. It must not do so silently.
+      job.output_lines.push(`Effect "${entry.id}" is not in this build's library and was skipped.`)
     }
   }
 

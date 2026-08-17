@@ -3,6 +3,12 @@ import type {
   ThumbnailTemplate,
   TopicPack,
 } from '../models/types.js'
+import type { ContentOrigin } from '../contracts/content-origin.js'
+import { parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.js'
+import { parseSceneMotionDocument, parseSceneOverlayDocument } from '../contracts/scene-effects-schema.js'
+import type { BuiltInSubtitlePreset } from '../contracts/subtitle-presets.js'
+import type { BuiltInMotion, BuiltInOverlay } from '../contracts/scene-effect-presets.js'
+import type { MotionCategory, OverlayCategory } from '../contracts/scene-effects.js'
 import { resolveMotionProfile } from '../services/motion-profiles.js'
 import { resolveRecencyStrategy } from '../services/recency-strategies.js'
 import type { ContentPackDocument } from './types.js'
@@ -11,6 +17,14 @@ type FormulaDocument = Extract<ContentPackDocument, { kind: 'series-formula' }>
 type TopicDocument = Extract<ContentPackDocument, { kind: 'topic-pack' }>
 type RecipeDocument = Extract<ContentPackDocument, { kind: 'thumbnail-recipe' }>
 type StyleDocument = Extract<ContentPackDocument, { kind: 'visual-style' }>
+type SubtitleStyleDocumentPack = Extract<ContentPackDocument, { kind: 'subtitle-style' }>
+type SceneEffectDocumentPack = Extract<ContentPackDocument, { kind: 'scene-effect' }>
+type OverlayDocumentPack = Extract<ContentPackDocument, { kind: 'overlay' }>
+
+/** A caption look from a pack, in the exact shape the built-in gallery uses. */
+export type PackSubtitlePreset = BuiltInSubtitlePreset & { origin: ContentOrigin }
+export type PackSceneMotion = BuiltInMotion & { origin: ContentOrigin }
+export type PackSceneOverlay = BuiltInOverlay & { origin: ContentOrigin }
 
 /** Kept local to the main process so the renderer never imports pack files. */
 export interface ContentPackVisualStyle {
@@ -233,6 +247,74 @@ export function contentPackDocumentToThumbnailTemplate(document: RecipeDocument,
 function visualStyleCategory(category: string): ContentPackVisualStyle['category'] {
   if (category === 'Digital' || category === 'Explainer' || category === 'Illustration' || category === 'Realistic') return category
   throw new Error(`Unsupported visual style category: ${category}`)
+}
+
+// ── Caption looks and scene effects (v1.2.1) ────────────────────────────────
+//
+// Each of these produces exactly the record the built-in registry produces, so
+// a pack entry and a shipped entry are interchangeable in the picker, the
+// preview endpoint and the compiler. The one difference is `origin`, and it is
+// deliberately not optional: an entry that cannot say where it came from is an
+// entry the customer cannot reason about when a pack is uninstalled.
+//
+// The engine document is re-parsed through its own STRICT validator rather than
+// trusted from the manifest. It was already validated at install time, so this
+// is not defence against a bad pack — it is how the clamped, canonicalised
+// document (hex casing, paired anchors, rounded step counts) is obtained, which
+// is the same object shape `defaultSubtitleStyle()` and `mergeSceneOverlay()`
+// hand the renderer.
+
+/** Explicit signed subtitle-style → built-in-compatible caption preset. */
+export function contentPackDocumentToSubtitlePreset(
+  document: SubtitleStyleDocumentPack,
+  origin: ContentOrigin,
+): PackSubtitlePreset {
+  const style = parseSubtitleStyleDocument(document.style)
+  return {
+    id: document.id,
+    name: document.name,
+    description: document.description,
+    ...(document.approximation ? { approximation: document.approximation } : {}),
+    wordLevel: style.word.mode !== 'off',
+    style,
+    origin,
+  }
+}
+
+/** Explicit signed scene-effect → built-in-compatible camera move. */
+export function contentPackDocumentToSceneMotion(
+  document: SceneEffectDocumentPack,
+  origin: ContentOrigin,
+): PackSceneMotion {
+  return {
+    id: document.id,
+    name: document.name,
+    category: document.category as MotionCategory,
+    description: document.description,
+    ...(document.approximation ? { approximation: document.approximation } : {}),
+    // A pack has no legacy v1.0 parameters to honour — those bindings exist so
+    // projects authored before the declarative registry keep rendering, and no
+    // project predates a pack that did not exist yet.
+    legacy_binding: 'none',
+    document: parseSceneMotionDocument(document.motion),
+    origin,
+  }
+}
+
+/** Explicit signed overlay → built-in-compatible composited effect. */
+export function contentPackDocumentToSceneOverlay(
+  document: OverlayDocumentPack,
+  origin: ContentOrigin,
+): PackSceneOverlay {
+  return {
+    id: document.id,
+    name: document.name,
+    category: document.category as OverlayCategory,
+    description: document.description,
+    ...(document.approximation ? { approximation: document.approximation } : {}),
+    document: parseSceneOverlayDocument(document.overlay),
+    origin,
+  }
 }
 
 /** Explicit signed visual-style → renderer-safe BuiltInStyle-compatible mapping. */

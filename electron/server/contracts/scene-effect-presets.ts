@@ -17,6 +17,8 @@
  * other than its name is worse than one that says what it actually does.
  */
 
+import { isContentPackItemId } from './content-origin.js'
+import type { MotionCategory, OverlayCategory } from './scene-effects.js'
 import {
   SCENE_EFFECT_SCHEMA_VERSION,
   defaultSceneMotion,
@@ -63,7 +65,7 @@ const DIAGONAL_AXIAL_SPEED = 1.5 / Math.SQRT2
 function motion(
   id: string,
   name: string,
-  category: string,
+  category: MotionCategory,
   description: string,
   patch: SceneMotionPatch,
   extra?: { legacy_binding?: LegacyMotionBinding; approximation?: string },
@@ -262,7 +264,7 @@ export const DEFAULT_FOOTAGE_MOTION_ID = 'static'
 function overlay(
   id: string,
   name: string,
-  category: string,
+  category: OverlayCategory,
   description: string,
   kind: OverlayKind,
   patch: Record<string, unknown>,
@@ -404,6 +406,67 @@ export interface ResolvedOverlay {
 }
 
 /**
+ * A selected overlay the library could not produce.
+ *
+ * `from_content_pack` is the difference that matters. A bare unknown id is a
+ * hand-edited or ancient config and has always been survivable; a QUALIFIED id
+ * can only be there because a content pack put it there, which means the pack
+ * has since been uninstalled, disabled or recalled. Rendering the episode
+ * without it would publish a video missing a look the customer chose, so the
+ * two cases are reported separately and treated differently — see
+ * `assertNoUnavailablePackOverlays`.
+ */
+export interface UnavailableOverlay {
+  id: string
+  from_content_pack: boolean
+}
+
+/**
+ * Thrown when a render would otherwise silently drop a content-pack effect.
+ *
+ * One class for both engines: a camera move and an overlay fail for the same
+ * reason and are repaired the same way, and two error types would mean two
+ * places for a caller to forget one.
+ */
+export class MissingPackEffectError extends Error {
+  readonly effectIds: string[]
+  constructor(message: string, effectIds: string[]) {
+    super(message)
+    this.name = 'MissingPackEffectError'
+    this.effectIds = effectIds
+  }
+}
+
+/**
+ * Refuse to render when a content-pack effect the episode uses is gone.
+ *
+ * AGENTS.md' Verified Completion Contract: a required item that is missing
+ * fails the whole job loudly, names what is missing, and says how to repair it.
+ * The alternative — carrying on and noting it in the log — hands the customer a
+ * finished video that quietly lacks something they configured, which is exactly
+ * the "silent fallback" the pack design forbids.
+ *
+ * The owning pack id is deliberately NOT guessed. An item id names its
+ * publisher, not its pack, so the publisher is all the message can honestly
+ * offer, and it is enough to find the pack in the Content Store.
+ */
+export function assertNoUnavailablePackOverlays(unavailable: readonly UnavailableOverlay[]): void {
+  const fromPacks = unavailable.filter(entry => entry.from_content_pack)
+  if (!fromPacks.length) return
+  const named = fromPacks.map(entry => {
+    const publisher = entry.id.split('.').slice(0, 2).join('.')
+    return `"${entry.id}" (published by ${publisher})`
+  })
+  throw new MissingPackEffectError(
+    `This episode uses ${named.length === 1 ? 'an effect' : 'effects'} from a Content Pack that is not installed: `
+    + `${named.join(', ')}. Rendering now would publish the video without ${named.length === 1 ? 'it' : 'them'}. `
+    + 'Reinstall the pack from the Content Store, or remove the effect from the Video Assembly effect stack, then run this job again — '
+    + 'no completed work is repeated.',
+    fromPacks.map(entry => entry.id),
+  )
+}
+
+/**
  * Resolve a render's overlay selection into finished documents.
  *
  * Only the SELECTION is persisted — an id plus the fields the customer changed.
@@ -412,23 +475,37 @@ export interface ResolvedOverlay {
  * old one frozen inside saved configs. Same rule the first line of AGENTS.md
  * sets for catalogue values: persist the choice, resolve the detail.
  *
- * An id this build does not have is SKIPPED and REPORTED, never fatal — a
- * project authored against a pack that is not installed must still render, and
- * the customer must be told which effect did not appear.
+ * An id this build does not have is SKIPPED and REPORTED here rather than
+ * throwing, because resolution has no way to tell a hand-edited config from an
+ * uninstalled pack. The caller makes that call: `unavailable` marks which ids
+ * are qualified pack ids, and `assertNoUnavailablePackOverlays` turns those
+ * into a loud refusal. A bare unknown id stays survivable, as it has been since
+ * v1.2.0.
+ *
+ * `library` defaults to the built-ins so every existing caller is unchanged with
+ * zero packs installed. `services/style-effect-loader.ts` passes the merged
+ * built-in + installed-pack library.
  */
 export function resolveAppliedOverlays(
   config: {
     enabled?: boolean
     overlays?: Array<{ id: string; enabled?: boolean; params?: Record<string, unknown> }>
   } | null | undefined,
-): { resolved: ResolvedOverlay[]; unknownIds: string[] } {
+  library: readonly BuiltInOverlay[] = BUILT_IN_OVERLAYS,
+): { resolved: ResolvedOverlay[]; unavailable: UnavailableOverlay[] } {
   const resolved: ResolvedOverlay[] = []
-  const unknownIds: string[] = []
-  if (!config || config.enabled === false || !Array.isArray(config.overlays)) return { resolved, unknownIds }
+  const unavailable: UnavailableOverlay[] = []
+  if (!config || config.enabled === false || !Array.isArray(config.overlays)) {
+    return { resolved, unavailable }
+  }
   for (const applied of config.overlays) {
     if (!applied || applied.enabled === false) continue
-    const entry = findBuiltInOverlay(applied.id)
-    if (!entry) { unknownIds.push(String(applied?.id ?? '(unnamed)')); continue }
+    const entry = library.find(candidate => candidate.id === applied.id)
+    if (!entry) {
+      const id = String(applied?.id ?? '(unnamed)')
+      unavailable.push({ id, from_content_pack: isContentPackItemId(id) })
+      continue
+    }
     resolved.push({
       id: entry.id,
       name: entry.name,
@@ -438,5 +515,5 @@ export function resolveAppliedOverlays(
         : entry.document,
     })
   }
-  return { resolved, unknownIds }
+  return { resolved, unavailable }
 }
