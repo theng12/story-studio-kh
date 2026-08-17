@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.3.2 — 2026-08-18
+
+- **You can now open the assets in Video Assembly before you render.** Step 1 listed scene numbers, thumbnails and the merged audio track and let you open none of them. Click any scene number or thumbnail chip to see the picture full-screen, and browse the whole episode with the arrow keys. The merged track gets a player, so a quick listen no longer means leaving the page.
+- **The merged audio now tells you whether your intro is in it.** You asked not to find that out after rendering the video. Newly merged tracks record what they prepended, and the row reads back the intro's filename, its length and the gap after it — "Intro included — Boundless_Intro.mp3 (6.0s) + 2.0s gap. The narration starts at 8.0s."
+- **For episodes merged before this release, Story Studio measures the file instead of guessing.** Every merged track already on your disk predates the record. Rather than reading your current Audio Assembly settings and describing an old file with them — those settings say what is set *now*, and the file may have been made with something else — Story Studio measures how much audio plays before the narration and says exactly that much and no more: "16.1s plays before the narration starts… it can't say whether that is your intro or a music lead-in — re-merging records it." When nothing precedes the narration, that *is* the complete answer, and it says so.
+- The measurement is the same one your burned captions are already shifted by, so the two can never drift apart. If the chapter sidecar no longer matches the file, the row says it cannot tell rather than reporting a confident zero.
+- **The exact subtitle preview opens in a window, and is worth looking at.** It rendered at 640×360 and sat at roughly 310 pixels wide — beside a rough CSS sketch drawn at twice that. The approximation outranked the accurate one, and enlarging the accurate one only blurred it. It now renders at 1280×720, opens in a large dialog the moment it finishes, and shares its width with the sketch. Click the clip to freeze a frame — useful for judging word-by-word highlighting.
+- Sharpening the preview costs about half a second more per render, once, and the result is cached.
+- Fixed while in there: the image preview counted across sections, so the third thumbnail of five announced itself as "Thumbnail 122 / 124". It now counts within its own section.
+
+---
+
 ## v1.3.1 — 2026-08-18
 
 - Scene Plan now reserves your real opening. When you build a timeline, Story Studio measures the clips that actually play before your first scene — the intro video, a title card, any clips you have parked at the head of the timeline — and starts scene one exactly there. The finished video puts every scene on the narration it was written for.

@@ -232,3 +232,74 @@ describe('the gallery merges installed packs without depending on them', () => {
       'applying a look must emit no event other than update:style')
   })
 })
+
+/**
+ * v1.3.2 — the exact render is the evidence, so it must not be the smaller,
+ * blurrier element on the page.
+ *
+ * Before this release the rough CSS sketch was drawn at 640px while the real
+ * FFmpeg burn sat beside it at 320px, sourced from a 640x360 render — so the
+ * approximation outranked the accurate thing, and enlarging the accurate thing
+ * only upscaled it. The owner could not read the type he was choosing.
+ */
+describe('the exact subtitle render outranks the sketch', () => {
+  test('the exact render opens in the app\'s shared dialog, not a bespoke overlay', () => {
+    assert.match(panel, /<Modal[\s\S]{0,200}?size="xxl"/,
+      'the enlarged render must reuse Modal.vue rather than inventing an overlay')
+    assert.match(panel, /exactModalOpen/)
+    // Rendering is the ask ("can you make it popup"), so a successful render
+    // opens it without a second click.
+    assert.match(panel, /exactUrl\.value = res\.url[\s\S]{0,200}?exactModalOpen\.value = true/)
+  })
+
+  test('the clip is described by the size the backend reports, never a literal', () => {
+    assert.match(panel, /exactWidth\s*\}\}×\{\{\s*exactHeight/,
+      'the note must interpolate the reported size')
+    assert.match(panel, /Number\(res\.width\)/)
+    assert.match(panel, /Number\(res\.height\)/)
+    // Checked against the rendered COPY only — comments and CSS may mention
+    // the old size while explaining why it changed.
+    const visibleCopy = panel.split('<script')[0]!.replace(/<!--[\s\S]*?-->/g, '')
+    assert.ok(!/\d{3,4}\s*[×x]\s*\d{3,4}/.test(visibleCopy),
+      'no hardcoded preview resolution may survive in what the user reads')
+  })
+
+  test('neither preview is given a width the other is denied', () => {
+    // The inversion was literally a `max-width: 320px` on the exact render
+    // against `max-width: 640px` on the sketch. Both panes are now one grid.
+    assert.ok(!/\.ssp-exact-video\s*\{[^}]*max-width:\s*320px/.test(panel),
+      'the exact render must not be capped smaller than the sketch')
+    assert.match(panel, /\.ssp-preview-pair\s*\{[^}]*grid-template-columns/)
+  })
+
+  test('the enlarged clip is not covered by native video controls', () => {
+    // Captions are bottom-anchored by default; the control bar lands on them.
+    assert.ok(!/ssp-exact-video-large[\s\S]{0,240}?\scontrols/.test(panel),
+      'native controls would hide the caption this dialog exists to show')
+    assert.match(panel, /toggleExactPlayback/)
+  })
+})
+
+/**
+ * v1.3.2 — Step 1 assets are openable, and the merged track says what is in
+ * front of the narration instead of requiring a listen.
+ */
+describe('Video Assembly Step 1 can be inspected before a render', () => {
+  test('scene and thumbnail chips open the shared lightbox', () => {
+    assert.match(videoAssembly, /<ImagePreviewLightbox/)
+    assert.match(videoAssembly, /openAssetPreview\('scenes'/)
+    assert.match(videoAssembly, /openAssetPreview\('thumbnails'/)
+  })
+
+  test('the merged track gets a player that fetches nothing until played', () => {
+    assert.match(videoAssembly, /class="merged-audio-player[\s\S]{0,120}?preload="none"/,
+      'a 26 MB track behind 130 chips must not preload')
+    assert.match(videoAssembly, /getAudioPreviewUrl/)
+  })
+
+  test('the intro answer comes from the scan, never from the live merge config', () => {
+    assert.match(videoAssembly, /describeMergedAudioOpening\(scannedAssets\.value\?\.merged_audio\?\.\[0\]\?\.opening\)/)
+    // The trap: describing an existing file with whatever is configured now.
+    assert.ok(!/merged-audio-opening[\s\S]{0,600}?audioMerge(Config|Settings)/.test(videoAssembly))
+  })
+})

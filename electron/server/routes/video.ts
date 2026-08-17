@@ -31,6 +31,13 @@ import {
 import { buildSubtitleAssDocument, normalizeSrtOrVtt, parseSrt } from '../lib/subtitle-builder.js'
 import { normalizeSubtitleStyle, type SubtitleStyleDocument } from '../contracts/subtitle-style.js'
 import { SubtitleStyleValidationError, parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.js'
+import {
+  SUBTITLE_PREVIEW_W,
+  SUBTITLE_PREVIEW_H,
+  SUBTITLE_PREVIEW_FPS,
+  SUBTITLE_PREVIEW_DURATION,
+  SUBTITLE_PREVIEW_SAMPLE,
+} from '../contracts/subtitle-preview.js'
 import { resolveSubtitlesDir, resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { inspectSubtitleText, type SubtitleQualityReport } from '../lib/subtitle-quality.js'
@@ -1338,13 +1345,9 @@ router.put('/projects/:slug/video-editor/subtitles/select/:episodeId', async (re
 //   - The legacy scalar querystring still works, normalised through the same
 //     path, so nothing that already links at this endpoint breaks.
 
-const SUBTITLE_PREVIEW_W = 640
-const SUBTITLE_PREVIEW_H = 360
-const SUBTITLE_PREVIEW_FPS = 24
-/** Long enough for a word-mode sweep to actually be visible. */
-const SUBTITLE_PREVIEW_DURATION = 4
-const SUBTITLE_PREVIEW_SAMPLE =
-  'The forest whispered secrets older than memory, and the quiet river answered.'
+// v1.3.2 — the render size lives in contracts/subtitle-preview.ts so the
+// faithfulness test compares the size that actually renders against the burn,
+// rather than keeping its own copy of a number this file could change.
 
 /** Resolve the backdrop for a preview — the episode's first scene, or null. */
 async function subtitlePreviewBackdrop(slug: string, episodeId?: string): Promise<string | null> {

@@ -37,6 +37,95 @@ export function narrationExtentSec(
 }
 
 /**
+ * The measurement, with the ability to say "I don't know" (v1.3.2).
+ *
+ * `computeIntroLeadInSec` below returns 0 for both "there is no lead-in" and
+ * "I could not work it out", which is exactly right for its callers — subtitle
+ * timing must not shift on a guess. But v1.3.2 shows this number to the owner
+ * so he can answer "is my intro in the merged audio?", and there those two
+ * cases are opposites: one is the answer he wants, the other is a lie. Hence a
+ * measurement that reports which it is, and one that flattens it for the
+ * timing callers whose behaviour must not change.
+ */
+export interface IntroLeadInMeasurement {
+  status: 'measured' | 'unmeasurable'
+  /** Seconds. 0 when `measured` and nothing precedes the narration. */
+  seconds: number
+  /** Only when `unmeasurable` — a sentence fit to show the user. */
+  reason?: string
+}
+
+/** Sub-0.3s is encoder padding / rounding, not an intro. */
+const LEAD_IN_NOISE_SEC = 0.3
+
+/**
+ * The measurement itself, given a duration that has already been probed.
+ *
+ * Pure, because every caller already knows the merged file's duration (the
+ * asset scanner ffprobes each audio file anyway, and the merge generator has
+ * just written the file), and re-probing a 26 MB mp3 per page load buys
+ * nothing. `measureIntroLeadIn` is the probing wrapper.
+ */
+export function introLeadInFrom(
+  mergedDurationSec: number | null | undefined,
+  sections: Array<{ duration_s?: number }>,
+  gapSec: number,
+): IntroLeadInMeasurement {
+  const dur = Number(mergedDurationSec)
+  if (!Number.isFinite(dur) || dur <= 0) {
+    return {
+      status: 'unmeasurable',
+      seconds: 0,
+      reason: 'the merged audio file\'s duration could not be read.',
+    }
+  }
+  if (!sections?.length) {
+    return {
+      status: 'unmeasurable',
+      seconds: 0,
+      reason: 'the chapter-duration sidecar (audio_chapters.json) is missing, so there is nothing to measure the narration against.',
+    }
+  }
+  const extent = narrationExtentSec(sections, gapSec)
+  if (extent <= 0) {
+    return {
+      status: 'unmeasurable',
+      seconds: 0,
+      reason: 'the chapter-duration sidecar records no chapter lengths.',
+    }
+  }
+  const lead = dur - extent
+  if (lead < -LEAD_IN_NOISE_SEC) {
+    // The chapters add up to MORE than the file. The sidecar was rewritten
+    // after this merge (re-generated narration, a re-merge that failed), so it
+    // describes a different assembly. Reporting the negative as "no intro"
+    // would be a confident wrong answer.
+    return {
+      status: 'unmeasurable',
+      seconds: 0,
+      reason: 'the chapter durations add up to more than this file, so the sidecar no longer describes it.',
+    }
+  }
+  return {
+    status: 'measured',
+    seconds: lead > LEAD_IN_NOISE_SEC ? Math.round(lead * 1000) / 1000 : 0,
+  }
+}
+
+/** `introLeadInFrom` with the ffprobe in front of it. */
+export async function measureIntroLeadIn(
+  mergedAudioPath: string | null | undefined,
+  sections: Array<{ duration_s?: number }>,
+  gapSec: number,
+): Promise<IntroLeadInMeasurement> {
+  if (!mergedAudioPath) {
+    return { status: 'unmeasurable', seconds: 0, reason: 'there is no merged audio file.' }
+  }
+  const dur = await getAudioDuration(mergedAudioPath).catch(() => undefined)
+  return introLeadInFrom(dur, sections, gapSec)
+}
+
+/**
  * Seconds of non-narration audio (intro / music lead-in + its gap) prepended
  * to the merged track — the offset subtitle timelines must add so captions
  * line up with the video. Returns 0 when there's no merged audio, no
@@ -47,14 +136,8 @@ export async function computeIntroLeadInSec(
   sections: Array<{ duration_s?: number }>,
   gapSec: number,
 ): Promise<number> {
-  if (!mergedAudioPath) return 0
-  const dur = await getAudioDuration(mergedAudioPath).catch(() => undefined)
-  if (typeof dur !== 'number' || !Number.isFinite(dur)) return 0
-  const extent = narrationExtentSec(sections, gapSec)
-  if (extent <= 0) return 0
-  const lead = dur - extent
-  // Ignore sub-0.3s noise (encoder padding / rounding); round to ms.
-  return lead > 0.3 ? Math.round(lead * 1000) / 1000 : 0
+  const m = await measureIntroLeadIn(mergedAudioPath, sections, gapSec)
+  return m.status === 'measured' ? m.seconds : 0
 }
 
 /**

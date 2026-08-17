@@ -29,6 +29,7 @@ import { getFFprobePath } from '../services/ffmpeg-manager.js'
 import { setAppSetting } from '../services/app-settings.js'
 import { cachedFileForToken } from '../services/preview-cache.js'
 import { BUILT_IN_SUBTITLE_PRESETS } from '../contracts/subtitle-presets.js'
+import { SUBTITLE_PREVIEW_W, SUBTITLE_PREVIEW_H } from '../contracts/subtitle-preview.js'
 import { defaultSubtitleStyle, mergeSubtitleStyle } from '../contracts/subtitle-style.js'
 import { router as videoRouter } from '../routes/video.js'
 
@@ -81,7 +82,7 @@ async function probe(file: string): Promise<{ duration: number; width: number; h
 const libass = await hasLibass()
 
 describe('subtitle preview renders a real clip', { skip: libass ? false : 'FFmpeg build has no libass' }, () => {
-  test('POST returns a token whose clip is a real 4-second 640x360 video', async () => {
+  test('POST returns a token whose clip is a real 4-second clip at the declared size', async () => {
     const res = await request(app())
       .post('/api/projects/preview-fixture/video-editor/preview-subtitles')
       .send({ style: defaultSubtitleStyle() })
@@ -96,9 +97,15 @@ describe('subtitle preview renders a real clip', { skip: libass ? false : 'FFmpe
     const stat = await fs.stat(file!)
     assert.ok(stat.size > 4_000, `a real clip, not an empty container — got ${stat.size} bytes`)
 
+    // v1.3.2 — assert against the endpoint's own constant AND against what
+    // the response claimed, rather than a literal this file keeps its own copy
+    // of. The point of this test is that the bytes match the promise; a
+    // restated number can only ever check the promise against itself.
+    assert.equal(res.body.width, SUBTITLE_PREVIEW_W)
+    assert.equal(res.body.height, SUBTITLE_PREVIEW_H)
     const info = await probe(file!)
-    assert.equal(info.width, 640)
-    assert.equal(info.height, 360)
+    assert.equal(info.width, res.body.width)
+    assert.equal(info.height, res.body.height)
     assert.ok(Math.abs(info.duration - 4) < 0.35, `expected ~4s, ffprobe says ${info.duration}s`)
   })
 

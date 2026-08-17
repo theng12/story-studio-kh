@@ -166,20 +166,43 @@ const currentFilename = computed(() => currentImage.value?.filename || '')
 const atStart = computed(() => props.index <= 0)
 const atEnd   = computed(() => props.index >= props.images.length - 1)
 
+/**
+ * Position WITHIN the current image's section, not within the whole list.
+ *
+ * The old label counted globally, which was harmless while the two sections
+ * were browsed separately and became nonsense in v1.3.2, when Video Assembly
+ * started passing 119 scenes followed by 5 thumbnails: the third thumbnail
+ * announced itself as "Thumbnail 122 / 124". The counts were never needed as
+ * props — the list is already here, and each row already says which section
+ * it belongs to.
+ */
+const sectionPosition = computed(() => {
+  const c = currentImage.value
+  if (!c?.section) return null
+  let seen = 0
+  let position = 0
+  for (let i = 0; i < props.images.length; i++) {
+    if (props.images[i]?.section !== c.section) continue
+    seen++
+    if (i === props.index) position = seen
+  }
+  return { position: position || 1, total: seen }
+})
+
 const positionLabel = computed(() => {
   if (!props.images.length) return ''
   const i = props.index + 1
   const total = props.images.length
   const c = currentImage.value
+  const within = sectionPosition.value
   if (c?.section === 'scenes') {
-    // Same-section count is more useful than the global "of N" when the
-    // list is mixed scenes + thumbs — but we'd need section counts
-    // passed in. For now use scene_number when present.
-    const num = c.scene_number ?? i
-    return `Scene ${num} · ${i} / ${total}`
+    const num = c.scene_number ?? (within?.position ?? i)
+    return within
+      ? `Scene ${num} · ${within.position} / ${within.total}`
+      : `Scene ${num} · ${i} / ${total}`
   }
   if (c?.section === 'thumbnails') {
-    return `Thumbnail ${i} / ${total}`
+    return within ? `Thumbnail ${within.position} / ${within.total}` : `Thumbnail ${i} / ${total}`
   }
   return `${i} / ${total}`
 })

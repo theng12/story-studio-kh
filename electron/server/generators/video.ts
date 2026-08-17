@@ -66,6 +66,10 @@ import {
 } from '../services/sound-design.js'
 import { approvedSoundDesignMixCues } from '../services/sound-design-resolver.js'
 import { mixSoundDesignIntoAudio } from '../lib/sound-design-mixer.js'
+import {
+  describeMergedAudioOpening,
+  type MergedAudioOpening,
+} from '../services/merged-audio-opening.js'
 import type {
   GenerateVideoRequest, Job, VideoLogoConfig, VideoIntroConfig,
   VideoOutroConfig, VideoTimelineClip, VideoTimelineClipStatic, TimelineAnchor,
@@ -477,7 +481,13 @@ export interface ScannedAssets {
   thumbnails: Array<{ filename: string; path: string; number: number }>
   audio_sections: Array<{ filename: string; path: string; label: string; duration?: number }>
   narration_full?: { path: string; duration: number }
-  merged_audio: Array<{ filename: string; path: string; duration?: number }>
+  /** `opening` (v1.3.2) states what precedes the narration in each track. */
+  merged_audio: Array<{
+    filename: string
+    path: string
+    duration?: number
+    opening?: MergedAudioOpening
+  }>
   intro_videos: Array<{ filename: string; path: string }>
   music_files: Array<{ filename: string; path: string; duration?: number }>
   rendered_videos: Array<{ filename: string; path: string; mtime: number }>
@@ -736,6 +746,20 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   // step already consumed those. Flag it so the UI stops offering them.
   if (result.merged_audio.length > 0) {
     result.skip_chapters = true
+  }
+
+  // v1.3.2 — say what is in front of the narration in each merged track, so
+  // Video Assembly Step 1 can answer "does this already include my intro?"
+  // without the owner having to play the file and guess. Costs one small JSON
+  // read per merged file; the ffprobe it needs was already done above.
+  for (const entry of result.merged_audio) {
+    entry.opening = await describeMergedAudioOpening({
+      mergedDir: path.dirname(entry.path),
+      code,
+      filename: entry.filename,
+      mergedDurationSec: entry.duration,
+      episodeDir,
+    })
   }
 
   if (scannedPlan) {

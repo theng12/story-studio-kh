@@ -46,35 +46,124 @@
       </p>
     </section>
 
-    <!-- ── Live preview ─────────────────────────────────────────────── -->
+    <!-- ── Preview ──────────────────────────────────────────────────────
+         v1.3.2 fixed an inverted hierarchy: the rough CSS sketch was drawn at
+         640px while the real FFmpeg burn — the only thing that tells you what
+         the video will look like — sat beside it at 320px, half the size, and
+         rendered from a 640x360 source so enlarging it only blurred it.
+
+         Both now share one width, the exact render is the one with the
+         heading and the enlarge control, and it renders at 1280x720 so the
+         modal shows it sharp. The sketch keeps its place next to the controls
+         because it is the LIVE one: it repaints as you drag a slider, which
+         the exact render (a 4-second VP9 encode) can never do. Different jobs,
+         stated as such, rather than one silently outranking the other. -->
     <section class="ssp-preview">
-      <div ref="frameEl" class="ssp-preview-frame" :style="previewFrameStyle">
-        <div class="ssp-caption-layer" :style="captionLayerStyle">
-          <span class="ssp-caption" :style="captionStyle">{{ cssPreviewText }}</span>
+      <div class="ssp-preview-pair">
+        <div class="ssp-preview-pane">
+          <h4 class="ssp-preview-heading">
+            Exact render
+            <span class="ssp-preview-sub">what the burned video looks like</span>
+          </h4>
+          <button
+            v-if="exactUrl"
+            type="button"
+            class="ssp-exact-open"
+            :title="`Enlarge (${exactWidth}×${exactHeight})`"
+            @click="exactModalOpen = true"
+          >
+            <video
+              :key="exactUrl"
+              :src="exactUrl"
+              class="ssp-exact-video"
+              autoplay muted loop playsinline
+            />
+            <span class="ssp-exact-open-hint">⤢ Enlarge</span>
+          </button>
+          <div v-else class="ssp-exact-empty">
+            <span>Not rendered yet.</span>
+          </div>
+          <div class="ssp-preview-actions">
+            <button class="btn btn-sm btn-primary" :disabled="rendering" @click="renderExact">
+              {{ rendering ? 'Rendering…' : exactUrl ? 'Re-render exact preview' : 'Render exact preview' }}
+            </button>
+            <button
+              v-if="exactUrl"
+              class="btn btn-sm btn-secondary"
+              @click="exactModalOpen = true"
+            >Enlarge</button>
+          </div>
+        </div>
+
+        <div class="ssp-preview-pane">
+          <h4 class="ssp-preview-heading">
+            Live sketch
+            <span class="ssp-preview-sub">approximate, updates as you edit</span>
+          </h4>
+          <div ref="frameEl" class="ssp-preview-frame" :style="previewFrameStyle">
+            <div class="ssp-caption-layer" :style="captionLayerStyle">
+              <span class="ssp-caption" :style="captionStyle">{{ cssPreviewText }}</span>
+            </div>
+          </div>
         </div>
       </div>
-      <div class="ssp-preview-actions">
-        <button class="btn btn-sm btn-secondary" :disabled="rendering" @click="renderExact">
-          {{ rendering ? 'Rendering…' : 'Render exact preview' }}
-        </button>
-        <video
-          v-if="exactUrl"
-          :key="exactUrl"
-          :src="exactUrl"
-          class="ssp-exact-video"
-          autoplay muted loop playsinline
-        />
-      </div>
+
       <p v-if="previewError" class="validation-msg text-sm mt-1">{{ previewError }}</p>
       <p class="text-muted ssp-note">
-        The block above is a rough CSS sketch. "Render exact preview" runs the real FFmpeg burn —
-        the same caption document the final video uses, at 640×360 for {{ previewDuration }} seconds.
+        The sketch is CSS and only approximates outline, shadow and word highlighting.
+        "Render exact preview" runs the real FFmpeg burn — the same caption document the final
+        video uses — at {{ exactWidth }}×{{ exactHeight }} for {{ previewDuration }} seconds.
+        Judge the type from that one.
       </p>
       <p v-if="style.word.mode !== 'off'" class="text-muted ssp-note">
         Word timing is estimated from the caption timings — Story Studio spreads each caption's
         duration across its words by length. It is close, not measured.
       </p>
     </section>
+
+    <!-- The owner asked for this directly: *"the render preview is too small
+         to see. i can't see it. can you make it popup or a modal or sth?"* -->
+    <Modal
+      :visible="exactModalOpen"
+      size="xxl"
+      labelledby="ssp-exact-modal-title"
+      @close="exactModalOpen = false"
+    >
+      <div class="ssp-exact-modal-head">
+        <h3 id="ssp-exact-modal-title">Exact render</h3>
+        <span class="ssp-exact-modal-meta">
+          {{ exactWidth }}×{{ exactHeight }} · {{ previewDuration }}s · looping
+        </span>
+      </div>
+      <!-- The wrapper, not the video, carries the height cap: clamping the
+           video itself would letterbox it inside a full-width black box. -->
+      <!-- No native `controls`: captions sit at the bottom of the frame by
+           default, and the control bar lands squarely on top of them — it
+           hides the exact thing this dialog exists to show. Click to freeze a
+           frame instead, which is what a word-by-word sweep needs anyway. -->
+      <div class="ssp-exact-stage">
+        <video
+          v-if="exactUrl"
+          ref="exactModalVideo"
+          :key="`modal-${exactUrl}`"
+          :src="exactUrl"
+          class="ssp-exact-video-large"
+          :title="exactPaused ? 'Click to play' : 'Click to freeze a frame'"
+          autoplay muted loop playsinline
+          @click="toggleExactPlayback"
+        />
+      </div>
+      <p class="text-muted ssp-note ssp-exact-hint">
+        Click the clip to freeze a frame — useful for judging a word-by-word highlight.
+        <span v-if="exactPaused"> Paused.</span>
+      </p>
+      <div class="ssp-exact-modal-foot">
+        <button class="btn btn-sm btn-secondary" :disabled="rendering" @click="renderExact">
+          {{ rendering ? 'Rendering…' : 'Re-render' }}
+        </button>
+        <button class="btn btn-sm btn-secondary" @click="exactModalOpen = false">Close</button>
+      </div>
+    </Modal>
 
     <!-- ── Properties ───────────────────────────────────────────────── -->
     <section
@@ -673,6 +762,25 @@ const rendering = ref(false)
 const exactUrl = ref<string | null>(null)
 const previewError = ref('')
 const previewDuration = ref(4)
+const exactModalOpen = ref(false)
+/**
+ * The size the backend actually rendered, reported by the response.
+ *
+ * Not a constant here. The old copy said "at 640×360" in prose next to a clip
+ * whose real size only the endpoint knew — so the moment the endpoint changed,
+ * the page was confidently wrong about the very thing it was describing.
+ */
+const exactWidth = ref(1280)
+const exactHeight = ref(720)
+const exactModalVideo = ref<HTMLVideoElement | null>(null)
+const exactPaused = ref(false)
+
+function toggleExactPlayback() {
+  const el = exactModalVideo.value
+  if (!el) return
+  if (el.paused) { void el.play(); exactPaused.value = false }
+  else { el.pause(); exactPaused.value = true }
+}
 
 async function renderExact() {
   if (rendering.value) return
@@ -681,7 +789,7 @@ async function renderExact() {
   try {
     // POST, not a querystring: the style document is far past what a URL can
     // carry. The response hands back a cache token the <video> can GET.
-    const res = await post<{ url: string; duration_sec: number }>(
+    const res = await post<{ url: string; duration_sec: number; width?: number; height?: number }>(
       `/projects/${props.slug}/video-editor/preview-subtitles`,
       {
         style: props.style,
@@ -690,9 +798,16 @@ async function renderExact() {
       },
     )
     previewDuration.value = res.duration_sec || 4
+    if (Number(res.width) > 0) exactWidth.value = Number(res.width)
+    if (Number(res.height) > 0) exactHeight.value = Number(res.height)
     exactUrl.value = res.url
+    exactPaused.value = false
+    // He asked for the popup; clicking the button is the ask. Re-rendering
+    // from inside the modal must not close and reopen it.
+    exactModalOpen.value = true
   } catch (e: any) {
     exactUrl.value = null
+    exactModalOpen.value = false
     previewError.value = e?.data?.detail || e?.message || 'Subtitle preview failed'
   } finally {
     rendering.value = false
@@ -849,9 +964,29 @@ defineExpose({ defaultSubtitleStyle })
 .ssp-placement-values label { display: grid; gap: 4px; font-size: 12px; color: var(--text-secondary); }
 .ssp-placement-values input { width: 100%; }
 
+/* Two panes of EQUAL width. The exact render being the smaller element was
+ * the bug; giving it its own column at the same size is the fix, and the
+ * headings say which is which so neither is mistaken for the other. */
+.ssp-preview-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.ssp-preview-pane { min-width: 0; }
+.ssp-preview-heading {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.ssp-preview-sub { font-size: var(--font-xs); font-weight: 400; color: var(--text-muted); }
+
 .ssp-preview-frame {
   width: 100%;
-  max-width: 640px;
   aspect-ratio: 16 / 9;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -860,15 +995,91 @@ defineExpose({ defaultSubtitleStyle })
 }
 .ssp-caption-layer { position: absolute; inset: 0; display: flex; padding: 16px; }
 .ssp-preview-actions { display: flex; gap: 10px; margin-top: 8px; align-items: flex-start; flex-wrap: wrap; }
+
+/* The inline exact render is itself the control that opens the modal. */
+.ssp-exact-open {
+  display: block;
+  position: relative;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  border-radius: 8px;
+}
+.ssp-exact-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .ssp-exact-video {
-  max-width: 320px;
+  display: block;
   width: 100%;
   aspect-ratio: 16 / 9;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border);
   background: #000;
 }
+.ssp-exact-open-hint {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.12s;
+  pointer-events: none;
+}
+.ssp-exact-open:hover .ssp-exact-open-hint,
+.ssp-exact-open:focus-visible .ssp-exact-open-hint { opacity: 1; }
+.ssp-exact-empty {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  border: 1px dashed var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  background: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
+}
 .ssp-note { font-size: var(--font-xs); margin-top: 4px; max-width: 78ch; }
+
+/* ── Enlarged exact render ─────────────────────────────────────────────
+ * Modal teleports its dialog to <body>, but SLOT content is compiled in
+ * this component and keeps this component's scope id, so these scoped rules
+ * do reach it. (What would NOT work is `:deep()` at Modal's own dialog
+ * element — see Modal.vue's note and AGENTS.md's v1.0.779 writeup.) */
+.ssp-exact-modal-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.ssp-exact-modal-head h3 { margin: 0; font-size: 16px; }
+.ssp-exact-modal-meta { font-size: var(--font-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ssp-exact-stage {
+  /* Never taller than the window, never wider than the dialog, and always
+   * 16:9 — so a short window shrinks the clip instead of clipping it. */
+  width: 100%;
+  max-width: min(100%, calc(64vh * 16 / 9));
+  margin: 0 auto;
+}
+.ssp-exact-video-large {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #000;
+  cursor: pointer;
+}
+.ssp-exact-hint { text-align: center; margin: 8px auto 0; }
+.ssp-exact-modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 
 @media (max-width: 720px) {
   .ssp-placement-heading { flex-direction: column; }

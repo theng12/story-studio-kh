@@ -31,6 +31,10 @@ import { resolveAssetPath, isPortablePath } from '../services/path-resolver.js'
 import { checkAssetAvailability } from '../lib/sync-safe.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { requireChapterAudioReady } from '../services/audio-workflow-readiness.js'
+import {
+  buildMergedAudioOpeningRecord,
+  type MergedAudioIntroRecord,
+} from '../services/merged-audio-opening.js'
 
 // ── Run FFmpeg and capture stderr (needed for loudnorm measurement) ────────
 
@@ -474,7 +478,14 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     const concatListPath = path.join(tempDir, 'concat_list.txt')
     const concatLines: string[] = []
 
-    // Optional intro: prepend to the front with a configurable gap after it
+    // Optional intro: prepend to the front with a configurable gap after it.
+    //
+    // v1.3.2 — what gets prepended here is written into the completion record
+    // (`schema_version: 2`). Until then the merge knew this and threw it away,
+    // so the only way to find out whether an episode's merged track already
+    // carried the intro was to play it and listen — which the owner asked not
+    // to have to do, and certainly not after rendering the video.
+    let introRecord: MergedAudioIntroRecord | null = null
     const introEnabled = req.intro?.enabled && !!req.intro?.file
     if (introEnabled && req.intro) {
       const introPath = unescapeShellPath(req.intro.file)!
@@ -506,6 +517,15 @@ export async function generateAudioMerge(job: Job): Promise<void> {
           introGapFile,
         ], { timeoutMs: audioMergeTimeoutMs() })
         concatLines.push(escPath(introGapFile))
+      }
+      // Probe the source, not the staged copy: same duration, and the source
+      // is what the customer chose. A failed probe records null rather than 0
+      // — an unknown length must not read as a zero-length intro.
+      const introDur = Number(await getAudioDuration(introPath).catch(() => undefined))
+      introRecord = {
+        filename: path.basename(introPath),
+        duration_sec: Number.isFinite(introDur) && introDur > 0 ? Math.round(introDur * 1000) / 1000 : null,
+        gap_after_sec: introGap,
       }
       job.output_lines.push(`Intro prepended (${path.basename(introPath)}, volume ${Math.round(introVol * 100)}%, ${introGap}s gap)`)
     }
@@ -722,14 +742,45 @@ export async function generateAudioMerge(job: Job): Promise<void> {
     job.output_lines.push(`Output: ${outputPath}`)
     job.output_lines.push(`Duration: ${finalDuration ? finalDuration.toFixed(1) + 's' : 'unknown'}`)
     job.output_dir = path.dirname(outputPath)
+
+    // v1.3.2 — record what precedes the narration in this file, so nobody has
+    // to play it to find out whether the intro is already in there.
+    const musicLeadInSec = musicEnabled
+      && req.music?.lead_in_enabled
+      && Number(req.music?.lead_in_seconds) > 0
+      ? Math.max(0, Number(req.music!.lead_in_seconds))
+      : 0
+    const opening = buildMergedAudioOpeningRecord({
+      finalDurationSec: finalDuration,
+      sections: chaptersForSidecar,
+      gapSec: req.gap_duration,
+      intro: introRecord,
+      musicLeadInSec,
+    })
+    const leadInSec = opening.lead_in_sec
+    job.output_lines.push(
+      introRecord
+        ? `Opening recorded: intro ${introRecord.filename}` +
+          (introRecord.duration_sec !== null ? ` (${introRecord.duration_sec.toFixed(2)}s)` : '') +
+          ` + ${introRecord.gap_after_sec}s gap` +
+          (musicLeadInSec > 0 ? ` + ${musicLeadInSec}s music lead-in` : '') +
+          ` — narration starts at ${leadInSec.toFixed(2)}s`
+        : musicLeadInSec > 0
+          ? `Opening recorded: no intro file, ${musicLeadInSec}s music lead-in — narration starts at ${leadInSec.toFixed(2)}s`
+          : 'Opening recorded: no intro — narration only.',
+    )
     await fs.writeFile(
       path.join(path.dirname(outputPath), `${code}_merged_audio.completion.json`),
       JSON.stringify({
-        schema_version: 1,
+        // v2 adds `opening`. Every v1 field keeps its meaning, so
+        // `asset-status`'s verification (filename + bytes + duration) is
+        // unchanged and no existing record is invalidated by the bump.
+        schema_version: 2,
         output_filename: path.basename(outputPath),
         bytes: finalBytes,
         duration_sec: finalDuration,
         generated_at: new Date().toISOString(),
+        opening,
       }, null, 2),
       'utf-8',
     )

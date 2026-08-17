@@ -47,6 +47,7 @@ import {
   parseSubtitleStyleDocument,
 } from '../contracts/subtitle-style-schema.js'
 import { BUILT_IN_SUBTITLE_PRESETS } from '../contracts/subtitle-presets.js'
+import { SUBTITLE_PREVIEW_W, SUBTITLE_PREVIEW_H } from '../contracts/subtitle-preview.js'
 import {
   distributeWordTimes,
   estimatedWordTimingSource,
@@ -426,10 +427,19 @@ describe('strict validation names what it rejects', () => {
 // ── 7. Preview / burn scale agreement ───────────────────────────────────────
 
 /**
- * The preview endpoint renders at 640x360 and the real burn at 1920x1080 (or
- * 1280x720). If those disagree about relative size, position or stroke weight,
- * the preview is decoration rather than evidence — so compare the numbers, not
- * the pictures.
+ * The preview endpoint and the real burn render at different resolutions. If
+ * those disagree about relative size, position or stroke weight, the preview
+ * is decoration rather than evidence — so compare the numbers, not the
+ * pictures.
+ *
+ * v1.3.2 raised the endpoint's own size from 640x360 to 1280x720 so the modal
+ * shows a sharp clip instead of an upscaled one. `PREVIEW` below is now
+ * IMPORTED from the endpoint's constant rather than restated: a test that
+ * keeps its own copy of the preview size can go on passing after someone
+ * changes the endpoint, proving faithfulness at a resolution nothing renders
+ * at. `LEGACY_PREVIEW` keeps the old size under test too, because the burn
+ * genuinely runs at several sizes and the property is meant to hold at all of
+ * them, not just the two currently in use.
  */
 describe('preview and final burn describe the same caption', () => {
   /**
@@ -456,24 +466,29 @@ describe('preview and final burn describe the same caption', () => {
     }
   }
 
-  const PREVIEW = { width: 640, height: 360 }
+  /** The size the endpoint actually renders — not a copy of it. */
+  const PREVIEW = { width: SUBTITLE_PREVIEW_W, height: SUBTITLE_PREVIEW_H }
+  /** The pre-v1.3.2 preview size; the burn still runs at 720p and 1080p. */
+  const LEGACY_PREVIEW = { width: 640, height: 360 }
   const BURN = { width: 1920, height: 1080 }
 
   for (const p of BUILT_IN_SUBTITLE_PRESETS) {
     test(`${p.id}: relative size, stroke and margin match at both resolutions`, () => {
-      const small = styleNumbers(buildSubtitleAssDocument(cues, p.style, PREVIEW).ass)
       const large = styleNumbers(buildSubtitleAssDocument(cues, p.style, BURN).ass)
       // Rounding at 360p is coarser than at 1080p, so allow a hair of drift —
       // but not the 3x class of error the v1.0.413 scaling bug produced.
       const near = (a: number, b: number, what: string) =>
         assert.ok(Math.abs(a - b) < 0.0015, `${what}: preview ${a} vs burn ${b}`)
-      near(small.fontFraction, large.fontFraction, 'font size')
-      near(small.outlineFraction, large.outlineFraction, 'outline width')
-      near(small.shadowFraction, large.shadowFraction, 'shadow depth')
-      near(small.spacingFraction, large.spacingFraction, 'letter spacing')
-      near(small.marginFraction, large.marginFraction, 'margin')
-      assert.equal(small.alignment, large.alignment, 'alignment')
-      assert.equal(small.borderStyle, large.borderStyle, 'border style')
+      for (const size of [PREVIEW, LEGACY_PREVIEW]) {
+        const small = styleNumbers(buildSubtitleAssDocument(cues, p.style, size).ass)
+        near(small.fontFraction, large.fontFraction, `font size @${size.width}`)
+        near(small.outlineFraction, large.outlineFraction, `outline width @${size.width}`)
+        near(small.shadowFraction, large.shadowFraction, `shadow depth @${size.width}`)
+        near(small.spacingFraction, large.spacingFraction, `letter spacing @${size.width}`)
+        near(small.marginFraction, large.marginFraction, `margin @${size.width}`)
+        assert.equal(small.alignment, large.alignment, `alignment @${size.width}`)
+        assert.equal(small.borderStyle, large.borderStyle, `border style @${size.width}`)
+      }
     })
   }
 

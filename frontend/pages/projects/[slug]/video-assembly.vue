@@ -177,15 +177,20 @@
             Exact Scene Plan order and timestamps are always used. Approved motion clips replace only their matching still scene.
           </p>
           <div class="thumb-grid mt-1" v-if="sceneSourceCounts.scene_plan">
-            <div
-              v-for="(img, i) in scannedAssets.scenes.filter((row: any) => row.source === 'scene_plan')"
+            <button
+              v-for="(img, i) in plannedSceneAssets"
               :key="i"
-              class="scene-thumb-small"
-              :title="img.filename"
+              type="button"
+              class="scene-thumb-small scene-thumb-openable"
+              :title="`${img.filename} — click to view`"
+              @click="openAssetPreview('scenes', i)"
             >
               {{ img.number || Number(i) + 1 }}
-            </div>
+            </button>
           </div>
+          <p v-if="sceneSourceCounts.scene_plan" class="text-muted text-xs hint-line">
+            Click any scene number to see the picture before you render.
+          </p>
           <p v-else class="text-muted text-md">No approved Scene Plan assets found</p>
         </div>
 
@@ -213,25 +218,48 @@
         <div class="asset-section mt-2" v-if="scannedAssets.thumbnails?.length">
           <label>Thumbnails ({{ scannedAssets.thumbnails.length }})</label>
           <div class="thumb-grid mt-1">
-            <div
+            <button
               v-for="(thumb, i) in scannedAssets.thumbnails"
               :key="i"
-              class="scene-thumb-small"
-              :title="thumb.filename"
+              type="button"
+              class="scene-thumb-small scene-thumb-openable"
+              :title="`${thumb.filename} — click to view`"
+              @click="openAssetPreview('thumbnails', Number(i))"
             >
               T{{ Number(i) + 1 }}
-            </div>
+            </button>
           </div>
         </div>
 
         <!-- Merged Audio (primary input — produced by the upstream Audio Assembly step) -->
         <div class="asset-section mt-2">
           <label>Merged Audio</label>
-          <div v-if="hasMergedAudio" class="merged-audio-row">
-            <span class="badge badge-success mr-2-tight">✓ Ready</span>
-            <span class="audio-name flex-1">{{ scannedAssets.merged_audio[0].filename }}</span>
-            <span class="text-muted text-sm">{{ formatDuration(scannedAssets.merged_audio[0].duration) }}</span>
-          </div>
+          <template v-if="hasMergedAudio">
+            <div class="merged-audio-row">
+              <span class="badge badge-success mr-2-tight">✓ Ready</span>
+              <span class="audio-name flex-1">{{ scannedAssets.merged_audio[0].filename }}</span>
+              <span class="text-muted text-sm">{{ formatDuration(scannedAssets.merged_audio[0].duration) }}</span>
+            </div>
+            <!-- v1.3.2 — say what is at the front of this track, so the intro
+                 question is answered by reading rather than by listening. -->
+            <p
+              v-if="mergedAudioOpeningLine"
+              :class="['merged-audio-opening', `merged-audio-opening--${mergedAudioOpeningLine.certainty}`]"
+            >
+              <span aria-hidden="true" class="merged-audio-opening-mark">{{
+                mergedAudioOpeningLine.certainty === 'unknown' ? '?' : mergedAudioOpeningLine.hasIntro ? '♪' : '•'
+              }}</span>
+              {{ mergedAudioOpeningLine.text }}
+            </p>
+            <!-- `preload="none"` matters: 130 chips and a 26 MB track on one
+                 page. Nothing is fetched until he presses play. -->
+            <audio
+              class="merged-audio-player mt-1"
+              controls
+              preload="none"
+              :src="getAudioPreviewUrl(scannedAssets.merged_audio[0].path)"
+            />
+          </template>
           <div v-else class="validation-msg">
             No merged audio file found. Run the <strong>Audio Assembly</strong> step first to produce a single merged track.
           </div>
@@ -2374,12 +2402,23 @@
       </div>
     </div>
 
+    <!-- v1.3.2 — Step 1 asset preview. The same lightbox the Images page uses,
+         so scenes and thumbnails open and browse identically in both places. -->
+    <ImagePreviewLightbox
+      v-model:visible="assetPreviewOpen"
+      v-model:index="assetPreviewIndex"
+      :images="assetPreviewImages"
+      :project-slug="slug"
+      :version="previewCacheKey"
+    />
+
   </div>
 </template>
 
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
+import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 import { hasQualityFindings } from '~/types/subtitle-quality'
 import {
@@ -2464,6 +2503,68 @@ const sceneSourceCounts = computed(() => ({
   classic: Number(scannedAssets.value?.scene_sources?.classic || 0),
   scene_plan: Number(scannedAssets.value?.scene_sources?.scene_plan || 0),
 }))
+
+// ── Step 1 asset preview (v1.3.2) ──────────────────────────────────────────
+//
+// The owner could see 130 numbered chips and open none of them: *"i can see
+// the assets but i have no way to view them or listen to them… i don't want to
+// findout after i've already render the video."* The preview endpoints already
+// existed; nothing linked to them.
+//
+// Computed once and shared with the grid, so the index a chip passes to the
+// lightbox is the index of the row that chip is rendering. Filtering inline in
+// the template (as the grid used to) would silently drift the two apart the
+// moment either side changed.
+const plannedSceneAssets = computed<any[]>(() =>
+  (scannedAssets.value?.scenes || []).filter((row: any) => row.source === 'scene_plan'),
+)
+
+/**
+ * The carousel's flat list: every scene, then every thumbnail. The lightbox
+ * browses across both with ← / →, which is what "get a sense of its shape"
+ * actually needs — 130 individual round trips is not a glance.
+ *
+ * Only paths and labels; no image is fetched until the lightbox mounts one.
+ */
+const assetPreviewImages = computed(() => [
+  ...plannedSceneAssets.value.map((row: any, i: number) => ({
+    filename: String(row.filename || ''),
+    path: String(row.path || ''),
+    section: 'scenes' as const,
+    scene_number: Number(row.number) || i + 1,
+  })),
+  ...((scannedAssets.value?.thumbnails || []) as any[]).map((row: any) => ({
+    filename: String(row.filename || ''),
+    path: String(row.path || ''),
+    section: 'thumbnails' as const,
+    scene_number: null,
+  })),
+])
+const assetPreviewOpen = ref(false)
+const assetPreviewIndex = ref(0)
+
+// Changing episode while the preview is open would silently swap the pictures
+// under him — same position, different episode, no announcement. Close it.
+watch(episodeId, () => { assetPreviewOpen.value = false })
+
+function openAssetPreview(section: 'scenes' | 'thumbnails', indexWithinSection: number) {
+  const offset = section === 'thumbnails' ? plannedSceneAssets.value.length : 0
+  const target = offset + indexWithinSection
+  if (target < 0 || target >= assetPreviewImages.value.length) return
+  assetPreviewIndex.value = target
+  assetPreviewOpen.value = true
+}
+
+/**
+ * The Merged Audio row's one-line answer to "is my intro in there?".
+ *
+ * The backend supplies the fact (`merged_audio[].opening`); this page never
+ * derives it from the Audio Assembly settings, because those describe what is
+ * configured NOW and the file may have been merged with something else.
+ */
+const mergedAudioOpeningLine = computed(() =>
+  describeMergedAudioOpening(scannedAssets.value?.merged_audio?.[0]?.opening),
+)
 const plannedSceneCoverage = computed(() => scannedAssets.value?.scene_plan_coverage || {
   total: 0,
   ready: 0,
@@ -4692,6 +4793,13 @@ function getMediaPreviewUrl(filePath: string): string {
   return `/api/projects/${slug.value}/video-editor/preview-media?path=${encodeURIComponent(filePath)}`
 }
 
+// v1.3.2 — Step 1's merged-audio player. Deliberately NOT cache-busted: unlike
+// scene images, a re-merge writes a new completion record and the page rescans,
+// and the endpoint serves byte ranges so the browser can seek a 26 MB track.
+function getAudioPreviewUrl(filePath: string): string {
+  return `/api/projects/${slug.value}/video-editor/preview-audio?path=${encodeURIComponent(filePath)}`
+}
+
 function pickTitleImage(filePath: string) {
   void (async () => {
     titleImage.image_path = await collapseToPortablePath(filePath)
@@ -5224,6 +5332,40 @@ onUnmounted(() => {
 
 /* Audio list */
 .merged-audio-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 13px; border: 1px solid var(--border); }
+
+/* v1.3.2 — the intro answer. Three certainties, three looks: a stated fact
+ * reads as confirmation, a measured one as neutral, an unknown as a question
+ * he still has to settle. Never green for "measured" — that would read as
+ * "confirmed" for a file whose intro was never recorded. */
+.merged-audio-opening {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 6px 0 0;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.merged-audio-opening-mark { flex: 0 0 auto; font-weight: 700; opacity: 0.85; }
+.merged-audio-opening--stated {
+  border-color: color-mix(in srgb, var(--success, #22c55e) 45%, var(--border));
+  color: var(--text-primary);
+}
+.merged-audio-opening--unknown {
+  border-color: color-mix(in srgb, #f59e0b 50%, var(--border));
+  background: color-mix(in srgb, #f59e0b 10%, transparent);
+}
+.merged-audio-player { width: 100%; max-width: 520px; display: block; }
+
+/* Chips are buttons now — keep the exact same box, add the affordance. */
+.scene-thumb-openable { cursor: pointer; font-family: inherit; transition: border-color 0.12s, color 0.12s, transform 0.08s; }
+.scene-thumb-openable:hover { border-color: var(--accent); color: var(--text-primary); }
+.scene-thumb-openable:active { transform: scale(0.94); }
+.scene-thumb-openable:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .audio-list { display: flex; flex-direction: column; gap: 4px; }
 .audio-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: var(--bg-tertiary); border-radius: var(--radius-sm); font-size: 13px; }
 .audio-name { color: var(--text-secondary); }
