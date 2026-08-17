@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.3.1 — 2026-08-18
+
+- Scene Plan now reserves your real opening. When you build a timeline, Story Studio measures the clips that actually play before your first scene — the intro video, a title card, any clips you have parked at the head of the timeline — and starts scene one exactly there. The finished video puts every scene on the narration it was written for.
+- This is the other half of the fix from two releases ago. That one moved contextual cues back onto their scenes and deliberately stopped short of moving the scenes themselves, because changing how a video is composed is your decision and not the app's. This is that decision, taken: **new plans are right by construction, and nothing you have already made is touched.**
+- What was wrong: three different places each claimed to know how long your branded opening was. Your Scene Plan preset said "start at the first second" and, contradicting itself, "reserve 15 seconds". Your project settings said "branded opening, 10 seconds". The file on disk was 10.0 seconds. The preset won, so plans reserved nothing at all — and every scene appeared ten seconds after the narration it was planned against, with the last ten seconds of pictures cut off the end.
+- Only one of those three was ever a fact. Story Studio now asks the file and ignores the other two. If you have no intro, nothing is reserved and nothing moves.
+- **There is nothing left to type.** The "Opening visuals" box on Scene Plan no longer asks you for a mode and a number of seconds; it tells you what your clips measure and where scene one will start. Change the opening in Video Assembly and build the timeline again — the figure follows the clips.
+- **Scene Plan presets no longer carry an opening length.** A preset should restore a reusable choice, not re-decide a measurable fact about your project's files. Presets you have already saved keep those two stale values on disk and are never rewritten; they are simply not read any more.
+- The plan and the renderer now share one measurement rather than each doing their own sum. Two independent answers to "what comes before the scenes" is how this went wrong in the first place, and it would have gone wrong again the day you added a title card.
+- **Your finished episodes are left exactly as they are**, as you asked. A plan built before this release still renders the way it always did, including the trick where an intro is stretched to fill a longer reserve. Only timelines built from now on use the measured opening.
+- If an opening clip cannot be played on this Mac — a missing file, or one iCloud has not downloaded yet — Scene Plan says so by name instead of quietly reserving a shorter opening than the render will use.
+- Fixed while in there: a batch render from Pipeline silently dropped every clip you had added to the timeline yourself, so a batch produced a different video from the one the Video Assembly page produced from the same settings.
+- Fixed while in there: whether captions sit out the opening is now decided by whether there is an opening, rather than by a setting saved on another page months earlier. Your own tick-box in Video Assembly still wins whenever you have set it.
+- Proved on real video, not on settings: an episode with an intro and one without were both rendered end to end and the actual pixels read back frame by frame, checking that the picture on screen at each moment is the scene planned for that moment.
+
 ## v1.3.0 — 2026-08-18
 
 - Contextual cues can now be put where you want them. You can place a label in any of the four corners, or drag it to any spot on the frame — which is what you asked for after a cue landed on top of the channel logo on Boundful EP0047, too high and in a corner you could not move it out of.

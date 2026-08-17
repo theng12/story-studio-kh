@@ -48,6 +48,31 @@ async function invalidateScenePlanStatus(slug: string, episodeId: string): Promi
   episodeStatusCache.invalidate(slug, episodeId)
 }
 
+// ── GET /scene-plan-opening ────────────────────────────────────────────
+// What Video Assembly will play before the first scene, measured from the
+// project's real clips. The Scene Plan page shows this instead of asking the
+// customer to remember a number: since v1.3.1 the timeline reserves exactly
+// this, so a control that let him type a different one would be a lie.
+//
+// Deliberately NOT under `/scene-plan/:episodeId` — the opening is a project
+// fact, and that path pattern would swallow it as an episode id.
+router.get('/projects/:slug/scene-plan-opening', async (req, res) => {
+  const { slug } = req.params
+  try {
+    const { resolveProjectOpening } = await import('../services/opening-assets.js')
+    const { measureOpeningSec, describeOpeningHead } = await import('../lib/opening-duration.js')
+    const { head, unresolved } = await resolveProjectOpening(slug)
+    const seconds = await measureOpeningSec(head, getAudioDuration)
+    res.json({
+      seconds,
+      breakdown: await describeOpeningHead(head, getAudioDuration),
+      unresolved,
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not measure the opening clips'))
+  }
+})
+
 // ── POST /scene-plan/:ep/stitch-subtitles ─────────────────────────────
 // Synchronous (no job queue) — the stitch is just file I/O + math,
 // completes in <1s even for long episodes. Returns the result body
@@ -138,10 +163,11 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   // Independent windows are the fast/default path. Continuity is explicit now
   // that reviewed image-to-video clips no longer rely on previous-frame img2img.
   const crossWindowContext = body.cross_window_context === true
-  const openingMode: 'branded-opening' | 'from-start' | undefined =
-    body.opening_mode === 'branded-opening' || body.opening_mode === 'from-start' ? body.opening_mode : undefined
-  const openingReservedSec = typeof body.opening_reserved_sec === 'number'
-    ? Math.max(0, Math.min(120, body.opening_reserved_sec)) : undefined
+  // v1.3.1 — `opening_mode` / `opening_reserved_sec` are deliberately NOT read
+  // off the request any more. The timeline stage probes the project's real
+  // opening clips instead (services/opening-assets.ts), so no caller — page,
+  // Pipeline, or a preset behind either — can assert a length the files
+  // disagree with. Old clients may still send the fields; they are ignored.
   const promptLimit = typeof body.prompt_limit === 'number'
     ? Math.max(1, Math.min(5000, Math.round(body.prompt_limit))) : undefined
   const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
@@ -181,8 +207,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
       neighbor_context_back: ncBack,
       neighbor_context_forward: ncForward,
       stage,
-      opening_mode: openingMode,
-      opening_reserved_sec: openingReservedSec,
       prompt_limit: promptLimit,
       prompt_pack_size: promptPackSize,
       prompt_max_tokens: promptMaxTokens,

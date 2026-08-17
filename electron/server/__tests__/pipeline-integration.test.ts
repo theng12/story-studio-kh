@@ -17,7 +17,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { resolveStepParams } from '../routes/pipeline.js'
+import { flattenVideoAssemblyBundle, resolveStepParams } from '../routes/pipeline.js'
 import type { Format } from '../models/types.js'
 
 test('Contextual Cues pipeline params preserve the preset review decision', () => {
@@ -393,11 +393,13 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
     assert.equal(params.prompt_max_tokens, 6144)
     assert.equal(params.prompt_pack_size, 10)
     assert.equal('model_cost_tier' in params, false)
-    assert.equal(params.opening_mode, 'branded-opening')
-    assert.equal(params.opening_reserved_sec, 18)
+    // v1.3.1 — the opening's length is measured from the project's real clips
+    // at plan time, so a preset asserting one is ignored rather than obeyed.
+    // The owner's live preset said "from first second, 15s" against a real
+    // 10.0s intro, and it won: every scene landed ~10s after its narration.
     for (const obsolete of [
       'target_scene_count', 'window_size', 'planning_mode', 'cross_window_context',
-      'generate_motion_prompts',
+      'generate_motion_prompts', 'opening_mode', 'opening_reserved_sec',
     ]) {
       assert.equal(obsolete in params, false, `${obsolete} must not leak into the staged planner`)
     }
@@ -416,6 +418,34 @@ describe('pipeline integration — full chain resolution for listicle batch', ()
       'auto',
     )
     assert.equal(safeParams.prompt_pack_size, 'auto')
-    assert.equal('opening_mode' in safeParams, false, 'legacy presets keep the project-level opening fallback')
+    assert.equal('opening_mode' in safeParams, false)
+  })
+
+  test('a batch render keeps the user timeline clips a single-episode render would play', () => {
+    // These live on the intro slot preset and were silently dropped by the
+    // bundle flattener, so Pipeline rendered a different video from the one the
+    // Video Assembly page produced. Since v1.3.1 it also breaks opening timing:
+    // Scene Plan counts before_intro / after_intro clips in the reserve.
+    const bundle = {
+      fallback: {
+        intro: {
+          enabled: true,
+          video_path: '/assets/intro.mp4',
+          timeline_clips: [
+            { id: 'a', anchor: 'before_intro', enabled: true, kind: 'video', video_path: '/assets/pre.mp4' },
+            { id: 'b', anchor: 'after_outro', enabled: true, kind: 'video', video_path: '/assets/tail.mp4' },
+          ],
+        },
+      },
+    }
+    const out = flattenVideoAssemblyBundle(bundle, 'EP0042', 'Title') as any
+    assert.equal(out.timeline_clips.length, 2)
+    assert.equal(out.timeline_clips[0].anchor, 'before_intro')
+
+    const withoutClips = flattenVideoAssemblyBundle(
+      { fallback: { intro: { enabled: true, video_path: '/assets/intro.mp4', timeline_clips: [] } } },
+      'EP0042', 'Title',
+    ) as any
+    assert.equal('timeline_clips' in withoutClips, false, 'an empty list must not turn the feature on')
   })
 })

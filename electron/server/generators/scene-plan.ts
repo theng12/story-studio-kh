@@ -19,6 +19,8 @@ import { resolveResearchPaths } from '../lib/research-paths.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
 import { getConfig } from '../services/project-manager.js'
 import { computeStoryStartSec } from '../lib/intro-lead-in.js'
+import { resolveProjectOpening } from '../services/opening-assets.js'
+import { describeOpeningHead, measureOpeningSec } from '../lib/opening-duration.js'
 import { parseSrt } from '../lib/subtitle-builder.js'
 import { imagePromptGuidanceBlock, legibleTextGuidanceBlock, resolveAvoidLegibleText } from '../lib/image-content-guidance.js'
 import { resolveStyleBible } from '../lib/style-bible.js'
@@ -183,8 +185,11 @@ interface ScenePlanRunParams {
   avoid_legible_text?: boolean
   /** New staged workflow. Timeline is deterministic; prompts are separate. */
   stage?: 'timeline' | 'visual' | 'motion'
-  opening_mode?: 'branded-opening' | 'from-start'
-  opening_reserved_sec?: number
+  // v1.3.1 — `opening_mode` / `opening_reserved_sec` are gone. How long the
+  // branded opening runs is a measurable property of the project's own clips,
+  // not a setting a request (or a preset behind it) may assert. See
+  // `services/opening-assets.ts`. Old presets may still carry the two keys;
+  // they are inert, and no stored preset is rewritten to remove them.
   /** Limit a manual run to the next N pending scenes. Omit for all pending. */
   prompt_limit?: number
   /** The selected GenStudio model's published output limit determines Auto. */
@@ -636,19 +641,40 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const srtText = await fs.readFile(stitchedSrt, 'utf-8')
       const allCues = parseSrt(srtText)
       if (!allCues.length) throw new Error('The stitched subtitle timeline has no cues.')
-      let configuredOpeningMode: 'branded-opening' | 'from-start' = 'from-start'
-      let configuredOpeningSec = 15
-      try {
-        const cfg = await getConfig(job.project_slug) as any
-        configuredOpeningMode = cfg?.visual_opening_mode === 'branded-opening'
-          || (cfg?.visual_opening_mode == null && cfg?.skip_intro_scenes === true)
-          ? 'branded-opening' : 'from-start'
-        configuredOpeningSec = Number(cfg?.branded_opening_duration_sec) || 15
-      } catch { /* defaults apply */ }
-      const openingMode = params.opening_mode || configuredOpeningMode
-      const openingReserved = openingMode === 'branded-opening'
-        ? Math.max(0, Math.min(120, Number(params.opening_reserved_sec) || configuredOpeningSec))
-        : 0
+      // ── The reserved opening is MEASURED, never remembered (v1.3.1) ──────
+      //
+      // Whatever Video Assembly will play before the first scene is probed
+      // here and reserved exactly. `measureOpeningSec` is the SAME function
+      // the renderer uses for `preSceneDuration`, over the same four head
+      // buckets, so plan time and render time cannot answer this differently:
+      // v1.2.7's `sceneTimelineOffsetSec` comes out at 0 and every scene's
+      // picture sits under the narration it was planned against.
+      //
+      // Before this, three remembered copies of "how long is the opening"
+      // disagreed — a preset saying `from-start` + 15s, a project config
+      // saying `branded-opening` + 10s, and a 10.0s file on disk. The file is
+      // the only one that was ever a fact, so it is now the only one asked.
+      // No intro → 0 reserved, and nothing moves.
+      const { head: openingHead, unresolved: openingUnresolved } =
+        await resolveProjectOpening(job.project_slug)
+      const openingReserved = await measureOpeningSec(openingHead, getAudioDuration)
+      const openingMode: 'branded-opening' | 'from-start' =
+        openingReserved > 0 ? 'branded-opening' : 'from-start'
+      if (openingReserved > 0) {
+        const breakdown = await describeOpeningHead(openingHead, getAudioDuration)
+        job.output_lines.push(
+          `Opening measured from your Video Assembly clips: ${breakdown} = ${openingReserved.toFixed(2)}s reserved. `
+          + 'Scene 1 starts there, so the composed video puts every scene on the narration it was planned against.',
+        )
+      } else {
+        job.output_lines.push('Opening measured from your Video Assembly clips: none — scenes start at the first second.')
+      }
+      if (openingUnresolved.length) {
+        job.output_lines.push(
+          `⚠ Not counted in the opening because this Mac cannot play them right now: ${openingUnresolved.join(', ')}. `
+          + 'Fix them and re-create the timeline, or the render will start the scenes late.',
+        )
+      }
       const cues = allCues.filter(c => c.end_sec > openingReserved + 0.001)
       if (!cues.length) throw new Error(`The ${openingReserved.toFixed(1)}s opening covers the entire subtitle timeline.`)
       const { splitScenesDeterministically } = await import('../services/scene-planner.js')
@@ -709,6 +735,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         planning_stage: 'timeline',
         opening_mode: openingMode,
         opening_reserved_sec: openingReserved,
+        // Marks this reserve as probed from real assets rather than typed by a
+        // person. The renderer reads it to know it may play the opening clips
+        // as they are instead of stretching the intro to fill a remembered
+        // number. Absent on every plan built before v1.3.1, and those plans
+        // keep their old render path exactly.
+        opening_source: 'measured',
       }
       await fs.mkdir(path.dirname(outPath), { recursive: true })
       await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')

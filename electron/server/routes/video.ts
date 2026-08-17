@@ -344,8 +344,15 @@ router.get('/projects/:slug/video-editor/intro-hold', async (req, res) => {
   const introVideoPath = String(req.query.intro_video_path || '').trim()
   if (!episodeId) return res.status(400).json({ detail: 'episode_id query parameter required' })
   try {
-    const cfg = await pm.getConfig(slug)
-    const opening_mode = (cfg as any)?.visual_opening_mode === 'branded-opening' ? 'branded-opening' : 'from-start'
+    // v1.3.1 — read from the project's real opening clips, not from a
+    // `visual_opening_mode` flag someone set on another page months ago.
+    const { resolveProjectOpening } = await import('../services/opening-assets.js')
+    const { measureOpeningSec } = await import('../lib/opening-duration.js')
+    const measuredOpeningSec = await measureOpeningSec(
+      (await resolveProjectOpening(slug)).head,
+      getAudioDuration,
+    ).catch(() => 0)
+    const opening_mode = measuredOpeningSec > 0 ? 'branded-opening' : 'from-start'
     const episodeDir = await findEpisodeDirForRoute(slug, episodeId)
     const sidecarPath = episodeDir ? path.join(episodeDir, 'audio_chapters.json') : ''
     if (!episodeDir || !sidecarPath || !existsSync(sidecarPath)) {

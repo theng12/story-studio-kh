@@ -3251,15 +3251,21 @@ const subtitles = reactive({
   }) as SubtitleStyleDocument,
 })
 
-// v1.0.423 — default "hide captions during intro" to the project's skip-intro
-// setting, once, when config first loads. The user can still toggle it per
-// episode in the Subtitles step.
+// v1.0.423 — default "hide captions during intro" once, when the page first
+// loads. The user can still toggle it per episode in the Subtitles step.
+//
+// v1.3.1 — the seed is whether this project actually opens with something,
+// measured from its own clips, rather than a `visual_opening_mode` flag that
+// used to be set on the Scene Plan page and then went stale there. Same
+// ruling as the reserved opening: ask the files, not a memory.
 let introSubDefaulted = false
-watch(vaConfig, (c) => {
-  if (!introSubDefaulted && c) {
-    subtitles.hide_during_intro = (c as any).visual_opening_mode === 'branded-opening'
-    introSubDefaulted = true
-  }
+watch(slug, async () => {
+  if (introSubDefaulted) return
+  introSubDefaulted = true
+  try {
+    const opening = await get<{ seconds: number }>(`/projects/${slug.value}/scene-plan-opening`)
+    subtitles.hide_during_intro = Number(opening?.seconds) > 0
+  } catch { /* leave the checkbox at its own default */ }
 }, { immediate: true })
 
 const subtitlesStatus = ref<{

@@ -839,11 +839,14 @@ export function resolveStepParams(
       model: data.model,
       use_research: data.use_research !== false,
       detail_level: 4,
-      ...((data.opening_mode === 'branded-opening' || data.opening_mode === 'from-start') ? {
-        opening_mode: data.opening_mode,
-        opening_reserved_sec: data.opening_mode === 'branded-opening'
-          ? Math.max(1, Math.min(120, Number(data.opening_reserved_sec) || 15)) : 0,
-      } : {}),
+      // v1.3.1 — `opening_mode` / `opening_reserved_sec` are no longer taken
+      // from the Scene Plan preset. A preset is a reusable creative choice;
+      // how long the branded opening runs is a measurable property of the
+      // project's own clips, and the preset's remembered copy went stale
+      // (the owner's said `from-start` + 15s against a real 10.0s intro,
+      // so every scene landed ~10s after its narration). The timeline stage
+      // probes the real clips instead — see services/opening-assets.ts.
+      // Stored presets keep the two keys; they are simply never read.
       prompt_pack_size: parseScenePromptPackSetting(data.prompt_pack_size),
       prompt_max_tokens: parseScenePromptTokenSetting(data.prompt_max_tokens),
       creative_direction: data.creative_direction && typeof data.creative_direction === 'object'
@@ -1054,6 +1057,16 @@ export function flattenVideoAssemblyBundle(
   }
   if (outro.enabled && outro.video_path) {
     out.outro = { enabled: true, video_path: outro.video_path }
+  }
+  // v1.3.1 — the user's timeline clips live on the intro slot preset and were
+  // being dropped here, so a batch render silently omitted every before_intro
+  // / after_intro / after_scenes / after_outro clip a single-episode render
+  // included. Same defect class as the flattening bug this function was
+  // written to fix, one field short. It also matters for opening timing now:
+  // Scene Plan counts the head clips in the reserve, so a batch that dropped
+  // them would render a shorter opening than the plan reserved.
+  if (Array.isArray(intro.timeline_clips) && intro.timeline_clips.length) {
+    out.timeline_clips = intro.timeline_clips
   }
 
   // ── Effects slot — every field flattened to top level

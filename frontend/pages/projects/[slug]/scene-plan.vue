@@ -172,18 +172,26 @@
         <div class="scene-setting-card">
           <div class="scene-setting-head">
             <strong>Opening visuals</strong>
-            <span>{{ openingMode === 'branded-opening' ? `${openingReservedSec}s reserved` : 'From first second' }}</span>
+            <span>{{ measuredOpeningLabel }}</span>
           </div>
-          <select v-model="openingMode" class="select" @change="saveOpeningSettings">
-            <option value="branded-opening">Branded opening, then story scenes</option>
-            <option value="from-start">Story scenes from the first second</option>
-          </select>
-          <div v-if="openingMode === 'branded-opening'" class="scene-inline-field">
-            <label class="text-sm">Reserve</label>
-            <input v-model.number="openingReservedSec" class="input" type="number" min="1" max="120" step="0.5" @change="saveOpeningSettings" />
-            <span class="text-xs text-muted">seconds</span>
-          </div>
-          <p class="scene-setting-help">Remaining introduction narration receives story-focused scenes.</p>
+          <p v-if="!measuredOpening" class="scene-setting-help">Measuring your Video Assembly opening clips…</p>
+          <p v-else-if="measuredOpening.seconds > 0" class="scene-setting-help">
+            Measured from your Video Assembly clips: {{ measuredOpening.breakdown }}. Building the timeline
+            reserves exactly this, so the first scene appears the moment the opening ends and every scene
+            sits on the narration it was planned against.
+          </p>
+          <p v-else class="scene-setting-help">
+            No opening clip is enabled in Video Assembly, so nothing is reserved — story scenes start at the
+            first second.
+          </p>
+          <p v-if="measuredOpening?.unresolved?.length" class="scene-setting-warn">
+            Not counted: {{ measuredOpening.unresolved.join(', ') }}. These will not play on this Mac either,
+            so fix them in Video Assembly and build the timeline again.
+          </p>
+          <p class="scene-setting-help">
+            Change the opening in <NuxtLink :to="`/projects/${slug}/video-assembly`">Video Assembly</NuxtLink>,
+            then build the timeline again. Nothing to type here — the length comes from the clips themselves.
+          </p>
         </div>
 
         <div class="scene-setting-card">
@@ -952,42 +960,38 @@ const { revalidate: revalidateEpisodes } = useEpisodes(slug)
 // Project-level defaults for opening behavior, prompt batching, and motion.
 const { config: projectConfig } = useProject()
 
-const openingMode = ref<'branded-opening' | 'from-start'>(
-  (projectConfig.value as any)?.visual_opening_mode === 'branded-opening'
-    || ((projectConfig.value as any)?.visual_opening_mode == null && (projectConfig.value as any)?.skip_intro_scenes === true)
-    ? 'branded-opening' : 'from-start',
-)
-const openingReservedSec = ref<number>(Number((projectConfig.value as any)?.branded_opening_duration_sec) || 15)
-// Once a preset supplies opening controls, keep those values authoritative.
-// The project-config watcher is only the fallback for legacy presets.
-const openingPresetControlsActive = ref(false)
-watch(projectConfig, (c) => {
-  if (openingPresetControlsActive.value) return
-  openingMode.value = (c as any)?.visual_opening_mode === 'branded-opening'
-    || ((c as any)?.visual_opening_mode == null && (c as any)?.skip_intro_scenes === true)
-    ? 'branded-opening' : 'from-start'
-  openingReservedSec.value = Number((c as any)?.branded_opening_duration_sec) || 15
+// ── Opening visuals: measured, not typed (v1.3.1) ────────────────────────
+//
+// This page used to offer a mode dropdown and a "reserve N seconds" box, both
+// saved to the project config and both overridable by a Scene Plan preset. The
+// owner ended up with three disagreeing answers — a preset saying "from first
+// second, 15s", a project config saying "branded opening, 10s", and a 10.0s
+// file on disk — and the preset won, so every plan reserved nothing and every
+// scene landed ~10s after the narration it was planned against.
+//
+// A length is now read off the clips themselves, at build time, by the
+// backend. Nothing here is editable, because there is nothing left to decide:
+// showing an input that the planner ignores would be worse than showing none.
+interface MeasuredOpening { seconds: number; breakdown: string; unresolved: string[] }
+const measuredOpening = ref<MeasuredOpening | null>(null)
+const measuredOpeningLabel = computed(() => {
+  if (!measuredOpening.value) return 'Measuring…'
+  return measuredOpening.value.seconds > 0
+    ? `${measuredOpening.value.seconds.toFixed(2)}s reserved`
+    : 'From first second'
 })
-async function saveOpeningSettings() {
-  openingPresetControlsActive.value = false
-  const duration = Math.max(1, Math.min(120, Number(openingReservedSec.value) || 15))
-  openingReservedSec.value = duration
+async function refreshMeasuredOpening() {
   try {
-    await put(`/projects/${slug.value}/settings/config`, {
-      visual_opening_mode: openingMode.value,
-      branded_opening_duration_sec: duration,
-      skip_intro_scenes: false,
-    })
-    if (projectConfig.value) {
-      ;(projectConfig.value as any).visual_opening_mode = openingMode.value
-      ;(projectConfig.value as any).branded_opening_duration_sec = duration
-      ;(projectConfig.value as any).skip_intro_scenes = false
+    const data = await get<MeasuredOpening>(`/projects/${slug.value}/scene-plan-opening`)
+    measuredOpening.value = {
+      seconds: Number(data?.seconds) || 0,
+      breakdown: String(data?.breakdown || ''),
+      unresolved: Array.isArray(data?.unresolved) ? data.unresolved : [],
     }
-    success(openingMode.value === 'branded-opening'
-      ? `Branded opening reserved for ${duration}s; story scenes continue through the remaining Introduction narration.`
-      : 'Story scenes will begin at the first second.')
-  } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Could not save the setting')
+  } catch {
+    // A failed measurement must not read as "no opening" — leave the card in
+    // its "measuring" state rather than asserting a zero we did not measure.
+    measuredOpening.value = null
   }
 }
 
@@ -1994,11 +1998,9 @@ async function planScenes(): Promise<void> {
   const ep = episodeId.value
   planningEpisode.value = ep
   try {
-    await post(`/projects/${slug.value}/scene-plan/${ep}/run`, {
-      stage: 'timeline',
-      opening_mode: openingMode.value,
-      opening_reserved_sec: openingMode.value === 'branded-opening' ? openingReservedSec.value : 0,
-    })
+    // No opening fields travel with the request any more — the backend probes
+    // the project's real opening clips instead. See `refreshMeasuredOpening`.
+    await post(`/projects/${slug.value}/scene-plan/${ep}/run`, { stage: 'timeline' })
     success('Timeline build queued — no LLM call is needed')
     await pollUntilPlanLanded(ep)
   } catch (e: any) {
@@ -2527,8 +2529,11 @@ const planPresets = usePresets<any>({
   snapshot: () => ({
     model: form.value.model,
     use_research: form.value.use_research,
-    opening_mode: openingMode.value,
-    opening_reserved_sec: openingReservedSec.value,
+    // v1.3.1 — `opening_mode` / `opening_reserved_sec` are no longer saved.
+    // The opening's length is a measurable property of the project's clips,
+    // not a reusable creative choice, so a preset has no business asserting
+    // it. Presets already on disk keep the two stale keys and are never
+    // rewritten; `apply` below simply ignores them.
     prompt_pack_size: form.value.prompt_pack_size,
     prompt_max_tokens: form.value.prompt_max_tokens,
     // The SELECTION travels, never a resolved catalogue number: GenStudio may
@@ -2547,6 +2552,12 @@ const planPresets = usePresets<any>({
     // Sheet remains the single authoritative style source.
     const activeData = { ...(data || {}) }
     delete activeData.style_prompt
+    // v1.3.1 — presets saved before this release carry a stale opening length.
+    // Drop it on read so it cannot reach `form.value` and cannot be re-saved;
+    // the file on disk is left exactly as it is (AGENTS.md: stored presets are
+    // never rewritten).
+    delete activeData.opening_mode
+    delete activeData.opening_reserved_sec
     const savedCreative = activeData.creative_direction as Partial<CreativeDirection> | undefined
     delete activeData.creative_direction
     Object.assign(form.value, activeData)
@@ -2562,11 +2573,6 @@ const planPresets = usePresets<any>({
       form.value.creative_motifs = savedCreative.recurring_motifs || ''
       form.value.creative_avoid_cliches = savedCreative.avoid_cliches || ''
       form.value.creative_custom_direction = savedCreative.custom_direction || ''
-    }
-    if (data.opening_mode === 'branded-opening' || data.opening_mode === 'from-start') {
-      openingMode.value = data.opening_mode
-      openingReservedSec.value = Math.max(1, Math.min(120, Number(data.opening_reserved_sec) || 15))
-      openingPresetControlsActive.value = true
     }
     setPromptPackSetting(form.value.prompt_pack_size)
     // Restores the SELECTION only. A custom ceiling is NOT raised to the
@@ -2590,6 +2596,10 @@ onMounted(() => {
   // The character ceiling is only as honest as the catalogue behind it.
   void refreshGenStudioImageModels().catch(() => {})
 })
+// Re-measure whenever the customer comes back to this page or switches
+// project: he may have just changed the intro clip in Video Assembly, and a
+// stale figure here would be exactly the remembered-number problem again.
+watch(slug, () => { void refreshMeasuredOpening() }, { immediate: true })
 </script>
 
 <style scoped>
@@ -2740,6 +2750,15 @@ onMounted(() => {
 .scene-setting-help {
   margin: 0;
   color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.45;
+}
+
+/* An opening clip the plan could NOT count. Muted grey would read as ordinary
+   help text; this is a thing the customer has to fix before the render. */
+.scene-setting-warn {
+  margin: 0;
+  color: var(--warning);
   font-size: var(--font-xs);
   line-height: 1.45;
 }

@@ -39,6 +39,7 @@ import { resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
 import { buildContextualCueDrawtextFilters } from '../lib/contextual-cue-filters.js'
+import { measureOpeningSec } from '../lib/opening-duration.js'
 import {
   buildColorGradingFilters,
   buildAgedArchiveFilmFilters,
@@ -448,6 +449,9 @@ export interface ScannedAssets {
     built_at?: string
     opening_mode: 'branded-opening' | 'from-start'
     opening_reserved_sec: number
+    /** v1.3.1 — present when the reserve was probed from the real opening
+     *  clips at plan time, so it already equals `preSceneDuration`. */
+    opening_source?: 'measured'
     plan_duration_sec: number
     audio_duration_sec: number
     approved: number
@@ -755,6 +759,7 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       built_at: scannedPlan.timeline_built_at,
       opening_mode: scannedPlan.opening_mode === 'branded-opening' ? 'branded-opening' : 'from-start',
       opening_reserved_sec: openingReserved,
+      ...(scannedPlan.opening_source === 'measured' ? { opening_source: 'measured' as const } : {}),
       plan_duration_sec: Number(scannedPlan.total_duration_sec) || 0,
       audio_duration_sec: audioDuration,
       approved: scannedPlan.scenes.filter(scene => scene.approved).length,
@@ -966,13 +971,15 @@ export async function generateVideo(job: Job): Promise<void> {
 
   // Legacy whole-Introduction skipping is retired. New plans either reserve an
   // exact branded-opening duration or begin scenes at the first second.
-  try {
-    const cfg = await pm.getConfig(project_slug)
-    req.skip_intro_scenes = false
-    if (req.subtitles && req.subtitles.hide_during_intro == null) {
-      req.subtitles.hide_during_intro = (cfg as any)?.visual_opening_mode === 'branded-opening'
-    }
-  } catch { /* no config — leave request values as-is */ }
+  //
+  // v1.3.1 — the caption default that used to read `visual_opening_mode` from
+  // the project config moved to where the plan's reserve is known (search
+  // `hide_during_intro` below). A remembered "this project has a branded
+  // opening" flag is the same class of stale copy this release removed from
+  // the reserve itself; the plan already states whether an opening exists.
+  // The explicit "Hide captions during the intro" checkbox in Video Assembly
+  // still wins whenever the customer has expressed a preference.
+  req.skip_intro_scenes = false
 
   // 1. Validate FFmpeg
   const ffmpegCheck = await checkFfmpeg()
@@ -1078,6 +1085,11 @@ export async function generateVideo(job: Job): Promise<void> {
     end_sec: scene.end_sec,
   }))
   const planOpeningReservedSec = authoritativeAssets.scene_plan_timing!.opening_reserved_sec
+  // v1.3.1 — a plan whose reserve was PROBED from the real opening clips
+  // already equals `preSceneDuration`, so the render just plays those clips.
+  // A legacy plan's reserve is a number someone typed, which the render still
+  // repairs by stretching the intro to fill it. See the guard below.
+  const planOpeningMeasured = authoritativeAssets.scene_plan_timing!.opening_source === 'measured'
   job.output_lines.push(
     `Scene Plan timing: ${req.scenes.length} scene(s), exact order + duration; ` +
     'recycling, shuffle, and chapter alignment are disabled.',
@@ -1537,20 +1549,47 @@ export async function generateVideo(job: Job): Promise<void> {
     )
 
     const storyStartSec = planOpeningReservedSec
+    // Whether captions should sit out the opening is decided by whether there
+    // IS an opening — a fact the plan already carries — not by a project flag
+    // someone set once. An explicit choice from the customer still wins.
+    if (req.subtitles && req.subtitles.hide_during_intro == null) {
+      req.subtitles.hide_during_intro = planOpeningReservedSec > 0
+    }
     if (planStrict && planOpeningReservedSec > 0) {
-      if (!req.intro?.enabled || !req.intro.video_path) {
-        throw new Error(`Scene Plan reserves a ${planOpeningReservedSec.toFixed(1)}s branded opening, but no intro video is enabled. Add the opening clip or rebuild the timeline with "from first second".`)
+      const headEnabled = !!(
+        req.intro?.enabled && req.intro.video_path
+        || req.title_image?.enabled && req.title_image.image_path
+        || req.title_card?.enabled && req.title_card.text?.trim()
+        || (req.timeline_clips || []).some(c => c.enabled && (c.anchor === 'before_intro' || c.anchor === 'after_intro'))
+      )
+      if (!headEnabled) {
+        throw new Error(`Scene Plan reserves a ${planOpeningReservedSec.toFixed(1)}s branded opening, but no opening clip is enabled. Add the opening clip back, or re-create the Scene Plan timeline so it reserves what this episode actually opens with.`)
       }
-      req.intro.duration = planOpeningReservedSec
-      if (req.title_image?.enabled) {
-        req.title_image.enabled = false
-        job.output_lines.push('Title card skipped: the branded opening already owns the full reserved opening window.')
+      if (planOpeningMeasured) {
+        // Nothing to repair. The reserve was probed from these very clips, so
+        // playing them at their own length lands the first scene exactly where
+        // the plan timed it. Stretching the intro to fill the reserve here
+        // would double-count a title card that is already inside the number,
+        // and dropping the title card would make the opening too short.
+        job.output_lines.push(
+          `Opening sync: Scene Plan reserved the measured ${planOpeningReservedSec.toFixed(2)}s opening — `
+          + 'playing your opening clips at their own length.',
+        )
+      } else {
+        if (!req.intro?.enabled || !req.intro.video_path) {
+          throw new Error(`Scene Plan reserves a ${planOpeningReservedSec.toFixed(1)}s branded opening, but no intro video is enabled. Add the opening clip or re-create the Scene Plan timeline.`)
+        }
+        req.intro.duration = planOpeningReservedSec
+        if (req.title_image?.enabled) {
+          req.title_image.enabled = false
+          job.output_lines.push('Title card skipped: the branded opening already owns the full reserved opening window.')
+        }
+        if (req.title_card?.enabled) {
+          req.title_card.enabled = false
+          job.output_lines.push('Text title card skipped: the branded opening already owns the full reserved opening window.')
+        }
+        job.output_lines.push(`Opening sync: intro clip will be trimmed/padded to exactly ${planOpeningReservedSec.toFixed(1)}s, matching Scene Plan.`)
       }
-      if (req.title_card?.enabled) {
-        req.title_card.enabled = false
-        job.output_lines.push('Text title card skipped: the branded opening already owns the full reserved opening window.')
-      }
-      job.output_lines.push(`Opening sync: intro clip will be trimmed/padded to exactly ${planOpeningReservedSec.toFixed(1)}s, matching Scene Plan.`)
     }
 
     // Optional: drop intro captions from the BURN copy (welcome / CTA / breathing).
@@ -1678,8 +1717,6 @@ export async function generateVideo(job: Job): Promise<void> {
     }
     // Bucket totals drive head-of-video (preSceneDuration) vs tail
     // (totalRenderDuration) math below. Sum once here, reuse below.
-    const beforeIntroDur = timelineClipsByAnchor.before_intro.reduce((s, c) => s + c.duration, 0)
-    const afterIntroDur  = timelineClipsByAnchor.after_intro.reduce((s, c) => s + c.duration, 0)
     const afterScenesDur = timelineClipsByAnchor.after_scenes.reduce((s, c) => s + c.duration, 0)
     const afterOutroDur  = timelineClipsByAnchor.after_outro.reduce((s, c) => s + c.duration, 0)
     const totalTimelineClipCount =
@@ -1712,19 +1749,23 @@ export async function generateVideo(job: Job): Promise<void> {
     // (color grade, vignette, grain, subtitles, logo, chroma key) only
     // start after this point — so the user's branded pre-scene content
     // doesn't get tinted or vignetted.
-    let preSceneDuration = 0
+    //
     // User timeline clips at before_intro / after_intro also live at the
     // head of the video, so their durations count toward the effect-gate
     // start. Without this, color grade / vignette / grain would start
     // playing ON the user's pre-scene clips instead of on the first scene.
-    preSceneDuration += beforeIntroDur
-    if (introClipPath) {
-      preSceneDuration += (await getAudioDuration(introClipPath)) || 5
-    }
-    preSceneDuration += afterIntroDur
-    if (titleClipPath) {
-      preSceneDuration += (await getAudioDuration(titleClipPath)) || 5
-    }
+    //
+    // v1.3.1 — this sum moved into `lib/opening-duration.ts` so Scene Plan can
+    // reserve the SAME number from the same four buckets. Two independent
+    // measurements of "what precedes the scenes" is how the drift below
+    // recurs; one shared function with a required key per bucket means a new
+    // head bucket is a compile error in both places.
+    const preSceneDuration = await measureOpeningSec({
+      before_intro: timelineClipsByAnchor.before_intro.map(c => ({ duration_sec: c.duration })),
+      intro: introClipPath ? { path: introClipPath, fallback_sec: 5, label: 'intro' } : null,
+      title: titleClipPath ? { path: titleClipPath, fallback_sec: 5, label: 'title' } : null,
+      after_intro: timelineClipsByAnchor.after_intro.map(c => ({ duration_sec: c.duration })),
+    }, getAudioDuration)
 
     // ── The one derived intro offset ────────────────────────────────────────
     //
@@ -1769,8 +1810,8 @@ export async function generateVideo(job: Job): Promise<void> {
         `Warning: the composed opening measures ${preSceneDuration.toFixed(2)}s but Scene Plan starts its first scene at ` +
         `${planSceneOriginSec.toFixed(2)}s, so every scene appears ${Math.abs(sceneTimelineOffsetSec).toFixed(2)}s ` +
         `${sceneTimelineOffsetSec > 0 ? 'later than' : 'earlier than'} the narration it was planned against. ` +
-        'To lock them together, rebuild the Scene Plan timeline with a branded opening of ' +
-        `${preSceneDuration.toFixed(1)}s, or remove the opening clips.`,
+        'To lock them together, open Scene Plan and create the timeline again — it measures your opening ' +
+        `clips (${preSceneDuration.toFixed(1)}s right now) and reserves exactly that.`,
       )
       if (req.contextual_cues?.length) {
         job.output_lines.push(

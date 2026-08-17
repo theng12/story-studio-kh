@@ -3991,6 +3991,18 @@ export interface ScenePlan {
   /** Opening visuals reserved before scene 1. Zero means visuals start at 0. */
   opening_reserved_sec?: number
   opening_mode?: 'branded-opening' | 'from-start'
+  /** v1.3.1 — how `opening_reserved_sec` was decided.
+   *
+   *  `'measured'`  the reserve was probed from the project's real opening
+   *                clips when the timeline was built, so it equals the
+   *                renderer's `preSceneDuration` and the render plays those
+   *                clips as they are.
+   *  absent        a legacy plan whose reserve was a number someone typed (or
+   *                a preset asserted). The renderer keeps stretching the intro
+   *                to fill it, exactly as it always has. The owner has
+   *                explicitly accepted these episodes as they are; nothing
+   *                rewrites them. */
+  opening_source?: 'measured'
   /** Last durable Hub Chat batch IDs, useful for support and recovery. */
   visual_prompt_batch_id?: string
   motion_prompt_batch_id?: string
