@@ -113,7 +113,20 @@
       <section v-if="timeline" class="card cue-list">
         <div class="cue-list-heading">
           <div><span class="section-kicker">Reviewed timeline</span><h2>{{ timeline.cues.length }} cue{{ timeline.cues.length === 1 ? '' : 's' }}</h2></div>
-          <button class="btn btn-secondary btn-sm" :disabled="saving || !dirty" @click="saveTimeline">Save changes</button>
+          <div class="cue-list-actions">
+            <!-- v1.2.6 — bulk approve for the still-unreviewed cues only. It
+                 names its own count, never touches a cue the customer already
+                 excluded, and marks the form dirty like every other edit so
+                 Save changes stays the one thing that writes. -->
+            <button
+              v-if="proposedCount"
+              class="btn btn-secondary btn-sm"
+              :disabled="saving"
+              title="Approves the cues still awaiting review. Cues you excluded are left as they are."
+              @click="approveAllProposed"
+            >Approve all {{ proposedCount }}</button>
+            <button class="btn btn-secondary btn-sm" :disabled="saving || !dirty" @click="saveTimeline">Save changes</button>
+          </div>
         </div>
         <p v-if="!timeline.cues.length" class="text-muted">No cues were proposed. That is valid—this episode will continue without contextual labels.</p>
         <article v-for="cue in timeline.cues" :key="cue.id" class="cue-row" :class="`is-${cue.status}`">
@@ -163,6 +176,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { cuesAwaitingApproval } from '../../../utils/contextual-cues.js'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Contextual Cues')
@@ -217,6 +231,21 @@ const proposalStatus = computed(() => {
 
 function time(value: number): string { const minutes = Math.floor(value / 60); const seconds = Math.floor(value % 60); return `${minutes}:${String(seconds).padStart(2, '0')}` }
 function setStatus(cue: Cue, status: Cue['status']): void { cue.status = status; dirty.value = true }
+/**
+ * v1.2.6 — approve every cue still awaiting review, in one click.
+ *
+ * Deliberately scoped to `proposed`. An excluded cue is a decision the
+ * customer already made, and a bulk action that silently re-decides it is the
+ * exact defect class AGENTS.md's "Preset Boundaries" section exists for. This
+ * only resolves what was never resolved, and saves nothing on its own — it
+ * marks the form dirty and leaves Save changes as the single write path.
+ */
+function approveAllProposed(): void {
+  const pending = cuesAwaitingApproval(timeline.value?.cues || [])
+  if (!pending.length) return
+  for (const cue of pending) setStatus(cue, 'approved')
+  success(`Approved ${pending.length} cue${pending.length === 1 ? '' : 's'}. Excluded cues were left as they are — click Save changes to keep this.`)
+}
 function setTransition(cue: Cue, value: string): void {
   const transition = value === 'slide' || value === 'dissolve' ? value : 'fade'
   cue.entrance = transition
@@ -288,7 +317,7 @@ onMounted(async () => { await loadConfig(); await cuePresets.load() })
 .cues-auto-command { margin-top:-.3rem; border-left:3px solid var(--accent-gold); }.cues-auto-command .cue-toggle-copy p { max-width:52rem; }
 .cue-hold-reason { grid-column:1/-1; margin:.85rem 0 -.35rem; padding:.5rem .7rem; color:var(--text-primary); background:color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); border:1px solid color-mix(in srgb, var(--warning) 42%, var(--border)); border-radius:.35rem; font-size:.8rem; line-height:1.4; }
 .cue-settings { display:grid; grid-template-columns:minmax(16rem, .85fr) minmax(30rem, 1.6fr); align-items:end; gap:1.5rem; margin-bottom:1rem; padding:1.25rem 1.5rem; }.cue-settings-controls { display:grid; grid-template-columns:minmax(16rem, 1.6fr) minmax(11rem, 1fr) minmax(9rem, .8fr); gap:1rem; align-items:end; }.cue-settings-controls > label { display:grid; gap:.4rem; color:var(--text-muted); font-size:.82rem; }.cue-auto-approve { grid-column:1/-1; display:flex !important; align-items:flex-start; gap:.55rem; padding:.55rem .65rem; background:var(--bg-secondary); border:1px solid var(--border-color); border-radius:.4rem; }.cue-auto-approve input { margin-top:.14rem; accent-color:var(--accent-gold); }.cue-auto-approve strong,.cue-auto-approve small { display:block; }.cue-auto-approve small { margin-top:.15rem; color:var(--text-muted); line-height:1.35; }
-.cue-list { padding:1.25rem; }.cue-list-heading { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; }.cue-row { display:grid; grid-template-columns:7.5rem 11rem minmax(20rem,1fr) auto; gap:1rem; padding:1rem 0; border-top:1px solid var(--border-color); }.cue-row.is-approved { border-left:3px solid var(--success); padding-left:.75rem; }.cue-row.is-disabled { opacity:.55; }.cue-time { color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; padding-top:.55rem; }.cue-preview { min-height:4.8rem; display:flex; flex-direction:column; justify-content:center; gap:.13rem; padding:.65rem .8rem; color:#fff; background:#111827; border:1px solid #364152; border-radius:.45rem; overflow:hidden; }.cue-preview strong { font-size:.78rem; line-height:1.15; }.cue-preview small,.cue-preview-kicker { color:#b6c0d1; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; }.cue-preview-pin { color:#f4c75d; font-size:1rem; line-height:.7; }.preview-map-pin { border-left:3px solid #f4c75d; }.preview-archival-caption { color:#f4ead1; background:#2c211b; border-color:#66513f; font-family:Georgia,serif; }.preview-chapter-plate { text-align:center; background:linear-gradient(135deg,#111827,#2b3445); }.cue-fields { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }.cue-meta { grid-column:1/-1; display:flex; gap:.55rem; align-items:center; flex-wrap:wrap; }.cue-meta label { display:flex; gap:.3rem; align-items:center; color:var(--text-muted); font-size:.78rem; }.input-time { width:5.5rem; }.cue-actions { display:flex; gap:.4rem; align-items:start; }.is-active { outline:1px solid var(--accent-gold); }
+.cue-list { padding:1.25rem; }.cue-list-heading { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }.cue-list-actions { display:flex; gap:.4rem; align-items:center; flex-wrap:wrap; }.cue-row { display:grid; grid-template-columns:7.5rem 11rem minmax(20rem,1fr) auto; gap:1rem; padding:1rem 0; border-top:1px solid var(--border-color); }.cue-row.is-approved { border-left:3px solid var(--success); padding-left:.75rem; }.cue-row.is-disabled { opacity:.55; }.cue-time { color:var(--accent-gold); font-variant-numeric:tabular-nums; font-weight:700; padding-top:.55rem; }.cue-preview { min-height:4.8rem; display:flex; flex-direction:column; justify-content:center; gap:.13rem; padding:.65rem .8rem; color:#fff; background:#111827; border:1px solid #364152; border-radius:.45rem; overflow:hidden; }.cue-preview strong { font-size:.78rem; line-height:1.15; }.cue-preview small,.cue-preview-kicker { color:#b6c0d1; font-size:.6rem; letter-spacing:.08em; text-transform:uppercase; }.cue-preview-pin { color:#f4c75d; font-size:1rem; line-height:.7; }.preview-map-pin { border-left:3px solid #f4c75d; }.preview-archival-caption { color:#f4ead1; background:#2c211b; border-color:#66513f; font-family:Georgia,serif; }.preview-chapter-plate { text-align:center; background:linear-gradient(135deg,#111827,#2b3445); }.cue-fields { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }.cue-meta { grid-column:1/-1; display:flex; gap:.55rem; align-items:center; flex-wrap:wrap; }.cue-meta label { display:flex; gap:.3rem; align-items:center; color:var(--text-muted); font-size:.78rem; }.input-time { width:5.5rem; }.cue-actions { display:flex; gap:.4rem; align-items:start; }.is-active { outline:1px solid var(--accent-gold); }
 @media (max-width:980px) { .cue-settings,.cue-settings-controls { grid-template-columns:1fr; } }
 @media (max-width:1000px) { .cue-row { grid-template-columns:7.5rem 1fr auto; }.cue-preview { grid-column:2; } }
 @media (max-width:800px) { .cues-command { align-items:stretch; flex-direction:column; }.cue-row { grid-template-columns:1fr; }.cue-preview { grid-column:auto; }.cue-fields { grid-template-columns:1fr; }.cue-actions { justify-content:flex-start; } }

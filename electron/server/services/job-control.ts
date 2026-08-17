@@ -62,12 +62,70 @@ function describes(entry: JobEvidence): string {
   return `${entry.operation} ${entry.id || 'with no provider job ID'}`
 }
 
+/** Name the provider tasks this job recorded as unfinished, without a wall of ids. */
+function describeUnsettled(
+  job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>,
+  evidence: JobEvidence[],
+): { text: string; plural: boolean } {
+  const names = evidence.filter(entry => !isProviderTerminal(entry)).map(describes)
+  for (const record of Object.values(job.remote_cancellations || {})) {
+    if (!PENDING_CANCELLATION_STATES.has(record.status)) continue
+    const name = `${record.operation} ${record.provider_job_id}`
+    if (!names.includes(name)) names.push(name)
+  }
+  if (!names.length) return { text: 'this job\'s provider work', plural: false }
+  const plural = names.length > 1
+  if (names.length <= 3) return { text: names.join(', '), plural }
+  const rest = names.length - 3
+  return { text: `${names.slice(0, 3).join(', ')} and ${rest} more provider task${rest === 1 ? '' : 's'}`, plural }
+}
+
+/**
+ * v1.2.6 — the finished-job dismiss gate, after the re-check.
+ *
+ * The gate's intent is unchanged: history must not be discarded while provider
+ * work genuinely might still settle. What changed is that Story Studio now
+ * ASKS before saying so, and never describes the provider's state from a
+ * snapshot it has not refreshed. Three distinct answers, three distinct
+ * messages — a failed lookup is a statement about Story Studio's reach, not
+ * about the provider.
+ */
+function unsettledHistoryControl(
+  job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations' | 'history_evidence_check'>,
+  evidence: JobEvidence[],
+): JobControl {
+  const { text: outstanding, plural } = describeUnsettled(job, evidence)
+  const check = job.history_evidence_check
+  if (check?.state === 'unreachable') {
+    const detail = check.detail ? ` ${check.detail}` : ''
+    return control(
+      'recheck-provider-status', true, 'Check GenStudio again',
+      `Story Studio could not reach GenStudio to confirm whether ${outstanding} finished, so it cannot say whether that work is still running.${detail}`,
+      'PROVIDER_STATUS_UNREACHABLE', 'remote-result-required',
+    )
+  }
+  if (check?.state === 'unsettled') {
+    return control(
+      'recheck-provider-status', true, 'Check GenStudio again',
+      `GenStudio reports that ${outstanding} ${plural ? 'have' : 'has'} not finished yet, so Story Studio is keeping this history until that work settles.`,
+      'PROVIDER_WORK_ALREADY_STARTED', 'remote-result-required',
+    )
+  }
+  // No answer yet — a check is running or about to. The button says what is
+  // actually happening, and stays disabled only for as long as that is true.
+  return control(
+    'return-later', false, 'Checking provider status',
+    `Story Studio is asking GenStudio whether ${outstanding} finished. This history can be removed as soon as GenStudio confirms ${plural ? 'they have' : 'it has'}.`,
+    'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required',
+  )
+}
+
 /**
  * The single authority for active-job controls. It deliberately needs actual
  * GenStudio evidence before offering a provider cancellation request.
  */
 function classifyProviderJobControl(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check'>,
   capabilities: JobControlCapabilities,
 ): JobControl {
   const evidence = job.genstudio_jobs || []
@@ -75,7 +133,15 @@ function classifyProviderJobControl(
     entry.cancelled !== true && !TERMINAL_STATES.has(entry.state)
   )) || Object.values(job.remote_cancellations || {}).some(record => PENDING_CANCELLATION_STATES.has(record.status))
   if ((job.status === 'done' || job.status === 'error' || job.status === 'cancelled') && unsettledEvidence) {
-    return control('return-later', false, 'Checking provider status', 'Story Studio cannot remove this history while durable provider work is still settling.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+    // v1.2.6 — `genstudio_jobs` is a snapshot taken while the job ran, not a
+    // live reading. An entry that was mid-flight when it was written stays
+    // mid-flight forever, so this gate used to assert "durable provider work
+    // is still settling" about work that had settled long ago, and offered a
+    // disabled button labelled "Checking provider status" that checked
+    // nothing. The queue now re-asks GenStudio (see
+    // refreshFinishedJobProviderEvidence in job-queue.ts) and records the
+    // answer, and each of the three outcomes gets its own honest wording.
+    return unsettledHistoryControl(job, evidence)
   }
   if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
     return control('clear-history', true, 'Remove from history', 'This finished job can be removed from the job list. Its files and provider evidence stay intact.', 'READY', 'history-only')
@@ -167,7 +233,7 @@ function classifyProviderJobControl(
  * Neither action is allowed to impersonate the other.
  */
 export function classifyJobControls(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check'>,
   capabilities: JobControlCapabilities,
 ): JobControl[] {
   const provider = classifyProviderJobControl(job, capabilities)
@@ -186,7 +252,7 @@ export function classifyJobControls(
 
 /** Backwards-compatible primary control; public snapshots also include all controls. */
 export function classifyJobControl(
-  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error'>,
+  job: Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations' | 'reconciliation_error' | 'history_evidence_check'>,
   capabilities: JobControlCapabilities,
 ): JobControl {
   return classifyProviderJobControl(job, capabilities)

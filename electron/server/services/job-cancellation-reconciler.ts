@@ -72,15 +72,29 @@ function reconciliationError(error: unknown): string {
   return redactSensitiveValue(`GenStudio status check is waiting (${status}${message})`).slice(0, 320)
 }
 
+export interface ReconcileOptions {
+  /**
+   * v1.2.6 — read-only mode: re-read provider state but never issue the
+   * cancellation POST. Used when refreshing the stored evidence of a job that
+   * has already FINISHED. Such a job is not asking to be cancelled — it is
+   * only asking whether the work it recorded has settled — and a stranded
+   * `submitting` marker on a finished job must not turn a status question into
+   * a control request.
+   */
+  readOnly?: boolean
+}
+
 /**
  * Re-read existing GenStudio work after restart. A record reaches this helper
  * only after the queue durably claimed a cancellation attempt (`submitting`).
  * Therefore it performs no generation POST and issues a cancellation POST only
- * when the fresh provider read still publishes that exact task as cancellable.
+ * when the fresh provider read still publishes that exact task as cancellable
+ * — and never at all in `readOnly` mode.
  */
 export async function reconcilePendingJobCancellation(
   job: Job,
   apiKey: string,
+  options: ReconcileOptions = {},
 ): Promise<JobCancellationReconcileOutcome> {
   const records = { ...(job.remote_cancellations || {}) }
   const pending = Object.entries(records).filter(([, record]) => PENDING.has(record.status))
@@ -97,7 +111,7 @@ export async function reconcilePendingJobCancellation(
       // `submitting` is a crash-recovery ownership marker. A fresh GET proves
       // the provider is still pre-dispatch before we repeat the idempotent
       // control request. `unknown` deliberately never retries blindly.
-      if (record.status === 'submitting' && provider.dispatch_state === 'pre_dispatch' && provider.cancellable === true && !isSettledGenStudioJob(provider)) {
+      if (!options.readOnly && record.status === 'submitting' && provider.dispatch_state === 'pre_dispatch' && provider.cancellable === true && !isSettledGenStudioJob(provider)) {
         provider = await requestGenStudioCancellation(
           record.operation, baseUrl, apiKey, record.provider_job_id, {}, deadline,
         )

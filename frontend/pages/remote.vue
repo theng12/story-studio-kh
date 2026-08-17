@@ -309,6 +309,14 @@ async function runJobControl(job: Job, requestedControl?: JobControl): Promise<b
       await post(`${jobQueuePath(job)}/pause`, {})
     } else if (control.action === 'clear-history') {
       await del(jobQueuePath(job))
+    } else if (control.action === 'recheck-provider-status') {
+      // v1.2.6 — actually asks GenStudio; the reply carries the new verdict.
+      const response = await post<{ job?: Job }>(`${jobQueuePath(job)}/recheck-provider-status`, {})
+      const refreshed = response?.job?.control
+      success(refreshed?.action === 'clear-history'
+        ? 'GenStudio confirmed this job\'s provider work has finished. This history can now be removed.'
+        : refreshed?.reason || control.reason)
+      return true
     } else {
       return false
     }

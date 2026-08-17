@@ -1746,6 +1746,16 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
       await post(`${jobQueuePath(job)}/pause`, {})
     } else if (control.action === 'clear-history') {
       await del(jobQueuePath(job))
+    } else if (control.action === 'recheck-provider-status') {
+      // v1.2.6 — this button actually asks GenStudio. The refreshed control
+      // arrives with the response, so the answer replaces the question rather
+      // than leaving the row describing a check that never ran.
+      const response = await post<{ job?: RJob }>(`${jobQueuePath(job)}/recheck-provider-status`, {})
+      const refreshed = response?.job?.control
+      success(refreshed?.action === 'clear-history'
+        ? 'GenStudio confirmed this job\'s provider work has finished. This history can now be removed.'
+        : refreshed?.reason || control.reason)
+      return
     } else {
       return
     }

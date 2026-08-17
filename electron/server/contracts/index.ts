@@ -519,11 +519,11 @@ export const GenerateAudioSchema = z.object({
 export type GenerateAudioBody = z.infer<typeof GenerateAudioSchema>
 
 export interface JobControlResponse {
-  action: 'cancel-before-submit' | 'stop-local' | 'request-remote-cancel' | 'pause-submissions' | 'return-later' | 'clear-history' | 'none'
+  action: 'cancel-before-submit' | 'stop-local' | 'request-remote-cancel' | 'pause-submissions' | 'return-later' | 'clear-history' | 'recheck-provider-status' | 'none'
   enabled: boolean
   label: string
   reason: string
-  code: 'READY' | 'PROVIDER_WORK_ALREADY_STARTED' | 'CANCELLATION_STATUS_UNKNOWN' | 'REMOTE_CANCELLATION_NOT_SUPPORTED' | 'JOB_NOT_AT_SAFE_LOCAL_STOP'
+  code: 'READY' | 'PROVIDER_WORK_ALREADY_STARTED' | 'CANCELLATION_STATUS_UNKNOWN' | 'REMOTE_CANCELLATION_NOT_SUPPORTED' | 'JOB_NOT_AT_SAFE_LOCAL_STOP' | 'PROVIDER_STATUS_UNREACHABLE'
   financial_effect: 'no-provider-request' | 'local-only' | 'remote-result-required' | 'provider-work-may-settle' | 'history-only' | 'none'
   targets?: Array<{
     operation: 'voice.tts' | 'audio.transcription' | 'image.generation' | 'video.generation' | 'chat.response' | 'music.generation'
@@ -657,6 +657,13 @@ export interface JobEnqueuedResponse {
   /** Per-provider-task cancellation evidence keyed by `${operation}:${provider_job_id}`. */
   remote_cancellations?: Record<string, JobRemoteCancellationResponse>
   reconciliation_error?: string
+  /** v1.2.6 — outcome of the last provider re-check for a finished job whose
+   *  stored evidence was still non-terminal. See `Job.history_evidence_check`. */
+  history_evidence_check?: {
+    state: 'checking' | 'unreachable' | 'unsettled'
+    at: string
+    detail?: string
+  }
   /**
    * Directory containing the job's primary output (audio dir, image dir,
    * video dir, …). Set by each generator on success. Drives the Jobs

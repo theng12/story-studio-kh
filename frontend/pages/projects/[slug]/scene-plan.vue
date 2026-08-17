@@ -391,12 +391,30 @@
             <strong>Style and guidance</strong>
             <NuxtLink :to="`/projects/${slug}/character-sheet`" class="link">Edit Character Sheet</NuxtLink>
           </div>
+          <!-- v1.2.6 — the selected look is NAMED here, not just quoted. The
+               Character Sheet shows a name, a category and a preview; this page
+               used to show the style bible prose alone, so a wall of art
+               direction gave no way to tell which style produced it. -->
           <div class="character-style-source">
             <span class="character-style-label">Style from Character Sheet</span>
-            <p v-if="characterSheetStyleBible">{{ characterSheetStyleBible }}</p>
-            <p v-else-if="savedDefaultStyleBible" class="text-muted">
-              This episode has no Style Bible of its own, so the channel default below is used.
-            </p>
+            <template v-if="characterSheetStyleBible">
+              <div class="character-style-identity">
+                <strong>{{ episodeStyleIdentity.name }}</strong>
+                <span v-if="episodeStyleIdentity.category" class="character-style-tag">{{ episodeStyleIdentity.category }}</span>
+              </div>
+              <p v-if="episodeStyleIdentity.note" class="character-style-note">{{ episodeStyleIdentity.note }}</p>
+              <p>{{ characterSheetStyleBible }}</p>
+            </template>
+            <template v-else-if="savedDefaultStyleBible">
+              <div class="character-style-identity">
+                <strong>{{ channelStyleIdentity.name }}</strong>
+                <span v-if="channelStyleIdentity.category" class="character-style-tag">{{ channelStyleIdentity.category }}</span>
+              </div>
+              <p v-if="channelStyleIdentity.note" class="character-style-note">{{ channelStyleIdentity.note }}</p>
+              <p class="text-muted">
+                This episode has no Style Bible of its own, so the channel default below is used.
+              </p>
+            </template>
             <p v-else class="text-muted">No Style Bible is set for this episode yet.</p>
           </div>
           <!-- v1.0.795 — the channel's standing look, saved on the project. An
@@ -918,6 +936,7 @@ import {
   type PromptCharCapSetting,
 } from '../../../utils/prompt-char-cap.js'
 import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
+import { useVisualStyleCatalog } from '~/composables/useBuiltInStyles'
 import { DEFAULT_SCENE_PACING } from '@shared/pacing'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 
@@ -1075,6 +1094,64 @@ async function saveDefaultStyleBible() {
     savingDefaultStyleBible.value = false
   }
 }
+
+// ── v1.2.6 — naming the selected art style ──────────────────────────────
+// The owner: "style and guidance doesn't tell the name of the selected art
+// style. it only shows the prompts and description."
+//
+// The Character Sheet does not persist a style id: `StylePicker` stores the
+// chosen look as its style-bible PROSE and identifies the active style by
+// matching that prose back against the shared catalog. This page resolves the
+// name exactly the same way, through `useVisualStyleCatalog` — the single
+// source of truth (AGENTS.md) — so the two pages can never disagree and no
+// style list, label or category is duplicated here.
+const {
+  styles: visualStyles,
+  loading: visualStylesLoading,
+  usingFallback: visualStylesUsingFallback,
+  error: visualStylesError,
+  refresh: refreshVisualStyles,
+} = useVisualStyleCatalog()
+void refreshVisualStyles()
+
+interface StyleIdentity { name: string; category: string; note: string }
+
+/**
+ * Name a Style Bible. A miss is never rendered blank and never guessed: the
+ * catalog has to be the real, fully-loaded one before Story Studio is entitled
+ * to call an unmatched look "custom", because an unnamed shipped style and a
+ * hand-written one are indistinguishable from a catalog that failed to load.
+ */
+function identifyStyle(bible: string): StyleIdentity {
+  const text = (bible || '').trim()
+  if (!text) return { name: '', category: '', note: '' }
+  const match = visualStyles.value.find(style => style.data.style_bible.trim() === text)
+  if (match) return { name: match.name, category: match.category, note: '' }
+  if (visualStylesLoading.value) {
+    return { name: 'Naming this style…', category: '', note: 'Story Studio is loading the visual style library to identify this look.' }
+  }
+  if (visualStylesError.value) {
+    return {
+      name: 'Style name unavailable',
+      category: '',
+      note: `The visual style library could not be loaded, so Story Studio cannot say which look this is. ${visualStylesError.value}`,
+    }
+  }
+  if (visualStylesUsingFallback.value) {
+    return {
+      name: 'Style name unavailable',
+      category: '',
+      note: 'The visual style library is serving its offline recovery list, so a look installed from a content pack cannot be named here. The art direction below is still exactly what the prompts use.',
+    }
+  }
+  return {
+    name: 'Custom style',
+    category: '',
+    note: 'This art direction is not one of the installed looks, so it has no style name — it was written or edited by hand.',
+  }
+}
+
+const channelStyleIdentity = computed(() => identifyStyle(savedDefaultStyleBible.value))
 
 const episodeId = ref('')
 
@@ -1317,6 +1394,8 @@ const recipeMode = ref<'guide' | 'scene'>('guide')
 // Style Bible. Scene Plan displays it read-only so there is no competing style
 // editor or chance for the two steps to drift.
 const characterSheetStyleBible = ref('')
+// v1.2.6 — see identifyStyle() above; declared here because it reads the ref.
+const episodeStyleIdentity = computed(() => identifyStyle(characterSheetStyleBible.value))
 
 async function loadContinuity(): Promise<void> {
   const ep = episodeId.value
@@ -2689,6 +2768,35 @@ onMounted(() => {
   font-weight: 700;
   letter-spacing: .07em;
   text-transform: uppercase;
+}
+/* v1.2.6 — the selected style's name, so the prose below it is attributable. */
+.character-style-identity {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.character-style-identity > strong {
+  font-size: var(--font-sm);
+  line-height: 1.3;
+}
+.character-style-tag {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: var(--font-xs);
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+.character-style-source p.character-style-note {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  -webkit-line-clamp: none;
 }
 .character-style-source p {
   display: -webkit-box;

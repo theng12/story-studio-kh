@@ -565,6 +565,121 @@ function scheduleCancellationReconciliation(jobId: string): void {
   void reconcileCancellationJob(jobId)
 }
 
+// ── v1.2.6 — re-checking a FINISHED job's provider evidence ──────────────
+//
+// Why this did not already happen: `reconcileCancellationJob` refuses any job
+// that is not `running` or `paused`. Every job the dismiss gate blocks is
+// `done`, `error` or `cancelled`, so the one piece of machinery that could
+// have refreshed the evidence was, by its own guard, permanently ineligible
+// for exactly the jobs that needed it. A snapshot entry that was mid-flight
+// when the job finished therefore stayed mid-flight for good, and the gate
+// kept asserting the provider was still working from a reading it had never
+// refreshed. The owner hit this on an EP0058 audio job: nine of ten TTS calls
+// succeeded, the tenth was recorded as accepted, and the card could never be
+// dismissed even though GenStudio had settled every one of them and was
+// holding zero credits.
+//
+// This is the same reconciliation path, run read-only. A finished job is not
+// asking to be cancelled, so it never issues a control POST — it only asks
+// what the current state is, writes the answer into the stored evidence, and
+// lets the gate decide again.
+const historyEvidenceRefreshing = new Set<string>()
+
+function isFinishedStatus(status: Job['status']): boolean {
+  return status === 'done' || status === 'error' || status === 'cancelled'
+}
+
+/** The gate's own predicate: which finished jobs still carry non-terminal evidence. */
+function needsHistoryEvidenceRefresh(job: Job): boolean {
+  if (!isFinishedStatus(job.status)) return false
+  return (job.genstudio_jobs || []).some(entry => (
+    entry.cancelled !== true && entry.state !== 'succeeded' && entry.state !== 'failed' && entry.state !== 'cancelled'
+  )) || hasPendingRemoteCancellation(job)
+}
+
+async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> {
+  if (historyEvidenceRefreshing.has(jobId)) return
+  const job = jobs.get(jobId)
+  if (!job || !needsHistoryEvidenceRefresh(job)) return
+  historyEvidenceRefreshing.add(jobId)
+  const previous = job.history_evidence_check?.state
+  try {
+    job.history_evidence_check = { state: 'checking', at: new Date().toISOString() }
+    emitUpdate(job)
+
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (!apiKey) {
+      await recordHistoryEvidenceCheck(job, 'unreachable', previous, 'The GenStudio API key is not available on this Mac, so the provider could not be asked.')
+      return
+    }
+
+    const outcome = await reconcilePendingJobCancellation(job, apiKey, { readOnly: true })
+    job.remote_cancellations = outcome.records
+    for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
+
+    if (!needsHistoryEvidenceRefresh(job)) {
+      // GenStudio confirmed everything is terminal. Nothing is outstanding, so
+      // the gate opens on this same snapshot with no further clicks.
+      delete job.history_evidence_check
+      job.output_lines.push('GenStudio confirmed every recorded provider task for this job has finished. This history can now be removed.')
+      await persistJob(job)
+      emitUpdate(job)
+      return
+    }
+    await recordHistoryEvidenceCheck(
+      job,
+      outcome.reason ? 'unreachable' : 'unsettled',
+      previous,
+      outcome.reason ? redactSensitiveValue(outcome.reason) : undefined,
+    )
+  } catch (error) {
+    const latest = jobs.get(jobId)
+    if (latest) {
+      await recordHistoryEvidenceCheck(
+        latest, 'unreachable', previous,
+        redactSensitiveValue(`GenStudio status check failed: ${error instanceof Error ? error.message : String(error)}`).slice(0, 320),
+      )
+    }
+  } finally {
+    historyEvidenceRefreshing.delete(jobId)
+  }
+}
+
+async function recordHistoryEvidenceCheck(
+  job: Job,
+  state: 'unreachable' | 'unsettled',
+  previous: string | undefined,
+  detail?: string,
+): Promise<void> {
+  job.history_evidence_check = { state, at: new Date().toISOString(), ...(detail ? { detail } : {}) }
+  if (previous !== state) {
+    job.output_lines.push(state === 'unreachable'
+      ? `Story Studio could not confirm this job's remaining provider work with GenStudio.${detail ? ` ${detail}` : ''}`
+      : 'GenStudio reports this job still has provider work that has not finished.')
+  }
+  await persistJob(job)
+  emitUpdate(job)
+}
+
+function scheduleHistoryEvidenceRefresh(jobId: string): void {
+  void refreshFinishedJobProviderEvidence(jobId)
+}
+
+/**
+ * The enabled "Check GenStudio again" control. Awaited, so the caller learns
+ * the real answer rather than being told a check was scheduled.
+ */
+export async function recheckJobProviderStatus(projectSlug: string, jobId: string): Promise<Job> {
+  await loadPersistedJobs(projectSlug)
+  const job = jobs.get(jobId)
+  if (!job || job.project_slug !== projectSlug) {
+    throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
+  }
+  if (!needsHistoryEvidenceRefresh(job)) return serializeJob(job)
+  await refreshFinishedJobProviderEvidence(jobId)
+  return serializeJob(jobs.get(jobId) || job)
+}
+
 /** Finalize only after a returned local executor and authoritative provider settlement. */
 async function finalizeSettledProviderJob(jobId: string): Promise<void> {
   const job = jobs.get(jobId)
@@ -957,6 +1072,10 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
   const p = jobsPath(projectSlug)
   const resumedTypes = new Set<JobType>()
   const reconciliationJobs: string[] = []
+  // v1.2.6 — finished rows whose stored evidence is still non-terminal. They
+  // never entered cancellation reconciliation (that path only accepts running
+  // or paused jobs), which is precisely why their evidence went stale.
+  const historyRefreshJobs: string[] = []
   try {
     if (existsSync(p)) {
       const data = JSON.parse(await fs.readFile(p, 'utf-8'))
@@ -1053,6 +1172,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             mutated = true
           }
           jobs.set(j.job_id, j)
+          if (needsHistoryEvidenceRefresh(j)) historyRefreshJobs.push(j.job_id)
           if (mutated) {
             try { await persistJob(j) } catch (e: any) {
               // Best-effort — disk full / perms drift. The in-memory
@@ -1069,6 +1189,7 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
     }
     for (const type of resumedTypes) pump(type)
     for (const jobId of reconciliationJobs) scheduleCancellationReconciliation(jobId)
+    for (const jobId of historyRefreshJobs) scheduleHistoryEvidenceRefresh(jobId)
   } catch { /* ignore corrupt file */ }
 }
 
@@ -1450,6 +1571,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
     await persistJob(job)
     emitUpdate(job)
     if (job.status === 'running' && hasUnsettledProviderWork(job)) scheduleCancellationReconciliation(job.job_id)
+    // v1.2.6 — a job can finish while one recorded provider task was still
+    // mid-flight. Ask GenStudio now rather than freezing that snapshot into a
+    // history row nobody can ever dismiss.
+    else if (needsHistoryEvidenceRefresh(job)) scheduleHistoryEvidenceRefresh(job.job_id)
   } finally {
     releaseSlot(type, job)
   }

@@ -195,6 +195,19 @@ router.post('/jobs/all/:jobId/cancel', async (req, res, next) => {
   }
 })
 
+// v1.2.6 — the enabled half of the finished-job dismiss gate. Re-reads the
+// current GenStudio state of the provider tasks this job recorded as
+// unfinished, updates the stored evidence, and returns the re-classified job.
+router.post('/jobs/all/:jobId/recheck-provider-status', async (req, res, next) => {
+  const existing = await findUniversalJob(req.params.jobId)
+  if (!existing) return res.status(404).json({ detail: 'Job not found' })
+  try {
+    res.json({ ok: true, job: await jq.recheckJobProviderStatus(existing.project_slug, req.params.jobId) })
+  } catch (error) {
+    next(error)
+  }
+})
+
 router.delete('/jobs/all/:jobId', async (req, res) => {
   const existing = await findUniversalJob(req.params.jobId)
   if (!existing) return res.status(404).json({ detail: 'Job not found' })
@@ -334,6 +347,17 @@ router.post('/projects/:slug/jobs/:jobId/cancel', async (req, res, next) => {
     res.json({ ok: true, job })
   } catch (error) {
     if (sendJobControlError(res, error)) return
+    next(error)
+  }
+})
+
+// v1.2.6 — see the /jobs/all sibling above.
+router.post('/projects/:slug/jobs/:jobId/recheck-provider-status', async (req, res, next) => {
+  const existing = (await jq.getJobs(req.params.slug)).find(job => job.job_id === req.params.jobId)
+  if (!existing || existing.project_slug !== req.params.slug) return res.status(404).json({ detail: 'Job not found' })
+  try {
+    res.json({ ok: true, job: await jq.recheckJobProviderStatus(req.params.slug, req.params.jobId) })
+  } catch (error) {
     next(error)
   }
 })

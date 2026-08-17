@@ -2107,6 +2107,8 @@ export type JobControlAction =
   | 'pause-submissions'
   | 'return-later'
   | 'clear-history'
+  /** v1.2.6 — re-ask GenStudio for the current state of stored non-terminal evidence. */
+  | 'recheck-provider-status'
   | 'none'
 
 export type JobControlCode =
@@ -2115,6 +2117,8 @@ export type JobControlCode =
   | 'CANCELLATION_STATUS_UNKNOWN'
   | 'REMOTE_CANCELLATION_NOT_SUPPORTED'
   | 'JOB_NOT_AT_SAFE_LOCAL_STOP'
+  /** v1.2.6 — Story Studio asked GenStudio and could not get an answer. */
+  | 'PROVIDER_STATUS_UNREACHABLE'
 
 export type JobRemoteOperation =
   | 'voice.tts'
@@ -2364,6 +2368,27 @@ export interface Job {
   remote_cancellations?: Record<string, JobRemoteCancellation>
   /** Redacted reason the restart-safe provider reconciliation is still waiting. */
   reconciliation_error?: string
+  /**
+   * v1.2.6 — the result of the last provider re-check run for a FINISHED job
+   * whose stored evidence was still non-terminal.
+   *
+   * `genstudio_jobs` is only a snapshot of what GenStudio reported while the
+   * job ran. An entry that was mid-flight when the snapshot was written stayed
+   * mid-flight forever, because reconciliation only ever ran for running or
+   * paused jobs. That left the dismiss gate asserting "durable provider work
+   * is still settling" about work that had settled long before. The gate now
+   * re-asks GenStudio, and this records the answer so the control can tell
+   * "still checking" from "could not reach GenStudio" from "GenStudio says it
+   * genuinely has not finished" instead of merging all three into one claim
+   * Story Studio had not earned.
+   */
+  history_evidence_check?: {
+    state: 'checking' | 'unreachable' | 'unsettled'
+    /** ISO8601 of when this check started (`checking`) or returned. */
+    at: string
+    /** Redacted reason. Present for `unreachable`. */
+    detail?: string
+  }
   /**
    * Directory containing the job's primary output. Set by each generator
    * once it knows where its files landed (audio dir, image dir, video
