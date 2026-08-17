@@ -19,6 +19,7 @@ import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { findIncompleteSubtitleSections, stitchSubtitles } from '../services/subtitle-stitcher.js'
 import { resolveTranscriptSrt, resolveTranscriptSrtPath, stitchedSrtPath } from '../services/subtitle-correction.js'
+import { inspectSubtitleText } from '../lib/subtitle-quality.js'
 import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   computePlanCoverage,
@@ -796,6 +797,19 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       subtitles_dir: paths.subtitles_dir, script_dir: paths.script_dir, episode_code: episodeId,
     })
 
+    // v1.2.2 — text quality of the exact transcript the planner will read.
+    //
+    // This matters more here than on a caption. Scene Plan turns this text into
+    // each scene's `transcript_segment`, which is fed verbatim to the model
+    // that writes the image prompts — so a hallucinated block does not merely
+    // look wrong in a subtitle, it buys wrong pictures. Someone about to spend
+    // credits on a batch of images deserves to see it beforehand.
+    //
+    // Advisory only: it is reported, never enforced. Planning stays available.
+    const transcriptQuality = transcript.path
+      ? await fs.readFile(transcript.path, 'utf-8').then(inspectSubtitleText).catch(() => null)
+      : null
+
     res.json({
       stitched_srt: existsSync(stitchedPath) ? {
         path: stitchedPath,
@@ -815,6 +829,7 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
         chapters_refused: transcript.report?.chapters_refused ?? null,
         warnings: transcript.report?.warnings ?? [],
         skipped_reason: transcript.report?.skipped_reason ?? null,
+        quality: transcriptQuality,
       },
       plan_stale_vs_stitched: planStaleVsStitched,
       scene_plan: scenePlan,

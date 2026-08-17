@@ -33,6 +33,7 @@ import { normalizeSubtitleStyle, type SubtitleStyleDocument } from '../contracts
 import { SubtitleStyleValidationError, parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.js'
 import { resolveSubtitlesDir, resolveTranscriptionLanguage } from '../generators/subtitles.js'
 import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
+import { inspectSubtitleText, type SubtitleQualityReport } from '../lib/subtitle-quality.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
@@ -996,6 +997,12 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
        *               a transcription request this episode has a record of.
        */
       word_timings: 'banked' | 'none' | 'unknown'
+      /**
+       * v1.2.2 — text-quality inspection of this file's cues. Advisory only:
+       * nothing downstream gates on it, and the file is never edited. See
+       * `lib/subtitle-quality.ts` for the rules and their measured flag rates.
+       */
+      quality: SubtitleQualityReport | null
     }
     // The transcription manifest is the only local record of what was asked
     // for. No manifest entry means 'unknown' — the honest answer, not a guess.
@@ -1011,7 +1018,16 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
         const wordTimings: ExistingSrt['word_timings'] = !task || task.operation !== 'transcription'
           ? 'unknown'
           : task.word_timestamps === true ? 'banked' : 'none'
-        existingSrts.push({ path: full, filename: f, mtime: stat.mtimeMs, word_timings: wordTimings })
+        // Text quality. ASS is a styling document rather than a plain
+        // transcript, so it is reported as unchecked (null) instead of being
+        // run through cue rules it would trip on markup alone.
+        let quality: SubtitleQualityReport | null = null
+        if (/\.(srt|vtt)$/i.test(f)) {
+          quality = await fs.readFile(full, 'utf-8')
+            .then(inspectSubtitleText)
+            .catch(() => null)
+        }
+        existingSrts.push({ path: full, filename: f, mtime: stat.mtimeMs, word_timings: wordTimings, quality })
       }
       existingSrts.sort((a, b) => b.mtime - a.mtime)
     } catch { /* no dir yet — fine */ }
@@ -1137,6 +1153,11 @@ router.post('/projects/:slug/video-editor/subtitles/transcribe/:episodeId', asyn
       // v1.0.216+ — per-chapter mode: transcribe each chapter's clean
       // narration into {code}_{slug}.srt (what Scene Plan's stitcher consumes).
       per_chapter: req.body?.per_chapter === true,
+      // v1.2.2 — optional chapter allow-list, so one corrupt chapter can be
+      // re-transcribed without re-paying for the rest of the episode.
+      sections: Array.isArray(req.body?.sections)
+        ? (req.body.sections as unknown[]).filter((s): s is string => typeof s === 'string' && s.trim() !== '')
+        : undefined,
       engine: 'genstudio',
     },
   })

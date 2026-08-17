@@ -126,6 +126,21 @@
           <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">re-stitch in Subtitles</NuxtLink>,
           then re-run the plan so it picks up the new audio.
         </div>
+        <!-- v1.2.2 — text quality of the exact transcript the planner will read.
+             This is the surface where corruption costs money rather than looks:
+             Scene Plan feeds each scene's narration verbatim to the model that
+             writes the image prompts, so a hallucinated block buys wrong
+             pictures. Advisory — planning stays available, because a person may
+             judge the lines harmless and proceed. -->
+        <SubtitleQualityWarning
+          :quality="status.transcript_source?.quality"
+          subject="The transcript this plan will be built from"
+          consequence="Scene Plan feeds this text to the model that writes your image prompts, so garbled lines can buy wrong pictures."
+        >
+          <template #actions>
+            <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm">Review in Subtitles</NuxtLink>
+          </template>
+        </SubtitleQualityWarning>
       </div>
     </WorkspaceSection>
 
@@ -904,6 +919,7 @@ import {
 } from '../../../utils/prompt-char-cap.js'
 import { readRememberedImageModelId } from '../../../utils/project-image-model.js'
 import { DEFAULT_SCENE_PACING } from '@shared/pacing'
+import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Plan')
@@ -1098,6 +1114,8 @@ interface ScenePlanStatus {
     chapters_refused: number | null
     warnings: string[]
     skipped_reason: string | null
+    /** v1.2.2 — advisory text-quality report for this exact transcript. */
+    quality?: SubtitleQualityReport | null
   }
   scene_plan: ScenePlan | null
   plan_stale_vs_stitched?: boolean

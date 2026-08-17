@@ -84,6 +84,12 @@
                 </span>
                 <span class="sub-chapter-name">{{ s.label }}</span>
                 <span class="text-muted text-xs">{{ chapterHasSrt(s.slug) ? 'transcribed' : 'no SRT yet' }}</span>
+                <!-- v1.2.2 — readiness is not only "is there an SRT" but "is the
+                     SRT usable". A transcribed chapter full of hallucinated
+                     script is worse than a missing one, because it looks done. -->
+                <span v-if="chapterIsGarbled(s.slug)" class="garbled-tag" title="Some cues look like transcription errors — see Subtitle files below.">
+                  ⚠ garbled text
+                </span>
               </li>
             </ul>
           </div>
@@ -188,19 +194,40 @@
         <h3>Subtitle files <span v-if="status?.existing_srts?.length" class="text-muted text-sm">({{ status.existing_srts.length }})</span></h3>
         <p v-if="!status?.existing_srts?.length" class="text-muted text-sm mt-1">No subtitle files yet for this episode. Generate some above.</p>
         <ul v-else class="sub-file-list mt-2">
-          <li v-for="srt in status.existing_srts" :key="srt.path" class="sub-file-row">
-            <span class="sub-file-name">{{ srt.filename }}</span>
-            <span :class="['word-timing-tag', `wt-${srt.word_timings || 'unknown'}`]" :title="wordTimingHint(srt.word_timings)">
-              {{ wordTimingLabel(srt.word_timings) }}
-            </span>
-            <button
-              class="btn-icon"
-              :class="{ active: previewFilename === srt.filename }"
-              :title="previewFilename === srt.filename ? 'Hide preview' : 'Preview subtitle text'"
-              @click="viewSrt(srt.filename)"
-            >👁</button>
-            <button class="btn-icon" title="Delete this subtitle file" @click="deleteSrt(srt.filename)">✕</button>
-          </li>
+          <template v-for="srt in status.existing_srts" :key="srt.path">
+            <li class="sub-file-row">
+              <span class="sub-file-name">{{ srt.filename }}</span>
+              <span v-if="hasQualityFindings(srt.quality)" class="garbled-tag" title="Some cues look like transcription errors — details below.">
+                ⚠ garbled text
+              </span>
+              <span :class="['word-timing-tag', `wt-${srt.word_timings || 'unknown'}`]" :title="wordTimingHint(srt.word_timings)">
+                {{ wordTimingLabel(srt.word_timings) }}
+              </span>
+              <button
+                class="btn-icon"
+                :class="{ active: previewFilename === srt.filename }"
+                :title="previewFilename === srt.filename ? 'Hide preview' : 'Preview subtitle text'"
+                @click="viewSrt(srt.filename)"
+              >👁</button>
+              <button class="btn-icon" title="Delete this subtitle file" @click="deleteSrt(srt.filename)">✕</button>
+            </li>
+            <!-- v1.2.2 — the offending cues shown in place, so the file above can
+                 be judged without opening it. Advisory only: nothing is disabled
+                 and the file is never rewritten. Re-transcription is the only
+                 real repair, so that is the action offered — never a rewrite. -->
+            <li v-if="hasQualityFindings(srt.quality)" class="sub-file-quality">
+              <SubtitleQualityWarning :quality="srt.quality" :subject="srt.filename">
+                <template v-if="sectionSlugForFile(srt.filename)" #actions>
+                  <button
+                    class="btn btn-sm"
+                    :disabled="transcribing || !canTranscribe"
+                    title="Transcribe this one chapter again from its audio. Only this chapter is charged."
+                    @click="retranscribeChapter(sectionSlugForFile(srt.filename)!)"
+                  >Re-transcribe this chapter</button>
+                </template>
+              </SubtitleQualityWarning>
+            </li>
+          </template>
         </ul>
 
         <!-- v1.0.494/495 — inline preview of the generated cues so accuracy can
@@ -298,6 +325,8 @@ import {
   transcriptionLanguageControl,
   transcriptionLanguageRequestFields,
 } from '~/utils/transcription-language'
+import type { SubtitleQualityReport } from '~/types/subtitle-quality'
+import { hasQualityFindings } from '~/types/subtitle-quality'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Subtitles')
@@ -314,6 +343,12 @@ interface ExistingSrt {
    * explains why two episodes in one project can differ.
    */
   word_timings?: 'banked' | 'none' | 'unknown'
+  /**
+   * v1.2.2 — text-quality inspection of this file's cues. `null` for formats
+   * that are not plain transcripts (.ass), which are not checked rather than
+   * asserted clean.
+   */
+  quality?: SubtitleQualityReport | null
 }
 /**
  * Say what is actually known, in three states, without alarm. 'unknown' is a
@@ -470,6 +505,34 @@ function chapterHasSrt(secSlug: string): boolean {
   }
   return srtNames.value.has(`${codeUpper.value}_${secSlug}.srt`.toLowerCase())
 }
+/**
+ * v1.2.2 — map a subtitle filename back to the chapter it came from.
+ *
+ * Per-chapter transcripts are written as `{CODE}_{slug}.srt`, so the slug is
+ * recoverable, and that is what makes a one-chapter re-transcribe possible. It
+ * returns null for `_stitched`, `_whisper` and imported files: those are not a
+ * single chapter's audio, so there is nothing narrow to re-run — the fix for a
+ * bad stitched file is to fix the chapter it came from and re-stitch.
+ */
+function sectionSlugForFile(filename: string): string | null {
+  const base = filename.replace(/\.(srt|vtt|ass)$/i, '')
+  const prefix = `${codeUpper.value}_`
+  if (!base.toLowerCase().startsWith(prefix.toLowerCase())) return null
+  const slug = base.slice(prefix.length)
+  if (!slug) return null
+  return sections.value.some(s => s.slug.toLowerCase() === slug.toLowerCase()) ? slug : null
+}
+
+/** Quality report for a chapter's own transcript, if one is on disk. */
+function chapterQuality(secSlug: string): SubtitleQualityReport | null {
+  const wanted = `${codeUpper.value}_${secSlug}.srt`.toLowerCase()
+  return (status.value?.existing_srts || [])
+    .find(s => s.filename.toLowerCase() === wanted)?.quality ?? null
+}
+function chapterIsGarbled(secSlug: string): boolean {
+  return hasQualityFindings(chapterQuality(secSlug))
+}
+
 const coverage = computed(() => {
   const total = sections.value.length
   const done = sections.value.filter(s => chapterHasSrt(s.slug)).length
@@ -599,6 +662,36 @@ async function transcribe(): Promise<void> {
   }
 }
 
+/**
+ * v1.2.2 — re-transcribe ONE chapter.
+ *
+ * Offered next to a garbled-text warning because re-transcription is the only
+ * honest repair: a hallucinated word cannot be corrected without knowing what
+ * was actually said, so the app never edits the file. Scoped to a single
+ * chapter so fixing one bad chapter does not re-charge the other twelve.
+ */
+async function retranscribeChapter(sectionSlug: string): Promise<void> {
+  if (!canTranscribe.value || transcribing.value) return
+  transcribing.value = true
+  try {
+    await post(`/projects/${slug.value}/video-editor/subtitles/transcribe/${episodeId.value}`, {
+      per_chapter: true,
+      engine: 'genstudio',
+      model: genstudioModel.value,
+      ...transcriptionLanguageRequestFields(language.value, genstudioSelectedModel.value),
+      // An explicit re-run: overwrite the existing SRT, and ask GenStudio for a
+      // fresh transcription rather than replaying the stored one.
+      force: true,
+      sections: [sectionSlug],
+    })
+    showInfo(`Re-transcribing ${sectionSlug} — progress shows in Jobs / the bell.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not start re-transcription')
+  } finally {
+    transcribing.value = false
+  }
+}
+
 // v1.0.360 — reload + toast ONLY when a transcribe job actually reaches 'done'
 // for the current episode. The old `watch(transcribeJobActive)` fired on its
 // true→false transition, which ALSO happens when you switch away from an
@@ -691,6 +784,21 @@ onMounted(async () => {
 .wt-banked { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text-primary); }
 .wt-none { background: color-mix(in srgb, var(--text-secondary) 18%, transparent); color: var(--text-secondary); }
 .wt-unknown { display: none; }
+
+/* v1.2.2 — garbled-text marker. Same pill shape as the word-timing tags so it
+   reads as one family of file facts, tinted with the shared warning token
+   rather than a new colour invented for this feature. */
+.garbled-tag {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 22%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  white-space: nowrap;
+}
+.sub-file-quality { padding: 0 8px 10px; border-bottom: 1px solid var(--border); }
+.sub-file-quality:last-child { border-bottom: none; }
 
 .inline-link { color: var(--accent); text-decoration: underline; }
 .inline-link:hover { text-decoration: none; }

@@ -78,6 +78,15 @@ export interface TranscribeSubtitlesRequest {
    * the merged track contaminating the transcript.
    */
   per_chapter?: boolean
+  /**
+   * v1.2.2 — restrict a per-chapter run to these section slugs.
+   *
+   * Exists so "re-transcribe this chapter" can be offered against a chapter
+   * whose transcript is corrupt without re-paying for the twelve chapters that
+   * are fine. Empty or absent means every chapter, which is the old behaviour.
+   * Ignored outside `per_chapter` mode, where there is only one audio track.
+   */
+  sections?: string[]
   /** New work uses the current live transcription catalog. */
   engine?: 'genstudio' | 'openai' | 'voicestudio'
 }
@@ -335,7 +344,12 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
       language: genstudio.language,
       wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
     }))
-    const reusableTask = savedTask?.provider === 'genstudio'
+    // v1.2.2 — see the matching note in `transcribePerChapter`: an explicit
+    // re-run of an existing transcript must re-ask GenStudio, not reconnect to
+    // the stored task and re-download the same artifact.
+    const rerunRequested = req.force === true && !!savedTask
+    const reusableTask = !rerunRequested
+      && savedTask?.provider === 'genstudio'
       && (savedTask.input_hash === currentInputHash
         || (!!savedTask.task_id && savedTask.input_hash === currentAudioHash))
       ? savedTask
@@ -343,12 +357,14 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     const requestIdentity = `${project_slug}:${code}:transcription:${manifestKey}`
     const terminalFailure = isTerminalGenStudioTranscriptionTaskFailure(reusableTask)
     const recoveryTask = terminalFailure ? null : reusableTask
+    const freshIdentity = terminalFailure || rerunRequested
     let idempotencyKey = recoveryTask?.idempotency_key
       || buildGenStudioTranscriptionIdempotencyKey({
         // A manual Retry needs a new GenStudio identity only after the old
-        // provider task reached a terminal state. Accepted unfinished work
-        // keeps its original key so recovery cannot duplicate paid work.
-        requestIdentity: terminalFailure ? `${requestIdentity}:manual-retry:${job.job_id}` : requestIdentity,
+        // provider task reached a terminal state, or when the user explicitly
+        // asked for a re-run. Accepted unfinished work keeps its original key
+        // so recovery cannot duplicate paid work.
+        requestIdentity: freshIdentity ? `${requestIdentity}:manual-retry:${job.job_id}` : requestIdentity,
         fileSha256: currentAudioHash.slice('sha256:'.length),
         modelId: genstudio.modelId,
         language: genstudio.language,
@@ -358,6 +374,8 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
     let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
     if (terminalFailure) {
       job.output_lines.push('Previous GenStudio transcription task failed terminally; submitting one fresh recovery task.')
+    } else if (rerunRequested) {
+      job.output_lines.push('Re-run requested — submitting a fresh transcription instead of reusing the stored result.')
     }
     await recordTaskStrict(outDir, manifestKey, {
       provider: 'genstudio',
@@ -510,6 +528,39 @@ export async function generateSubtitlesTranscribe(job: Job): Promise<void> {
  * arrives as one or more MP3 parts (`{code}_{slug}_partN.mp3`); we concat a
  * chapter's parts into one temp track, transcribe it, write the SRT, repeat.
  */
+/**
+ * v1.2.2 — narrow a per-chapter run to an explicit chapter allow-list.
+ *
+ * Exists so "re-transcribe this chapter" can repair one corrupt transcript
+ * without re-charging for the twelve chapters that are fine. An absent or empty
+ * list means every chapter, which is the long-standing behaviour.
+ *
+ * A list that matches nothing throws rather than falling back to a full run.
+ * Silently transcribing the whole episode when the user asked for one chapter
+ * is the expensive surprise, and a wrong slug is a bug worth seeing.
+ *
+ * Matching is case-insensitive: the slug reaches us from a filename on a
+ * case-preserving-but-insensitive filesystem, so the caller's casing and the
+ * directory's casing are not guaranteed to agree.
+ */
+export function selectRequestedSections<T extends { slug: string }>(
+  available: T[],
+  requested: string[] | undefined,
+): T[] {
+  const wanted = Array.isArray(requested)
+    ? requested.map(s => String(s).trim().toLowerCase()).filter(Boolean)
+    : []
+  if (!wanted.length) return available
+  const selected = available.filter(s => wanted.includes(s.slug.toLowerCase()))
+  if (!selected.length) {
+    throw new Error(
+      `None of the requested chapters have audio: ${wanted.join(', ')}. ` +
+      `Available: ${available.map(s => s.slug).join(', ') || '(none)'}.`,
+    )
+  }
+  return selected
+}
+
 async function transcribePerChapter(
   job: Job,
   projectSlug: string,
@@ -584,7 +635,13 @@ async function transcribePerChapter(
     if (jq.isCancelled(job.job_id)) controller.abort()
   }, 500)
 
-  const sections = [...bySlug.values()]
+  const allSections = [...bySlug.values()]
+  const sections = selectRequestedSections(allSections, req.sections)
+  if (sections.length !== allSections.length) {
+    job.output_lines.push(
+      `Re-transcribing ${sections.length} of ${allSections.length} chapter(s): ${sections.map(s => s.slug).join(', ')}.`,
+    )
+  }
   let done = 0
   let totalCues = 0
   let generatedSections = 0
@@ -651,7 +708,28 @@ async function transcribePerChapter(
         language: genstudio.language,
         wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
       }))
-      const reusableTask = savedTask?.provider === 'genstudio'
+      /**
+       * v1.2.2 — an explicit re-run must produce a FRESH transcription.
+       *
+       * `force` used to bypass only the local "this SRT already exists" skip.
+       * Everything after that still matched the saved manifest task — same
+       * audio, same model, same language — so the run reconnected to the
+       * completed GenStudio task and re-downloaded the identical artifact.
+       * The checkbox promised a re-run and delivered a cache hit.
+       *
+       * That is harmless when nothing was wrong, and useless in the one case
+       * that matters: a chapter being re-transcribed because Whisper
+       * hallucinated into it. Replaying the same result is the single outcome
+       * that cannot help. Since re-transcription is the only real repair for a
+       * corrupt transcript, the repair has to actually re-ask.
+       *
+       * Only an explicit re-run of an existing transcript takes this path, so
+       * ordinary Retry after a crash still reconnects to accepted work rather
+       * than paying twice.
+       */
+      const rerunRequested = req.force === true && !!savedTask
+      const reusableTask = !rerunRequested
+        && savedTask?.provider === 'genstudio'
         && (savedTask.input_hash === currentInputHash
           || (!!savedTask.task_id && savedTask.input_hash === currentAudioHash))
         ? savedTask
@@ -659,12 +737,17 @@ async function transcribePerChapter(
       const requestIdentity = `${projectSlug}:${code}:transcription:${manifestKey}`
       const terminalFailure = isTerminalGenStudioTranscriptionTaskFailure(reusableTask)
       const recoveryTask = terminalFailure ? null : reusableTask
+      // A terminal provider task and an explicit re-run both need an identity
+      // GenStudio has not seen, or its own server-side dedupe hands back the
+      // very artifact we are trying to replace.
+      const freshIdentity = terminalFailure || rerunRequested
       let idempotencyKey = recoveryTask?.idempotency_key
         || buildGenStudioTranscriptionIdempotencyKey({
-          // Only a terminal provider task receives a fresh identity. This
-          // prevents a quote-expired chapter from being replayed forever,
-          // while accepted unfinished work remains safe to reconnect.
-          requestIdentity: terminalFailure ? `${requestIdentity}:manual-retry:${job.job_id}` : requestIdentity,
+          // Only a terminal provider task or an explicit re-run receives a
+          // fresh identity. This prevents a quote-expired chapter from being
+          // replayed forever, while accepted unfinished work remains safe to
+          // reconnect.
+          requestIdentity: freshIdentity ? `${requestIdentity}:manual-retry:${job.job_id}` : requestIdentity,
           fileSha256: currentAudioHash.slice('sha256:'.length),
           modelId: genstudio.modelId,
           language: genstudio.language,
@@ -674,6 +757,8 @@ async function transcribePerChapter(
       let submittedAt = recoveryTask?.submitted_at || new Date().toISOString()
       if (terminalFailure) {
         job.output_lines.push(`  ${sec.slug}: previous GenStudio transcription task failed terminally; submitting one fresh recovery task.`)
+      } else if (rerunRequested) {
+        job.output_lines.push(`  ${sec.slug}: re-run requested — submitting a fresh transcription instead of reusing the stored result.`)
       }
 
       await recordTaskStrict(outDir, manifestKey, {

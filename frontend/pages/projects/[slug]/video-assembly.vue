@@ -1940,14 +1940,30 @@
               <button class="btn-icon" @click="subtitles.srt_path = ''">✕</button>
             </div>
           </div>
+          <!-- v1.2.2 — text quality of the file about to be burned in. It sits
+               next to the active SRT because this is the last moment a person
+               sees the transcript before it is baked into a video and shipped
+               to a customer. Advisory: the render is never blocked — someone
+               may knowingly ship a caption with an odd character in it. -->
+          <SubtitleQualityWarning
+            :quality="activeSubtitleQuality"
+            subject="The subtitle file you are about to burn in"
+            consequence="These lines will be baked into the video."
+          >
+            <template #actions>
+              <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm">Fix in Subtitles</NuxtLink>
+            </template>
+          </SubtitleQualityWarning>
+
           <div v-if="subtitlesStatus?.existing_srts?.length" class="text-sm mt-1">
             <label class="text-muted">Other subtitle files found</label>
             <div class="flex gap-2 mt-1 flex-wrap">
               <button v-for="srt in subtitlesStatus.existing_srts" :key="srt.path"
                 class="btn btn-sm btn-secondary"
                 :disabled="subtitles.srt_path === srt.path"
+                :title="hasQualityFindings(srt.quality) ? 'Some cues in this file look like transcription errors.' : ''"
                 @click="pickSubtitlePath(srt.path)">
-                {{ srt.filename }}
+                <span v-if="hasQualityFindings(srt.quality)" aria-hidden="true">⚠ </span>{{ srt.filename }}
               </button>
             </div>
           </div>
@@ -2357,6 +2373,8 @@
 <script setup lang="ts">
 import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
+import type { SubtitleQualityReport } from '~/types/subtitle-quality'
+import { hasQualityFindings } from '~/types/subtitle-quality'
 import {
   defaultSubtitleStyle,
   mergeSubtitleStyle,
@@ -3242,9 +3260,28 @@ const subtitlesStatus = ref<{
   has_merged_audio: boolean
   has_chapter_audio: boolean
   has_genstudio_key: boolean
-  existing_srts: Array<{ path: string; filename: string; mtime: number }>
+  existing_srts: Array<{
+    path: string
+    filename: string
+    mtime: number
+    /** v1.2.2 — advisory text-quality report; null for unchecked formats. */
+    quality?: SubtitleQualityReport | null
+  }>
   subtitles_dir: string
 } | null>(null)
+
+/**
+ * v1.2.2 — quality report for the SRT actually selected for burn-in.
+ *
+ * Keyed off the resolved path rather than a name, because the burn step uses
+ * `subtitles.srt_path` verbatim. When nothing is picked there is nothing to
+ * warn about, and an unchecked format reports null rather than "clean".
+ */
+const activeSubtitleQuality = computed<SubtitleQualityReport | null>(() => {
+  const active = subtitles.srt_path
+  if (!active) return null
+  return subtitlesStatus.value?.existing_srts?.find(s => s.path === active)?.quality ?? null
+})
 
 const sampleSubtitleText = computed(() => {
   if (scannedAssets.value?.scenes?.[0]?.title) {
