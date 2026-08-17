@@ -15,7 +15,11 @@
         <span aria-hidden="true">{{ mobileNavOpen ? 'Close' : 'Menu' }}</span>
       </button>
       <div class="titlebar-drag" />
+      <!-- Credits and lanes sit in the top bar on every view, so account
+           standing reads the same on a project page as it does on channels
+           and the Content Store. -->
       <div class="top-bar-actions">
+        <GenStudioStandingStrip variant="inline" class="top-bar-standing-strip" />
         <FeatureHelpCenter />
         <NotificationCenter v-if="slug" :slug="slug" />
       </div>
@@ -115,7 +119,18 @@
             <span class="network-dot" aria-hidden="true" />
             <span>{{ networkOnline ? 'Story Studio online' : 'Story Studio unavailable' }}</span>
           </div>
-          <GenStudioStandingStrip />
+          <!-- Project pages had no version anywhere. The standing strip moved
+               up to the top bar; the running build takes its place here, with
+               the same content and title behaviour as default.vue's badge. -->
+          <button
+            type="button"
+            class="version-badge"
+            :title="`Story Studio KH v${appVersion} · built ${buildDate} — click for What's New`"
+            @click="openWhatsNew"
+          >
+            v{{ appVersion }}
+            <span class="version-build">· {{ buildDate }}</span>
+          </button>
         </footer>
       </aside>
 
@@ -130,6 +145,7 @@
 
 <script setup lang="ts">
 import { FLOW_PHASES, normalizeVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
+import { useWhatsNewModal } from '~/composables/useWhatsNewModal'
 import { projectSlug } from '~/utils/project-slug'
 
 const route = useRoute()
@@ -148,6 +164,11 @@ const { niches } = useNiches()
 const { refreshReadiness } = useNotifications()
 const { online: networkOnline, queueSyncFailed: networkQueueSyncFailed } = useNetworkStatus()
 const { get: apiGet } = useApi()
+const { public: pubCfg } = useRuntimeConfig()
+const appVersion = computed(() => (pubCfg.appVersion as string | undefined) || '0.0.0')
+const buildDate = computed(() => (pubCfg.buildDate as string | undefined) || '')
+const whatsNewModal = useWhatsNewModal()
+function openWhatsNew(): void { whatsNewModal.open() }
 
 const visualSource = ref<VisualSource>('narrated-scenes')
 const {
@@ -283,11 +304,17 @@ onUnmounted(() => {
 }
 .top-bar-actions {
   display: flex;
+  min-width: 0;
   align-items: center;
+  gap: 8px;
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
   -webkit-app-region: no-drag;
 }
+/* The strip yields the bar's width to the Page guide and notification
+   controls before it yields anything of its own; below the 900px minimum
+   window width the bar is tight enough that it steps aside entirely. */
+.top-bar-standing-strip { min-width: 0; flex: 0 1 auto; }
 .menu-toggle {
   display: none;
   min-width: 60px;
@@ -417,6 +444,26 @@ onUnmounted(() => {
 .network-status { justify-content: flex-start; }
 .network-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--error); }
 .network-status.online .network-dot { background: var(--success); }
+
+.version-badge {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-xs);
+  line-height: 1.2;
+}
+.version-badge:hover { border-color: var(--accent); background: var(--bg-hover); color: var(--text-primary); }
+.version-badge:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: none; }
+.version-build { color: var(--text-muted); font-size: var(--font-xs); }
 
 .main-content {
   min-width: 0;

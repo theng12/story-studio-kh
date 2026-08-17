@@ -55,7 +55,18 @@ let handler: (path: string, options: Record<string, unknown>) => unknown
   return handler(path, options)
 }
 
-const { useContentStore, contentStoreErrorPresentation, _clearContentStoreSessionCacheForTests } = await import('../composables/useContentStore.js')
+const {
+  useContentStore,
+  contentStoreErrorPresentation,
+  _clearContentStoreSessionCacheForTests,
+  CONTENT_STORE_CACHE_TTL_MS,
+} = await import('../composables/useContentStore.js')
+
+function goOffline(): void {
+  handler = () => {
+    throw Object.assign(new Error('offline'), { data: { code: 'CONTENT_STORE_UNAVAILABLE', detail: 'Offline.' } })
+  }
+}
 
 beforeEach(() => {
   _clearContentStoreSessionCacheForTests()
@@ -686,6 +697,135 @@ describe('useContentStore explicit commerce state machine', () => {
   })
 })
 
+describe('Content Store stale-while-revalidate', () => {
+  test('a cold start with nothing cached loads in the open even when asked to stay quiet', async () => {
+    const store = useContentStore()
+    const pending = store.refresh({ background: true })
+    assert.equal(store.loading.value, true, 'nothing is on screen yet, so the load must be visible')
+    await pending
+    assert.equal(store.catalogFreshness.value, 'fresh')
+    assert.equal(store.products.value[0]?.productId, 'formula')
+  })
+
+  test('a revisit inside the TTL keeps the verified catalog on screen and updates it in place', async () => {
+    const store = useContentStore()
+    await store.refresh()
+
+    let served = 0
+    handler = path => {
+      if (path !== '/api/content-store') throw new Error(`Unexpected request: ${path}`)
+      served += 1
+      const next = structuredClone(completeOverview)
+      next.products[0]!.title = 'Renamed Formula'
+      return next
+    }
+
+    const revisit = useContentStore()
+    const pending = revisit.refresh({ background: true })
+    assert.equal(revisit.loading.value, false, 'a warm catalog revalidates without a loading state')
+    assert.equal(revisit.products.value[0]?.title, 'Archive Formula', 'the cached catalog renders immediately')
+    await pending
+
+    assert.equal(served, 1, 'the cache is what is displayed, never what is served instead of a fetch')
+    assert.equal(revisit.products.value[0]?.title, 'Renamed Formula', 'the revalidation replaces changed data in place')
+    assert.equal(revisit.catalogFreshness.value, 'fresh')
+    assert.equal(revisit.lastVerifiedAt.value, store.lastVerifiedAt.value, 'one verified-at stamp is shared by every mount')
+  })
+
+  test('a cache older than the TTL stops being quiet, because nobody should be told it is current', async () => {
+    const store = useContentStore()
+    await store.refresh()
+    const realNow = Date.now
+    Date.now = () => realNow() + CONTENT_STORE_CACHE_TTL_MS + 1_000
+    try {
+      const pending = store.refresh({ background: true })
+      assert.equal(store.loading.value, true, 'an expired cache must show that it is being re-checked')
+      await pending
+    } finally {
+      Date.now = realNow
+    }
+    assert.equal(store.catalogFreshness.value, 'fresh')
+  })
+
+  test('a failed quiet revalidation marks the catalog stale instead of raising an error box', async () => {
+    const store = useContentStore()
+    await store.refresh()
+    goOffline()
+    await assert.rejects(store.refresh({ background: true }))
+
+    assert.equal(store.catalogFreshness.value, 'cached', 'stale ownership is never presented as fresh')
+    assert.equal(store.error.value, null, 'good data already on screen is not replaced by an alert')
+    assert.equal(store.products.value[0]?.productId, 'formula')
+    assert.equal(store.account.value?.accountId, 'acct_a')
+  })
+
+  test('the explicit refresh always fetches, bypasses the read cache, and reports its own failure', async () => {
+    const store = useContentStore()
+    await store.refresh()
+    const before = calls.length
+    goOffline()
+
+    await assert.rejects(store.refresh())
+    assert.equal(calls.length, before + 1, 'Refresh store is a real request, never a cache read')
+    assert.equal(calls.at(-1)?.options.cache, 'no-store')
+    assert.equal(store.error.value?.code, 'CONTENT_STORE_UNAVAILABLE')
+    assert.equal(store.catalogFreshness.value, 'cached')
+  })
+
+  test('a quiet revalidation that succeeds clears an error the visible refresh left behind', async () => {
+    const store = useContentStore()
+    await store.refresh()
+    goOffline()
+    await assert.rejects(store.refresh())
+    assert.equal(store.error.value?.code, 'CONTENT_STORE_UNAVAILABLE')
+
+    handler = path => {
+      if (path !== '/api/content-store') throw new Error(`Unexpected request: ${path}`)
+      return structuredClone(completeOverview)
+    }
+    // Freshness is 'cached', so this cannot be quiet — recovering from a
+    // failure is exactly the transition a customer should see.
+    await store.refresh({ background: true })
+    assert.equal(store.error.value, null)
+    assert.equal(store.catalogFreshness.value, 'fresh')
+  })
+
+  test('purchase, install and restore keep forcing their own verified refetch', async () => {
+    const owned = structuredClone(completeOverview)
+    owned.products[0]!.owned = true
+    const quote = {
+      quote_id: 'quote_1', account_id: 'acct_a', product_id: 'formula', release_id: 'rel_formula',
+      entitlement_family: 'formula.family', expires_at: '2026-12-31T00:00:00Z', status: 'quoted' as const,
+      base_credit_price: 400, discount_credits: 0, quoted_credits: 400, balance_before: 2_400,
+      balance_after: 2_000, owned_components: [], sufficient_credits: true,
+      insufficient_reason: null, shortfall_credits: 0,
+    }
+    handler = (path, options) => {
+      if (path === '/api/content-store') return structuredClone(owned)
+      if (path === '/api/content-store/quotes') return structuredClone(quote)
+      if (path.endsWith('/purchase')) return { ...structuredClone(quote), status: 'completed', credits_charged: 400 }
+      if (path === '/api/content-store/restore') return structuredClone(owned)
+      if (path.endsWith('/install')) return { install: { pack_id: 'pack_formula', version: '1.0.0', activated: true }, overview: structuredClone(owned) }
+      throw new Error(`Unexpected request: ${path} ${JSON.stringify(options)}`)
+    }
+
+    const store = useContentStore()
+    await store.refresh()
+    await store.requestQuote('formula', 'rel_formula')
+    await store.confirmPurchase('quote_1')
+    const overviewReads = calls.filter(call => call.path === '/api/content-store')
+    assert.equal(overviewReads.length, 2, 'a completed purchase re-reads the overview')
+    assert.equal(overviewReads.every(call => call.options.cache === 'no-store'), true)
+
+    await store.restoreOwnership()
+    await store.installRelease('rel_formula')
+    assert.equal(calls.some(call => call.path === '/api/content-store/restore'), true)
+    assert.equal(calls.some(call => call.path.endsWith('/install')), true)
+    assert.equal(store.catalogFreshness.value, 'fresh')
+    assert.equal(store.products.value[0]?.owned, true)
+  })
+})
+
 describe('Content Store renderer contract', () => {
   const page = readFileSync(fileURLToPath(new URL('../pages/content-store.vue', import.meta.url)), 'utf8')
   const card = readFileSync(fileURLToPath(new URL('../components/content-store/ContentProductCard.vue', import.meta.url)), 'utf8')
@@ -791,7 +931,9 @@ describe('Content Store renderer contract', () => {
 
   test('mounts the Content Store page directly and loads errors in place', () => {
     assert.match(page, /useAppTitle\('Content Store'\)/)
-    assert.match(page, /onMounted\(\(\) => \{ void loadStore\(\) \}\)/)
+    assert.match(page, /onMounted\(\(\) => \{ void loadStore\(\{ background: true \}\) \}\)/)
+    assert.match(page, /function refreshStore\(\): void \{ void loadStore\(\) \}/)
+    assert.match(page, /@click="refreshStore"/)
     assert.match(page, /v-if="pageError"/)
     assert.doesNotMatch(page, /navigateTo\(['"]\/login['"]\)/)
   })

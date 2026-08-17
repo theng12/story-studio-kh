@@ -2,6 +2,7 @@
   <NuxtLink
     to="/usage"
     class="genstudio-standing-strip"
+    :class="`standing-strip-${variant}`"
     aria-label="GenStudio account standing"
     :title="usageError || 'Open GenStudio usage'"
   >
@@ -13,6 +14,17 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
+
+/**
+ * `stacked` is the sidebar/band shape: the tier and lane line wraps onto its
+ * own row. `inline` is the 38px application top bar, where a second row would
+ * overflow the header — the same facts stay on one line and the strip shrinks
+ * with an ellipsis instead of wrapping. A variant rather than a parent
+ * override, because scoped-style specificity between a parent class and this
+ * component's own is a tie decided by bundle order (AGENTS.md, "CSS that
+ * silently does nothing").
+ */
+const { variant = 'stacked' } = defineProps<{ variant?: 'stacked' | 'inline' }>()
 
 const {
   genstudioCredits,
@@ -62,4 +74,9 @@ onUnmounted(() => { releasePolling?.() })
 .genstudio-standing-strip:hover { background: var(--bg-hover); color: var(--text-primary); }
 .genstudio-standing-strip strong { color: var(--text-primary); font-weight: 650; }
 .genstudio-standing-strip small { width: 100%; color: var(--text-muted); line-height: 1.35; }
+
+/* Top-bar shape: one line inside a 38px header, shrinking rather than wrapping. */
+.standing-strip-inline { min-height: 26px; flex-wrap: nowrap; justify-content: flex-start; gap: 7px; padding: 3px 9px; white-space: nowrap; }
+.standing-strip-inline > * { overflow: hidden; text-overflow: ellipsis; }
+.standing-strip-inline small { width: auto; min-width: 0; }
 </style>

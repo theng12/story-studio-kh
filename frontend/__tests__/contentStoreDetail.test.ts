@@ -33,12 +33,12 @@ async function loadStorePage(): Promise<Component> {
   const vueUrl = await import.meta.resolve('vue')
   const support = `
     import { computed, h, nextTick, onMounted, ref, defineComponent as _defineComponent } from "vue"
-    const ContentStoreFilters = { render: () => h('div', { 'data-test': 'catalog-filters' }) }
+    const ContentStoreFilters = { emits: ['update:query'], setup: (props, { emit }) => () => h('div', { 'data-test': 'catalog-filters' }, [h('button', { 'data-test': 'set-query', onClick: () => emit('update:query', 'zzz') }, 'search')]) }
     const ContentStoreShelf = { props: ['products'], emits: ['quote'], setup: (props, { emit }) => () => props.products?.[0] ? h('button', { 'data-test': 'request-quote', onClick: () => emit('quote', props.products[0]) }, 'See exact quote') : null }
     const ContentLibraryView = { render: () => null }
     const ContentInstalledLibraryView = { render: () => null }
     const ContentPurchaseDialog = { props: ['visible', 'attempt'], emits: ['close', 'confirm'], setup: (props, { emit }) => () => props.visible ? h('div', { role: 'dialog' }, [h('button', { 'data-test': 'confirm-purchase', onClick: () => emit('confirm', props.attempt.quote_id) }, 'Confirm'), h('button', { 'data-test': 'purchase-done', onClick: () => emit('close') }, 'Done')]) : null }
-    const filterCatalogProducts = (items) => items
+    const filterCatalogProducts = (items, query) => query ? items.filter(item => String(item.title || '').toLowerCase().includes(String(query).toLowerCase())) : items
     const orderShelfProducts = (items) => items
     const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
     const useContentStore = () => globalThis.__contentStorePageStore
@@ -250,6 +250,104 @@ describe('Content Store proof route contract', () => {
       assert.equal([...rendered.host.querySelectorAll('button')].some(button => /Confirm/.test(button.textContent || '')), false, code)
       rendered.unmount()
     }
+  })
+
+  function pageStore(overrides: Record<string, unknown> = {}) {
+    return {
+      account: ref({ contentAccountId: 'content_a', availableCredits: 500, contentSpendableCredits: 500, owned: [] }),
+      products: ref([]), installed: ref([]), shelves: ref([]), attempts: ref([]),
+      catalogFreshness: ref('fresh'), lastVerifiedAt: ref('2026-08-17T10:00:00Z'), loading: ref(false), error: ref(null),
+      refresh: async () => {}, restoreOwnership: async () => {}, requestQuote: async () => { throw new Error('not used') },
+      confirmPurchase: async () => { throw new Error('not used') }, installRelease: async () => { throw new Error('not used') },
+      ...overrides,
+    }
+  }
+  const catalogProduct = (fields: Record<string, unknown>) => ({
+    productId: 'p1', title: 'Archive Formula', entitlementFamily: 'f1', owned: false, retired: false,
+    compatible: true, free: false, currentRelease: null, presentation: { tags: [] }, ...fields,
+  })
+
+  test('re-opening the Store renders the cached catalog and revalidates without a loading state', async () => {
+    const Page = await loadStorePage()
+    const refreshCalls: unknown[] = []
+    ;(globalThis as any).__contentStorePageStore = pageStore({
+      products: ref([catalogProduct({})]),
+      shelves: ref([{ id: 's1', productIds: ['p1'] }]),
+      refresh: async (options: unknown) => { refreshCalls.push(options) },
+    })
+    const rendered = await mount(Page, {})
+    assert.deepEqual(refreshCalls, [{ background: true }], 'mount asks to revalidate quietly')
+    assert.doesNotMatch(rendered.host.textContent || '', /Loading the GenStudio catalog/)
+    assert.equal(rendered.host.querySelector('[data-test="request-quote"]') !== null, true, 'the cached shelf is already on screen')
+    rendered.unmount()
+  })
+
+  test('a genuine cold start with nothing cached still shows the loading state', async () => {
+    const Page = await loadStorePage()
+    ;(globalThis as any).__contentStorePageStore = pageStore({
+      catalogFreshness: ref('unavailable'), lastVerifiedAt: ref(null), loading: ref(true),
+    })
+    const rendered = await mount(Page, {})
+    assert.match(rendered.host.textContent || '', /Loading the GenStudio catalog/)
+    rendered.unmount()
+  })
+
+  test('each Discover empty state names its own cause instead of blaming filters', async () => {
+    const cases = [
+      {
+        name: 'every published pack is owned',
+        store: { products: ref([catalogProduct({ owned: true })]), shelves: ref([{ id: 's1', productIds: ['p1'] }]) },
+        expect: /You already own every published pack/,
+        absent: /No published products match these filters/,
+      },
+      {
+        name: 'the catalogue publishes nothing',
+        store: { products: ref([catalogProduct({ retired: true })]), installed: ref([{ packId: 'pack_old' }]) },
+        expect: /No packs are published yet/,
+        absent: /match these filters|already own every published pack/,
+      },
+      {
+        name: 'nothing is shelved',
+        store: { products: ref([catalogProduct({})]), shelves: ref([]) },
+        expect: /No published products are ready to show/,
+        absent: /match these filters|already own every published pack/,
+      },
+    ]
+
+    for (const scenario of cases) {
+      const Page = await loadStorePage()
+      ;(globalThis as any).__contentStorePageStore = pageStore(scenario.store)
+      const rendered = await mount(Page, {})
+      const text = rendered.host.textContent || ''
+      assert.match(text, scenario.expect, scenario.name)
+      assert.doesNotMatch(text, scenario.absent, scenario.name)
+      assert.equal(
+        [...rendered.host.querySelectorAll('button')].some(button => /Clear filters/.test(button.textContent || '')),
+        false,
+        `${scenario.name} must not offer to clear filters nobody set`,
+      )
+      rendered.unmount()
+    }
+  })
+
+  test('filters that really do exclude everything keep the original message and its Clear filters action', async () => {
+    const Page = await loadStorePage()
+    ;(globalThis as any).__contentStorePageStore = pageStore({
+      products: ref([catalogProduct({})]),
+      shelves: ref([{ id: 's1', productIds: ['p1'] }]),
+    })
+    const rendered = await mount(Page, {})
+    assert.equal(rendered.host.querySelector('[data-test="request-quote"]') !== null, true)
+
+    rendered.host.querySelector<HTMLButtonElement>('[data-test="set-query"]')!.click()
+    await nextTick(); await nextTick()
+
+    assert.match(rendered.host.textContent || '', /No published products match these filters/)
+    assert.equal(
+      [...rendered.host.querySelectorAll('button')].some(button => /Clear filters/.test(button.textContent || '')),
+      true,
+    )
+    rendered.unmount()
   })
 
   test('renders proof and opens showcase links externally', () => {

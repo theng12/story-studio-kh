@@ -221,6 +221,25 @@ export interface ContentStoreUiError {
 
 export type ContentStoreCatalogFreshness = 'fresh' | 'cached' | 'unavailable'
 
+/**
+ * How long a verified overview may back a SILENT background revalidation.
+ *
+ * Every `refresh()` still goes to the network with `cache: 'no-store'` — this
+ * TTL never suppresses a fetch, and no ownership, install state or balance is
+ * ever served from a store that was not just verified. All it decides is
+ * whether re-opening the Store is allowed to look calm while that fetch runs.
+ *
+ * Five minutes is chosen against what actually changes underneath: ownership
+ * and install state only move through this app's own purchase, install and
+ * restore paths, and each of those forces its own visible refetch. What can
+ * move without Story Studio knowing is the published catalogue and the credit
+ * balance, and neither is worth a loading state a customer sees on every
+ * visit. Past five minutes we stop being quiet: the fetch is identical, but
+ * the page says it is refreshing, because figures from an unbounded time ago
+ * should not be presented as if nobody were re-checking them.
+ */
+export const CONTENT_STORE_CACHE_TTL_MS = 5 * 60_000
+
 /** Identity attached to a historical proof; it is never current-account state. */
 export interface ContentStoreCachedProof {
   accountId: string
@@ -298,6 +317,23 @@ const sharedCachedProof = computed<ContentStoreCachedProof | null>(() =>
   sharedCatalogFreshness.value === 'cached' ? sharedLastVerifiedProof.value : null)
 let sharedOverviewGeneration = 0
 
+/**
+ * True while a verified catalog is on screen and still inside its TTL.
+ *
+ * `'fresh'` is the only freshness that qualifies: `'cached'` already means the
+ * last fetch failed and the page is showing the stale-catalog notice, and a
+ * revalidation out of that state must be visible, not quiet. A verified-at
+ * stamp in the future is treated as not warm rather than trusted — a skewed
+ * clock is not evidence of freshness.
+ */
+function warmVerifiedCatalog(now: number): boolean {
+  if (sharedCatalogFreshness.value !== 'fresh') return false
+  const verifiedAt = sharedLastVerifiedAt.value
+  if (!verifiedAt) return false
+  const age = now - Date.parse(verifiedAt)
+  return Number.isFinite(age) && age >= 0 && age < CONTENT_STORE_CACHE_TTL_MS
+}
+
 export function _clearContentStoreSessionCacheForTests(): void {
   sessionOverview = null
   sharedAccount.value = null
@@ -342,7 +378,7 @@ export function useContentStore(): {
   cachedProof: Readonly<Ref<ContentStoreCachedProof | null>>
   loading: Readonly<Ref<boolean>>
   error: Readonly<Ref<ContentStoreUiError | null>>
-  refresh: () => Promise<void>
+  refresh: (options?: { background?: boolean }) => Promise<void>
   requestQuote: (productId: string, releaseId?: string | null) => Promise<PublicContentPurchaseAttempt>
   confirmPurchase: (quoteId: string) => Promise<PublicContentPurchaseAttempt>
   restoreOwnership: () => Promise<void>
@@ -410,13 +446,28 @@ export function useContentStore(): {
     })
   }
 
-  async function refresh(): Promise<void> {
+  /**
+   * Read the overview from GenStudio. Always a real fetch, never a cache read.
+   *
+   * `background: true` is a request to stay quiet, not permission to skip the
+   * network. It is honoured only while `warmVerifiedCatalog()` holds, so a cold
+   * start, an expired cache and the explicit Refresh store button all load in
+   * the open. When it is honoured, a failure does not raise an error box: the
+   * catalog falls to `'cached'`, which is the page's own "last verified catalog,
+   * purchase and install disabled" notice. Good data already on screen is not
+   * worth replacing with an alert, but it is never presented as fresh either.
+   */
+  async function refresh(options: { background?: boolean } = {}): Promise<void> {
     const generation = beginOverviewRequest()
-    loading.value = true
-    error.value = null
+    const silent = options.background === true && warmVerifiedCatalog(Date.now())
+    if (!silent) {
+      loading.value = true
+      error.value = null
+    }
     try {
       const overview = await get<ContentStoreOverview>('/content-store', { cache: 'no-store' })
       applyOverview(overview, generation)
+      if (generation === sharedOverviewGeneration) error.value = null
     } catch (cause: any) {
       if (generation === sharedOverviewGeneration) {
         const hasVerifiedOverview = sharedLastVerifiedAt.value !== null
@@ -428,11 +479,11 @@ export function useContentStore(): {
           sharedAttempts.value = []
         }
         sharedCatalogFreshness.value = hasVerifiedOverview ? 'cached' : 'unavailable'
-        error.value = uiError(cause, 'The Content Store could not be loaded.')
+        if (!silent) error.value = uiError(cause, 'The Content Store could not be loaded.')
       }
       throw cause
     } finally {
-      loading.value = false
+      if (!silent) loading.value = false
     }
   }
 

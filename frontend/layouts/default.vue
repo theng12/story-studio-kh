@@ -3,11 +3,12 @@
     <a href="#main-content" class="skip-link">Skip to main content</a>
     <!-- Top bar: draggable titlebar for the hidden-inset traffic lights.
          v1.0.132+ — Version chip on the right so the user can see the
-         running build from any non-project page (the dashboard layout has
-         its own version badge in the sidebar footer for project pages).
-         Mirrors the dashboard.vue badge: title shows full version+build,
-         click opens the What's New modal. Not draggable (the chip itself
-         needs to receive clicks; the surrounding bar stays draggable). -->
+         running build from any non-project page. This layout has no sidebar,
+         so the chip stays here; dashboard.vue carries the same chip in its
+         sidebar footer for project pages (v1.2.3). Both show version + build
+         date with the full version+build in the title, and both open the
+         What's New modal on click. Not draggable (the chip itself needs to
+         receive clicks; the surrounding bar stays draggable). -->
     <header class="top-bar">
       <div class="titlebar-drag"></div>
       <div class="top-bar-version">
