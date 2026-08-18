@@ -93,25 +93,33 @@ router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req
       mergedAudioDir: paths.merged_audio_dir,
       episodeCode: episodeId.toUpperCase(),
     }).catch(() => null)
-    const { resolveEpisodeIntroLeadIn } = await import('../lib/intro-lead-in.js')
     // v1.3.4 — no `.catch(() => 0)`. A failure here used to be spelled exactly
     // the same way as "this episode has no intro", so a timeline that started
     // sixteen seconds early was indistinguishable from a correct one. The
     // resolver now says which of the two happened, and the answer travels back
     // to the Subtitles page instead of being swallowed here.
-    const leadIn = await resolveEpisodeIntroLeadIn(
-      paths.episode_dir,
-      paths.merged_audio_dir,
-      episodeId.toUpperCase(),
-    )
-    const result = await stitchSubtitles({
-      episode_dir: paths.episode_dir,
-      subtitles_dir: paths.subtitles_dir,
-      episode_code: episodeId.toUpperCase(),
-      lead_in_sec: leadIn.seconds,
-      lead_in: leadIn,
+    //
+    // v1.4.0 — routed through `ensureStitchedSubtitle` rather than calling the
+    // stitcher directly. Every stitch must record the fingerprint of what it was
+    // built from, or the automatic freshness check at render time would find no
+    // record beside a perfectly good file and rebuild it on every single render.
+    // One stitch entry point, one place that writes the record. `force`, because
+    // this is the manual button: the customer pressed Re-stitch and expects a
+    // stitch, not a report that nothing needed doing.
+    const { ensureStitchedSubtitle } = await import('../lib/subtitle-autostitch.js')
+    const outcome = await ensureStitchedSubtitle({
+      episodeDir: paths.episode_dir,
+      subtitlesDir: paths.subtitles_dir,
+      mergedAudioDir: paths.merged_audio_dir,
+      episodeCode: episodeId.toUpperCase(),
+      force: true,
     })
-    res.json({ ...result, lead_in: leadIn })
+    if (outcome.status !== 'stitched') {
+      // With `force` this is only reachable when there was nothing to stitch at
+      // all, which the customer needs told plainly rather than as a fake success.
+      return res.status(400).json({ detail: `Nothing to stitch: ${outcome.reason}` })
+    }
+    res.json({ ...outcome.result, lead_in: outcome.lead_in })
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Subtitle stitching failed'))
   }

@@ -20,11 +20,35 @@
  * stitched cue list partitions back into chapters exactly. Alignment is then
  * per chapter, which means one bad chapter cannot corrupt the others.
  *
- * Burn-in is deliberately untouched. `resolveBurnSubtitle` matches
- * `_stitched.(srt|ass|vtt)$`, which neither `_stitched.corrected.srt` nor the
- * hand-built `_stitched.burnin.srt` satisfy, so adding this file cannot
- * change what gets burned into a video. A user who wants the corrected text
- * burned can pin it with the existing `.selected_subtitle` sidecar.
+ * ── Burn-in: REVERSED in v1.4.0, deliberately ──
+ *
+ * Until v1.4.0 this said burn-in was untouched: `resolveBurnSubtitle` matched
+ * `_stitched.(srt|ass|vtt)$`, which `_stitched.corrected.srt` does not satisfy
+ * (what follows `_stitched.` is `corrected.srt`, not an extension), so adding
+ * this file could not change any video, and anyone who wanted the corrected
+ * words burned had to pin it by hand.
+ *
+ * That was a scoping decision from v1.0.797, made while this pass was new. The
+ * owner ruled the other way on 2026-08-18: the corrected transcript is now the
+ * preferred burn target, ahead of the raw stitch.
+ *
+ * The reasoning for the reversal, recorded so it is not "fixed" back:
+ *
+ *   - The old behaviour was incoherent. The corrected words already reach Scene
+ *     Plan, the scene visual prompts and the Contextual Cues generator. An
+ *     episode therefore drew its PICTURES from "Neorion" while burning
+ *     Whisper's "Mirion" across them. One episode, two spellings.
+ *   - It is gated, not blind. A corrected file exists only when a chapter passed
+ *     the script/audio agreement check; a chapter that diverges is refused and
+ *     keeps its ASR text.
+ *   - It landed together with the caption preflight. Three frames of the real
+ *     burn are now shown before a single-episode render, so if the corrected
+ *     text is ever wrong it is visible before the encode rather than after the
+ *     upload — which is the safety this reversal was waiting for.
+ *
+ * `_stitched.burnin.srt` is still NOT auto-selected. The owner ruled on the
+ * corrected file; widening that to a hand-built file he did not mention is not
+ * licensed by it, and it stays available through the `.selected_subtitle` pin.
  */
 
 import fs from 'fs/promises'

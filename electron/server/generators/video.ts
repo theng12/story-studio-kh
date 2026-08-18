@@ -89,6 +89,16 @@ const RESOLUTIONS: Record<string, { w: number; h: number }> = {
   '4k':    { w: 3840, h: 2160 },
 }
 
+/**
+ * The canvas a render will use. Exported (v1.4.0) so the caption preflight draws
+ * its frames at the render's own resolution — `buildSubtitleAssDocument` sets
+ * PlayRes from these numbers, so a preflight at a different size would describe
+ * a differently-scaled caption from the one that gets burned.
+ */
+export function resolveRenderResolution(resolution?: string): { w: number; h: number } {
+  return RESOLUTIONS[resolution || ''] || RESOLUTIONS['1080p']!
+}
+
 const TIMESTAMP_SCENE_IMAGES_SUBFOLDER = 'scene_images'
 const SCENE_PLAN_FILENAME = 'scene_plan.json'
 
@@ -903,22 +913,65 @@ function isInsideDir(child: string, parent: string): boolean {
  * Unlike the transcript ownership question below, this one has a definite
  * answer and no editorial content: `resolveBurnSubtitle` honours the user's own
  * `.selected_subtitle` pin first and otherwise applies the documented AUTO
- * heuristic (full stitched → whisper → never a per-chapter partial). It is the
- * same resolver B-Roll assembly already uses. So this fills rather than refuses
- * — and says which file it chose, because a file picked on the customer's
- * behalf must be visible in the log before he sees it in the video.
+ * heuristic (corrected stitch → stitch → whisper → never a per-chapter
+ * partial). It is the same resolver B-Roll assembly already uses. So this fills
+ * rather than refuses — and says which file it chose, because a file picked on
+ * the customer's behalf must be visible in the log before he sees it in the
+ * video.
  *
- * The single-episode page cannot reach this: `useVideoAssemblyIo` omits the
- * whole `subtitles` block unless a path is set, so a deliberate ✕ clear there
- * never arrives here as "enabled with no file".
+ * ── v1.4.0: this is now the ONLY thing that chooses a transcript ──
+ *
+ * The owner asked for the choice to be taken away: *"there's no need for me to
+ * select which subtitle but automatically selected the stitched subtitle"*. So
+ * Video Assembly no longer sends `srt_path` at all, and this function — not the
+ * browser — decides for the single-episode page exactly as it already decided
+ * for batch. One mechanism, one answer, and the page shows what it picked.
+ *
+ * The note that used to sit here, that the page "cannot reach this because
+ * `useVideoAssemblyIo` omits the whole subtitles block unless a path is set", is
+ * no longer true and was removed rather than left to mislead: the page now
+ * always arrives with `enabled` and no path, which is precisely this path.
+ *
+ * A caller that DOES name a path still gets it, unchanged, so the ownership
+ * guard below stays the backstop for Pipeline bundles and anything outside this
+ * app rather than becoming dead code.
  */
 export async function resolveEpisodeSubtitleFile(
   episodeId: string,
   subtitlesDir: string,
   req: GenerateVideoRequest,
   job?: Job,
+  /**
+   * v1.4.0 — where the stitcher's own inputs live. Supplied by
+   * `prepareUnifiedVideoAssemblyInputs`, so every render (page and batch alike)
+   * brings the stitched transcript up to date before choosing what to burn.
+   * Omitted by the ownership unit tests, which exercise selection alone.
+   */
+  stitchPaths?: { episodeDir: string; mergedAudioDir: string },
 ): Promise<void> {
-  if (!req.subtitles?.enabled || (req.subtitles.srt_path || '').trim()) return
+  if (!req.subtitles?.enabled) return
+
+  // ── Auto-stitch (v1.4.0) ──────────────────────────────────────────────
+  // Before deciding WHICH transcript to burn, make sure the stitched one is
+  // still the correct consequence of this episode's chapters. This runs even
+  // when a path was named, because a named path does not make a stale timeline
+  // any less stale — and it throws rather than continuing if a needed stitch
+  // cannot be performed, which is why it sits in preflight and not in the
+  // encoder.
+  if (stitchPaths) {
+    const { ensureStitchedSubtitle, describeAutoStitch } = await import('../lib/subtitle-autostitch.js')
+    const outcome = await ensureStitchedSubtitle({
+      episodeDir: stitchPaths.episodeDir,
+      subtitlesDir,
+      mergedAudioDir: stitchPaths.mergedAudioDir,
+      episodeCode: episodeId.toUpperCase(),
+    })
+    job?.output_lines.push(describeAutoStitch(outcome, episodeId.toUpperCase()))
+  }
+
+  // An explicitly named path is left alone so the ownership guard below can
+  // judge it. Everything Story Studio itself sends now arrives with none.
+  if ((req.subtitles.srt_path || '').trim()) return
   const { resolveBurnSubtitle } = await import('../lib/subtitle-selection.js')
   const resolved = await resolveBurnSubtitle(subtitlesDir).catch(() => null)
   if (resolved) {
@@ -1091,7 +1144,10 @@ export async function prepareUnifiedVideoAssemblyInputs(
   req.scene_recycling ||= { seconds_per_scene: 10, shuffle: false, excluded_scenes: [] }
   const cueConfig = normalizeContextualCueConfig((await pm.getConfig(slug))?.contextual_cues)
   const cuePaths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
-  await resolveEpisodeSubtitleFile(episodeId, cuePaths.subtitles_dir, req, job)
+  await resolveEpisodeSubtitleFile(episodeId, cuePaths.subtitles_dir, req, job, {
+    episodeDir: cuePaths.episode_dir,
+    mergedAudioDir: cuePaths.merged_audio_dir,
+  })
   await assertSubtitleFileBelongsToEpisode(slug, episodeId, cuePaths.episode_dir, req, job)
   const planPath = await resolveScenePlanPath(slug, episodeId, cuePaths.episode_dir)
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
@@ -1767,9 +1823,12 @@ export async function generateVideo(job: Job): Promise<void> {
     if (req.subtitles?.enabled && req.subtitles.hide_during_intro && storyStartSec > 0
         && req.subtitles.srt_path && existsSync(req.subtitles.srt_path)) {
       try {
-        const { parseSrt, formatSrtTime } = await import('../lib/subtitle-builder.js')
+        const { parseSrt, formatSrtTime, trimCuesBeforeStoryStart } = await import('../lib/subtitle-builder.js')
         const cues = parseSrt(await fs.readFile(req.subtitles.srt_path, 'utf-8'))
-        const kept = cues.filter(c => c.end_sec > storyStartSec + 0.001)
+        // v1.4.0 — the same trim the caption preflight frames are drawn from, so
+        // the three stills a person approves cannot describe a different cue set
+        // from the one that is burned.
+        const kept = trimCuesBeforeStoryStart(cues, storyStartSec)
         if (kept.length && kept.length < cues.length) {
           const body = kept
             .map((c, i) => `${i + 1}\n${formatSrtTime(c.start_sec)} --> ${formatSrtTime(c.end_sec)}\n${c.text}`)
@@ -1781,6 +1840,47 @@ export async function generateVideo(job: Job): Promise<void> {
         }
       } catch (e: any) {
         job.output_lines.push(`Intro captions: could not trim (${e?.message || e}) — burning the full SRT.`)
+      }
+    }
+
+    // ── Caption preflight frames, for an UNATTENDED render (v1.4.0) ────────
+    //
+    // The single-episode page produces these before the render and waits for a
+    // person to look at them. A batch has nobody watching, and stopping one for
+    // a click would defeat the point of running it — so here the frames are
+    // produced and saved beside the finished video, where they can be checked
+    // afterwards without scrubbing through the whole thing.
+    //
+    // Never fatal. A batch that rendered perfectly must not be failed because a
+    // convenience still could not be drawn; the failure is logged and the encode
+    // carries on.
+    if (req.subtitles?.enabled && req.subtitles.srt_path && existsSync(req.subtitles.srt_path)) {
+      try {
+        const { parseSrt } = await import('../lib/subtitle-builder.js')
+        const { normalizeSubtitleStyle } = await import('../contracts/subtitle-style.js')
+        const { renderSubtitlePreflightFrames } = await import('../lib/subtitle-preflight-frames.js')
+        // `srt_path` is already the trimmed burn copy when the intro is hidden,
+        // so these are exactly the cues about to be burned.
+        const preflight = await renderSubtitlePreflightFrames({
+          episodeCode: code,
+          outDir: videoDir,
+          cues: parseSrt(await fs.readFile(req.subtitles.srt_path, 'utf-8')),
+          subtitleFilename: path.basename(req.subtitles.srt_path),
+          style: normalizeSubtitleStyle(req.subtitles.style),
+          width: w,
+          height: h,
+          scenes: (req.scenes || []).map(s => ({ image_path: s.image_path, duration: Number(s.duration) || 0 })),
+          openingOffsetSec: planOpeningReservedSec,
+          durationSec: narrationDuration || 0,
+        })
+        if (preflight.frames.length) {
+          job.output_lines.push(
+            `Caption preflight: wrote ${preflight.frames.length} frame(s) beside the video `
+            + `(${preflight.frames.map(f => f.filename).join(', ')}) in ${(preflight.elapsed_ms / 1000).toFixed(1)}s.`,
+          )
+        }
+      } catch (e: any) {
+        job.output_lines.push(`Caption preflight frames could not be produced (${e?.message || e}) — the render continues.`)
       }
     }
 

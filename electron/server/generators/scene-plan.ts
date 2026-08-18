@@ -11,6 +11,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { planScenes, planScenesTwoPass, generateVisualPromptOnly, generatePromptsForScenes, generateMotionPromptOnly, generateMotionPromptsForScenes, MOTION_SPECS, resolveMotionLevel, assignDensityToUntagged, repairPlanCoverage, removeNonRenderableScenes } from '../services/scene-planner.js'
 import { getAudioDuration } from '../lib/ffmpeg-utils.js'
+import { stampFromCues } from '../lib/scene-plan-timeline.js'
 import { isCancelled } from '../services/job-queue.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
@@ -728,6 +729,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         timeline_built_at: builtAt,
         planner_model: model,
         source_stitched_srt: path.basename(stitchedSrt),
+        // v1.4.0 — record WHICH timeline, not just which file. See the field's
+        // doc in models/types.ts: the filename is unchanged by a re-stitch, so
+        // it cannot show that this plan's scene times are now out of date.
+        source_timeline: stampFromCues(allCues),
         total_duration_sec: totalDuration,
         research_used: useResearch && existsSync(researchPath),
         scenes,

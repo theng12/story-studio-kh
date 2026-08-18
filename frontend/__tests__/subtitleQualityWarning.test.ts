@@ -54,8 +54,11 @@ describe('the warning reaches every surface that consumes a transcript', () => {
   test('Video Assembly shows it for the file about to be burned in', () => {
     assert.match(videoAssemblyPage, /<SubtitleQualityWarning/)
     assert.match(videoAssemblyPage, /activeSubtitleQuality/)
-    // Keyed off the resolved path, because that is what the burn step uses.
-    assert.match(videoAssemblyPage, /existing_srts\?\.find\(s => s\.path === active\)/)
+    // v1.4.0 — keyed off the resolved FILENAME, because the page no longer holds
+    // a path. `burn_target` is the renderer's own answer for this episode, so the
+    // warning still describes the file that will actually be burned.
+    assert.match(videoAssemblyPage, /existing_srts\?\.find\(s => s\.filename === active\)/)
+    assert.match(videoAssemblyPage, /burnView\.value\.burning/)
   })
 })
 

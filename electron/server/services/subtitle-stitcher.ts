@@ -33,6 +33,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { parseSrt, formatSrtTime, type SrtCue } from '../lib/subtitle-builder.js'
+import { stampFromCues } from '../lib/scene-plan-timeline.js'
 
 export interface StitcherInputs {
   /** Episode dir — where audio_chapters.json lives. */
@@ -54,6 +55,11 @@ export interface StitcherInputs {
    *  byte-identical SRTs, so the meta sidecar has to carry the difference or
    *  the next reader cannot tell whether the file on disk can be trusted. */
   lead_in?: { status: 'measured' | 'unmeasurable'; reason?: string; merged_filename?: string; source?: string }
+  /** v1.4.0 — content fingerprint of everything this stitch was built from,
+   *  recorded in the meta sidecar so a later render can tell whether the file
+   *  on disk is still current without re-stitching to find out. Written by
+   *  `lib/subtitle-autostitch.ts`, which is the only thing that reads it back. */
+  input_signature?: unknown
 }
 
 export interface StitchedSection {
@@ -162,38 +168,74 @@ function findSrtForChapter(
 }
 
 /**
+ * What a stitch WOULD be built from, surveyed without performing one (v1.4.0).
+ *
+ * `stitchSubtitles` and the freshness check in `lib/subtitle-autostitch.ts` must
+ * agree exactly on which per-chapter file feeds which audio section — otherwise
+ * the fingerprint would be taken over one set of files and the stitch performed
+ * over another, and a stale timeline could report itself current. So the survey
+ * lives here, once, and both callers use it.
+ *
+ * This never throws: an unusable episode is a `blocked` result carrying the
+ * message `stitchSubtitles` would have thrown, so the caller can decide whether
+ * that is fatal (a render about to burn these captions) or simply nothing to do
+ * (an episode that has no per-chapter transcripts at all).
+ */
+export type StitchPlan =
+  | { ok: true; sections: NonNullable<AudioChaptersSidecar['sections']>; gap_sec: number; srt_files: string[]; matched: Array<{ slug: string; source_srt?: string }> }
+  | { ok: false; reason: string; blocker: 'no_audio_chapters' | 'no_sections' | 'no_subtitles_dir' }
+
+export async function readStitchPlan(
+  episode_dir: string,
+  subtitles_dir: string,
+  episode_code: string,
+): Promise<StitchPlan> {
+  const audioChaptersPath = path.join(episode_dir, 'audio_chapters.json')
+  if (!existsSync(audioChaptersPath)) {
+    return {
+      ok: false,
+      blocker: 'no_audio_chapters',
+      reason: `audio_chapters.json not found at ${audioChaptersPath}. `
+        + 'Run Audio Assembly first — the stitcher needs per-section durations + the gap value.',
+    }
+  }
+  const sidecar = JSON.parse(await fs.readFile(audioChaptersPath, 'utf-8')) as AudioChaptersSidecar
+  const sections = sidecar.sections || []
+  const gap_sec = typeof sidecar.gap_duration_s === 'number' ? sidecar.gap_duration_s : 0
+  if (!sections.length) {
+    return { ok: false, blocker: 'no_sections', reason: 'audio_chapters.json has no sections — re-run Audio Assembly.' }
+  }
+  if (!existsSync(subtitles_dir)) {
+    return {
+      ok: false,
+      blocker: 'no_subtitles_dir',
+      reason: `Subtitles dir not found at ${subtitles_dir}. `
+        + 'Generate subtitles first — open the Subtitles tab (after Audio Assembly) '
+        + 'and run "Transcribe (Whisper)".',
+    }
+  }
+  const srt_files = (await fs.readdir(subtitles_dir)).filter(f => f.toLowerCase().endsWith('.srt'))
+  return {
+    ok: true,
+    sections,
+    gap_sec,
+    srt_files,
+    matched: sections.map(sec => ({ slug: sec.slug, source_srt: findSrtForChapter(srt_files, episode_code, sec.slug) })),
+  }
+}
+
+/**
  * Build the stitched SRT. Returns the cue array + the per-section
  * provenance so callers can also write a meta sidecar.
  */
 export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchResult> {
   const { episode_dir, subtitles_dir, episode_code } = inputs
 
-  // Read audio_chapters.json — required input.
-  const audioChaptersPath = path.join(episode_dir, 'audio_chapters.json')
-  if (!existsSync(audioChaptersPath)) {
-    throw new Error(
-      `audio_chapters.json not found at ${audioChaptersPath}. ` +
-      `Run Audio Assembly first — the stitcher needs per-section durations + the gap value.`,
-    )
-  }
-  const sidecarRaw = await fs.readFile(audioChaptersPath, 'utf-8')
-  const sidecar = JSON.parse(sidecarRaw) as AudioChaptersSidecar
-  const sectionsMeta = sidecar.sections || []
-  const gapSec = typeof sidecar.gap_duration_s === 'number' ? sidecar.gap_duration_s : 0
-  if (!sectionsMeta.length) {
-    throw new Error('audio_chapters.json has no sections — re-run Audio Assembly.')
-  }
-
-  // Survey the subtitles dir for available SRTs.
-  if (!existsSync(subtitles_dir)) {
-    throw new Error(
-      `Subtitles dir not found at ${subtitles_dir}. ` +
-      `Generate subtitles first — open the Subtitles tab (after Audio Assembly) ` +
-      `and run "Transcribe (Whisper)".`,
-    )
-  }
-  const allFiles = await fs.readdir(subtitles_dir)
-  const srtFiles = allFiles.filter(f => f.toLowerCase().endsWith('.srt'))
+  const plan = await readStitchPlan(episode_dir, subtitles_dir, episode_code)
+  if (!plan.ok) throw new Error(plan.reason)
+  const sectionsMeta = plan.sections
+  const gapSec = plan.gap_sec
+  const srtFiles = plan.srt_files
 
   // Walk sections, offset each chapter's cues, accumulate. The timeline
   // starts at the intro lead-in (v1.0.397) so the captions line up with the
@@ -204,8 +246,10 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
   const sectionsResult: StitchedSection[] = []
   let cursor = leadIn
   let cueIdx = 0
-  for (const sec of sectionsMeta) {
-    const sourceSrt = findSrtForChapter(srtFiles, episode_code, sec.slug)
+  for (const [secIdx, sec] of sectionsMeta.entries()) {
+    // From the shared survey, never re-matched here. Re-running the matcher
+    // would be a second mechanism that could disagree with the fingerprint.
+    const sourceSrt = plan.matched[secIdx]?.source_srt
     let cuesAdded = 0
     if (sourceSrt) {
       const raw = await fs.readFile(path.join(subtitles_dir, sourceSrt), 'utf-8')
@@ -308,6 +352,16 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
     lead_in_reason: inputs.lead_in?.reason ?? null,
     lead_in_source: inputs.lead_in?.source ?? null,
     lead_in_merged_file: inputs.lead_in?.merged_filename ?? null,
+    // v1.4.0 — the content fingerprint of this stitch's inputs. `null` when the
+    // caller did not supply one, which is itself meaningful: a sidecar with no
+    // `inputs` block cannot be shown to be current, so the next render restitches
+    // rather than assuming. Absence is treated as "unknown", never as "fresh".
+    inputs: inputs.input_signature ?? null,
+    // v1.4.0 — the identity of the TIMELINE this stitch produced (cue boundaries
+    // only, not the words). Scene Plan is generated from this file, so a plan
+    // records the same stamp and can then be shown to be describing an older
+    // timeline rather than merely suspected of it.
+    timeline: stampFromCues(stitchedCues),
     total_cues: stitchedCues.length,
     total_duration_sec: totalDuration,
     complete: true,

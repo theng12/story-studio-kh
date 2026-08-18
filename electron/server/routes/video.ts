@@ -8,7 +8,9 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import { enqueue, isDuplicate } from '../services/job-queue.js'
-import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } from '../generators/video.js'
+import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, resolveRenderResolution, scanEpisodeAssets } from '../generators/video.js'
+import { renderSubtitlePreflightFrames } from '../lib/subtitle-preflight-frames.js'
+import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
 import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transitions.js'
 import { getAnimation, groupAnimationDefs, toAnimationDef } from '../models/animations.js'
 import { buildAnimationFilter } from '../lib/animation-filters.js'
@@ -28,7 +30,7 @@ import {
   parseSceneMotionDocument,
   parseSceneOverlayDocument,
 } from '../contracts/scene-effects-schema.js'
-import { buildSubtitleAssDocument, normalizeSrtOrVtt, parseSrt } from '../lib/subtitle-builder.js'
+import { buildSubtitleAssDocument, normalizeSrtOrVtt, parseSrt, trimCuesBeforeStoryStart } from '../lib/subtitle-builder.js'
 import { normalizeSubtitleStyle, type SubtitleStyleDocument } from '../contracts/subtitle-style.js'
 import { SubtitleStyleValidationError, parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.js'
 import {
@@ -39,7 +41,7 @@ import {
   SUBTITLE_PREVIEW_SAMPLE,
 } from '../contracts/subtitle-preview.js'
 import { resolveSubtitlesDir, resolveTranscriptionLanguage } from '../generators/subtitles.js'
-import { readSelectedSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
+import { readSelectedSubtitle, resolveBurnSubtitle, writeSelectedSubtitle } from '../lib/subtitle-selection.js'
 import { inspectSubtitleText, type SubtitleQualityReport } from '../lib/subtitle-quality.js'
 import { inspectSubtitleCompletion } from '../services/subtitle-completion.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -1057,7 +1059,24 @@ router.get('/projects/:slug/video-editor/subtitles/status/:episodeId', async (re
       // v1.0.396 — the user-pinned subtitle to burn (null = AUTO: prefer the
       // full stitched/whisper transcript, skip per-chapter partials).
       selected_subtitle: await readSelectedSubtitle(subtitlesDir),
+      // v1.4.0 — the file a render would actually burn, decided by the SAME
+      // resolver the renderer uses rather than mirrored in the browser. Video
+      // Assembly no longer picks a transcript; it displays this. A second copy
+      // of the precedence rule living in the frontend is exactly how a page
+      // comes to show one filename while the encoder burns another.
+      burn_target: await resolveBurnSubtitle(subtitlesDir)
+        .then(p => (p ? path.basename(p) : null))
+        .catch(() => null),
       completion: await inspectSubtitleCompletion(assets.episode_dir, subtitlesDir, episodeId),
+      // v1.4.0 — the Scene Plan is GENERATED FROM the stitched transcript, so an
+      // automatic re-stitch that moves the timeline leaves an existing plan's
+      // scene times describing the old one. Repairing the captions while
+      // silently leaving the pictures drifted would be the worst outcome
+      // available, so the disagreement is reported here. Detection only: nothing
+      // rewrites a plan that generated images hang off.
+      scene_plan_timeline: await resolveScenePlanPath(slug, episodeId, assets.episode_dir)
+        .then(planPath => inspectPlanTimelineDrift(planPath, path.join(subtitlesDir, `${episodeId.toUpperCase()}_stitched.srt`)))
+        .catch(() => ({ checked: false, stale: false, drift_sec: null, reason: '' })),
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not compute subtitle status'))
@@ -1513,6 +1532,88 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
 })
 
 // Queue an FFmpeg video-assembly job (scenes + narration → final .mp4).
+/**
+ * Caption preflight — three frames of the video you are about to render, with
+ * the real captions burned in (v1.4.0).
+ *
+ * *"give 3 screenshot in different parts of the video as rendered with the video
+ * so we can judge the subtitle is correct before we render the video"*. He found
+ * the wrong episode's captions by watching a finished render; three stills make
+ * the same fault obvious in seconds, before any encode.
+ *
+ * This deliberately runs the FULL `prepareUnifiedVideoAssemblyInputs`, not a
+ * cheaper subset. Everything the render would do to choose and validate a
+ * transcript — bringing the stitch up to date, picking the burn target, refusing
+ * a file belonging to another episode — happens here first, so a frame is never
+ * produced from inputs the render would have rejected, and a refusal is reported
+ * before a person has waited for an encode. The response body is therefore also
+ * the answer to "would this render succeed?".
+ */
+router.post('/projects/:slug/video-editor/subtitle-preflight/:episodeId', async (req, res) => {
+  const { slug, episodeId } = req.params
+  const body = { ...(req.body || {}), episode_id: episodeId }
+  try {
+    const assets = await prepareUnifiedVideoAssemblyInputs(slug, episodeId, body)
+    const srtPath = body.subtitles?.srt_path
+    if (!body.subtitles?.enabled || !srtPath || !existsSync(srtPath)) {
+      return res.json({
+        frames: [],
+        // Not an error: subtitles may simply be switched off, or this episode
+        // may have no transcript at all. The page says which, rather than
+        // showing an empty panel that looks like a broken feature.
+        skipped: body.subtitles?.enabled
+          ? 'This episode has no subtitle file to burn, so there is nothing to check.'
+          : 'Subtitles are switched off for this render.',
+      })
+    }
+
+    const { w, h } = resolveRenderResolution(body.resolution)
+    const openingSec = assets.scene_plan_timing?.opening_reserved_sec || 0
+    // Same rule the renderer applies: captions sit out the opening when there
+    // IS one, unless the customer said otherwise.
+    const hideIntro = body.subtitles.hide_during_intro == null
+      ? openingSec > 0
+      : !!body.subtitles.hide_during_intro
+    const allCues = parseSrt(await fs.readFile(srtPath, 'utf-8'))
+    const cues = hideIntro ? trimCuesBeforeStoryStart(allCues, openingSec) : allCues
+    if (!cues.length) {
+      return res.status(409).json({
+        detail: `${episodeId.toUpperCase()}'s subtitle file contains no usable cues, so there is nothing to burn. `
+          + 'Open the Subtitles workspace and re-transcribe or re-stitch this episode.',
+      })
+    }
+
+    // The narration is the honest denominator: it plays from the composed
+    // video's t=0, so a cue's timestamp IS its position in the finished video.
+    const durationSec = (await getAudioDuration(assets.merged_audio[0]!.path).catch(() => undefined))
+      || cues[cues.length - 1]!.end_sec
+
+    const result = await renderSubtitlePreflightFrames({
+      episodeCode: episodeId.toUpperCase(),
+      outDir: assets.video_dir,
+      cues,
+      subtitleFilename: path.basename(srtPath),
+      style: normalizeSubtitleStyle(body.subtitles.style),
+      width: w,
+      height: h,
+      scenes: (body.scenes || []).map((s: any) => ({ image_path: s.image_path, duration: s.duration })),
+      openingOffsetSec: openingSec,
+      durationSec,
+    })
+    res.json({
+      ...result,
+      resolution: `${w}x${h}`,
+      duration_sec: durationSec,
+      hide_during_intro: hideIntro,
+      opening_reserved_sec: openingSec,
+    })
+  } catch (e: any) {
+    // 409 matches the render preflight: this is a "your episode is not ready"
+    // answer, not a server fault, and the message already names the repair.
+    res.status(409).json(humanizeBackendError(e, 'Caption preflight failed'))
+  }
+})
+
 // Moved from /generate/video → /generate/video-assembly so the new AI
 // Video Generator can own /generate/video.
 router.post('/projects/:slug/generate/video-assembly', async (req, res) => {

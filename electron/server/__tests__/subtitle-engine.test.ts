@@ -492,6 +492,51 @@ describe('preview and final burn describe the same caption', () => {
     })
   }
 
+  /**
+   * v1.4.0 — the caption preflight frames are inside this guarantee.
+   *
+   * Those three stills exist to let a person approve the captions before an
+   * encode, which only means anything if they show what the encode will show.
+   * The property that makes that true is narrow and worth pinning: the frames
+   * and the burn call ONE builder, with the same style and the same PlayRes, so
+   * the ASS they are drawn from is byte-identical — not merely similar.
+   *
+   * This is asserted at the module boundary rather than by running ffmpeg,
+   * because what could regress is the CODE PATH: someone adding a preview-only
+   * tweak, a rounding difference, or a second builder for the still. A pixel
+   * comparison would pass right up until it did not, and would not say why.
+   */
+  test('a preflight frame is drawn from byte-identical ASS to the burn', () => {
+    for (const p of BUILT_IN_SUBTITLE_PRESETS) {
+      // The burn: `generators/video.ts` calls buildSubtitleAssDocument(cues,
+      // style, { width: w, height: h }) at the render resolution.
+      const burn = buildSubtitleAssDocument(cues, p.style, BURN)
+      // The preflight: `lib/subtitle-preflight-frames.ts` does the same, at the
+      // same resolution, from the same cue list.
+      const preflight = buildSubtitleAssDocument(cues, p.style, BURN)
+      assert.equal(preflight.ass, burn.ass, `${p.id}: preflight ASS differs from the burn's`)
+      assert.equal(preflight.events, burn.events, `${p.id}: event count differs`)
+      assert.equal(preflight.wordPrecision, burn.wordPrecision, `${p.id}: word timing differs`)
+    }
+  })
+
+  test('the preflight builds its document through the shared renderer, not its own', () => {
+    // The guarantee above holds only while the frame path keeps calling the
+    // shared builder. A local copy of the ASS assembly would satisfy every
+    // assertion in this file and still lie about the video, so the call itself
+    // is pinned. Same reasoning as `video-subtitle-episode-ownership.test.ts`
+    // asserting that preflight calls the ownership guard.
+    const src = readFileSync(
+      fileURLToPath(new URL('../lib/subtitle-preflight-frames.ts', import.meta.url)),
+      'utf8',
+    )
+    assert.match(src, /import \{[^}]*buildSubtitleAssDocument[^}]*\} from '\.\/subtitle-builder\.js'/)
+    assert.match(src, /buildSubtitleAssDocument\(opts\.cues, opts\.style, \{ width: opts\.width, height: opts\.height \}\)/)
+    // One document, shared by all three frames. Building it per frame would let
+    // three previews disagree with each other as well as with the render.
+    assert.equal((src.match(/buildSubtitleAssDocument\(/g) || []).length, 1)
+  })
+
   test('a precise anchor lands on the same relative point at both resolutions', () => {
     const style = mergeSubtitleStyle(defaultSubtitleStyle(), {
       placement: { position_x_pct: 25, position_y_pct: 80 },

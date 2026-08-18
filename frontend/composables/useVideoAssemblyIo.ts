@@ -222,14 +222,21 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
    *     *Assembly* pulse, distinct from the AI Video Generator's
    *     `videoGenerating` (v1.0.391 — they used to be conflated).
    */
-  async function generateVideo(opts: {
-    post: (path: string, body: any) => Promise<any>
-    videoAssemblyGenerating: Ref<boolean>
-  }): Promise<boolean> {
-    // Scene media, order, exact durations, and merged audio are intentionally
-    // absent from this browser payload. The backend re-scans the authoritative
-    // Scene Plan immediately before enqueue and again before execution, so a
-    // stale tab or preset can never submit an alternate timeline.
+  /**
+   * The render request this page would submit.
+   *
+   * v1.4.0 — split out of `generateVideo` so the caption preflight can ask for
+   * frames from the EXACT payload the render will use. Building a second,
+   * similar payload for the preview would let the frames describe a render that
+   * never happens: a different resolution scales the caption differently, and a
+   * different `hide_during_intro` changes which cues exist at all.
+   *
+   * Scene media, order, exact durations, and merged audio are intentionally
+   * absent. The backend re-scans the authoritative Scene Plan immediately before
+   * enqueue and again before execution, so a stale tab or preset can never
+   * submit an alternate timeline.
+   */
+  function buildPayload(): Record<string, any> {
     const payload: Record<string, any> = {
       episode_id: s.episodeId.value,
       scene_pool_mode: 'scene_plan',
@@ -377,11 +384,15 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       }
     }
 
-    if (s.subtitles?.enabled && s.subtitles?.srt_path) {
+    // v1.4.0 — NO `srt_path`. Video Assembly no longer chooses a transcript;
+    // `resolveEpisodeSubtitleFile` does, for this page and for Pipeline batches
+    // alike, so both arrive at the renderer the same way and get the same
+    // answer. The gate used to be `enabled && srt_path`, which meant a render
+    // was silently captionless whenever the browser's path was empty.
+    if (s.subtitles?.enabled) {
       payload.subtitles = {
         enabled: true,
         source: s.subtitles.source,
-        srt_path: s.subtitles.srt_path,
         // Trim intro captions from the burn when the assembly setting enables it.
         hide_during_intro: !!s.subtitles.hide_during_intro,
         style: { ...s.subtitles.style },
@@ -390,7 +401,14 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
 
     if (s.titleCard.enabled) payload.title_card = { ...s.titleCard }
     if (s.outroCard.enabled) payload.outro_card = { ...s.outroCard }
+    return payload
+  }
 
+  async function generateVideo(opts: {
+    post: (path: string, body: any) => Promise<any>
+    videoAssemblyGenerating: Ref<boolean>
+  }): Promise<boolean> {
+    const payload = buildPayload()
     // v1.0.514 — straight to enqueue; no cost/duration confirmation dialog
     // (free local render — see the function doc).
     if (s.generating) s.generating.value = true
@@ -420,5 +438,5 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
     // output panel within milliseconds of clicking Generate.
   }
 
-  return { checkFfmpeg, scanAssets, generateVideo }
+  return { checkFfmpeg, scanAssets, generateVideo, buildPayload }
 }

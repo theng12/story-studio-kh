@@ -3974,6 +3974,26 @@ export interface ScenePlan {
   /** Stitched SRT filename this plan was built against. Drift-detection
    *  in the Scene Plan UI compares this to the current stitched SRT. */
   source_stitched_srt?: string
+  /**
+   * v1.4.0 — the IDENTITY of the caption timeline this plan's scene times were
+   * derived from: cue boundaries only, never the words.
+   *
+   * The stitched SRT is the input Scene Plan is generated from, and v1.4.0 made
+   * re-stitching automatic. A re-stitch that corrects a wrong intro lead-in
+   * moves every cue, and this plan's scene times still follow the old timing —
+   * so the two disagree and nothing else on disk could prove it. A filename
+   * (`source_stitched_srt`) cannot: it is identical before and after.
+   *
+   * Absent on every plan built before v1.4.0, and absence is treated as "not
+   * known to be stale" rather than "stale". See `lib/scene-plan-timeline.ts`
+   * for why that asymmetry is deliberate.
+   */
+  source_timeline?: {
+    sha256: string
+    total_cues: number
+    first_cue_start_sec: number
+    last_cue_end_sec: number
+  }
   /** Total duration the plan covers — should match the stitched SRT
    *  total_duration_sec at generation time. */
   total_duration_sec: number

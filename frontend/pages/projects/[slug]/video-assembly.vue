@@ -1957,49 +1957,24 @@
         <div class="settings-section">
           <h4>Subtitle file</h4>
           <p class="text-muted text-sm">
-            Create or transcribe subtitles in the
-            <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles tab</NuxtLink>
-            (transcribe or import), then pick the file to burn in below.
+            Chosen automatically — this episode's corrected stitched transcript, or the best full
+            transcript it has. Create or re-transcribe them in the
+            <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles tab</NuxtLink>.
           </p>
-          <p v-if="!subtitles.srt_path && !subtitlesStatus?.existing_srts?.length"
-             class="validation-msg text-sm mt-2">
-            No subtitle files for this episode yet — create them in the
+          <p v-if="!burnView.burning" class="validation-msg text-sm mt-2">
+            No subtitle file for this episode yet — create one in the
             <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles tab</NuxtLink> first.
           </p>
 
-          <!-- v1.3.4 — the subtitle file followed you from another episode and
-               was replaced. Never silent: the words about to be burned into
-               this video just changed, and a swap he cannot see is the same
-               defect in a quieter form. -->
-          <WorkspaceNotice
-            v-if="subtitleEpisodeSwap"
-            :tone="subtitleEpisodeSwap.tone"
-            :title="subtitleEpisodeSwap.picked
-              ? 'Subtitle file switched to this episode'
-              : 'This episode has no subtitle file'"
-            class="mt-2"
-          >
-            <template v-if="subtitleEpisodeSwap.picked">
-              <strong>{{ subtitleEpisodeSwap.dropped }}</strong> belongs to a different episode, so it was
-              replaced with this episode's <strong>{{ subtitleEpisodeSwap.picked }}</strong>. Pick a different
-              file below if that is not the one you want.
-            </template>
-            <template v-else>
-              <strong>{{ subtitleEpisodeSwap.dropped }}</strong> belongs to a different episode and was
-              cleared, and this episode has no subtitle file to put in its place. Create one in the
-              Subtitles tab, or this render will have no captions.
-            </template>
-            <template #actions>
-              <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm">Open Subtitles</NuxtLink>
-            </template>
-          </WorkspaceNotice>
-
-          <!-- Current SRT -->
-          <div v-if="subtitles.srt_path" class="text-sm mt-2">
-            <label class="text-muted">Active SRT</label>
+          <!-- v1.4.0 — read-only. The picker that stood here is gone: the
+               renderer decides and this states its answer. `burn_target` is
+               produced by the backend's own resolver, so the name shown here
+               cannot drift from the file that gets burned. -->
+          <div v-if="burnView.burning" class="text-sm mt-2">
+            <label class="text-muted">Using</label>
             <div class="flex gap-2 items-center">
-              <span class="flex-1 srt-path-mono">{{ subtitles.srt_path.split('/').pop() }}</span>
-              <button class="btn-icon" @click="subtitles.srt_path = ''; subtitleEpisodeSwap = null">✕</button>
+              <span class="flex-1 srt-path-mono">{{ burnView.burning }}</span>
+              <span class="badge badge-muted">{{ burnView.pinned ? 'YOUR CHOICE' : 'AUTOMATIC' }}</span>
             </div>
           </div>
           <!-- v1.2.2 — text quality of the file about to be burned in. It sits
@@ -2017,16 +1992,66 @@
             </template>
           </SubtitleQualityWarning>
 
-          <div v-if="subtitlesStatus?.existing_srts?.length" class="text-sm mt-1">
-            <label class="text-muted">Other subtitle files found</label>
-            <div class="flex gap-2 mt-1 flex-wrap">
-              <button v-for="srt in subtitlesStatus.existing_srts" :key="srt.path"
-                class="btn btn-sm btn-secondary"
-                :disabled="subtitles.srt_path === srt.path"
-                :title="hasQualityFindings(srt.quality) ? 'Some cues in this file look like transcription errors.' : ''"
-                @click="pickSubtitlePath(srt.path); subtitleEpisodeSwap = null">
-                <span v-if="hasQualityFindings(srt.quality)" aria-hidden="true">⚠ </span>{{ srt.filename }}
-              </button>
+          <!-- v1.4.0 — the Scene Plan is generated FROM this transcript, so an
+               automatic re-stitch that moved the timeline leaves the pictures
+               following the old timing. Repairing the captions and saying
+               nothing about the images would be the worse half of a fix. -->
+          <WorkspaceNotice
+            v-if="subtitlesStatus?.scene_plan_timeline?.stale"
+            tone="warning"
+            title="The Scene Plan still follows the old caption timing"
+            class="mt-2"
+          >
+            The captions were re-stitched for this episode, so
+            {{ subtitlesStatus.scene_plan_timeline.reason }}
+            <template v-if="subtitlesStatus.scene_plan_timeline.drift_sec">
+              Your scenes will appear about
+              <strong>{{ Math.abs(subtitlesStatus.scene_plan_timeline.drift_sec).toFixed(2) }}s</strong>
+              {{ subtitlesStatus.scene_plan_timeline.drift_sec > 0 ? 'early' : 'late' }} against the voice.
+            </template>
+            <br />
+            Fix it with <strong>Reconcile timings</strong> on the Scene Plan page — it re-times the existing
+            scenes against the new transcript and keeps every scene's image, prompt and approval.
+            Do <strong>not</strong> use Rebuild timeline for this: it renumbers the scenes and orphans the
+            images you have already generated.
+            <template #actions>
+              <NuxtLink :to="`/projects/${slug}/scene-plan`" class="btn btn-sm">Open Scene Plan</NuxtLink>
+            </template>
+          </WorkspaceNotice>
+
+          <!-- v1.4.0 — he said he should not NEED to choose, not that choosing
+               must be impossible. So the alternatives stay, one click away
+               instead of in his face. Per-chapter partials are never listed:
+               they are fragments of the episode, the renderer would never pick
+               one, and offering them is what made this list confusing. -->
+          <div v-if="burnView.alternatives.length" class="collapsible mt-2">
+            <div class="collapsible-header" @click="subtitleChangeOpen = !subtitleChangeOpen">
+              <div class="flex gap-2 items-center">
+                <strong>Change</strong>
+                <span class="text-muted text-sm">{{ burnView.alternatives.length }} other full transcript(s)</span>
+              </div>
+              <span class="collapse-arrow">{{ subtitleChangeOpen ? '&#9660;' : '&#9654;' }}</span>
+            </div>
+            <div v-if="subtitleChangeOpen" class="collapsible-body">
+              <div class="flex gap-2 flex-wrap">
+                <button v-for="srt in burnView.alternatives" :key="srt.path"
+                  class="btn btn-sm btn-secondary"
+                  :disabled="pinningSubtitle"
+                  :title="hasQualityFindings((srt as any).quality) ? 'Some cues in this file look like transcription errors.' : ''"
+                  @click="pinSubtitle(srt.filename)">
+                  <span v-if="hasQualityFindings((srt as any).quality)" aria-hidden="true">⚠ </span>{{ srt.filename }}
+                </button>
+              </div>
+              <p v-if="burnView.pinned" class="text-muted text-sm mt-2">
+                You chose <strong>{{ burnView.burning }}</strong> for this episode.
+                <button class="btn btn-sm" :disabled="pinningSubtitle" @click="pinSubtitle('')">
+                  Back to automatic
+                </button>
+              </p>
+              <p v-if="burnView.hidden_chapter_count" class="text-muted text-sm mt-2">
+                {{ burnView.hidden_chapter_count }} per-chapter file(s) are not listed — each covers one
+                chapter only, so burning one would caption a fraction of the episode.
+              </p>
             </div>
           </div>
         </div>
@@ -2042,6 +2067,67 @@
             :sample-text="sampleSubtitleText"
             @update:style="(s: SubtitleStyleDocument) => { subtitles.style = s }"
           />
+        </div>
+
+        <!-- v1.4.0 — Caption check. Three frames of the real video with the real
+             captions burned in, produced before the render and confirmed by a
+             person. Inline rather than a modal so the images can be zoomed. -->
+        <div class="settings-section mt-2">
+          <h4>Caption check</h4>
+          <p class="text-muted text-sm">
+            Three frames from this episode, with the captions burned in exactly as the render will burn
+            them. Look at them before rendering — the words, their timing and their placement are the
+            render's own; the picture behind them skips motion, grading and overlays.
+          </p>
+
+          <div class="flex gap-2 items-center mt-2">
+            <button class="btn btn-sm btn-secondary" :disabled="preflightRunning || !episodeId"
+                    @click="runSubtitlePreflight()">
+              {{ preflightRunning ? 'Rendering frames…' : subtitlePreflight ? 'Check again' : 'Check captions' }}
+            </button>
+            <span v-if="subtitlePreflight?.frames?.length" class="text-muted text-sm">
+              {{ subtitlePreflight.subtitle_filename }} · {{ subtitlePreflight.resolution }} ·
+              {{ (subtitlePreflight.elapsed_ms / 1000).toFixed(1) }}s
+            </span>
+          </div>
+
+          <p v-if="subtitlePreflight?.skipped" class="text-muted text-sm mt-2">
+            {{ subtitlePreflight.skipped }}
+          </p>
+
+          <div v-if="subtitlePreflight?.frames?.length" class="preflight-frames mt-2">
+            <figure v-for="frame in subtitlePreflight.frames" :key="frame.filename" class="preflight-frame">
+              <img :src="preflightFrameUrl(frame)" :alt="`Caption at ${formatPreflightTime(frame.time_sec)}`" />
+              <figcaption class="text-muted text-sm">
+                {{ formatPreflightTime(frame.time_sec) }}
+                · {{ Math.round(frame.percent * 100) }}% in
+                <span v-if="frame.scene_number"> · scene {{ frame.scene_number }}</span>
+                <br /><span class="preflight-cue">“{{ frame.cue_text }}”</span>
+              </figcaption>
+            </figure>
+          </div>
+
+          <WorkspaceNotice
+            v-if="subtitlePreflight?.frames?.length && !preflightConfirmed"
+            tone="warning"
+            title="Do these captions belong to this episode?"
+            class="mt-2"
+          >
+            Read the words in the three frames above. If any of them belong to a different episode, or the
+            timing looks wrong, fix it in the Subtitles tab rather than rendering.
+            <template #actions>
+              <button class="btn btn-sm btn-primary" @click="preflightConfirmed = true">
+                These are right — allow rendering
+              </button>
+              <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm">Open Subtitles</NuxtLink>
+            </template>
+          </WorkspaceNotice>
+
+          <p v-else-if="preflightConfirmed && subtitlePreflight?.frames?.length"
+             class="text-muted text-sm mt-2">
+            ✓ Captions confirmed — Generate will render this episode. Changing the subtitle file or the
+            style asks again.
+          </p>
         </div>
       </div>
 
@@ -2451,7 +2537,7 @@
 import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
-import { resolveSubtitleForEpisode } from '~/utils/subtitle-episode-selection'
+import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 import { hasQualityFindings } from '~/types/subtitle-quality'
 import {
@@ -3370,7 +3456,14 @@ const excludeIntroFromEffects = ref(true)
 const subtitles = reactive({
   enabled: false,
   source: 'chapters' as 'chapters' | 'upload' | 'whisper',
-  srt_path: '',
+  // v1.4.0 — `srt_path` is GONE from this page's state, and that absence is the
+  // point. It was episode-specific state living in a browser, which is what put
+  // EP0048's captions into EP0047's video; v1.3.4 taught it to re-resolve on
+  // every episode change, and the owner then asked for the choice itself to be
+  // removed. The renderer resolves the file now, for the page and for batch
+  // alike, so there is no longer anything here that could survive an episode
+  // change. Do not reintroduce it: sending a path from the browser is what the
+  // backend's ownership guard exists to refuse.
   // v1.0.423 — hide captions during the intro (sleep-story). Defaults to the
   // project's skip-intro setting; user can override per episode. The full SRT
   // sidecar is untouched — only the burned-in copy is trimmed.
@@ -3415,19 +3508,32 @@ const subtitlesStatus = ref<{
     quality?: SubtitleQualityReport | null
   }>
   subtitles_dir: string
+  /** v1.4.0 — the file the RENDERER would burn, resolved server-side. */
+  burn_target: string | null
+  /** The customer's `.selected_subtitle` pin for this episode, if any. */
+  selected_subtitle: string | null
+  /** v1.4.0 — whether a stored Scene Plan still describes this transcript. */
+  scene_plan_timeline?: { checked: boolean; stale: boolean; drift_sec: number | null; reason: string }
 } | null>(null)
+
+/**
+ * v1.4.0 — what Step 5 displays about the burn target. Derived entirely from the
+ * status response for the episode on screen, so it holds nothing across an
+ * episode change by construction.
+ */
+const burnView = computed(() => describeSubtitleBurn(subtitlesStatus.value))
 
 /**
  * v1.2.2 — quality report for the SRT actually selected for burn-in.
  *
- * Keyed off the resolved path rather than a name, because the burn step uses
- * `subtitles.srt_path` verbatim. When nothing is picked there is nothing to
- * warn about, and an unchecked format reports null rather than "clean".
+ * v1.4.0 — keyed off the resolved filename rather than a page-held path, because
+ * the page no longer holds one. `burn_target` is the renderer's own answer, so
+ * the warning shown is about the file that will actually be burned.
  */
 const activeSubtitleQuality = computed<SubtitleQualityReport | null>(() => {
-  const active = subtitles.srt_path
+  const active = burnView.value.burning
   if (!active) return null
-  return subtitlesStatus.value?.existing_srts?.find(s => s.path === active)?.quality ?? null
+  return subtitlesStatus.value?.existing_srts?.find(s => s.filename === active)?.quality ?? null
 })
 
 const sampleSubtitleText = computed(() => {
@@ -3442,47 +3548,130 @@ const subtitleBackdropUrl = computed(() => {
   return scene ? getImagePreviewUrl(scene.path) : ''
 })
 
-/**
- * The subtitle file this page carried over from a different episode, and what
- * was done about it (v1.3.4). Null when nothing happened — which is the normal
- * case and must stay silent.
- */
-const subtitleEpisodeSwap = ref<{ tone: 'info' | 'warning'; dropped: string; picked: string } | null>(null)
+/** Whether the "Change" disclosure is open. Purely presentational. */
+const subtitleChangeOpen = ref(false)
+const pinningSubtitle = ref(false)
 
+/**
+ * v1.4.0 — a status refresh, and nothing else.
+ *
+ * v1.3.4's re-resolve logic used to live here, deciding which transcript to keep
+ * across an episode change. There is nothing left to decide: the page holds no
+ * path, and `burn_target` in this response IS the renderer's answer for the
+ * episode being fetched. Fetching is now the whole of the mechanism, which is
+ * why the announcement banner went with it — nothing changes under the customer
+ * any more, so there is nothing to announce.
+ */
 async function loadSubtitlesStatus() {
   if (!episodeId.value) return
   try {
     subtitlesStatus.value = await get(`/projects/${slug.value}/video-editor/subtitles/status/${episodeId.value}`)
-    const list = subtitlesStatus.value?.existing_srts || []
-
-    // v1.3.4 — REFUSE TO KEEP ANOTHER EPISODE'S TRANSCRIPT.
-    //
-    // The report: a finished EP0047 video went out with EP0048's captions
-    // burned across it. `srt_path` is an absolute path to one episode's file on
-    // disk, is correctly excluded from presets, and was nonetheless carried
-    // straight across an episode change — because this reload only ever filled
-    // an EMPTY selection (`if (!subtitles.srt_path)`). Choosing a file for one
-    // episode and switching to another left Step 5 pointing at the first one.
-    //
-    // The decision itself lives in `utils/subtitle-episode-selection` so it can
-    // be tested without mounting a 5,800-line page; the reasoning for
-    // re-resolving rather than blanking is documented there.
-    const outcome = resolveSubtitleForEpisode(subtitles.srt_path, list)
-    if (outcome.action === 'fill') {
-      pickSubtitlePath(outcome.pick.path)
-    } else if (outcome.action === 'swap') {
-      subtitles.srt_path = ''
-      pickSubtitlePath(outcome.pick.path)
-      // Always announced. A swap the customer cannot see is the same defect in
-      // a quieter form — he would have no way to know that the words about to
-      // be burned into his video had changed under him.
-      subtitleEpisodeSwap.value = { tone: 'info', dropped: outcome.dropped, picked: outcome.pick.filename }
-    } else if (outcome.action === 'clear') {
-      subtitles.srt_path = ''
-      subtitleEpisodeSwap.value = { tone: 'warning', dropped: outcome.dropped, picked: '' }
-    }
   } catch { /* non-fatal */ }
 }
+
+/**
+ * Pin a transcript for THIS episode, or pass '' to go back to automatic.
+ *
+ * The pin is a dotfile inside the episode's own subtitles folder, so it is
+ * episode-scoped on disk and cannot follow the customer to another episode —
+ * the property AGENTS.md's Preset Boundaries rule requires, obtained by where it
+ * is stored rather than by remembering to clear it.
+ */
+async function pinSubtitle(filename: string) {
+  if (!episodeId.value) return
+  pinningSubtitle.value = true
+  try {
+    await put(`/projects/${slug.value}/video-editor/subtitles/select/${episodeId.value}`, { filename })
+    // Re-read rather than assuming: the backend decides what a pin means, and a
+    // pin naming a file it will not burn must not be displayed as if it won.
+    await loadSubtitlesStatus()
+    // The three frames described the previous choice. Making the customer look
+    // again is the point of the check.
+    resetSubtitlePreflight()
+    success(filename ? `Burning ${filename} for this episode` : 'Back to automatic subtitle selection')
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not change the subtitle file')
+  } finally {
+    pinningSubtitle.value = false
+  }
+}
+
+// ── Caption preflight (v1.4.0) ────────────────────────────────────────────
+//
+// *"give 3 screenshot in different parts of the video as rendered with the video
+// so we can judge the subtitle is correct before we render the video"*.
+//
+// He found EP0048's captions on an EP0047 video by watching the finished render.
+// Three stills make the same fault obvious in seconds, and cost seconds. A
+// single-episode render now goes through them.
+interface SubtitlePreflightFrame {
+  index: number
+  path: string
+  filename: string
+  time_sec: number
+  percent: number
+  cue_text: string
+  scene_number: number | null
+}
+const subtitlePreflight = ref<{
+  frames: SubtitlePreflightFrame[]
+  subtitle_filename: string
+  elapsed_ms: number
+  resolution: string
+  skipped?: string
+} | null>(null)
+const preflightRunning = ref(false)
+/** Set once he has looked at the frames and said they are right. */
+const preflightConfirmed = ref(false)
+/** Frames are overwritten in place, so the browser must be told they changed. */
+const preflightCacheKey = ref(0)
+
+function resetSubtitlePreflight() {
+  subtitlePreflight.value = null
+  preflightConfirmed.value = false
+}
+
+async function runSubtitlePreflight(): Promise<boolean> {
+  if (!episodeId.value) return false
+  preflightRunning.value = true
+  try {
+    subtitlePreflight.value = await post(
+      `/projects/${slug.value}/video-editor/subtitle-preflight/${episodeId.value}`,
+      buildVideoAssemblyPayload(),
+    )
+    preflightCacheKey.value = Date.now()
+    // Nothing to look at — subtitles are off, or this episode has none. There is
+    // no caption to get wrong, so there is nothing to hold the render for.
+    if (subtitlePreflight.value?.skipped) preflightConfirmed.value = true
+    return true
+  } catch (e: any) {
+    // The backend refuses here for the same reasons it would refuse the render:
+    // a stale stitch it could not rebuild, an intro it could not measure, a
+    // transcript belonging to another episode. Showing that now costs a click
+    // instead of an encode.
+    showError(e?.data?.detail || e?.message || 'Caption check failed')
+    return false
+  } finally {
+    preflightRunning.value = false
+  }
+}
+
+function preflightFrameUrl(frame: SubtitlePreflightFrame): string {
+  return `/api/projects/${slug.value}/video-editor/preview-image`
+    + `?path=${encodeURIComponent(frame.path)}&k=${preflightCacheKey.value}`
+}
+
+function formatPreflightTime(sec: number): string {
+  const s = Math.max(0, Math.round(sec))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+// Anything that changes what the captions will look like invalidates the frames
+// he approved. A confirmation that outlives the thing it was about is worthless.
+watch(
+  () => [subtitles.enabled, subtitles.hide_during_intro, JSON.stringify(subtitles.style)].join('|'),
+  () => resetSubtitlePreflight(),
+)
 
 // Subtitle creation moved to the dedicated Subtitles tab. Video Assembly only
 // reads the existing SRT list (via loadSubtitlesStatus above) to let the user
@@ -3729,9 +3918,10 @@ const subtitlesPresets = usePresets({
   snapshot: () => ({
     enabled: subtitles.enabled,
     source: subtitles.source,
-    // srt_path is episode-specific (points at a file on disk for this
-    // episode). Intentionally excluded from the preset — re-generate per
-    // episode via the Step 5 buttons.
+    // v1.4.0 — there is no `srt_path` to exclude any more. The page holds no
+    // transcript path at all; the renderer resolves one per episode. The
+    // exclusion note is kept as history because this key was the fifth instance
+    // of "episode-specific state surviving an episode change" (AGENTS.md).
     style: cloneSubtitleStyle(subtitles.style),
   }),
   apply: (data: any) => {
@@ -3879,10 +4069,11 @@ function snapshotSubtitlesData() {
   return {
     enabled: subtitles.enabled,
     source: subtitles.source,
-    // v1.0.352 — MUST include the SRT path. The assembler only burns subtitles
-    // when `srt_path` exists (video.ts), so omitting it here silently dropped
-    // the subtitle track from every render even after an .srt was picked.
-    srt_path: subtitles.srt_path,
+    // v1.0.352 required `srt_path` here because the assembler only burned
+    // subtitles when a path was present. v1.4.0 removes that requirement at
+    // source: `resolveEpisodeSubtitleFile` fills the path per episode, so
+    // storing one in a saved timeline would just be a stale absolute path
+    // waiting to name the wrong episode's file.
     style: cloneSubtitleStyle(subtitles.style),
   }
 }
@@ -4866,12 +5057,6 @@ function pickTitleImage(filePath: string) {
   })()
 }
 
-function pickSubtitlePath(filePath: string) {
-  void (async () => {
-    subtitles.srt_path = await collapseToPortablePath(filePath)
-  })()
-}
-
 async function collapseToPortablePath(input: string): Promise<string> {
   const raw = String(input || '').trim()
   if (!raw) return ''
@@ -4896,7 +5081,6 @@ async function normalizeVideoAssemblyPathsInState(): Promise<void> {
   if (frame.background_path) frame.background_path = await collapseToPortablePath(frame.background_path)
   if (titleCard.background_media_path) titleCard.background_media_path = await collapseToPortablePath(titleCard.background_media_path)
   if (outroCard.background_media_path) outroCard.background_media_path = await collapseToPortablePath(outroCard.background_media_path)
-  if (subtitles.srt_path) subtitles.srt_path = await collapseToPortablePath(subtitles.srt_path)
   if (compilationLayout.backgroundPlate.source_path) {
     compilationLayout.backgroundPlate.source_path = await collapseToPortablePath(compilationLayout.backgroundPlate.source_path)
   }
@@ -4910,7 +5094,7 @@ async function normalizeVideoAssemblyPathsInState(): Promise<void> {
 // logic with no rendering concerns — they now live in `useVideoAssemblyIo`.
 // The composable mutates the reactive state we pass in, so the template below
 // still binds to the same refs.
-const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAssemblyIo({
+const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo, buildPayload: buildVideoAssemblyPayload } = useVideoAssemblyIo({
   slug, episodeId, selectedEpisode, ffmpegStatus, scannedAssets, scanning, scenes,
   excludeIntroFromEffects,
   logo, intro, outro, timelineClips, titleImage, sceneRecycling, transition, sceneAnimation, postAudio,
@@ -4933,6 +5117,11 @@ const { checkFfmpeg, scanAssets, generateVideo: runGenerateVideo } = useVideoAss
 
 function onEpisodeSelected(ep: any) {
   selectedEpisode.value = ep
+  // v1.4.0 — the frames describe the episode that produced them. Carrying a
+  // confirmation across an episode change would be the same shape of defect
+  // this release removes, one level up: state about one episode still standing
+  // while another is on screen.
+  resetSubtitlePreflight()
   if (ep?.title) {
     titleCard.text = ep.title
   }
@@ -4972,6 +5161,19 @@ async function generateVideo() {
   // in the click chain now becomes a visible toast + a console.error so
   // the next user-side incident is debuggable from devtools.
   try {
+    // v1.4.0 — the caption check comes first, for a single episode.
+    //
+    // He asked to judge the subtitles "before we render the video", so this is
+    // a gate and not a panel he might notice: the first click produces three
+    // frames and stops, and only a deliberate confirmation starts the encode.
+    // Pipeline batches are unattended and are deliberately NOT gated — they
+    // produce the same frames beside the finished file instead.
+    if (!preflightConfirmed.value) {
+      const ok = await runSubtitlePreflight()
+      // Show him what he is being asked about, wherever he clicked from.
+      if (ok && !preflightConfirmed.value) currentStep.value = 5
+      return
+    }
     await runGenerateVideo({ post, videoAssemblyGenerating })
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Generate failed unexpectedly — see console for details (Cmd+Option+I).')
@@ -5273,6 +5475,21 @@ onUnmounted(() => {
 
 /* Subtitles SRT path display (monospaced filename). */
 .srt-path-mono { font-family: ui-monospace, monospace; }
+
+/* v1.4.0 — caption preflight frames. Wide enough to read a caption at a glance,
+   and they wrap rather than shrink so a 16:9 still never becomes a thumbnail. */
+.preflight-frames { display: flex; gap: 12px; flex-wrap: wrap; }
+.preflight-frame { flex: 1 1 260px; min-width: 240px; margin: 0; }
+.preflight-frame img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #000;
+}
+.preflight-frame figcaption { margin-top: 4px; }
+.preflight-cue { font-style: italic; }
 
 /* Color-grading "Fine-Tune" hint sits very close to the label above. */
 .fine-tune-hint { margin: 2px 0 6px; }

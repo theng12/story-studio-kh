@@ -416,20 +416,44 @@ describe('transcript resolution', () => {
     assert.match(cues[1]!.text, /Procopius/)
   })
 
-  test('adding the corrected file does not change which subtitle gets burned in', async () => {
-    // `resolveBurnSubtitle` matches `_stitched.(srt|ass|vtt)$`. Neither
-    // `_stitched.corrected.srt` nor the hand-built `_stitched.burnin.srt`
-    // satisfies that, so burn-in behaviour is unchanged by this feature.
+  /**
+   * v1.4.0 — REVERSED, by the owner's decision on 2026-08-18.
+   *
+   * This test previously asserted the opposite: that adding the corrected file
+   * could not change what gets burned. That was true, and it was the v1.0.797
+   * scoping choice — but it meant an episode drew its scene images from the
+   * corrected words ("Neorion") while burning Whisper's ("Mirion") across them,
+   * because the correction already reaches Scene Plan and the cue generator.
+   * One episode, two spellings, and the wrong one on screen.
+   *
+   * Rewritten rather than deleted so the reversal is visible as a decision. See
+   * `services/subtitle-correction.ts` for the full reasoning, including why it
+   * was safe to reverse only once the caption preflight existed to show the
+   * burned words before the render.
+   */
+  test('the corrected transcript is what gets burned in', async () => {
     const ep = await makeEpisode([{
       cues: [{ start: 0, end: 4, text: 'The wharves at Mirion fell silent.' }],
       script: 'The wharves at Neorion fell silent.',
     }])
     const before = await selection.resolveBurnSubtitle(ep.subtitles_dir)
+    assert.equal(before, ep.stitched, 'with no corrected file, the raw stitch burns')
+
     await mod.buildCorrectedTranscript(ep)
-    await fs.writeFile(path.join(ep.subtitles_dir, `${CODE}_stitched.burnin.srt`), 'x', 'utf-8')
     const after = await selection.resolveBurnSubtitle(ep.subtitles_dir)
-    assert.equal(after, before)
-    assert.equal(after, ep.stitched)
+    assert.equal(
+      after,
+      path.join(ep.subtitles_dir, `${CODE}_stitched.corrected.srt`),
+      'the corrected transcript must win over the raw stitch',
+    )
+    // The words actually change — the point of the reversal.
+    assert.match(await fs.readFile(after!, 'utf-8'), /Neorion/)
+
+    // The hand-built burn-in file is NOT swept in. The owner ruled on the
+    // corrected transcript; widening that to a file he never mentioned is not
+    // licensed by his decision.
+    await fs.writeFile(path.join(ep.subtitles_dir, `${CODE}_stitched.burnin.srt`), 'x', 'utf-8')
+    assert.equal(await selection.resolveBurnSubtitle(ep.subtitles_dir), after)
   })
 })
 

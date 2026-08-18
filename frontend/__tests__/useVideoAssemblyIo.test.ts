@@ -198,7 +198,6 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     state.titleCard.enabled = true
     state.outroCard.enabled = true
     state.subtitles.enabled = true
-    state.subtitles.srt_path = '/subs.srt'
     state.subtitles.style = {
       position_x_pct: 37.5,
       position_y_pct: 84,
@@ -225,7 +224,13 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.ok(body.chroma_key, 'chroma_key present when enabled AND source_path set')
     assert.equal(body.title_card.text, 'T')
     assert.ok(body.outro_card, 'outro_card present when enabled')
-    assert.equal(body.subtitles.srt_path, '/subs.srt')
+    // v1.4.0 — the payload carries NO transcript path. Video Assembly stopped
+    // choosing one: `resolveEpisodeSubtitleFile` resolves it per episode for this
+    // page and for Pipeline batches alike, so both reach the renderer the same
+    // way. A browser-supplied path is what the backend's ownership guard exists
+    // to refuse, and sending one was how EP0048's captions reached EP0047.
+    assert.ok(body.subtitles, 'the subtitles block is sent on `enabled` alone')
+    assert.equal(body.subtitles.srt_path, undefined, 'no subtitle path may be sent from the browser')
     assert.deepEqual(body.subtitles.style, {
       position_x_pct: 37.5,
       position_y_pct: 84,

@@ -116,6 +116,27 @@ export function formatSrtTime(totalSec: number): string {
 function pad2(n: number): string { return n < 10 ? `0${n}` : String(n) }
 function pad3(n: number): string { return n < 10 ? `00${n}` : n < 100 ? `0${n}` : String(n) }
 
+/**
+ * The cues a burn will actually use once intro captions are dropped (v1.4.0).
+ *
+ * `hide_during_intro` omits everything before the story starts from the BURN
+ * copy while leaving the full SRT sidecar untouched. That trim used to live
+ * inline in the renderer, which meant the caption preflight frames — whose only
+ * job is to show what the burn will show — could have been drawn from a cue list
+ * the burn was never going to use. One function, both callers.
+ *
+ * Timestamps are never rewritten: a kept cue stays exactly where the narration
+ * puts it. Only the leading cues disappear.
+ */
+export function trimCuesBeforeStoryStart(cues: SrtCue[], storyStartSec: number): SrtCue[] {
+  if (!(storyStartSec > 0)) return cues
+  const kept = cues.filter(c => c.end_sec > storyStartSec + 0.001)
+  // Dropping EVERY cue would mean burning nothing at all, which is never what
+  // "hide the intro captions" was asked to do. Better the untrimmed list than a
+  // video that silently loses its subtitles.
+  return kept.length && kept.length < cues.length ? kept : cues
+}
+
 /** Word-aware text wrapping. Greedy fill-up-to-max-chars, cap at max_lines
  *  so the final line gets an ellipsis rather than overflow.  */
 export function wrapText(text: string, maxChars: number, maxLines: number): string {

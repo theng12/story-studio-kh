@@ -76,6 +76,13 @@ export async function resolveBurnSubtitle(subtitlesDir: string): Promise<string 
 
   const pick = (re: RegExp): string | undefined => files.filter(f => re.test(f)).sort(byExt)[0]
   const chosen =
+    // v1.4.0 — the CORRECTED stitch wins over the raw one. `{CODE}_stitched.corrected.srt`
+    // never matched the `_stitched\.(srt|ass|vtt)$` test below (what follows
+    // `_stitched.` is `corrected.srt`, not an extension), so it fell through to
+    // the generic non-chapter rule while the uncorrected `{CODE}_stitched.srt`
+    // matched here and won every time. Corrections made in the Subtitles
+    // workspace were silently discarded at burn time.
+    pick(/_stitched\.corrected\.(srt|ass|vtt)$/i) ||
     pick(/_stitched\.(srt|ass|vtt)$/i) ||
     pick(/_whisper\.(srt|ass|vtt)$/i) ||
     files.filter(f => !/_chapter_\d+/i.test(f)).sort(byExt)[0] ||

@@ -528,9 +528,18 @@
       <!-- v1.0.250 — the plan predates the current stitched SRT (you changed
            audio / re-stitched after this plan was generated). Re-run so it
            matches the new timeline. -->
+      <!-- v1.4.0 — the remedy named here used to be wrong, and expensively so.
+           It offered "Repair long scenes" (which only splits over-long scenes)
+           or a full rebuild (which renumbers every scene and orphans the images
+           already generated — 124 of them on one real episode). The action that
+           actually fixes drifted timing while KEEPING every image, prompt and
+           approval is Reconcile timings, and it was the one action the banner
+           did not mention. -->
       <div v-if="status?.plan_stale_vs_stitched && !planning" class="validation-msg text-sm mb-2">
         ⚠ This plan is <strong>older than the current stitched subtitles</strong> — it was built from a previous audio/timeline.
-        Use <strong>Repair long scenes</strong> for isolated gaps; rebuild the timeline only when the whole episode timing changed.
+        Use <strong>🎯 Reconcile timings</strong> below: it re-times these scenes against the current subtitles and keeps
+        every scene's image, prompt and approval. Rebuild the timeline only if you intend to start the scenes over —
+        it renumbers them and leaves your generated images unattached.
       </div>
       <div class="flex justify-between items-center">
         <h3>3. Scenes</h3>

@@ -997,24 +997,29 @@ async function transcribePerChapter(
     // `leadIn = 0`, no log line — so a stitched timeline running sixteen
     // seconds ahead of the video reported itself as a clean success. The
     // resolver now returns a measurement and every outcome is stated below.
-    const { resolveEpisodeIntroLeadIn, describeEpisodeIntroLeadIn } = await import('../lib/intro-lead-in.js')
-    const leadIn = await resolveEpisodeIntroLeadIn(
-      epaths.episode_dir,
-      epaths.merged_audio_dir,
-      code,
-    )
-    const r = await stitchSubtitles({
-      episode_dir: epaths.episode_dir,
-      subtitles_dir: outDir,
-      episode_code: code,
-      lead_in_sec: leadIn.seconds,
-      lead_in: leadIn,
+    // v1.4.0 — through `ensureStitchedSubtitle`, which measures the lead-in and
+    // records the fingerprint of every input in the meta sidecar. A transcribe
+    // has by definition just rewritten those inputs, so this always restitches;
+    // routing it here is about the RECORD, so the render-time freshness check
+    // finds one and does not rebuild a good file on every render.
+    const { describeEpisodeIntroLeadIn } = await import('../lib/intro-lead-in.js')
+    const { ensureStitchedSubtitle } = await import('../lib/subtitle-autostitch.js')
+    const outcome = await ensureStitchedSubtitle({
+      episodeDir: epaths.episode_dir,
+      subtitlesDir: outDir,
+      mergedAudioDir: epaths.merged_audio_dir,
+      episodeCode: code,
     })
-    job.output_lines.push(
-      `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s)` +
-      ` → ${path.basename(r.output_path)}. Re-run Scene Plan to pick up the new timeline.`,
-    )
-    job.output_lines.push(`${leadIn.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(leadIn)}`)
+    if (outcome.status !== 'stitched') {
+      job.output_lines.push(`ℹ Auto-stitch skipped — ${outcome.reason}.`)
+    } else {
+      const r = outcome.result
+      job.output_lines.push(
+        `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s)` +
+        ` → ${path.basename(r.output_path)}. Re-run Scene Plan to pick up the new timeline.`,
+      )
+      job.output_lines.push(`${outcome.lead_in.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(outcome.lead_in)}`)
+    }
   } catch (e: any) {
     const msg = (e as Error)?.message || String(e)
     const hint = msg.includes('audio_chapters.json not found') ? 'run Audio Assembly first' : msg
