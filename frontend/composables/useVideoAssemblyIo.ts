@@ -158,14 +158,24 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
         `/projects/${s.slug.value}/video-editor/scan/${s.episodeId.value}`,
       )
       applyScenePoolMode()
-      if (s.selectedEpisode.value?.title) {
-        s.titleCard.text = s.selectedEpisode.value.title
-      }
-      if (s.scannedAssets.value?.thumbnails?.length) {
-        const picked = s.scannedAssets.value.thumbnails[0].path
-        s.titleImage.image_path = s.normalizePath ? await s.normalizePath(picked) : picked
-      }
+      // v1.3.4 — both of the next two used to be `if (source) assign` with no
+      // else, so a new episode that supplied no replacement silently kept the
+      // PREVIOUS episode's value — and both reach the finished video. Same
+      // shape as the `srt_path` defect this release fixes: episode-specific
+      // state surviving an episode change because the refresh only ever filled
+      // a gap instead of replacing the field. An episode with no title, or with
+      // no thumbnails yet, is now blank rather than borrowing its neighbour's.
+      s.titleCard.text = s.selectedEpisode.value?.title || ''
+      const thumbnail = s.scannedAssets.value?.thumbnails?.[0]?.path
+      s.titleImage.image_path = thumbnail
+        ? (s.normalizePath ? await s.normalizePath(thumbnail) : thumbnail)
+        : ''
     } catch (e: any) {
+      // The scan failed, so nothing below is known for THIS episode. Leaving
+      // the previous episode's scene list in place made the page report its
+      // count, its cycle estimate and its low-asset warning against an episode
+      // they do not describe.
+      s.scenes.value = []
       showError(e.data?.detail || 'Failed to scan assets')
     } finally {
       s.scanning.value = false

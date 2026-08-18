@@ -878,6 +878,148 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
   return result
 }
 
+/** True when `child` is the same path as, or lives underneath, `parent`. */
+function isInsideDir(child: string, parent: string): boolean {
+  if (!child || !parent) return false
+  const rel = path.relative(path.resolve(parent), path.resolve(child))
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+}
+
+/**
+ * Fill in the episode's own subtitle file when the caller named none (v1.3.4).
+ *
+ * `routes/pipeline.ts` builds the batch request from a saved video bundle and
+ * deliberately drops `srt_path` because it is episode-specific, with the comment
+ * "the generator regenerates it per episode … when subtitles.enabled is true".
+ * Nothing regenerated it. A batch render therefore reached the burn step with
+ * `enabled: true` and an empty path, skipped the `existsSync` gate, produced a
+ * video with no captions — and did not even register as a missing burn-in,
+ * because the degradation report only counts a burn-in as *requested* when a
+ * path is present. Silently shipping a batch of videos without the captions the
+ * customer asked for is the same disease as the silent lead-in zero this release
+ * fixes; it is the same comment block that records batch renders once dropping
+ * logos, grading, chroma-key and overlays for a sibling reason.
+ *
+ * Unlike the transcript ownership question below, this one has a definite
+ * answer and no editorial content: `resolveBurnSubtitle` honours the user's own
+ * `.selected_subtitle` pin first and otherwise applies the documented AUTO
+ * heuristic (full stitched → whisper → never a per-chapter partial). It is the
+ * same resolver B-Roll assembly already uses. So this fills rather than refuses
+ * — and says which file it chose, because a file picked on the customer's
+ * behalf must be visible in the log before he sees it in the video.
+ *
+ * The single-episode page cannot reach this: `useVideoAssemblyIo` omits the
+ * whole `subtitles` block unless a path is set, so a deliberate ✕ clear there
+ * never arrives here as "enabled with no file".
+ */
+export async function resolveEpisodeSubtitleFile(
+  episodeId: string,
+  subtitlesDir: string,
+  req: GenerateVideoRequest,
+  job?: Job,
+): Promise<void> {
+  if (!req.subtitles?.enabled || (req.subtitles.srt_path || '').trim()) return
+  const { resolveBurnSubtitle } = await import('../lib/subtitle-selection.js')
+  const resolved = await resolveBurnSubtitle(subtitlesDir).catch(() => null)
+  if (resolved) {
+    req.subtitles = { ...req.subtitles, srt_path: resolved }
+    job?.output_lines.push(
+      `Subtitles: no file was named for this render — using ${episodeId.toUpperCase()}'s own `
+      + `${path.basename(resolved)}.`,
+    )
+    return
+  }
+  // Loud, not silent. Leaving `enabled: true` with no path here would sail
+  // past the burn step AND past the "what did this render fail to include?"
+  // report, so the missing captions would surface only in the finished file.
+  job?.output_lines.push(
+    `⚠ Subtitles are switched on for ${episodeId.toUpperCase()} but this episode has no subtitle `
+    + 'file to burn. Transcribe and stitch it in the Subtitles workspace — this render will have '
+    + 'no captions.',
+  )
+}
+
+/**
+ * The subtitle file about to be burned in must belong to THIS episode (v1.3.4).
+ *
+ * The report: a finished EP0047 video was rendered with EP0048's captions burned
+ * across it — 989.833s of Roman grain-dole footage carrying "At Timbuktu, that
+ * process has". The immediate cause was in the browser (Video Assembly held an
+ * absolute `srt_path` and never re-resolved it when the episode changed, fixed
+ * in the same release). This is the second half of the fix, and it is here
+ * because a page forgetting to reset is a bug, while a renderer accepting any
+ * readable SRT from anywhere on the disk is what turned that bug into a video
+ * he was about to publish.
+ *
+ * ── Why this REFUSES rather than quietly substituting the right file ──
+ *
+ * Everything else this function does is a silent re-resolve: scenes, merged
+ * audio, contextual cues and sound design are all re-derived from the episode's
+ * own authoritative data, because for each of those there is exactly one
+ * correct answer and the browser's copy is merely stale. Captions are not like
+ * that. Which transcript to burn is an editorial choice — stitched, corrected,
+ * whisper, a hand-imported file — and substituting one silently would be this
+ * app deciding what words go into a customer's video without being asked.
+ *
+ * Refusing also keeps the failure visible. A silent repair here would mean a
+ * frontend regression of exactly this kind could never be noticed again: the
+ * renderer would paper over it forever, which is the same disease as the silent
+ * lead-in zero fixed elsewhere in this release. And it is cheap — this runs in
+ * preflight, before a single frame is encoded, so the cost of being wrong is
+ * one click in Step 5 rather than a re-render or a retracted upload.
+ */
+export async function assertSubtitleFileBelongsToEpisode(
+  slug: string,
+  episodeId: string,
+  episodeDir: string,
+  req: GenerateVideoRequest,
+  job?: Job,
+): Promise<void> {
+  const raw = req.subtitles?.enabled ? (req.subtitles.srt_path || '').trim() : ''
+  if (!raw) return
+  const code = episodeId.toUpperCase()
+
+  // Portable forms (`${PROJECT}/…`) are expanded here rather than trusted,
+  // because the ownership test is meaningless against an unexpanded token. A
+  // token that cannot be expanded on this machine falls through to the refusal
+  // below — which is right: an unresolvable path cannot be shown to belong.
+  let abs = raw
+  if (isPortablePath(raw)) {
+    try {
+      abs = resolveAssetPath(raw, (await pm.getProjectOutputRoot(slug)) || undefined)
+    } catch { /* leave unexpanded; the check below refuses it by name */ }
+  }
+
+  if (isInsideDir(abs, episodeDir)) {
+    // Write the expansion back. `resolveAssetPathsInPlace` expands every other
+    // user-supplied path but has never listed `srt_path`, so a portable value
+    // would reach the burn step as the literal string `${PROJECT}/…`, fail its
+    // `existsSync` check, and the captions would vanish from the render without
+    // a word. Today that is masked only because this project's `output_root` is
+    // relative, which stops `toPortablePath` collapsing anything — an accident,
+    // not a guarantee.
+    if (abs !== raw) req.subtitles!.srt_path = abs
+    // Never silent in the other direction either. The job log used to print
+    // "Burning in subtitles: EP0048_stitched.srt" for a correct render and a
+    // catastrophic one in identical words, so the one line that could have
+    // caught this read exactly like every successful render.
+    job?.output_lines.push(`Subtitles: ${path.basename(abs)} — confirmed to belong to ${code}.`)
+    return
+  }
+
+  // Name the other episode when the filename states it. Every subtitle this app
+  // writes is prefixed with its own episode code, so this is read, not guessed,
+  // and it is omitted entirely for a file that does not carry one.
+  const foreignCode = path.basename(abs).match(/^([A-Za-z]+\d+)[_.\- ]/)?.[1]?.toUpperCase()
+  const owner = foreignCode && foreignCode !== code ? ` It belongs to ${foreignCode}.` : ''
+  throw new Error(
+    `Video Assembly is blocked: the selected subtitle file is not ${code}'s. `
+    + `"${path.basename(abs)}" lives outside this episode's folder.${owner} `
+    + 'Burning it would put another episode\'s words into this video. '
+    + `Pick ${code}'s own subtitle file in Step 5 (Subtitles), or create one in the Subtitles workspace, then retry.`,
+  )
+}
+
 /**
  * Build the only supported assembly input set from authoritative episode data.
  * The browser and Pipeline may supply reusable editing settings, but neither is
@@ -949,6 +1091,8 @@ export async function prepareUnifiedVideoAssemblyInputs(
   req.scene_recycling ||= { seconds_per_scene: 10, shuffle: false, excluded_scenes: [] }
   const cueConfig = normalizeContextualCueConfig((await pm.getConfig(slug))?.contextual_cues)
   const cuePaths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
+  await resolveEpisodeSubtitleFile(episodeId, cuePaths.subtitles_dir, req, job)
+  await assertSubtitleFileBelongsToEpisode(slug, episodeId, cuePaths.episode_dir, req, job)
   const planPath = await resolveScenePlanPath(slug, episodeId, cuePaths.episode_dir)
   const plan = JSON.parse(await fs.readFile(planPath, 'utf8')) as ScenePlan
   const cueTimeline = await readContextualCueTimeline(planPath)

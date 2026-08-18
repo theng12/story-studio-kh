@@ -164,6 +164,43 @@ not a note about one page:
 - `references.sheet` in the same presets — ORed into `use_episode_sheet`, so applying any
   preset turned "Use episode anchor" **on**, pointing at a sheet that may not exist.
 
+### The shape is wider than presets — instance five, 2026-08-18
+
+**`subtitles.srt_path` in Video Assembly was correctly excluded from presets and still put
+EP0048's captions into EP0047's finished video.** It is the fifth instance of the shape above,
+and the first to prove the shape is really *episode-specific state surviving an episode
+change*, of which "a preset restored it" is only one route.
+
+`EP0047_final_video.mp4` was 989.833s — EP0047's own merged audio to the frame — and the
+caption burned at t=14s read "…At Timbuktu, that process has", cue #3 of EP0048's stitched SRT.
+Nothing restored that path. `loadSubtitlesStatus()` refetched the file list on every episode
+change and then wrote a default only `if (!subtitles.srt_path)`, so a selection that already
+existed was never revisited. **The exclusion list is not the safety net.** Three more fields on
+that one page carried the same `if (source) assign` / `if (!x) x = …` shape.
+
+What follows, and it applies to every workspace keyed by episode:
+
+- **An episode-change refresh must REPLACE the field, not fill a gap.** `if (newValue) field =
+  newValue` with no else is this defect, spelled optimistically. Assign the new episode's value
+  or assign empty; never leave the previous episode's standing.
+- **Ownership is a fact to look up, not a string to parse.** The backend already returns this
+  episode's own file list, so membership in it decides ownership. Reading an episode code out
+  of a path is a guess where a fact is available.
+- **Re-resolve when the equivalent is identifiable; blank when it is not.** Losing the
+  customer's selection on every switch is its own defect. Re-resolving is legitimate only when
+  the new value is derivable rather than guessable — here, the same kind of transcript in this
+  episode's own folder.
+- **Announce it.** Same rule as 1.3.3's auto-approve notice and for the same reason: a value
+  that changes under the customer without a word is the quiet version of the same fault. Say
+  what was dropped and what replaced it — and say it when the field was cleared, too.
+- **The generator must not accept a foreign path either.** `generateVideo` checked only
+  `existsSync` and burned whatever it was handed, so a browser-state bug became a finished
+  video. `prepareUnifiedVideoAssemblyInputs` now refuses a subtitle file outside the episode's
+  own directory, in preflight, before any encode. It **refuses rather than substituting**: it
+  silently re-resolves scenes and merged audio because each of those has exactly one correct
+  answer, while which transcript to burn is an editorial choice — and a silent repair would
+  also hide the next frontend regression of this kind forever.
+
 ### Scene rhythm is preset data again — reinstated 2026-08-18
 
 **`pacing` belongs in Character Sheet presets. The owner reversed the 2026-08-03 exclusion
@@ -277,6 +314,41 @@ A preset is not a counter-example to this. A project-level default applies itsel
 episode, unasked; a preset does nothing until the customer selects it on one episode and clicks
 Apply. That single deliberate act on a single episode is precisely the per-episode choice this
 rule protects — which is why the owner could reinstate one without disturbing the other.
+
+## A Zero That Means Two Things Is A Defect
+
+**Never let "the answer is none" and "I could not work out the answer" produce the same value.**
+Established 2026-08-18, after the second one shipped inside a month.
+
+`computeEpisodeIntroLeadInSec` returned `Promise<number>`, and every caller wrapped it in
+`.catch(() => 0)` or a bare `catch {}`. When it began selecting the merge's
+`{CODE}_merged_audio.completion.json` record instead of the track — a `startsWith` match that a
+sidecar added in July started satisfying — it ffprobed a JSON file and returned 0. But 0 is
+also the correct answer for an episode with no intro. Every episode merged after 2026-07-14 got
+a stitched timeline 16 seconds early, with nothing in any log to see, and every YouTube chapter
+timestamp on those episodes was early by the same amount.
+
+`lib/intro-lead-in.ts` had already grown `IntroLeadInMeasurement` (`measured | unmeasurable`)
+in v1.3.2 for exactly this reason — but only the display path used it, while the timing path
+kept a flattening wrapper. **Adding the honest type is half a fix; the callers that matter have
+to be moved onto it.** `resolveEpisodeIntroLeadIn` replaces `computeEpisodeIntroLeadInSec` and
+returns the measurement; the episode-level flattening wrapper is *deleted* rather than
+deprecated, so no future caller can reintroduce the silent zero by reaching for the convenient
+signature. All three callers now state the outcome — job log, toast, package warning.
+
+(`computeIntroLeadInSec`, the pure path-plus-sections variant, survives for `computeStoryStartSec`,
+whose callers resolve the merged file through the extension-filtered asset scanner and were never
+exposed to this. Do not add new callers to it without deciding what an unmeasurable result means.)
+
+Two supporting rules, both paid for:
+
+- **Match filenames on what they END with, not what they start with.** A `startsWith(base)`
+  test claims every sidecar anyone ever writes beside the file. `generators/video.ts`'s
+  `/_merged_audio(?:_v\d+)?\.(mp3|wav|m4a)$/i` is the reference, and it also covers the `_vN`
+  re-merge variants the prefix test rejected outright.
+- **A test asserting a function returns 0 cannot fail when the function breaks by always
+  returning 0.** `intro-lead-in-episode.test.ts` had two tests, both asserting zero, both green
+  throughout. Pin *which* zero it is, and pin at least one non-zero.
 
 ## Generator Model Defaults
 

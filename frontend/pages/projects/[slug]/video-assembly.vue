@@ -1967,12 +1967,39 @@
             <NuxtLink :to="`/projects/${slug}/subtitles`" class="inline-link">Subtitles tab</NuxtLink> first.
           </p>
 
+          <!-- v1.3.4 — the subtitle file followed you from another episode and
+               was replaced. Never silent: the words about to be burned into
+               this video just changed, and a swap he cannot see is the same
+               defect in a quieter form. -->
+          <WorkspaceNotice
+            v-if="subtitleEpisodeSwap"
+            :tone="subtitleEpisodeSwap.tone"
+            :title="subtitleEpisodeSwap.picked
+              ? 'Subtitle file switched to this episode'
+              : 'This episode has no subtitle file'"
+            class="mt-2"
+          >
+            <template v-if="subtitleEpisodeSwap.picked">
+              <strong>{{ subtitleEpisodeSwap.dropped }}</strong> belongs to a different episode, so it was
+              replaced with this episode's <strong>{{ subtitleEpisodeSwap.picked }}</strong>. Pick a different
+              file below if that is not the one you want.
+            </template>
+            <template v-else>
+              <strong>{{ subtitleEpisodeSwap.dropped }}</strong> belongs to a different episode and was
+              cleared, and this episode has no subtitle file to put in its place. Create one in the
+              Subtitles tab, or this render will have no captions.
+            </template>
+            <template #actions>
+              <NuxtLink :to="`/projects/${slug}/subtitles`" class="btn btn-sm">Open Subtitles</NuxtLink>
+            </template>
+          </WorkspaceNotice>
+
           <!-- Current SRT -->
           <div v-if="subtitles.srt_path" class="text-sm mt-2">
             <label class="text-muted">Active SRT</label>
             <div class="flex gap-2 items-center">
               <span class="flex-1 srt-path-mono">{{ subtitles.srt_path.split('/').pop() }}</span>
-              <button class="btn-icon" @click="subtitles.srt_path = ''">✕</button>
+              <button class="btn-icon" @click="subtitles.srt_path = ''; subtitleEpisodeSwap = null">✕</button>
             </div>
           </div>
           <!-- v1.2.2 — text quality of the file about to be burned in. It sits
@@ -1997,7 +2024,7 @@
                 class="btn btn-sm btn-secondary"
                 :disabled="subtitles.srt_path === srt.path"
                 :title="hasQualityFindings(srt.quality) ? 'Some cues in this file look like transcription errors.' : ''"
-                @click="pickSubtitlePath(srt.path)">
+                @click="pickSubtitlePath(srt.path); subtitleEpisodeSwap = null">
                 <span v-if="hasQualityFindings(srt.quality)" aria-hidden="true">⚠ </span>{{ srt.filename }}
               </button>
             </div>
@@ -2317,7 +2344,12 @@
           <div class="summary-row">
             <span class="text-muted">Pacing</span>
             <span v-if="isSentenceTimed">Transcript-timed (per-scene)</span>
-            <span v-else>{{ sceneRecycling.seconds_per_scene }}s/scene, shuffle {{ sceneRecycling.shuffle ? 'on' : 'off' }}, {{ sceneRecycling.excluded_scenes.length }} excluded</span>
+            <!-- v1.3.4 — `shuffle` and `excluded_scenes` are hardcoded off in
+                 the render payload (useVideoAssemblyIo, `scene_recycling`) and
+                 this page has no control for either any more, so reporting a
+                 preset's stored values here described a render that never
+                 happens. It now states only what is actually sent. -->
+            <span v-else>{{ sceneRecycling.seconds_per_scene }}s/scene, in plan order</span>
           </div>
           <div class="summary-row">
             <span class="text-muted">Video Length</span>
@@ -2419,6 +2451,7 @@
 import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
+import { resolveSubtitleForEpisode } from '~/utils/subtitle-episode-selection'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 import { hasQualityFindings } from '~/types/subtitle-quality'
 import {
@@ -3409,21 +3442,44 @@ const subtitleBackdropUrl = computed(() => {
   return scene ? getImagePreviewUrl(scene.path) : ''
 })
 
+/**
+ * The subtitle file this page carried over from a different episode, and what
+ * was done about it (v1.3.4). Null when nothing happened — which is the normal
+ * case and must stay silent.
+ */
+const subtitleEpisodeSwap = ref<{ tone: 'info' | 'warning'; dropped: string; picked: string } | null>(null)
+
 async function loadSubtitlesStatus() {
   if (!episodeId.value) return
   try {
     subtitlesStatus.value = await get(`/projects/${slug.value}/video-editor/subtitles/status/${episodeId.value}`)
-    // v1.0.418 — auto-default the burn-in SRT to the full STITCHED transcript
-    // (then the merged-audio Whisper SRT) when the user hasn't already picked
-    // one (and no preset set it). Per-chapter partials are NEVER auto-picked —
-    // they're short fragments, exactly the wrong default. The user can still
-    // override via the file list, and the ✕ clear is respected (we only fill an
-    // EMPTY selection).
-    if (!subtitles.srt_path) {
-      const list = subtitlesStatus.value?.existing_srts || []
-      const pick = list.find(s => /_stitched\.(srt|ass|vtt)$/i.test(s.filename))
-        || list.find(s => /_whisper\.(srt|ass|vtt)$/i.test(s.filename))
-      if (pick) pickSubtitlePath(pick.path)
+    const list = subtitlesStatus.value?.existing_srts || []
+
+    // v1.3.4 — REFUSE TO KEEP ANOTHER EPISODE'S TRANSCRIPT.
+    //
+    // The report: a finished EP0047 video went out with EP0048's captions
+    // burned across it. `srt_path` is an absolute path to one episode's file on
+    // disk, is correctly excluded from presets, and was nonetheless carried
+    // straight across an episode change — because this reload only ever filled
+    // an EMPTY selection (`if (!subtitles.srt_path)`). Choosing a file for one
+    // episode and switching to another left Step 5 pointing at the first one.
+    //
+    // The decision itself lives in `utils/subtitle-episode-selection` so it can
+    // be tested without mounting a 5,800-line page; the reasoning for
+    // re-resolving rather than blanking is documented there.
+    const outcome = resolveSubtitleForEpisode(subtitles.srt_path, list)
+    if (outcome.action === 'fill') {
+      pickSubtitlePath(outcome.pick.path)
+    } else if (outcome.action === 'swap') {
+      subtitles.srt_path = ''
+      pickSubtitlePath(outcome.pick.path)
+      // Always announced. A swap the customer cannot see is the same defect in
+      // a quieter form — he would have no way to know that the words about to
+      // be burned into his video had changed under him.
+      subtitleEpisodeSwap.value = { tone: 'info', dropped: outcome.dropped, picked: outcome.pick.filename }
+    } else if (outcome.action === 'clear') {
+      subtitles.srt_path = ''
+      subtitleEpisodeSwap.value = { tone: 'warning', dropped: outcome.dropped, picked: '' }
     }
   } catch { /* non-fatal */ }
 }
@@ -4068,7 +4124,11 @@ const hasMergedAudio = computed(() => {
 })
 
 const activeSceneCount = computed(() => {
-  return scenes.value.length - sceneRecycling.excluded_scenes.length
+  // v1.3.4 — no longer subtracts `excluded_scenes`. The render payload sends
+  // `excluded_scenes: []` unconditionally, so a count reduced by a preset's
+  // stored exclusions described a render that does not happen — and it fed the
+  // cycle estimate and the low-asset warning below with it.
+  return scenes.value.length
 })
 
 // v1.0.354 — length always follows the narration, so cycles are estimated

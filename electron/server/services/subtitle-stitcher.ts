@@ -49,6 +49,11 @@ export interface StitcherInputs {
    *  length. Default 0 (no intro) — Scene Plan's stitch passes nothing, so
    *  scene timing is unchanged. */
   lead_in_sec?: number
+  /** v1.3.4 — WHY `lead_in_sec` is what it is. A zero written by "this episode
+   *  has no intro" and a zero written by "I could not work it out" produce
+   *  byte-identical SRTs, so the meta sidecar has to carry the difference or
+   *  the next reader cannot tell whether the file on disk can be trusted. */
+  lead_in?: { status: 'measured' | 'unmeasurable'; reason?: string; merged_filename?: string; source?: string }
 }
 
 export interface StitchedSection {
@@ -295,6 +300,14 @@ export async function stitchSubtitles(inputs: StitcherInputs): Promise<StitchRes
     generated_at: new Date().toISOString(),
     gap_duration_s: gapSec,
     lead_in_sec: leadIn,
+    // v1.3.4 — records whether that zero was a measurement or a failure. A
+    // caller that supplies a bare number and no measurement gets `not-stated`,
+    // never `measured`: assuming the number was measured because it arrived is
+    // precisely the confident-guess this release exists to remove.
+    lead_in_status: inputs.lead_in?.status ?? 'not-stated',
+    lead_in_reason: inputs.lead_in?.reason ?? null,
+    lead_in_source: inputs.lead_in?.source ?? null,
+    lead_in_merged_file: inputs.lead_in?.merged_filename ?? null,
     total_cues: stitchedCues.length,
     total_duration_sec: totalDuration,
     complete: true,

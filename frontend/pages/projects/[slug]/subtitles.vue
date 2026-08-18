@@ -625,13 +625,31 @@ async function stitchSubtitles(): Promise<void> {
   stitching.value = true
   stitchError.value = ''
   try {
-    const r = await post<{ total_cues: number; total_duration_sec: number; lead_in_sec: number; sections: any[] }>(
+    const r = await post<{
+      total_cues: number; total_duration_sec: number; lead_in_sec: number; sections: any[]
+      lead_in?: { status: 'measured' | 'unmeasurable'; seconds: number; reason?: string; merged_filename?: string }
+    }>(
       `/projects/${slug.value}/scene-plan/${episodeId.value}/stitch-subtitles`, {},
     )
-    success(
-      `Stitched ${r.total_cues} cue(s) across ${r.sections?.length ?? '?'} section(s)` +
-      `${r.lead_in_sec > 0 ? ` with ${r.lead_in_sec.toFixed(1)}s intro offset` : ''} — ready for Scene Plan.`,
-    )
+    const stitched = `Stitched ${r.total_cues} cue(s) across ${r.sections?.length ?? '?'} section(s)`
+    // v1.3.4 — all three outcomes are stated. This used to append the offset
+    // only when it was above zero, so "your episode has no intro" and "the
+    // intro could not be worked out" both showed as a plain success — and the
+    // second one silently produced a timeline early by the intro's length.
+    if (r.lead_in?.status === 'unmeasurable') {
+      showError(
+        `${stitched}, but the intro offset could NOT be measured — ${r.lead_in.reason} `
+        + 'The timeline starts at zero. If this episode opens with an intro, the captions will run '
+        + 'ahead of the video by its length — re-merge in Audio Assembly, then stitch again.',
+      )
+    } else if (r.lead_in_sec > 0) {
+      success(
+        `${stitched}, offset by the ${r.lead_in_sec.toFixed(2)}s that plays before the narration`
+        + `${r.lead_in?.merged_filename ? ` in ${r.lead_in.merged_filename}` : ''} — ready for Scene Plan.`,
+      )
+    } else {
+      success(`${stitched}. Nothing plays before the narration, so the timeline starts at zero — ready for Scene Plan.`)
+    }
     await loadStitchStatus()
   } catch (e: any) {
     // The stitcher now fails loudly with a diagnostic message (e.g. which

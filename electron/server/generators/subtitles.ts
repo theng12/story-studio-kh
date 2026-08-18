@@ -991,26 +991,30 @@ async function transcribePerChapter(
     // v1.0.397 — offset the stitched timeline by the intro lead-in so the
     // burned captions line up with the merged audio (which plays the intro
     // before any narration). Read-only against the merged file + sidecar.
-    let leadIn = 0
-    try {
-      const { computeEpisodeIntroLeadInSec } = await import('../lib/intro-lead-in.js')
-      leadIn = await computeEpisodeIntroLeadInSec(
-        epaths.episode_dir,
-        epaths.merged_audio_dir,
-        code,
-      )
-    } catch { /* no merged audio / sidecar — leadIn stays 0 (intro-less timeline) */ }
+    //
+    // v1.3.4 — the bare `catch {}` that used to wrap this is gone. It spelled
+    // "I could not work out the intro" and "there is no intro" the same way —
+    // `leadIn = 0`, no log line — so a stitched timeline running sixteen
+    // seconds ahead of the video reported itself as a clean success. The
+    // resolver now returns a measurement and every outcome is stated below.
+    const { resolveEpisodeIntroLeadIn, describeEpisodeIntroLeadIn } = await import('../lib/intro-lead-in.js')
+    const leadIn = await resolveEpisodeIntroLeadIn(
+      epaths.episode_dir,
+      epaths.merged_audio_dir,
+      code,
+    )
     const r = await stitchSubtitles({
       episode_dir: epaths.episode_dir,
       subtitles_dir: outDir,
       episode_code: code,
-      lead_in_sec: leadIn,
+      lead_in_sec: leadIn.seconds,
+      lead_in: leadIn,
     })
     job.output_lines.push(
       `✓ Auto-stitched ${r.total_cues} cue(s) (${r.total_duration_sec.toFixed(1)}s)` +
-      `${leadIn > 0 ? ` · intro lead-in ${leadIn.toFixed(1)}s applied` : ''} → ${path.basename(r.output_path)}. ` +
-      `Re-run Scene Plan to pick up the new timeline.`,
+      ` → ${path.basename(r.output_path)}. Re-run Scene Plan to pick up the new timeline.`,
     )
+    job.output_lines.push(`${leadIn.status === 'measured' ? '·' : '⚠'} ${describeEpisodeIntroLeadIn(leadIn)}`)
   } catch (e: any) {
     const msg = (e as Error)?.message || String(e)
     const hint = msg.includes('audio_chapters.json not found') ? 'run Audio Assembly first' : msg

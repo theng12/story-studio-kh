@@ -93,19 +93,25 @@ router.post('/projects/:slug/scene-plan/:episodeId/stitch-subtitles', async (req
       mergedAudioDir: paths.merged_audio_dir,
       episodeCode: episodeId.toUpperCase(),
     }).catch(() => null)
-    const { computeEpisodeIntroLeadInSec } = await import('../lib/intro-lead-in.js')
-    const leadIn = await computeEpisodeIntroLeadInSec(
+    const { resolveEpisodeIntroLeadIn } = await import('../lib/intro-lead-in.js')
+    // v1.3.4 — no `.catch(() => 0)`. A failure here used to be spelled exactly
+    // the same way as "this episode has no intro", so a timeline that started
+    // sixteen seconds early was indistinguishable from a correct one. The
+    // resolver now says which of the two happened, and the answer travels back
+    // to the Subtitles page instead of being swallowed here.
+    const leadIn = await resolveEpisodeIntroLeadIn(
       paths.episode_dir,
       paths.merged_audio_dir,
       episodeId.toUpperCase(),
-    ).catch(() => 0)
+    )
     const result = await stitchSubtitles({
       episode_dir: paths.episode_dir,
       subtitles_dir: paths.subtitles_dir,
       episode_code: episodeId.toUpperCase(),
-      lead_in_sec: leadIn,
+      lead_in_sec: leadIn.seconds,
+      lead_in: leadIn,
     })
-    res.json(result)
+    res.json({ ...result, lead_in: leadIn })
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Subtitle stitching failed'))
   }

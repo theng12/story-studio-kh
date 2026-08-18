@@ -16,7 +16,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { readSidecar } from '../lib/chunked-narration.js'
-import { computeEpisodeIntroLeadInSec } from '../lib/intro-lead-in.js'
+import { resolveEpisodeIntroLeadIn } from '../lib/intro-lead-in.js'
 import { readSelectedResearchSources, type SelectedResearchSource } from '../lib/research-sources.js'
 import { chaptersFromDurations, formatChapterTimestamps, type Chapter } from '../lib/subtitle-builder.js'
 import { inspectAudioAssemblyReadiness } from './audio-workflow-readiness.js'
@@ -178,13 +178,25 @@ export async function finalizeYouTubeDescription(options: {
   const sidecar = await readSidecar(paths.script_dir, episodeId).catch(() => null)
   const outline = Array.isArray(sidecar?.outline) ? sidecar!.outline : []
 
+  // v1.3.4 — every chapter timestamp is pushed later by whatever plays before
+  // the narration, so an unmeasurable lead-in makes every chapter early by the
+  // intro's length. That used to be swallowed into a silent 0; it is a warning
+  // now, because a viewer clicking chapter three and landing mid-sentence is
+  // exactly as wrong as a caption that fires early.
   let leadIn = 0
   if (timedSections.length) {
-    leadIn = await computeEpisodeIntroLeadInSec(
+    const measured = await resolveEpisodeIntroLeadIn(
       paths.episode_dir,
       paths.merged_audio_dir,
       episodeId,
-    ).catch(() => 0)
+    )
+    leadIn = measured.seconds
+    if (measured.status === 'unmeasurable') {
+      warnings.push(
+        `Chapter timestamps assume nothing plays before the narration — ${measured.reason} `
+        + 'If this episode opens with an intro, every chapter mark is early by its length.',
+      )
+    }
   }
 
   const chapters = buildYouTubeChapters({

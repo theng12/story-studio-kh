@@ -141,30 +141,146 @@ export async function computeIntroLeadInSec(
 }
 
 /**
- * Resolve the lead-in directly from an episode's merge folder + sidecar.
- * Shared by automatic transcription stitching and the manual Re-stitch
- * button so both paths use identical timing.
+ * Which files in a merge folder are actual merged AUDIO.
+ *
+ * Deliberately identical to `isMergedFilename` in `generators/video.ts` (the
+ * asset scanner), because the timing computed here must describe the very file
+ * the renderer will lay under the pictures. Two rules, both learned from a
+ * shipped defect:
+ *
+ *  - It must END at a real audio extension. v1.3.4: this used to be
+ *    `startsWith('{code}_merged_audio.')`, which also matched the
+ *    `{code}_merged_audio.completion.json` record the merge has written beside
+ *    the track since 2026-07-14 — and `c` sorts before `m`, so the record won.
+ *    ffprobe returned nothing for a JSON file, and the lead-in silently became
+ *    0 for every episode merged after that date.
+ *  - It must accept the `_v2`, `_v3` … variants Audio Assembly writes in
+ *    `write_mode: 'new'`. The old prefix test rejected those outright, which is
+ *    the same defect one release earlier.
  */
-export async function computeEpisodeIntroLeadInSec(
+const MERGED_AUDIO_FILENAME = /_merged_audio(?:_v\d+)?\.(?:mp3|wav|m4a)$/i
+
+/** What an episode's merge folder says about the head of its narration. */
+export interface EpisodeIntroLeadIn {
+  status: 'measured' | 'unmeasurable'
+  /** Seconds. 0 when `measured` and nothing precedes the narration. */
+  seconds: number
+  /** Only when `unmeasurable` — a sentence fit to show the user. */
+  reason?: string
+  /** The merged file this describes, when one was found. */
+  merged_filename?: string
+  /**
+   * `recorded` — the merge wrote down what it prepended (authoritative).
+   * `measured` — no usable record; the number comes from the file's own bytes.
+   */
+  source?: 'recorded' | 'measured'
+}
+
+/**
+ * Resolve the lead-in directly from an episode's merge folder + sidecar.
+ * Shared by automatic transcription stitching, the manual Re-stitch button and
+ * the YouTube chapter finaliser, so all three use identical timing.
+ *
+ * v1.3.4 — this returns a MEASUREMENT, not a number. It used to return
+ * `Promise<number>`, and every one of its callers wrapped it in a catch that
+ * turned any failure into 0. "This episode has no intro" and "I could not work
+ * out whether it has one" then looked identical — to the code, to the job log
+ * and to the owner — so a timeline sixteen seconds early was indistinguishable
+ * from a correct one. Callers must now say which happened.
+ *
+ * The seconds themselves come from `describeMergedAudioOpening`, which prefers
+ * what the merge WROTE DOWN over re-deriving it. That is the same function
+ * Video Assembly's "is my intro in there?" row reads, so the number the owner
+ * is shown before rendering and the number his captions are shifted by cannot
+ * drift apart.
+ */
+export async function resolveEpisodeIntroLeadIn(
   episodeDir: string,
   mergedAudioDir: string,
   episodeCode: string,
-): Promise<number> {
-  const sidecar = JSON.parse(
-    await fs.readFile(path.join(episodeDir, 'audio_chapters.json'), 'utf-8'),
-  )
+): Promise<EpisodeIntroLeadIn> {
+  // Never throws. Its callers used to wrap it in `.catch(() => 0)`, and those
+  // catches are gone — but the reason they existed is still valid: a subtitle
+  // stitch must not be BLOCKED because the intro could not be worked out. So
+  // the failure mode moves inside, where it can be reported honestly instead
+  // of collapsing into a number that also means "no intro".
+  try {
+    return await resolveEpisodeIntroLeadInUnsafe(episodeDir, mergedAudioDir, episodeCode)
+  } catch (e: any) {
+    return {
+      status: 'unmeasurable',
+      seconds: 0,
+      reason: `the intro could not be worked out (${e?.message || String(e)}).`,
+    }
+  }
+}
+
+async function resolveEpisodeIntroLeadInUnsafe(
+  episodeDir: string,
+  mergedAudioDir: string,
+  episodeCode: string,
+): Promise<EpisodeIntroLeadIn> {
+  const code = episodeCode.toUpperCase()
   const entries = await fs.readdir(mergedAudioDir).catch(() => [] as string[])
-  const code = episodeCode.toLowerCase()
-  const mergedName = entries.find(name => {
-    const lower = name.toLowerCase()
-    return lower.startsWith(`${code}_merged_audio.`) && !lower.endsWith('.icloud')
+  // Sorted explicitly rather than trusting readdir order, so this is
+  // deterministic — and sorted by CODE UNIT, not by locale, so it agrees with
+  // the readdir order `scanEpisodeAssets` relies on when it hands the renderer
+  // `merged_audio[0]`. With a base track and a `_v2` beside it, `.` (0x2E)
+  // precedes `_` (0x5F) and the base track wins in both places; a locale
+  // compare ignores that punctuation weight and picks the other one.
+  const mergedName = entries
+    .filter(name => !name.startsWith('.')
+      && name.toLowerCase().startsWith(`${code.toLowerCase()}_`)
+      && MERGED_AUDIO_FILENAME.test(name))
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))[0]
+  if (!mergedName) {
+    return {
+      status: 'unmeasurable',
+      seconds: 0,
+      reason: `no merged audio file for ${code} was found in ${mergedAudioDir}.`,
+    }
+  }
+
+  const mergedPath = path.join(mergedAudioDir, mergedName)
+  const { describeMergedAudioOpening } = await import('../services/merged-audio-opening.js')
+  const opening = await describeMergedAudioOpening({
+    mergedDir: mergedAudioDir,
+    code,
+    filename: mergedName,
+    mergedDurationSec: await getAudioDuration(mergedPath).catch(() => undefined),
+    episodeDir,
   })
-  if (!mergedName) return 0
-  return computeIntroLeadInSec(
-    path.join(mergedAudioDir, mergedName),
-    sidecar.sections || [],
-    typeof sidecar.gap_duration_s === 'number' ? sidecar.gap_duration_s : 0,
-  )
+
+  if (opening.source === 'unmeasurable' || opening.lead_in_sec === null) {
+    return {
+      status: 'unmeasurable',
+      seconds: 0,
+      reason: opening.reason || 'the opening of the merged audio could not be measured.',
+      merged_filename: mergedName,
+    }
+  }
+  return {
+    status: 'measured',
+    seconds: Math.max(0, opening.lead_in_sec),
+    merged_filename: mergedName,
+    source: opening.source,
+  }
+}
+
+/** One line describing a lead-in, for a job log or a toast. */
+export function describeEpisodeIntroLeadIn(lead: EpisodeIntroLeadIn): string {
+  if (lead.status === 'unmeasurable') {
+    return `Intro lead-in: NOT MEASURED — ${lead.reason} `
+      + 'The timeline starts at zero; if this episode\'s merged audio does begin with an intro, '
+      + 'the captions will run ahead of the video by its length. Re-merge the audio in Audio Assembly to record it.'
+  }
+  if (lead.seconds <= 0) {
+    return `Intro lead-in: none — nothing plays before the narration in ${lead.merged_filename}, `
+      + 'so the timeline starts at zero.'
+  }
+  return `Intro lead-in: ${lead.seconds.toFixed(3)}s applied `
+    + `(${lead.source === 'recorded' ? 'recorded by the merge' : 'measured from the file'}`
+    + `, ${lead.merged_filename}).`
 }
 
 /**
