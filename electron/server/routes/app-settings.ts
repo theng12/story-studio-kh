@@ -723,8 +723,12 @@ router.put('/app-settings/youtube-defaults', async (req, res) => {
 // ── What's New / version tracking ───────────────────────────────────────────
 //
 // last_seen_version stores the version the user last dismissed the What's
-// New modal for. The frontend uses this to decide whether to auto-show
-// the modal on launch (when current version > last seen). Per-machine.
+// New modal for. The frontend auto-shows the modal on launch when the current
+// version is simply DIFFERENT from this one (`!==`), never when it is greater.
+// That is deliberate: versions are strings, and "1.4.10" > "1.4.9" is false to
+// a string comparison, so an ordering test would silently stop showing What's
+// New from the tenth patch onward. Inequality is digit-count-agnostic. Do not
+// "fix" this into a `>`. Per-machine.
 
 router.get('/app-settings/last-seen-version', async (_req, res) => {
   try {
