@@ -333,7 +333,19 @@ router.post('/projects/import', async (req, res) => {
 router.get('/projects/:slug', async (req, res) => {
   const project = await pm.getProject(req.params.slug)
   if (!project) return res.status(404).json({ detail: 'Project not found' })
-  res.json(withoutRetiredResearchPolicy(project))
+  // v1.4.2 — the project page needs the same reachability fact the home page
+  // gets from `listProjects`, computed by the same function so the two cannot
+  // disagree. Before this, a project whose episode folder did not resolve
+  // rendered completely clean here and every episode silently vanished: the
+  // app had already worked out that the folder was missing and threw the
+  // answer away. Same shape as the silent lead-in zero — knowing and not
+  // saying is its own defect.
+  const dir = pm.getProjectDir(req.params.slug)
+  const resolved = dir ? pm.resolveOutputRoot(dir, (project as any).output_root) : null
+  res.json({
+    ...withoutRetiredResearchPolicy(project),
+    ...(resolved ? { output_root_resolved: resolved.path, output_root_exists: resolved.exists } : {}),
+  })
 })
 
 router.put('/projects/:slug', validateBody(UpdateProjectSchema), async (req, res) => {

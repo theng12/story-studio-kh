@@ -67,13 +67,26 @@
             >
               <span class="project-card-top">
                 <span class="project-mark" aria-hidden="true">{{ projectInitials(project) }}</span>
-                <span class="project-status" :data-ready="Boolean(project.has_api_keys)">
+                <!-- v1.4.2 — a project whose episode folder does not resolve used
+                     to render exactly like a healthy one while every episode
+                     silently vanished inside. The app already knew; it just never
+                     said. A missing folder outranks "Setup needed", because
+                     nothing else about the project matters until it is found. -->
+                <span
+                  v-if="project.output_root_exists === false"
+                  class="project-status project-status-missing"
+                >Folder missing</span>
+                <span v-else class="project-status" :data-ready="Boolean(project.has_api_keys)">
                   {{ project.has_api_keys ? 'Ready' : 'Setup needed' }}
                 </span>
               </span>
               <span class="project-copy">
                 <strong>{{ project.name || project.slug }}</strong>
-                <span>{{ project.episode_prefix || 'EP' }} episodes · Created {{ formatDate(project.created_at) }}</span>
+                <span v-if="project.output_root_exists === false" class="project-missing-path">
+                  Episodes folder not found:
+                  <code>{{ project.output_root }}</code>
+                </span>
+                <span v-else>{{ project.episode_prefix || 'EP' }} episodes · Created {{ formatDate(project.created_at) }}</span>
               </span>
               <span class="project-open" aria-hidden="true">Open channel <span>→</span></span>
             </NuxtLink>
@@ -85,6 +98,47 @@
               </span>
             </div>
           </template>
+        </div>
+
+        <!-- v1.4.2 — the way back from "Hide project".
+             The restore UI was removed with the rest of the home page on
+             2026-08-08, but Settings still offers "Hide project (keep files)"
+             and hiding a project in the projects folder writes a tombstone that
+             the folder scan obeys. With no UI to clear it, hiding was a ONE-WAY
+             DOOR: the files were safe on disk and unreachable from the app
+             forever. The backend routes and their tests were untouched, so this
+             is wiring rather than new machinery. -->
+        <div v-if="hiddenProjects.items.value.length" class="hidden-projects">
+          <button
+            type="button"
+            class="hidden-projects-chip"
+            :aria-expanded="showHidden"
+            @click="showHidden = !showHidden"
+          >
+            🗑️ Hidden channels ({{ hiddenProjects.items.value.length }})
+            <span aria-hidden="true">{{ showHidden ? '▾' : '▸' }}</span>
+          </button>
+          <div v-if="showHidden" class="hidden-projects-list">
+            <p class="hidden-projects-note">
+              Hidden channels are removed from the list above. Every file is still on disk —
+              restoring one puts it back exactly as it was.
+            </p>
+            <div v-for="row in hiddenProjects.items.value" :key="row.slug" class="hidden-project-row">
+              <span class="hidden-project-name">
+                <strong>{{ row.name || row.slug }}</strong>
+                <code>{{ row.path }}</code>
+                <em v-if="!row.exists">folder no longer on disk</em>
+              </span>
+              <span class="hidden-project-actions">
+                <button
+                  type="button"
+                  class="btn btn-sm btn-primary"
+                  :disabled="row.exists === false"
+                  @click="restoreHidden(row.slug)"
+                >Restore</button>
+              </span>
+            </div>
+          </div>
         </div>
       </section>
     </main>
@@ -160,6 +214,20 @@ const projects = ref<any[]>([])
 const loading = ref(true)
 const projectsLoadError = ref('')
 const projectsRetrying = ref(false)
+
+// v1.4.2 — hidden channels. `useSoftDeletedProjects` and its backend routes
+// survived the 2026-08-08 home-page collapse with their tests; only the UI that
+// called them was removed, which turned "Hide project" into a one-way door.
+const hiddenProjects = useSoftDeletedProjects()
+const showHidden = ref(false)
+
+async function restoreHidden(slug: string) {
+  if (await hiddenProjects.restore(slug)) {
+    // Re-read the live list too: restoring clears the tombstone, so the channel
+    // must reappear above without a manual reload.
+    await loadProjects()
+  }
+}
 const showCreate = ref(false)
 const creating = ref(false)
 const createError = ref('')
@@ -263,7 +331,11 @@ async function createProject(): Promise<void> {
   }
 }
 
-onMounted(loadProjects)
+onMounted(async () => {
+  await loadProjects()
+  // Never fatal: a failure here must not stop the channel list rendering.
+  await hiddenProjects.refresh().catch(() => {})
+})
 </script>
 
 <style scoped>
@@ -394,6 +466,45 @@ onMounted(loadProjects)
   font-weight: 650;
 }
 .project-status[data-ready='true'] { border-color: color-mix(in srgb, var(--success) 35%, var(--border)); color: var(--success); }
+/* v1.4.2 — a project whose episodes folder cannot be found. Deliberately the
+   loudest state on the card: everything else is cosmetic until it is fixed. */
+.project-status-missing {
+  border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
+  color: var(--warning);
+}
+.project-missing-path {
+  color: var(--warning);
+  overflow-wrap: anywhere;
+}
+.project-missing-path code { font-family: ui-monospace, monospace; }
+
+/* v1.4.2 — hidden channels. Deliberately quiet: this is a recovery route, not
+   a place to spend attention, so it stays a chip until asked to open. */
+.hidden-projects { margin-top: 20px; }
+.hidden-projects-chip {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  padding: 6px 12px;
+}
+.hidden-projects-chip:hover { color: var(--text-primary); border-color: var(--accent); }
+.hidden-projects-list { margin-top: 12px; }
+.hidden-projects-note { color: var(--text-secondary); margin-bottom: 8px; }
+.hidden-project-row {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 10px 0;
+}
+.hidden-project-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hidden-project-name code { color: var(--text-secondary); overflow-wrap: anywhere; }
+.hidden-project-name em { color: var(--warning); font-style: normal; }
 .project-copy { gap: 4px; }
 .project-copy strong { overflow-wrap: anywhere; font-size: var(--font-xl); }
 .project-copy span { color: var(--text-secondary); font-size: var(--font-sm); }

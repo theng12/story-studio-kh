@@ -42,6 +42,7 @@ import type { NeedsConfirmation } from './project-inference.js'
 import type { PortableManifest, ProjectMeta, SubfolderNames } from '../models/types.js'
 import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { projectsRoot, ensureProjectsRoot } from './project-manager.js'
+import { normalizeOutputRootForStorage } from './project-manager.js'
 
 export type ImportAction = 'imported' | 'relocated' | 'collision'
 
@@ -335,7 +336,10 @@ async function updateOutputRoot(slug: string, newRoot: string): Promise<void> {
       ;(wrapped as any).status = 409
       throw wrapped
     }
-    data.output_root = newRoot
+    // v1.4.2 — stored relative when the folder is inside the projects root.
+    // An absolute root hardcodes this Mac's username and volume, which is how
+    // two real projects broke; a relative one moves with the project.
+    data.output_root = normalizeOutputRootForStorage(path.dirname(metaPath), newRoot)
     await writeJsonAtomic(metaPath, data)
   })
 }
@@ -377,7 +381,8 @@ async function writeProjectFromInspection(
     season_prefix: inspect.season_prefix,
     folder_template: inspect.folder_template,
     subfolder_names: subfolderNames,
-    output_root: outputRoot,
+    // v1.4.2 — see the note in `updateOutputRoot`. Same reason, other branch.
+    output_root: normalizeOutputRootForStorage(projectDir, outputRoot),
     created_at: new Date().toISOString(),
   }
   await writeJsonAtomic(path.join(projectDir, 'project.json'), meta)

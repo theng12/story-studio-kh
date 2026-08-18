@@ -2022,10 +2022,16 @@
           unchanged — it was syncing the folder before the app knew about it
           and will continue afterward.
         </p>
+        <!-- v1.4.2 — this used to say "All Projects → Add existing project
+             folder…", a button removed on 2026-08-08. It sat directly under an
+             action that REMOVES a project and promised a recovery route that
+             does not exist. Project discovery is a filesystem scan, so the
+             honest instruction is where to put the folder. -->
         <p class="text-muted mt-1">
-          To re-add this project later: <em>All Projects → Add existing project folder…</em>
-          and pick the same path. Other Macs that linked the same folder are
-          unaffected.
+          To re-add this project later, move or copy its folder back into your projects folder —
+          Story Studio picks up any folder there that contains a <code>project.json</code>, so it
+          reappears on the All Projects page by itself. Settings → Storage shows where your
+          projects folder is. Other Macs that linked the same folder are unaffected.
         </p>
         <button
           class="btn btn-danger mt-2"
@@ -2042,10 +2048,11 @@
           <strong>Non-destructive:</strong> the project is removed from this app's
           list but every file stays on disk. You'll see a confirmation dialog with
           the folder path so you can open it in Finder afterward and decide what
-          to keep or delete by hand. Re-importing the same folder via
-          <em>Add existing project folder…</em> brings it right back. The home page
-          shows a 🗑️ <em>Hidden projects</em> chip so you can restore or
-          permanently delete later.
+          to keep or delete by hand. The way back is the 🗑️ <em>Hidden channels</em>
+          panel on the All Projects page — <strong>Restore</strong> puts this project back
+          exactly as it was, without touching a single file. Use that rather than moving
+          the folder: hiding records the project as hidden, so moving its folder out and
+          back would not bring it back on its own.
         </p>
         <button class="btn btn-danger mt-2" @click="deleteProject">Hide project (keep files)</button>
       </div>
@@ -2237,8 +2244,13 @@ async function unlinkFromThisMac(): Promise<void> {
     title: 'Unlink project from this Mac?',
     message: `Folder: ${projectLocationPath.value}\n\n` +
     `The folder and all its contents stay exactly where they are. The ` +
-    `app just stops tracking it on this Mac. You can re-add it later via ` +
-    `"Add existing project folder…" on the All Projects page.\n\n` +
+    // v1.4.2 — this used to promise "Add existing project folder…", a button
+    // removed on 2026-08-08, inside the confirmation for an action that makes
+    // the project unreachable. Describes the route that actually works now.
+    `app just stops tracking it on this Mac. To bring it back later, move or ` +
+    `copy the folder into your projects folder — Story Studio picks up any ` +
+    `folder there that contains a project.json. Settings > Storage shows where ` +
+    `that is.\n\n` +
     `Other Macs that linked the same folder are unaffected.`,
     confirmLabel: 'Unlink project',
     danger: true,

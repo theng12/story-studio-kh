@@ -594,14 +594,12 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 
     const secrets = await readSecrets(slug)
 
-    // Resolve output_root absolute for presence check. Relative paths live
-    // inside the project dir and are always present; only an absolute user-
-    // picked folder can go missing after a manual move/rename.
-    const outputRootRaw = meta.output_root || ''
-    const outputRootAbs = path.isAbsolute(outputRootRaw)
-      ? outputRootRaw
-      : path.join(cand.dir, outputRootRaw || 'episodes')
-    const outputRootExists = existsSync(outputRootAbs)
+    // v1.4.1 corrected the note that used to sit here. It claimed relative
+    // paths "live inside the project dir and are always present", so only an
+    // absolute path could go missing. That is false: `../Origin Field/episodes`
+    // is relative and points OUTSIDE the project dir, and a relative path can
+    // name a folder that simply is not there. Both forms can break.
+    const { path: outputRootAbs, exists: outputRootExists } = resolveOutputRoot(cand.dir, meta.output_root)
 
     return {
       name: meta.name,
@@ -623,6 +621,62 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   }))
 
   return summaries.filter((s): s is ProjectSummary => s !== null)
+}
+
+/**
+ * Store an episodes folder as a RELATIVE path whenever that is possible.
+ *
+ * ── Why (v1.4.2) ──
+ *
+ * An absolute `output_root` hardcodes this Mac's username and volume. Move the
+ * project to another Mac, or rename the home folder, and it points at nothing —
+ * which is exactly how two of the owner's projects broke, and what made "can I
+ * move my assets to a new Mac?" a hard question to answer.
+ *
+ * A relative root resolves against the project's OWN directory (see
+ * `resolveOutputRoot`), so as long as the project and its episodes move
+ * together the link survives the trip. That is why `./episodes` is the creation
+ * default, and why the bulk storage migration already rewrites absolute roots
+ * back to relative — this makes the import path agree with both instead of
+ * being the one writer that always stored an absolute path.
+ *
+ * A folder genuinely OUTSIDE the projects root stays absolute: expressing an
+ * external volume as a chain of `../` would be fragile and would not survive
+ * the move either. Absolute is the honest answer there.
+ */
+export function normalizeOutputRootForStorage(projectDir: string, target: string): string {
+  if (!target || !path.isAbsolute(target)) return target || './episodes'
+  const root = path.resolve(projectsRoot())
+  const abs = path.resolve(target)
+  // Only relativise within the projects root. `path.relative` will happily
+  // produce `../../../..` chains out to the filesystem root, which are portable
+  // in theory and meaningless in practice.
+  if (abs !== root && !abs.startsWith(root + path.sep)) return abs
+  const rel = path.relative(path.resolve(projectDir), abs)
+  if (!rel) return '.'
+  // Keep POSIX separators so the value reads the same on any machine.
+  const posix = rel.split(path.sep).join('/')
+  return posix.startsWith('.') ? posix : `./${posix}`
+}
+
+/**
+ * Where a project's episodes actually live, and whether that folder is there.
+ *
+ * One function, because the home page and the project page must not be able to
+ * disagree about whether a project is reachable — the whole point of surfacing
+ * this is that a person can trust it.
+ *
+ * `output_root` may be absolute or relative; a relative one resolves against
+ * the PROJECT DIR, which is why `./episodes` and `../Origin Field/episodes`
+ * both work and both can be wrong.
+ */
+export function resolveOutputRoot(
+  projectDir: string,
+  outputRoot: string | undefined | null,
+): { path: string; exists: boolean } {
+  const raw = outputRoot || ''
+  const abs = path.isAbsolute(raw) ? raw : path.join(projectDir, raw || 'episodes')
+  return { path: abs, exists: existsSync(abs) }
 }
 
 export async function getProject(slug: string): Promise<ProjectMeta | null> {

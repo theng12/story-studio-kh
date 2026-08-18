@@ -23,6 +23,26 @@
       </template>
     </WorkspaceHero>
 
+    <!-- v1.4.2 — the episodes folder does not resolve. This sits ABOVE the
+         loading and refresh notices deliberately: while it is true, every count
+         below reads zero and every episode is missing, and a person who cannot
+         see why will go looking for the wrong fault. No auto-repair — the path
+         is named and a person decides, because guessing a replacement is how an
+         empty sibling folder gets silently adopted. -->
+    <WorkspaceNotice
+      v-if="outputRootMissing"
+      tone="warning"
+      title="This project's episodes folder could not be found"
+    >
+      Story Studio looked for <code>{{ outputRootPath }}</code> and it is not there. Until it is,
+      this project will show no episodes — the files are not lost, the app just cannot see where
+      they went. This usually means the folder was moved, renamed, or lives on a drive that is not
+      mounted.
+      <template #actions>
+        <NuxtLink :to="`/projects/${slug}/settings#storage`" class="btn btn-sm">Settings → Storage</NuxtLink>
+      </template>
+    </WorkspaceNotice>
+
     <WorkspaceNotice v-if="initialLoading" title="Loading verified project status" tone="info">
       The cached episode inventory appears immediately on return visits.
     </WorkspaceNotice>
@@ -240,6 +260,14 @@ useAppTitle('Dashboard')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { project } = useProject()
+
+// v1.4.2 — the reachability fact the backend already computed, surfaced. Only an
+// explicit `false` counts: an older backend, or a response that predates the
+// field, must read as "unknown" and stay silent rather than accusing a healthy
+// project of having lost its folder.
+const outputRootMissing = computed(() => (project.value as any)?.output_root_exists === false)
+const outputRootPath = computed(() => (project.value as any)?.output_root_resolved
+  || (project.value as any)?.output_root || '')
 const { get } = useApi()
 const { stats: jobStats, jobsStale } = useJobs()
 const {

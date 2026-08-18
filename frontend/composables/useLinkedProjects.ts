@@ -1,15 +1,32 @@
 /**
  * Reactive bridge to the backend's linked-projects registry. Powers:
  *
- *   - All Projects page → location chips + "Add existing project folder…"
  *   - Project tab → "Move this project to…" dialog
+ *   - Project tab → "Unlink from this Mac"
  *
  * The registry is per-Mac (stored in app-settings.json on the backend).
  * That means different Macs can each link a different subset of project
  * folders — Mac A can link only one channel from iCloud while Mac B
  * links several. This composable just shows what the current Mac knows
- * about; cross-Mac discovery happens via the "Add existing project
- * folder…" picker.
+ * about.
+ *
+ * ── `add()` has no caller, and is kept deliberately (v1.4.2) ──
+ *
+ * It POSTs `/linked-projects`, which was the "Add existing project folder…"
+ * picker on the All Projects page. That button was removed on 2026-08-08 and
+ * `frontend/__tests__/channelCreationFlow.test.ts` asserts it stays removed, so
+ * `add()` currently has zero callers.
+ *
+ * It is KEPT rather than deleted because the backend route is the only way to
+ * register a project folder that lives OUTSIDE the projects root, and the
+ * filesystem scan that replaced the picker cannot do that — it only reads the
+ * projects root. Deleting this would remove the mechanism as well as the
+ * button, and `moveProject` still creates linked projects that this registry
+ * has to describe. Cross-Mac discovery is now "put the folder in your projects
+ * folder"; this remains the escape hatch for a folder that cannot move.
+ *
+ * If a future release restores an out-of-tree picker, this is what it calls.
+ * Do not describe it in UI text meanwhile — there is no button to press.
  */
 
 import { ref } from 'vue'

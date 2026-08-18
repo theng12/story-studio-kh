@@ -30,15 +30,19 @@ export const featureGuides: Record<string, FeatureGuide> = {
   projects: {
     title: 'Projects',
     summary: 'Create, open, relocate, and recover Story Studio channels. Each project keeps its own episodes, presets, styles, and production files.',
-    workflow: ['Open an existing project or add its folder.', 'Create a project when starting a new channel.', 'Use Settings inside a project for channel-specific configuration.'],
+    workflow: ['Open an existing project, or put its folder in your projects folder for it to appear.', 'Create a project when starting a new channel.', 'Use Settings inside a project for channel-specific configuration.'],
     topics: [
       { title: 'Project card', purpose: 'Opens that channel workspace and shows whether its folder is available.', useWhen: 'Use it whenever you want to continue production for a channel.' },
-      { title: 'Add existing project folder', purpose: 'Registers a project that already exists on disk without moving or copying it.', useWhen: 'Use after moving a project, restoring a backup, or sharing a project between Macs.' },
+      // v1.4.2 — this described a button removed on 2026-08-08. Project
+      // discovery is a filesystem scan, so the honest answer is where to put the
+      // folder, not which button to press.
+      { title: 'Adding a project that already exists on disk', purpose: 'Story Studio finds any folder in your projects folder that contains a project.json, so a project you copied or restored appears on its own.', useWhen: 'Use after restoring a backup or moving a project between Macs. Settings → Storage shows where your projects folder is.' },
+      { title: 'Hidden channels', purpose: 'Lists channels removed from the list with Hide project, and restores them without touching any files.', useWhen: 'Use when a channel you hid needs to come back.' },
       { title: 'New Project', purpose: 'Creates the channel structure, production format, and initial settings.', effect: 'A new project folder and project record are created.' },
       { title: 'Usage', purpose: 'Shows GenStudio-authoritative credits, reservations, and completed settlement activity.' },
       { title: 'Settings', purpose: 'Opens settings that belong to this Mac, including appearance, remote access, and the GenStudio connection.' },
     ],
-    tips: ['Removing a project from the app is different from deleting its files. Use project controls rather than deleting folders blindly.', 'A missing-folder warning means the project record is safe but its disk location needs to be reconnected.'],
+    tips: ['Removing a project from the app is different from deleting its files. Use project controls rather than deleting folders blindly.', 'A "Folder missing" badge means the project record is safe but the episodes folder it points at is not there — the path is named on the project page so you can move the folder back or repoint it in Settings → Storage.'],
   },
   dashboard: {
     title: 'Project Dashboard',

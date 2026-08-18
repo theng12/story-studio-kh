@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.2 — 2026-08-19
+
+- **A channel whose episodes folder has gone missing now says so.** If the folder a project points at is not there, the channel card shows **Folder missing** and names the exact path it looked for, and the project page says the same thing at the top. Until now that project looked completely normal and simply had no episodes in it — the app had already worked out the folder was missing and never mentioned it. Your files are not lost when this happens; the app just cannot see where they went.
+- **Nothing guesses a replacement folder.** The path is named and you decide. Guessing is exactly the wrong move here: one real case had an empty `episodes` folder sitting right where you would expect it while the actual episodes were in a folder next door, so an automatic fix would have quietly pointed the project at nothing and called it done.
+- **The app stopped telling you to press a button that no longer exists.** Four places — including the confirmation dialogs for *unlinking* and *hiding* a project — told you to recover it later with "Add existing project folder…", which was removed from the All Projects page some time ago. Following that advice left you with no way back at all. They now describe what actually works: put the folder in your projects folder and Story Studio finds it by itself. Settings → Storage shows where that folder is.
+- **Hiding a channel has a way back again.** "Hide project (keep files)" is still there, but the panel that restored hidden channels had disappeared, which quietly turned hiding into a one-way door — the files stayed safe on disk and became unreachable from the app. The **🗑️ Hidden channels** panel is back on the All Projects page, with **Restore** on each one.
+- **Imported projects are now recorded in a way that survives moving to another Mac.** Importing a folder used to write down its full path, including your username and drive — which stops working the moment either changes. When the folder lives in your projects folder it is now recorded relative to the project instead, so it keeps working after a move. A folder on an external drive is still recorded in full, because that is the honest answer for it.
+- Checked while in there: **"Move this project to…" was never the cause of this** and cannot re-create it — it relocates the folder and never rewrites the episodes path.
+
+---
+
 ## v1.4.1 — 2026-08-18
 
 - **Your overlay effects can travel between episodes; their timing cannot.** You said overlays should belong to episodes but still live in presets so you can randomise the effects. Both are true now: a preset carries the overlay itself — which file, its opacity, size, position, blend and looping — and each episode keeps its own answer to *when* that overlay appears. A 12-second flourish placed over the closing line of a 16-minute episode was landing mid-sentence in a 9-minute one.
