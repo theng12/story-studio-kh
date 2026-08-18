@@ -1,17 +1,27 @@
 /**
- * Filesystem helpers that survive the quirks of cloud-synced folders
- * (iCloud Drive, Google Drive Desktop, OneDrive).
+ * Crash-safe file writes, and a plain "is this asset really here?" check.
  *
- *   writeAtomic(path, data)    → write to sibling tmp then rename, so a
- *                                 mid-write sync can't pick up a half-file.
- *   isFileMaterialized(path)   → check the file is actually on disk, not an
- *                                 iCloud "optimize storage" placeholder.
+ * ── What changed in v1.4.3 ──
  *
- * Kept deliberately small and dependency-free; the named-roots + path
- * resolver code lean on these for every manifest / config write.
+ * This module used to be about cloud-synced folders. iCloud Drive, Google Drive
+ * and OneDrive replace a file on disk with a zero-byte placeholder when they
+ * decide it can be evicted, so `existsSync` returned true for files that could
+ * not be read; half of this file existed to detect that.
+ *
+ * iCloud support is withdrawn — *"we now no longer offer icloud sync or
+ * anything of that kind. it is so unreliable."* — so the placeholder detection
+ * is gone and `checkAssetAvailability` gives a two-state answer: the file is
+ * usable, or it is not.
+ *
+ * `writeAtomic` STAYS, and cloud sync was never really its reason. Writing to a
+ * sibling temp file and renaming is what stops a config or a manifest being
+ * left half-written when the app is killed or the machine loses power — a
+ * rename is atomic per POSIX, so a reader sees the old file or the new one and
+ * never a torn one. Deleting it because iCloud left would have been a
+ * regression dressed up as a simplification.
  */
 
-import { promises as fs, statSync, existsSync } from 'fs'
+import { promises as fs, statSync } from 'fs'
 import path from 'path'
 
 /**
@@ -53,98 +63,28 @@ export async function writeAtomic(dest: string, data: string | Buffer): Promise<
 }
 
 /**
- * True when the file at `p` is actually downloaded to the local disk
- * (vs. an iCloud placeholder where existsSync returns true but reads
- * fail with ENOENT-style errors until the sync daemon fetches it).
+ * Is this asset actually usable?
  *
- * Heuristic — no one API reports this reliably across providers:
- *   1. must exist
- *   2. must report a non-zero size
- *   3. on macOS, reject files whose name starts with `.` and ends with
- *      `.icloud` (iCloud's placeholder-file naming convention)
+ * Two states, not three. The middle one used to be "an iCloud placeholder is
+ * sitting where your file should be, go and download it", which cannot happen
+ * now that the app does not expect to live in a synced folder.
  *
- * Returns false for symlinks that dangle and for directories.
- */
-/**
- * True iff `name` is an iCloud placeholder filename (e.g. macOS replaces
- * `foo.docx` on disk with `.foo.docx.icloud` while it's only synced-in-cloud,
- * not yet downloaded). Operates on the bare basename — caller's responsibility
- * to pass the leaf, not a path.
- */
-export function isICloudPlaceholderName(name: string): boolean {
-  return name.startsWith('.') && name.endsWith('.icloud')
-}
-
-/**
- * Given a leaf filename, return the underlying real filename it represents
- * if it's an iCloud placeholder; otherwise return the input unchanged.
+ * A zero-byte file still counts as missing: a half-written file and an absent
+ * one are the same problem for anything that has to read it, and reporting
+ * "available" for something ffmpeg will choke on helps nobody.
  *
- * `.foo.docx.icloud` → `foo.docx`. Useful for *name-based* detection
- * (e.g. "is there a *.docx in this folder?") so a synced-but-not-yet-
- * downloaded file still counts as present. Do NOT use this to build a
- * read path — use `isFileMaterialized` / `checkAssetAvailability` for
- * that, since the unwrapped name does not exist on disk yet.
- */
-export function unwrapICloudPlaceholderName(name: string): string {
-  if (!isICloudPlaceholderName(name)) return name
-  return name.slice(1, -'.icloud'.length)
-}
-
-export function isFileMaterialized(p: string): boolean {
-  if (!existsSync(p)) return false
-  try {
-    const st = statSync(p)
-    if (!st.isFile()) return false
-    if (st.size === 0) return false
-  } catch {
-    return false
-  }
-  const base = path.basename(p)
-  if (base.startsWith('.') && base.endsWith('.icloud')) return false
-  return true
-}
-
-/**
- * Given an asset path the user referenced, return the actual path to read
- * — if iCloud replaced `foo.png` with `.foo.png.icloud`, point at the
- * placeholder so callers can surface "trigger iCloud download" messaging.
- * Returns the original path unchanged when the asset is fully available.
- */
-export function findICloudPlaceholder(p: string): string | null {
-  const dir = path.dirname(p)
-  const base = path.basename(p)
-  const placeholder = path.join(dir, `.${base}.icloud`)
-  return existsSync(placeholder) ? placeholder : null
-}
-
-/**
- * Availability check for asset paths at generator boundaries. Replaces a
- * plain `existsSync(path)` with a tri-state result so callers can show a
- * targeted error for each failure mode:
- *
- *   - `available`   → file is on disk and readable (bytes present).
- *   - `placeholder` → file is currently an iCloud "optimize storage"
- *                     placeholder. The user needs to trigger a download
- *                     (double-click in Finder) before retrying.
- *   - `missing`     → neither the file nor a placeholder exists.
- *
- * The `message` field is a user-facing string generators can push into the
- * job output lines — opinionated but safe to tweak per caller.
+ * The `message` is user-facing — generators push it straight into job output.
  */
 export interface AssetAvailability {
-  status: 'available' | 'placeholder' | 'missing'
+  status: 'available' | 'missing'
   message?: string
 }
 
 export function checkAssetAvailability(p: string, label = 'asset'): AssetAvailability {
-  if (isFileMaterialized(p)) return { status: 'available' }
-  const placeholder = findICloudPlaceholder(p)
-  if (placeholder) {
-    return {
-      status: 'placeholder',
-      message: `⚠ ${label} not downloaded yet: ${p} — open Finder and double-click the file to trigger an iCloud download, then re-run.`,
-    }
-  }
+  try {
+    const st = statSync(p)
+    if (st.isFile() && st.size > 0) return { status: 'available' }
+  } catch { /* fall through to missing */ }
   return {
     status: 'missing',
     message: `⚠ ${label} not found on disk: ${p}`,

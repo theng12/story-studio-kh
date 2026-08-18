@@ -4,13 +4,9 @@
  * Scope:
  *   - Default-location project → deleteProject reports 'soft_deleted',
  *     folder untouched, slug filtered from listProjects.
- *   - Linked project → deleteProject reports 'unlinked', registry
- *     entry cleared, folder untouched.
  *   - listSoftDeletedProjects shows hidden slugs with sizes.
  *   - forgetSoftDeletedProject restores visibility.
  *   - hardDeleteSoftDeletedProject rm's the folder + clears the tombstone.
- *   - Re-adding a linked project that was soft-deleted auto-clears the
- *     tombstone.
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'
@@ -20,7 +16,6 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
-let lp: typeof import('../services/linked-projects.js')
 let sd: typeof import('../services/soft-delete.js')
 let pm: typeof import('../services/project-manager.js')
 let jq: typeof import('../services/job-queue.js')
@@ -50,7 +45,6 @@ describe('soft-delete', () => {
   before(async () => {
     tmp = await useTempDataDir()
     pm = await import('../services/project-manager.js')
-    lp = await import('../services/linked-projects.js')
     sd = await import('../services/soft-delete.js')
     jq = await import('../services/job-queue.js')
   })
@@ -63,7 +57,6 @@ describe('soft-delete', () => {
       await fs.rm(path.join(tmp.dir, name), { recursive: true, force: true }).catch(() => {})
     }
     await fs.mkdir(pm.projectsRoot(), { recursive: true })
-    lp.invalidateLinkedDirCache()
   })
 
   test('deleteProject on default-location → soft_deleted, folder untouched', async () => {
@@ -80,30 +73,9 @@ describe('soft-delete', () => {
     assert.equal(list.length, 0)
   })
 
-  test('deleteProject on linked project → unlinked, folder untouched, no tombstone', async () => {
-    const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'linked-victim')
-    await lp.addLinkedProject(linkedDir)
-    // Sanity: it's in the live list.
-    let list = await pm.listProjects()
-    assert.equal(list.some(p => p.slug === 'linked-victim'), true)
-
-    const result = await pm.deleteProject('linked-victim')
-    assert.equal(result.ok, true)
-    assert.equal(result.disposition, 'unlinked')
-    assert.equal(result.orphan_path, path.resolve(linkedDir))
-    // Folder still on disk.
-    assert.ok(existsSync(linkedDir))
-    // Cleared from linked registry.
-    const paths = await lp.getLinkedProjectPaths()
-    assert.equal(paths.includes(path.resolve(linkedDir)), false)
-    // No tombstone (linked deletes don't create one — re-adding would
-    // bring it back via the registry, no auto-undelete needed).
-    const tombstones = await sd.listSoftDeletedProjects()
-    assert.equal(tombstones.length, 0)
-    // Hidden from list.
-    list = await pm.listProjects()
-    assert.equal(list.length, 0)
-  })
+  // v1.4.3 — the 'deleteProject on linked project → unlinked' test was removed
+  // with the concept. Every project lives in the Library now, so there is one
+  // disposition and no registry to unregister from.
 
   test('listSoftDeletedProjects surfaces hidden default-location projects', async () => {
     await seedProject(pm.projectsRoot(), 'tomb-A')
@@ -158,7 +130,7 @@ describe('soft-delete', () => {
     )
   })
 
-  test('active and unsettled provider jobs block soft-delete, unlink, and hard-delete', async () => {
+  test('active and unsettled provider jobs block soft-delete and hard-delete', async () => {
     for (const status of ['queued', 'running', 'paused']) {
       const slug = `active-${status}`
       const dir = await seedProject(pm.projectsRoot(), slug)
@@ -169,12 +141,6 @@ describe('soft-delete', () => {
       await assert.rejects(() => sd.hardDeleteSoftDeletedProject(slug), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
       assert.ok(existsSync(dir))
     }
-
-    const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'accepted-linked')
-    await seedJob(linkedDir, 'error', 'running')
-    await lp.addLinkedProject(linkedDir)
-    await assert.rejects(() => lp.removeLinkedProject(linkedDir), (e: any) => e?.statusCode === 409 && /job/i.test(e.message))
-    assert.ok((await lp.getLinkedProjectPaths()).includes(path.resolve(linkedDir)))
   })
 
   test('fully settled terminal provider evidence permits the existing delete flow', async () => {
@@ -185,15 +151,14 @@ describe('soft-delete', () => {
     assert.equal(existsSync(dir), false)
   })
 
-  test('delete, hard-delete, and unlink routes return 409 without removing guarded job evidence', async () => {
+  test('delete and hard-delete routes return 409 without removing guarded job evidence', async () => {
     const express = (await import('express')).default
     const request = (await import('supertest')).default
     const projectsRouter = (await import('../routes/projects.js')).router
     const softDeletedRouter = (await import('../routes/soft-deleted-projects.js')).router
-    const linkedRouter = (await import('../routes/linked-projects.js')).router
     const app = express()
     app.use(express.json())
-    app.use('/api', projectsRouter, softDeletedRouter, linkedRouter)
+    app.use('/api', projectsRouter, softDeletedRouter)
 
     const defaultDir = await seedProject(pm.projectsRoot(), 'route-active')
     await sd.softDeleteProject('route-active')
@@ -204,61 +169,34 @@ describe('soft-delete', () => {
     const hard = await request(app).delete('/api/soft-deleted-projects/route-active')
     assert.equal(hard.status, 409)
     assert.ok(existsSync(defaultDir))
-
-    const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'route-linked')
-    await seedJob(linkedDir, 'error', 'running')
-    await lp.addLinkedProject(linkedDir)
-    const unlink = await request(app).delete('/api/linked-projects').send({ path: linkedDir })
-    assert.equal(unlink.status, 409)
-    assert.ok((await lp.getLinkedProjectPaths()).includes(path.resolve(linkedDir)))
   })
 
-  test('queue insertion blocks immediate soft-delete and unlink before its async snapshot reaches disk', async () => {
+  test('queue insertion blocks immediate soft-delete before its async snapshot reaches disk', async () => {
     const express = (await import('express')).default
     const request = (await import('supertest')).default
     const projectsRouter = (await import('../routes/projects.js')).router
-    const linkedRouter = (await import('../routes/linked-projects.js')).router
     const app = express()
     app.use(express.json())
-    app.use('/api', projectsRouter, linkedRouter)
+    app.use('/api', projectsRouter)
     await jq.setQueuePaused(true)
     let defaultJob: { job_id: string } | undefined
-    let linkedJob: { job_id: string } | undefined
     try {
       const defaultDir = await seedProject(pm.projectsRoot(), 'immediate-queued-delete')
       defaultJob = jq.enqueuePreparedForTest({ project_slug: 'immediate-queued-delete', type: 'audio', episode_id: 'EP0001', title: 'race', params: {} })
       const soft = await request(app).delete('/api/projects/immediate-queued-delete')
       assert.equal(soft.status, 409)
       assert.ok(existsSync(defaultDir), 'the soft-delete mutation must not win the enqueue/persist race')
-
-      const linkedDir = await seedProject(path.join(tmp.dir, 'external'), 'immediate-queued-unlink')
-      await lp.addLinkedProject(linkedDir)
-      linkedJob = jq.enqueuePreparedForTest({ project_slug: 'immediate-queued-unlink', type: 'audio', episode_id: 'EP0001', title: 'race', params: {} })
-      const unlink = await request(app).delete('/api/linked-projects').send({ path: linkedDir })
-      assert.equal(unlink.status, 409)
-      assert.ok((await lp.getLinkedProjectPaths()).includes(path.resolve(linkedDir)))
     } finally {
       if (defaultJob) await jq.requestJobCancellation('immediate-queued-delete', defaultJob.job_id)
-      if (linkedJob) await jq.requestJobCancellation('immediate-queued-unlink', linkedJob.job_id)
       await jq.setQueuePaused(false)
     }
   })
 
-  test('addLinkedProject auto-clears a soft-delete tombstone for its slug', async () => {
-    // Soft-delete a default-location project.
-    await seedProject(pm.projectsRoot(), 'reborn')
-    await pm.deleteProject('reborn')
-    let tombstones = await sd.listSoftDeletedProjects()
-    assert.equal(tombstones.length, 1)
-
-    // Now register an external folder with the same slug — re-adoption
-    // means "I want this back," so the tombstone should clear.
-    const linked = await seedProject(path.join(tmp.dir, 'external'), 'reborn')
-    await lp.addLinkedProject(linked)
-    tombstones = await sd.listSoftDeletedProjects()
-    assert.equal(tombstones.length, 0,
-      'addLinkedProject should auto-clear a matching tombstone')
-  })
+  // v1.4.3 — the 'addLinkedProject auto-clears a tombstone' test went with the
+  // registry. The equivalent path today is `createProject` with the same slug,
+  // covered by the test below; re-adopting a folder by copying it into the
+  // Library does NOT clear a tombstone, which is deliberate and is why the
+  // Hidden channels panel exists.
 
   test('createProject with same slug auto-clears a tombstone', async () => {
     const first = await pm.createProject({ name: 'Phoenix' })

@@ -17,7 +17,6 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { parseImagePromptsDocx } from '../lib/docx-parser.js'
-import { unwrapICloudPlaceholderName } from '../lib/sync-safe.js'
 import {
   resolveEpisodePaths,
   resolveEpisodePathsByCodeWithSidecar,
@@ -134,10 +133,10 @@ export function stripDecorativePrefix(name: string): string {
 // `introduction: false`. New runs always use the sidecar.
 
 export function isIntroductionMarker(filename: string): boolean {
-  // Match against the unwrapped name so an iCloud placeholder
-  // (`.foo.intro.json.icloud`) still counts as "introduction present"
-  // — the file exists, it just hasn't been materialized locally yet.
-  const name = unwrapICloudPlaceholderName(filename)
+  // v1.4.3 — iCloud placeholder names are no longer unwrapped here. The app
+  // does not expect to live in a synced folder, so a `.foo.intro.json.icloud`
+  // stub is not a file that is on its way; it is just not the file.
+  const name = filename
   // Sidecar JSON written by generateIntroductionOnly. Cheap O(1) check.
   if (name.endsWith('.intro.json')) return true
   // Legacy / pre-sidecar intro source file (either extension). Kept as a
@@ -150,10 +149,9 @@ export function isIntroductionMarker(filename: string): boolean {
 export function isScriptChaptersDocx(filename: string): boolean {
   // Any narration artifact (.md current, .docx legacy) that isn't the
   // separate-intro file counts as "script present" — that's the chapters /
-  // unified-narration file, by spec. Unwrap iCloud placeholder names so a
-  // synced-but-not-yet-downloaded file is still detected as present
-  // (otherwise the app would offer to regenerate over a file that's mid-sync).
-  const name = unwrapICloudPlaceholderName(filename)
+  // unified-narration file, by spec. (v1.4.3: no placeholder unwrapping — see
+  // `isIntroductionMarker`.)
+  const name = filename
   return /\.(?:md|docx)$/i.test(name) && !/_Introduction\.(?:md|docx)$/i.test(name)
 }
 
@@ -177,11 +175,12 @@ export function deriveScriptFolderState(files: string[]): ScriptFolderState {
 
 async function hasValidIntroduction(dir: string, files: string[]): Promise<boolean> {
   for (const file of files.filter(isIntroductionMarker)) {
-    const unwrapped = unwrapICloudPlaceholderName(file)
-    if (unwrapped !== file) return true
+    // v1.4.3 — the "this is a placeholder, treat it as present" shortcut is
+    // gone with iCloud support. Every candidate is now judged on its contents,
+    // which is what the check was always meant to do.
     const candidate = path.join(dir, file)
     if (!await fileHasContent(candidate)) continue
-    if (!unwrapped.endsWith('.intro.json')) return true
+    if (!file.endsWith('.intro.json')) return true
     try {
       const marker = JSON.parse(await fs.readFile(candidate, 'utf-8'))
       if (Number(marker?.word_count) > 0) return true

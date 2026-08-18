@@ -16,7 +16,10 @@ describe('Settings workspace navigation', () => {
   test('every Settings surface uses the shared modern panel shell', () => {
     const activeTabPanels = [...settingsSource.matchAll(/activeTab === '([^']+)'[^>]+class="([^"]+)"/g)]
 
-    assert.equal(activeTabPanels.length, 13)
+    // v1.4.3 — 12, not 13. The "Named Roots" tab went with the per-machine
+    // label → folder map it managed: `${ASSET}` now always means the
+    // _Project Assets folder inside the Library, so there is nothing to configure.
+    assert.equal(activeTabPanels.length, 12)
     for (const [, tabId, className] of activeTabPanels) {
       assert.match(className, /settings-panel/, `${tabId} must use the shared Settings panel`)
     }

@@ -20,7 +20,8 @@
  */
 
 import path from 'path'
-import { listNamedRoots } from './named-roots.js'
+import { projectsRoot } from './project-manager.js'
+import { ASSETS_DIR_NAME } from './library.js'
 
 const VAR_RE = /^\$\{([A-Z][A-Z0-9_]*)\}(?:\/(.*))?$/
 
@@ -33,18 +34,33 @@ export function isPortablePath(p: string): boolean {
 }
 
 /**
- * Expand a portable path to an absolute path on the current machine.
+ * The shared-assets folder, resolved synchronously.
  *
- * Returns the original string unchanged if:
- *   - it's already absolute (legacy path, or external asset the user hasn't
- *     migrated yet)
- *   - it's relative but doesn't start with `${...}` (caller passes us
- *     "foo.png" — we leave that to path.resolve semantics elsewhere)
+ * `${ASSET}` is always `<Library>/_Project Assets` (v1.4.3). It used to be
+ * whatever a per-machine `named-roots.json` said, which meant the same preset
+ * resolved to different folders on two Macs and neither one could be checked
+ * from the other. Sync because `resolveAssetPath` is sync and is called from
+ * dozens of render paths.
+ */
+export function assetsRoot(): string {
+  return path.join(projectsRoot(), ASSETS_DIR_NAME)
+}
+
+/**
+ * Expand a portable path to an absolute path on this machine.
  *
- * Throws if the variable name is used but not defined locally. This is
- * intentional — we want the render to fail loudly with a clear "define
- * ${NAME} in Settings → Named Roots" message, rather than silently
- * searching for a file that can't exist.
+ * Two tokens exist, and only two:
+ *   `${PROJECT}` — this episode's own project output root.
+ *   `${ASSET}`   — the Library's shared assets folder.
+ *
+ * v1.4.3 removed arbitrary `${NAME}` tokens backed by a per-machine map. They
+ * were the fourth location concept, and the one that made a project
+ * non-portable in the exact situation portability was for: carry the project to
+ * another Mac and `${TERRANASH}` meant nothing there until someone re-declared
+ * it by hand.
+ *
+ * An unknown token still throws rather than resolving to something plausible —
+ * silently searching for a file that cannot exist is how a render half-succeeds.
  */
 export function resolveAssetPath(p: string, projectOutputRoot?: string): string {
   if (typeof p !== 'string' || p.length === 0) return p
@@ -57,13 +73,15 @@ export function resolveAssetPath(p: string, projectOutputRoot?: string): string 
       throw new Error(`Cannot resolve ${p}: PROJECT variable requires an output_root context.`)
     }
     base = projectOutputRoot
+  } else if (name === 'ASSET') {
+    base = assetsRoot()
   } else {
-    const roots = listNamedRoots()
-    const hit = roots[name]
-    if (!hit) {
-      throw new Error(`Named root ${name} is not defined on this machine. Define it in Settings → Named Roots.`)
-    }
-    base = hit
+    throw new Error(
+      `Cannot resolve ${p}: "${name}" is not a folder Story Studio knows about. `
+      + 'Custom folder labels were retired in 1.4.3 — shared files now live in your Library\'s '
+      + '"_Project Assets" folder and are written as ${ASSET}/…. '
+      + `Move the files this preset needs into _Project Assets and point it at \${ASSET}/ instead.`,
+    )
   }
   return rel ? path.join(base, rel) : base
 }
@@ -73,7 +91,7 @@ export function resolveAssetPath(p: string, projectOutputRoot?: string): string 
  *
  * Preference order (most specific wins):
  *   1. If the path is inside projectOutputRoot → `${PROJECT}/rel`
- *   2. If it's inside any named root             → `${NAME}/rel`
+ *   2. If it's inside the Library's assets folder → `${ASSET}/rel`
  *   3. Otherwise                                 → return absolute unchanged
  *
  * Comparison is done on normalised absolute paths with a trailing
@@ -91,16 +109,11 @@ export function toPortablePath(abs: string, projectOutputRoot?: string): string 
     if (rel !== null) return rel ? `\${PROJECT}/${rel}` : '${PROJECT}'
   }
 
-  // Choose the longest matching root so nested mappings (e.g.
-  // SHARED_ASSETS → /foo and CHANNEL_ASSETS → /foo/channel) pick the
-  // most specific one.
-  const roots = Object.entries(listNamedRoots())
-    .filter(([, v]) => path.isAbsolute(v))
-    .sort(([, a], [, b]) => b.length - a.length)
-
-  for (const [name, rootPath] of roots) {
-    const rel = relativeIfInside(normAbs, path.normalize(rootPath))
-    if (rel !== null) return rel ? `\${${name}}/${rel}` : `\${${name}}`
+  // v1.4.3 — one shared folder instead of a map of user-declared ones.
+  const assets = assetsRoot()
+  if (path.isAbsolute(assets)) {
+    const rel = relativeIfInside(normAbs, path.normalize(assets))
+    if (rel !== null) return rel ? `\${ASSET}/${rel}` : '${ASSET}'
   }
 
   return abs

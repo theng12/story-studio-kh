@@ -64,13 +64,21 @@ test('the honest recovery route is described instead', () => {
   assert.match(settings, /Settings\s*(→|>)\s*Storage/i)
 })
 
-test('the unlink confirmation does not promise a route that does not exist', () => {
-  // This one matters most: it is the dialog shown while making a project
-  // unreachable, so a false promise here is acted on immediately.
-  const dialog = settings.slice(settings.indexOf('Unlink project from this Mac?'))
-  const body = dialog.slice(0, 1200)
-  assert.ok(!/Add existing project folder/.test(withoutComments(body)))
-  assert.match(body, /projects folder/i)
+test('the unlink flow is gone entirely, not merely reworded', () => {
+  // v1.4.3 replaced this test's subject rather than its intent. The 1.4.2 fix
+  // corrected a confirmation dialog that promised a recovery route which no
+  // longer existed; 1.4.3 removed the whole idea of a project living outside
+  // the Library, so there is nothing to unlink FROM and no dialog to word.
+  //
+  // Asserted as an absence because the failure mode is someone reinstating it
+  // from the old comments without the owner's instruction: *"i don't want
+  // connection like in the past where i have to link and stuff."*
+  const live = withoutComments(settings)
+  assert.ok(!/Unlink project from this Mac\?/.test(live), 'the unlink confirmation is back')
+  assert.ok(!/unlinkFromThisMac/.test(live), 'the unlink handler is back')
+  assert.ok(!/useLinkedProjects/.test(live), 'the linked-projects client is back')
+  // And the honest replacement is stated: a channel is a folder in the Library.
+  assert.match(settings, /folder in your Library/i)
 })
 
 test('hiding a project has a way back, and Settings names it', () => {

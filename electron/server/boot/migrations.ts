@@ -19,6 +19,17 @@ export function isBootComplete(): boolean { return bootComplete }
 export function runBootMigrations(): void {
   const tasks: Promise<unknown>[] = []
 
+  // v1.4.3 — fold the four retired location settings into the Library. Reports
+  // anything still living outside it rather than moving a single file; see
+  // services/library-migration.ts for why that asymmetry is deliberate.
+  tasks.push((async () => {
+    const { migrateLegacyLocationSettings } = await import('../services/library-migration.js')
+    const notices = await migrateLegacyLocationSettings()
+    if (notices.length) {
+      console.log(`[boot] library migration: ${notices.length} notice(s) recorded for the customer`)
+    }
+  })().catch(error => console.error('[boot] library migration failed:', error?.message || error)))
+
   tasks.push((async () => {
     const { getAllDisabledEndpoints } = await import('../services/app-settings.js')
     const { setDisabledEndpoints } = await import('../lib/endpoint-pool.js')

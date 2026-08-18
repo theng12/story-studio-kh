@@ -712,17 +712,15 @@
           <a class="overview-card" href="#projects-root-section" @click.prevent="scrollTo('projects-root-section')">
             <div class="overview-card-head">
               <span class="overview-card-icon">📁</span>
-              <strong>Project library</strong>
-              <span :class="['overview-badge', projectsRoot?.is_overridden ? 'on' : 'off']">
-                {{ projectsRoot?.is_overridden ? 'CUSTOM' : 'DEFAULT' }}
+              <strong>Your Library</strong>
+              <span :class="['overview-badge', library && !library.exists ? 'on' : 'off']">
+                {{ library && !library.exists ? 'NOT FOUND' : 'IN USE' }}
               </span>
             </div>
             <p class="overview-card-desc">
-              {{ projectsRoot?.is_overridden
-                ? 'All project metadata and co-located assets start from this custom folder.'
-                : 'Uses Story Studio’s standard project folder on this Mac.' }}
+              Every channel, your shared assets and your finished videos live in one folder.
             </p>
-            <code class="overview-card-path">{{ projectsRoot?.effective_path || '(loading)' }}</code>
+            <code class="overview-card-path">{{ library?.path || '(loading)' }}</code>
           </a>
 
           <a class="overview-card" href="#external-video-section" @click.prevent="scrollTo('external-video-section')">
@@ -803,66 +801,37 @@
       </div>
 
       <!-- ── Projects storage location ──────────────────────────── -->
-      <!-- Lets the user point the projects folder at any local path —
-           typically inside iCloud Drive / Dropbox / Google Drive so
-           the OS handles cross-machine sync. Per-machine setting
-           (lives in app-settings.json which doesn't sync). -->
+      <!-- v1.4.3 — one Library. This replaced the projects-root override, the
+           per-Mac register of outside folders, the named-roots map and the
+           free-floating export root. Changing it copies every channel across,
+           which is why it is a deliberate action and not an inline edit. -->
       <div id="projects-root-section" class="storage-section storage-surface">
-        <h4><span class="storage-section-icon" aria-hidden="true">📁</span>Projects storage location</h4>
+        <h4><span class="storage-section-icon" aria-hidden="true">📁</span>Your Library</h4>
         <p class="text-muted hint">
-          Where this Mac stores your projects. Move it to an iCloud Drive
-          (or Dropbox / Google Drive) folder to work across machines.
-          The app restarts after the move to pick up the new location.
-        </p>
-        <p class="text-muted voice-helper-line">
-          💡 Tip: For cross-machine sync, point this at a folder inside
-          <code>~/Library/Mobile Documents/com~apple~CloudDocs/</code>
-          (your iCloud Drive). Final videos can stay off iCloud using the
-          External final-video root below.
+          Everything Story Studio makes lives here: one folder per channel, a
+          <code>_Project Assets</code> folder for files you share between channels, and an
+          <code>Exports</code> folder for finished videos. Copy a channel folder in and it appears
+          in the list; take it out and it is gone.
         </p>
         <div class="projects-root-row">
           <div class="projects-root-info">
             <div class="projects-root-current">
-              <strong>{{ projectsRoot?.effective_path || 'Loading…' }}</strong>
-              <span v-if="projectsRoot" :class="['root-badge', projectsRoot.is_overridden ? 'custom' : 'default']">
-                {{ projectsRoot.is_overridden ? 'CUSTOM' : 'DEFAULT' }}
-              </span>
+              <strong>{{ library?.path || 'Loading…' }}</strong>
+              <span v-if="library && !library.exists" class="root-badge custom">NOT FOUND</span>
             </div>
-            <div v-if="projectsRoot?.is_overridden" class="projects-root-default-note">
-              Default location: <code>{{ projectsRoot.default_path }}</code>
+            <div v-if="library && !library.exists" class="projects-root-default-note">
+              Story Studio looked here and the folder is not there. If it is on a drive that is
+              not plugged in, reconnect it — nothing has been lost.
             </div>
           </div>
         </div>
         <div class="projects-root-actions">
           <button
-            class="btn btn-primary btn-sm"
+            class="btn btn-secondary"
             :disabled="projectsRootBusy"
-            title="First-machine setup: copies your existing projects to the chosen location. Opens the macOS folder picker (only works in the packaged app — not in dev/tsx mode)."
-            @click="browseAndMoveProjectsRoot"
-          >
-            📂 Browse + move projects there & restart
-          </button>
-          <button
-            class="btn btn-secondary btn-sm"
-            :disabled="projectsRootBusy"
-            title="Second-machine setup: point at a folder that already has projects (e.g. an iCloud-synced folder from another Mac). Doesn't copy anything. Opens the macOS folder picker (only works in the packaged app)."
-            @click="browseAndUseExistingProjectsRoot"
-          >
-            📂 Use existing folder (no copy)
-          </button>
-          <button
-            v-if="projectsRoot?.is_overridden"
-            class="btn btn-secondary btn-sm"
-            :disabled="projectsRootBusy"
-            title="Stop using the custom path; the app will read from the default location after restart"
-            @click="resetProjectsRoot"
-          >
-            Reset to default
-          </button>
+            @click="browseAndMoveLibrary"
+          >📂 Move my Library somewhere else</button>
         </div>
-        <!-- (Removed: duplicate per-section warnings panel. The same
-             content is in the top-of-tab Cloud sync overview card now,
-             so it doesn't have to be re-disclosed in every section.) -->
         <div v-if="projectsRootStatus" :class="['projects-root-status', projectsRootStatusKind]">
           {{ projectsRootStatus }}
         </div>
@@ -969,9 +938,8 @@
           thumbnails, audio, merged audio, final video — to a separate root
           (typically an external SSD), keeping the light artifacts (scripts,
           metadata, prompts, subtitles) in the project / iCloud tree. Use a
-          portable token like <code>${MEDIA}</code> so the same project works
-          across Macs — set where it points on each machine under
-          <a href="#" @click.prevent="activeTab = 'roots'">Named Roots</a>.
+          portable token like <code>${ASSET}</code> so the same project works on any Mac —
+          it always means the <code>_Project Assets</code> folder inside your Library.
           Leave blank to keep everything under the project's output folder (the default).
         </p>
         <div class="external-root-row">
@@ -1607,69 +1575,12 @@
       </div>
     </div>
 
-    <!-- Named Roots -->
-    <div v-if="activeTab === 'roots'" class="card settings-panel mt-2">
-      <h3>Named Roots</h3>
-      <p class="text-muted mt-1 mb-2" style="font-size: 12px;">
-        Map a label (e.g. <code>TERRANASH</code>) to a folder on <em>this</em> computer.
-        Presets that reference <code>{{ '${TERRANASH}/logo.png' }}</code> will resolve to that folder
-        here, and to a different absolute path on another machine — so you can sync projects via
-        iCloud / Google Drive / OneDrive without rebinding every shared asset.
-        The list is stored locally and <strong>never synced</strong>.
-        <code>{{ '${PROJECT}' }}</code> is reserved and always points at the current project's output folder.
-      </p>
-
-      <div class="mt-2">
-        <table class="edit-table">
-          <thead>
-            <tr><th style="width: 24%;">Name</th><th>Folder on this machine</th><th style="width: 1%;"></th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="(p, name) in namedRoots" :key="name">
-              <td><code>{{ '${' + name + '}' }}</code></td>
-              <td><code class="path-display">{{ p }}</code></td>
-              <td>
-                <button class="btn btn-sm btn-danger" @click="removeNamedRoot(name)">Remove</button>
-              </td>
-            </tr>
-            <tr v-if="!Object.keys(namedRoots).length">
-              <td colspan="3" class="text-muted" style="font-size: var(--font-xs);">
-                No named roots defined yet. Add one below to start using portable preset paths.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="form-group mt-3">
-        <label>Add named root</label>
-        <div class="flex gap-2 items-center" style="flex-wrap:wrap">
-          <input
-            v-model="newRootName"
-            class="input input-sm"
-            placeholder="TERRANASH"
-            style="width: 180px; font-family: monospace; text-transform: uppercase;"
-          />
-          <button class="btn btn-sm btn-secondary" :disabled="!newRootName || pickingRootFolder" @click="pickRootFolder">
-            {{ pickingRootFolder ? 'Picking…' : '📂 Pick folder' }}
-          </button>
-          <code v-if="newRootPath" class="path-display">{{ newRootPath }}</code>
-        </div>
-        <span class="text-muted" style="font-size: var(--font-xs);">
-          Letters A–Z, digits, and underscores. Start with a letter. Reserved: <code>PROJECT</code>.
-        </span>
-      </div>
-      <div class="flex gap-2" style="align-items: center;">
-        <button
-          class="btn btn-primary"
-          :disabled="!newRootName || !newRootPath || savingRoot"
-          @click="saveNamedRoot"
-        >
-          {{ savingRoot ? 'Saving…' : 'Add Root' }}
-        </button>
-        <SaveIndicator v-bind="savedHintProps('roots')" />
-      </div>
-    </div>
+    <!-- v1.4.3 — the Named Roots tab is gone. It mapped labels like
+         ${TERRANASH} to a folder on THIS Mac, which made a project
+         non-portable in exactly the situation portability was for: carry it to
+         another machine and the label meant nothing until someone re-declared
+         it by hand. Shared files now live at <Library>/_Project Assets and are
+         written as ${ASSET}/…, which needs no per-machine setup. -->
 
     <!-- Project -->
     <div v-if="activeTab === 'project'" class="card settings-panel mt-2">
@@ -1870,176 +1781,18 @@
           <button class="btn btn-sm btn-secondary" :disabled="!projectLocation" @click="revealInFinder">
             📂 Open in Finder
           </button>
-          <!-- Move THIS PROJECT to a different folder. Distinct from the
-               Storage tab's global "Move projects to…" — that one moves
-               every project at once; this lets the operator pick a
-               destination just for this one project (e.g. one channel to
-               iCloud, another stays local). The destination is
-               registered as a linked path so the slug keeps resolving
-               after the move. -->
-          <button
-            class="btn btn-sm btn-secondary"
-            :disabled="moveProjectDialogOpen || moveProjectMigrating"
-            title="Move this project's folder to a different location (iCloud, an external drive, anywhere). Doesn't affect other projects. Choose whether to delete the source after a successful copy."
-            @click="openMoveProjectDialog"
-          >📦 Move this project to…</button>
         </div>
-        <span class="text-muted" style="font-size: var(--font-xs)">
-          Story Studio reads and writes all generated files here. Don't move this folder —
-          if you do, use <strong>Repair Folder Structure</strong> below.
-        </span>
-      </div>
-
-      <!-- Move-this-project-to dialog. This relocates the project's ENTIRE folder
-           (metadata + assets) to a chosen destination, then registers
-           it as a linked project so its slug keeps resolving after the
-           move. Powers the per-project "one channel to iCloud while
-           another stays local" workflow. -->
-      <div v-if="moveProjectDialogOpen" class="modal-overlay" @click.self="closeMoveProjectDialog">
-        <div class="modal" style="max-width: 660px;">
-          <h2>Move this project to…</h2>
-          <p class="text-muted mt-1" style="font-size: 13px;">
-            Moves the entire project folder (metadata + assets) to the destination of your choice.
-            The new location is registered as a linked folder so this Mac keeps finding the
-            project by slug. Other projects are unaffected.
-          </p>
-
-          <div v-if="moveProjectStatus" class="move-assets-summary mt-2">
-            <div class="move-assets-row">
-              <span class="text-muted">From</span>
-              <code class="path-display">{{ moveProjectStatus.current_path }}</code>
-            </div>
-            <div class="move-assets-row">
-              <span class="text-muted">Size</span>
-              <span>
-                {{ formatBytes(moveProjectStatus.estimated_bytes || 0) }}
-                across {{ moveProjectStatus.estimated_files || 0 }} file(s)
-              </span>
-            </div>
-          </div>
-
-          <div class="flex gap-2 mt-2" style="align-items: stretch; flex-wrap: wrap;">
-            <input
-              v-model="moveProjectDest"
-              class="input"
-              placeholder="Absolute parent folder for the project — the project's slug becomes a sub-folder there"
-              style="flex: 1; min-width: 280px;"
-            />
-            <button class="btn btn-secondary btn-sm" @click="browseMoveProjectDest">Browse…</button>
-          </div>
-          <p class="text-muted mt-1" style="font-size: var(--font-xs);">
-            The project lands at <code class="path-display">{{ moveProjectDest ? moveProjectDest + '/' + (moveProjectStatus?.current_path?.split('/').pop() || project?.slug || '') : '(pick a destination first)' }}</code>.
-          </p>
-
-          <div
-            v-if="moveProjectStatus?.icloud_blockers?.length"
-            class="move-assets-blockers mt-2"
-          >
-            <strong>⛔ Blocked — fix before retrying:</strong>
-            <p class="text-muted" style="font-size: var(--font-xs); margin: 4px 0;">
-              {{ moveProjectStatus.icloud_blockers.length }} file(s) in this project are
-              iCloud placeholders (not downloaded to this Mac). Right-click the project folder
-              in Finder → "Download Now", wait for every file to lose the cloud icon, then retry.
-            </p>
-            <ul style="font-size: var(--font-xs); margin: 4px 0 0 18px; padding: 0;">
-              <li v-for="(b, i) in moveProjectStatus.icloud_blockers.slice(0, 5)" :key="i">
-                <code>{{ b }}</code>
-              </li>
-            </ul>
-          </div>
-
-          <label class="flex gap-2 mt-2" style="align-items: center; font-size: 12px;">
-            <input type="checkbox" v-model="moveProjectDeleteSource" />
-            <span>
-              <strong>Delete the original folder after a successful copy.</strong>
-              Off by default — the source is kept (renamed with a <code>.bak-&lt;timestamp&gt;</code>
-              suffix when it's in the default location, or left in place when it's already linked)
-              so you can verify the move before reclaiming the space.
-            </span>
-          </label>
-
-          <div v-if="moveProjectError" class="move-assets-error mt-2">{{ moveProjectError }}</div>
-
-          <div class="flex gap-2 mt-3" style="justify-content: flex-end;">
-            <button
-              class="btn btn-secondary"
-              :disabled="moveProjectMigrating"
-              @click="closeMoveProjectDialog"
-            >Cancel</button>
-            <button
-              class="btn btn-primary"
-              :disabled="
-                moveProjectMigrating
-                  || !moveProjectDest
-                  || (moveProjectStatus?.icloud_blockers?.length ?? 0) > 0
-              "
-              @click="runMoveProject"
-            >
-              {{ moveProjectMigrating ? 'Moving…' : 'Move now' }}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex gap-2" style="align-items: center;">
-        <button class="btn btn-primary" @click="saveProject">Save Project Settings</button>
-        <SaveIndicator v-bind="savedHintProps('project')" />
-      </div>
-
-      <!-- Sync Folders -->
-      <div class="sync-zone mt-3">
-        <h3>Repair Folder Structure</h3>
-        <p class="text-muted mt-1">
-          If your episode folders look off — missing subfolders, misplaced files, or
-          you moved something by hand — click this to rebuild the expected layout.
-          <strong>Nothing is deleted;</strong> files are only created or moved into place.
+        <!-- v1.4.3 — "Move this project to…" and "Unlink from this Mac" are
+             gone. Both existed to manage projects living OUTSIDE the projects
+             folder, tracked in a per-Mac register. The owner removed that idea:
+             *"i want to just copy and paste a folder and then connect it. i
+             don't want connection like in the past where i have to link and
+             stuff."* A channel is a folder in the Library now, so moving one is
+             a drag in Finder and there is nothing to unlink from. -->
+        <p class="text-muted text-sm mt-1">
+          This channel is a folder in your Library. To move it, quit Story Studio and drag the
+          folder — anywhere inside the Library works, and it will be found again on the next launch.
         </p>
-        <button class="btn btn-secondary mt-2" :disabled="syncing" @click="syncFolders">
-          {{ syncing ? 'Repairing…' : 'Repair Folder Structure' }}
-        </button>
-        <div v-if="syncResults.length" class="sync-results mt-2">
-          <div v-for="(action, i) in syncResults" :key="i" class="sync-action">✓ {{ action }}</div>
-        </div>
-      </div>
-
-      <!-- v1.0.107+ — Unlink from this Mac. Only meaningful for projects -->
-      <!-- whose folder lives OUTSIDE the default PROJECTS_ROOT (i.e. the -->
-      <!-- folder is registered in the linked-projects registry). Removes -->
-      <!-- the project from this Mac's app list WITHOUT touching the      -->
-      <!-- folder on disk — the iCloud / external / network folder stays  -->
-      <!-- exactly where it is, the app just forgets about it. Other Macs -->
-      <!-- that linked the same folder are unaffected. -->
-      <div v-if="projectIsLinked" class="danger-zone mt-3">
-        <h3>Unlink from this Mac</h3>
-        <p class="text-muted mt-1">
-          This project's folder lives at
-          <code class="path-display">{{ projectLocationPath }}</code>
-          — outside the app's default projects folder, so it's tracked as a
-          <em>linked project</em>. Unlinking removes it from this Mac's app
-          list <strong>WITHOUT touching files on disk</strong>.
-          The folder, all chapters, all audio, all images stay exactly where
-          they are. If the folder is in iCloud, iCloud's sync behaviour is
-          unchanged — it was syncing the folder before the app knew about it
-          and will continue afterward.
-        </p>
-        <!-- v1.4.2 — this used to say "All Projects → Add existing project
-             folder…", a button removed on 2026-08-08. It sat directly under an
-             action that REMOVES a project and promised a recovery route that
-             does not exist. Project discovery is a filesystem scan, so the
-             honest instruction is where to put the folder. -->
-        <p class="text-muted mt-1">
-          To re-add this project later, move or copy its folder back into your projects folder —
-          Story Studio picks up any folder there that contains a <code>project.json</code>, so it
-          reappears on the All Projects page by itself. Settings → Storage shows where your
-          projects folder is. Other Macs that linked the same folder are unaffected.
-        </p>
-        <button
-          class="btn btn-danger mt-2"
-          :disabled="unlinking"
-          @click="unlinkFromThisMac"
-        >
-          {{ unlinking ? 'Unlinking…' : '🔗 Unlink from this Mac' }}
-        </button>
       </div>
 
       <div class="danger-zone mt-3">
@@ -2195,139 +1948,10 @@ onMounted(() => { void refreshVisualStyles() })
 const { ask } = useConfirm()
 const { project, config, refreshConfig, loadProject } = useProject()
 const { success, error: showError, info } = useToast()
-// ── Move-this-project-to dialog ─────────────────────────────────────────
-// Per-project relocation — moves the entire project folder (metadata +
-// assets) to a chosen destination, then registers it as a linked path
-// so the slug keeps resolving.
-// which only co-locates assets inside the existing project folder.
-const linkedProjects = useLinkedProjects()
-const moveProjectDialogOpen = ref(false)
-const moveProjectDeleteSource = ref(false)
-const moveProjectMigrating = ref(false)
-const moveProjectError = ref('')
-const moveProjectDest = ref('')
-const moveProjectStatus = ref<{
-  current_path: string
-  is_default_location: boolean
-  is_linked: boolean
-  estimated_bytes: number
-  estimated_files: number
-  icloud_blockers: string[]
-} | null>(null)
-
-// v1.0.107+ — Unlink-from-this-Mac state. Read on Project tab activation
-// so the danger-zone block can render conditionally without forcing the
-// user to first click "Move this project to…" (which is the only other
-// path that loads moveProjectStatus today). When `projectIsLinked` is
-// false (project lives inside PROJECTS_ROOT), the block stays hidden —
-// unlinking only applies to externally-tracked folders.
-const projectIsLinked = ref(false)
-const projectLocationPath = ref('')
-const unlinking = ref(false)
-
-async function loadProjectLocationStatus(): Promise<void> {
-  try {
-    const status = await linkedProjects.getMoveStatus(slug.value)
-    projectIsLinked.value = !!status?.is_linked
-    projectLocationPath.value = status?.current_path || ''
-  } catch {
-    // Non-fatal: a backend blip just hides the unlink block, doesn't
-    // break the rest of the Project tab.
-    projectIsLinked.value = false
-    projectLocationPath.value = ''
-  }
-}
-
-async function unlinkFromThisMac(): Promise<void> {
-  if (!projectLocationPath.value || unlinking.value) return
-  const confirmed = await ask({
-    title: 'Unlink project from this Mac?',
-    message: `Folder: ${projectLocationPath.value}\n\n` +
-    `The folder and all its contents stay exactly where they are. The ` +
-    // v1.4.2 — this used to promise "Add existing project folder…", a button
-    // removed on 2026-08-08, inside the confirmation for an action that makes
-    // the project unreachable. Describes the route that actually works now.
-    `app just stops tracking it on this Mac. To bring it back later, move or ` +
-    `copy the folder into your projects folder — Story Studio picks up any ` +
-    `folder there that contains a project.json. Settings > Storage shows where ` +
-    `that is.\n\n` +
-    `Other Macs that linked the same folder are unaffected.`,
-    confirmLabel: 'Unlink project',
-    danger: true,
-  })
-  if (!confirmed) return
-  unlinking.value = true
-  try {
-    const ok = await linkedProjects.remove(projectLocationPath.value)
-    if (!ok) {
-      const err = linkedProjects.lastError?.value || 'Failed to unlink — see console for details.'
-      alert(err)
-      return
-    }
-    // Project is no longer addressable by slug on this Mac → bounce
-    // back to the All Projects list so the user doesn't sit on a now-
-    // dead /projects/:slug/settings URL.
-    await navigateTo('/')
-  } finally {
-    unlinking.value = false
-  }
-}
-
-async function openMoveProjectDialog(): Promise<void> {
-  moveProjectDialogOpen.value = true
-  moveProjectDest.value = ''
-  moveProjectError.value = ''
-  moveProjectDeleteSource.value = false
-  moveProjectStatus.value = null
-  // Pre-fetch the size estimate + .icloud blocker scan so the dialog
-  // can render the warning before the user picks a destination.
-  try {
-    moveProjectStatus.value = await linkedProjects.getMoveStatus(slug.value)
-  } catch (e: any) {
-    moveProjectError.value = e?.data?.detail || e?.message || 'Failed to inspect project'
-  }
-}
-function closeMoveProjectDialog(): void {
-  moveProjectDialogOpen.value = false
-}
-async function browseMoveProjectDest(): Promise<void> {
-  try {
-    const path = await pickFolderShared({
-      title: 'Choose a destination folder for this project',
-      button_label: 'Use This Folder',
-      initial_path: moveProjectDest.value || undefined,
-    })
-    if (path) moveProjectDest.value = path
-  } catch (e: any) {
-    moveProjectError.value = e?.data?.detail || e?.message || 'Folder picker failed'
-  }
-}
-async function runMoveProject(): Promise<void> {
-  if (!moveProjectDest.value) return
-  moveProjectMigrating.value = true
-  moveProjectError.value = ''
-  try {
-    const result = await linkedProjects.moveProject(slug.value, moveProjectDest.value, {
-      delete_source: moveProjectDeleteSource.value,
-    })
-    const dispositionMsg = result.source_disposition === 'deleted'
-      ? 'Source folder deleted.'
-      : result.source_disposition === 'renamed'
-        ? `Source renamed to ${result.renamed_source_path}.`
-        : 'Source de-registered (was already linked).'
-    success(`Project moved to ${result.new_path}. ${dispositionMsg}`)
-    closeMoveProjectDialog()
-    // Reload project meta so the Project Files Location display reflects
-    // the new path once the linked entry resolves.
-    if (project.value) {
-      await loadProject((project.value as any).slug || slug.value)
-    }
-  } catch (e: any) {
-    moveProjectError.value = e?.data?.detail || e?.message || 'Move failed'
-  } finally {
-    moveProjectMigrating.value = false
-  }
-}
+// v1.4.3 — the move-this-project-to dialog and the unlink flow lived here.
+// Both are gone with the per-Mac register of folders outside the projects
+// folder. `projectLocation` below still shows where this channel sits; moving
+// it is a Finder drag inside the Library.
 
 const activeTab = ref('app')
 const syncing = ref(false)
@@ -3138,268 +2762,86 @@ function scrollTo(id: string) {
 // override AFTER the copy verifies, so a failed migration leaves the
 // app pointing at the old (still-intact) location.
 
-interface ProjectsRootInfo {
-  override: string
-  effective_path: string
-  default_path: string
-  is_overridden: boolean
+/**
+ * The Library — one location, replacing the projects-root override (v1.4.3).
+ *
+ * Changing it is a COPY, done by the same mover the old flow used, then a
+ * restart: long-lived state (job queue, watchers, caches) still points at the
+ * old place until the app comes back up. The old folder is deliberately left
+ * behind — deleting someone's library after copying it is not a decision this
+ * app makes.
+ */
+interface LibraryStatus {
+  configured: boolean
+  path: string
+  exists: boolean
+  writable: boolean
+  suggested: string
+  assets_dir: string
+  exports_dir: string
 }
 
-const projectsRoot = ref<ProjectsRootInfo | null>(null)
+const library = ref<LibraryStatus | null>(null)
 const projectsRootBusy = ref(false)
 const projectsRootStatus = ref('')
 const projectsRootStatusKind = ref<'ok' | 'warn' | 'err'>('ok')
-// Friendly picker-failure panel — same role as `externalRootPickerHelp`
-// for the Projects-root section. Lets us surface the dev-mode picker
-// limitation as actionable guidance ("type a path manually") without
-// burying it inside the same red-status line as a normal error.
 const projectsRootPickerHelp = ref('')
 
-async function loadProjectsRoot() {
+async function loadLibrary() {
   try {
-    projectsRoot.value = await get<ProjectsRootInfo>('/app-settings/projects-root')
+    library.value = await get<LibraryStatus>('/library')
   } catch (e: any) {
-    projectsRootStatus.value = `Couldn't read storage location: ${e?.data?.detail || e?.message}`
+    projectsRootStatus.value = `Couldn't read your Library location: ${e?.data?.detail || e?.message}`
     projectsRootStatusKind.value = 'err'
   }
 }
-onMounted(loadProjectsRoot)
+onMounted(loadLibrary)
 
-async function browseAndMoveProjectsRoot() {
+async function browseAndMoveLibrary() {
   projectsRootPickerHelp.value = ''
-  // Step 0: pick the destination via the shared folder picker.
-  let pickedPath: string | null
+  let picked: string | null
   try {
-    pickedPath = await pickFolderShared({
-      title: 'Choose where to store projects',
-      button_label: 'Use this folder',
-      initial_path: projectsRoot.value?.effective_path,
+    picked = await pickFolderShared({
+      title: 'Choose where to keep your Library',
+      button_label: 'Use This Folder',
     })
   } catch (e: any) {
-    projectsRootPickerHelp.value = pickerHelpFor(e)
+    projectsRootPickerHelp.value = e?.data?.detail || e?.message || 'Could not open the folder picker.'
     return
   }
-  if (!pickedPath) return  // User cancelled.
-  const pick = { path: pickedPath }
+  if (!picked) return
 
-  // Step 0.5: pre-flight sizing so the confirmation dialog tells the
-  // user what they're about to do. Now also includes the per-project
-  // external-asset tally — the v1.0.13 augmentation co-locates those
-  // alongside the metadata copy, so the user reads the real total
-  // before confirming a multi-hour run.
-  let preview: {
-    source_path: string
-    files: number
-    bytes: number
-    asset_files: number
-    asset_bytes: number
-    projects_with_external_assets: number
-  }
-  try {
-    preview = await post<typeof preview>('/app-settings/projects-root/preview-migration', {})
-  } catch (e: any) {
-    projectsRootStatus.value = `Couldn't size the migration: ${e?.data?.detail || e?.message}`
-    projectsRootStatusKind.value = 'err'
-    return
-  }
-  const totalSizeStr = formatBytes(preview.bytes)
-  const metadataBytes = preview.bytes - preview.asset_bytes
-  const breakdownLine = preview.projects_with_external_assets > 0
-    ? `\n  ${formatBytes(metadataBytes)} metadata + ${formatBytes(preview.asset_bytes)} assets ` +
-      `across ${preview.projects_with_external_assets} project(s) with external storage`
-    : ''
-  const longRunHint = preview.bytes > 50 * 1024 * 1024 * 1024
-    ? `\n\n⚠ This is a large copy (>50 GB) and will take hours. Start before bed; ` +
-      `closing the app mid-copy leaves the new location half-populated and the old one intact.`
-    : ''
   const ok = confirm(
-    `Move projects to:\n  ${pick.path}\n\n` +
-    `This will COPY ${preview.files} file(s) (${totalSizeStr}).${breakdownLine}\n\n` +
-    `The old location stays in place — delete it manually after verifying ` +
-    `the new location works on next launch.\n\n` +
-    `The app will restart after the copy completes.${longRunHint}`,
+    `Move your Library to:\n  ${picked}\n\n` +
+    `Every channel, your shared assets and your exports are COPIED there.\n` +
+    `The current folder is left exactly as it is, so nothing can be lost —\n` +
+    `you can delete it yourself once you have checked the new one.\n\n` +
+    `The app will restart afterwards.`,
   )
   if (!ok) return
 
   projectsRootBusy.value = true
-  projectsRootStatus.value = `Copying ${preview.files} file(s) (${totalSizeStr})…`
+  projectsRootStatus.value = 'Copying your Library…'
   projectsRootStatusKind.value = 'ok'
   try {
-    // Step 1: copy.
-    const r = await post<{
-      target_path: string; kept_old_at: string
-      copied_files: number; copied_bytes: number
-      assets_copied_files: number; assets_copied_bytes: number
-      per_project_asset_warnings: Array<{ slug: string; warning: string }>
-      warnings: string[]
-    }>('/app-settings/projects-root/migrate', { target_path: pick.path })
-
-    // Step 2: persist the override AFTER the copy succeeds. If migrate
-    // had thrown, the override stays at its previous value and the app
-    // continues reading from the (still-intact) old location.
-    await put('/app-settings/projects-root', { override: r.target_path })
-
-    const warnCount = r.warnings.length + (r.per_project_asset_warnings?.length || 0)
-    const warnSummary = warnCount
-      ? ` (${warnCount} warning${warnCount === 1 ? '' : 's'} — check the console)`
-      : ''
-    const assetSummary = r.assets_copied_files > 0
-      ? ` (incl. ${r.assets_copied_files} asset file(s), ${formatBytes(r.assets_copied_bytes)} co-located)`
-      : ''
-    projectsRootStatus.value =
-      `✓ Copied ${r.copied_files} file(s), ${formatBytes(r.copied_bytes)}${assetSummary}` +
-      `${warnSummary}. Restarting…`
-    projectsRootStatusKind.value = 'ok'
-    if (r.warnings.length) {
-      console.warn('[projects-root migration] warnings:', r.warnings)
-    }
-    if (r.per_project_asset_warnings?.length) {
-      console.warn('[projects-root migration] per-project asset warnings:', r.per_project_asset_warnings)
-      // Surface a concise message for each project the user should
-      // revisit on the new location. The recovery banner will pick
-      // these up automatically on next boot, but flagging them here
-      // shortens the feedback loop.
-      const lines = r.per_project_asset_warnings.map(p => `  ${p.slug}: ${p.warning}`).join('\n')
-      console.warn(`[projects-root migration] ${r.per_project_asset_warnings.length} project(s) need follow-up:\n${lines}`)
-    }
-
-    // Step 3: relaunch. Wait a beat so the user sees the success banner
-    // before the window vanishes.
-    setTimeout(async () => {
-      try {
-        await post('/system/restart-app', {})
-      } catch (e: any) {
-        // Dev mode (tsx) returns 503 — surface that as a clear next step.
-        if (e?.status === 503) {
-          alert(
-            'App is in dev mode and can\'t auto-restart. ' +
-            'Quit the app + run `npm run dev` again to pick up the new location.',
-          )
-        } else {
-          alert(`Restart failed: ${e?.data?.detail || e?.message}. Quit + reopen manually.`)
-        }
-      }
-    }, 800)
-  } catch (e: any) {
-    projectsRootStatus.value = `Migration failed: ${e?.data?.detail || e?.message}`
-    projectsRootStatusKind.value = 'err'
-    projectsRootBusy.value = false
-  }
-}
-
-/**
- * Second-machine flow: the user has projects already synced to this
- * Mac via iCloud (or any cloud) and just wants to point the app at
- * that folder without copying anything. Picks the folder, inspects
- * how many projects it contains, confirms with the user, sets the
- * override, restarts.
- *
- * Differs from browseAndMoveProjectsRoot: no migrate step. The files
- * are already at the destination — copying would be a no-op at best
- * and would hit the "non-empty target" 409 from the migrator.
- */
-async function browseAndUseExistingProjectsRoot() {
-  projectsRootPickerHelp.value = ''
-  let pickedPath: string | null
-  try {
-    pickedPath = await pickFolderShared({
-      title: 'Choose existing projects folder',
-      button_label: 'Use this folder',
-      initial_path: projectsRoot.value?.effective_path,
-    })
-  } catch (e: any) {
-    projectsRootPickerHelp.value = pickerHelpFor(e)
-    return
-  }
-  if (!pickedPath) return  // user cancelled
-  const pick = { path: pickedPath }
-
-  // Inspect what's at the picked path so the confirmation message
-  // is accurate. Saves the user from accidentally pointing at the
-  // wrong folder + getting an empty dashboard with no idea why.
-  let inspect: { project_count: number; sample_slugs: string[]; exists: boolean }
-  try {
-    inspect = await post<typeof inspect>(
-      '/app-settings/projects-root/inspect-target',
-      { target_path: pick.path },
-    )
-  } catch (e: any) {
-    projectsRootStatus.value = `Inspect failed: ${e?.data?.detail || e?.message}`
-    projectsRootStatusKind.value = 'err'
-    return
-  }
-
-  // Build a confirmation message that matches what they're about to do.
-  // Three branches: folder doesn't exist, folder is empty, folder has
-  // projects (with sample slugs).
-  let msg = ''
-  if (!inspect.exists) {
-    msg = `Folder doesn't exist yet:\n  ${pick.path}\n\n` +
-      `Use it anyway? The app will create it on next launch and the dashboard will be empty until you copy projects in manually.`
-  } else if (inspect.project_count === 0) {
-    msg = `No Story Studio projects found at:\n  ${pick.path}\n\n` +
-      `Use it anyway? The dashboard will be empty until you copy projects in (or pick a different folder).`
-  } else {
-    const sample = inspect.sample_slugs.slice(0, 5).join(', ')
-    const more = inspect.project_count > 5 ? `, +${inspect.project_count - 5} more` : ''
-    msg = `Found ${inspect.project_count} project${inspect.project_count === 1 ? '' : 's'} at:\n  ${pick.path}\n\n` +
-      `(${sample}${more})\n\n` +
-      `Point this app at that folder and restart? No files will be copied or moved.`
-  }
-  if (!confirm(msg)) return
-
-  projectsRootBusy.value = true
-  projectsRootStatus.value = inspect.project_count > 0
-    ? `Setting location (${inspect.project_count} project${inspect.project_count === 1 ? '' : 's'} found)…`
-    : 'Setting location…'
-  projectsRootStatusKind.value = 'ok'
-  try {
-    await put('/app-settings/projects-root', { override: pick.path })
-    projectsRootStatus.value = '✓ Saved. Restarting…'
+    await put('/library', { path: picked, move: true })
+    projectsRootStatus.value = '✓ Moved. Restarting…'
     setTimeout(async () => {
       try { await post('/system/restart-app', {}) } catch (e: any) {
         if (e?.status === 503) {
-          alert('App is in dev mode and can\'t auto-restart. Quit + run `npm run dev` again to pick up the new location.')
+          alert('App is in dev mode and can\'t auto-restart. Quit and start it again to use the new Library.')
         } else {
-          alert(`Restart failed: ${e?.data?.detail || e?.message}. Quit + reopen manually.`)
+          alert(`Restart failed: ${e?.data?.detail || e?.message}. Quit and reopen manually.`)
         }
       }
     }, 600)
   } catch (e: any) {
-    projectsRootStatus.value = `Failed to save: ${e?.data?.detail || e?.message}`
+    projectsRootStatus.value = `Move failed: ${e?.data?.detail || e?.message}`
     projectsRootStatusKind.value = 'err'
     projectsRootBusy.value = false
   }
 }
 
-async function resetProjectsRoot() {
-  const ok = confirm(
-    `Reset to the default projects location?\n\n` +
-    `Default: ${projectsRoot.value?.default_path || '(loading)'}\n\n` +
-    `Your projects will stay where they are — the app just stops using the\n` +
-    `custom path on next launch. If the default location is empty, the\n` +
-    `dashboard will be empty after restart (you can move projects manually\n` +
-    `or re-pick the custom path).\n\n` +
-    `The app will restart.`,
-  )
-  if (!ok) return
-  projectsRootBusy.value = true
-  projectsRootStatus.value = 'Resetting…'
-  projectsRootStatusKind.value = 'ok'
-  try {
-    await put('/app-settings/projects-root', { override: '' })
-    projectsRootStatus.value = '✓ Reset. Restarting…'
-    setTimeout(async () => {
-      try { await post('/system/restart-app', {}) } catch {
-        alert('App is in dev mode and can\'t auto-restart. Quit + relaunch manually.')
-      }
-    }, 600)
-  } catch (e: any) {
-    projectsRootStatus.value = `Reset failed: ${e?.data?.detail || e?.message}`
-    projectsRootStatusKind.value = 'err'
-    projectsRootBusy.value = false
-  }
-}
 
 // v1.0.150 — The Chatterbox standalone provider was removed. All the
 // chatterbox* state, loaders, savers, test-connection, and reference-upload
@@ -3426,7 +2868,7 @@ watch(activeTab, (t) => {
   }
   // v1.0.107+ — load location status so the "Unlink from this Mac"
   // danger-zone renders only when the project is actually linked.
-  if (t === 'project') void loadProjectLocationStatus()
+
 })
 
 // ── Item J — YouTube videoCategories.list state ────────────────────────
@@ -3590,7 +3032,6 @@ const tabZones = [
       { title: 'Files', tabs: [
         { id: 'folders', label: 'Folders', icon: '▤', description: 'Control the portable episode folder structure used throughout the production pipeline.' },
         { id: 'storage', label: 'Storage', icon: '◫', description: 'See where active project files live, reclaim uploaded finals safely, and manage optional split storage.' },
-        { id: 'roots', label: 'Named Roots', icon: '⌁', description: 'Map portable asset tokens to folders on this Mac without hard-coding machine-specific paths.' },
       ] },
       { title: 'Other', tabs: [
         { id: 'confirmations', label: 'Confirmations', icon: '!', description: 'Choose where the app pauses for approval and where trusted actions may continue directly.' },
@@ -3841,7 +3282,7 @@ function applyHash() {
 onMounted(() => {
   applyHash()
   if (activeTab.value === 'ffmpeg') refreshFfmpegStatus()
-  if (activeTab.value === 'project') void loadProjectLocationStatus()
+
   loadNotifSettings()
 })
 watch(() => _route.hash, applyHash)
@@ -4571,71 +4012,9 @@ interface FolderEntry { key: string; label: string; generator: string; order: nu
 const folderConfig = ref<FolderEntry[]>([])
 const folderDefaults = ref<Record<string, string>>({})
 
-// Named roots (per-machine, never synced)
-const namedRoots = ref<Record<string, string>>({})
-const newRootName = ref('')
-const newRootPath = ref('')
-const pickingRootFolder = ref(false)
-const savingRoot = ref(false)
-
-async function loadNamedRoots() {
-  try {
-    const data = await get<{ roots: Record<string, string> }>('/system/named-roots')
-    namedRoots.value = data.roots || {}
-  } catch {
-    namedRoots.value = {}
-  }
-}
-
-async function pickRootFolder() {
-  pickingRootFolder.value = true
-  try {
-    const path = await pickFolderShared({
-      title: `Choose folder for $\{${newRootName.value.toUpperCase()}\}`,
-      initial_path: newRootPath.value || undefined,
-    })
-    if (path) newRootPath.value = path
-  } catch (e: any) {
-    showError(e?.data?.detail || 'Could not open folder picker')
-  } finally {
-    pickingRootFolder.value = false
-  }
-}
-
-async function saveNamedRoot() {
-  const name = newRootName.value.trim().toUpperCase()
-  const p = newRootPath.value
-  if (!name || !p) return
-  savingRoot.value = true
-  try {
-    const data = await post<{ roots: Record<string, string> }>('/system/named-roots', { name, path: p })
-    namedRoots.value = data.roots || {}
-    newRootName.value = ''
-    newRootPath.value = ''
-    stampSaved('roots')
-    success(`Named root ${name} saved`)
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to save named root')
-  } finally {
-    savingRoot.value = false
-  }
-}
-
-async function removeNamedRoot(name: string | number) {
-  const ok = await ask({
-    title: `Remove \${${name}}?`,
-    message: 'Presets that reference this name will stop resolving on this machine until you re-add it.',
-    confirmLabel: 'Remove',
-  })
-  if (!ok) return
-  try {
-    const data = await del<{ roots: Record<string, string> }>(`/system/named-roots/${name}`)
-    namedRoots.value = data.roots || {}
-    success(`Removed ${name}`)
-  } catch (e: any) {
-    showError(e.data?.detail || 'Failed to remove')
-  }
-}
+// v1.4.3 — the named-roots state and its loader/saver went with the tab. See
+// the note where the tab used to be: shared files now live at
+// <Library>/_Project Assets and are addressed as ${ASSET}/…
 
 // Load folder config when tab becomes active
 watch(activeTab, async (tab) => {
@@ -4645,9 +4024,6 @@ watch(activeTab, async (tab) => {
       folderConfig.value = data.linkage
       folderDefaults.value = data.defaults
     } catch {}
-  }
-  if (tab === 'roots') {
-    await loadNamedRoots()
   }
 })
 

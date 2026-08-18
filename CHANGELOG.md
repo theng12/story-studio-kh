@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.3 — 2026-08-19
+
+- **One folder holds everything now — your Library.** Story Studio used to have four different ideas about where your work lived: a default folder buried in the system, a custom override, a list of "linked" folders scattered anywhere on disk, and a separate map of labelled shortcuts. That is gone. There is one folder, with a folder for each channel inside it, a `_Project Assets` folder for anything you share between channels, and an `Exports` folder for finished videos.
+- **Story Studio asks where to put it, and suggests somewhere you can actually find.** On a new Mac it opens on a single question with `~/Documents/Story Studio KH` filled in, which you can change to Desktop, Downloads, an external drive, or anywhere else you can write. **Nothing is created until you press the button**, so browsing around and changing your mind leaves nothing behind. You can move it later in Settings → Storage.
+- **Connecting an existing folder is now just copying it in.** No linking, no registering, no import step. Any folder inside your Library that contains a `project.json` is a channel — copy one in and it appears, take it out and it is gone. That is the whole mechanism.
+- **iCloud support is withdrawn.** You said it plainly: it is too unreliable. The code that tried to detect half-downloaded iCloud placeholder files is gone, along with the advice to "right-click and Download Now" that came with it. Saving files still writes safely — if the app is killed or the Mac loses power mid-save you get the old file or the new one, never a broken half — because that protection was never really about iCloud.
+- **Finished videos go into your Library.** New renders land in the `Exports` folder there. **Your existing exports have not been moved** — the 220 GB already in your Downloads folder is exactly where it was, and Story Studio still finds those videos when working out what is done. They are yours to move, keep, or delete whenever you want to.
+- **Nothing at all was moved by this upgrade.** Where an old setting pointed somewhere outside your new Library, Story Studio tells you once, names the folder, and leaves it completely alone. Five channels were registered from iCloud folders that no longer exist; those dead entries were dropped quietly, because a shortcut to a folder that is gone is not worth interrupting you for. The same five channels are healthy in your Documents folder and appear as normal.
+- **Shared files use one label instead of a per-Mac map.** `${ASSET}` now always means the `_Project Assets` folder inside your Library, on every machine. The old custom labels pointed at a different folder on each Mac, which meant a project that worked on one did not work on another. If you had any, Story Studio lists them once so you can move those files across.
+- **If your Library is missing, Story Studio says so.** Put it on an external drive and open the app without the drive plugged in, and you get a clear message naming the folder it looked for and a button to look again — never an empty list that looks like your work disappeared.
+
+---
+
 ## v1.4.2 — 2026-08-19
 
 - **A channel whose episodes folder has gone missing now says so.** If the folder a project points at is not there, the channel card shows **Folder missing** and names the exact path it looked for, and the project page says the same thing at the top. Until now that project looked completely normal and simply had no episodes in it — the app had already worked out the folder was missing and never mentioned it. Your files are not lost when this happens; the app just cannot see where they went.

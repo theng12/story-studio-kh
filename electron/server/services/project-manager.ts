@@ -24,7 +24,6 @@ import type {
 import { resolveGenStudioModelId } from './genstudio-model-migration.js'
 import { buildManifest, writeManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
-import { getLinkedDirCache, listLinkedProjects } from './linked-projects.js'
 import { getSoftDeletedSlugSet, forgetSoftDeletedProject } from './soft-delete.js'
 import { randomUUID } from 'crypto'
 
@@ -106,7 +105,14 @@ function resolveAppSettingsPath(): string {
  * Any read/parse error → treated as unset. We never want an unreadable
  * settings file to brick the app's ability to find its projects.
  */
-function readProjectsRootOverrideSync(): string {
+/**
+ * Read one string setting out of app-settings.json synchronously.
+ *
+ * v1.4.3 generalised this from a single-key reader. `projectsRoot()` is sync
+ * and called from dozens of hot paths, so the Library location has to be
+ * readable without awaiting.
+ */
+function readSettingSync(key: string): string {
   const settingsPath = resolveAppSettingsPath()
   if (!existsSync(settingsPath)) return ''
   try {
@@ -116,7 +122,7 @@ function readProjectsRootOverrideSync(): string {
     const { readFileSync } = require('fs')
     const raw = readFileSync(settingsPath, 'utf-8')
     const data = JSON.parse(raw)
-    const v = data?.projects_root_override
+    const v = data?.[key]
     if (typeof v !== 'string' || !v.trim()) return ''
     // Expand `~` for convenience (the picker emits absolute paths but
     // a user editing app-settings.json by hand might use ~).
@@ -136,16 +142,23 @@ function resolveProjectsRoot(): string {
   if (process.env.STORY_STUDIO_DATA_DIR) {
     return path.join(process.env.STORY_STUDIO_DATA_DIR, 'projects')
   }
-  // User-configured override via Settings → Storage → Projects storage
-  // location. Per-machine — lives in app-settings.json which doesn't
-  // sync. Lets the user point the projects folder at iCloud Drive (or
-  // any cloud-synced location) without setting an env var manually.
-  const override = readProjectsRootOverrideSync()
-  if (override) return override
+  // v1.4.3 — the Library. The one place everything lives, chosen by the user
+  // on first run rather than assumed: *"i don't want our app on a new computer
+  // to use the default location … i don't have to hunt for the story studio
+  // folder inside of /user sth."*
+  const library = readSettingSync('library_root')
+  if (library) return library
 
-  // Always prefer Electron's userData path (same in dev and packaged).
-  // This avoids projects living inside the source tree — previous behaviour
-  // was sensitive to whether the entry was tsx source or compiled JS.
+  // Legacy: `projects_root_override` from before the Library existed. Read so
+  // an upgrading install keeps working in the window before the boot migration
+  // copies it across; `migrateLegacyLocationSettings` then retires the key.
+  const legacy = readSettingSync('projects_root_override')
+  if (legacy) return legacy
+
+  // Nothing chosen yet. This is a FRESH INSTALL, and the app will ask before
+  // creating anything — the fallback exists so path resolution has an answer
+  // during first run, not so the app can quietly adopt it. Nothing is written
+  // here: directory creation lives in `ensureProjectsRoot()`.
   try {
     const { app } = require('electron')
     if (app?.getPath) return path.join(app.getPath('userData'), 'projects')
@@ -407,7 +420,6 @@ async function writeJson(filePath: string, data: any): Promise<void> {
  */
 async function syncManifest(slug: string): Promise<void> {
   try {
-    // Linked-aware: a moved project's manifest still needs to refresh.
     const projectDir = getProjectDir(slug) || path.join(projectsRoot(), slug)
     const metaPath = path.join(projectDir, 'project.json')
     if (!existsSync(metaPath)) return
@@ -459,12 +471,16 @@ async function syncManifest(slug: string): Promise<void> {
 // carry `portable: true` — that's fine, we just ignore it.)
 
 export async function listProjects(): Promise<ProjectSummary[]> {
-  // Build the unified candidate list: default-location projects (subdirs
-  // of PROJECTS_ROOT) merged with linked-paths projects (registered via
-  // Settings → Storage → Add existing project folder, or implicitly added
-  // when a user runs Move this project to… on a non-default destination).
-  // Default-location entries win on slug conflict so a hand-edited link
-  // can never shadow the canonical project still sitting in PROJECTS_ROOT.
+  // v1.4.3 — the Library scan, and nothing else.
+  //
+  // This used to merge two sources: the folder scan plus a per-Mac
+  // `linked_project_paths` registry of folders living anywhere on disk. The
+  // owner removed the second idea outright: *"i want to just copy and paste a
+  // folder and then connect it. i don't want connection like in the past where
+  // i have to link and stuff."* A channel is a folder in the Library that
+  // contains a project.json. Copy one in and it appears; take it out and it is
+  // gone. There is nothing to register, and so nothing that can disagree with
+  // what is actually on disk.
   type Candidate = { dir: string; folderName: string }
   const candidates: Candidate[] = []
   const seenSlugs = new Set<string>()
@@ -481,7 +497,12 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   let defaultEntries: string[] = []
   try {
     defaultEntries = await fs.readdir(root)
-  } catch { /* projects root missing — fall through to linked-only */ }
+  } catch {
+    // The Library is not readable — an unplugged drive, or a folder that has
+    // been moved. Returning an empty list here would be the 1.4.2 defect all
+    // over again, so the ROUTE checks the Library first and says where it
+    // looked; this stays quiet rather than inventing a second message.
+  }
   for (const name of defaultEntries.sort()) {
     if (name.startsWith('.')) continue
     // Backup folders left behind by Move this project to… (delete_source
@@ -489,14 +510,6 @@ export async function listProjects(): Promise<ProjectSummary[]> {
     // up as live projects in the list.
     if (/\.bak-/.test(name)) continue
     candidates.push({ dir: path.join(root, name), folderName: name })
-  }
-
-  // Linked projects — read project.json's slug to populate the seen set
-  // accurately (basename-fallback when slug field is missing).
-  const linked = await listLinkedProjects()
-  for (const info of linked) {
-    if (!info.exists || !info.slug) continue
-    candidates.push({ dir: info.path, folderName: info.slug })
   }
 
   const { readSecrets } = await import('./secrets-store.js')
@@ -507,50 +520,22 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   // diff is the difference between snappy and "feels frozen" on home-page
   // load. Returns null for corrupt/missing entries — filtered out below.
   //
-  // iCloud-aware path:
-  //   1. Check for `.<basename>.icloud` placeholder via
-  //      isCloudEvictedPlaceholder. If present, the file is downloading
-  //      from iCloud — don't try to read it (would block the OS-level
-  //      sync request). Return a 'downloading' stub immediately.
-  //   2. Race the readJson against a 30s timeout. If the read doesn't
-  //      come back, treat that project as 'downloading' too — the read
-  //      is still in flight inside macOS's sync layer; we just stop
-  //      waiting for it.
-  // The frontend polls /api/projects every 5s while any are
-  // 'downloading'; rows promote to 'ready' on the next successful read.
+  // v1.4.3 — the iCloud-aware path is gone. It probed for a
+  // `.<basename>.icloud` stub and reported the row as 'downloading' rather than
+  // reading it, because a read would block inside macOS's sync layer. With
+  // iCloud support withdrawn the Library is an ordinary folder, so a
+  // project.json that is not there is simply not there.
+  //
+  // The 30-second read timeout STAYS. Its original reason was iCloud, but a
+  // read that never returns hangs the whole home page whatever the cause — a
+  // stalled network volume or a disk going bad do it too — and the timeout is
+  // the only thing that turns that into one slow row instead of a dead app.
   const READ_TIMEOUT_MS = 30_000
-  const { isCloudEvictedPlaceholder } = await import('../lib/http-retry.js')
   const summaries = await Promise.all(candidates.map(async (cand): Promise<ProjectSummary | null> => {
     const metaPath = path.join(cand.dir, 'project.json')
-    if (!existsSync(metaPath)) {
-      // Not a real file → maybe an iCloud placeholder is sitting next to
-      // it. Surface the row as downloading so the user sees it instead
-      // of silently dropping the candidate.
-      if (await isCloudEvictedPlaceholder(metaPath)) {
-        return {
-          name: cand.folderName,
-          slug: cand.folderName,
-          episode_prefix: '',
-          created_at: '',
-          has_api_keys: false,
-          output_root: cand.dir,
-          status: 'downloading',
-        }
-      }
-      return null
-    }
-    // Quick placeholder probe before any blocking read.
-    if (await isCloudEvictedPlaceholder(metaPath)) {
-      return {
-        name: cand.folderName,
-        slug: cand.folderName,
-        episode_prefix: '',
-        created_at: '',
-        has_api_keys: false,
-        output_root: cand.dir,
-        status: 'downloading',
-      }
-    }
+    // A folder with no project.json is not a channel. That is the whole
+    // membership rule now.
+    if (!existsSync(metaPath)) return null
 
     let meta: ProjectMeta
     let timer: NodeJS.Timeout | undefined
@@ -565,11 +550,12 @@ export async function listProjects(): Promise<ProjectSummary[]> {
       })
       meta = await Promise.race<ProjectMeta>([readJson(metaPath), timeoutPromise])
     } catch (e: any) {
-      // Timeout = still syncing. Surface as downloading so the user can
-      // see the row + come back when iCloud finishes. Other errors
-      // (corrupt JSON, perm denied) get the existing skip-and-warn path.
+      // The read never came back. Surface the row rather than dropping it, so
+      // a channel that is there but unreadable is visible as a problem instead
+      // of silently absent. Other errors (corrupt JSON, permission denied) take
+      // the existing skip-and-warn path.
       if (e?.message === 'READ_TIMEOUT') {
-        console.warn(`[projects] listProjects: '${cand.folderName}' read timed out after ${READ_TIMEOUT_MS}ms — likely iCloud-syncing`)
+        console.warn(`[projects] listProjects: '${cand.folderName}' read timed out after ${READ_TIMEOUT_MS}ms`)
         return {
           name: cand.folderName,
           slug: cand.folderName,
@@ -680,8 +666,8 @@ export function resolveOutputRoot(
 }
 
 export async function getProject(slug: string): Promise<ProjectMeta | null> {
-  // Resolve via getProjectDir so linked projects (those moved out of
-  // PROJECTS_ROOT into custom folders) are reachable by slug.
+  // Resolve via getProjectDir so a project is found wherever it sits in the
+  // Library.
   const projectDir = getProjectDir(slug)
   if (!projectDir) return null
   const metaPath = path.join(projectDir, 'project.json')
@@ -891,10 +877,8 @@ export interface DeleteProjectResult {
   /** What we did:
    *  - 'soft_deleted': default-location project, slug added to the
    *    soft-delete tombstone list. Folder untouched on disk.
-   *  - 'unlinked':     linked project, removed from the linked-projects
-   *    registry. Folder untouched on disk (it was always external).
    */
-  disposition?: 'soft_deleted' | 'unlinked'
+  disposition?: 'soft_deleted'
   /** Absolute path that's now orphaned on disk — what the dialog
    *  shows + what the "Open in Finder" button reveals. */
   orphan_path?: string
@@ -904,20 +888,14 @@ export interface DeleteProjectResult {
 }
 
 /**
- * Soft-delete a project: unregister it from the app, leave every byte
- * on disk. The user gets a banner naming the path; the home-page
- * "🗑️ Hidden projects" chip surfaces it for restore / open-in-Finder /
- * explicit hard-delete.
+ * Soft-delete a project: unregister it from the app, leave every byte on disk.
+ * The user gets a banner naming the path; the home page's "🗑️ Hidden channels"
+ * panel surfaces it for restore or an explicit hard-delete.
  *
- * Linked projects skip the soft-delete tombstone because they were
- * never in PROJECTS_ROOT to begin with — removing the registry entry
- * is sufficient to hide them from the list, and re-adding via
- * "Add existing project folder" brings them straight back.
- *
- * Default-location projects can't use the same trick: their folder is
- * still in PROJECTS_ROOT and would be picked up by the next listProjects
- * scan. So we record the slug in soft_deleted_slugs and listProjects
- * filters by that set.
+ * The folder stays in the Library and would be picked up by the next scan, so
+ * the slug is recorded in `soft_deleted_slugs` and `listProjects` filters by
+ * that set. v1.4.3 removed the second branch this used to have for projects
+ * outside the Library, because there are none.
  */
 export async function deleteProject(slug: string): Promise<DeleteProjectResult> {
   const projectDir = getProjectDir(slug)
@@ -933,26 +911,15 @@ export async function deleteProject(slug: string): Promise<DeleteProjectResult> 
       meta = raw as ProjectMeta
     } catch { /* fall through */ }
 
-    const inDefaultLocation = path.resolve(projectDir).startsWith(path.resolve(projectsRoot()) + path.sep)
-
-    if (inDefaultLocation) {
-      const { softDeleteProjectAfterGuard } = await import('./soft-delete.js')
-      await softDeleteProjectAfterGuard(slug)
-      return {
-        ok: true,
-        disposition: 'soft_deleted',
-        orphan_path: projectDir,
-        name: meta?.name || slug,
-      }
-    }
-
-    // Linked project: just unregister from the linked-projects list. The
-    // folder is external (e.g. iCloud), so we never touch it.
-    const { removeLinkedProjectAfterGuard } = await import('./linked-projects.js')
-    await removeLinkedProjectAfterGuard(projectDir)
+    // v1.4.3 — one disposition. Every project lives in the Library now, so
+    // hiding one always means the soft-delete tombstone; the 'unlinked' branch
+    // that used to unregister an outside-the-Library folder went with the
+    // registry itself. The folder is never touched either way.
+    const { softDeleteProjectAfterGuard } = await import('./soft-delete.js')
+    await softDeleteProjectAfterGuard(slug)
     return {
       ok: true,
-      disposition: 'unlinked',
+      disposition: 'soft_deleted',
       orphan_path: projectDir,
       name: meta?.name || slug,
     }
@@ -1477,28 +1444,19 @@ export async function updateStandards(slug: string, content: string): Promise<bo
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /**
- * Resolve a project's metadata folder by slug. Two locations are
- * consulted, in priority order:
- *   1. The default `<PROJECTS_ROOT>/<slug>/` location.
- *   2. The per-Mac linked-projects registry — for projects that have
- *      been moved out of PROJECTS_ROOT into custom folders (e.g. one
- *      project in iCloud while others stay local).
+ * Resolve a project's folder by slug — inside the Library, or nowhere.
  *
- * Sync by design: dozens of services call into this from hot paths
- * that can't easily go async. The linked-paths lookup uses a sync
- * cache built from a single readFileSync of app-settings.json — see
- * linked-projects.ts:getLinkedDirCache for the cost model.
+ * v1.4.3 removed the second lookup. There used to be a per-Mac registry of
+ * folders living outside the Library, consulted as a fallback, which meant a
+ * project could exist for one machine and not another and no listing could be
+ * trusted. A channel is now a folder in the Library, so this is a join.
  *
- * Default-location entries win on slug conflict so a hand-edited
- * linked path can never shadow the canonical project that's still
- * sitting in PROJECTS_ROOT.
+ * Sync by design: dozens of services call this from hot paths. With the
+ * registry gone it is a single `existsSync`.
  */
 export function getProjectDir(slug: string): string | null {
   const d = path.join(projectsRoot(), slug)
-  if (existsSync(d)) return d
-  const linked = getLinkedDirCache().get(slug)
-  if (linked && existsSync(linked)) return linked
-  return null
+  return existsSync(d) ? d : null
 }
 
 /**

@@ -1,28 +1,31 @@
 /**
- * External final-video storage path resolver.
+ * Where finished videos go: `<Library>/Exports` (v1.4.3).
  *
- * Why this exists: sleep-story episodes produce 5-10 GB final videos.
- * When the project lives in a synced folder (iCloud Drive, Dropbox,
- * etc.), every assembled video drags multi-GB through the sync loop —
- * slow on big libraries, expensive on small devices. Letting the user
- * point ffmpeg at a separate local-only path keeps a working copy
- * outside the sync tree without touching the rest of the project.
+ * ── What changed, and why the names did not ──
+ *
+ * This used to resolve a free-floating `external_final_video_root` — a
+ * per-machine app setting pointing anywhere on disk, which existed because
+ * projects often sat in iCloud Drive and nobody wanted 5-10 GB finals dragged
+ * through a sync loop. iCloud support is withdrawn (*"we now no longer offer
+ * icloud sync or anything of that kind. it's so unreliable."*), and there is one
+ * Library now, so exports live inside it like everything else.
+ *
+ * The EXPORTED NAMES are unchanged on purpose. Fourteen modules import from
+ * here — `storage-audit.ts` statically, the rest through dynamic imports that
+ * TypeScript cannot check — and renaming a symbol to match new vocabulary would
+ * have meant touching every one of them for no behavioural gain, with the
+ * dynamic importers failing at runtime rather than at build. What the functions
+ * RESOLVE TO changed; what they are called did not.
  *
  * Design:
- *   - The path is an APP-LEVEL setting (`external_final_video_root`)
- *     stored in `app-settings.json`. Per-machine — never syncs. A
- *     fresh laptop just leaves it empty and falls back to the
- *     in-project location.
- *   - When set, finals land at `{root}/{slug}/Season NNN/{code} - {title}/`
- *     (mirrors the project tree's season segmentation so each project
- *     gets its own subtree under the external root).
- *   - Detection in asset-status reads from BOTH the project tree and
- *     this external location, so a final video at either place lights
- *     up `video_assembly: true`.
- *   - Per-scene Veo/fal clips stay in the project tree — they're inputs
- *     to the assembly pass and the user might or might not want to
- *     move them. Storage UI surfaces them but defaults to "final-only"
- *     for cleanup.
+ *   - The root is always `<Library>/Exports`. There is no setting, so there is
+ *     no unset state, no per-machine drift, and no "reachable?" question beyond
+ *     whether the Library itself is there.
+ *   - Finals land at `{Exports}/{slug}/Season NNN/{code} - {title}/`, unchanged,
+ *     so an existing export tree keeps its shape.
+ *   - Detection in asset-status still reads BOTH the project tree and here.
+ *   - Per-scene Veo/fal clips stay in the project tree — they are inputs to the
+ *     assembly pass, not deliverables.
  */
 
 import path from 'path'
@@ -31,15 +34,33 @@ import fs from 'fs/promises'
 import * as pm from './project-manager.js'
 import { getAppSetting, setAppSetting } from './app-settings.js'
 
-/** App-settings key. Keep stable — migration paths key off it. */
-export const EXTERNAL_FINAL_VIDEO_ROOT_KEY = 'external_final_video_root'
+/**
+ * The old app-settings key. Retired in v1.4.3 and kept here only so the
+ * upgrade notice can read what it used to say and tell the owner where his
+ * existing exports still are. Nothing writes it any more.
+ */
+export const RETIRED_EXTERNAL_ROOT_KEY = 'external_final_video_root'
 
 /**
- * Read the configured external root, expanding `~` to the user's home
- * dir. Returns empty string when unset or invalid (non-string).
+ * Where finished videos go. Always `<Library>/Exports`.
+ *
+ * Returns '' only when no Library has been chosen yet, which callers already
+ * treat as "use the project tree" — the same shape the unset setting had, so
+ * every existing caller keeps working without a change.
  */
 export async function getExternalFinalVideoRoot(): Promise<string> {
-  const raw = await getAppSetting(EXTERNAL_FINAL_VIDEO_ROOT_KEY)
+  const { exportsDir } = await import('./library.js')
+  return exportsDir()
+}
+
+/**
+ * What the retired setting used to point at, for the one-time upgrade notice.
+ * Read-only: 1.4.3 deliberately does NOT move an existing export pile, because
+ * on the owner's machine that is 220 GB and 191 finished videos, and moving a
+ * fifth of a terabyte without being asked is not a decision this app makes.
+ */
+export async function getRetiredExternalRoot(): Promise<string> {
+  const raw = await getAppSetting(RETIRED_EXTERNAL_ROOT_KEY)
   if (typeof raw !== 'string' || !raw.trim()) return ''
   let resolved = raw.trim()
   if (resolved.startsWith('~')) {
@@ -47,10 +68,6 @@ export async function getExternalFinalVideoRoot(): Promise<string> {
     if (home) resolved = path.join(home, resolved.slice(1))
   }
   return resolved
-}
-
-export async function setExternalFinalVideoRoot(value: string): Promise<void> {
-  await setAppSetting(EXTERNAL_FINAL_VIDEO_ROOT_KEY, value || '')
 }
 
 /**

@@ -102,7 +102,7 @@ export async function resolveProjectOpening(slug: string): Promise<ResolvedOpeni
     }
     const availability = checkAssetAvailability(resolved, label)
     if (availability.status !== 'available') {
-      unresolved.push(`${label} (${availability.status === 'placeholder' ? 'not downloaded from iCloud yet' : 'file not found'})`)
+      unresolved.push(`${label} (file not found)`)
       return undefined
     }
     return resolved

@@ -34,6 +34,24 @@ function withoutRetiredResearchPolicy(project: ProjectMeta): ProjectMeta {
 }
 
 router.get('/projects', async (_req, res) => {
+  // v1.4.3 — a Library that was chosen and is not there right now is NOT an
+  // empty project list. An unplugged drive, a renamed folder and "you have no
+  // channels" would otherwise be the same screen, which is the exact failure
+  // 1.4.2 fixed for a project's episodes folder: the app knows, so it must say.
+  //
+  // 409 rather than 500: nothing is broken, something is unavailable, and the
+  // home page already renders this shape with a Try again button.
+  const { describeLibrary } = await import('../services/library.js')
+  const library = await describeLibrary()
+  if (library.configured && !library.exists) {
+    return res.status(409).json({
+      code: 'LIBRARY_UNAVAILABLE',
+      library_path: library.path,
+      detail: `Your Library is not available. Story Studio looked for "${library.path}" and it is not there. `
+        + 'If it lives on a drive that is not plugged in, reconnect it and try again — nothing has been lost. '
+        + 'If you moved it, point Story Studio at the new place in Settings → Storage.',
+    })
+  }
   res.json(await pm.listProjects())
 })
 
@@ -607,32 +625,19 @@ router.post('/projects/:slug/storage/cleanup-chunked-sidecars', async (req, res)
   }
 })
 
-// External final-video root — get/set the per-machine app setting.
-// Lives at /api/app-settings/external-final-video-root rather than
-// nested under a project because it's machine-global, not project-
-// scoped. The migration endpoint below IS project-scoped because the
-// move only affects the current project's tree.
+// Where finished videos go. v1.4.3 made this `<Library>/Exports`, so it is
+// DERIVED and no longer settable — the PUT that used to write a free-floating
+// per-machine root is gone with the setting itself. Kept as a read so the
+// Storage tab can show the path and whether it is reachable.
 
 router.get('/app-settings/external-final-video-root', async (_req, res) => {
   try {
     const { getExternalFinalVideoRoot, externalRootIsReachable } = await import('../services/external-video-store.js')
     const value = await getExternalFinalVideoRoot()
     const reach = await externalRootIsReachable()
-    res.json({ value, reachable: reach.ok, reason: reach.reason || '' })
+    res.json({ value, reachable: reach.ok, reason: reach.reason || '', derived: true })
   } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to read external final-video root'))
-  }
-})
-
-router.put('/app-settings/external-final-video-root', async (req, res) => {
-  try {
-    const value = typeof req.body?.value === 'string' ? req.body.value : ''
-    const { setExternalFinalVideoRoot, externalRootIsReachable } = await import('../services/external-video-store.js')
-    await setExternalFinalVideoRoot(value)
-    const reach = await externalRootIsReachable()
-    res.json({ ok: true, value, reachable: reach.ok, reason: reach.reason || '' })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to set external final-video root'))
+    res.status(500).json(humanizeBackendError(e, 'Failed to read the exports folder'))
   }
 })
 

@@ -35,12 +35,19 @@
       </section>
 
       <section v-else-if="projectsLoadError && projects.length === 0" class="home-state" role="alert">
-        <span class="state-kicker">Couldn’t load channels</span>
-        <h2>Story Studio is not responding yet</h2>
+        <!-- v1.4.3 — a Library that is configured but not there is NOT an empty
+             channel list, and it is not a dead backend either. Reconnecting the
+             drive is the first thing to try, so Try again leads; choosing a new
+             Library is deliberately the quieter option, because someone who
+             re-points the app while a drive is merely unplugged loses track of
+             where their work actually is. -->
+        <span class="state-kicker">{{ libraryMissing ? 'Library not available' : 'Couldn’t load channels' }}</span>
+        <h2>{{ libraryMissing ? 'Story Studio can’t find your Library' : 'Story Studio is not responding yet' }}</h2>
         <p>{{ projectsLoadError }}</p>
+        <p v-if="libraryMissingPath" class="home-state-path"><code>{{ libraryMissingPath }}</code></p>
         <button type="button" class="btn btn-primary" :disabled="projectsRetrying" @click="retryLoadProjects">
           <LoadingSpinner v-if="projectsRetrying" size="sm" />
-          {{ projectsRetrying ? 'Retrying…' : 'Try again' }}
+          {{ projectsRetrying ? 'Checking…' : (libraryMissing ? 'It’s connected now — look again' : 'Try again') }}
         </button>
       </section>
 
@@ -51,7 +58,22 @@
         <button type="button" class="btn btn-primary" @click="openCreate">Create channel</button>
       </section>
 
-      <section v-else aria-labelledby="channels-heading">
+      <!-- v1.4.3 — one-time upgrade messages. Every one names folders that are
+           still exactly where they were: this release moved no files. -->
+      <section v-if="migrationNotices.length" class="migration-notices" aria-label="Upgrade notes">
+        <article v-for="n in migrationNotices" :key="n.id" class="migration-notice">
+          <h3>{{ n.title }}</h3>
+          <p>{{ n.body }}</p>
+          <ul v-if="n.paths?.length">
+            <li v-for="(pth, i) in n.paths" :key="i"><code>{{ pth }}</code></li>
+          </ul>
+          <button type="button" class="btn btn-sm" @click="dismissNotice(n.id)">Got it</button>
+        </article>
+      </section>
+
+      <section v-else-if="false" />
+
+      <section v-if="projects.length" aria-labelledby="channels-heading">
         <div class="channel-list-header">
           <h2 id="channels-heading">Channels</h2>
           <span>{{ projects.length }} {{ projects.length === 1 ? 'channel' : 'channels' }}</span>
@@ -214,6 +236,24 @@ const projects = ref<any[]>([])
 const loading = ref(true)
 const projectsLoadError = ref('')
 const projectsRetrying = ref(false)
+const libraryMissing = ref(false)
+const libraryMissingPath = ref('')
+
+// v1.4.3 — one-time messages from the location-settings migration.
+interface MigrationNotice { id: string; title: string; body: string; paths?: string[] }
+const migrationNotices = ref<MigrationNotice[]>([])
+
+async function loadMigrationNotices() {
+  try {
+    const r = await get<{ notices: MigrationNotice[] }>('/library/notices')
+    migrationNotices.value = Array.isArray(r?.notices) ? r.notices : []
+  } catch { /* never fatal — these are informational */ }
+}
+
+async function dismissNotice(id: string) {
+  migrationNotices.value = migrationNotices.value.filter(n => n.id !== id)
+  try { await $fetch(`/api/library/notices/${id}`, { method: 'DELETE' }) } catch { /* best effort */ }
+}
 
 // v1.4.2 — hidden channels. `useSoftDeletedProjects` and its backend routes
 // survived the 2026-08-08 home-page collapse with their tests; only the UI that
@@ -250,8 +290,22 @@ async function loadProjects(): Promise<void> {
   try {
     projects.value = await get<any[]>('/projects', { cache: 'no-store' })
     projectsLoadError.value = ''
+    libraryMissing.value = false
+    libraryMissingPath.value = ''
   } catch (error: any) {
-    projectsLoadError.value = errorMessage(error, 'Unable to reach the local Story Studio service.')
+    // v1.4.3 — the backend answers 409 LIBRARY_UNAVAILABLE when the Library was
+    // chosen and is not there. Distinct from an unreachable backend, and the
+    // path it looked for is the whole point of the message.
+    const data = error?.data
+    if (data?.code === 'LIBRARY_UNAVAILABLE') {
+      libraryMissing.value = true
+      libraryMissingPath.value = data.library_path || ''
+      projectsLoadError.value = data.detail || 'Your Library is not available.'
+    } else {
+      libraryMissing.value = false
+      libraryMissingPath.value = ''
+      projectsLoadError.value = errorMessage(error, 'Unable to reach the local Story Studio service.')
+    }
   } finally {
     loading.value = false
   }
@@ -335,6 +389,7 @@ onMounted(async () => {
   await loadProjects()
   // Never fatal: a failure here must not stop the channel list rendering.
   await hiddenProjects.refresh().catch(() => {})
+  await loadMigrationNotices()
 })
 </script>
 
@@ -505,6 +560,21 @@ onMounted(async () => {
 .hidden-project-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .hidden-project-name code { color: var(--text-secondary); overflow-wrap: anywhere; }
 .hidden-project-name em { color: var(--warning); font-style: normal; }
+
+/* v1.4.3 — one-time upgrade notes. */
+.home-state-path { margin-top: 8px; }
+.home-state-path code { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.migration-notices { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+.migration-notice {
+  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+}
+.migration-notice h3 { margin-bottom: 6px; }
+.migration-notice p { color: var(--text-secondary); }
+.migration-notice ul { margin: 10px 0; padding-left: 18px; }
+.migration-notice li code { overflow-wrap: anywhere; }
 .project-copy { gap: 4px; }
 .project-copy strong { overflow-wrap: anywhere; font-size: var(--font-xl); }
 .project-copy span { color: var(--text-secondary); font-size: var(--font-sm); }

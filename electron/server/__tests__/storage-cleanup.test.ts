@@ -21,6 +21,7 @@ import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { useTempDataDir } from './_helpers.js'
+import { setAppSetting } from '../services/app-settings.js'
 
 let pm: typeof import('../services/project-manager.js')
 let im: typeof import('../services/idea-manager.js')
@@ -105,9 +106,9 @@ describe('storage cleanup + sidecar detection + external root', () => {
     await fs.rm(pm.projectsRoot(), { recursive: true, force: true }).catch(() => {})
     await fs.mkdir(pm.projectsRoot(), { recursive: true })
     cacheMod.episodeStatusCache.clear()
-    // Always start each test with NO external root configured so each
-    // test can opt in independently.
-    await externalStore.setExternalFinalVideoRoot('')
+    // v1.4.3 — the exports root is derived from the Library rather than set
+    // directly, so each test opts in by choosing a Library (or not).
+    await setAppSetting('library_root', '')
     await makeProject()
   })
 
@@ -144,9 +145,9 @@ describe('storage cleanup + sidecar detection + external root', () => {
 
   test('final at external root flips video_assembly true', async () => {
     const seed = await seedAcceptedEpisode('TN0003')
-    // Configure a non-default external root.
-    const extRoot = path.join(tmp.dir, 'external-videos')
-    await externalStore.setExternalFinalVideoRoot(extRoot)
+    // v1.4.3 — exports live at `<Library>/Exports`, so choosing a Library is
+    // how a test opts in. There is no separate export root to configure.
+    await setAppSetting('library_root', path.join(tmp.dir, 'library-a'))
     // Move the local final to the external location.
     const extDir = await externalStore.ensureExternalFinalVideoDir(SLUG, 'TN0003', TITLE)
     assert.ok(extDir, 'external dir resolves')
@@ -261,8 +262,7 @@ describe('storage cleanup + sidecar detection + external root', () => {
 
   test('migrate moves project-tree finals to external root', async () => {
     const seed = await seedAcceptedEpisode('TN0016', 4_000_000)
-    const extRoot = path.join(tmp.dir, 'ext-root')
-    await externalStore.setExternalFinalVideoRoot(extRoot)
+    await setAppSetting('library_root', path.join(tmp.dir, 'library-b'))
     const r = await storageAudit.migrateFinalsToExternal(SLUG)
     assert.equal(r.moved.length, 1)
     assert.equal(r.bytes_moved, 4_000_000)
@@ -273,7 +273,7 @@ describe('storage cleanup + sidecar detection + external root', () => {
 
   test('migrate is idempotent: no error on second run', async () => {
     await seedAcceptedEpisode('TN0017', 1_000_000)
-    await externalStore.setExternalFinalVideoRoot(path.join(tmp.dir, 'ext'))
+    await setAppSetting('library_root', path.join(tmp.dir, 'library-c'))
     const r1 = await storageAudit.migrateFinalsToExternal(SLUG)
     assert.equal(r1.moved.length, 1)
     const r2 = await storageAudit.migrateFinalsToExternal(SLUG)
@@ -281,9 +281,10 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.equal(r2.errors.length, 0)
   })
 
-  test('migrate throws when external root not configured', async () => {
+  test('migrate throws when no Library has been chosen', async () => {
     await seedAcceptedEpisode('TN0018', 1_000_000)
-    await externalStore.setExternalFinalVideoRoot('')
+    // No Library → no Exports folder → nothing to migrate into.
+    await setAppSetting('library_root', '')
     await assert.rejects(
       () => storageAudit.migrateFinalsToExternal(SLUG),
       /not configured/,

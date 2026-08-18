@@ -20,12 +20,6 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import { initializeQueuePauseState, setQueuePaused, isQueuePaused } from '../services/job-queue.js'
-import {
-  listNamedRoots,
-  setNamedRoot,
-  removeNamedRoot,
-  isValidRootName,
-} from '../services/named-roots.js'
 import { resolveAssetPath, toPortablePath, isPortablePath } from '../services/path-resolver.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { isServerMode } from '../lib/server-mode.js'
@@ -420,42 +414,12 @@ router.post('/system/queue/resume', async (_req, res) => {
   res.json({ paused: false })
 })
 
-// ── Named roots ────────────────────────────────────────────────────────────
-// Per-machine label → absolute path map. Used by the path resolver to expand
-// `${NAME}/rel` preset references into concrete paths. Never synced.
-
-router.get('/system/named-roots', (_req, res) => {
-  res.json({ roots: listNamedRoots() })
-})
-
-router.post('/system/named-roots', async (req, res) => {
-  const name = typeof req.body?.name === 'string' ? req.body.name.trim() : ''
-  const p = typeof req.body?.path === 'string' ? req.body.path : ''
-  if (!name || !p) return res.status(400).json({ detail: 'name and path required' })
-  if (!isValidRootName(name)) {
-    return res.status(400).json({
-      detail: 'Invalid name. Use UPPERCASE letters, digits, and underscores (start with a letter). "PROJECT" is reserved.',
-    })
-  }
-  if (!path.isAbsolute(p)) {
-    return res.status(400).json({ detail: 'path must be absolute' })
-  }
-  try {
-    await setNamedRoot(name, p)
-    res.json({ ok: true, roots: listNamedRoots() })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to save named root'))
-  }
-})
-
-router.delete('/system/named-roots/:name', async (req, res) => {
-  try {
-    await removeNamedRoot(req.params.name)
-    res.json({ ok: true, roots: listNamedRoots() })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to remove named root'))
-  }
-})
+// Named roots were retired in v1.4.3. The label → path map they managed was
+// the fourth location concept, and the one that made a project non-portable in
+// exactly the situation portability existed for: carried to another Mac,
+// `${TERRANASH}` meant nothing until someone re-declared it by hand. Shared
+// files now live at `<Library>/_Project Assets` and are written as `${ASSET}/…`,
+// which needs no per-machine configuration and therefore has no routes.
 
 /**
  * Debug / preview helper. Accepts `{ path, output_root?, mode? }`.
@@ -491,34 +455,10 @@ router.post('/system/resolve-asset-path', (req, res) => {
 //
 // All three are issued by the Storage tab UI in one user-visible action.
 
-router.get('/app-settings/projects-root', async (_req, res) => {
-  try {
-    const { getAppSetting } = await import('../services/app-settings.js')
-    const override = await getAppSetting('projects_root_override')
-    const overrideStr = typeof override === 'string' ? override : ''
-    const defaultPath = pm.getProjectsRootDefaultPath()
-    const effectivePath = pm.projectsRoot()
-    res.json({
-      override: overrideStr,
-      effective_path: effectivePath,
-      default_path: defaultPath,
-      is_overridden: !!overrideStr && effectivePath !== defaultPath,
-    })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to read projects-root setting'))
-  }
-})
-
-router.put('/app-settings/projects-root', async (req, res) => {
-  try {
-    const value = typeof req.body?.override === 'string' ? req.body.override.trim() : ''
-    const { setAppSetting } = await import('../services/app-settings.js')
-    await setAppSetting('projects_root_override', value)
-    res.json({ ok: true, override: value })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to set projects-root override'))
-  }
-})
+// v1.4.3 — `GET`/`PUT /app-settings/projects-root` are gone. The location is
+// the Library now and lives behind `/library` (routes/library.ts), which also
+// validates writability and creates the fixed subfolders. The preview/inspect/
+// migrate helpers below survive: the Library's own move flow calls them.
 
 router.post('/app-settings/projects-root/preview-migration', async (_req, res) => {
   try {
