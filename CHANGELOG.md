@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.1 — 2026-08-18
+
+- **Your overlay effects can travel between episodes; their timing cannot.** You said overlays should belong to episodes but still live in presets so you can randomise the effects. Both are true now: a preset carries the overlay itself — which file, its opacity, size, position, blend and looping — and each episode keeps its own answer to *when* that overlay appears. A 12-second flourish placed over the closing line of a 16-minute episode was landing mid-sentence in a 9-minute one.
+- **Applying a preset no longer re-times another episode's overlays.** This was the same fault that put one episode's captions on another episode's video, in a different place: something specific to one episode was riding along in a preset and surviving a switch. Changing episode now loads that episode's own overlay timings, or none — it never leaves the last episode's standing.
+- **Timings you already set are kept, not thrown away.** Presets saved before this release still carry overlay timings. When you apply one, that timing is rescued and saved against the episode you are on — but never on top of a timing that episode already had — and the page tells you once that it happened.
+- **Randomising overlay effects cannot scramble their timing.** Because the timing is no longer inside presets, anything that shuffles overlay looks between presets simply cannot reach it. That is a property of how the data is stored rather than a rule something has to remember.
+- **Version numbers now only move on the last digit.** Story Studio stays at 1.4 and counts up from there — 1.4.1, 1.4.2, and onward past 1.4.100 without a break. Where a release matters more than usual, these notes will say so in words rather than in the number.
+- Checked while making that change that nothing breaks once the last digit reaches two or three figures — the release checks, the changelog ordering and the What's New pop-up were all already fine at 1.4.100.
+- Fixed while in there: content pack version lists were sorted as text rather than by number, so a pack's tenth update would have been listed as though it came before its second. This affected the order things were shown in, never which version was actually installed or rolled back to.
+
+---
+
 ## v1.4.0 — 2026-08-18
 
 - **You no longer choose which subtitle file to burn.** Story Studio picks it — this episode's corrected stitched transcript, or the best full transcript it has — and Step 5 simply tells you which one it is using. You asked for the choosing to go away, not for the file to be a mystery, so the name is always on screen.

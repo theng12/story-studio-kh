@@ -33,6 +33,7 @@ import { getApiKey } from './app-secrets-store.js'
 import { getGenStudioUrl } from './app-settings.js'
 import { ContentStoreLocalError, loadContentStoreOverview, type ContentStoreOverview } from './content-store.js'
 import { reconcileContentStoreRecalledVersions } from './content-store-install-state.js'
+import { compareVersionStrings } from '../content-packs/version-order.js'
 
 const STORY_CONTENT_PACK_MAX_BYTES = 50 * 1024 * 1024
 
@@ -293,7 +294,8 @@ async function alreadyInstalled(
       version: release.version,
       archive_sha256: release.archiveSha256,
       activated: pack.active_version === release.version,
-      retained_versions: Object.keys(pack.versions).sort(),
+      // v1.4.1 — numeric, not the default lexicographic sort.
+      retained_versions: Object.keys(pack.versions).sort(compareVersionStrings),
     },
     dependencies: verified.manifest.dependencies ?? [],
   }
@@ -405,7 +407,8 @@ async function activateOwnedDeliveryClosure(
     return {
       ...activated,
       activated: true,
-      retained_versions: Object.keys(state.packs[root.packId]!.versions).sort(),
+      // v1.4.1 — numeric, not the default lexicographic sort.
+      retained_versions: Object.keys(state.packs[root.packId]!.versions).sort(compareVersionStrings),
     }
   }, context.paths)
 }

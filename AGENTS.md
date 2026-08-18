@@ -201,6 +201,45 @@ What follows, and it applies to every workspace keyed by episode:
   answer, while which transcript to burn is an editorial choice — and a silent repair would
   also hide the next frontend regression of this kind forever.
 
+### Instance six — an overlay's WINDOW, 2026-08-18 (v1.4.1)
+
+**`overlays.layers[].time_range` rode in presets and survived episode changes.** Sixth
+instance of the same shape, and the first the owner has answered by SPLITTING one object
+rather than including or excluding it whole.
+
+His ruling: *"overlays should belong to episodes and can be in the presets because i might
+want to randomize the overlays effects."* Two things that sound contradictory and are not:
+
+- **The look is reusable taste.** Which overlay file, opacity, scale, position, blend,
+  chroma key, loop. It belongs in presets, and he wants to shuffle between them.
+- **The window is one episode's runtime.** A 12-second flourish over the closing line of a
+  16-minute episode lands mid-sentence in a 9-minute one. It travels nowhere.
+
+So the test in this document — include reusable configuration, exclude episode-specific
+state — is applied at the FIELD level, not the object level. When a key is a mixture, split
+it; do not decide the whole object by its dominant half.
+
+What that required, and all of it is load-bearing:
+
+- **Both preset payloads, not one.** `effectsPresets` and the `video_bundle` fallback each
+  carried the layers. The bundle is as reusable as the slot preset, so fixing only the
+  obvious one would have left the defect reachable by the other door.
+- **Windows persist per EPISODE CODE**, in `overlay_time_ranges` on the project config, so a
+  window can never be applied to an episode it was not measured against. Stripping them from
+  presets without giving them somewhere to live would have been data loss dressed up as a fix.
+- **An episode change REPLACES every window**, or clears it to `null` (the documented
+  "always visible" default). Same rule as instance five: never `if (newValue) field = newValue`.
+- **A pre-1.4.1 preset's windows are RESCUED, not dropped** — adopted as the current
+  episode's, but never over a window that episode already has, and announced once. The
+  episode is the authority on its own runtime; the preset is not.
+
+**Randomisation cannot reach the timing, structurally.** He asked to randomise the effects.
+Because the window is not in the preset payload, no shuffle over presets can touch it — the
+guarantee is a property of the data rather than a rule a future randomiser has to remember.
+`overlayLayersForPreset` in `frontend/utils/overlay-timing.ts` is the single place that
+decides what a preset carries, and `frontend/__tests__/overlayTiming.test.ts` asserts it.
+If you build that randomiser: vary the look, leave the window alone.
+
 ### Scene rhythm is preset data again — reinstated 2026-08-18
 
 **`pacing` belongs in Character Sheet presets. The owner reversed the 2026-08-03 exclusion

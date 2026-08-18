@@ -381,6 +381,12 @@ export interface SafeProjectConfigResponse {
   audio_pricing_last_updated: string
   video_pricing_last_updated?: string
   confirmation_preferences?: Record<string, boolean>
+  /**
+   * v1.4.1 — per-EPISODE overlay windows, keyed by episode code then layer id.
+   * An overlay's LOOK travels in presets; when it appears belongs to one
+   * episode's runtime and is stored here so it can never ride along.
+   */
+  overlay_time_ranges?: Record<string, Record<string, { start_s: number; end_s: number | null }>>
   /** @deprecated v1.0.150 — Chatterbox provider removed; field retained so old project.json parses. */
   chatterbox_enabled?: boolean
   /** @deprecated v1.0.150 — see chatterbox_enabled. */

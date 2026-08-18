@@ -29,6 +29,7 @@ import { readContentPackState } from '../content-packs/state.js'
 import { verifyInstalledContentPackClosure } from '../content-packs/installer.js'
 import type { VerifiedContentPack } from '../content-packs/archive.js'
 import * as projectManager from '../services/project-manager.js'
+import { compareVersionStrings } from '../content-packs/version-order.js'
 
 const MAX_IMPORT_BYTES = 50 * 1024 * 1024
 const RASTER_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp'])
@@ -133,7 +134,10 @@ async function managementCatalog(options: LocalContentPackOptions) {
       active_version: packState.active_version ?? null,
       versions: [] as Array<Record<string, unknown>>,
     }
-    for (const [version, installed] of Object.entries(packState.versions).sort(([left], [right]) => left.localeCompare(right))) {
+    // v1.4.1 — numeric, not `localeCompare`: '1.0.10' sorts before '1.0.2' as a
+    // string, so a pack's version history was misordered the moment it reached a
+    // double-digit patch release.
+    for (const [version, installed] of Object.entries(packState.versions).sort(([left], [right]) => compareVersionStrings(left, right))) {
       let verified: VerifiedContentPack | null = null
       try {
         verified = await verifyInstalledContentPackClosure(state, packId, version, policy, options.appVersion)
@@ -177,7 +181,8 @@ async function managementCatalog(options: LocalContentPackOptions) {
         affected_projects: pins.get(`${packId}@${verified.manifest.version}`) ?? [],
       })
     }
-    entry.versions.sort((left, right) => String(left.version).localeCompare(String(right.version)))
+    // v1.4.1 — numeric; see the note above on double-digit patch releases.
+      entry.versions.sort((left, right) => compareVersionStrings(left.version, right.version))
     byPack.set(packId, entry)
   }
 

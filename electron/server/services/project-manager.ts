@@ -1169,6 +1169,16 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     formula_applied_style_id: typeof (config as any).formula_applied_style_id === 'string'
       ? (config as any).formula_applied_style_id
       : undefined,
+    // v1.4.1 — per-EPISODE overlay windows, echoed for the same reason
+    // `active_style_preset_id` above is. `updateConfig` persists this through
+    // the schema's passthrough, but this response is an ALLOW-LIST: without an
+    // entry here the value writes to disk correctly and is invisible on the
+    // next load, so every overlay would silently come back untimed. It carries
+    // episode codes and numbers only — no secrets.
+    overlay_time_ranges: (config as any).overlay_time_ranges &&
+      typeof (config as any).overlay_time_ranges === 'object'
+      ? (config as any).overlay_time_ranges
+      : undefined,
     thumbnail_reference_asset: (config as any).thumbnail_reference_asset || undefined,
     // v1.0.337 — continuity guide cast density (0–100; undefined = 40% default).
     character_density: typeof (config as any).character_density === 'number' ? (config as any).character_density : undefined,

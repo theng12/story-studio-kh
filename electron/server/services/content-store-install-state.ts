@@ -6,6 +6,7 @@ import type { ContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import type { ContentPackVerificationPolicy } from '../content-packs/archive.js'
 import type { ContentPackInstallOptions } from '../content-packs/installer.js'
 import { mutateContentPackState, withContentPackCoordinationLock, withContentPackStateSnapshot } from '../content-packs/state.js'
+import { compareVersionStrings } from '../content-packs/version-order.js'
 
 export type ContentStoreInstallState =
   | 'not_installed' | 'installed_current' | 'installed_other_version'
@@ -141,7 +142,9 @@ export async function resolveContentStoreInstallSnapshot(
           missingDependencies: closure.missingDependencies })
       }
     }
-    return { owned, installed: installed.sort((left, right) => left.packId.localeCompare(right.packId) || left.version.localeCompare(right.version)) }
+    // v1.4.1 — pack id stays a lexicographic sort (it is an identifier), but the
+  // version tiebreaker is numeric: '1.0.10' after '1.0.9', not before '1.0.2'.
+  return { owned, installed: installed.sort((left, right) => left.packId.localeCompare(right.packId) || compareVersionStrings(left.version, right.version)) }
   }))
 }
 

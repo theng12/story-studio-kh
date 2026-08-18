@@ -1408,9 +1408,31 @@
         </div>
       </div>
 
+
+      <!-- v1.4.1 — a pre-1.4.1 preset still carries overlay windows. They are
+           rescued into THIS episode rather than dropped, and never over a window
+           the episode already had. Announced once, because a value that moves
+           without a word is the quiet version of the fault being fixed. -->
+      <WorkspaceNotice
+        v-if="overlayTimingMigrated.length"
+        tone="info"
+        title="Overlay timing moved to this episode"
+        class="mt-2"
+      >
+        This preset was saved before overlay timings belonged to episodes, so it still carried
+        {{ overlayTimingMigrated.length }} time range{{ overlayTimingMigrated.length === 1 ? '' : 's' }}.
+        {{ overlayTimingMigrated.length === 1 ? 'It has' : 'They have' }} been kept and saved against
+        <strong>{{ episodeId }}</strong> only. From now on the preset carries the overlay's look and each
+        episode keeps its own timing, so applying it elsewhere will not re-time that episode.
+        <template #actions>
+          <button class="btn btn-sm" @click="overlayTimingMigrated = []">Got it</button>
+        </template>
+      </WorkspaceNotice>
+
       <!-- Overlay Layers (multi-source compositing) -->
       <div class="settings-section mt-2">
         <div class="flex gap-2 items-center">
+
           <label class="checkbox-label" @click.stop>
             <input type="checkbox" v-model="overlays.enabled" :disabled="!overlays.layers.length" />
           </label>
@@ -1525,9 +1547,7 @@
                 <input
                   type="checkbox"
                   :checked="!!layer.time_range"
-                  @change="layer.time_range = ($event.target as HTMLInputElement).checked
-                    ? { start_s: 0, end_s: estimatedDurationSec || null }
-                    : null"
+                  @change="setOverlayTimeRangeEnabled(layer.id, ($event.target as HTMLInputElement).checked)"
                 />
                 <strong>Limit to a time range</strong>
                 <span class="text-muted text-xs">
@@ -2538,6 +2558,15 @@ import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
 import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
+import {
+  applyOverlayTimings,
+  collectOverlayTimings,
+  migrateLegacyOverlayTimings,
+  overlayLayersForPreset,
+  timingsForEpisode,
+  withEpisodeTimings,
+  type EpisodeOverlayTimings,
+} from '~/utils/overlay-timing'
 import type { SubtitleQualityReport } from '~/types/subtitle-quality'
 import { hasQualityFindings } from '~/types/subtitle-quality'
 import {
@@ -3159,6 +3188,85 @@ const overlays = reactive<{ enabled: boolean; layers: OverlayLayer[] }>({
   layers: [],
 })
 
+// ── Overlay windows belong to the episode, not the preset (v1.4.1) ──────
+//
+// The owner's ruling: *"overlays should belong to episodes and can be in the
+// presets because i might want to randomize the overlays effects."* The LOOK is
+// reusable taste and travels in presets; `time_range` is a fact about one
+// episode's runtime and travels nowhere. See `utils/overlay-timing.ts` — this is
+// the sixth instance of "episode-specific state surviving an episode change".
+//
+// Stored project-side, keyed by episode CODE, so a window can never be applied
+// to an episode it was not measured against.
+const overlayTimingStore = ref<Record<string, EpisodeOverlayTimings>>({})
+/** Layer ids whose window was rescued out of a pre-1.4.1 preset. Announced once. */
+const overlayTimingMigrated = ref<string[]>([])
+
+watch(vaConfig, (cfg) => {
+  const stored = (cfg as any)?.overlay_time_ranges
+  overlayTimingStore.value = stored && typeof stored === 'object' ? stored : {}
+  // Whatever is on screen now belongs to the episode on screen, so re-seat the
+  // windows as soon as the store arrives.
+  if (episodeId.value && overlays.layers.length) applyEpisodeOverlayTimings()
+}, { immediate: true })
+
+/**
+ * Install layers that arrived from a preset, then decide their windows here.
+ *
+ * A pre-1.4.1 preset still carries `time_range` on every layer. Ignoring it
+ * would be a silent data loss — people have overlays timed right now and that
+ * timing lives nowhere else — so a legacy window is adopted as THIS episode's,
+ * but only where the episode has nothing of its own to say. The episode is the
+ * authority on its own runtime; the preset is not.
+ */
+function applyOverlayLayersFromPreset(layers: any[]) {
+  const incoming = (layers || []).map((l: any) => ({ ...l })) as OverlayLayer[]
+  const code = episodeId.value
+  const existing = timingsForEpisode(overlayTimingStore.value, code)
+  const { timings, migrated } = migrateLegacyOverlayTimings(incoming, existing)
+  overlays.layers.splice(0, overlays.layers.length,
+    ...applyOverlayTimings(incoming, timings) as OverlayLayer[])
+  if (code && migrated.length) {
+    overlayTimingStore.value = withEpisodeTimings(overlayTimingStore.value, code, timings)
+    // Announced once, and only when something actually moved. A rescue the
+    // customer cannot see is the quiet version of the fault being fixed.
+    overlayTimingMigrated.value = migrated
+    persistEpisodeOverlayTimings()
+  }
+}
+
+/** REPLACE every layer's window with this episode's. Never fills a gap. */
+function applyEpisodeOverlayTimings() {
+  const timings = timingsForEpisode(overlayTimingStore.value, episodeId.value)
+  overlays.layers.splice(0, overlays.layers.length,
+    ...applyOverlayTimings(overlays.layers, timings) as OverlayLayer[])
+}
+
+/**
+ * Persist the windows currently on screen against the episode on screen.
+ *
+ * Debounced, because the drag handles fire continuously and the render itself
+ * reads the live state — a write per pixel would be pure noise.
+ */
+let overlayTimingSaveTimer: ReturnType<typeof setTimeout> | null = null
+function persistEpisodeOverlayTimings() {
+  const code = episodeId.value
+  if (!code) return
+  overlayTimingStore.value = withEpisodeTimings(
+    overlayTimingStore.value, code, collectOverlayTimings(overlays.layers),
+  )
+  if (overlayTimingSaveTimer) clearTimeout(overlayTimingSaveTimer)
+  overlayTimingSaveTimer = setTimeout(() => {
+    _put(`/projects/${slug.value}/settings/config`, {
+      overlay_time_ranges: overlayTimingStore.value,
+    }).catch((e: any) => {
+      // Loud. A window that looks saved and is not would come back as "the
+      // overlay moved on its own" the next time the page is opened.
+      showError(`Overlay timing could not be saved: ${e?.data?.detail || e?.message || 'unknown error'}`)
+    })
+  }, 600)
+}
+
 // ── Compilation video layout (Path C / v1.0.63+) ─────────────────────
 // Inverts the visual model: looping background plate becomes the base
 // video, scene images render as chapter-aligned foreground overlays.
@@ -3377,6 +3485,9 @@ function startOverlayDrag(event: PointerEvent, layerId: string, mode: 'start' | 
     document.removeEventListener('pointermove', onMove)
     document.removeEventListener('pointerup', onUp)
     document.removeEventListener('pointercancel', onUp)
+    // v1.4.1 — the window belongs to this episode, so it is saved against this
+    // episode. On drag END only: a write per pointer-move would be noise.
+    persistEpisodeOverlayTimings()
   }
   document.addEventListener('pointermove', onMove)
   document.addEventListener('pointerup', onUp)
@@ -3397,6 +3508,15 @@ function onOverlayTimeInput(event: Event, layerId: string, edge: 'start' | 'end'
   } else {
     layer.time_range.end_s = snap(Math.max(layer.time_range.start_s + 0.1, Math.min(totalDur, raw)))
   }
+  persistEpisodeOverlayTimings()
+}
+
+/** Turn a layer's window on or off for THIS episode, and record it. */
+function setOverlayTimeRangeEnabled(layerId: string, on: boolean) {
+  const layer = overlays.layers.find(l => l.id === layerId)
+  if (!layer) return
+  layer.time_range = on ? { start_s: 0, end_s: estimatedDurationSec.value || null } : null
+  persistEpisodeOverlayTimings()
 }
 
 // Render timeline ticks every 60s — visual reference points so the
@@ -3846,7 +3966,10 @@ const effectsPresets = usePresets({
     scene_effects: { enabled: sceneEffects.enabled, overlays: sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })) },
     frame: { ...frame },
     chroma_key: { ...chromaKey },
-    overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
+    // v1.4.1 — the LOOK travels, the window does not. Because `time_range`
+    // is not in the payload, shuffling overlay effects across presets cannot
+    // reach the timing: the guarantee is structural, not a rule to remember.
+    overlays: { enabled: overlays.enabled, layers: overlayLayersForPreset(overlays.layers) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
     compilation_layout: {
       layout: compilationLayout.layout,
@@ -3879,7 +4002,7 @@ const effectsPresets = usePresets({
     if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
     if (data.overlays && Array.isArray(data.overlays.layers)) {
       overlays.enabled = !!data.overlays.enabled
-      overlays.layers.splice(0, overlays.layers.length, ...data.overlays.layers.map((l: any) => ({ ...l })))
+      applyOverlayLayersFromPreset(data.overlays.layers)
     }
     if (typeof data.exclude_intro_from_effects === 'boolean') {
       excludeIntroFromEffects.value = data.exclude_intro_from_effects
@@ -4002,7 +4125,10 @@ function snapshotEffectsData() {
     letterbox: { ...letterbox },
     scene_effects: { enabled: sceneEffects.enabled, overlays: sceneEffects.overlays.map(o => ({ ...o, params: { ...(o.params || {}) } })) },
     chroma_key: { ...chromaKey },
-    overlays: { enabled: overlays.enabled, layers: overlays.layers.map(l => ({ ...l })) },
+    // v1.4.1 — no `time_range`. The bundle is reusable across episodes exactly
+    // as the slot preset is, so carrying a window here would reintroduce the
+    // defect by the other door.
+    overlays: { enabled: overlays.enabled, layers: overlayLayersForPreset(overlays.layers) },
     exclude_intro_from_effects: excludeIntroFromEffects.value,
     // v1.0.68+: compilation_layout was being saved to the slot preset
     // but NOT to the bundle's fallback snapshot. Result: pipeline
@@ -4041,7 +4167,7 @@ function applyEffectsData(data: any) {
   if (data.chroma_key) Object.assign(chromaKey, data.chroma_key)
   if (data.overlays && Array.isArray(data.overlays.layers)) {
     overlays.enabled = !!data.overlays.enabled
-    overlays.layers.splice(0, overlays.layers.length, ...data.overlays.layers.map((l: any) => ({ ...l })))
+    applyOverlayLayersFromPreset(data.overlays.layers)
   }
   if (typeof data.exclude_intro_from_effects === 'boolean') {
     excludeIntroFromEffects.value = data.exclude_intro_from_effects
@@ -5122,6 +5248,10 @@ function onEpisodeSelected(ep: any) {
   // this release removes, one level up: state about one episode still standing
   // while another is on screen.
   resetSubtitlePreflight()
+  // v1.4.1 — and the same rule for overlay windows. REPLACED from the new
+  // episode's own record, or cleared; never left standing from the last one.
+  overlayTimingMigrated.value = []
+  applyEpisodeOverlayTimings()
   if (ep?.title) {
     titleCard.text = ep.title
   }
