@@ -45,10 +45,22 @@
         <h2>{{ libraryMissing ? 'Story Studio can’t find your Library' : 'Story Studio is not responding yet' }}</h2>
         <p>{{ projectsLoadError }}</p>
         <p v-if="libraryMissingPath" class="home-state-path"><code>{{ libraryMissingPath }}</code></p>
-        <button type="button" class="btn btn-primary" :disabled="projectsRetrying" @click="retryLoadProjects">
-          <LoadingSpinner v-if="projectsRetrying" size="sm" />
-          {{ projectsRetrying ? 'Checking…' : (libraryMissing ? 'It’s connected now — look again' : 'Try again') }}
-        </button>
+        <div class="home-state-actions">
+          <button type="button" class="btn btn-primary" :disabled="projectsRetrying" @click="retryLoadProjects">
+            <LoadingSpinner v-if="projectsRetrying" size="sm" />
+            {{ projectsRetrying ? 'Checking…' : (libraryMissing ? 'It’s connected now — look again' : 'Try again') }}
+          </button>
+          <!-- v1.4.6 — the way out. Without this he was stuck: with the Library
+               gone there are no projects, so Settings (which lives under
+               /projects/:slug) could not be opened, and the welcome screen
+               bounced him straight back here. Deliberately the QUIETER of the
+               two actions — reconnecting a drive is nearly always the right
+               move, and re-pointing while it is merely unplugged is how someone
+               loses track of where their work actually is. -->
+          <NuxtLink v-if="libraryMissing" to="/welcome" class="btn btn-secondary">
+            Choose a different folder…
+          </NuxtLink>
+        </div>
       </section>
 
       <section v-else-if="projects.length === 0" class="home-state home-empty">
@@ -563,6 +575,7 @@ onMounted(async () => {
 
 /* v1.4.3 — one-time upgrade notes. */
 .home-state-path { margin-top: 8px; }
+.home-state-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .home-state-path code { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .migration-notices { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
 .migration-notice {

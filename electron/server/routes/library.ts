@@ -87,12 +87,20 @@ router.put('/library', async (req, res) => {
       return res.json({ ...(await describeLibrary()), moved })
     }
     if (current && current !== target) {
-      return res.status(409).json({
-        detail: 'This Mac already has a Library. Moving it copies every channel to the new place, '
-          + 'so it has to be asked for explicitly.',
-        code: 'LIBRARY_ALREADY_SET',
-        current,
-      })
+      // v1.4.6 — repointing is allowed WITHOUT a move when the current Library
+      // is not there. Refusing was a lockout: with the Library gone there are no
+      // projects, so Settings (which lives under /projects/:slug) cannot be
+      // opened, and this was the only other way to change the location. There is
+      // also nothing to move — the folder being replaced does not exist.
+      const { existsSync } = await import('fs')
+      if (existsSync(current)) {
+        return res.status(409).json({
+          detail: 'This Mac already has a Library. Moving it copies every channel to the new place, '
+            + 'so it has to be asked for explicitly.',
+          code: 'LIBRARY_ALREADY_SET',
+          current,
+        })
+      }
     }
     res.json(await setLibraryRoot(target))
   } catch (e: any) {

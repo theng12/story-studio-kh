@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.6 — 2026-08-19
+
+- **Copying your channels onto a new Mac and pointing Story Studio at them works — checked properly this time.** Put your channel folders wherever you like, launch the app, choose that folder on the welcome screen, and every channel appears straight away. Folders with spaces, apostrophes and Khmer names all come through; anything in there that is not a channel is ignored and left alone.
+- **A Library that goes missing is no longer quietly recreated as an empty folder.** This was the serious one. If your Library sat on a drive that was not plugged in, the next page load created the folder again — empty — so the clear "your Library is not available, here is where I looked" turned into a silent "you have no channels". On an external drive it was worse: it could leave a folder standing where the drive should mount, and stop the real drive appearing there. It now refuses, and says so.
+- **If your Library goes missing you can get back.** Before, you could not: with no Library there are no channels, and the only place to change the location lived inside a channel's settings. The error screen now offers **Choose a different folder…**, and the welcome screen lets you re-point at the new location without copying anything.
+- **Setting a Library in a development build actually works now.** It was being written to one file and read from another, so it saved and did nothing. Only affected running from source, never the installed app.
+- **The release-notes window no longer covers the welcome screen on a brand-new Mac.** It was appearing before you had chosen anything, on top of the one screen you have to complete. It waits until you are set up.
+- **Choosing your Downloads or Desktop folder itself now says it will be untidy** — three Story Studio folders loose among everything else in there — while still letting you do it. A folder inside is usually neater, but it is your Mac.
+- **The welcome screen can be completed without a mouse**, and pressing Return in the folder box now confirms your choice.
+
+---
+
 ## v1.4.5 — 2026-08-19
 
 - **Removed a second, unsafe way to move finished videos.** Settings had a **Migrate finals here →** button that moved finished videos without checking the copy first — it copied the file, then deleted the original, with no size check, no checksum, and no check that the video had ever been uploaded. On an external drive, which is exactly where finished videos get moved to, a copy that quietly truncates would have taken the original with it. It is gone. **Archive uploaded videos** does the same job and checks every file twice before removing anything.

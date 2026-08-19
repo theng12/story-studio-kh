@@ -70,17 +70,43 @@ function getUserDataPath(productName: string): string {
  *
  * Returns the absolute path the file would live at — file may not exist.
  */
+/**
+ * Where app-settings.json lives — resolved IDENTICALLY to `app-settings.ts`.
+ *
+ * v1.4.6: these two computations used to disagree in an unpackaged run.
+ * `app-settings.ts` (which WRITES) falls back to `<repoRoot>/app-settings.json`
+ * when it is not packaged; this reader fell back to the userData folder. So a
+ * Library chosen in a dev build was written to one file and read from another,
+ * and the app silently carried on with the old location — the setting appeared
+ * to save and did nothing.
+ *
+ * Packaged builds were unaffected, because there both sides resolve to the
+ * userData folder. That is exactly why it survived: the only people who could
+ * hit it were the ones running from source.
+ *
+ * The branches below mirror `app-settings.ts:resolveAppSettingsPath` line for
+ * line. If that one changes, change this one — or better, delete one of them.
+ */
 function resolveAppSettingsPath(): string {
   if (process.env.STORY_STUDIO_DATA_DIR) {
     return path.join(process.env.STORY_STUDIO_DATA_DIR, 'app-settings.json')
   }
-  // Try Electron app.getPath('userData') first; fall back to the manual
-  // platform branch.
-  try {
-    const { app } = require('electron')
-    if (app?.getPath) return path.join(app.getPath('userData'), 'app-settings.json')
-  } catch { /* not in Electron (tests / standalone) */ }
-  return path.join(getUserDataPath('Story Studio KH'), 'app-settings.json')
+  const isPackaged = __dirnameCompat().includes('.asar')
+    || (!!process.resourcesPath && !process.env.ELECTRON_RUN_AS_NODE)
+  if (isPackaged) {
+    return path.join(getUserDataPath('Story Studio KH'), 'app-settings.json')
+  }
+  // Unpackaged: the repo root, which is what app-settings.ts writes to.
+  return path.join(repoRootCompat(), 'app-settings.json')
+}
+
+/** `__dirname` for this module, ESM-safe. */
+function __dirnameCompat(): string {
+  return path.dirname(fileURLToPath(import.meta.url))
+}
+/** Repo root, matching `app-settings.ts`'s `ROOT` (services → server → electron → root). */
+function repoRootCompat(): string {
+  return path.resolve(__dirnameCompat(), '..', '..', '..')
 }
 
 /**
@@ -307,8 +333,42 @@ export function ensureProjectsRoot(): string {
   // the real hazard is a test writing INTO the developer's existing projects
   // folder, which no `existsSync` check would ever notice.
   assertWriteIsolatedInTests(root, 'projects-root')
+
+  // v1.4.6 — NEVER conjure a Library that has been chosen and is not there.
+  //
+  // A dozen ordinary read paths reach this — the niche, character, topic-pack
+  // and thumbnail-template loaders all create a dot-folder under the root — so
+  // an unplugged drive meant the next page load ran `mkdir -p` on the missing
+  // Library and brought it back as an EMPTY folder. Two bad things followed:
+  //
+  //   1. `exists` flipped true, so the honest "your Library is not available,
+  //      here is where I looked" was replaced by a silent "you have no
+  //      channels" — the exact failure that message was written to prevent.
+  //   2. On an external volume, `mkdir -p /Volumes/Drive/Library` creates a
+  //      LOCAL folder standing where the mount point belongs, which can then
+  //      stop the real drive mounting there at all.
+  //
+  // Refusing is right: there is nothing to write into a Library that is not
+  // present, and the caller failing loudly is how the customer finds out.
+  if (isLibraryConfigured() && !existsSync(root)) {
+    const err: any = new Error(
+      `Your Library is not available. Story Studio looked for "${root}" and it is not there. `
+      + 'If it is on a drive that is not plugged in, reconnect it. Nothing has been lost.',
+    )
+    err.statusCode = 409
+    err.code = 'LIBRARY_UNAVAILABLE'
+    err.expose = true
+    throw err
+  }
+
   if (!existsSync(root)) mkdirSync(root, { recursive: true })
   return root
+}
+
+/** Has a Library been chosen on this machine? Sync, for the guard above. */
+export function isLibraryConfigured(): boolean {
+  if (process.env.STORY_STUDIO_DATA_DIR) return false
+  return !!(readSettingSync('library_root') || readSettingSync('projects_root_override'))
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

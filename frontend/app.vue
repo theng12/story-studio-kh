@@ -84,6 +84,16 @@ if (typeof window !== 'undefined') {
     const { useApi: _useApi } = await useApiPromise!
     const { get } = _useApi()
     try {
+      // v1.4.6 — never on a machine that has not been set up yet.
+      //
+      // On a brand-new Mac `last_seen_version` is unset, so this fired
+      // immediately and covered the welcome screen — the one screen he MUST
+      // complete before the app can do anything, and the one he cannot report a
+      // bug on because he cannot get past it. Release notes for a version he has
+      // never run are noise at that moment; they keep until he is inside.
+      const { useLibrary } = await import('~/composables/useLibrary')
+      const library = await useLibrary().load()
+      if (library && !library.configured) return
       const r = await get<{ last_seen_version: string | null }>('/app-settings/last-seen-version')
       const { public: pubCfg } = useRuntimeConfig()
       const current = (pubCfg.appVersion as string | undefined) || ''

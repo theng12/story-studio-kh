@@ -130,8 +130,25 @@ export async function describeLibrary(): Promise<LibraryStatus> {
 }
 
 export type LibraryCheck =
-  | { ok: true; path: string; will_create: boolean }
+  | { ok: true; path: string; will_create: boolean; caution?: string }
   | { ok: false; reason: string }
+
+/**
+ * Folders where dropping three Story Studio folders loose would be legal and
+ * messy. He explicitly named Downloads and Desktop as places he likes, so this
+ * WARNS rather than refuses — telling him it is a bad idea and letting him do
+ * it anyway is the right balance for somebody's own machine.
+ */
+function untidyRoot(target: string): string {
+  const home = os.homedir()
+  const named: Record<string, string> = {
+    [home]: 'your home folder',
+    [path.join(home, 'Downloads')]: 'your Downloads folder',
+    [path.join(home, 'Desktop')]: 'your Desktop',
+    [path.join(home, 'Documents')]: 'your Documents folder',
+  }
+  return named[path.resolve(target)] || ''
+}
 
 /**
  * Judge a candidate Library BEFORE anything is created.
@@ -164,7 +181,16 @@ export async function checkLibraryTarget(candidate: string): Promise<LibraryChec
           + 'Pick somewhere you own — your Documents, Desktop or Downloads folder, or a drive that is not read-only.',
       }
     }
-    return { ok: true, path: target, will_create: false }
+    const untidy = untidyRoot(target)
+    return {
+      ok: true,
+      path: target,
+      will_create: false,
+      caution: untidy
+        ? `This is ${untidy} itself, so Story Studio's folders would sit loose among everything else `
+          + 'already in there. A folder inside it — "Story Studio KH", say — is usually tidier.'
+        : undefined,
+    }
   }
 
   // Not there yet: it can still be a fine choice, as long as its parent exists

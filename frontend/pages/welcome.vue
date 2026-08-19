@@ -2,9 +2,14 @@
   <div class="welcome-page">
     <main class="welcome-main">
       <section class="welcome-intro">
-        <span class="welcome-eyebrow">Welcome to Story Studio</span>
-        <h1>Where should Story Studio keep your work?</h1>
-        <p>
+        <span class="welcome-eyebrow">{{ repointing ? 'Library not found' : 'Welcome to Story Studio' }}</span>
+        <h1>{{ repointing ? 'Where is your Library now?' : 'Where should Story Studio keep your work?' }}</h1>
+        <p v-if="repointing">
+          Story Studio looked for <code>{{ missingPath }}</code> and it is not there. If it is on a
+          drive that is not plugged in, connect it and press the button below — nothing has been
+          lost. If you moved the folder, point Story Studio at its new home.
+        </p>
+        <p v-else>
           Everything Story Studio makes lives in one folder — your <strong>Library</strong>. One
           folder per channel, plus a place for shared files and one for finished videos. Put it
           wherever suits you: Documents, Desktop, Downloads, or an external drive.
@@ -21,6 +26,7 @@
             spellcheck="false"
             :disabled="creating"
             @input="checked = null"
+            @keyup.enter="confirm"
           />
           <button
             type="button"
@@ -45,6 +51,7 @@
         <p v-else-if="checked?.will_create" class="welcome-note">
           This folder does not exist yet — Story Studio will create it.
         </p>
+        <p v-else-if="checked?.caution" class="welcome-caution">{{ checked.caution }}</p>
         <p v-else-if="checked?.ok" class="welcome-note">
           This folder already exists. Any channels already inside it will simply appear.
         </p>
@@ -57,7 +64,7 @@
             @click="confirm"
           >
             <LoadingSpinner v-if="creating" size="sm" />
-            {{ creating ? 'Setting up…' : 'Use this folder' }}
+            {{ creating ? 'Setting up…' : (repointing ? 'Use this folder' : 'Use this folder') }}
           </button>
         </div>
 
@@ -98,10 +105,13 @@ const { load, check, choose } = useLibrary()
 const { error: showError } = useToast()
 
 const chosen = ref('')
+/** True when a Library was already chosen but cannot be found right now. */
+const repointing = ref(false)
+const missingPath = ref('')
 const picking = ref(false)
 const creating = ref(false)
 const problem = ref('')
-const checked = ref<{ ok: boolean; will_create?: boolean; reason?: string } | null>(null)
+const checked = ref<{ ok: boolean; will_create?: boolean; reason?: string; caution?: string } | null>(null)
 
 /** The folder name, for the little layout preview. */
 const leafName = computed(() => {
@@ -111,10 +121,16 @@ const leafName = computed(() => {
 
 onMounted(async () => {
   const status = await load()
-  // Already set up (someone reached /welcome by hand) — do not offer to
-  // re-choose, because that is how a Library gets replaced by an empty folder.
-  if (status?.configured) return navigateTo('/', { replace: true })
-  chosen.value = status?.suggested || ''
+  // v1.4.6 — a CONFIGURED library sends you home, EXCEPT when it is not there.
+  //
+  // That exception closes a lockout. With the Library missing there are no
+  // projects, so Settings — which lives under /projects/:slug — cannot be
+  // opened, and this screen was bouncing him straight back to the error page.
+  // The only two ways to change the location were both unreachable.
+  if (status?.configured && status.exists) return navigateTo('/', { replace: true })
+  repointing.value = !!status?.configured
+  missingPath.value = status?.configured && !status.exists ? status.path : ''
+  chosen.value = (repointing.value ? status?.path : status?.suggested) || ''
 })
 
 async function browse() {
@@ -200,6 +216,7 @@ async function confirm() {
 .welcome-layout li span { margin-left: 8px; }
 .welcome-problem { color: var(--danger); margin-top: 14px; }
 .welcome-note { color: var(--text-secondary); margin-top: 14px; }
+.welcome-caution { color: var(--warning); margin-top: 14px; }
 .welcome-actions { margin-top: 20px; }
 .welcome-fineprint { color: var(--text-secondary); font-size: 13px; margin-top: 14px; }
 </style>
