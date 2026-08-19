@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.8 — 2026-08-19
+
+- **"Got it" on the two upgrade notes now means forever.** The notes about custom folder labels and about finished videos moving into your Library came straight back every time the app started, no matter how often you closed them. Dismissing one wrote nothing down: at every launch the app rebuilt both notes by re-checking the same things that were true when it first wrote them, and those things are still true — so the notes reappeared seconds after you got rid of them. Story Studio now remembers that you have read a note, and a note you have closed is never shown again. Not after a restart, not after a hundred, and not if you go back to an older version and come forward again.
+- **Nothing of yours was deleted to achieve that.** The obvious shortcut — throw away the old folder settings so the notes have nothing left to report — would have taken your `named-roots.json` and your existing exports folder setting with it, and both are still read for good reasons. Closing a message says something about the message, not about your files, so only the message is forgotten.
+- **If closing a note ever fails, it now says so.** Before, the note disappeared from the screen whether or not the app managed to record it, then quietly returned later — which is a large part of what made this baffling. The note now stays put until it has actually been saved, and tells you if it could not be.
+
+---
+
 ## v1.4.7 — 2026-08-19
 
 - **Credit figures on the Jobs page now say "credits".** The GenStudio batch line read `50 items · 450 on hold`, where the 450 is credits and the 50 is items — so it looked like 450 items were on hold. Every credit figure on that page now carries its unit.

@@ -35,6 +35,24 @@
  *
  * Runs once. The notices are stored so the app can show them when there is a
  * window to show them in, and cleared when he dismisses them.
+ *
+ * ── Dismissal is remembered, not inferred (v1.4.8) ──
+ *
+ * Until 1.4.8 only notice 2 ever went away, because it happened to clear the
+ * setting it was generated from. Notices 3 and 4 read a condition that is still
+ * true — `named-roots.json` exists, `external_final_video_root` is set — and so
+ * this function put them straight back on the next boot, seconds after they had
+ * been dismissed. "Got it" did nothing that lasted, which is the worst kind of
+ * button.
+ *
+ * The fix is NOT to clear those settings. They are deliberately retained (see
+ * `projects_root_override` below: a downgrade to 1.4.2 still reads it), and the
+ * export root is still consulted when looking for finished videos. Dismissal is
+ * a statement about the MESSAGE, not about the data behind it — so it is
+ * recorded separately, in `MIGRATION_NOTICES_DISMISSED_KEY`, and both the
+ * generator and the reader honour it. A dismissed notice is gone for good:
+ * across a restart, across a settings reload, and across a downgrade to a build
+ * that re-adds it, because the acknowledgement outlives the notice list.
  */
 
 import { existsSync } from 'fs'
@@ -45,6 +63,12 @@ import { LIBRARY_ROOT_KEY } from './library.js'
 
 /** Where one-time upgrade messages wait until the UI can show them. */
 export const MIGRATION_NOTICES_KEY = 'library_migration_notices'
+
+/**
+ * Which notices the customer has read and closed. Ids only — this outlives the
+ * notices themselves, so it stays a tiny list of strings forever.
+ */
+export const MIGRATION_NOTICES_DISMISSED_KEY = 'library_migration_notices_dismissed'
 
 export interface MigrationNotice {
   /** Stable id so a notice is never shown twice. */
@@ -121,6 +145,14 @@ export async function migrateLegacyLocationSettings(): Promise<MigrationNotice[]
       })
     }
 
+    // Anything already dismissed is not regenerated, and not returned. The
+    // conditions above are still true and always will be; the customer's answer
+    // to them is the newer fact.
+    const dismissed = await readDismissedIds()
+    const fresh = notices.filter(n => !dismissed.has(n.id))
+    notices.length = 0
+    notices.push(...fresh)
+
     if (notices.length) {
       const existing = await getAppSetting(MIGRATION_NOTICES_KEY)
       const seen = new Set(
@@ -134,6 +166,14 @@ export async function migrateLegacyLocationSettings(): Promise<MigrationNotice[]
     console.warn('[library-migration] skipped:', e?.message || e)
   }
   return notices
+}
+
+/** The acknowledged ids, tolerant of a hand-edited or absent settings file. */
+async function readDismissedIds(): Promise<Set<string>> {
+  const raw = await getAppSetting(MIGRATION_NOTICES_DISMISSED_KEY)
+  return new Set(
+    (Array.isArray(raw) ? raw : []).filter((id): id is string => typeof id === 'string' && !!id),
+  )
 }
 
 /**
@@ -157,10 +197,30 @@ async function readNamedRootsOnce(): Promise<Record<string, string>> {
 
 export async function listMigrationNotices(): Promise<MigrationNotice[]> {
   const raw = await getAppSetting(MIGRATION_NOTICES_KEY)
-  return Array.isArray(raw) ? raw : []
+  if (!Array.isArray(raw) || !raw.length) return []
+  // Filtered on the way out as well as at generation. An older build that
+  // doesn't know about the acknowledgement key can still push a dismissed
+  // notice back into the stored list; this is what makes downgrade-then-upgrade
+  // silent rather than a resurrection.
+  const dismissed = await readDismissedIds()
+  return raw.filter((n: any) => n && !dismissed.has(n.id))
 }
 
+/**
+ * Record that the customer has read a notice, then drop it.
+ *
+ * The acknowledgement is written FIRST and is the durable half. Removing it
+ * from the stored list is only tidying — if the process died between the two
+ * writes, the notice would still never be shown again.
+ */
 export async function dismissMigrationNotice(id: string): Promise<void> {
-  const raw = await listMigrationNotices()
-  await setAppSetting(MIGRATION_NOTICES_KEY, raw.filter(n => n?.id !== id))
+  if (typeof id !== 'string' || !id) return
+  const dismissed = await readDismissedIds()
+  if (!dismissed.has(id)) {
+    dismissed.add(id)
+    await setAppSetting(MIGRATION_NOTICES_DISMISSED_KEY, [...dismissed])
+  }
+  const raw = await getAppSetting(MIGRATION_NOTICES_KEY)
+  const stored = Array.isArray(raw) ? raw : []
+  await setAppSetting(MIGRATION_NOTICES_KEY, stored.filter((n: any) => n?.id !== id))
 }

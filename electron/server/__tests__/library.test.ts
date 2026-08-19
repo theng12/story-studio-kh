@@ -200,3 +200,124 @@ describe('retiring the old location settings', () => {
     assert.deepEqual(await mig.listMigrationNotices(), [])
   })
 })
+
+/**
+ * v1.4.8 — "why i can't dismiss it for ever?"
+ *
+ * Two of the four notices were generated from a condition that stays true, and
+ * regenerated on the next boot seconds after being dismissed. Only the linked-
+ * projects notice went away, and only because it happened to clear the setting
+ * it read; the other two never cleared anything, so "Got it" was a button that
+ * did nothing lasting.
+ *
+ * The three shapes below are the ones a person actually hits: relaunching the
+ * app, the page re-reading settings, and a downgrade followed by an upgrade.
+ * The settings behind the notices must survive all three untouched — dismissing
+ * a message is not permission to delete the data it describes.
+ */
+describe('a dismissed upgrade notice never comes back', () => {
+  /** Raise every notice this migration can produce, then close them all. */
+  async function raiseAndDismissEverything(): Promise<{ exportRoot: string; namedRoots: string }> {
+    const exportRoot = path.join(tmp.dir, 'YouTube Exports')
+    await fs.mkdir(exportRoot, { recursive: true })
+    await settings.setAppSetting('external_final_video_root', exportRoot)
+
+    const namedRoots = path.join(tmp.dir, 'named-roots.json')
+    await fs.writeFile(namedRoots, JSON.stringify({ TERRANASH: path.join(tmp.dir, 'tn-assets') }))
+
+    const first = await mig.migrateLegacyLocationSettings()
+    assert.deepEqual(
+      first.map(n => n.id).sort(),
+      ['exports-moved', 'named-roots-retired'],
+      'both must appear the first time — they are correct, just not forever',
+    )
+    await mig.dismissMigrationNotice('named-roots-retired')
+    await mig.dismissMigrationNotice('exports-moved')
+    assert.deepEqual(await mig.listMigrationNotices(), [])
+    return { exportRoot, namedRoots }
+  }
+
+  test('not after a restart, even though the settings behind it are still set', async () => {
+    const { exportRoot, namedRoots } = await raiseAndDismissEverything()
+
+    // Boot again. This is the exact call that used to undo the dismissal.
+    const second = await mig.migrateLegacyLocationSettings()
+    assert.deepEqual(second, [], 'a boot must not regenerate a notice he has closed')
+    assert.deepEqual(await mig.listMigrationNotices(), [])
+
+    // And nothing of his was thrown away to achieve it.
+    assert.equal(await settings.getAppSetting('external_final_video_root'), exportRoot)
+    assert.equal(existsSync(namedRoots), true, 'named-roots.json is his file, not ours to delete')
+  })
+
+  test('not after ten restarts', async () => {
+    await raiseAndDismissEverything()
+    for (let i = 0; i < 10; i++) await mig.migrateLegacyLocationSettings()
+    assert.deepEqual(await mig.listMigrationNotices(), [])
+  })
+
+  test('not when the page re-reads the settings', async () => {
+    await raiseAndDismissEverything()
+    // The home page asks GET /library/notices on every mount; the answer must
+    // be the same on the hundredth ask as on the first.
+    assert.deepEqual(await mig.listMigrationNotices(), [])
+    assert.deepEqual(await mig.listMigrationNotices(), [])
+  })
+
+  test('not after a downgrade puts it back and an upgrade reads it again', async () => {
+    await raiseAndDismissEverything()
+
+    // A 1.4.7 build knows nothing about the acknowledgement and re-adds the
+    // notice to the stored list. Simulate exactly that write.
+    await settings.setAppSetting(mig.MIGRATION_NOTICES_KEY, [{
+      id: 'exports-moved',
+      title: 'Finished videos now go into your Library',
+      body: 'written by an older build',
+      paths: [tmp.dir],
+    }])
+
+    assert.deepEqual(
+      await mig.listMigrationNotices(), [],
+      'the acknowledgement outlives the notice list, so an old build cannot resurrect it',
+    )
+    assert.deepEqual(await mig.migrateLegacyLocationSettings(), [])
+  })
+
+  test('dismissing one leaves the others alone', async () => {
+    const exportRoot = path.join(tmp.dir, 'Exports elsewhere')
+    await fs.mkdir(exportRoot, { recursive: true })
+    await settings.setAppSetting('external_final_video_root', exportRoot)
+    await fs.writeFile(
+      path.join(tmp.dir, 'named-roots.json'),
+      JSON.stringify({ TERRANASH: path.join(tmp.dir, 'tn-assets') }),
+    )
+    await mig.migrateLegacyLocationSettings()
+
+    await mig.dismissMigrationNotice('exports-moved')
+    assert.deepEqual((await mig.listMigrationNotices()).map(n => n.id), ['named-roots-retired'])
+    // Still true after a restart: one answered, one still waiting.
+    await mig.migrateLegacyLocationSettings()
+    assert.deepEqual((await mig.listMigrationNotices()).map(n => n.id), ['named-roots-retired'])
+  })
+
+  test('the acknowledgement is recorded before the notice list is pruned', async () => {
+    // Dismissal writes the acknowledgement first and tidies the list second, so
+    // a crash between the two still leaves the notice gone for good.
+    await settings.setAppSetting('external_final_video_root', tmp.dir)
+    await mig.migrateLegacyLocationSettings()
+    await mig.dismissMigrationNotice('exports-moved')
+    assert.deepEqual(
+      await settings.getAppSetting(mig.MIGRATION_NOTICES_DISMISSED_KEY),
+      ['exports-moved'],
+    )
+  })
+
+  test('dismissing the same notice twice is harmless', async () => {
+    await settings.setAppSetting('external_final_video_root', tmp.dir)
+    await mig.migrateLegacyLocationSettings()
+    await mig.dismissMigrationNotice('exports-moved')
+    await mig.dismissMigrationNotice('exports-moved')
+    assert.deepEqual(await settings.getAppSetting(mig.MIGRATION_NOTICES_DISMISSED_KEY), ['exports-moved'])
+    assert.deepEqual(await mig.listMigrationNotices(), [])
+  })
+})

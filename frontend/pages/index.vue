@@ -79,7 +79,13 @@
           <ul v-if="n.paths?.length">
             <li v-for="(pth, i) in n.paths" :key="i"><code>{{ pth }}</code></li>
           </ul>
-          <button type="button" class="btn btn-sm" @click="dismissNotice(n.id)">Got it</button>
+          <button
+            type="button"
+            class="btn btn-sm"
+            :disabled="dismissingId === n.id"
+            @click="dismissNotice(n.id)"
+          >{{ dismissingId === n.id ? 'Saving…' : 'Got it' }}</button>
+          <p v-if="dismissErrors[n.id]" class="notice-error" role="alert">{{ dismissErrors[n.id] }}</p>
         </article>
       </section>
 
@@ -242,7 +248,7 @@ import { projectSlug } from '~/utils/project-slug'
 
 useAppTitle()
 
-const { get, post } = useApi()
+const { get, post, del } = useApi()
 const appSettingsModal = useAppSettingsModal()
 const projects = ref<any[]>([])
 const loading = ref(true)
@@ -262,9 +268,37 @@ async function loadMigrationNotices() {
   } catch { /* never fatal — these are informational */ }
 }
 
+const dismissingId = ref('')
+const dismissErrors = ref<Record<string, string>>({})
+
+/**
+ * "Got it" removes the notice only once the server has agreed to remember it.
+ *
+ * The previous version removed it locally first and swallowed any failure. On
+ * screen that was indistinguishable from success, and the notice then came back
+ * on the next load with no explanation — the app knowing something and not
+ * saying it. Waiting for the round trip costs a moment; being quietly wrong
+ * costs the customer's trust in the button.
+ */
 async function dismissNotice(id: string) {
-  migrationNotices.value = migrationNotices.value.filter(n => n.id !== id)
-  try { await $fetch(`/api/library/notices/${id}`, { method: 'DELETE' }) } catch { /* best effort */ }
+  dismissingId.value = id
+  const { [id]: _cleared, ...rest } = dismissErrors.value
+  dismissErrors.value = rest
+  try {
+    await del(`/library/notices/${id}`)
+    migrationNotices.value = migrationNotices.value.filter(n => n.id !== id)
+  } catch (error: any) {
+    // What it means to him comes first; the server's reason follows as the
+    // cause. The raw detail alone is a temp-file path, which answers a question
+    // he did not ask and not the one he did.
+    const reason = errorMessage(error, '')
+    dismissErrors.value = {
+      ...dismissErrors.value,
+      [id]: `Could not save that, so this note will still be here next time.${reason ? ` (${reason})` : ''}`,
+    }
+  } finally {
+    dismissingId.value = ''
+  }
 }
 
 // v1.4.2 — hidden channels. `useSoftDeletedProjects` and its backend routes
@@ -588,6 +622,7 @@ onMounted(async () => {
 .migration-notice p { color: var(--text-secondary); }
 .migration-notice ul { margin: 10px 0; padding-left: 18px; }
 .migration-notice li code { overflow-wrap: anywhere; }
+.notice-error { margin-top: 10px; padding: 10px 12px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--error) 11%, transparent); color: var(--error); }
 .project-copy { gap: 4px; }
 .project-copy strong { overflow-wrap: anywhere; font-size: var(--font-xl); }
 .project-copy span { color: var(--text-secondary); font-size: var(--font-sm); }
