@@ -841,6 +841,93 @@
       </div>
 
       <!-- ── External final-video root (per-machine) ─────────────── -->
+      <!-- v1.4.4 — Archive uploaded videos. Library-wide, unlike everything
+           else on this tab: he wants one button that clears finished films out
+           of the way across every channel at once. -->
+      <div id="archive-section" class="storage-section storage-surface">
+        <h4><span class="storage-section-icon" aria-hidden="true">📦</span>Archive uploaded videos</h4>
+        <p class="text-muted hint">
+          Moves finished videos that are <strong>confirmed uploaded to YouTube</strong> into a folder
+          you choose, so what is left is a folder of finished films you can back up, park on a slow
+          drive, or delete. Anything that cannot be proven uploaded is left exactly where it is.
+        </p>
+
+        <div class="form-group mt-2">
+          <label>Look for videos in</label>
+          <div class="flex gap-2 items-center">
+            <input v-model="archiveSource" class="input" spellcheck="false"
+                   placeholder="Defaults to your Library’s Exports folder" />
+            <button class="btn btn-sm btn-secondary" :disabled="archiveBusy" @click="pickArchiveSource">📂</button>
+          </div>
+          <p class="text-muted text-sm mt-1">
+            Leave blank for your Library’s <code>Exports</code> folder. Point it anywhere if your
+            finished videos are somewhere else.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label>Move them to</label>
+          <div class="flex gap-2 items-center">
+            <input v-model="archiveDest" class="input" spellcheck="false" placeholder="Choose a folder…" />
+            <button class="btn btn-sm btn-secondary" :disabled="archiveBusy" @click="pickArchiveDest">📂</button>
+          </div>
+        </div>
+
+        <div class="flex gap-2 items-center mt-2">
+          <button class="btn btn-secondary" :disabled="archiveBusy" @click="loadArchivePreview">
+            {{ archiveBusy && !archiveRunning ? 'Checking…' : 'Check what would move' }}
+          </button>
+          <button v-if="archivePreview?.ready_count" class="btn btn-primary"
+                  :disabled="archiveBusy || !archiveDest.trim()" @click="startArchive">
+            Move {{ archivePreview.ready_count }} video(s) · {{ formatBytes(archivePreview.ready_bytes) }}
+          </button>
+          <button v-if="archiveRunning" class="btn btn-danger" @click="stopArchive">Stop</button>
+        </div>
+
+        <!-- The bill, before it runs. -->
+        <div v-if="archivePreview" class="mt-2">
+          <p v-if="!archivePreview.source_exists" class="validation-msg text-sm">
+            Nothing to scan — <code>{{ archivePreview.source_root }}</code> is not there.
+          </p>
+          <template v-else>
+            <p class="text-sm">
+              <strong>{{ archivePreview.ready_count }}</strong> video(s) ready
+              ({{ formatBytes(archivePreview.ready_bytes) }} reclaimed),
+              <strong>{{ archivePreview.skipped_count }}</strong> skipped
+              ({{ formatBytes(archivePreview.skipped_bytes) }} staying put).
+            </p>
+            <ul v-if="archivePreview.by_channel.length" class="archive-channels">
+              <li v-for="c in archivePreview.by_channel" :key="c.slug">
+                {{ c.slug }} — {{ c.count }} video(s), {{ formatBytes(c.bytes) }}
+              </li>
+            </ul>
+            <details v-if="archivePreview.skipped_count" class="mt-1">
+              <summary class="text-muted text-sm">Why {{ archivePreview.skipped_count }} were skipped</summary>
+              <ul class="archive-skipped">
+                <li v-for="c in archiveSkippedRows" :key="c.source_path">
+                  <code>{{ c.filename }}</code> — {{ c.reason }}
+                </li>
+              </ul>
+            </details>
+          </template>
+        </div>
+
+        <div v-if="archiveRunning || archiveResult" class="mt-2">
+          <p v-if="archiveRunning" class="text-sm">
+            Moving {{ archiveProgress.done }} / {{ archiveProgress.total }} —
+            <code>{{ archiveProgress.current }}</code>
+            <span v-if="archiveStopping"> · stopping after this file…</span>
+          </p>
+          <p v-if="archiveResult" class="text-sm">
+            ✓ Moved {{ archiveResult.moved.length }} video(s), {{ formatBytes(archiveResult.bytes_moved) }} reclaimed.
+            <span v-if="archiveResult.cancelled">Stopped early — everything not yet moved is untouched.</span>
+            <span v-if="archiveResult.failed.length">
+              {{ archiveResult.failed.length }} could not be verified and were left in both places.
+            </span>
+          </p>
+        </div>
+      </div>
+
       <div id="external-video-section" class="storage-section storage-surface">
         <h4>
           <span class="storage-section-icon" aria-hidden="true">🎬</span>
@@ -2796,6 +2883,116 @@ async function loadLibrary() {
   }
 }
 onMounted(loadLibrary)
+
+/**
+ * Archive uploaded videos (v1.4.4) — Library-wide.
+ *
+ * Preview first, then move. The run is fire-and-poll rather than one long
+ * request: 220 GB takes many minutes and any proxy in between would give up
+ * long before the copy did.
+ */
+interface ArchivePreviewRow {
+  source_path: string; filename: string; bytes: number; code: string
+  status: 'ready' | 'skipped'; reason?: string
+}
+interface ArchivePreviewResult {
+  source_root: string; source_exists: boolean
+  candidates: ArchivePreviewRow[]
+  ready_count: number; ready_bytes: number
+  skipped_count: number; skipped_bytes: number
+  by_channel: Array<{ slug: string; count: number; bytes: number }>
+}
+
+const archiveSource = ref('')
+const archiveDest = ref('')
+const archiveBusy = ref(false)
+const archiveRunning = ref(false)
+const archiveStopping = ref(false)
+const archivePreview = ref<ArchivePreviewResult | null>(null)
+const archiveResult = ref<any>(null)
+const archiveProgress = ref({ done: 0, total: 0, current: '' })
+let archivePoll: ReturnType<typeof setInterval> | null = null
+
+const archiveSkippedRows = computed(
+  () => (archivePreview.value?.candidates || []).filter(c => c.status === 'skipped'),
+)
+
+async function pickArchiveSource() {
+  const p = await pickFolderShared({ title: 'Where are your finished videos?', button_label: 'Scan This Folder' })
+  if (p) { archiveSource.value = p; archivePreview.value = null }
+}
+async function pickArchiveDest() {
+  const p = await pickFolderShared({ title: 'Move finished videos into…', button_label: 'Move Here' })
+  if (p) archiveDest.value = p
+}
+
+async function loadArchivePreview() {
+  archiveBusy.value = true
+  archiveResult.value = null
+  try {
+    archivePreview.value = await post<ArchivePreviewResult>('/library/archive/preview', {
+      source_root: archiveSource.value.trim() || undefined,
+    })
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not check the folder')
+  } finally {
+    archiveBusy.value = false
+  }
+}
+
+async function startArchive() {
+  const preview = archivePreview.value
+  if (!preview) return
+  const ok = await ask({
+    title: 'Move finished videos?',
+    message: `${preview.ready_count} video(s) — ${formatBytes(preview.ready_bytes)} — will be COPIED to\n`
+      + `  ${archiveDest.value}\n\n`
+      + `Each one is checked at the destination before the original is removed, so nothing is lost `
+      + `if the copy fails.\n\n`
+      + `${preview.skipped_count} video(s) are not confirmed uploaded and will not be touched.`,
+    confirmLabel: 'Move them',
+  })
+  if (!ok) return
+
+  archiveBusy.value = true
+  archiveRunning.value = true
+  archiveStopping.value = false
+  archiveResult.value = null
+  try {
+    await post('/library/archive/run', {
+      destination: archiveDest.value.trim(),
+      source_root: archiveSource.value.trim() || undefined,
+    })
+    archivePoll = setInterval(pollArchive, 1000)
+  } catch (e: any) {
+    archiveRunning.value = false
+    archiveBusy.value = false
+    showError(e?.data?.detail || e?.message || 'Could not start the sweep')
+  }
+}
+
+async function pollArchive() {
+  try {
+    const st = await get<any>('/library/archive/status')
+    archiveProgress.value = { done: st.done || 0, total: st.total || 0, current: st.current || '' }
+    archiveStopping.value = !!st.stopping
+    if (!st.running) {
+      if (archivePoll) { clearInterval(archivePoll); archivePoll = null }
+      archiveRunning.value = false
+      archiveBusy.value = false
+      archiveResult.value = st.result
+      if (st.error) showError(st.error)
+      await loadArchivePreview()
+    }
+  } catch { /* transient — keep polling */ }
+}
+
+async function stopArchive() {
+  archiveStopping.value = true
+  try { await post('/library/archive/stop', {}) } catch { /* best effort */ }
+}
+
+onBeforeUnmount(() => { if (archivePoll) clearInterval(archivePoll) })
 
 async function browseAndMoveLibrary() {
   projectsRootPickerHelp.value = ''
@@ -5291,6 +5488,8 @@ async function deleteProject() {
   font-size: var(--font-xs);
 }
 
+.archive-channels, .archive-skipped { color: var(--text-secondary); margin: 6px 0; padding-left: 18px; }
+.archive-skipped code { overflow-wrap: anywhere; }
 .projects-root-status {
   margin-top: 8px;
   padding: 8px 12px;

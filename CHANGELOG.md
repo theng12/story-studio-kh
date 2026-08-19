@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.4 — 2026-08-19
+
+- **Archive uploaded videos — one button that clears finished films out of the way.** In Settings → Storage, point it at the folder your finished videos are in, pick where they should go, and Story Studio moves every video it can prove was uploaded to YouTube. What is left is a folder containing only finished films — something you can back up, park on a slow drive, or delete with ordinary tools. Story Studio does none of those for you, which is the point.
+- **It can see the videos you already have.** Your finished videos are in `~/Downloads/YouTube Exports`, not in your Library, so the sweep lets you point it anywhere rather than only looking where the app would put things today. On your library right now it would move **166 videos and reclaim 197 GB**, across eight channels.
+- **It only touches videos it can prove are uploaded.** The proof is the same one Story Studio has always required before deleting a finished video: a YouTube video id recorded for that episode. There is deliberately **no override**. Anything unproven stays exactly where it is and is listed with the reason — on your library that is 40 videos, 23 GB, mostly episodes that were never uploaded.
+- **Nothing is deleted until its copy has been checked.** Each video is copied to the new folder, then checked there by both size and a full checksum, and only then removed from the original place. If a copy cannot be verified, the original is left alone and you end up with two copies rather than none. Losing a finished video is the one outcome this feature must never produce.
+- **You see the bill before it runs.** How many videos, how much space you get back, which channels, and every skipped file with its reason. Then you press the button.
+- **You can stop it.** A long sweep reports progress and can be stopped; it finishes the file it is on and stops before the next, so every video is always either wholly moved or wholly untouched — never half.
+- **An archived episode says "archived", not "missing".** Each episode records where its video went. Without that, the missing-folder warning added in 1.4.2 would have started accusing archived episodes of being broken — the app would have been manufacturing the exact false alarm it just learned to catch.
+
+---
+
 ## v1.4.3 — 2026-08-19
 
 - **One folder holds everything now — your Library.** Story Studio used to have four different ideas about where your work lived: a default folder buried in the system, a custom override, a list of "linked" folders scattered anywhere on disk, and a separate map of labelled shortcuts. That is gone. There is one folder, with a folder for each channel inside it, a `_Project Assets` folder for anything you share between channels, and an `Exports` folder for finished videos.

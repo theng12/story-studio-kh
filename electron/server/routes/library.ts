@@ -124,3 +124,84 @@ router.delete('/library/notices/:id', async (req, res) => {
     res.status(500).json(humanizeBackendError(e, 'Could not dismiss that notice'))
   }
 })
+
+// ── Archive uploaded videos (v1.4.4) ──────────────────────────────────────
+//
+// Moves confirmed-uploaded finals out to a folder he picks, so what is left is
+// a folder of finished videos he can back up, park, or delete with ordinary
+// tools. The sweep runs in-process rather than through the job queue: it is a
+// single Library-wide operation the customer is watching, not per-episode work
+// that belongs in a per-project queue, and it needs a stop button more than it
+// needs persistence across a restart.
+
+interface SweepState {
+  running: boolean
+  done: number
+  total: number
+  current: string
+  stop: boolean
+  result: unknown | null
+  error: string
+}
+const sweep: SweepState = {
+  running: false, done: 0, total: 0, current: '', stop: false, result: null, error: '',
+}
+
+router.post('/library/archive/preview', async (req, res) => {
+  try {
+    const { previewArchiveSweep } = await import('../services/archive-sweep.js')
+    res.json(await previewArchiveSweep({ sourceRoot: req.body?.source_root }))
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not work out what would be archived'))
+  }
+})
+
+router.post('/library/archive/run', async (req, res) => {
+  if (sweep.running) return res.status(409).json({ detail: 'An archive sweep is already running.' })
+  const destination = typeof req.body?.destination === 'string' ? req.body.destination.trim() : ''
+  if (!destination) return res.status(400).json({ detail: 'Choose a folder to move the videos into.' })
+
+  Object.assign(sweep, { running: true, done: 0, total: 0, current: '', stop: false, result: null, error: '' })
+  // Answer immediately and report through /status: a 220 GB move would sit on
+  // an open request for many minutes, and any proxy in between would give up
+  // long before the copy did.
+  res.json({ started: true })
+
+  void (async () => {
+    try {
+      const { runArchiveSweep } = await import('../services/archive-sweep.js')
+      sweep.result = await runArchiveSweep({
+        destination,
+        sourceRoot: req.body?.source_root,
+        shouldStop: () => sweep.stop,
+        onProgress: (done, total, current) => { Object.assign(sweep, { done, total, current }) },
+      })
+    } catch (e: any) {
+      sweep.error = e?.message || String(e)
+    } finally {
+      sweep.running = false
+    }
+  })()
+})
+
+router.get('/library/archive/status', (_req, res) => {
+  res.json({
+    running: sweep.running,
+    done: sweep.done,
+    total: sweep.total,
+    current: sweep.current,
+    stopping: sweep.stop && sweep.running,
+    result: sweep.result,
+    error: sweep.error,
+  })
+})
+
+/**
+ * Ask the sweep to stop. It finishes the file it is on and stops before the
+ * next one — a copy is never interrupted midway, so the stopped state is always
+ * consistent: every file is either wholly moved or wholly untouched.
+ */
+router.post('/library/archive/stop', (_req, res) => {
+  sweep.stop = true
+  res.json({ stopping: sweep.running })
+})
