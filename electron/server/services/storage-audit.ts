@@ -515,91 +515,31 @@ export async function bulkCleanupFinalVideos(
 }
 
 /**
- * Migration: scan the project for final videos in the project tree,
- * move each to the configured external root. No-op when external root
- * isn't configured. Returns an item list so the UI can show what moved
- * vs failed.
+ * `migrateFinalsToExternal` was DELETED in v1.4.5, and deliberately not replaced.
  *
- * Per-scene clips are never moved — they stay in the project tree.
+ * It moved finals out of the project tree into the exports root, and its
+ * cross-volume branch was:
+ *
+ *     await fs.copyFile(from, to)
+ *     await fs.rm(from, { force: true })
+ *
+ * No size check, no checksum, no upload check. A `copyFile` that throws was
+ * handled — but one that reports success while truncating, which is what flaky
+ * USB and network volumes actually do, deleted the master anyway. External
+ * volumes are exactly where finished videos get moved to.
+ *
+ * It also had almost nothing left to do: at the time of removal ONE final
+ * remained in a project tree across the whole library (0.6 GB), because since
+ * v1.4.3 renders are written straight to `<Library>/Exports`.
+ *
+ * The job it did is covered by v1.4.4's archive sweep, which verifies by size
+ * AND sha256 before removing anything, previews first, records a breadcrumb,
+ * and refuses to touch a video that cannot be proven uploaded. Two ways to move
+ * a finished video, one of them unverified, is not a choice worth keeping.
+ *
+ * Do not reinstate this. If a project-tree final ever needs relocating, point
+ * the archive sweep at the Library.
  */
-export async function migrateFinalsToExternal(slug: string): Promise<{
-  moved: Array<{ episode_code: string; from: string; to: string; bytes: number }>
-  errors: Array<{ episode_code: string; reason: string }>
-  bytes_moved: number
-}> {
-  const root = await getExternalFinalVideoRoot()
-  if (!root) {
-    throw new Error('External final-video root is not configured. Set it in app settings first.')
-  }
-  const meta = await pm.getProject(slug)
-  if (!meta) throw new Error('Project not found')
-
-  const ideas = await im.getIdeas(slug, 'accepted')
-  const moved: Array<{ episode_code: string; from: string; to: string; bytes: number }> = []
-  const errors: Array<{ episode_code: string; reason: string }> = []
-  let bytesMoved = 0
-
-  for (const idea of ideas) {
-    const code = idea.episode_code!
-    let paths: any
-    try { paths = await resolveEpisodePaths(slug, code, idea.title || '') } catch (e: any) {
-      errors.push({ episode_code: code, reason: e?.message || 'path resolve failed' })
-      continue
-    }
-    if (!existsSync(paths.video_dir)) continue
-
-    let entries: string[] = []
-    try { entries = await fs.readdir(paths.video_dir) } catch { continue }
-    const finals = entries.filter(n => isFinalVideoName(code, n))
-    if (!finals.length) continue
-
-    const extDir = await resolveExternalFinalVideoDir(slug, code, idea.title || '')
-    if (!extDir) continue   // Shouldn't happen — root is set — but defensive.
-    try {
-      await fs.mkdir(extDir, { recursive: true })
-    } catch (e: any) {
-      errors.push({ episode_code: code, reason: `mkdir external dir failed: ${e?.message || e}` })
-      continue
-    }
-
-    for (const name of finals) {
-      const from = path.join(paths.video_dir, name)
-      const to = path.join(extDir, name)
-      let size = 0
-      try { size = (await fs.stat(from)).size } catch { /* skip */ }
-      try {
-        // Same filesystem → fs.rename is atomic + free.
-        await fs.rename(from, to)
-      } catch (e: any) {
-        if (e?.code === 'EXDEV') {
-          // External root on another volume — copy + remove.
-          try {
-            await fs.copyFile(from, to)
-            await fs.rm(from, { force: true })
-          } catch (cpErr: any) {
-            errors.push({ episode_code: code, reason: `cross-device move failed: ${cpErr?.message || cpErr}` })
-            continue
-          }
-        } else {
-          errors.push({ episode_code: code, reason: `move failed: ${e?.message || e}` })
-          continue
-        }
-      }
-      moved.push({ episode_code: code, from, to, bytes: size })
-      bytesMoved += size
-    }
-  }
-
-  // Cache invalidation — every moved episode's video_assembly path
-  // changed, but our extended detector reads from both locations so
-  // results stay correct. Invalidating just hastens the next refresh.
-  try {
-    const { episodeStatusCache } = await import('./episode-status-cache.js')
-    episodeStatusCache.invalidateProject(slug)
-  } catch { /* non-fatal */ }
-
-  return { moved, errors, bytes_moved: bytesMoved }
-}
 
 // ── External media root migration (Level B) ──────────────────────────────────
 

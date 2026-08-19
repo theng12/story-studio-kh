@@ -928,84 +928,27 @@
         </div>
       </div>
 
+      <!-- v1.4.5 — read-only. This panel used to Save and Clear a per-machine
+           export root, but v1.4.3 made that folder derived (`<Library>/Exports`)
+           and removed the setter route — so its buttons had been posting to a
+           404 ever since. It states where finished videos go, and the Archive
+           panel above is how you move them somewhere else. -->
       <div id="external-video-section" class="storage-section storage-surface">
         <h4>
           <span class="storage-section-icon" aria-hidden="true">🎬</span>
-          External final-video root
-          <span class="optional-tag">(per-machine, optional)</span>
+          Where finished videos go
         </h4>
         <p class="text-muted hint">
-          Final videos are big (5–10 GB each). If your project lives in
-          iCloud Drive, set an external root on a local disk (e.g.
-          <code>~/Movies/Story Studio</code> or an external drive) so iCloud
-          doesn't sync those files. Project-tree finals still detect
-          normally — both locations are checked at upload time. Stored in
-          <code>app-settings.json</code> per-machine, so each device picks
-          its own path (or leaves it unset).
-        </p>
-        <p class="text-muted voice-helper-line">
-          💡 Type or paste a path directly — handy in dev mode or when the
-          folder picker is blocked. Click "Save manual path" to persist.
+          New renders are saved into the <code>Exports</code> folder inside your Library. This is not
+          a setting — move your Library in the section above to change it, or use
+          <strong>Archive uploaded videos</strong> to move finished films somewhere else entirely.
         </p>
         <div class="external-root-row">
-          <!-- Always-editable path so users can paste from Finder's
-               "Get Info → Where", or use this as a fallback when the
-               native picker isn't available (dev/tsx mode). Browse opens
-               the picker and auto-saves on success. Clear empties + saves
-               an empty value so the project tree is used again. -->
-          <input
-            v-model="externalRootInput"
-            class="input"
-            placeholder="(not set — finals stay in the project tree)"
-            spellcheck="false"
-          />
-          <button
-            class="btn btn-primary btn-sm"
-            :disabled="externalRootSaving"
-            title="Opens the macOS folder picker. Only works in the packaged app — in dev mode (tsx watch), type the path above and click Save manual path."
-            @click="browseAndSetExternalRoot"
-          >
-            {{ externalRootSaving ? 'Saving…' : '📂 Browse…' }}
-          </button>
-          <button
-            v-if="externalRootInput.trim() !== externalRootSavedValue"
-            class="btn btn-secondary btn-sm"
-            :disabled="externalRootSaving"
-            title="Save the path you typed. Use this when Browse doesn't work (dev mode) or when you've pasted a path manually."
-            @click="saveExternalRoot"
-          >
-            {{ externalRootSaving ? 'Saving…' : '💾 Save manual path' }}
-          </button>
-          <button
-            v-if="externalRootInput"
-            class="btn btn-ghost btn-sm"
-            :disabled="externalRootSaving"
-            title="Clear the external path — future finals will land in the project tree"
-            @click="clearExternalRoot"
-          >Clear</button>
-          <button
-            class="btn btn-secondary btn-sm"
-            :disabled="!externalRootInput || migrateRunning"
-            :title="!externalRootInput ? 'Pick the external path first' : 'Move existing final videos in this project to the external root'"
-            @click="runMigration"
-          >
-            {{ migrateRunning ? 'Migrating…' : 'Migrate finals here →' }}
-          </button>
+          <code class="path-display">{{ externalRootSavedValue || '(loading)' }}</code>
         </div>
         <p v-if="externalRootStatus" :class="['external-root-status', externalRootReachable ? 'ok' : 'warn']">
           {{ externalRootStatus }}
         </p>
-        <div v-if="externalRootPickerHelp" class="manual-path-hint">
-          {{ externalRootPickerHelp }}
-        </div>
-        <div v-if="lastMigration" class="storage-result">
-          <strong>Migration:</strong>
-          {{ lastMigration.moved.length }} file(s) moved
-          ({{ formatBytes(lastMigration.bytes_moved) }} freed from project tree).
-          <span v-if="lastMigration.errors.length" class="error-text">
-            {{ lastMigration.errors.length }} error(s).
-          </span>
-        </div>
       </div>
 
       <!-- ── External media root (Level B, per-project, opt-in) ──── -->
@@ -2514,30 +2457,10 @@ async function loadExternalRoot() {
   } catch { /* leave defaults — non-fatal */ }
 }
 
-async function saveExternalRoot() {
-  externalRootSaving.value = true
-  try {
-    const { put } = useApi()
-    const r = await put<{ ok: true; value: string; reachable: boolean; reason: string }>(
-      '/app-settings/external-final-video-root',
-      { value: externalRootInput.value.trim() },
-    )
-    externalRootReachable.value = r.reachable
-    externalRootSavedValue.value = r.value || ''
-    externalRootStatus.value = r.value
-      ? (r.reachable ? `✓ saved + reachable: ${r.value}` : `⚠ saved but ${r.reason}`)
-      : 'Cleared (using project tree)'
-    // Successful save means whatever advice the picker-help panel was
-    // showing no longer applies — the user moved on.
-    externalRootPickerHelp.value = ''
-    // Re-run audit so external-side counts refresh.
-    if (storage.value) await loadStorageAudit()
-  } catch (e: any) {
-    externalRootStatus.value = `Error: ${e?.data?.detail || e?.message || 'failed to save'}`
-  } finally {
-    externalRootSaving.value = false
-  }
-}
+// v1.4.5 — `saveExternalRoot`/`clearExternalRoot` deleted. The export folder is
+// derived from the Library since v1.4.3 and its setter route went with the
+// setting; these had been posting to a 404. `loadExternalRoot` stays — the GET
+// is alive and reports where finished videos actually go.
 
 // Verify the media_root token/path resolves on THIS machine (does not check
 // that the drive is currently plugged in — just that ${MEDIA} is defined).
@@ -2597,42 +2520,10 @@ function pickerHelpFor(e: any): string {
   return `Folder picker failed: ${detail || 'unknown error'}. You can also type or paste a path above and click "Save manual path".`
 }
 
-/**
- * Open the native folder picker for the external root, and auto-save
- * the chosen path. Skips the save when the user cancels the dialog.
- *
- * Why no "Save" click after picking: the picker IS the user's
- * confirmation. Forcing a second Save click adds friction without
- * reducing risk (the picker doesn't bind anything until the user
- * confirms inside it). Pre-fills the dialog at the previously-saved
- * path so the user starts in a familiar spot when re-picking.
- */
-async function browseAndSetExternalRoot() {
-  externalRootPickerHelp.value = ''
-  try {
-    const path = await pickFolderShared({
-      title: 'Choose external final-video folder',
-      button_label: 'Use this folder',
-      initial_path: externalRootInput.value || undefined,
-    })
-    if (!path) return  // User cancelled the dialog.
-    externalRootInput.value = path
-    await saveExternalRoot()
-  } catch (e: any) {
-    externalRootPickerHelp.value = pickerHelpFor(e)
-  }
-}
+// v1.4.5 — `browseAndSetExternalRoot` and `clearExternalRoot` went with
+// `saveExternalRoot`. There is nothing to set: finished videos go to
+// `<Library>/Exports`, and moving them elsewhere is what the Archive panel does.
 
-/**
- * Clear the external root — future finals land in the project tree
- * again. Detection still picks up files at the old external location
- * if any are still there (Path E in asset-status), so this is
- * non-destructive: nothing on disk changes.
- */
-async function clearExternalRoot() {
-  externalRootInput.value = ''
-  await saveExternalRoot()
-}
 
 async function loadStorageAudit() {
   auditLoading.value = true
@@ -2754,31 +2645,6 @@ async function cleanupOneSidecar(episode_code: string) {
   }
 }
 
-async function runMigration() {
-  if (!externalRootInput.value) return
-  const ok = await ask({
-    title: 'Move final videos?',
-    message: `Move all final videos in this project to the external root?\n\n` +
-    `${externalRootInput.value}\n\n` +
-    `Project-tree files will be removed after a successful move. ` +
-    `Detection still works for both locations, so the pipeline view stays accurate.`,
-    confirmLabel: 'Move videos', danger: true,
-  })
-  if (!ok) return
-  migrateRunning.value = true
-  try {
-    const r = await post<MigrationResult>(
-      `/projects/${slug.value}/storage/migrate-finals-to-external`,
-      {},
-    )
-    lastMigration.value = r
-    await loadStorageAudit()
-  } catch (e: any) {
-    alert(e?.data?.detail || e?.message || 'Migration failed')
-  } finally {
-    migrateRunning.value = false
-  }
-}
 
 // Move existing HEAVY media to the project's media root. Previews via a dry-run
 // first, shows the totals in a confirm, then executes for real.

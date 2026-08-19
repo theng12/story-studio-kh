@@ -12,7 +12,6 @@
  *   - cleanupFinalVideoForEpisode: refuses without uploaded sidecar
  *     unless force=true; deletes when uploaded
  *   - bulk all_uploaded: cleans uploaded ones, skips non-uploaded
- *   - migrateFinalsToExternal: moves files + idempotent on second run
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'
@@ -258,36 +257,8 @@ describe('storage cleanup + sidecar detection + external root', () => {
     assert.equal(skipItem!.status, 'skipped')
   })
 
-  // ── migration ─────────────────────────────────────────────────────
-
-  test('migrate moves project-tree finals to external root', async () => {
-    const seed = await seedAcceptedEpisode('TN0016', 4_000_000)
-    await setAppSetting('library_root', path.join(tmp.dir, 'library-b'))
-    const r = await storageAudit.migrateFinalsToExternal(SLUG)
-    assert.equal(r.moved.length, 1)
-    assert.equal(r.bytes_moved, 4_000_000)
-    assert.equal(existsSync(seed.final_path), false, 'project-tree path emptied')
-    const extPath = path.join(r.moved[0].to)
-    assert.equal(existsSync(extPath), true, 'external path now contains the final')
-  })
-
-  test('migrate is idempotent: no error on second run', async () => {
-    await seedAcceptedEpisode('TN0017', 1_000_000)
-    await setAppSetting('library_root', path.join(tmp.dir, 'library-c'))
-    const r1 = await storageAudit.migrateFinalsToExternal(SLUG)
-    assert.equal(r1.moved.length, 1)
-    const r2 = await storageAudit.migrateFinalsToExternal(SLUG)
-    assert.equal(r2.moved.length, 0, 'second run finds nothing in project tree to move')
-    assert.equal(r2.errors.length, 0)
-  })
-
-  test('migrate throws when no Library has been chosen', async () => {
-    await seedAcceptedEpisode('TN0018', 1_000_000)
-    // No Library → no Exports folder → nothing to migrate into.
-    await setAppSetting('library_root', '')
-    await assert.rejects(
-      () => storageAudit.migrateFinalsToExternal(SLUG),
-      /not configured/,
-    )
-  })
+  // v1.4.5 — the `migrateFinalsToExternal` tests went with the function.
+  // It moved finished videos with an unverified copy-then-delete across
+  // volumes; the archive sweep replaced it and is covered by
+  // `archive-sweep.test.ts`, which asserts verification before removal.
 })

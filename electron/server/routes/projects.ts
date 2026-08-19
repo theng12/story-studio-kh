@@ -641,20 +641,11 @@ router.get('/app-settings/external-final-video-root', async (_req, res) => {
   }
 })
 
-// Migration: move existing final videos in this project to the
-// configured external root. No-op when the root isn't set (returns
-// 400 so the UI can prompt the user to set it first).
-router.post('/projects/:slug/storage/migrate-finals-to-external', async (req, res) => {
-  try {
-    if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    const { migrateFinalsToExternal } = await import('../services/storage-audit.js')
-    const result = await migrateFinalsToExternal(req.params.slug)
-    res.json(result)
-  } catch (e: any) {
-    const status = /not configured/i.test(e?.message || '') ? 400 : 500
-    res.status(status).json(humanizeBackendError(e, 'Migration failed'))
-  }
-})
+// v1.4.5 — `POST /storage/migrate-finals-to-external` is gone. It moved
+// finished videos with an unverified copy-then-delete across volumes, which is
+// the one operation this app must never get wrong. See the note where
+// `migrateFinalsToExternal` used to live in services/storage-audit.ts; the
+// archive sweep (routes/library.ts) does the job with verification.
 
 // Level B — move existing HEAVY media (images/thumbnails/audio/merged/video)
 // to the project's configured media_root. `{ dry_run: true }` previews only.

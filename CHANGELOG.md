@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.5 — 2026-08-19
+
+- **Removed a second, unsafe way to move finished videos.** Settings had a **Migrate finals here →** button that moved finished videos without checking the copy first — it copied the file, then deleted the original, with no size check, no checksum, and no check that the video had ever been uploaded. On an external drive, which is exactly where finished videos get moved to, a copy that quietly truncates would have taken the original with it. It is gone. **Archive uploaded videos** does the same job and checks every file twice before removing anything.
+- Only one finished video was still sitting in a project folder anywhere in your library, so nothing of value was lost by removing it — and if one ever turns up again, the Archive panel will move it safely.
+- **The "External final-video root" panel is honest again.** Its Save, Clear and Browse buttons had been talking to a route that was removed in 1.4.3, so they would have failed silently. Finished videos go to the `Exports` folder inside your Library — that is now simply stated, not offered as a setting you can change from there.
+- **The Archive panel has been checked on screen, not just in tests.** The preview, the per-channel breakdown, the reason beside every skipped file, the progress while it runs, and the refusal when a file of the same name is already in the destination were all exercised in a real window, including at phone width where a table of figures would normally overflow. A finished video was moved, verified, and its breadcrumb written, end to end.
+
+---
+
 ## v1.4.4 — 2026-08-19
 
 - **Archive uploaded videos — one button that clears finished films out of the way.** In Settings → Storage, point it at the folder your finished videos are in, pick where they should go, and Story Studio moves every video it can prove was uploaded to YouTube. What is left is a folder containing only finished films — something you can back up, park on a slow drive, or delete with ordinary tools. Story Studio does none of those for you, which is the point.
