@@ -2,10 +2,15 @@
   <section class="gs-batch" :aria-label="`GenStudio batch with ${remoteJobs.length} items`">
     <div class="gs-batch-head">
       <span class="meta-label">GenStudio batch:</span>
+      <!-- v1.4.7 — every credit figure says "credits".
+           These sit immediately after an ITEM count, and read without a unit:
+           "50 items · 450 on hold" looks like 450 items on hold. They are
+           credits, and one of them (`on hold`) already carried the unit on the
+           jobs page while the other two did not — one fact, three spellings. -->
       <strong>{{ remoteJobs.length.toLocaleString() }} items</strong>
-      <span v-if="chargedCredits > 0" class="gs-batch-credit">{{ chargedCredits.toLocaleString() }} charged</span>
-      <span v-if="heldCredits > 0" class="gs-batch-credit held">{{ heldCredits.toLocaleString() }} on hold</span>
-      <span v-if="returnedCredits > 0" class="gs-batch-credit returned">{{ returnedCredits.toLocaleString() }} returned</span>
+      <span v-if="chargedCredits > 0" class="gs-batch-credit">{{ chargedCredits.toLocaleString() }} credits charged</span>
+      <span v-if="heldCredits > 0" class="gs-batch-credit held">{{ heldCredits.toLocaleString() }} credits on hold</span>
+      <span v-if="returnedCredits > 0" class="gs-batch-credit returned">{{ returnedCredits.toLocaleString() }} credits returned</span>
       <span v-if="chargedCredits === 0 && heldCredits === 0 && returnedCredits === 0" class="gs-batch-credit muted">Awaiting settlement</span>
     </div>
 
@@ -51,9 +56,9 @@
             {{ displayState(remote) }}
             <small v-if="remote.failure_code" class="gs-batch-diagnostic">{{ remote.failure_code }}</small>
           </strong>
-          <span v-if="chargedFor(remote) > 0">{{ chargedFor(remote).toLocaleString() }} charged</span>
-          <span v-else-if="returnedFor(remote) > 0">{{ returnedFor(remote).toLocaleString() }} returned</span>
-          <span v-else-if="heldFor(remote) > 0">{{ heldFor(remote).toLocaleString() }} on hold</span>
+          <span v-if="chargedFor(remote) > 0">{{ chargedFor(remote).toLocaleString() }} credits charged</span>
+          <span v-else-if="returnedFor(remote) > 0">{{ returnedFor(remote).toLocaleString() }} credits returned</span>
+          <span v-else-if="heldFor(remote) > 0">{{ heldFor(remote).toLocaleString() }} credits on hold</span>
           <span v-else>—</span>
         </li>
       </ul>

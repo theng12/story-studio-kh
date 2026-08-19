@@ -460,9 +460,12 @@
             <span class="meta-label">GenStudio:</span>
             <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
               {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
-              <template v-if="genStudioChargedCredits(remote) > 0"> · charged {{ genStudioChargedCredits(remote) }}</template>
-              <template v-else-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
-              <template v-else-if="genStudioHeldCredits(remote) > 0"> · on hold {{ genStudioHeldCredits(remote) }} credits</template>
+              <!-- v1.4.7 — the unit on all three, not just the last. `on hold` already
+                   said "credits" while `charged` and `returned` did not, so the same
+                   page spelled one fact two ways. -->
+              <template v-if="genStudioChargedCredits(remote) > 0"> · {{ genStudioChargedCredits(remote) }} credits charged</template>
+              <template v-else-if="genStudioReturnedCredits(remote) > 0"> · {{ genStudioReturnedCredits(remote) }} credits returned</template>
+              <template v-else-if="genStudioHeldCredits(remote) > 0"> · {{ genStudioHeldCredits(remote) }} credits on hold</template>
             </span>
           </div>
           <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
@@ -730,9 +733,9 @@
               <span class="meta-label">GenStudio:</span>
               <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
                 {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
-                <template v-if="genStudioChargedCredits(remote) > 0"> · charged {{ genStudioChargedCredits(remote) }}</template>
-                <template v-else-if="genStudioReturnedCredits(remote) > 0"> · returned {{ genStudioReturnedCredits(remote) }}</template>
-                <template v-else-if="genStudioHeldCredits(remote) > 0"> · on hold {{ genStudioHeldCredits(remote) }} credits</template>
+                <template v-if="genStudioChargedCredits(remote) > 0"> · {{ genStudioChargedCredits(remote) }} credits charged</template>
+                <template v-else-if="genStudioReturnedCredits(remote) > 0"> · {{ genStudioReturnedCredits(remote) }} credits returned</template>
+                <template v-else-if="genStudioHeldCredits(remote) > 0"> · {{ genStudioHeldCredits(remote) }} credits on hold</template>
               </span>
             </div>
             <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />

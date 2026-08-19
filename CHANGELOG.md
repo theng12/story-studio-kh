@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.7 — 2026-08-19
+
+- **Credit figures on the Jobs page now say "credits".** The GenStudio batch line read `50 items · 450 on hold`, where the 450 is credits and the 50 is items — so it looked like 450 items were on hold. Every credit figure on that page now carries its unit.
+- **And they all say it the same way.** The same page was spelling one fact three different ways: the batch summary printed `450 charged` with no unit, the per-job line printed `charged 450` with no unit, and the held figure alone printed `on hold 450 credits` with one. All twelve places now read `450 credits charged`, `450 credits on hold`, `450 credits returned`.
+- The numbers themselves were correct — nothing was misreported, only under-explained. The capacity figures beside them (lanes, queued, submissions per minute, waiting locally) already name what they count and are unchanged.
+
+---
+
 ## v1.4.6 — 2026-08-19
 
 - **Copying your channels onto a new Mac and pointing Story Studio at them works — checked properly this time.** Put your channel folders wherever you like, launch the app, choose that folder on the welcome screen, and every channel appears straight away. Folders with spaces, apostrophes and Khmer names all come through; anything in there that is not a channel is ignored and left alone.
