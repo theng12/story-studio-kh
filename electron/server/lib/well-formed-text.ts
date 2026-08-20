@@ -142,3 +142,148 @@ export function toWellFormedDeep<T>(value: T): T {
 export function wellFormedJson(value: unknown): string {
   return JSON.stringify(toWellFormedDeep(value))
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Emoji removal (v1.4.12)
+ *
+ * *"about the emojis. i think to make sure we don't generate emojis when we
+ * don't have to. it's unprofessional"*
+ *
+ * This lives HERE, beside the surrogate repair, and not in a module of its own.
+ * It is the same problem seen from the other end: 1.4.9 shipped because a cut
+ * landed inside an emoji and kept half of one. Anything that removes emoji by
+ * code unit — the obvious `text.replace(/[\u{1F300}-\u{1FAFF}]/gu, '')` — can
+ * recreate that failure exactly, because a single emoji is often SEVERAL code
+ * points: a ZWJ family, a skin-tone modifier, a flag's two regional
+ * indicators, a keycap. Remove one piece and the leftovers are garbage.
+ *
+ * So removal is done by GRAPHEME CLUSTER: what a reader would call one
+ * character. `Intl.Segmenter` groups the whole sequence, and a cluster is
+ * either kept whole or dropped whole. There is no state in which half of one
+ * survives.
+ *
+ * ── What counts as an emoji, and what deliberately does not ──
+ *
+ * `\p{Extended_Pictographic}` alone is too greedy: (c), (r), (tm), and marks
+ * like the double exclamation carry it, and stripping those from a title would
+ * be a surprise, not a service. A cluster is treated as emoji when it holds
+ *   - a code point with `\p{Emoji_Presentation}` (defaults to a colour glyph —
+ *     every modern emoji, all of them above U+FFFF), or
+ *   - U+FE0F, the variation selector that explicitly ASKS for the emoji
+ *     rendering of an otherwise-textual character, or
+ *   - a regional indicator, which is how flags are written.
+ *
+ * So a bare (tm) or (c) stays, and the same character followed by U+FE0F goes.
+ * That line is where the owner's own judgement would put it: the first is
+ * typography, the second is a decoration.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/** A code point that renders as a colour emoji without being asked to. */
+const EMOJI_PRESENTATION = /\p{Emoji_Presentation}/u
+/** The two halves of a flag. */
+const REGIONAL_INDICATOR = /\p{Regional_Indicator}/u
+/** U+FE0F asks for the emoji rendering; U+20E3 is the keycap enclosure. */
+const EMOJI_SELECTORS = /[\uFE0F\u20E3]/
+
+/** True when this ONE grapheme cluster should be read as an emoji. */
+function clusterIsEmoji(cluster: string): boolean {
+  return EMOJI_PRESENTATION.test(cluster)
+    || REGIONAL_INDICATOR.test(cluster)
+    || EMOJI_SELECTORS.test(cluster)
+}
+
+let segmenter: Intl.Segmenter | null | undefined
+
+/** One shared grapheme segmenter, or null where Intl.Segmenter is absent. */
+function graphemeSegmenter(): Intl.Segmenter | null {
+  if (segmenter === undefined) {
+    try {
+      segmenter = typeof Intl.Segmenter === 'function'
+        ? new Intl.Segmenter('en', { granularity: 'grapheme' })
+        : null
+    } catch { segmenter = null }
+  }
+  return segmenter
+}
+
+/**
+ * Tidy the gap a removed emoji leaves behind.
+ *
+ * "Ancient Rome 🔥 Explained" must not become "Ancient Rome  Explained", and
+ * "🔥 Ancient Rome" must not keep its leading space. Runs of spaces and tabs
+ * collapse to one; line ends are trimmed. NEWLINES ARE PRESERVED — a YouTube
+ * description's paragraph breaks are content, and an emoji sitting alone on
+ * its own line leaves that line empty rather than joining two paragraphs.
+ */
+function tidyGaps(text: string): string {
+  return text
+    .replace(/[^\S\n]+/g, ' ')
+    .split('\n')
+    .map(line => line.replace(/[^\S\n]+$/, '').replace(/^[^\S\n]+/, ''))
+    .join('\n')
+    .trim()
+}
+
+/**
+ * Remove every emoji from `text`, one whole grapheme cluster at a time.
+ *
+ * Only ever call this on MODEL-GENERATED text. Text the owner typed is his,
+ * emoji included — see `stripEmojiFromGenerated` for the rule that enforces
+ * that, and never reach past it to call this on a mixed field.
+ *
+ * Returns `text` unchanged when it holds no emoji, so a caller can compare by
+ * identity to know whether anything was removed.
+ */
+export function stripEmoji(text: string): string {
+  if (!text) return text
+  const seg = graphemeSegmenter()
+  if (!seg) {
+    // No Intl.Segmenter: leave the text alone rather than remove by code unit.
+    // Half an emoji is the 1.4.9 bug, and it is worse than an emoji.
+    return text
+  }
+  let sawEmoji = false
+  let out = ''
+  for (const { segment } of seg.segment(text)) {
+    if (clusterIsEmoji(segment)) { sawEmoji = true; continue }
+    out += segment
+  }
+  if (!sawEmoji) return text
+  return tidyGaps(out)
+}
+
+/** True when `text` contains at least one emoji. */
+export function containsEmoji(text: string): boolean {
+  const seg = graphemeSegmenter()
+  if (!seg || !text) return false
+  for (const { segment } of seg.segment(text)) {
+    if (clusterIsEmoji(segment)) return true
+  }
+  return false
+}
+
+/**
+ * The rule that protects his own writing.
+ *
+ * `generated` is cleaned only when the text he supplied — his script, his
+ * title, his standards file, his prompt — contains no emoji of its own. The
+ * moment his source has one, he has made a choice about emoji for this piece of
+ * work, and the model's are left alone with it rather than the app overruling
+ * him on a field it cannot tell apart.
+ *
+ * Pass every scrap of his text that fed this generation as `sources`. Passing
+ * none means "all of this is the model's", which is true for a title written
+ * from a topic line but is NOT true for a description assembled around prose he
+ * edited — for those, clean the generated block BEFORE it is merged, never the
+ * merged result.
+ */
+export function stripEmojiFromGenerated(
+  generated: string,
+  sources: Array<string | null | undefined> = [],
+): string {
+  if (!generated) return generated
+  for (const source of sources) {
+    if (source && containsEmoji(source)) return generated
+  }
+  return stripEmoji(generated)
+}

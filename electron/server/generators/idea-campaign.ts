@@ -20,6 +20,7 @@ import { ideaOutputTokenBudget } from '../services/idea-output-budget.js'
 import { ideaCampaignOutputContract } from '../lib/story-output-contracts.js'
 import { applyFormulaEpisodeProfileTitle } from '../services/formula-production-kit.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { applyEmojiPolicy, NO_EMOJI_DIRECTIVE } from '../lib/emoji-policy.js'
 
 interface IdeaCampaignParams extends GenerateIdeasRequest {
   campaign_id: string
@@ -110,6 +111,8 @@ OUTPUT CONTRACT:
 - suggested_chapters must be an integer within ${format.script.chapterCountRange[0]}-${format.script.chapterCountRange[1]}.
 - suggested_length must be a minutes string within ${format.script.lengthMinutesRange[0]}-${format.script.lengthMinutesRange[1]} minutes.
 - themes must contain 2-4 concrete keywords.
+
+- ${NO_EMOJI_DIRECTIVE}
 
 Return ONLY a JSON object of the form {"ideas": [ ... ]}, where every array item has these exact keys:
 idea_key, title, logline, themes, suggested_chapters, suggested_length, mood`
@@ -323,8 +326,17 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
         job.output_lines.push(`  ↻ ${assignment.idea_key}: output drifted from assigned subject; replacing slot.`)
         continue
       }
+      // The idea's title becomes the episode's YouTube title under the
+      // default `use_idea_title` mode, so it is cleaned here where it is
+      // written rather than later where his edits would be indistinguishable.
+      // The prompt is the source: his Series Formula, standards and
+      // refinements are all inside it.
       candidates.push(normalizeIdea(
-        item,
+        {
+          ...item,
+          title: await applyEmojiPolicy(String(item.title || ''), [prompt]),
+          logline: await applyEmojiPolicy(String(item.logline || ''), [prompt]),
+        },
         assignment,
         request,
         plannerNiche,

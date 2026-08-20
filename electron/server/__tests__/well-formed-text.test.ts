@@ -26,7 +26,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  containsEmoji,
   isWellFormedText,
+  stripEmoji,
+  stripEmojiFromGenerated,
   toWellFormedDeep,
   toWellFormedText,
   truncateChars,
@@ -284,4 +287,87 @@ test('a YouTube title capped mid-emoji stays valid Unicode', () => {
     const [tag] = __sanitize.cleanTags([`${'b'.repeat(lead)}${BRAIN}${'c'.repeat(5)}`])
     assert.equal(hasLoneSurrogate(tag ?? ''), false, `lead ${lead} split the pair`)
   }
+})
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Emoji removal (1.4.12)
+ *
+ * *"about the emojis. i think to make sure we don't generate emojis when we
+ * don't have to. it's unprofessional"*
+ *
+ * These sit in the SAME file as the surrogate tests on purpose. Removing emoji
+ * and splitting emoji are one problem seen from two sides, and the failure
+ * mode to guard against is identical: keep half of one and the text is invalid
+ * — which is precisely the 1.4.9 incident above. Every case here therefore
+ * asserts well-formedness as well as content.
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const FAMILY = '\u{1F468}‍\u{1F469}‍\u{1F467}'   // ZWJ family, 5 code points
+const WAVE_TONE = '\u{1F44B}\u{1F3FD}'                      // waving hand + skin tone
+const FLAG_KH = '\u{1F1F0}\u{1F1ED}'                        // regional indicator pair
+const KEYCAP = '1️⃣'                              // digit + FE0F + keycap
+const SCISSORS_EMOJI = '✂️'                       // textual char asked to be emoji
+
+test('an emoji is removed whole, never half', () => {
+  for (const emoji of [BRAIN, FAMILY, WAVE_TONE, FLAG_KH, KEYCAP, SCISSORS_EMOJI]) {
+    const out = stripEmoji(`Before ${emoji} after`)
+    assert.equal(out, 'Before after', `${JSON.stringify(emoji)} left something behind`)
+    assert.equal(isWellFormedText(out), true, 'a partial removal would be the 1.4.9 bug again')
+    // Nothing from the sequence may survive — a lone ZWJ or skin tone is the
+    // exact "leftover" shape a code-unit regex produces.
+    assert.equal(/[‍\u{1F3FB}-\u{1F3FF}️⃣]/u.test(out), false)
+  }
+})
+
+test('typography survives; a decoration does not', () => {
+  // The line the owner would draw himself: (tm) and (c) are punctuation in a
+  // title, the same character wearing U+FE0F is an ornament.
+  assert.equal(stripEmoji('Acme™ and © 2026'), 'Acme™ and © 2026')
+  assert.equal(stripEmoji('Cut here ✂️ now'), 'Cut here now')
+})
+
+test('the gap an emoji leaves is tidied, and paragraphs survive', () => {
+  assert.equal(stripEmoji(`${BRAIN} Ancient Rome`), 'Ancient Rome')
+  assert.equal(stripEmoji(`Ancient Rome ${BRAIN}`), 'Ancient Rome')
+  assert.equal(stripEmoji(`Ancient ${BRAIN} Rome`), 'Ancient Rome')
+  // A description's paragraph breaks are content, not whitespace to collapse.
+  assert.equal(
+    stripEmoji(`Chapter one ${BRAIN}\n\nChapter two ${FLAG_KH}`),
+    'Chapter one\n\nChapter two',
+  )
+})
+
+test('text with no emoji is returned untouched, by identity', () => {
+  const plain = 'The Forgotten Helots of Sparta'
+  assert.equal(stripEmoji(plain), plain)
+  assert.equal(containsEmoji(plain), false)
+  assert.equal(containsEmoji(`x ${FAMILY}`), true)
+})
+
+test('HIS emoji survive — the model’s do not', () => {
+  // The regression that would annoy him most. If he put an emoji in the title
+  // or the script, he made a choice, and the app does not overrule it.
+  const generated = `Ancient Rome ${BRAIN} Explained`
+  const hisTitle = `My Series ${FLAG_KH}`
+
+  assert.equal(
+    stripEmojiFromGenerated(generated, [hisTitle]),
+    generated,
+    'once his own source text carries an emoji, nothing generated for it is cleaned',
+  )
+  assert.equal(
+    stripEmojiFromGenerated(generated, ['My Series', null, undefined, '']),
+    'Ancient Rome Explained',
+    'with no emoji of his anywhere in the source, the model’s are removed',
+  )
+  assert.equal(stripEmojiFromGenerated(generated), 'Ancient Rome Explained')
+})
+
+test('stripping leaves text safe for the GenStudio boundary', () => {
+  // The two layers compose: what comes out of the stripper still passes the
+  // well-formedness gate that 1.4.9 added at the network boundary.
+  const messy = `Title ${FAMILY} ${LONE_HIGH} end`
+  const stripped = stripEmoji(messy)
+  assert.equal(stripped.includes(FAMILY), false)
+  assert.equal(isWellFormedText(toWellFormedText(stripped)), true)
 })

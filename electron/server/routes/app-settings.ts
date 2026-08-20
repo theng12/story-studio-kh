@@ -19,6 +19,7 @@ import {
   getYoutubeDefaults, setYoutubeDefaults,
   getLastSeenVersion, setLastSeenVersion,
   getGenStudioUrl, setGenStudioUrl, DEFAULT_GENSTUDIO_URL,
+  setAppSetting,
 } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import {
@@ -717,6 +718,41 @@ router.put('/app-settings/youtube-defaults', async (req, res) => {
     res.json(await setYoutubeDefaults(patch))
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save YouTube defaults'))
+  }
+})
+
+// ── Emoji in generated text (v1.4.12) ───────────────────────────────────────
+//
+// *"about the emojis. i think to make sure we don't generate emojis when we
+// don't have to. it's unprofessional"* — and his standing rule that anything
+// like this is *"something that can be selected, update, change by myself
+// later on. not hardcoded."*
+//
+// ONE app-level switch, off by default, covering every surface that writes
+// text published under his name. Deliberately not per-surface: he asked for a
+// policy, not a control panel. Story Studio's own interface keeps its emoji
+// either way — that is the app talking to him, not content going out.
+
+router.get('/app-settings/emoji', async (_req, res) => {
+  try {
+    const { emojiAllowed } = await import('../lib/emoji-policy.js')
+    res.json({ allow_emoji_in_generated_text: await emojiAllowed() })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to load the emoji setting'))
+  }
+})
+
+router.put('/app-settings/emoji', async (req, res) => {
+  const value = (req.body || {}).allow_emoji_in_generated_text
+  if (typeof value !== 'boolean') {
+    return res.status(400).json({ detail: 'allow_emoji_in_generated_text must be a boolean' })
+  }
+  try {
+    const { EMOJI_SETTING_KEY, emojiAllowed } = await import('../lib/emoji-policy.js')
+    await setAppSetting(EMOJI_SETTING_KEY, value)
+    res.json({ allow_emoji_in_generated_text: await emojiAllowed() })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Failed to save the emoji setting'))
   }
 })
 

@@ -20,6 +20,32 @@
 
     <section class="panel"><ServerModeSettingsPanel /></section>
 
+    <!-- v1.4.12 — one switch for the whole app. "about the emojis. i think to
+         make sure we don't generate emojis when we don't have to. it's
+         unprofessional" — plus his standing rule that a choice like this is
+         his to change later, not a constant in the code. -->
+    <section class="panel emoji-policy">
+      <div>
+        <span class="eyebrow">House style</span>
+        <h4>Emoji in generated text</h4>
+        <p>
+          Titles, descriptions, tags and on-screen labels that Story Studio writes for you are
+          kept free of emoji. Emoji you type yourself are never touched, and neither are the ones
+          in Story Studio's own buttons and menus.
+        </p>
+      </div>
+      <label class="emoji-toggle">
+        <input
+          type="checkbox"
+          :checked="allowEmoji"
+          :disabled="emojiBusy"
+          @change="saveEmoji(($event.target as HTMLInputElement).checked)"
+        />
+        <span>Let generated text use emoji</span>
+      </label>
+      <p v-if="emojiResult" :class="['result', emojiResult.kind]">{{ emojiResult.message }}</p>
+    </section>
+
     <section class="panel connection">
       <div class="connection-copy">
         <span class="eyebrow">Sole AI boundary</span>
@@ -74,6 +100,7 @@
 type ThemeChoice = 'light' | 'dark' | 'system'
 interface ProviderRow { providerId: string; hasKey: boolean; keyMasked: string }
 interface ContentStoreProbe { read_scope: 'verified'; purchase_scope: 'required_unverified' }
+interface EmojiSetting { allow_emoji_in_generated_text: boolean }
 
 const { get, put, del, post } = useApi()
 const { ask } = useConfirm()
@@ -84,6 +111,9 @@ const defaultUrl = ref('')
 const keyDraft = ref('')
 const savedKey = ref<ProviderRow | null>(null)
 const busy = ref<'' | 'url' | 'save' | 'test' | 'remove'>('')
+const allowEmoji = ref(false)
+const emojiBusy = ref(false)
+const emojiResult = ref<{ kind: 'ok' | 'err'; message: string } | null>(null)
 const result = ref<{
   kind: 'ok' | 'warn' | 'err'
   message: string
@@ -98,6 +128,30 @@ async function load(): Promise<void> {
   url.value = settings.url
   defaultUrl.value = settings.default_url
   savedKey.value = keys.providers.find(row => row.providerId === 'genstudio') || null
+  // Best-effort: the emoji switch must never be what stops this panel loading.
+  try {
+    const emoji = await get<EmojiSetting>('/app-settings/emoji')
+    allowEmoji.value = emoji.allow_emoji_in_generated_text
+  } catch { /* leave it at the stated default */ }
+}
+
+async function saveEmoji(checked: boolean): Promise<void> {
+  emojiBusy.value = true; emojiResult.value = null
+  try {
+    const saved = await put<EmojiSetting>('/app-settings/emoji', { allow_emoji_in_generated_text: checked })
+    allowEmoji.value = saved.allow_emoji_in_generated_text
+    emojiResult.value = {
+      kind: 'ok',
+      message: saved.allow_emoji_in_generated_text
+        ? 'Generated text may use emoji.'
+        : 'Generated text will be kept free of emoji.',
+    }
+  } catch (error: any) {
+    // Put the switch back where it really is, rather than leaving it showing a
+    // setting that was never saved.
+    allowEmoji.value = !checked
+    emojiResult.value = { kind: 'err', message: error?.data?.detail || error?.message || 'Could not save that.' }
+  } finally { emojiBusy.value = false }
 }
 
 async function saveUrl(): Promise<void> {
@@ -171,6 +225,15 @@ onMounted(() => { void load() })
 </script>
 
 <style scoped>
+.emoji-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  cursor: pointer;
+}
+.emoji-toggle input { cursor: pointer; }
+
 .this-mac-settings {
   container-name: this-mac-settings;
   container-type: inline-size;

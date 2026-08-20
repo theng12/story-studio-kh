@@ -36,6 +36,7 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { previewThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
 import { fetchYouTubeChannelAvatar } from '../lib/youtube-channel-avatar.js'
 import type { JobType } from '../models/types.js'
+import { applyEmojiPolicy, noEmojiDirective } from '../lib/emoji-policy.js'
 
 export const router = Router()
 
@@ -151,13 +152,14 @@ Write a description that:
 - ${videoCount ? `Mentions the playlist has around ${videoCount} videos and what to expect` : 'Mentions that this is a growing collection'}
 - Ends with a soft, on-brand closing line (or the benediction above if one was given)
 
-Target ~${targetLength} characters. Plain prose — no bullet lists, no all-caps, no excessive emoji (one max, only if it fits the channel voice).`
+Target ~${targetLength} characters. Plain prose — no bullet lists, no all-caps.${await noEmojiDirective()}`
 
     // Standard: a multi-paragraph playlist description.
-    const text = await callAiWithRetry(model, system, userMsg, apiKeys, false, {
+    const raw = await callAiWithRetry(model, system, userMsg, apiKeys, false, {
       slug, outputBudget: 'standard',
     })
-    res.json({ description: text.trim(), model, length: text.trim().length })
+    const text = await applyEmojiPolicy(raw.trim(), [userMsg, system])
+    res.json({ description: text, model, length: text.length })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to generate playlist description'))
   }

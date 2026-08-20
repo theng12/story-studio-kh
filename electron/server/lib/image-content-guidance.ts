@@ -24,9 +24,9 @@
  *
  * It is written as CRAFT guidance ("describe it this way and it renders
  * better"), not as a list of prohibitions, and it says so out loud in the text:
- * the historical substance must survive. The failure mode being guarded against
- * is a writer that sanitises the era into a blander scene — that would be a
- * worse outcome than a refusal.
+ * the substance must survive. The failure mode being guarded against is a writer
+ * that sanitises the scene into a blander one — that would be a worse outcome
+ * than a refusal.
  *
  * Consumed by:
  *   - services/scene-planner.ts      — buildScenePlannerPrompt (one-pass +
@@ -47,10 +47,9 @@
  * usually renders confident-looking gibberish instead of real words. Channels
  * depict written surfaces constantly and legitimately — a scribe at work, a
  * field notebook, a shop sign — so the fix is never "stop showing documents."
- * It is: when a prompt-writing pass has
- * this switched on, describe lettering as indistinct marks/texture rather
- * than as specific readable words, so the renderer stops attempting words it
- * will get wrong.
+ * It is: when a prompt-writing pass has this switched on, describe lettering as
+ * indistinct marks/texture rather than as specific readable words, so the
+ * renderer stops attempting words it will get wrong.
  *
  * Deliberately a SEPARATE block from `IMAGE_CONTENT_GUIDANCE`, not folded
  * into it: the content-safety guidance applies to every prompt-writing path
@@ -97,6 +96,7 @@ Some scenes brush against an image provider's content filters innocently: confli
 - Never put an explicit age marker on a figure. Write "a young apprentice at the workbench", not a stated age or a child's physical size. Children in a scene are entirely legitimate subjects; it is the explicit marker that is left out.
 - Dress every figure in full, formal clothing appropriate to the setting, including where a source artwork was nude.
 - For medical and anatomical beats, show the diagram, the instruments, the physician's room, or the apothecary's shelves — not a procedure carried out on a body.
+- Never write an emoji or a decorative symbol into a prompt. An image model treats one as a thing to depict, and draws it into the picture.
 
 These are choices of framing, not of subject. The substance, the setting, and the specificity must be preserved in full. Follow the channel's own visual style for how the image should LOOK; nothing here overrides it.`
 

@@ -37,6 +37,7 @@ import { GenStudioChatTerminalFailureError, genStudioAdmissionSnapshot, listChat
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { applyEmojiPolicy, noEmojiDirective } from '../lib/emoji-policy.js'
 
 interface CueCandidate {
   scene_id: string
@@ -216,16 +217,29 @@ export async function generateContextualCues(job: Job): Promise<void> {
     let batchCandidates: CueCandidate[] | null = null
     for (let attempt = 0; attempt <= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES; attempt++) {
       job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'running', attempt: attempt + 1, max_attempts: CONTEXTUAL_CUE_BACKPRESSURE_RETRIES + 1 }]
+      // Hoisted so it can be handed to the emoji policy as the source text:
+      // it carries his narration, and an emoji he wrote into the script means
+      // the cues proposed from it are left alone.
+      const cueUserPrompt = `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: truncateChars(scene.transcript_segment, 420) })) )}`
       try {
         lastSubmissionAt = Date.now()
         const raw = await callAi(
           model,
-          'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.',
-          `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: truncateChars(scene.transcript_segment, 420) })) )}`,
+          'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.' + await noEmojiDirective(),
+          cueUserPrompt,
           {}, false,
           { slug: job.project_slug, jobId: job.job_id, requestIdentity: `${job.project_slug}:${episodeId}:contextual-cues:${fingerprint}:batch-${index}:scope-${progress.retry_scopes?.[String(index)] || 'initial'}`, outputBudget: 'standard', outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
         )
-        batchCandidates = parseCandidates(raw)
+        // Cleaned HERE, at the proposal, and never in the cue-save route: by
+        // the time a cue comes back from the review screen it may be something
+        // the editor typed, and that is his.
+        batchCandidates = await Promise.all(parseCandidates(raw).map(async candidate => ({
+          ...candidate,
+          title: await applyEmojiPolicy(candidate.title, [cueUserPrompt]),
+          subtitle: candidate.subtitle
+            ? await applyEmojiPolicy(candidate.subtitle, [cueUserPrompt])
+            : candidate.subtitle,
+        })))
         break
       } catch (error) {
         const releasedBackpressure = error instanceof GenStudioChatTerminalFailureError

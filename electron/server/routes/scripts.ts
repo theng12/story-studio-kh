@@ -17,6 +17,7 @@ import { formatMetadataTxt, parseMetadataTxt } from '../services/metadata-format
 import { validateBody } from '../lib/validate.js'
 import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
 import { appendSourcesToDescription, sourcesSectionEnabled } from '../lib/research-sources.js'
 import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -1001,7 +1002,7 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
     slug,
     'metadata',
     buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format),
-  )
+  ) + await noEmojiDirective()
 
   try {
     // Standard: a full YouTube description. Titles/tags below stay short-form.
@@ -1083,7 +1084,7 @@ Requirements:
 ${hookRules}
 - Each on its own line. No numbering, no quotes, no commentary.
 
-Output exactly ${count || 5} title options, one per line.`
+Output exactly ${count || 5} title options, one per line.${await noEmojiDirective()}`
 
   try {
     const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, { slug })
@@ -1095,7 +1096,8 @@ Output exactly ${count || 5} title options, one per line.`
       .slice(0, count || 5)
     // Wrap LLM titles with channel prefix/suffix so paraphrase mode
     // benefits from the same channel-consistency lock as fixed modes.
-    const titles = (title_prefix || title_suffix) ? rawTitles.map(wrap) : rawTitles
+    const clean = await applyEmojiPolicyToAll(rawTitles, [prompt])
+    const titles = (title_prefix || title_suffix) ? clean.map(wrap) : clean
     res.json({ titles })
   } catch (e: any) {
     // Honour explicit statusCode (400 validation, 402 quota, …) and
@@ -1136,16 +1138,19 @@ Requirements:
 ${tagRules}
 - One per line, no numbering, no commentary.
 
-Output exactly ${count || 15} tags, one per line.`
+Output exactly ${count || 15} tags, one per line.${await noEmojiDirective()}`
 
   try {
     const raw = await callAiWithRetry(model, '', prompt, aiCreds(config), false, { slug })
     await trackGeneration(slug, 'description')
-    const tags = raw
-      .split('\n')
-      .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())
-      .filter(Boolean)
-      .slice(0, count || 15)
+    const tags = await applyEmojiPolicyToAll(
+      raw
+        .split('\n')
+        .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())
+        .filter(Boolean)
+        .slice(0, count || 15),
+      [prompt],
+    )
     res.json({ tags })
   } catch (e: any) {
     // Honour explicit statusCode (400 validation, 402 quota, …) and
@@ -1207,11 +1212,11 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
       slug,
       'metadata',
       buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format),
-    )
+    ) + await noEmojiDirective()
     const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false, {
       slug, outputBudget: 'standard',
     })
-    const description = descRaw.trim()
+    const description = await applyEmojiPolicy(descRaw.trim(), [descPrompt])
     await recordUsageForScope(slug, episode_id, 'metadata', descRaw).catch(() => null)
 
     // Titles — fixed modes return a single title without an LLM call.
@@ -1243,11 +1248,12 @@ ${topBlock}
 Requirements:
 - ${platformNote}
 - Tone: ${format.metadata.titleStyleHint}.
-- One per line. No numbering, quotes, or commentary.`
+- One per line. No numbering, quotes, or commentary.${await noEmojiDirective()}`
       const titlePromptWithAvoidance = await prependAvoidanceToPrompt(slug, 'titles', titlePrompt)
       const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false, { slug })
       const rawTitles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || 5)
-      titles = (title_prefix || title_suffix) ? rawTitles.map(wrapAllTitle) : rawTitles
+      const cleanTitles = await applyEmojiPolicyToAll(rawTitles, [titlePromptWithAvoidance])
+      titles = (title_prefix || title_suffix) ? cleanTitles.map(wrapAllTitle) : cleanTitles
       await recordUsageForScope(slug, episode_id, 'titles', titleRaw).catch(() => null)
     }
 
@@ -1260,9 +1266,12 @@ ${truncateChars(description, 500)}
 Requirements:
 - 1-4 words per tag, no "#" prefix.
 - Broad keywords to draw from: ${format.metadata.broadKeywords.join(', ')}.
-- One per line, no numbering or commentary.`
+- One per line, no numbering or commentary.${await noEmojiDirective()}`
     const tagRaw = await callAiWithRetry(model, '', tagPrompt, aiCreds(config), false, { slug })
-    const tags = tagRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, tag_count || 15)
+    const tags = await applyEmojiPolicyToAll(
+      tagRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, tag_count || 15),
+      [tagPrompt],
+    )
 
     await trackGeneration(slug, 'description')
     res.json({ titles, description, tags })

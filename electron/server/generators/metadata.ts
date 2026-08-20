@@ -25,6 +25,7 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { formatMetadataTxt } from '../services/metadata-format.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
 import { metadataPlaceholderOutputContract } from '../lib/story-output-contracts.js'
 import { sourcesSectionEnabled } from '../lib/research-sources.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
@@ -284,12 +285,16 @@ export async function generateMetadata(job: Job): Promise<void> {
         project_slug,
         'metadata',
         buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, format),
-      )
+      ) + await noEmojiDirective()
       const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false,
         // Standard: a full YouTube description (up to ~5,000 characters).
         // Titles and tags below stay short-form on purpose.
         { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'standard' })
-      description = descRaw.trim()
+      // The whole prompt is the source: it carries his story context, his
+      // title, his custom section labels AND the niche's own voice rules — so
+      // the prayer channel's deliberate single 🙏 survives, because the
+      // instruction asking for it is right there in the source text.
+      description = await applyEmojiPolicy(descRaw.trim(), [descPrompt])
       job.output_lines.push(`  → ${description.length} chars`)
       // Post-generation: scan the description for matches against the
       // niche's regex and append to the recency log. Fail-soft — never
@@ -366,7 +371,7 @@ ${topBlock}
 Requirements:
 - ${platformNote}
 - Tone: ${titleTone}.
-- One per line. No numbering, quotes, or commentary.`
+- One per line. No numbering, quotes, or commentary.${await noEmojiDirective()}`
       const titlePromptWithAvoidance = await prependAvoidanceToPrompt(project_slug, 'titles', titlePrompt)
       const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
@@ -380,9 +385,10 @@ Requirements:
       // benefits from channel consistency the same way fixed modes do.
       // The prompt itself doesn't include the prefix (LLM doesn't need to
       // re-derive it), so we only apply it here once at the join step.
+      const cleanTitles = await applyEmojiPolicyToAll(rawTitles, [titlePromptWithAvoidance])
       titles = (title_prefix || title_suffix)
-        ? rawTitles.map(wrapTitle)
-        : rawTitles
+        ? cleanTitles.map(wrapTitle)
+        : cleanTitles
       job.output_lines.push(`  → ${titles.length} title(s); picking first: "${titles[0] || '(none)'}" (others saved as alternatives)`)
     }
 
@@ -410,13 +416,16 @@ ${truncateChars(description, 500)}
 Requirements:
 - 1-4 words per tag, no "#" prefix.
 - Mix of broad and episode-specific keywords.${broadKeywordsLine}
-- One per line, no numbering or commentary.`
+- One per line, no numbering or commentary.${await noEmojiDirective()}`
       const tagRaw = await callAiWithRetry(model, '', tagPrompt, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
-      tags = tagRaw.split('\n')
-        .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())
-        .filter(Boolean)
-        .slice(0, tag_count)
+      tags = await applyEmojiPolicyToAll(
+        tagRaw.split('\n')
+          .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim())
+          .filter(Boolean)
+          .slice(0, tag_count),
+        [tagPrompt],
+      )
       job.output_lines.push(`  → ${tags.length} tag(s)`)
     }
 

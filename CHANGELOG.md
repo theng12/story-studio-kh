@@ -4,6 +4,21 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.12 — 2026-08-20
+
+- **Story Studio no longer puts emoji into the text it writes for you.** Titles, descriptions, tags, the episode ideas it generates, playlist descriptions and the labels burned onto the screen all come out as plain text now. A title that used to arrive as "🔥 The Forgotten Helots of Sparta — What the Temple Dig Really Found 🏛️" arrives as "The Forgotten Helots of Sparta — What the Temple Dig Really Found".
+- **Emoji you typed yourself are never touched.** This is the important half. If your script, your title, your channel's own instructions or your notes contain an emoji, that is your decision and everything written for that episode is left exactly as it came. The prayer channel is the clearest case: its own rules deliberately ask for exactly one 🙏 in the description, and that 🙏 still arrives, because the instruction asking for it is part of what you wrote.
+- **A description you have already edited is never rewritten.** Cleaning happens the moment the text arrives from the model, before it is merged with anything of yours. Once your paragraphs and the automatic chapter and source blocks are in one description, the two cannot be told apart, so nothing touches it there.
+- **The models are asked first, not just corrected afterwards.** Every prompt that writes text you publish now says plainly not to use emoji. Cleaning the result is only the net underneath — a net alone would fight the model on every single generation and teach it nothing.
+- **Removal is whole-character, which is the point.** One emoji is often several pieces joined together — a family, a skin tone, a flag, a keycap — and removing a piece leaves broken text. That is exactly the bug that made DeepSeek look unreliable last week. Emoji are removed as whole characters or not at all, and where a character sits alone it is dropped rather than half-kept. Ordinary symbols like ™ and © are left alone; they are punctuation, not decoration.
+- **You can turn it back on.** Settings → This Mac → "Emoji in generated text" has a single switch. It starts off, which is what you asked for, and turning it on stops both the instruction and the cleaning at once so the app never says one thing and does another.
+- **Story Studio's own buttons and menus keep their emoji.** The bin on "Hidden channels", the box on "Move this project", the tick on a finished folder — that is the app talking to you, not something going out under your name.
+- **One prompt was arguing with itself and has been settled.** The playlist description generator carried its own rule — "no excessive emoji (one max, only if it fits the channel voice)" — which is the opposite of what you asked for. It now follows the same rule as everything else. Comment replies keep their existing behaviour of matching the viewer: if a viewer wrote with emoji, a reply may too.
+- **Image prompts are told never to contain an emoji**, because an image model treats one as a thing to depict and draws it into the picture.
+- Nothing you have already generated is changed, and subtitles and the alerts Story Studio sends you are unaffected — neither is written by a model.
+
+---
+
 ## v1.4.11 — 2026-08-20
 
 - **Story Studio no longer tells every channel it is a history documentary.** Before writing any image prompt, the app attached a paragraph of guidance that opened with "This is a history and documentary channel", and told the model to render the hardest subjects as engravings, woodcuts, frescoes and manuscript plates. Every channel got it, every time — fungi, plants, insects, motivation, prayer, preaching and business economics included. All of them were being told what they were and what they should look like by a helper whose job is neither.
