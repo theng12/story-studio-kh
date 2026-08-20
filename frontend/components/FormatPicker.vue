@@ -41,6 +41,9 @@
 
     <div v-if="error" class="format-error">
       Failed to load formats: {{ formatErr(error) }}
+      <button type="button" class="btn btn-ghost btn-sm" :disabled="isLoading" @click="refresh()">
+        {{ isLoading ? 'Retrying…' : 'Try again' }}
+      </button>
     </div>
   </div>
 </template>
@@ -59,7 +62,7 @@ const emit = defineEmits<{
   'change': [format: Format]
 }>()
 
-const { formats, isLoading, error, find } = useFormats()
+const { formats, isLoading, error, find, refresh } = useFormats()
 
 const selected = computed<Format | undefined>(() => find(props.modelValue))
 const buildLine = computed(() => selected.value ? formatBuildLine(selected.value) : '')

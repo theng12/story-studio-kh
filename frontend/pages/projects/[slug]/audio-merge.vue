@@ -639,7 +639,7 @@
             </button>
           </div>
           <p class="text-muted text-xs mt-2" style="margin-bottom: 0;">
-            Source folder: <code>{{ ambientLibraryDir }}</code>
+            Source folder: <code class="wrap-path">{{ ambientLibraryDir }}</code>
           </p>
         </div>
       </div>
@@ -1669,6 +1669,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* Same construct as welcome.vue's Library path: a filesystem path has nothing
+   to break at, and there is no global `code` rule to inherit, so in a narrow
+   window it pushes the panel sideways. Verified on the welcome screen. */
+.wrap-path { overflow-wrap: anywhere; }
+
 .integrity-pill {
   display: inline-flex;
   align-items: center;

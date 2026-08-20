@@ -79,6 +79,9 @@
 
     <div v-if="error" class="niche-error">
       Failed to load Series Formulas: {{ formatErr(error) }}
+      <button type="button" class="btn btn-ghost btn-sm" :disabled="isLoading" @click="refresh()">
+        {{ isLoading ? 'Retrying…' : 'Try again' }}
+      </button>
     </div>
   </div>
 </template>
@@ -98,7 +101,7 @@ const emit = defineEmits<{
   'change': [niche: Niche | null]
 }>()
 
-const { niches, isLoading, error, find } = useNiches()
+const { niches, isLoading, error, find, refresh } = useNiches()
 
 const selected = computed<Niche | undefined>(() => find(props.modelValue))
 const ownsVoice = computed(() => !!selected.value?.scriptSystemPromptRole)

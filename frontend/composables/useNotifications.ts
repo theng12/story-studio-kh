@@ -207,7 +207,7 @@ async function refreshReadiness(slug: string): Promise<void> {
           key: 'apikeys',
           severity: 'blocking',
           title: 'No AI model available',
-          detail: 'No API key is configured for any text model, so script/metadata generation will fail. Add a key in Settings → API Keys.',
+          detail: 'No API key is configured for any text model, so script/metadata generation will fail. Add a key in Settings → This Mac.',
           to: `/projects/${slug}/settings`,
         })
       } else {

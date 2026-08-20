@@ -972,7 +972,7 @@ function genStudioJobTitle(
     remote.model_id && !isTts && modelLabel !== remote.model_id
       ? `Internal model id: ${remote.model_id}`
       : '',
-    remote.remaining_credits !== undefined ? `Balance after: ${remote.remaining_credits}` : '',
+    remote.remaining_credits !== undefined ? `Balance after: ${remote.remaining_credits} credits` : '',
     remote.price_version ? `Price version: ${remote.price_version}` : '',
     remote.failure_code ? `Failure: ${remote.failure_code}` : '',
   ].filter(Boolean).join(' · ')

@@ -806,7 +806,7 @@ const canRun = computed(() => {
 const runDisabledReason = computed(() => {
   if (!episodeId.value) return 'Pick an episode first'
   if (!form.value.topic.trim()) return 'Enter a topic'
-  if (!genStudioSource.value?.configured) return 'GenStudio API not configured — App Settings → API Keys'
+  if (!genStudioSource.value?.configured) return 'GenStudio API not configured — Settings → This Mac'
   if (!modelReadiness.value.model) return modelReadiness.value.reason
   return ''
 })

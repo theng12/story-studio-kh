@@ -194,6 +194,10 @@ async function confirm() {
 }
 .welcome-intro h1 { margin: 8px 0 12px; }
 .welcome-intro p { color: var(--text-secondary); max-width: 60ch; }
+/* A Library path has no spaces to break at, so in a narrow window it pushed
+   the whole page sideways — on the FIRST screen of a new Mac, the one screen
+   you have to complete. There is no global `code` rule to inherit. */
+.welcome-intro p code { overflow-wrap: anywhere; }
 .welcome-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border);

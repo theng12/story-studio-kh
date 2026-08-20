@@ -2,7 +2,7 @@
   v1.0.411 — Image Pool (slideshow) page, now the "load images" front door for
   the unified Video Assembly pivot. Picks still images from an Image Pool
   (random, sized to narration, cross-episode no-repeat) and materializes them as
-  the episode's SCENE IMAGES (`POST /image-pool/materialize`), so the full Scenes
+  the episode's SCENE IMAGES (`POST /image-pool/materialize`), so the full Video Assembly
   Video Assembly editor handles motion/overlays/logo/effects/subtitles/export and
   the standard video_assembly status. Also hosts "Grow this pool" (generate
   images). The bespoke slideshow assembler (pick/assemble) is retired.
@@ -22,7 +22,7 @@
     <p class="text-muted mt-2 mb-2" style="font-size: 13px;">
       Loads random images from your <strong>Image Pool</strong> (sized to the narration, no image
       reused within the pool's no-repeat window) as this episode's <strong>scenes</strong> — then
-      you finish in the <strong>Scenes</strong> tab with the full editor (Ken Burns, transitions,
+      you finish in the <strong>Video Assembly</strong> tab with the full editor (Ken Burns, transitions,
       overlays, logo, effects, subtitles, export). Audio is your merged narration + intro music.
     </p>
 
@@ -60,11 +60,11 @@
       <h3>2. Load images into Video Assembly</h3>
       <p class="text-muted text-sm mt-1">
         Picks the images and sets them as this episode's <strong>scenes</strong>. Then open the
-        <strong>🎞 Scenes</strong> tab above to add motion / overlays / logo / effects / subtitles and render —
+        <strong>🎞 Video Assembly</strong> tab above to add motion / overlays / logo / effects / subtitles and render —
         the slideshow gets the full editor (and the standard final video shows on the board + upload).
       </p>
       <div class="ip-row mt-2">
-        <label class="ip-inline-label" title="Drives how many images are loaded (narration ÷ this). You set the actual on-screen pacing in the Scenes tab's recycling control.">
+        <label class="ip-inline-label" title="Drives how many images are loaded (narration ÷ this). You set the actual on-screen pacing in the Video Assembly tab's recycling control.">
           Seconds / image
           <input type="number" min="1" max="60" step="1" class="input ip-num" v-model.number="secondsPerImage" />
         </label>
@@ -79,7 +79,7 @@
         </button>
         <span v-if="lastLoad" class="text-muted text-sm">
           ✓ Loaded {{ lastLoad.count }} image(s) (~{{ Math.round(lastLoad.target_duration) }}s of narration).
-          <NuxtLink :to="`/projects/${slug}/video-assembly`" class="text-accent">Open the Scenes tab →</NuxtLink>
+          <NuxtLink :to="`/projects/${slug}/video-assembly`" class="text-accent">Open the Video Assembly tab →</NuxtLink>
         </span>
       </div>
       <p class="text-muted text-xs mt-2">
@@ -287,7 +287,7 @@ async function loadIntoVideoAssembly(): Promise<void> {
       },
     )
     lastLoad.value = { count: r.count, target_duration: r.target_duration }
-    success(`Loaded ${r.count} image(s) as scenes for ${episodeId.value} — open the Scenes tab to finish.`)
+    success(`Loaded ${r.count} image(s) as scenes for ${episodeId.value} — open the Video Assembly tab to finish.`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Failed to load images')
   } finally {

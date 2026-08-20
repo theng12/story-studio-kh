@@ -34,7 +34,12 @@
       </label>
     </div>
 
-    <p v-if="error" class="error-note">Failed to load Topic Packs: {{ formatErr(error) }}</p>
+    <p v-if="error" class="error-note">
+      Failed to load Topic Packs: {{ formatErr(error) }}
+      <button type="button" class="btn btn-ghost btn-sm" :disabled="isLoading" @click="refresh()">
+        {{ isLoading ? 'Retrying…' : 'Try again' }}
+      </button>
+    </p>
   </div>
 </template>
 
@@ -51,7 +56,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: string[]]
 }>()
 
-const { isLoading, isReady, error, compatibleWith } = useTopicPacks()
+const { isLoading, isReady, error, compatibleWith, refresh } = useTopicPacks()
 const compatible = computed(() => compatibleWith(props.seriesFormulaId))
 const compatibleIds = computed(() => new Set(compatible.value.map(pack => pack.id)))
 const selectedIds = computed(() => new Set(props.modelValue || []))

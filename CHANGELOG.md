@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.13 — 2026-08-20
+
+- **Six messages sent you to tabs that no longer exist.** Four told you to fix an API key in "Settings → API Keys", a tab that was folded into "This Mac" some time ago; they now say This Mac. The wizard that builds a format from a sample said to switch projects to it from "Project Settings → Format", which folded into Channel Identity. And the Image Pool page called the next step the "🎞 Scenes" tab in four places, while the app's own navigation calls it Video Assembly — the icon was right and the word was wrong, which reads as precise and is not.
+- **Three more credit figures now say "credits".** The Jobs page tooltip said "Balance after: 4,250", the Credits page's own jobs table had columns headed just Reserved, Settled and Returned, and the motion clip picker read "45 credits (minimum 30, price v3)" — where "v3" is a price-list version sitting immediately after the word "price", in a picker you use while spending money. It now reads "minimum 30 credits, price list v3".
+- **A failed load no longer strands you on a form you cannot finish.** If the Series Formula, Production Path or Topic Pack list failed to load — a momentary blip is enough — you got an error and nothing else, and the only way forward was to leave the page and come back. Each now has a "Try again" button that reloads just that list where you are.
+- **A long Library path no longer pushes the welcome screen sideways.** A path with no spaces in it could not wrap, so in a narrow window the whole first screen scrolled left and right — on the one screen you have to complete on a new Mac. Fixed there and on the Audio Assembly page's source-folder line, which has the same shape.
+- Also removed a leftover key-entry component that nothing had used since the API Keys tab was retired.
+
+---
+
 ## v1.4.12 — 2026-08-20
 
 - **Story Studio no longer puts emoji into the text it writes for you.** Titles, descriptions, tags, the episode ideas it generates, playlist descriptions and the labels burned onto the screen all come out as plain text now. A title that used to arrive as "🔥 The Forgotten Helots of Sparta — What the Temple Dig Really Found 🏛️" arrives as "The Forgotten Helots of Sparta — What the Temple Dig Really Found".

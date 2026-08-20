@@ -112,7 +112,7 @@
         </div>
         <p class="text-muted" style="font-size: 12px;">
           The new format now appears in the Format picker (refreshed automatically). Switch any
-          project to it from Project Settings → Format. The file lives at
+          project to it from Project Settings → Channel Identity. The file lives at
           <code>{{ savedTo }}</code> — copy / share that file to use the format on another machine.
         </p>
         <div class="wiz-actions">

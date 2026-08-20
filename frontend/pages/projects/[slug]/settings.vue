@@ -773,7 +773,7 @@
             <li>
               <strong>API keys are per-machine.</strong> Each Mac encrypts its
               own keys with a machine-derived key — they don't decrypt across
-              devices. You'll re-enter keys (Settings → API Keys) on every Mac.
+              devices. You'll re-enter keys (Settings → This Mac) on every Mac.
             </li>
             <li>
               <strong>One Mac at a time.</strong> Don't have two Macs actively

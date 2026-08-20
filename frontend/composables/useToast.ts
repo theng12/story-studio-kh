@@ -93,7 +93,7 @@ function humanizeError(raw: string): string {
 
   // Auth errors
   if (/401|invalid.*api[ _]?key|unauthori[sz]ed|invalid x-api-key|Incorrect API key/i.test(s)) {
-    return 'API key is invalid or expired. Check it in Settings → API Keys.'
+    return 'API key is invalid or expired. Check it in Settings → This Mac.'
   }
 
   // Rate limits

@@ -61,7 +61,7 @@
         <p v-if="!snapshot.jobs.items.length" class="empty">No GenStudio jobs reported.</p>
         <div v-else class="table-wrap">
           <table>
-            <thead><tr><th>Job</th><th>Operation</th><th>State</th><th class="num">Reserved</th><th class="num">Settled</th><th class="num">Returned</th></tr></thead>
+            <thead><tr><th>Job</th><th>Operation</th><th>State</th><th class="num">Reserved credits</th><th class="num">Settled credits</th><th class="num">Returned credits</th></tr></thead>
             <tbody>
               <tr v-for="job in snapshot.jobs.items" :key="job.id">
                 <td>

@@ -93,7 +93,7 @@
             <select v-model="videoVariantKey" class="select" :disabled="!selectedVideoVariants.length" aria-label="Published clip variant">
               <option v-if="!selectedVideoVariants.length" value="">No published length or resolution</option>
               <option v-for="variant in selectedVideoVariants" :key="variantKey(variant)" :value="variantKey(variant)">
-                {{ variant.duration_seconds }}s at {{ variant.resolution }} — {{ variant.credits_per_video }} credits (minimum {{ variant.minimum_credits }}, price {{ variant.price_version }})
+                {{ variant.duration_seconds }}s at {{ variant.resolution }} — {{ variant.credits_per_video }} credits (minimum {{ variant.minimum_credits }} credits, price list {{ variant.price_version }})
               </option>
             </select>
           </label>
