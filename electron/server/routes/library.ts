@@ -168,6 +168,16 @@ router.post('/library/archive/run', async (req, res) => {
   if (sweep.running) return res.status(409).json({ detail: 'An archive sweep is already running.' })
   const destination = typeof req.body?.destination === 'string' ? req.body.destination.trim() : ''
   if (!destination) return res.status(400).json({ detail: 'Choose a folder to move the videos into.' })
+  // v1.4.10 — the run may only act on the list he reviewed. Without it, the
+  // preview he approved and the sweep that executes are two separate
+  // computations of "what should move", and only one of them was ever shown to
+  // him.
+  const approved = Array.isArray(req.body?.approved)
+    ? (req.body.approved as unknown[]).filter((p): p is string => typeof p === 'string' && !!p.trim())
+    : null
+  if (!approved) {
+    return res.status(400).json({ detail: 'Check what would move first, then run the sweep on that list.' })
+  }
 
   Object.assign(sweep, { running: true, done: 0, total: 0, current: '', stop: false, result: null, error: '' })
   // Answer immediately and report through /status: a 220 GB move would sit on
@@ -181,6 +191,7 @@ router.post('/library/archive/run', async (req, res) => {
       sweep.result = await runArchiveSweep({
         destination,
         sourceRoot: req.body?.source_root,
+        approved,
         shouldStop: () => sweep.stop,
         onProgress: (done, total, current) => { Object.assign(sweep, { done, total, current }) },
       })

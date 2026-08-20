@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.10 — 2026-08-20
+
+- **Archive uploaded videos could have moved a video you never uploaded into another channel's folder and deleted the original.** Nothing had happened yet — the button had not been run, and there is no damage to undo. But had it run as shipped, it would have taken finished masters you never published, filed them under the wrong channel, and removed them from where they belonged. That is fixed, and Archive is safe to use.
+- **What was wrong.** Archive only moves a video it can prove you uploaded, and it checked that proof by episode number alone — it looked for `EP0042` and asked "is EP0042 uploaded?". But an episode number is only unique inside one channel. Seven of your eleven channels number their episodes `EP`, 302 episode numbers exist on more than one channel, and `EP0001` through `EP0006` exist on seven each. So Boundful's `EP0042`, which you have not published, was proven "uploaded" by abiding-faith's `EP0042`, which you have. Boundful's master would have been copied into abiding-faith's archive folder, checked byte-for-byte against itself, found perfect, and then deleted from Boundful.
+- **The careful part was working the whole time, which is what made it dangerous.** Archive copies first, verifies the copy at its destination by size and checksum, and only then removes the original — so a half-finished copy is never mistaken for a good one. All of that was correct. It was simply guarding the wrong file: the video was verified into the wrong place, perfectly.
+- **Every video is now tied to the channel folder it actually sits in.** A file under `boundful` is checked against Boundful's uploads and nothing else. If a video's channel cannot be worked out from where it sits — no channel folder anywhere in its path, or a folder that two channels could claim — it is left alone and listed with the reason. There is no falling back to matching by number: a video whose channel is unclear is exactly the one that must not be moved.
+- **The list you approve is now the list that runs.** Pressing "Move them" used to re-scan the folder and act on whatever it found the second time, so anything arriving between reading the bill and agreeing to it joined the move unannounced. Only the videos you were shown are moved now, and anything that turned up since is reported instead.
+- **The confirmation box now says what is actually true.** It used to describe every skipped file as "not confirmed uploaded", including the dozen-odd files in your TerenceGaming folder that have no episode number at all and were never candidates. It now breaks the skipped pile down by the real reason.
+- **Archiving can no longer invent an episode folder.** When Archive notes where a video went, it writes that note into the episode's existing folder — and it used to create the folder when it was missing, which alongside the bug above meant conjuring an episode on the wrong channel as a side effect. It now refuses, finishes the move, and tells you the folder is missing.
+- **Why this shipped: the tests could not have caught it.** Every test for this feature used a single channel, so "two channels sharing an episode number" was not merely untested — it could not be written down. The tests now cover several channels, and the new one was run against the old code first to confirm it fails there.
+
+---
+
 ## v1.4.9 — 2026-08-20
 
 - **The "flaky DeepSeek" failures were never DeepSeek.** Metadata and other generations have been dying intermittently for days with a message about a character that "can't be encoded" — and because retrying with a different model usually worked, it looked like one provider being unreliable. It was not. The bug was in Story Studio, it could hit any model, and switching models only changed the odds. Nothing was wrong with DeepSeek V4 Flash; there is no reason to keep avoiding it.

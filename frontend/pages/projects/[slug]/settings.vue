@@ -925,6 +925,9 @@
               {{ archiveResult.failed.length }} could not be verified and were left in both places.
             </span>
           </p>
+          <ul v-if="archiveResult?.warnings?.length" class="archive-skipped">
+            <li v-for="w in archiveResult.warnings" :key="w">{{ w }}</li>
+          </ul>
         </div>
       </div>
 
@@ -2757,9 +2760,12 @@ onMounted(loadLibrary)
  * request: 220 GB takes many minutes and any proxy in between would give up
  * long before the copy did.
  */
+type ArchiveSkipReason =
+  | 'no_code' | 'unknown_channel' | 'ambiguous_channel'
+  | 'not_uploaded' | 'not_reviewed' | 'collision'
 interface ArchivePreviewRow {
   source_path: string; filename: string; bytes: number; code: string
-  status: 'ready' | 'skipped'; reason?: string
+  status: 'ready' | 'skipped'; reason?: string; reason_code?: ArchiveSkipReason
 }
 interface ArchivePreviewResult {
   source_root: string; source_exists: boolean
@@ -2782,6 +2788,35 @@ let archivePoll: ReturnType<typeof setInterval> | null = null
 const archiveSkippedRows = computed(
   () => (archivePreview.value?.candidates || []).filter(c => c.status === 'skipped'),
 )
+
+/**
+ * What the skipped pile is actually made of, in his words.
+ *
+ * The confirm dialog used to describe every skip as "not confirmed uploaded".
+ * That was wrong twice: files with no episode code at all were counted as
+ * unproven uploads (his TerenceGaming folder is full of them), and until
+ * v1.4.10 the sentence's promise — that nothing unproven would be touched —
+ * was not true across channels. Say what is true instead.
+ */
+const archiveSkipSummary = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const row of archiveSkippedRows.value) {
+    const key = row.reason_code || 'other'
+    counts[key] = (counts[key] || 0) + 1
+  }
+  const phrases: string[] = []
+  const say = (key: string, one: string, many: string) => {
+    const n = counts[key]
+    if (n) phrases.push(`${n} ${n === 1 ? one : many}`)
+  }
+  say('not_uploaded', 'is not confirmed uploaded', 'are not confirmed uploaded')
+  say('no_code', 'has no episode code', 'have no episode code')
+  say('unknown_channel', 'cannot be tied to a channel', 'cannot be tied to a channel')
+  say('ambiguous_channel', 'sits where more than one channel could own it',
+    'sit where more than one channel could own them')
+  say('other', 'is skipped for another reason', 'are skipped for other reasons')
+  return phrases
+})
 
 async function pickArchiveSource() {
   const p = await pickFolderShared({ title: 'Where are your finished videos?', button_label: 'Scan This Folder' })
@@ -2809,13 +2844,19 @@ async function loadArchivePreview() {
 async function startArchive() {
   const preview = archivePreview.value
   if (!preview) return
+  const approved = preview.candidates.filter(c => c.status === 'ready').map(c => c.source_path)
+  const staying = archiveSkipSummary.value.length
+    ? `${preview.skipped_count} video(s) stay where they are — ${archiveSkipSummary.value.join(', ')}.`
+    : 'Nothing else in that folder is affected.'
   const ok = await ask({
     title: 'Move finished videos?',
     message: `${preview.ready_count} video(s) — ${formatBytes(preview.ready_bytes)} — will be COPIED to\n`
       + `  ${archiveDest.value}\n\n`
       + `Each one is checked at the destination before the original is removed, so nothing is lost `
       + `if the copy fails.\n\n`
-      + `${preview.skipped_count} video(s) are not confirmed uploaded and will not be touched.`,
+      + `${staying}\n\n`
+      + `Only the ${preview.ready_count} listed above will be moved — anything added to the folder `
+      + `after this check is left alone.`,
     confirmLabel: 'Move them',
   })
   if (!ok) return
@@ -2828,6 +2869,9 @@ async function startArchive() {
     await post('/library/archive/run', {
       destination: archiveDest.value.trim(),
       source_root: archiveSource.value.trim() || undefined,
+      // The reviewed set. The server re-checks each one's upload proof and can
+      // only get stricter, but it will not move anything outside this list.
+      approved,
     })
     archivePoll = setInterval(pollArchive, 1000)
   } catch (e: any) {

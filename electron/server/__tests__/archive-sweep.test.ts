@@ -14,7 +14,7 @@
 import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, rmSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
@@ -35,14 +35,26 @@ after(async () => { await tmp?.cleanup() })
 
 const SLUG = 'terranash'
 
+/**
+ * v1.4.10 — every helper here now takes a SLUG, and that is the point.
+ *
+ * This fixture used to be one project (`terranash`, prefix `TN`), which is why
+ * the worst bug this feature ever had shipped green. The sweep proved a file's
+ * upload by episode code alone; seven of the owner's eleven channels use the
+ * `EP` prefix and 302 codes exist in more than one channel, so an upload on one
+ * channel authorised deleting another channel's master. In a single-project
+ * fixture that case cannot be written down at all — the suite was not failing
+ * to catch it, it was unable to.
+ */
+
 /** An accepted episode, optionally with a proven YouTube upload. */
-async function seedEpisode(code: string, title: string, uploaded: boolean) {
+async function seedEpisode(code: string, title: string, uploaded: boolean, slug = SLUG) {
   const root = pm.projectsRoot()
-  const projDir = path.join(root, SLUG)
+  const projDir = path.join(root, slug)
   await fs.mkdir(projDir, { recursive: true })
   if (!existsSync(path.join(projDir, 'project.json'))) {
     await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
-      slug: SLUG, name: 'TerraNash', episode_prefix: 'TN', episode_digits: 4,
+      slug, name: slug, episode_prefix: code.replace(/\d+$/, ''), episode_digits: 4,
       season_size: 20, season_prefix: 'Season',
       folder_template: '{season_prefix} {season_num}/{code} - {title}/',
       subfolder_names: {}, output_root: './episodes',
@@ -57,7 +69,11 @@ async function seedEpisode(code: string, title: string, uploaded: boolean) {
   })
   await fs.writeFile(ideasPath, JSON.stringify(ideas))
 
-  const epDir = path.join(projDir, 'episodes', 'Season 001', `${code} - ${title}`)
+  // Season folder computed the same way the app computes it, so codes past the
+  // first season (EP0042 → Season 003) land where `resolveEpisodePaths` looks.
+  const epNum = parseInt(code.replace(/^[A-Za-z]+/, ''), 10) || 1
+  const season = `Season ${String(Math.floor((epNum - 1) / 20) + 1).padStart(3, '0')}`
+  const epDir = path.join(projDir, 'episodes', season, `${code} - ${title}`)
   await fs.mkdir(epDir, { recursive: true })
   if (uploaded) {
     await fs.writeFile(path.join(epDir, 'youtube_upload.json'), JSON.stringify({
@@ -67,10 +83,17 @@ async function seedEpisode(code: string, title: string, uploaded: boolean) {
   return epDir
 }
 
-/** A finished video sitting in an exports pile. */
-async function seedExport(sourceRoot: string, code: string, bytes = 2048) {
-  await fs.mkdir(sourceRoot, { recursive: true })
-  const file = path.join(sourceRoot, `${code}_final_video.mp4`)
+/**
+ * A finished video sitting in an exports pile, inside its channel's folder.
+ *
+ * The channel folder is not decoration: since v1.4.10 it is the ONLY thing that
+ * ties a file to a channel, and a file that has no channel folder is refused
+ * rather than guessed at.
+ */
+async function seedExport(sourceRoot: string, code: string, bytes = 2048, slug = SLUG) {
+  const dir = slug ? path.join(sourceRoot, slug) : sourceRoot
+  await fs.mkdir(dir, { recursive: true })
+  const file = path.join(dir, `${code}_final_video.mp4`)
   await fs.writeFile(file, Buffer.alloc(bytes, code.charCodeAt(0)))
   return file
 }
@@ -110,10 +133,10 @@ describe('deciding what may be moved', () => {
     // The point of the feature on day one: his 220 GB are in ~/Downloads, put
     // there by a setting that no longer exists. A sweep that only looked in
     // <Library>/Exports would find nothing.
-    const faraway = path.join(tmp.dir, 'Downloads', 'YouTube Exports', 'terranash')
+    const faraway = path.join(tmp.dir, 'Downloads', 'YouTube Exports')
     await seedEpisode('TN0007', 'Far Away', true)
     await seedExport(faraway, 'TN0007')
-    const preview = await sweep.previewArchiveSweep({ sourceRoot: path.join(tmp.dir, 'Downloads', 'YouTube Exports') })
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: faraway })
     assert.equal(preview.ready_count, 1, 'a video outside the Library must still resolve to its episode')
   })
 
@@ -121,6 +144,89 @@ describe('deciding what may be moved', () => {
     const preview = await sweep.previewArchiveSweep({ sourceRoot: path.join(tmp.dir, 'nope') })
     assert.equal(preview.source_exists, false)
     assert.equal(preview.ready_count, 0)
+  })
+})
+
+/**
+ * The cross-channel case — the reason 1.4.10 exists.
+ *
+ * `EP0042` is a real collision on his machine: Boundful's is a finished master
+ * he never uploaded, abiding-faith's is published. Keyed on the code alone,
+ * abiding-faith's upload marked Boundful's file `ready`, copied it into
+ * `<dest>/abiding-faith/`, verified it byte-for-byte in the wrong place, and
+ * removed the original. 2.23 GB, gone, with a green checksum.
+ */
+describe('a code is not an identity — it belongs to a channel', () => {
+  const OTHER = 'abiding-faith'
+
+  test('an upload on one channel must NOT authorise moving another channel’s file', async () => {
+    const src = path.join(tmp.dir, 'YouTube Exports')
+    await seedEpisode('EP0042', 'Published Elsewhere', true, OTHER)
+    await seedEpisode('EP0042', 'The Real Reason Suleiman', false, 'boundful')
+    const master = await seedExport(src, 'EP0042', 2048, 'boundful')
+
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+    const row = preview.candidates.find(c => c.source_path === master)!
+    assert.equal(row.status, 'skipped', 'Boundful’s un-uploaded master must not be ready to move')
+    assert.equal(row.reason_code, 'not_uploaded')
+    assert.match(row.reason!, /boundful/, 'the reason must name the channel it was judged against')
+    assert.equal(preview.ready_count, 0)
+
+    const dest = path.join(tmp.dir, 'archive')
+    const result = await sweep.runArchiveSweep({ destination: dest, sourceRoot: src })
+    assert.equal(result.moved.length, 0)
+    assert.ok(existsSync(master), 'the un-uploaded master must still be exactly where it was')
+    assert.equal(existsSync(path.join(dest, OTHER, 'EP0042_final_video.mp4')), false,
+      'and nothing may land in the other channel’s archive folder')
+  })
+
+  test('the same code on the channel that DID upload it still moves, to its own folder', async () => {
+    // The fix must not be a blanket refusal: the proven side of the collision
+    // is still archivable, and only into its own channel's folder.
+    const src = path.join(tmp.dir, 'YouTube Exports')
+    await seedEpisode('EP0042', 'Published Here', true, OTHER)
+    await seedEpisode('EP0042', 'Not Published There', false, 'boundful')
+    const published = await seedExport(src, 'EP0042', 2048, OTHER)
+    const master = await seedExport(src, 'EP0042', 4096, 'boundful')
+
+    const dest = path.join(tmp.dir, 'archive')
+    const result = await sweep.runArchiveSweep({ destination: dest, sourceRoot: src })
+    assert.equal(result.moved.length, 1)
+    assert.equal(result.moved[0]!.slug, OTHER)
+    assert.equal(result.moved[0]!.from, published)
+    assert.equal(path.basename(path.dirname(result.moved[0]!.to)), OTHER)
+    assert.equal(existsSync(published), false)
+    assert.ok(existsSync(master), 'the other channel’s file is untouched')
+  })
+
+  test('a file whose channel cannot be worked out is refused, never guessed', async () => {
+    // No channel folder anywhere in its path. Before 1.4.10 the bare code was
+    // enough; now the absence of a channel is itself the answer.
+    const src = path.join(tmp.dir, 'loose')
+    await seedEpisode('TN0001', 'Uploaded One', true)
+    await fs.mkdir(src, { recursive: true })
+    const loose = path.join(src, 'TN0001_final_video.mp4')
+    await fs.writeFile(loose, Buffer.alloc(2048, 7))
+
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+    const row = preview.candidates[0]!
+    assert.equal(row.status, 'skipped')
+    assert.equal(row.reason_code, 'unknown_channel')
+
+    const result = await sweep.runArchiveSweep({ destination: path.join(tmp.dir, 'archive'), sourceRoot: src })
+    assert.equal(result.moved.length, 0)
+    assert.ok(existsSync(loose))
+  })
+
+  test('scanning one channel’s folder directly still identifies the channel', async () => {
+    // He may point the picker at `…/YouTube Exports/terranash` rather than its
+    // parent. That is the same evidence, stated one level up.
+    const src = path.join(tmp.dir, 'YouTube Exports')
+    await seedEpisode('TN0001', 'Uploaded One', true)
+    await seedExport(src, 'TN0001')
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: path.join(src, SLUG) })
+    assert.equal(preview.ready_count, 1)
+    assert.equal(preview.candidates[0]!.slug, SLUG)
   })
 })
 
@@ -172,7 +278,7 @@ describe('moving, without losing anything', () => {
     const src = path.join(tmp.dir, 'exports')
     const dest = path.join(tmp.dir, 'archive')
     await seedEpisode('TN0001', 'Uploaded One', true)
-    await seedExport(src, 'TN0001')
+    const source = await seedExport(src, 'TN0001')
     await fs.mkdir(path.join(dest, SLUG), { recursive: true })
     await fs.writeFile(path.join(dest, SLUG, 'TN0001_final_video.mp4'), 'something already here')
 
@@ -184,7 +290,7 @@ describe('moving, without losing anything', () => {
       'something already here',
       'an existing archived file must never be clobbered',
     )
-    assert.ok(existsSync(path.join(src, 'TN0001_final_video.mp4')), 'and the source stays put')
+    assert.ok(existsSync(source), 'and the source stays put')
   })
 
   test('a stop leaves every remaining file untouched', async () => {
@@ -205,7 +311,7 @@ describe('moving, without losing anything', () => {
     })
     assert.equal(result.cancelled, true)
     assert.equal(result.moved.length, 1)
-    const left = (await fs.readdir(src)).filter(f => f.endsWith('.mp4'))
+    const left = (await fs.readdir(path.join(src, SLUG))).filter(f => f.endsWith('.mp4'))
     assert.equal(left.length, 2, 'everything not yet moved must still be at the source')
   })
 
@@ -245,6 +351,79 @@ describe('the breadcrumb', () => {
   test('an episode that was never archived has no record', async () => {
     const epDir = await seedEpisode('TN0009', 'Untouched', true)
     assert.equal(await sweep.readArchiveRecord(epDir), null)
+  })
+
+  test('a breadcrumb never conjures an episode folder that is not there', async () => {
+    // `writeAtomic` does `mkdir(recursive)`. Aimed at an episode that does not
+    // exist it invents the folder — which, paired with the cross-channel bug
+    // above, meant fabricating an episode on the wrong channel as a side effect
+    // of archiving. A missing folder is a fault to report, not one to create.
+    const src = path.join(tmp.dir, 'YouTube Exports')
+    const epDir = await seedEpisode('TN0001', 'Uploaded One', true)
+    await seedExport(src, 'TN0001')
+
+    let pulled = false
+    const result = await sweep.runArchiveSweep({
+      destination: path.join(tmp.dir, 'archive'),
+      sourceRoot: src,
+      // Fires after the proof is read and before the copy — the one moment the
+      // episode folder can go missing underneath a sweep.
+      shouldStop: () => {
+        if (!pulled) { rmSync(epDir, { recursive: true, force: true }); pulled = true }
+        return false
+      },
+    })
+
+    assert.equal(result.moved.length, 1, 'the move itself still completes — the file is safely copied')
+    assert.equal(existsSync(epDir), false, 'the episode folder must NOT be recreated by the breadcrumb')
+    assert.match(result.warnings.join(' '), /TN0001/, 'and the fault is reported, not swallowed')
+  })
+})
+
+/**
+ * The bill he agreed to and the sweep that runs must be the same list.
+ *
+ * They used to be two separate computations: he approved a preview, and the run
+ * threw it away and recomputed. Everything between the two — a render
+ * finishing, an upload confirming — silently joined the move he had approved.
+ */
+describe('the run acts on the list he approved', () => {
+  test('a video that arrives after he reviewed the list is left alone', async () => {
+    const src = path.join(tmp.dir, 'YouTube Exports')
+    const dest = path.join(tmp.dir, 'archive')
+    await seedEpisode('TN0001', 'One', true)
+    await seedEpisode('TN0002', 'Two', true)
+    const reviewed = await seedExport(src, 'TN0001')
+
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+    const approved = preview.candidates.filter(c => c.status === 'ready').map(c => c.source_path)
+    assert.deepEqual(approved, [reviewed])
+
+    // …and only now does a second finished video land in the same folder.
+    const late = await seedExport(src, 'TN0002')
+
+    const result = await sweep.runArchiveSweep({ destination: dest, sourceRoot: src, approved })
+    assert.equal(result.moved.length, 1)
+    assert.equal(result.moved[0]!.from, reviewed)
+    assert.ok(existsSync(late), 'a video he never saw on the bill must not be moved')
+    assert.ok(
+      result.skipped.some(s => s.reason_code === 'not_reviewed' && s.source_path === late),
+      'and it is reported as unreviewed rather than passed over in silence',
+    )
+  })
+
+  test('approving something cannot loosen the upload rule', async () => {
+    const src = path.join(tmp.dir, 'YouTube Exports')
+    await seedEpisode('TN0002', 'Never Uploaded', false)
+    const kept = await seedExport(src, 'TN0002')
+
+    const result = await sweep.runArchiveSweep({
+      destination: path.join(tmp.dir, 'archive'),
+      sourceRoot: src,
+      approved: [kept],
+    })
+    assert.equal(result.moved.length, 0, 'the approved list narrows what may move; it never widens it')
+    assert.ok(existsSync(kept))
   })
 })
 

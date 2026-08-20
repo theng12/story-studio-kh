@@ -66,6 +66,22 @@ const EPISODE_CODE = /(?:^|[^A-Za-z0-9])([A-Za-z]{2,6}\d{3,5})(?![0-9])/
 /** Breadcrumb written into the episode folder when its video is archived. */
 export const ARCHIVE_SIDECAR = 'archived_video.json'
 
+/**
+ * Why a file is being left alone, in a form the UI can count.
+ *
+ * The prose `reason` is for reading; this is for grouping. Before 1.4.10 the
+ * confirm dialog described every skip as "not confirmed uploaded", which was
+ * wrong for the ~14 files in his `TerenceGaming` folder that have no episode
+ * code at all — and it had no way to be right, because only prose existed.
+ */
+export type ArchiveSkipReason =
+  | 'no_code'
+  | 'unknown_channel'
+  | 'ambiguous_channel'
+  | 'not_uploaded'
+  | 'not_reviewed'
+  | 'collision'
+
 export interface ArchivedRecord {
   /** Where the file was moved to. */
   archived_to: string
@@ -90,6 +106,8 @@ export interface ArchiveCandidate {
   /** `ready` will be moved; `skipped` will not, and says why. */
   status: 'ready' | 'skipped'
   reason?: string
+  /** The same fact as `reason`, in a form the UI can count by. */
+  reason_code?: ArchiveSkipReason
 }
 
 export interface ArchivePreview {
@@ -111,17 +129,64 @@ async function defaultSourceRoot(): Promise<string> {
 }
 
 /**
- * Every episode in the Library that can PROVE it was uploaded, keyed by code.
+ * The key an upload proof is filed under: the CHANNEL and the code together.
+ *
+ * v1.4.10. This used to be the bare code, and that was a data-loss bug. Seven
+ * of his eleven channels use the `EP` prefix, 302 codes exist in more than one
+ * channel, and `EP0001`–`EP0006` exist in seven each — so `EP0042` uploaded on
+ * `abiding-faith` authorised moving Boundful's un-uploaded `EP0042` master into
+ * abiding-faith's archive folder and deleting the original. The copy-verify-
+ * remove ordering was never the problem: the file was verified into the wrong
+ * place, correctly, and then removed.
+ *
+ * `storage-audit.ts` never had this bug because it is always handed a slug.
+ * This is the file that scans a folder and has to work the slug out, so this is
+ * the file that has to be careful.
+ */
+function provenKey(slug: string, code: string): string {
+  return `${slug.toLowerCase()}::${code.toUpperCase()}`
+}
+
+interface UploadedIndex {
+  /** `(slug, code)` → the proof. NEVER keyed by code alone. */
+  proven: Map<string, { slug: string; title: string; videoId: string }>
+  /**
+   * Folder name (lowercased) → the channel it identifies, or `null` when two
+   * channels answer to the same name and it therefore identifies nothing.
+   */
+  aliases: Map<string, string | null>
+}
+
+/**
+ * Every episode in the Library that can PROVE it was uploaded, keyed by
+ * `(channel, code)` — plus the folder names that identify each channel.
  *
  * Built once per sweep rather than per file: a 200-file scan against 450
  * episodes would otherwise re-read every sidecar hundreds of times.
  */
-async function buildUploadedIndex(): Promise<Map<string, { slug: string; title: string; videoId: string }>> {
-  const index = new Map<string, { slug: string; title: string; videoId: string }>()
+async function buildUploadedIndex(): Promise<UploadedIndex> {
+  const proven = new Map<string, { slug: string; title: string; videoId: string }>()
+  const aliases = new Map<string, string | null>()
   const projects = await pm.listProjects().catch(() => [])
+
+  const addAlias = (name: string, slug: string) => {
+    const key = (name || '').trim().toLowerCase()
+    if (!key) return
+    const seen = aliases.get(key)
+    // Two channels answering to one folder name means that name proves
+    // nothing. Poisoning the entry is deliberate: a wrong bind is the bug we
+    // are fixing, and a refusal is the safe answer.
+    if (seen === undefined) aliases.set(key, slug)
+    else if (seen !== slug) aliases.set(key, null)
+  }
+
   for (const project of projects) {
     const slug = (project as any).slug
     if (!slug) continue
+    addAlias(slug, slug)
+    // His export tree is `{root}/{slug}/…`, but a hand-sorted pile may use the
+    // channel's display name instead, so both identify the channel.
+    addAlias((project as any).name || '', slug)
     const ideas = await im.getIdeas(slug, 'accepted').catch(() => [])
     for (const idea of ideas) {
       const code = (idea.episode_code || '').toUpperCase()
@@ -129,16 +194,51 @@ async function buildUploadedIndex(): Promise<Map<string, { slug: string; title: 
       try {
         const sc = await readSidecar(slug, code, idea.title || '', 'youtube')
         if (sc?.video_id) {
-          index.set(code, { slug, title: idea.title || '', videoId: sc.video_id })
+          proven.set(provenKey(slug, code), { slug, title: idea.title || '', videoId: sc.video_id })
         }
       } catch { /* unreadable sidecar → not proven, leave out */ }
     }
   }
-  return index
+  return { proven, aliases }
 }
 
 function codeFrom(filename: string, dir: string): string {
   return (filename.match(EPISODE_CODE)?.[1] || dir.match(EPISODE_CODE)?.[1] || '').toUpperCase()
+}
+
+/**
+ * Which channel does this file physically belong to?
+ *
+ * Answered from where the file SITS, never from what it is called. A file under
+ * `…/YouTube Exports/boundful/Season 003/EP0042 - …/` belongs to Boundful, and
+ * may only ever be proven against Boundful's sidecar.
+ *
+ * The folder the user pointed the scan at counts as the outermost segment —
+ * picking `…/YouTube Exports/boundful` is the same evidence as scanning its
+ * parent, just stated one level up.
+ *
+ * There is NO fallback to a code-only match. A video whose channel cannot be
+ * established is precisely the video that must not move.
+ */
+function channelFrom(
+  fileDir: string,
+  sourceRoot: string,
+  aliases: Map<string, string | null>,
+): { slug: string | null; ambiguous: boolean } {
+  const rel = path.relative(sourceRoot, fileDir)
+  const segments = [path.basename(sourceRoot)]
+  if (rel && rel !== '.') segments.push(...rel.split(path.sep))
+
+  const matched = new Set<string>()
+  let sawPoisoned = false
+  for (const segment of segments) {
+    if (!aliases.has(segment.toLowerCase())) continue
+    const slug = aliases.get(segment.toLowerCase())
+    if (slug === null) { sawPoisoned = true; continue }
+    matched.add(slug!)
+  }
+  if (matched.size === 1) return { slug: [...matched][0]!, ambiguous: false }
+  return { slug: null, ambiguous: matched.size > 1 || sawPoisoned }
 }
 
 /**
@@ -180,12 +280,34 @@ export async function previewArchiveSweep(
         status: 'skipped',
       }
       if (!code) {
-        candidates.push({ ...base, reason: 'no episode code in the filename, so it cannot be matched to an episode' })
+        candidates.push({
+          ...base,
+          reason_code: 'no_code',
+          reason: 'no episode code in the filename, so it cannot be matched to an episode',
+        })
         continue
       }
-      const hit = uploaded.get(code)
+      // Channel FIRST, proof second. The code alone says nothing about which
+      // channel's episode this is — seven of his channels use the `EP` prefix.
+      const channel = channelFrom(dir, sourceRoot, uploaded.aliases)
+      if (!channel.slug) {
+        candidates.push({
+          ...base,
+          reason_code: channel.ambiguous ? 'ambiguous_channel' : 'unknown_channel',
+          reason: channel.ambiguous
+            ? `more than one channel could own this folder, so ${code} cannot be tied to one`
+            : `nothing in this file's path names a channel, so ${code} cannot be tied to one`,
+        })
+        continue
+      }
+      const hit = uploaded.proven.get(provenKey(channel.slug, code))
       if (!hit) {
-        candidates.push({ ...base, reason: `${code} is not confirmed uploaded to YouTube` })
+        candidates.push({
+          ...base,
+          slug: channel.slug,
+          reason_code: 'not_uploaded',
+          reason: `${code} is not confirmed uploaded to YouTube on ${channel.slug}`,
+        })
         continue
       }
       candidates.push({
@@ -246,16 +368,33 @@ export interface ArchiveRunResult {
   moved: ArchiveMoved[]
   bytes_moved: number
   /** Files deliberately not touched, with the reason. */
-  skipped: Array<{ source_path: string; code: string; reason: string }>
+  skipped: Array<{ source_path: string; code: string; reason: string; reason_code?: ArchiveSkipReason }>
   /** Files that failed. The SOURCE of each is still intact. */
   failed: Array<{ source_path: string; code: string; error: string }>
   /** True when a stop was requested and honoured between files. */
   cancelled: boolean
+  /**
+   * Things that should not have happened and were refused rather than papered
+   * over. Empty on a healthy run.
+   */
+  warnings: string[]
 }
 
 export interface ArchiveRunOptions {
   destination: string
   sourceRoot?: string
+  /**
+   * The exact files the user approved, by source path — the reviewed set.
+   *
+   * v1.4.10. The run recomputes the preview so the upload proof is read fresh
+   * and can only ever get STRICTER, then moves the intersection. Anything that
+   * has appeared in the folder since he read the bill is left alone: he agreed
+   * to move a named list, not to move whatever is there when he presses go.
+   *
+   * Omit it only for programmatic use with no review step; the UI always sends
+   * it and the route requires it.
+   */
+  approved?: string[]
   /** Checked between files. A stop never interrupts a copy midway. */
   shouldStop?: () => boolean
   /** Called after each file so a long sweep can report progress. */
@@ -278,16 +417,41 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
   await fs.mkdir(destination, { recursive: true })
 
   const preview = await previewArchiveSweep({ sourceRoot: opts.sourceRoot })
-  const ready = preview.candidates.filter(c => c.status === 'ready')
   const result: ArchiveRunResult = {
     destination,
     moved: [],
     bytes_moved: 0,
     skipped: preview.candidates
       .filter(c => c.status === 'skipped')
-      .map(c => ({ source_path: c.source_path, code: c.code, reason: c.reason || 'skipped' })),
+      .map(c => ({
+        source_path: c.source_path, code: c.code,
+        reason: c.reason || 'skipped', reason_code: c.reason_code,
+      })),
     failed: [],
     cancelled: false,
+    warnings: [],
+  }
+
+  // Act on the reviewed set. The fresh preview decides what MAY move; his
+  // approval decides what WILL. A file that qualifies but he never saw is
+  // reported, not moved.
+  const approved = opts.approved
+    ? new Set(opts.approved.map(p => path.resolve(String(p))))
+    : null
+  const qualified = preview.candidates.filter(c => c.status === 'ready')
+  const ready = approved
+    ? qualified.filter(c => approved.has(path.resolve(c.source_path)))
+    : qualified
+  if (approved) {
+    for (const c of qualified) {
+      if (approved.has(path.resolve(c.source_path))) continue
+      result.skipped.push({
+        source_path: c.source_path,
+        code: c.code,
+        reason: 'this appeared after you reviewed the list, so it was left alone',
+        reason_code: 'not_reviewed',
+      })
+    }
   }
 
   let done = 0
@@ -309,6 +473,7 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
           source_path: candidate.source_path,
           code: candidate.code,
           reason: `a file named ${candidate.filename} is already in the archive folder`,
+          reason_code: 'collision',
         })
         continue
       }
@@ -334,7 +499,8 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
       // Breadcrumb first, removal second. If the process dies between them the
       // worst case is a record pointing at a file that also still exists — an
       // over-report, not a lost video.
-      await writeArchiveBreadcrumb(candidate, target, sourceHash)
+      const breadcrumbWarning = await writeArchiveBreadcrumb(candidate, target, sourceHash)
+      if (breadcrumbWarning) result.warnings.push(breadcrumbWarning)
       await fs.rm(candidate.source_path, { force: true })
 
       result.moved.push({
@@ -371,14 +537,27 @@ export async function runArchiveSweep(opts: ArchiveRunOptions): Promise<ArchiveR
  * sweep would manufacture the false alarm we had just built the reporting to
  * catch. "Archived to X" and "missing" are different facts and must never be
  * spelled the same way.
+ *
+ * It writes into an episode folder that ALREADY EXISTS, and never makes one.
+ * `writeAtomic` does `mkdir(recursive)`, so before 1.4.10 a breadcrumb aimed at
+ * an episode that is not there would conjure the folder — which, with the
+ * cross-channel bug above it, meant inventing an episode on the wrong channel
+ * as a side effect of archiving. Missing means something is wrong upstream;
+ * that is worth saying out loud, not worth papering over with a new directory.
+ *
+ * Returns a warning to surface, or null when all was well.
  */
 async function writeArchiveBreadcrumb(
   candidate: ArchiveCandidate,
   target: string,
   sha256: string,
-): Promise<void> {
+): Promise<string | null> {
   try {
     const paths = await resolveEpisodePaths(candidate.slug!, candidate.code, candidate.title || '')
+    if (!existsSync(paths.episode_dir)) {
+      return `${candidate.code}: archived to ${target}, but its episode folder on ${candidate.slug} `
+        + 'is not there, so no record was written into it.'
+    }
     const record: ArchivedRecord = {
       archived_to: target,
       archived_at: new Date().toISOString(),
@@ -388,10 +567,13 @@ async function writeArchiveBreadcrumb(
       original_path: candidate.source_path,
     }
     await writeAtomic(path.join(paths.episode_dir, ARCHIVE_SIDECAR), JSON.stringify(record, null, 2))
-  } catch {
+    return null
+  } catch (e: any) {
     // A breadcrumb that cannot be written must not stop the move: the file is
     // already safely copied and verified. The cost is a less informative UI,
     // not a lost video.
+    return `${candidate.code}: archived to ${target}, but its record could not be written `
+      + `(${e?.message || String(e)}).`
   }
 }
 
