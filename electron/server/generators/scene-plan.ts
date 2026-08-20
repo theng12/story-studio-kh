@@ -70,6 +70,7 @@ import {
 import { assignSceneMotionProfile, motionModeLevel } from '../services/scene-motion-profile.js'
 import { DEFAULT_SCENE_PACING } from '../contracts/pacing.js'
 import type { Job, SceneCreativeDirection, SceneCreativeStrategy, SceneMotionProfile, ScenePlan } from '../models/types.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 /**
  * v1.0.364 — resolve the effective plan-time style. The channel "Look" is the
@@ -872,15 +873,15 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         storyStartSec = story?.story_start_sec || 0
       }
     } catch { /* story context falls back to later transcript */ }
-    const storyContext = allCues
+    const storyContextRaw = allCues
       .filter(c => c.start_sec >= storyStartSec - 0.01)
       .slice(0, 14)
       .map(c => c.text)
       .join(' ')
-      .slice(0, 3500)
+    const storyContext = truncateChars(storyContextRaw, 3500)
     let researchContext = ''
     if (!isMotion && useResearch && existsSync(researchPath)) {
-      researchContext = (await fs.readFile(researchPath, 'utf-8').catch(() => '')).trim().slice(0, 6000)
+      researchContext = truncateChars((await fs.readFile(researchPath, 'utf-8').catch(() => '')).trim(), 6000)
     }
 
     if (!isMotion) job.output_lines.push(`Visual pack output budget: ${visualMaxTokens.toLocaleString()} tokens`)

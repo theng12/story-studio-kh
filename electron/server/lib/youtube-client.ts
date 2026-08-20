@@ -28,6 +28,7 @@ import {
   deleteResumeSidecar,
   sessionUrlHash,
 } from '../services/upload-resume-sidecar.js'
+import { truncateChars } from './well-formed-text.js'
 
 /**
  * Wrapper around `recordQuotaUsage` that logs at warn level on failure
@@ -808,8 +809,8 @@ export async function createPlaylist(opts: {
   await checkQuota(opts.slug, 'playlists_insert')
   const body = {
     snippet: {
-      title: opts.title.slice(0, 150),          // YouTube playlist title cap
-      description: (opts.description || '').slice(0, 5000),
+      title: truncateChars(opts.title, 150),          // YouTube playlist title cap
+      description: truncateChars(opts.description || '', 5000),
     },
     status: { privacyStatus: opts.privacyStatus || 'private' },
   }

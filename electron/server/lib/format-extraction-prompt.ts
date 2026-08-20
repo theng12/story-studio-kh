@@ -12,6 +12,8 @@
  * exactly what a good output looks like.
  */
 
+import { truncateChars } from './well-formed-text.js'
+
 const FORMAT_SHAPE_EXAMPLE = `{
   "id": "kebab-case-slug",
   "name": "Human Readable Name",
@@ -106,7 +108,7 @@ export interface ExtractFormatOptions {
 
 export function buildFormatExtractionPrompt(opts: ExtractFormatOptions): string {
   const samples = opts.samples
-    .map((s, i) => `=== SAMPLE ${i + 1} ===\n${s.slice(0, 12000)}\n`)
+    .map((s, i) => `=== SAMPLE ${i + 1} ===\n${truncateChars(s, 12000)}\n`)
     .join('\n')
 
   const intentLine = opts.channelIntent

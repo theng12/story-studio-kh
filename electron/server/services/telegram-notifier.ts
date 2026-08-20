@@ -13,6 +13,7 @@
  */
 
 import type { NotificationPayload } from './job-notifier.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 export interface TelegramSendResult {
   ok: boolean
@@ -45,7 +46,7 @@ export async function sendTelegramMessage(
 
   const body: Record<string, unknown> = {
     chat_id: chat,
-    text: text.slice(0, 4096),
+    text: truncateChars(text, 4096),
     disable_web_page_preview: true,
   }
   if (opts.parseMode && opts.parseMode !== 'none') body.parse_mode = opts.parseMode

@@ -23,6 +23,7 @@
  */
 
 import { isSensitiveFieldName, redactSecrets, redactSensitiveValue } from './redact-secrets.js'
+import { truncateChars } from './well-formed-text.js'
 
 /**
  * Characters kept per message/prompt before the truncation marker.
@@ -128,7 +129,7 @@ function scrubAndClamp(value: string, limit: number): { text: string; length: nu
   const length = safe.length
   if (length <= limit) return { text: safe, length, truncated: false }
   const marker = `\n… [truncated — showing ${limit.toLocaleString()} of ${length.toLocaleString()} characters]`
-  return { text: `${safe.slice(0, limit)}${marker}`, length, truncated: true }
+  return { text: `${truncateChars(safe, limit)}${marker}`, length, truncated: true }
 }
 
 function stringifyFieldValue(value: unknown): string {

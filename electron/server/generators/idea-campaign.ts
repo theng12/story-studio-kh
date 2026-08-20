@@ -19,6 +19,7 @@ import { requireJobCompletion } from '../services/job-completion.js'
 import { ideaOutputTokenBudget } from '../services/idea-output-budget.js'
 import { ideaCampaignOutputContract } from '../lib/story-output-contracts.js'
 import { applyFormulaEpisodeProfileTitle } from '../services/formula-production-kit.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 interface IdeaCampaignParams extends GenerateIdeasRequest {
   campaign_id: string
@@ -98,7 +99,7 @@ EXAMPLE BAR:
 ${examples(format) || '- Use the Series Formula faithfully.'}
 
 ${refinements ? `USER REFINEMENTS:\n${refinements}\n` : ''}
-${options.standards ? `OPTIONAL PROJECT INSTRUCTIONS — never override the Series Formula:\n${options.standards.slice(0, 1800)}\n` : ''}
+${options.standards ? `OPTIONAL PROJECT INSTRUCTIONS — never override the Series Formula:\n${truncateChars(options.standards, 1800)}\n` : ''}
 ${avoidBlock ? `ALREADY USED — do not repeat, rephrase, sequel, or lightly remix:\n${avoidBlock}\n` : ''}
 
 OUTPUT CONTRACT:

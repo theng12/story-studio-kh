@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.9 — 2026-08-20
+
+- **The "flaky DeepSeek" failures were never DeepSeek.** Metadata and other generations have been dying intermittently for days with a message about a character that "can't be encoded" — and because retrying with a different model usually worked, it looked like one provider being unreliable. It was not. The bug was in Story Studio, it could hit any model, and switching models only changed the odds. Nothing was wrong with DeepSeek V4 Flash; there is no reason to keep avoiding it.
+- **What was actually happening.** Before sending your story to a model, Story Studio trims it to fit — the first 1,500 characters of the narration, the first 500 of the description, and so on. Emoji are stored internally as two joined pieces, and the trim was counting pieces rather than characters. Whenever the cut-off point landed in the middle of an emoji, it kept half of one — and half an emoji is not valid text, so GenStudio refused the request before generating anything. That refusal was correct. The broken text was ours.
+- **That is also why it came and went.** Every regeneration produces slightly different wording, so the emoji lands in a different spot and the cut misses it. Same episode, same model, works on the third try — which is exactly what made it look like a provider having a bad day.
+- **Trimming now stops before an emoji instead of through it.** If a cut would land inside one, the whole emoji is dropped and the text stays valid. This was fixed everywhere text is trimmed on its way out, not only in metadata: story context for scene plans and image prompts, your Series Formula instructions, continuity directives and style bibles, on-screen cue labels, subtitle previews, and YouTube titles, descriptions and tags.
+- **And a second guard behind it.** Models occasionally produce a broken half-character on their own, which no trimming rule can prevent. Every request Story Studio sends to GenStudio is now checked and repaired on the way out, so an invalid character can no longer reach it. The same check runs on what gets sent to YouTube.
+- Nothing you have already generated is affected, and no request that previously worked behaves differently. The only change is at the trim point, and only when an emoji sits on it.
+
+---
+
 ## v1.4.8 — 2026-08-19
 
 - **"Got it" on the two upgrade notes now means forever.** The notes about custom folder labels and about finished videos moving into your Library came straight back every time the app started, no matter how often you closed them. Dismissing one wrote nothing down: at every launch the app rebuilt both notes by re-checking the same things that were true when it first wrote them, and those things are still true — so the notes reappeared seconds after you got rid of them. Story Studio now remembers that you have read a note, and a note you have closed is never shown again. Not after a restart, not after a hundred, and not if you go back to an older version and come forward again.

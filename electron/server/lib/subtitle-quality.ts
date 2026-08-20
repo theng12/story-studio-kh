@@ -40,6 +40,7 @@
  */
 
 import { parseSrt } from './subtitle-builder.js'
+import { truncateChars } from './well-formed-text.js'
 
 export type SubtitleQualityRuleId =
   | 'non_latin_script'
@@ -202,7 +203,7 @@ export const SUBTITLE_QUALITY_RULES: SubtitleQualityRule[] = [
 
 function excerpt(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > MAX_EXCERPT ? `${flat.slice(0, MAX_EXCERPT - 1)}…` : flat
+  return flat.length > MAX_EXCERPT ? `${truncateChars(flat, MAX_EXCERPT - 1)}…` : flat
 }
 
 /**

@@ -27,6 +27,7 @@ import {
   finalizeYouTubeDescription,
   inspectYouTubeFinalizationStatus,
 } from '../services/youtube-metadata-finalizer.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 export const router = Router()
 
@@ -1126,7 +1127,7 @@ router.post('/projects/:slug/generate/metadata/tags', async (req, res) => {
   const prompt = `Generate ${count || 15} YouTube tags ${format.metadata.tagsContext}.
 
 Episode: ${episode_id} — ${title}
-${description ? `\nDescription excerpt:\n${description.slice(0, 500)}\n` : ''}
+${description ? `\nDescription excerpt:\n${truncateChars(description, 500)}\n` : ''}
 Story context:
 ${storyContext}
 
@@ -1237,7 +1238,7 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
       const titlePrompt = `Generate ${title_count || 5} SEO-optimized video title options ${format.metadata.purposeNote}.
 Episode: ${episode_id} — ${title}
 Story context:
-${storyContext.slice(0, 1500)}
+${truncateChars(storyContext, 1500)}
 ${topBlock}
 Requirements:
 - ${platformNote}
@@ -1254,7 +1255,7 @@ Requirements:
     const tagPrompt = `Generate ${tag_count || 15} YouTube tags ${format.metadata.tagsContext}.
 Episode: ${episode_id} — ${title}
 Description excerpt:
-${description.slice(0, 500)}
+${truncateChars(description, 500)}
 
 Requirements:
 - 1-4 words per tag, no "#" prefix.

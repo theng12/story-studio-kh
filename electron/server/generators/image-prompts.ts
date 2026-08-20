@@ -32,6 +32,7 @@ import {
   describeOverCapPrompts,
   parsePromptCharCap,
 } from '../services/prompt-char-cap.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 interface ThumbnailPromptsParams {
   episode_id: string
@@ -116,7 +117,7 @@ async function readStoryContext(
   try {
     const paths = await resolveEpisodePaths(slug, episodeId, title || '')
     const raw = await readArtifactRawText(paths.narration_docx)
-    return raw.slice(0, 3000)
+    return truncateChars(raw, 3000)
   } catch {
     return `Episode: ${episodeId}, Title: ${title || 'Unknown'}`
   }

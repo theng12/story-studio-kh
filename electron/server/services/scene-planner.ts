@@ -40,6 +40,7 @@ import type {
   ScenePlanRunOptions,
   SceneType,
 } from '../models/types.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 const MIN_SCENE_SEC = 3
 const MAX_SCENE_SEC = 12
@@ -333,7 +334,7 @@ ${schemaBlock}`
     userParts.push('\nFull narration text (for tone / context — the SRT below is the timestamps source of truth):')
     // Cap to avoid huge prompt for long episodes — first 6k chars is
     // enough for tone/voice; the SRT carries the timestamps.
-    userParts.push(opts.narration_text.slice(0, 6000))
+    userParts.push(truncateChars(opts.narration_text, 6000))
   }
 
   // Rolling continuity recap so visual choices stay consistent across the
@@ -812,7 +813,7 @@ function subdivideWindow(
       scene_index: 0,
       start_sec: chunkStart,
       end_sec: end,
-      transcript_segment: chunkCues.map(c => c.text).join(' ').slice(0, 2000),
+      transcript_segment: truncateChars(chunkCues.map(c => c.text).join(' '), 2000),
       visual_prompt: '',
       boundary_reason: 'auto-split (planner failed here — re-plan this scene or write a prompt)',
       approved: false,

@@ -25,6 +25,7 @@
  *   {date_long}     — today's date (e.g. "May 15, 2026", no LLM needed)
  */
 import type { MetadataTemplate } from '../models/types.js'
+import { truncateChars } from './well-formed-text.js'
 
 /** Returns every `{token}` found across the template fields, deduped. */
 export function extractPlaceholders(tpl: MetadataTemplate): string[] {
@@ -91,7 +92,7 @@ Episode code: ${opts.episodeCode}
 Episode title: ${opts.title}
 
 Story context (first 2k chars):
-${opts.storyContext.slice(0, 2000)}
+${truncateChars(opts.storyContext, 2000)}
 
 Return a JSON object with exactly these keys. Each value is a short string fitting the slot description:
 

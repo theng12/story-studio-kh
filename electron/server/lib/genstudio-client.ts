@@ -20,6 +20,11 @@ import {
 } from './genstudio-admission.js'
 import { chunkText } from './text-chunker.js'
 import { isNeverCreatedProviderTask } from './provider-task-state.js'
+// Every outbound JSON body is serialised through `wellFormedJson`, never
+// through bare `JSON.stringify`. GenStudio is a UTF-8 service and correctly
+// refuses a lone surrogate; this is the single boundary that guarantees it
+// never receives one. See lib/well-formed-text.ts.
+import { wellFormedJson } from './well-formed-text.js'
 import {
   hasTtsControlValues,
   orderedTtsControlValues,
@@ -3554,7 +3559,7 @@ export async function addGenStudioVoiceLibraryVoice(
   const response = await fetch(`${apiBase(baseUrl)}${voiceLibraryPath(library)}/add`, {
     method: 'POST',
     headers: { ...authorization(apiKey), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ public_voice_id: id }),
+    body: wellFormedJson({ public_voice_id: id }),
     signal: AbortSignal.timeout(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS),
   })
   const payload: any = await readJson(response)
@@ -3610,7 +3615,7 @@ export async function requestGenStudioTtsQuote(
   const response = await fetch(`${apiBase(baseUrl)}/v1/tts/quotes`, {
     method: 'POST',
     headers: { ...authorization(apiKey), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: wellFormedJson(body),
     signal: AbortSignal.timeout(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS),
   })
   const payload: any = await readJson(response)
@@ -4092,7 +4097,7 @@ async function generateVideoWithGenStudioAdmitted(
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
-      body: JSON.stringify({
+      body: wellFormedJson({
         prompt,
         model_id: modelId,
         mode: request.operation,
@@ -5157,7 +5162,7 @@ async function callChatViaResponses(
           // reused verbatim by every network retry of this submission.
           'Idempotency-Key': prepared.idempotencyKey,
         },
-        body: JSON.stringify({
+        body: wellFormedJson({
           // `ChatResponseRequest` field names — NOT the OpenAI-compatible ones.
           model_id: prepared.modelId,
           input: prepared.messages,
@@ -5243,7 +5248,7 @@ async function callChatViaCompletions(
         'Content-Type': 'application/json',
         'Idempotency-Key': prepared.idempotencyKey,
       },
-      body: JSON.stringify({
+      body: wellFormedJson({
         model: prepared.modelId,
         messages: prepared.messages,
         response_format: prepared.responseFormat,
@@ -5757,7 +5762,7 @@ async function generateImageWithGenStudioAdmitted(
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
-      body: JSON.stringify(body),
+      body: wellFormedJson(body),
     },
     request,
     deadline,
@@ -6262,7 +6267,7 @@ async function generateTtsToFileAdmitted(
         'Content-Type': 'application/json',
         'Idempotency-Key': idempotencyKey,
       },
-      body: JSON.stringify(submission.body),
+      body: wellFormedJson(submission.body),
     },
     request,
     deadline,

@@ -28,6 +28,7 @@ import {
   previewReseason, applyReseason, revertReseason,
   readReseasonUndo, deleteReseasonUndo, isReseasonUndoExpired,
 } from '../services/upload-reseason.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 export const router = Router()
 
@@ -143,7 +144,7 @@ export function buildCreativeParameters(
     : []
   const lenses = Array.isArray(req.creative_lenses)
     ? [...new Set(req.creative_lenses
-      .map(value => clean(value, '').slice(0, 120))
+      .map(value => truncateChars(clean(value, ''), 120))
       .filter(Boolean))].slice(0, 8)
     : []
 
@@ -170,7 +171,7 @@ function buildPrompt(
   topPerformersBlock: string = '',
 ): string {
   const standardsSection = standards
-    ? `\nOptional project instructions (use only when consistent with the active Series Formula):\n\n${standards.slice(0, 2000)}\n`
+    ? `\nOptional project instructions (use only when consistent with the active Series Formula):\n\n${truncateChars(standards, 2000)}\n`
     : ''
 
   const seed = Math.random().toString(36).slice(2, 10)

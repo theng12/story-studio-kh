@@ -24,6 +24,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import { listVideoModels as listGenStudioVideoModels } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { videoPromptsOutputContract } from '../lib/story-output-contracts.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 export const router = Router()
 
@@ -116,7 +117,7 @@ router.post('/projects/:slug/generate/video-prompts', async (req, res) => {
   let storyContext = ''
   try {
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
-    storyContext = (await readArtifactRawText(paths.narration_docx)).slice(0, 3000)
+    storyContext = truncateChars(await readArtifactRawText(paths.narration_docx), 3000)
   } catch {
     storyContext = `Episode: ${episode_id}, Title: ${title || 'Unknown'}`
   }

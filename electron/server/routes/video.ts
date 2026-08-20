@@ -56,6 +56,7 @@ import {
   inspectAudioAssemblyReadiness,
   requireAudioAssemblyReady,
 } from '../services/audio-workflow-readiness.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 export const router = Router()
 
@@ -1304,7 +1305,7 @@ router.get('/projects/:slug/video-editor/subtitles/content/:episodeId/:filename'
       truncated: allCues.length > MAX_CUES,
       total_duration_sec: totalDuration,
       cues,
-      raw: isAss ? raw.slice(0, 20000) : undefined,
+      raw: isAss ? truncateChars(raw, 20000) : undefined,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Could not read subtitle file'))
@@ -1462,7 +1463,7 @@ router.post('/projects/:slug/video-editor/preview-subtitles', async (req, res) =
       ? parseSubtitleStyleDocument(body.style)
       : normalizeSubtitleStyle(body.style)
     const sampleText = typeof body.text === 'string' && body.text.trim()
-      ? String(body.text).slice(0, 400)
+      ? truncateChars(String(body.text), 400)
       : SUBTITLE_PREVIEW_SAMPLE
     const backdrop = await subtitlePreviewBackdrop(slug, typeof body.episode === 'string' ? body.episode : undefined)
     const token = await renderSubtitlePreview(style, sampleText, backdrop)

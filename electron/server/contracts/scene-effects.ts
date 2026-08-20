@@ -49,6 +49,8 @@
  * next door, and the preview endpoint.
  */
 
+import { truncateChars } from '../lib/well-formed-text.js'
+
 export const SCENE_EFFECT_SCHEMA_VERSION = 1 as const
 
 /** Reference frame every `_px` field is expressed against. */
@@ -514,7 +516,7 @@ function nullableHex(value: unknown, fallback: string | null): string | null {
 }
 
 function text(value: unknown, max: number, fallback: string): string {
-  return typeof value === 'string' ? value.slice(0, max) : fallback
+  return typeof value === 'string' ? truncateChars(value, max) : fallback
 }
 
 /**

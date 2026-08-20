@@ -16,6 +16,7 @@
 
 import { getAppSetting, setAppSetting } from './app-settings.js'
 import type { Job } from '../models/types.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 /** Telegram bot channel (v1.0.60+). Independent of the desktop channel
  *  — a user in Cambodia can mute desktop pop-ups but still get Telegram
@@ -228,7 +229,7 @@ export function formatFailureMessage(job: Job, projectLabel?: string): Notificat
   const err = (job.error || '').trim()
   return {
     title: suffixProject(`Failed: ${labelForJobType(job.type)}`, projectLabel),
-    body: `${ep}${err ? err.slice(0, 160) : 'Job failed.'}`,
+    body: `${ep}${err ? truncateChars(err, 160) : 'Job failed.'}`,
   }
 }
 

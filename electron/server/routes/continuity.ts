@@ -25,6 +25,7 @@ import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { DEFAULT_SCENE_PACING } from '../contracts/pacing.js'
 import type { ContinuityConfig, VisualRecipe, JobType, ScenePlan, ProjectMeta } from '../models/types.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 export const router = Router()
 
@@ -79,10 +80,10 @@ function sanitizeRecipe(raw: any): VisualRecipe {
   return {
     enabled: r.enabled === true,
     mode: r.mode === 'scene' ? 'scene' : 'guide',
-    directive: typeof r.directive === 'string' ? r.directive.trim().slice(0, 2000) : '',
+    directive: typeof r.directive === 'string' ? truncateChars(r.directive.trim(), 2000) : '',
     guide_character_id: typeof r.guide_character_id === 'string' ? r.guide_character_id.trim().slice(0, 200) : '',
     emotion_mode: r.emotion_mode === 'fixed' ? 'fixed' : 'auto',
-    fixed_emotion: typeof r.fixed_emotion === 'string' ? r.fixed_emotion.trim().slice(0, 120) : '',
+    fixed_emotion: typeof r.fixed_emotion === 'string' ? truncateChars(r.fixed_emotion.trim(), 120) : '',
   }
 }
 
@@ -163,8 +164,8 @@ export function buildContinuityConfig(
     denoise_strength: Number.isFinite(denoise) ? denoise : 0.5,
     // v1.0.243 — render-time Style Bible + negative prompt. Trimmed; capped so
     // a malformed client can't write an unbounded blob into the prompt.
-    style_bible: typeof b.style_bible === 'string' ? b.style_bible.trim().slice(0, 2000) : '',
-    negative_prompt: typeof b.negative_prompt === 'string' ? b.negative_prompt.trim().slice(0, 1000) : '',
+    style_bible: typeof b.style_bible === 'string' ? truncateChars(b.style_bible.trim(), 2000) : '',
+    negative_prompt: typeof b.negative_prompt === 'string' ? truncateChars(b.negative_prompt.trim(), 1000) : '',
     // v1.0.260 — explainer composition recipe (drives the Prompt Director).
     recipe: sanitizeRecipe(b.recipe),
     updated_at: new Date().toISOString(),

@@ -36,6 +36,7 @@ import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.j
 import { GenStudioChatTerminalFailureError, genStudioAdmissionSnapshot, listChatModels } from '../lib/genstudio-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 interface CueCandidate {
   scene_id: string
@@ -85,8 +86,8 @@ function safeCandidate(
 ): ContextualCue | null {
   const scene = plan.scenes.find(row => row.id === candidate.scene_id)
   if (!scene) return null
-  const title = candidate.title.trim().replace(/\s+/g, ' ').slice(0, 80)
-  const subtitle = candidate.subtitle?.trim().replace(/\s+/g, ' ').slice(0, 100) || undefined
+  const title = truncateChars(candidate.title.trim().replace(/\s+/g, ' '), 80)
+  const subtitle = truncateChars(candidate.subtitle?.trim().replace(/\s+/g, ' ') || '', 100) || undefined
   if (!title) return null
   const sceneDuration = scene.end_sec - scene.start_sec
   if (sceneDuration < CUE_MIN_DURATION_SEC) return null
@@ -220,7 +221,7 @@ export async function generateContextualCues(job: Job): Promise<void> {
         const raw = await callAi(
           model,
           'You are a restrained documentary editor. Return strict JSON only: {"cues":[{"scene_id":"exact input id","title":"short label","subtitle":"optional second line","kind":"location_date|historical_context|person|chapter","template":"documentary-label|map-pin|archival-caption|chapter-plate","anchor_offset_sec":0.2}]}. Propose only genuinely useful on-screen context: location/date, historical event or era, important institution/person, or a short explanatory label. Use map-pin only for a real place, archival-caption for historic people/documents/eras, chapter-plate only for a major new chapter, and documentary-label otherwise. Do not repeat narration, do not label every scene, never use more than one cue per scene, and prefer no cue when uncertain.',
-          `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: scene.transcript_segment.slice(0, 420) })) )}`,
+          `PACING: ${settings.density}. Cues are small corner labels, shown for 2.25–4.5 seconds and reviewed by an editor. Return only candidates that add real orientation.\n\nSCENES:\n${JSON.stringify(scenes.map(scene => ({ scene_id: scene.id, start_sec: scene.start_sec, end_sec: scene.end_sec, narration: truncateChars(scene.transcript_segment, 420) })) )}`,
           {}, false,
           { slug: job.project_slug, jobId: job.job_id, requestIdentity: `${job.project_slug}:${episodeId}:contextual-cues:${fingerprint}:batch-${index}:scope-${progress.retry_scopes?.[String(index)] || 'initial'}`, outputBudget: 'standard', outputContract: CONTEXTUAL_CUES_OUTPUT_CONTRACT, disableReasoning: true, temperature: 0.2 },
         )

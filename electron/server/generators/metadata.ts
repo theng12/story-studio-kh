@@ -37,6 +37,7 @@ import {
   finalizeYouTubeDescription,
   inspectYouTubeFinalizationStatus,
 } from '../services/youtube-metadata-finalizer.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 interface MetadataParams {
   episode_id: string
@@ -113,7 +114,7 @@ async function readStoryContext(slug: string, episode_id: string, title: string,
   try {
     const paths = await resolveEpisodePaths(slug, episode_id, title || '')
     const raw = await readArtifactRawText(paths.narration_docx)
-    return raw.slice(0, maxChars)
+    return truncateChars(raw, maxChars)
   } catch {
     return `Episode: ${episode_id}, Title: ${title}`
   }
@@ -261,7 +262,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       }
       const values = { ...deterministicValues(episode_id), ...llmValues }
       templateOutput = renderTemplate(tpl, values)
-      job.output_lines.push(`  → title: "${templateOutput.title.slice(0, 80)}"`)
+      job.output_lines.push(`  → title: "${truncateChars(templateOutput.title, 80)}"`)
       job.output_lines.push(`  → ${templateOutput.tags.length} tag(s); description ${templateOutput.description.length} chars`)
     }
 
@@ -360,7 +361,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       const titlePrompt = `Generate ${title_count} SEO-optimized video title options ${titlePurpose}.
 Episode: ${episode_id} — ${title}
 Story context:
-${storyContext.slice(0, 1500)}
+${truncateChars(storyContext, 1500)}
 ${topBlock}
 Requirements:
 - ${platformNote}
@@ -404,7 +405,7 @@ Requirements:
       const tagPrompt = `Generate ${tag_count} YouTube tags ${tagsContext}.
 Episode: ${episode_id} — ${title}
 Description excerpt:
-${description.slice(0, 500)}
+${truncateChars(description, 500)}
 
 Requirements:
 - 1-4 words per tag, no "#" prefix.

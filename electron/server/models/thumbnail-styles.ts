@@ -13,6 +13,8 @@
  * below in sync with the frontend `<option value="...">` ids.
  */
 
+import { truncateChars } from '../lib/well-formed-text.js'
+
 /** User-facing id → rich phrase the LLM sees. */
 export const TEXT_STYLES: Record<string, string> = {
   // Existing presets — descriptive phrases kept identical to pre-refactor
@@ -128,7 +130,7 @@ export const FONT_STYLE_PRESETS: ThumbnailStylePreset[] = [
 export function resolveTextStyle(id: string | undefined, customText?: string): string {
   if (id === 'custom') {
     const t = (customText || '').trim()
-    if (t) return t.slice(0, 240)
+    if (t) return truncateChars(t, 240)
     return TEXT_STYLES.gold!
   }
   return (id && TEXT_STYLES[id]) || TEXT_STYLES.gold!
@@ -138,7 +140,7 @@ export function resolveTextStyle(id: string | undefined, customText?: string): s
 export function resolveFontStyle(id: string | undefined, customText?: string): string {
   if (id === 'custom') {
     const t = (customText || '').trim()
-    if (t) return t.slice(0, 240)
+    if (t) return truncateChars(t, 240)
     return FONT_STYLES.serif!
   }
   return (id && FONT_STYLES[id]) || FONT_STYLES.serif!

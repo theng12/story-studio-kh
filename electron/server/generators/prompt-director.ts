@@ -31,6 +31,7 @@ import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { Job, ScenePlan, ScenePlanEntry, VisualRecipe } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { isLocalTextModel } from '../services/job-retry-policy.js'
+import { truncateChars } from '../lib/well-formed-text.js'
 
 interface PromptDirectorParams {
   episode_id: string
@@ -183,7 +184,7 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
       return {
         id: s.id,
         subject: (s.visual_prompt_raw ?? s.visual_prompt).trim(),
-        narration: (s.transcript_segment || '').trim().slice(0, 600),
+        narration: truncateChars((s.transcript_segment || '').trim(), 600),
         ...(forced ? { use_emotion: forced } : {}),
       }
     })

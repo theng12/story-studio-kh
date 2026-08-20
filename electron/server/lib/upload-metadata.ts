@@ -19,6 +19,7 @@ import { existsSync } from 'fs'
 import { resolveEpisodePaths, resolveEpisodePathsByCodeWithSidecar } from '../services/utils.js'
 import { parseMetadataTxt } from '../services/metadata-format.js'
 import type { VideoSnippet } from './youtube-client.js'
+import { truncateChars, toWellFormedText } from './well-formed-text.js'
 
 export interface EpisodeMetadataForUpload {
   title: string
@@ -236,14 +237,16 @@ const CONTROL_CHARS_RE = /[\x00-\x08\x0B-\x1F\x7F]/g
 const URL_RE = /https?:\/\/\S+/gi
 
 function stripControl(s: string): string {
-  return s.replace(CONTROL_CHARS_RE, '')
+  // Also repairs a lone surrogate: YouTube is a UTF-8 API and a model-written
+  // title routinely carries emoji. See lib/well-formed-text.ts.
+  return toWellFormedText(s.replace(CONTROL_CHARS_RE, ''))
 }
 
 function capLength(s: string, max: number, label: string, logs?: string[]): string {
   if (s.length <= max) return s
   logs?.push(`${label} truncated ${s.length} → ${max} chars`)
   // Reserve 1 char for the ellipsis so the returned string never exceeds max.
-  return s.slice(0, max - 1) + '…'
+  return truncateChars(s, max - 1) + '…'
 }
 
 function stripUrlsFromTitle(s: string, logs?: string[]): string {
@@ -263,7 +266,7 @@ function cleanTags(tags: string[], logs?: string[]): string[] {
     if (typeof raw !== 'string') continue
     const cleaned = stripControl(raw).trim()
     if (!cleaned) continue
-    const capped = cleaned.slice(0, PER_TAG_MAX)
+    const capped = truncateChars(cleaned, PER_TAG_MAX)
     const key = capped.toLowerCase()
     if (seen.has(key)) continue
     // YouTube's 500-char budget counts each tag plus ~2 chars overhead
