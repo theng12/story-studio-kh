@@ -4,11 +4,17 @@ import fs from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const ELECTRON_ROOT = path.join(ROOT, 'electron')
 const PROBE_PATH = path.join(ROOT, 'scripts', 'release', 'fixtures', 'hermetic-backend-probe.test.mjs')
+// Preloaded into every backend test process so supertest binds the IPv4
+// loopback address it then connects to. Without it a throwaway test server
+// can be shadowed by any local daemon holding that port on 127.0.0.1, and
+// the request is answered by the neighbour instead of the app under test.
+// See scripts/testing/loopback-supertest.mjs for the full story.
+const LOOPBACK_PRELOAD = path.join(ROOT, 'scripts', 'testing', 'loopback-supertest.mjs')
 
 async function writeJson(filePath, value) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
@@ -101,6 +107,10 @@ async function run() {
       TEMP: sandbox,
       STORY_STUDIO_TEST_HARNESS_ROOT: sandbox,
       STORY_STUDIO_DISABLE_LISTEN: '1',
+      // `--import` rather than an argv flag: tsx re-spawns node for `--test`,
+      // and NODE_OPTIONS is what survives that hop.
+      NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import ${pathToFileURL(LOOPBACK_PRELOAD).href}`]
+        .filter(Boolean).join(' '),
     }
     delete childEnv.STORY_STUDIO_DATA_DIR
     delete childEnv.NODE_TEST_CONTEXT

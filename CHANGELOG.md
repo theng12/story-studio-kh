@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.14 — 2026-08-21
+
+- **Chased down a test failure that turned out not to be Story Studio's fault at all.** One test failed roughly once in every two hundred runs, and the way it failed looked alarming: it read as if the episode list had briefly forgotten an episode that had just been created. On this app that would be the channel list dropping one of your episodes, so it was worth being sure. It was not that. The test's temporary web server was leaving one door unlocked, and now and then another program on the same Mac — Tailscale — quietly took over the same door number and answered the test's questions in Story Studio's place, always with "not allowed". Nothing reached Story Studio, and nothing in the episode list was ever wrong.
+- **The door is now locked to the exact address the test knocks on**, so no other program can take it over — proved by watching a stand-in try and be refused. This covers every backend test, and a new test raises the alarm if the protection is ever dropped.
+- **The two tests that failed this way now say what actually went wrong.** They used to fall over three lines later on an unrelated-looking symptom, which is what made a five-minute question into a long one.
+- Nothing in the app itself changed.
+
+---
+
 ## v1.4.13 — 2026-08-20
 
 - **Six messages sent you to tabs that no longer exist.** Four told you to fix an API key in "Settings → API Keys", a tab that was folded into "This Mac" some time ago; they now say This Mac. The wizard that builds a format from a sample said to switch projects to it from "Project Settings → Format", which folded into Channel Identity. And the Image Pool page called the next step the "🎞 Scenes" tab in four places, while the app's own navigation calls it Video Assembly — the icon was right and the word was wrong, which reads as precise and is not.

@@ -251,9 +251,12 @@ describe('Ideas routes', () => {
     const created = await request(app).post(`/api/projects/${isolatedSlug}/ideas`).send({
       title: 'Missing Images', suggested_chapters: 4,
     })
+    assert.equal(created.status, 200)
     const accepted = await request(app)
       .post(`/api/projects/${isolatedSlug}/ideas/${created.body.id}/accept`).send({})
+    assert.equal(accepted.status, 200)
     const code = accepted.body.episode_code
+    assert.ok(code, 'accepting an idea must return the episode code the rest of this test looks up')
     const episodeDir = path.join(tempDir, 'projects', isolatedSlug, 'episodes', 'Season 001', `${code} - Missing Images`)
     const promptsDir = path.join(episodeDir, `${code} - 03 Scene Prompts`)
     const imagesDir = path.join(episodeDir, `${code} - 05 Scene Images`)
@@ -271,6 +274,7 @@ describe('Ideas routes', () => {
 
     const episodes = await request(app).get(`/api/projects/${isolatedSlug}/episodes`)
     const episode = episodes.body.find((row: any) => row.episode_code === code)
+    assert.ok(episode, `GET /episodes omitted ${code}: ${JSON.stringify(episodes.body)}`)
     assert.deepEqual(episode.scene_images, { total: 3, present: 2, complete: false })
     assert.equal(episode.status._scene_images, undefined,
       'internal scene image detail must not leak into public status')
@@ -289,9 +293,12 @@ describe('Ideas routes', () => {
     const created = await request(app).post(`/api/projects/${isolatedSlug}/ideas`).send({
       title: 'Unapproved Images', suggested_chapters: 4,
     })
+    assert.equal(created.status, 200)
     const accepted = await request(app)
       .post(`/api/projects/${isolatedSlug}/ideas/${created.body.id}/accept`).send({})
+    assert.equal(accepted.status, 200)
     const code = accepted.body.episode_code
+    assert.ok(code, 'accepting an idea must return the episode code the rest of this test looks up')
     const episodeDir = path.join(tempDir, 'projects', isolatedSlug, 'episodes', 'Season 001', `${code} - Unapproved Images`)
     const promptsDir = path.join(episodeDir, `${code} - 03 Scene Prompts`)
     const imagesDir = path.join(episodeDir, `${code} - 05 Scene Images`)
@@ -317,6 +324,7 @@ describe('Ideas routes', () => {
 
     let episodes = await request(app).get(`/api/projects/${isolatedSlug}/episodes`)
     let episode = episodes.body.find((row: any) => row.episode_code === code)
+    assert.ok(episode, `GET /episodes omitted ${code}: ${JSON.stringify(episodes.body)}`)
     assert.deepEqual(episode.scene_images, { total: 2, present: 2, complete: true })
     assert.equal(episode.status.scene_review, false,
       'image completion must not bypass Scene Review approval')
@@ -326,6 +334,7 @@ describe('Ideas routes', () => {
     assert.equal(marked.status, 200)
     episodes = await request(app).get(`/api/projects/${isolatedSlug}/episodes`)
     episode = episodes.body.find((row: any) => row.episode_code === code)
+    assert.ok(episode, `GET /episodes omitted ${code} after Mark Done: ${JSON.stringify(episodes.body)}`)
     assert.deepEqual(episode.scene_images, { total: 2, present: 2, complete: true },
       'Mark Done must not discard the image counts computed from the scene plan')
   })
