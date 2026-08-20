@@ -99,7 +99,6 @@
     "correct leg count and body segmentation"
   ],
 
-  "negativePromptAddendum": "no incorrect leg counts (six for insects, eight for arachnids — never both for one subject), no human or vertebrate characters in main frame, no Disney-cute bug mascots, no fantasy-color palettes unless the species genuinely has them",
 
   "referenceImages": [],
 

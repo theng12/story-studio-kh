@@ -486,9 +486,6 @@
               <div v-if="n.visualStyleSheet" class="detail-row">
                 <strong>Visual:</strong> {{ n.visualStyleSheet }}
               </div>
-              <div v-if="n.negativePromptAddendum" class="detail-row">
-                <strong>Negative:</strong> {{ n.negativePromptAddendum }}
-              </div>
             </details>
             <div class="tile-actions">
               <button

@@ -107,7 +107,6 @@ export interface Niche {
   thumbnailStyleSheet?: string
   thumbnailProfile?: NicheThumbnailProfile
   defaultStyleKeywords?: string[]
-  negativePromptAddendum?: string
   referenceImages?: NicheReferenceImage[]
   youtubeTagsHint?: string[]
   audienceHint?: string

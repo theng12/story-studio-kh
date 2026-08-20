@@ -128,8 +128,14 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const imageProvider = registry.getImageProvider('genstudio-image')
   if (!imageProvider) throw new Error('GenStudio KH image provider is unavailable.')
 
+  // v1.4.11 — the stored `cfg.negative_prompt` is no longer copied in here.
+  // *"we are never using negative prompts at all. so don't include it
+  // anyways."* It was also going nowhere: the GenStudio image provider builds
+  // its request field by field (providers/image/genstudio.ts) and never reads
+  // `providerParams` for content, so anything put here was dropped before the
+  // request was sent. The value stays in continuity.json — a stored setting is
+  // not this generator's to delete — it simply is not sent.
   const providerParams = { ...((modelConfig as any).provider_params || {}) }
-  if (cfg.negative_prompt) (providerParams as any).negative_prompt = cfg.negative_prompt
 
   // Anchor character descriptions reinforce identity as text.
   const characterDescs: Array<{ name: string; description: string }> = []
@@ -161,17 +167,19 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // the guide's descriptor text so the prompt describes ONLY the subject. Plans
   // with no scene_type behave as before (the guide everywhere).
   const isCharacterScene = (s: ScenePlanEntry): boolean => !s.scene_type || s.scene_type === 'character'
-  const NONCHARACTER_NEGATIVE = 'person, people, child, boy, kid, human figure, character, portrait'
   const composePrompt = (visualPrompt: string, includeCharacter = true): string => {
     const parts = [visualPrompt.trim()]
     if (includeCharacter && charText) parts.push(`Character details — ${charText}.`)
     if (styleBible) parts.push(`Style: ${styleBible}`)
     return parts.join('\n\n')
   }
-  if (charText || styleBible || cfg.negative_prompt) {
+  // The log names only layers that are actually in the prompt. It used to add
+  // "+ negative prompt", which told him something had been applied when nothing
+  // had been sent.
+  if (charText || styleBible) {
     const styleLabel = resolvedStyle.source === 'project' ? 'style bible (project default)' : 'style bible'
     job.output_lines.push(
-      `Prompt layer: ${[charText && 'character text', styleBible && styleLabel, cfg.negative_prompt && 'negative prompt'].filter(Boolean).join(' + ')}.`,
+      `Prompt layer: ${[charText && 'character text', styleBible && styleLabel].filter(Boolean).join(' + ')}.`,
     )
   }
 
@@ -247,16 +255,24 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     return operation
   }
 
+  /**
+   * v1.4.11 — a non-character scene drops the guide's descriptors and its
+   * reference images, and that is now the ONLY thing keeping the anchored
+   * character out of a cutaway.
+   *
+   * It used to also append a hardcoded negative prompt — `person, people,
+   * child, boy, kid, human figure, character, portrait` — to every event, map,
+   * environment and artifact scene. The owner's ruling: *"we are never using
+   * negative prompts at all. so don't include it anyways."* It was overreach
+   * besides: the intent in v1.0.336 was "not the GUIDE character", and what it
+   * actually said was "no humans", so a battle, a market or a coronation typed
+   * as `event` was rendered with every person banned from the frame. Dropping
+   * the reference stack is the part that was doing the real work.
+   */
   const buildScenePromptContext = (scene: ScenePlanEntry): {
     params: typeof providerParams
     includeCharacter: boolean
-  } => {
-    const isChar = isCharacterScene(scene)
-    const params = isChar
-      ? providerParams
-      : { ...providerParams, negative_prompt: [(providerParams as any).negative_prompt, NONCHARACTER_NEGATIVE].filter(Boolean).join(', ') }
-    return { params, includeCharacter: isChar }
-  }
+  } => ({ params: providerParams, includeCharacter: isCharacterScene(scene) })
 
   const concurrency = resolveGenStudioLocalFanout(scenes.length)
 

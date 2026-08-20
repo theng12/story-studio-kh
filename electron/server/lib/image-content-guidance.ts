@@ -1,11 +1,21 @@
 /**
  * Content-aware guidance for every LLM that WRITES an image prompt.
  *
- * Image providers apply their own content filters. Story Studio's channels are
- * history and documentary, which brush against those filters innocently and
- * constantly: battlefield aftermath, executions, plague and famine, children in
- * historical settings, classical art nudity, anatomical and medical
- * illustration.
+ * Image providers apply their own content filters, and ordinary subject matter
+ * brushes against them innocently and constantly: conflict and its aftermath,
+ * death, plague and famine, children in a scene, classical art nudity,
+ * anatomical and medical illustration.
+ *
+ * v1.4.11 — this block used to open by ASSERTING "This is a history and
+ * documentary channel", and steered the hardest subjects towards woodcut and
+ * engraving. Every channel got it: *"also make the don't make it all history
+ * and documentary channel."* His eleven channels include fungi, plants,
+ * insects, motivation, prayer, preaching and business economics, and each one
+ * was being told what it was and what it should look like by a helper whose job
+ * is neither. What survives is the TECHNIQUE — how to describe a difficult
+ * subject so a provider renders it — which is what earns the block its place.
+ * A channel that genuinely wants a period-illustration look says so in its own
+ * visual style, which is editable and belongs to the channel.
  *
  * Providers vary and their policies are not ours to track, so the fix lives at
  * the PROMPT, on our side: a prompt that never trips a filter beats any amount
@@ -34,10 +44,10 @@
  * `AVOID_LEGIBLE_TEXT_GUIDANCE` / `legibleTextGuidanceBlock` is a SEPARATE,
  * opt-in block (default off — see `resolveAvoidLegibleText`) for one narrow
  * problem: a fast image model asked to render a scroll, ledger, or sign
- * usually renders confident-looking gibberish instead of real words. History
- * and documentary channels depict real documents constantly and legitimately
- * — Procopius writing his history is exactly right as a subject — so the fix
- * is never "stop showing documents." It is: when a prompt-writing pass has
+ * usually renders confident-looking gibberish instead of real words. Channels
+ * depict written surfaces constantly and legitimately — a scribe at work, a
+ * field notebook, a shop sign — so the fix is never "stop showing documents."
+ * It is: when a prompt-writing pass has
  * this switched on, describe lettering as indistinct marks/texture rather
  * than as specific readable words, so the renderer stops attempting words it
  * will get wrong.
@@ -69,23 +79,26 @@
  */
 
 /**
- * How to describe difficult historical subject matter so it renders.
+ * How to describe difficult subject matter so it renders.
  *
  * Appended to the SYSTEM/instruction side of an image-prompt-writing call.
- * Deliberately opens and closes by insisting the history is kept intact.
+ * Deliberately opens and closes by insisting the substance is kept intact.
+ *
+ * Says nothing about what KIND of channel this is and nothing about what it
+ * should look like — see the v1.4.11 note at the top of this file. Both are the
+ * channel's to decide, and both used to be asserted here to all of them.
  */
-export const IMAGE_CONTENT_GUIDANCE = `DIFFICULT HISTORICAL SUBJECTS — how to describe them so they render:
+export const IMAGE_CONTENT_GUIDANCE = `DIFFICULT SUBJECTS — how to describe them so they render:
 
-This is a history and documentary channel. War, execution, plague, famine, medicine, and period art are its real subject matter, and every prompt must stay vivid, specific, and historically substantial. Do NOT sanitise the era, soften the stakes, or retreat to a safer subject. Write the SAME scene, described differently:
+Some scenes brush against an image provider's content filters innocently: conflict and its aftermath, death, plague and famine, medicine and anatomy, classical art. Every prompt must stay vivid, specific, and true to its subject. Do NOT sanitise the scene, soften the stakes, or retreat to a safer subject. Write the SAME scene, described differently:
 
 - Show the AFTERMATH or the CONSEQUENCE rather than the violent act itself. "A battlefield at dawn, abandoned shields in the churned mud" carries the same narrative beat as depicting the killing, and renders far better.
 - Convey suffering through ENVIRONMENT and POSTURE, not injury. A bowed figure and an empty grain store tells a famine. No wounds, no blood, no bodily detail.
-- Never put an explicit age marker on a figure. Write "a young apprentice at the workbench", not a stated age or a child's physical size. Children in historical scenes are entirely legitimate subjects; it is the explicit marker that is left out.
-- For the hardest subjects, frame the image as PERIOD ILLUSTRATION — engraving, woodcut, fresco, painted panel, manuscript plate — rather than photorealism. Stylised historical framing renders these subjects better and suits this channel's illustrated look.
-- Dress every figure in full, formal, period-accurate clothing, including where a source artwork was nude.
-- For medical and anatomical beats, show the period diagram, the instruments, the physician's room, or the apothecary's shelves — not a procedure carried out on a body.
+- Never put an explicit age marker on a figure. Write "a young apprentice at the workbench", not a stated age or a child's physical size. Children in a scene are entirely legitimate subjects; it is the explicit marker that is left out.
+- Dress every figure in full, formal clothing appropriate to the setting, including where a source artwork was nude.
+- For medical and anatomical beats, show the diagram, the instruments, the physician's room, or the apothecary's shelves — not a procedure carried out on a body.
 
-These are choices of framing, not of subject. The historical substance, the era, and the specificity must be preserved in full.`
+These are choices of framing, not of subject. The substance, the setting, and the specificity must be preserved in full. Follow the channel's own visual style for how the image should LOOK; nothing here overrides it.`
 
 /**
  * Extra steering for a user-invoked reword of ONE prompt that did not render.
@@ -98,9 +111,9 @@ export const IMAGE_PROMPT_REWORD_DIRECTIVE = `REWORD REQUEST — the user has as
 
 Write a genuinely DIFFERENT description of the SAME narrative beat: pick another moment inside that beat, another vantage point, or another subject in the scene that carries the same story point. Do not simply re-order or re-word the sentences you were given — a near-identical prompt is a wasted rewrite.
 
-Equally, do not retreat to a vaguer, emptier, or more generic scene. The era, the historical substance, and the level of concrete detail must all survive the rewrite; only the angle changes.
+Equally, do not retreat to a vaguer, emptier, or more generic scene. The setting, the substance, and the level of concrete detail must all survive the rewrite; only the angle changes.
 
-Apply the difficult-subjects guidance above in full: aftermath over act, environment and posture over injury, period-illustration framing over photorealism, clothed period dress, and no explicit age markers.`
+Apply the difficult-subjects guidance above in full: aftermath over act, environment and posture over injury, clothing appropriate to the setting, and no explicit age markers. Keep the channel's own visual style unchanged — the rewrite changes the angle, never the look.`
 
 /**
  * The guidance as a block to splice into a prompt, with leading/trailing

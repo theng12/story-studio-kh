@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.11 — 2026-08-20
+
+- **Story Studio no longer tells every channel it is a history documentary.** Before writing any image prompt, the app attached a paragraph of guidance that opened with "This is a history and documentary channel", and told the model to render the hardest subjects as engravings, woodcuts, frescoes and manuscript plates. Every channel got it, every time — fungi, plants, insects, motivation, prayer, preaching and business economics included. All of them were being told what they were and what they should look like by a helper whose job is neither.
+- **The useful half is kept.** That paragraph exists because image providers refuse ordinary subject matter: aftermath instead of the act, suffering shown through posture and surroundings rather than injury, no explicit ages on figures, medicine shown as the room and the instruments. That is craft, it works, and it stays — reworded so it applies to any subject rather than only to history. What is gone is the claim about what kind of channel this is, and the woodcut steer. It now ends by saying, in as many words, to follow the channel's own visual style for how the image should look.
+- **If a channel does want the period-illustration look**, put it in that channel's visual style, where you can edit it and where it applies to that channel alone.
+- **Negative prompts are gone.** You said you never use them, so nothing sends one now. Two separate things were removed. The first was a "Negative:" line shown in each channel's niche details in Settings — you could read it, it was written into six of the built-in niches, and no part of image generation had ever used it. A setting you can see that does nothing is worse than no setting.
+- **The second banned people from your own scenes.** Continuity videos classify each scene as character, event, environment, map or artifact. Every scene that was not a character scene had a hidden list attached — `person, people, child, boy, kid, human figure, character, portrait` — meaning a battle, a market or a coronation was asked for with every human being banned from the frame. Its 2026 intent was narrower: keep the anchored guide character from wandering into a cutaway. The part that actually does that — dropping the guide's description and reference images from those scenes — is untouched and still works.
+- **What you will notice from this: nothing, and that is worth knowing.** In tracing it we found the negative prompt was never reaching the image generator at all. It was assembled, logged, handed over, and then dropped before the request was built, because the image service takes only the fields it names and that is not one of them. It has been dead for some time. Your images will render exactly as before.
+- **The job log no longer claims otherwise.** It used to print "Prompt layer: … + negative prompt", telling you something had been applied when nothing had been sent. It now names only the layers that are really in the prompt.
+- Your saved settings are untouched — a negative prompt already stored against a channel stays on disk, it is simply not used. Visual styles are unchanged.
+
+---
+
 ## v1.4.10 — 2026-08-20
 
 - **Archive uploaded videos could have moved a video you never uploaded into another channel's folder and deleted the original.** Nothing had happened yet — the button had not been run, and there is no damage to undo. But had it run as shipped, it would have taken finished masters you never published, filed them under the wrong channel, and removed them from where they belonged. That is fixed, and Archive is safe to use.

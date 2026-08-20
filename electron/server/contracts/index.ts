@@ -194,7 +194,6 @@ export const NicheSchema = z.object({
   thumbnailStyleSheet: z.string().max(3000).optional(),
   thumbnailProfile: NicheThumbnailProfileSchema.optional(),
   defaultStyleKeywords: z.array(z.string().min(1).max(120)).max(40).optional(),
-  negativePromptAddendum: z.string().max(1500).optional(),
   referenceImages: z.array(NicheReferenceImageSchema).max(50).optional(),
   youtubeTagsHint: z.array(z.string().min(1).max(60)).max(40).optional(),
   audienceHint: z.string().max(400).optional(),

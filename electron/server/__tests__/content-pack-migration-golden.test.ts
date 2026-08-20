@@ -192,7 +192,6 @@ function formulaFacts(formula: Niche): Record<string, unknown> {
       thumbnail_style_sheet: formula.thumbnailStyleSheet,
       thumbnail_profile: formula.thumbnailProfile,
       default_style_keywords: formula.defaultStyleKeywords,
-      negative_prompt_addendum: formula.negativePromptAddendum,
       visual_pacing_profile: scriptStructure.visualPacingProfile,
       motion_profile: scriptStructure.motionProfile,
     })),

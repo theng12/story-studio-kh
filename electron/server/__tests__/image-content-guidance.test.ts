@@ -4,11 +4,17 @@
  * Two things are being locked down:
  *
  *   1. The guidance says the substantive things it must say — aftermath over
- *      act, no explicit age markers, period-illustration framing, suffering via
- *      environment/posture, clothed period dress, medical via diagrams — AND
- *      that the historical substance must be preserved. Without that last
- *      clause the guidance blands the output, which is a worse failure than a
- *      provider refusal.
+ *      act, no explicit age markers, suffering via environment/posture, clothing
+ *      appropriate to the setting, medical via diagrams — AND that the
+ *      substance must be preserved. Without that last clause the guidance blands
+ *      the output, which is a worse failure than a provider refusal.
+ *
+ *      v1.4.11 also locks down what it must NOT say. This block used to open by
+ *      declaring "This is a history and documentary channel" and steer the hard
+ *      subjects towards woodcut and engraving — sent unconditionally to all
+ *      eleven channels, fungi and prayer and business economics included.
+ *      *"also make the don't make it all history and documentary channel."*
+ *      What a channel IS, and what it should LOOK like, belong to the channel.
  *
  *   2. It lives in ONE place. Every path that asks an LLM to write an image
  *      prompt imports this module; none of them restates the paragraph. The
@@ -44,29 +50,53 @@ describe('image content guidance — substance', () => {
     assert.match(text, /aftermath/, 'must steer toward the aftermath rather than the act')
     assert.match(text, /consequence/, 'must name the consequence as an alternative to the act')
     assert.match(text, /age marker/, 'must forbid explicit age markers on figures')
-    assert.match(text, /period illustration/, 'must prefer period-illustration framing')
-    assert.match(text, /photorealism/, 'must name photorealism as the thing to avoid for hard subjects')
     assert.match(text, /posture/, 'must convey suffering through posture')
     assert.match(text, /environment/, 'must convey suffering through environment')
     assert.match(text, /no wounds, no blood/, 'must rule out injury detail explicitly')
-    assert.match(text, /period-accurate clothing/, 'must prefer clothed, formal period dress')
+    assert.match(text, /clothing appropriate to the setting/, 'must prefer full, formal dress that fits the scene')
     assert.match(text, /nude/, 'must cover the nude-source-artwork case')
-    assert.match(text, /apothecary|physician|instruments/, 'must redirect medical subjects to period settings')
+    assert.match(text, /apothecary|physician|instruments/, 'must redirect medical subjects to a room and its tools')
   })
 
-  test('explicitly protects the historical substance from being blanded away', () => {
+  test('does NOT tell the channel what it is, or what it should look like', () => {
+    // The owner's instruction, and the reason this test exists: *"also make the
+    // don't make it all history and documentary channel."* Seven prompt-writing
+    // paths call this block unconditionally, so anything asserted here is
+    // asserted to fungi, plants, insects, motivation, prayer, preaching and
+    // business economics alike.
+    const text = IMAGE_CONTENT_GUIDANCE.toLowerCase()
+    assert.ok(
+      !/this is a .{0,40}channel/.test(text),
+      'the safety helper must never declare what kind of channel this is',
+    )
+    assert.ok(
+      !/(woodcut|engraving|fresco|manuscript plate|period illustration)/.test(text),
+      'a house art style is the channel\'s to choose, not a content-safety block\'s to impose',
+    )
+    assert.ok(
+      !/photorealism/.test(text),
+      'steering away from photorealism is a look, and a look belongs to the visual style',
+    )
+    assert.match(
+      text,
+      /follow the channel's own visual style/,
+      'and it must defer to the channel\'s style rather than compete with it',
+    )
+  })
+
+  test('explicitly protects the substance from being blanded away', () => {
     const text = IMAGE_CONTENT_GUIDANCE.toLowerCase()
     assert.match(
       text,
-      /do not sanitise the era/,
-      'the guidance must forbid sanitising the era, not just list safer phrasings',
+      /do not sanitise the scene/,
+      'the guidance must forbid sanitising the scene, not just list safer phrasings',
     )
     assert.match(
       text,
-      /the historical substance, the era, and the specificity must be preserved/,
+      /the substance, the setting, and the specificity must be preserved/,
       'the guidance must close by insisting the substance survives',
     )
-    assert.match(text, /vivid, specific, and historically substantial/, 'must demand vivid, specific prompts')
+    assert.match(text, /vivid, specific, and true to its subject/, 'must demand vivid, specific prompts')
   })
 
   test('the reword directive asks for a different angle, not a blander scene', () => {

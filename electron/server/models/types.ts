@@ -879,11 +879,6 @@ export interface Niche {
    *  scope. */
   defaultStyleKeywords?: string[]
 
-  /** Negative-prompt addendum merged into the project's negative prompt
-   *  (e.g. "no human characters, no animals in main frame" for the
-   *  plants niche). */
-  negativePromptAddendum?: string
-
   /** Pre-built reference image pack. Made available to the image
    *  generator as auto-attachable references — the user can opt in per
    *  scene rather than having them force-attached. */
