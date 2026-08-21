@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.19 — 2026-08-22
+
+- **One-click renders were quietly dropping three of your settings.** You remembered this and you were right. A render started from the Pipeline used a hand-written copy of what the Video Assembly page sends, and three things had never been added to that copy — so the same episode rendered two different ways depending on which button you pressed, with nothing said either way.
+- **Scene effects were being lost entirely.** Every per-scene effect you picked was saved in your preset and thrown away by a one-click render. This has been true since scene effects shipped.
+- **Aspect ratio was ignored, so a one-click Short was impossible.** Batch renders were always widescreen no matter what the channel asked for — the vertical support added a few days ago never reached the Pipeline at all.
+- **"Hide captions during the intro" was ignored**, so a one-click render burned captions over your branded opening even when you had turned that off.
+- **One thing I checked and left alone:** the scene-pool setting also isn't copied across, but the renderer sets it itself, so it changes nothing. Not padding the list with it.
+- **The real fix is that this cannot happen again quietly.** There is now a test that reads the page's own code, works out every setting it can send, and fails if the Pipeline can't send the same one — naming the missing setting. This is the fourth time a setting has gone missing this way; it is the first time anything would have noticed.
+
+---
+
 ## v1.4.18 — 2026-08-22
 
 - **You can now change a channel's episode shape yourself.** Project Settings → Channel Identity → Project formula has an **Episode shape** panel: usual length and the shortest and longest allowed, usual chapter count and its range, reading pace, whether chapters stand alone, and the title voice. You set these numbers on 21 formulas yesterday and had no way to change them afterwards without editing files. Your words: *"series formula editing ui. do it please then, i thought you already did it."* Fair — I said 1.4.16 would wire it and it did not.

@@ -329,3 +329,87 @@ describe('flattenVideoAssemblyBundle', () => {
     })
   })
 })
+
+/**
+ * THE DRIFT ALARM (v1.4.19).
+ *
+ * Every test above checks one feature somebody remembered to test. None of
+ * them can catch the failure that actually keeps happening: a field is added
+ * to the page's payload and nobody adds it here, so one-click renders quietly
+ * lose it while single-episode renders keep working.
+ *
+ * It has now happened at least four times.
+ *   - v1.0.68: the whole nested-slot passthrough — logos, chroma-key,
+ *     overlays, ambient music, chapter titles, compilation layout.
+ *   - v1.3.1: `timeline_clips`, "one field short" of that same fix.
+ *   - v1.2.0 → 1.4.19: `scene_effects`. Saved by the effects preset the day
+ *     it shipped, never flattened, so every per-scene effect was dropped.
+ *   - v1.4.15 → 1.4.19: `aspect_ratio`. Shipped for Shorts, never flattened,
+ *     so a one-click batch was 16:9 whatever the channel asked for.
+ *
+ * So this reads the page's own `buildPayload` and asserts that every
+ * top-level key it can emit is a key this flattener can emit. It is a source
+ * read rather than an import because the page is a Vue composable the backend
+ * cannot load — the same trade `retired-storage-migration.test.ts` makes.
+ *
+ * WHEN THIS FAILS, the fix is almost never to edit the allow-list. It is to
+ * flatten the field, because the page sending something the batch drops is
+ * the defect itself.
+ */
+describe('page payload and batch flattening cannot drift apart', () => {
+  test('every top-level field the page can send is one the flattener can emit', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const { fileURLToPath } = await import('node:url')
+    const path = await import('node:path')
+
+    const here = path.dirname(fileURLToPath(import.meta.url))
+    const repoRoot = path.resolve(here, '..', '..', '..')
+    const ioSource = await readFile(
+      path.join(repoRoot, 'frontend', 'composables', 'useVideoAssemblyIo.ts'), 'utf8')
+    const pipelineSource = await readFile(
+      path.join(repoRoot, 'electron', 'server', 'routes', 'pipeline.ts'), 'utf8')
+
+    const start = ioSource.indexOf('function buildPayload')
+    assert.ok(start > 0, 'buildPayload must still exist in useVideoAssemblyIo.ts')
+    const body = ioSource.slice(start, start + 12_000)
+
+    const pageKeys = new Set<string>()
+    for (const line of body.split('\n')) {
+      const literal = line.match(/^ {6}([a-z_][a-z0-9_]*):/)
+      if (literal) pageKeys.add(literal[1]!)
+      const assigned = line.match(/^\s*payload\.([a-z_][a-z0-9_]*)\s*=/)
+      if (assigned) pageKeys.add(assigned[1]!)
+    }
+    assert.ok(pageKeys.size > 20, `expected a substantial payload, parsed ${pageKeys.size} keys`)
+
+    const fnStart = pipelineSource.indexOf('export function flattenVideoAssemblyBundle')
+    const fnEnd = pipelineSource.indexOf('Build per-episode estimate inputs', fnStart)
+    assert.ok(fnStart > 0 && fnEnd > fnStart, 'flattenVideoAssemblyBundle must still exist')
+    const fn = pipelineSource.slice(fnStart, fnEnd)
+
+    const flatKeys = new Set<string>(
+      [...fn.matchAll(/\bout\.([a-z_][a-z0-9_]*)\s*=/g)].map(m => m[1]!))
+    // Fields copied by name through a loop rather than assigned individually.
+    for (const group of fn.matchAll(/for \(const k of \[([^\]]+)\]/g)) {
+      for (const raw of group[1]!.split(',')) flatKeys.add(raw.trim().replace(/['"]/g, ''))
+    }
+
+    // The generator overwrites this itself (`req.scene_pool_mode = 'scene_plan'`
+    // in generators/video.ts), so the page sending it is belt-and-braces and
+    // the batch not sending it changes nothing. The only entry that has ever
+    // belonged here.
+    const OVERWRITTEN_BY_THE_GENERATOR = new Set(['scene_pool_mode'])
+    // Identity, supplied by the batch runner rather than carried in a preset.
+    const SUPPLIED_PER_EPISODE = new Set(['episode_id', 'title'])
+
+    const dropped = [...pageKeys]
+      .filter(k => !flatKeys.has(k))
+      .filter(k => !OVERWRITTEN_BY_THE_GENERATOR.has(k))
+      .filter(k => !SUPPLIED_PER_EPISODE.has(k))
+      .sort()
+
+    assert.deepEqual(dropped, [],
+      `One-click renders would silently drop these: ${dropped.join(', ')}. `
+      + 'Flatten them in flattenVideoAssemblyBundle — do not add them to the allow-list.')
+  })
+})

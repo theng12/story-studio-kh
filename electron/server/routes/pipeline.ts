@@ -1029,7 +1029,10 @@ export function flattenVideoAssemblyBundle(
   }
 
   // ── Export settings (flat fields: resolution, quality, fps, codec, …)
-  for (const k of ['resolution', 'quality', 'fps', 'encoding_effort', 'codec', 'format']) {
+  // `aspect_ratio` joined this list in 1.4.19. It shipped on the page in
+  // 1.4.15 and was never added here, so every batch render was 16:9 whatever
+  // the channel asked for — a one-click Short was impossible, silently.
+  for (const k of ['resolution', 'aspect_ratio', 'quality', 'fps', 'encoding_effort', 'codec', 'format']) {
     if (exportS[k] !== undefined) out[k] = exportS[k]
   }
   // ── Timeline slot
@@ -1096,6 +1099,21 @@ export function flattenVideoAssemblyBundle(
     )
     if (liveLayers.length) out.overlays = { enabled: true, layers: liveLayers }
   }
+  // Per-scene effects. `snapshotEffectsData` has stored these since 1.2.0 and
+  // this function never copied them, so every scene effect the owner picked
+  // was dropped from a batch render while a single-episode render applied it.
+  // Same shape and same condition as buildPayload: only live overlays, and
+  // nothing emitted at all when none are chosen, so an untouched config still
+  // produces a byte-identical request.
+  if (effects.scene_effects?.enabled && Array.isArray(effects.scene_effects.overlays)) {
+    const chosen = effects.scene_effects.overlays.filter((o: any) => o && o.enabled)
+    if (chosen.length) {
+      out.scene_effects = {
+        enabled: true,
+        overlays: chosen.map((o: any) => ({ id: o.id, enabled: true, params: { ...(o.params || {}) } })),
+      }
+    }
+  }
   if (effects.chapter_titles)         out.chapter_titles = effects.chapter_titles
   if (typeof effects.exclude_intro_from_effects === 'boolean') {
     out.exclude_intro_from_effects = effects.exclude_intro_from_effects
@@ -1134,6 +1152,10 @@ export function flattenVideoAssemblyBundle(
     out.subtitles = {
       enabled: true,
       source: subtitles.source,
+      // Missing until 1.4.19: a batch render burned captions over the branded
+      // opening even when the channel had asked them to sit it out, while the
+      // same episode rendered from the page did not.
+      hide_during_intro: !!subtitles.hide_during_intro,
       style: subtitles.style,
     }
   }
