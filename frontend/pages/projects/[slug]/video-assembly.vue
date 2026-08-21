@@ -2100,9 +2100,10 @@
           <h4>Caption check</h4>
           <p class="text-muted text-sm">
             Three frames from this episode, at the render's real size and shape, with the captions burned
-            in exactly as the render will burn them. Look at them before rendering — the words, their
-            timing, their placement and the frame they sit in are the render's own; the picture behind
-            them skips motion, grading and overlays.
+            in exactly as the render will burn them, and under each one the narration that plays there.
+            Play them before rendering — if the caption is not what you hear, it belongs to another
+            episode. The words, their timing, their placement and the frame they sit in are the render's
+            own; the picture behind them skips motion, grading and overlays.
           </p>
 
           <div class="flex gap-2 items-center mt-2">
@@ -2142,6 +2143,19 @@
                 <span v-if="frame.scene_number"> · scene {{ frame.scene_number }}</span>
                 <br /><span class="preflight-cue">“{{ frame.cue_text }}”</span>
               </figcaption>
+              <!-- v1.4.17 — the narration under this exact caption. Reading the
+                   words only proves they exist; hearing them is what proves they
+                   are the words being said here, which is the whole question. -->
+              <audio
+                v-if="frame.audio_path"
+                class="preflight-audio"
+                controls
+                preload="none"
+                :src="preflightAudioUrl(frame)"
+              ></audio>
+              <p v-else class="text-muted text-sm preflight-audio-missing">
+                No narration to play for this caption.
+              </p>
             </figure>
           </div>
 
@@ -2151,8 +2165,9 @@
             title="Do these captions belong to this episode?"
             class="mt-2"
           >
-            Read the words in the three frames above. If any of them belong to a different episode, or the
-            timing looks wrong, fix it in the Subtitles tab rather than rendering.
+            Play each clip above and read along with it. If the words on a frame are not the words you
+            hear, the captions belong to a different episode; if they are the right words at the wrong
+            moment, the timing has drifted. Either way, fix it in the Subtitles tab rather than rendering.
             <template #actions>
               <button class="btn btn-sm btn-primary" @click="preflightConfirmed = true">
                 These are right — allow rendering
@@ -3778,6 +3793,11 @@ interface SubtitlePreflightFrame {
   percent: number
   cue_text: string
   scene_number: number | null
+  /** v1.4.17 — the narration under this caption, or null if none could be cut. */
+  audio_path: string | null
+  audio_filename: string | null
+  audio_start_sec: number | null
+  audio_end_sec: number | null
 }
 /** v1.4.15 — the shape check travels with the frames. See `lib/source-aspect.ts`. */
 interface SourceAspectReport {
@@ -3835,6 +3855,12 @@ async function runSubtitlePreflight(): Promise<boolean> {
 function preflightFrameUrl(frame: SubtitlePreflightFrame): string {
   return `/api/projects/${slug.value}/video-editor/preview-image`
     + `?path=${encodeURIComponent(frame.path)}&k=${preflightCacheKey.value}`
+}
+
+/** The narration clip cut for this caption, served by the existing audio route. */
+function preflightAudioUrl(frame: SubtitlePreflightFrame): string {
+  return `/api/projects/${slug.value}/video-editor/preview-audio`
+    + `?path=${encodeURIComponent(frame.audio_path as string)}&k=${preflightCacheKey.value}`
 }
 
 function formatPreflightTime(sec: number): string {
@@ -5743,6 +5769,10 @@ onUnmounted(() => {
 /* v1.4.0 — caption preflight frames. Wide enough to read a caption at a glance,
    and they wrap rather than shrink so a 16:9 still never becomes a thumbnail. */
 .preflight-frames { display: flex; gap: 12px; flex-wrap: wrap; }
+/* v1.4.17 — the player sits under its own frame and matches its width, so it
+   is unambiguous which caption you are hearing. */
+.preflight-audio { display: block; width: 100%; margin-top: 8px; }
+.preflight-audio-missing { margin-top: 8px; font-style: italic; }
 .preflight-frame { flex: 1 1 260px; min-width: 240px; margin: 0; }
 .preflight-frame img {
   width: 100%;

@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.17 — 2026-08-22
+
+- **The caption check now lets you hear the narration, not just read it.** Each of the three frames has a player under it holding exactly the words on that frame, cut from the narration the render will use. You said it plainly: *"this subtitle render is a good idea but there's nothing for me to hear so I can compare it at all."* You were right, and it undercut the whole point — reading a caption proves the words exist, it cannot prove they are the words being spoken there. The fault this check was built to catch was one episode's captions burned onto another, and both episodes' captions read perfectly well on their own.
+- **The clip covers the caption, start to finish**, with three-quarters of a second either side so it does not sound chopped. A very short caption still gets two seconds so you can recognise it; a very long one is capped at twenty so a check never becomes a download.
+- **A clip that cannot be cut says so instead of pretending.** ffmpeg does not fail when asked for audio past the end of a file — it writes an empty one and reports success. A valid clip is about 67 kB; that empty one is 358 bytes. Anything that small is thrown away and the frame says "no narration to play", because a silent player looks like missing narration rather than a clip that was never made.
+- Frames written automatically beside a finished video are unchanged and still silent — those are a record of what was rendered, not something to listen to, and cutting clips for them would add time to every render for nobody.
+
+---
+
 ## v1.4.16 — 2026-08-21
 
 - **Every one of your 21 channels now has its own runtime, chapter count and speaking pace.** Until today only two of them did. The other nineteen fell through to one shared setting — five chapters, eight minutes, 160 words a minute — and, more importantly, to a shared **maximum of twenty minutes**. A sleep story is now 135 minutes by default and may run to 150; a prayer is 18; Hidden Mechanics is 45; the nature channels and the explainers sit around 25. The numbers are yours: you gave them on 2026-08-21 and they are written in each channel's own file, not in the program.

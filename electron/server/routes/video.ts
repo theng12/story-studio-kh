@@ -1638,6 +1638,9 @@ router.post('/projects/:slug/video-editor/subtitle-preflight/:episodeId', async 
       scenes: (body.scenes || []).map((s: any) => ({ image_path: s.image_path, duration: s.duration })),
       openingOffsetSec: openingSec,
       durationSec,
+      // The same merged narration the duration was measured from, so each
+      // frame can be heard as well as read.
+      narrationPath: assets.merged_audio[0]?.path || null,
     })
     res.json({
       ...result,

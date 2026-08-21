@@ -23,6 +23,7 @@ import assert from 'node:assert/strict'
 
 import {
   choosePreflightTimestamps,
+  narrationClipWindow,
   sceneImageAt,
   PREFLIGHT_PERCENTS,
 } from '../lib/subtitle-preflight-frames.js'
@@ -176,5 +177,64 @@ describe('which picture is behind the caption', () => {
   test('scene numbers are 1-based, matching what Scene Plan shows', () => {
     assert.equal(sceneImageAt(scenes, 12, 10)?.scene_number, 1)
     assert.equal(sceneImageAt(scenes, 25, 10)?.scene_number, 2)
+  })
+})
+
+
+/**
+ * v1.4.17 — the narration under each caption.
+ *
+ * The owner, looking at the finished check: *"this subtitle render is a good
+ * idea but there's nothing for me to hear so I can compare it at all"*. He is
+ * right, and it undercut the feature's whole purpose. Reading a caption proves
+ * the words exist. It cannot prove they are the words being SAID at that
+ * moment — and the failure this check was built to catch was EP0048's captions
+ * burned onto EP0047, where both episodes' captions read perfectly well.
+ *
+ * So the clip has to cover the cue itself. A fixed slice around the sampled
+ * frame would cut the sentence in half and leave the same question open.
+ */
+describe('the narration clip under a caption', () => {
+  test('covers the whole cue, with air either side', () => {
+    const { start, span } = narrationClipWindow({ start_sec: 100, end_sec: 104 }, 600)
+    assert.equal(start, 99.25)
+    // 4s cue + 0.75s each side.
+    assert.equal(span, 5.5)
+    // The cue is strictly inside what plays — this is the property that matters.
+    assert.ok(start < 100 && start + span > 104)
+  })
+
+  test('a two-word cue is still long enough to recognise', () => {
+    // 0.3s of speech would be an unusable blip; the floor keeps it audible.
+    const { span } = narrationClipWindow({ start_sec: 10, end_sec: 10.3 }, 600)
+    assert.equal(span, 2)
+  })
+
+  test('a runaway cue cannot turn a preflight into a download', () => {
+    const { span } = narrationClipWindow({ start_sec: 0, end_sec: 600 }, 3600)
+    assert.equal(span, 20)
+  })
+
+  test('never seeks before the start of the narration', () => {
+    // A cue in the first second must not ask ffmpeg for a negative timestamp.
+    const { start, span } = narrationClipWindow({ start_sec: 0.2, end_sec: 2 }, 600)
+    assert.equal(start, 0)
+    assert.ok(span > 0)
+  })
+
+  test('never runs past the end of the narration', () => {
+    // The last cue often ends on the last word; padding past the file would
+    // give ffmpeg a span it cannot fill.
+    const { start, span } = narrationClipWindow({ start_sec: 297, end_sec: 300 }, 300)
+    assert.ok(start + span <= 300.001)
+  })
+
+  test('an unknown duration still yields a usable clip', () => {
+    // durationSec is best-effort at the call site — it falls back to the last
+    // cue's end. A zero or NaN must not collapse the clip to nothing.
+    for (const bad of [0, Number.NaN, -1]) {
+      const { span } = narrationClipWindow({ start_sec: 10, end_sec: 14 }, bad)
+      assert.equal(span, 5.5)
+    }
   })
 })

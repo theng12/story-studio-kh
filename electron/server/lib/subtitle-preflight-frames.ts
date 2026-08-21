@@ -52,6 +52,19 @@ import type { SubtitleStyleDocument } from '../contracts/subtitle-style.js'
 /** Where through the video each frame is taken from. */
 export const PREFLIGHT_PERCENTS = [0.15, 0.5, 0.85] as const
 
+/** Breathing room either side of a cue in its narration clip. */
+const CLIP_AIR_SEC = 0.75
+/** A cue of two words still needs long enough to be recognisable. */
+const MIN_CLIP_SEC = 2
+/** A runaway cue must not turn a preflight into a download. */
+const MAX_CLIP_SEC = 20
+/**
+ * Below this a clip is a header and no audio. At 96 kbit/s mono the shortest
+ * clip this module will cut (2s) is around 24 kB; a seek past the end of the
+ * narration produces 358 bytes and exit code 0.
+ */
+const MIN_CLIP_BYTES = 4_096
+
 export interface PreflightSample {
   /** 1-based, matching the `_subtitle_preflight_N.png` suffix. */
   index: number
@@ -149,12 +162,54 @@ export function sceneImageAt(
   return last ? { image_path: last.image_path, scene_number: scenes.length } : null
 }
 
+/**
+ * The span of narration to cut for a caption: its own window, plus air.
+ *
+ * The clip must cover the CUE, not a fixed slice around the sampled frame,
+ * because the question is "are these the words being said here" — so what plays
+ * has to be exactly the words on the screen, start to finish. The air either
+ * side matters more than it sounds: a clip beginning on the first phoneme is
+ * heard as clipped, and reads as a rendering fault that is not there.
+ *
+ * Pure, so the window can be tested without ffmpeg or a disk — the same reason
+ * `choosePreflightTimestamps` is.
+ */
+export function narrationClipWindow(
+  cue: { start_sec: number; end_sec: number },
+  durationSec: number,
+): { start: number; span: number } {
+  const start = Math.max(0, cue.start_sec - CLIP_AIR_SEC)
+  const ceiling = Number.isFinite(durationSec) && durationSec > 0 ? durationSec : Number.POSITIVE_INFINITY
+  const end = Math.min(ceiling, cue.end_sec + CLIP_AIR_SEC)
+  // A two-word cue still needs long enough to be recognisable; a runaway one
+  // must not turn a preflight into a download.
+  const span = Math.min(Math.max(end - start, MIN_CLIP_SEC), MAX_CLIP_SEC)
+  return { start: Math.round(start * 1000) / 1000, span: Math.round(span * 1000) / 1000 }
+}
+
 export interface PreflightFrame extends PreflightSample {
   /** Absolute path to the written PNG. */
   path: string
   filename: string
   /** Null when the frame lands during the branded opening. */
   scene_number: number | null
+  /**
+   * The narration under this caption, cut from the merged audio — absolute
+   * path, or null when there is no narration to cut from.
+   *
+   * v1.4.17, and the owner's report is the whole argument: *"this subtitle
+   * render is a good idea but there's nothing for me to hear so I can compare
+   * it at all"*. Reading a caption proves the words exist. It cannot prove they
+   * are the words being spoken at that moment, which is the entire question
+   * this check was built to answer — the failure that started it was EP0048's
+   * captions burned onto EP0047, and both episodes' captions read perfectly
+   * well on their own.
+   */
+  audio_path: string | null
+  audio_filename: string | null
+  /** The span of narration in the clip, so the UI can say what is being heard. */
+  audio_start_sec: number | null
+  audio_end_sec: number | null
 }
 
 export interface PreflightFramesResult {
@@ -181,6 +236,14 @@ export interface RenderPreflightFramesOptions {
   scenes: PreflightSceneRef[]
   openingOffsetSec: number
   durationSec: number
+  /**
+   * The merged narration the render will lay under the video, if there is one.
+   * Cue timestamps are already positions in THIS file — it plays from the
+   * composed video's t=0 — so a clip cut at a cue's own window is exactly the
+   * audio that caption will sit over. Optional: absent means the frames are
+   * still produced, silently, as they were before v1.4.17.
+   */
+  narrationPath?: string | null
 }
 
 /**
@@ -247,7 +310,61 @@ export async function renderSubtitlePreflightFrames(
             '-map', '[v]', '-frames:v', '1', '-y', outPath,
           ]
       await runFfmpeg(args, { timeoutMs: 60_000 })
-      frames.push({ ...sample, path: outPath, filename, scene_number: scene?.scene_number ?? null })
+
+      // The narration under this caption. The clip spans the CUE's own window,
+      // not a fixed slice around the sampled frame, because the question being
+      // answered is "are these the words being said here" — so what plays must
+      // be exactly the words on the screen, start to finish. A little air
+      // either side, because a clip that begins on the first phoneme sounds
+      // clipped and reads as a fault that is not there.
+      let audio = null as { path: string; filename: string; start: number; end: number } | null
+      if (opts.narrationPath) {
+        const cue = opts.cues.find(c => c.index === sample.cue_index)
+        const { start, span } = narrationClipWindow(
+          cue ? { start_sec: cue.start_sec, end_sec: cue.end_sec } : { start_sec: sample.time_sec, end_sec: sample.time_sec },
+          opts.durationSec,
+        )
+        const clipName = `${code}_subtitle_preflight_${sample.index}.mp3`
+        const clipPath = path.join(opts.outDir, clipName)
+        try {
+          // `-ss` before `-i` so a cue an hour in does not read an hour of
+          // audio to reach it; the re-encode makes that seek exact.
+          await runFfmpeg([
+            '-ss', start.toFixed(3), '-t', span.toFixed(3), '-i', opts.narrationPath,
+            '-vn', '-ac', '1', '-c:a', 'libmp3lame', '-b:a', '96k', '-y', clipPath,
+          ], { timeoutMs: 60_000 })
+          // ffmpeg does NOT fail when asked to seek past the end of a file: it
+          // exits 0 having written a header and nothing else. Measured: a
+          // valid 5.5s clip is ~67 kB, a past-the-end one is 358 bytes and
+          // ffprobe refuses to read it. Trusting the exit code alone would put
+          // a player on the page that is silent — the worst outcome available,
+          // because a silent player reads as "the narration is missing" rather
+          // than "the clip was not cut".
+          const bytes = await fs.stat(clipPath).then(st => st.size).catch(() => 0)
+          if (bytes < MIN_CLIP_BYTES) {
+            await fs.rm(clipPath, { force: true }).catch(() => {})
+            audio = null
+          } else {
+            audio = { path: clipPath, filename: clipName, start, end: start + span }
+          }
+        } catch {
+          // A clip that will not cut must not cost the frames. The check still
+          // works exactly as it did before there was audio, and the UI says so
+          // rather than showing a dead player.
+          audio = null
+        }
+      }
+
+      frames.push({
+        ...sample,
+        path: outPath,
+        filename,
+        scene_number: scene?.scene_number ?? null,
+        audio_path: audio?.path ?? null,
+        audio_filename: audio?.filename ?? null,
+        audio_start_sec: audio ? Math.round(audio.start * 1000) / 1000 : null,
+        audio_end_sec: audio ? Math.round(audio.end * 1000) / 1000 : null,
+      })
     }
   } finally {
     await fs.rm(assPath, { force: true }).catch(() => {})
