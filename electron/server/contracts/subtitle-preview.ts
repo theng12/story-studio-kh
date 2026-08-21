@@ -20,6 +20,18 @@
  * exceed a dialog that can never be wider than 1120px.
  */
 
+/**
+ * v1.4.15 — the preview follows the render's ASPECT RATIO, so the SHORT edge is
+ * the constant and the long edge comes from the chosen shape. `_W` / `_H` stay
+ * as the 16:9 canvas they have always named: that is what the burn-vs-preview
+ * agreement test compares against, and what a caller naming no ratio still gets.
+ *
+ * The ratio genuinely matters here rather than being tidiness. Line wrapping,
+ * side margins and how many lines a caption occupies are exactly what this
+ * preview exists to let a person judge, and all three are different on a
+ * 1280-wide frame and a 720-wide one.
+ */
+export const SUBTITLE_PREVIEW_SHORT_EDGE = 720
 export const SUBTITLE_PREVIEW_W = 1280
 export const SUBTITLE_PREVIEW_H = 720
 export const SUBTITLE_PREVIEW_FPS = 24

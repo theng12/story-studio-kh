@@ -9,6 +9,20 @@ import { CUE_SAFE_MARGIN_PCT, resolveContextualCuePosition } from '../contracts/
 // `escapeFilterArgValue` is the only thing between that text and the filtergraph
 // parser; see its contract for why nothing emitted here is quoted.
 
+// Cue type is sized against the frame's SHORT edge (v1.4.15) — `min(w\,h)`
+// below, written as an FFmpeg expression so it resolves against the real canvas
+// at draw time. It used to be `h*…`, which is the same number on every
+// landscape frame (there `h` IS the short edge, so nothing already delivered
+// moves) but the LONG edge in portrait, where a 3% label came out at 58px on a
+// 1080-wide frame and ran off both sides. The comma carries one backslash for
+// the same reason every other value here does: it is emitted into a filtergraph
+// unquoted, where a bare comma would end the filter. See `escapeFilterArgValue`.
+//
+// The 56px corner insets below are deliberately NOT converted. They are a
+// margin rather than a size — 56px reads the same in either orientation — and
+// they are pinned byte-for-byte by `contextual-cue-filters.test.ts` so a cue in
+// an already-delivered episode cannot move.
+
 const MARGIN_FRACTION = (CUE_SAFE_MARGIN_PCT / 100).toFixed(4)
 
 /**
@@ -124,13 +138,13 @@ export function buildContextualCueDrawtextFilters(cue: ContextualCue, offsetSec 
         ? customAxis(pos.xPct, 'text_w', 'w', left ? 34 : -36)
         : (left ? '90' : 'w-text_w-92')
       return [
-        drawCueText('●', `fontcolor=0xf4c75d:fontsize=h*0.030:borderw=1:bordercolor=0x111827@0.85:${common(pinX, cornerY)}`),
-        drawCueText(label, `fontcolor=white:fontsize=h*0.030:line_spacing=10:box=1:boxcolor=0x111827@0.88:boxborderw=16:${common(labelX, cornerY)}`),
+        drawCueText('●', `fontcolor=0xf4c75d:fontsize=min(w\\,h)*0.030:borderw=1:bordercolor=0x111827@0.85:${common(pinX, cornerY)}`),
+        drawCueText(label, `fontcolor=white:fontsize=min(w\\,h)*0.030:line_spacing=10:box=1:boxcolor=0x111827@0.88:boxborderw=16:${common(labelX, cornerY)}`),
       ]
     }
     case 'archival-caption':
       return [
-        drawCueText(label, `fontcolor=0xf4ead1:fontsize=h*0.028:line_spacing=10:borderw=1:bordercolor=0x080808@0.85:box=1:boxcolor=0x2c211b@0.82:boxborderw=18:${common()}`),
+        drawCueText(label, `fontcolor=0xf4ead1:fontsize=min(w\\,h)*0.028:line_spacing=10:borderw=1:bordercolor=0x080808@0.85:box=1:boxcolor=0x2c211b@0.82:boxborderw=18:${common()}`),
       ]
     case 'chapter-plate':
       // A chapter plate is a centred title card by convention, so it keeps
@@ -139,12 +153,12 @@ export function buildContextualCueDrawtextFilters(cue: ContextualCue, offsetSec 
       // because that is a position the customer set on this cue deliberately
       // and it cannot be mistaken for an inherited default.
       return [
-        drawCueText(label, `fontcolor=white:fontsize=h*0.052:line_spacing=16:borderw=2:bordercolor=0x111827@0.9:box=1:boxcolor=0x111827@0.82:boxborderw=30:${pos.custom ? common() : common('(w-text_w)/2', 'h*0.18')}`),
+        drawCueText(label, `fontcolor=white:fontsize=min(w\\,h)*0.052:line_spacing=16:borderw=2:bordercolor=0x111827@0.9:box=1:boxcolor=0x111827@0.82:boxborderw=30:${pos.custom ? common() : common('(w-text_w)/2', 'h*0.18')}`),
       ]
     case 'documentary-label':
     default:
       return [
-        drawCueText(label, `fontcolor=white:fontsize=h*0.032:line_spacing=12:box=1:boxcolor=0x111827@0.88:boxborderw=22:${common()}`),
+        drawCueText(label, `fontcolor=white:fontsize=min(w\\,h)*0.032:line_spacing=12:box=1:boxcolor=0x111827@0.88:boxborderw=22:${common()}`),
       ]
   }
 }

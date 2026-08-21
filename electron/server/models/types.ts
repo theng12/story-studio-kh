@@ -3253,7 +3253,20 @@ export interface GenerateVideoRequest {
   duration?: VideoDurationConfig
   transition: string
   transition_duration: number
+  /** Names the frame's SHORT edge — 1080p is 1080 tall in landscape and 1080
+   *  wide in portrait. The long edge comes from `aspect_ratio`. */
   resolution: '720p' | '1080p' | '1440p' | '4k'
+  /**
+   * The shape of the frame, as a `W:H` string — `'16:9'`, `'9:16'`, `'1:1'`
+   * (v1.4.15). Deliberately NOT a closed union: the assembler parses the ratio
+   * rather than matching it against a list, so a shape nobody has asked for yet
+   * needs no code. The picker offers the common ones and seeds itself from the
+   * project format's `imagePrompts.recommendedAspect`.
+   *
+   * Absent (every preset saved before this release) means 16:9, which is the
+   * only shape Story Studio could produce until now.
+   */
+  aspect_ratio?: string
   quality: 'compact' | 'fast' | 'medium' | 'high'
   /** Frame rate. 24 is cinematic, 30 is YouTube default, 60 is smooth motion.
    *  For still-image sleep stories 24 gives ~20 % smaller files with no
@@ -3364,7 +3377,18 @@ export interface GenerateVideoPromptsRequest {
   style_hint?: string
 }
 
-export interface GenerateVideoRequest {
+/**
+ * The AI Video Generator's request (Veo / Sora / fal-video via GenStudio).
+ *
+ * Renamed from `GenerateVideoRequest` in v1.4.15. It shared that name with the
+ * local FFmpeg assembly request above, IN THE SAME MODULE, so TypeScript
+ * silently MERGED the two: every consumer of either was really typed against
+ * the union of both, and a field present in one was accepted in the other with
+ * no complaint. It surfaced the moment Video Assembly gained an `aspect_ratio`
+ * of its own and collided with this one's `'landscape' | 'portrait'`. Two
+ * requests, two names.
+ */
+export interface GenerateAiVideoRequest {
   episode_id: string
   model: string            // video model ID (e.g. 'kie-veo3-fast')
   mode: VideoGenerationMode

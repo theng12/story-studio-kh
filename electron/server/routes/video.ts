@@ -8,8 +8,10 @@ import fs from 'fs/promises'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import { enqueue, isDuplicate } from '../services/job-queue.js'
-import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, resolveRenderResolution, scanEpisodeAssets } from '../generators/video.js'
+import { checkFfmpeg, prepareUnifiedVideoAssemblyInputs, scanEpisodeAssets } from '../generators/video.js'
 import { renderSubtitlePreflightFrames } from '../lib/subtitle-preflight-frames.js'
+import { canvasForShortEdge, displayAspectRatio, resolveRenderCanvas } from '../lib/render-canvas.js'
+import { inspectSourceAspect } from '../lib/source-aspect.js'
 import { inspectPlanTimelineDrift } from '../lib/scene-plan-timeline.js'
 import { TRANSITIONS, groupedTransitions, getTransition } from '../models/transitions.js'
 import { getAnimation, groupAnimationDefs, toAnimationDef } from '../models/animations.js'
@@ -34,8 +36,7 @@ import { buildSubtitleAssDocument, normalizeSrtOrVtt, parseSrt, trimCuesBeforeSt
 import { normalizeSubtitleStyle, type SubtitleStyleDocument } from '../contracts/subtitle-style.js'
 import { SubtitleStyleValidationError, parseSubtitleStyleDocument } from '../contracts/subtitle-style-schema.js'
 import {
-  SUBTITLE_PREVIEW_W,
-  SUBTITLE_PREVIEW_H,
+  SUBTITLE_PREVIEW_SHORT_EDGE,
   SUBTITLE_PREVIEW_FPS,
   SUBTITLE_PREVIEW_DURATION,
   SUBTITLE_PREVIEW_SAMPLE,
@@ -599,6 +600,15 @@ router.get('/projects/:slug/video-editor/transitions/catalog', async (req, res) 
  * Caching is key — the picker grid requests ~40 previews and we don't want
  * to pay the FFmpeg startup cost on every hover.
  */
+/**
+ * The SHORT edge every preview clip is drawn at (v1.4.15).
+ *
+ * It replaces the three separate `480 × 270` pairs, which were 16:9 whatever
+ * the render was going to be. 270 keeps every landscape preview byte-identical
+ * to the ones already cached.
+ */
+const PREVIEW_SHORT_EDGE = 270
+
 router.get('/projects/:slug/video-editor/preview-transition', async (req, res) => {
   const { slug } = req.params
 
@@ -628,13 +638,20 @@ router.get('/projects/:slug/video-editor/preview-transition', async (req, res) =
     } catch { /* fall through to synthetic */ }
   }
 
-  const W = 480, H = 270, FPS = 24
+  // v1.4.15 — the preview follows the render's shape. A crossfade looks the
+  // same in any frame, but the picker sits beside the effect picker, and one
+  // landscape thumbnail among portrait ones reads as a bug.
+  const { w: W, h: H } = canvasForShortEdge(PREVIEW_SHORT_EDGE, req.query.aspect_ratio as string | undefined)
+  const FPS = 24
   const clipSec = 1 // each clip length (so xfade offset at duration - transition)
   const totalSec = clipSec + duration
   const keyParts = [
     'transition-v2',
     def.xfade,
     duration.toFixed(2),
+    // The canvas is part of the picture now, so it is part of the cache key —
+    // without it a portrait request is served the landscape clip already on disk.
+    `${W}x${H}`,
     imgA ? `a:${imgA}` : 'a:synthetic-warm',
     imgB ? `b:${imgB}` : 'b:synthetic-cool',
   ]
@@ -715,11 +732,13 @@ router.get('/projects/:slug/video-editor/preview-animation', async (req, res) =>
     } catch { /* fall through */ }
   }
 
-  const W = 480, H = 270, FPS = 24, DURATION = 2
+  const { w: W, h: H } = canvasForShortEdge(PREVIEW_SHORT_EDGE, req.query.aspect_ratio as string | undefined)
+  const FPS = 24, DURATION = 2
   const key = [
     'animation-v2',
     def.id,
     srcImage ? `img:${srcImage}` : 'img:synthetic',
+    `${W}x${H}`,
   ].join('|')
 
   try {
@@ -808,8 +827,6 @@ router.get('/projects/:slug/video-editor/subtitles/catalog', async (_req, res) =
   res.json(await listSubtitleStylePresets())
 })
 
-const EFFECT_PREVIEW_W = 480
-const EFFECT_PREVIEW_H = 270
 const EFFECT_PREVIEW_FPS = 24
 /** Long enough for a drifting light leak or a slow push to read. */
 const EFFECT_PREVIEW_DURATION = 3
@@ -826,8 +843,13 @@ async function renderEffectPreview(
   motion: SceneMotionDocument | null,
   overlays: SceneOverlayDocument[],
   backdrop: string | null,
-): Promise<string> {
-  const W = EFFECT_PREVIEW_W, H = EFFECT_PREVIEW_H
+  aspect?: string,
+): Promise<{ token: string; width: number; height: number }> {
+  // v1.4.15 — this preview MUST follow the ratio. Corner logos, lower thirds,
+  // gradient scrims and cinematic bars are all laid out against the frame, so a
+  // landscape preview of an overlay bound for a portrait render is exactly the
+  // "looks shipped" lie this release set out to avoid.
+  const { w: W, h: H } = canvasForShortEdge(PREVIEW_SHORT_EDGE, aspect)
   const FPS = EFFECT_PREVIEW_FPS, DURATION = EFFECT_PREVIEW_DURATION
   const key = [
     'effect-v1',
@@ -900,7 +922,7 @@ async function renderEffectPreview(
     await runFfmpeg(args, { timeoutMs: 90_000 })
   })
 
-  return cacheToken(key, 'webm')
+  return { token: cacheToken(key, 'webm'), width: W, height: H }
 }
 
 /**
@@ -958,13 +980,13 @@ router.post('/projects/:slug/video-editor/preview-effect', async (req, res) => {
       return res.status(501).json({ detail: 'FFmpeg build lacks drawtext — text overlays cannot be rendered' })
     }
     const backdrop = await subtitlePreviewBackdrop(slug, typeof body.episode === 'string' ? body.episode : undefined)
-    const token = await renderEffectPreview(motion, overlays, backdrop)
+    const preview = await renderEffectPreview(motion, overlays, backdrop, body.aspect_ratio)
     res.json({
-      token,
-      url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-effect?token=${encodeURIComponent(token)}`,
+      token: preview.token,
+      url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-effect?token=${encodeURIComponent(preview.token)}`,
       duration_sec: EFFECT_PREVIEW_DURATION,
-      width: EFFECT_PREVIEW_W,
-      height: EFFECT_PREVIEW_H,
+      width: preview.width,
+      height: preview.height,
       approximations: overlays
         .map(o => library.overlays.find(b => b.document.kind === o.kind)?.approximation)
         .filter(Boolean),
@@ -1391,9 +1413,12 @@ async function renderSubtitlePreview(
   style: SubtitleStyleDocument,
   sampleText: string,
   backdrop: string | null,
-): Promise<string> {
-  const W = SUBTITLE_PREVIEW_W
-  const H = SUBTITLE_PREVIEW_H
+  aspect?: string,
+): Promise<{ token: string; width: number; height: number }> {
+  // v1.4.15 — the preview is drawn at the render's own SHAPE. Where a caption
+  // wraps, how wide its margins sit and how many lines it takes are the things
+  // this preview exists to show, and none of them survive a change of ratio.
+  const { w: W, h: H } = canvasForShortEdge(SUBTITLE_PREVIEW_SHORT_EDGE, aspect)
   const FPS = SUBTITLE_PREVIEW_FPS
   const DURATION = SUBTITLE_PREVIEW_DURATION
   const key = [
@@ -1435,7 +1460,7 @@ async function renderSubtitlePreview(
     }
   })
 
-  return cacheToken(key, 'webm')
+  return { token: cacheToken(key, 'webm'), width: W, height: H }
 }
 
 function streamPreview(res: any, file: string): void {
@@ -1466,13 +1491,13 @@ router.post('/projects/:slug/video-editor/preview-subtitles', async (req, res) =
       ? truncateChars(String(body.text), 400)
       : SUBTITLE_PREVIEW_SAMPLE
     const backdrop = await subtitlePreviewBackdrop(slug, typeof body.episode === 'string' ? body.episode : undefined)
-    const token = await renderSubtitlePreview(style, sampleText, backdrop)
+    const preview = await renderSubtitlePreview(style, sampleText, backdrop, body.aspect_ratio)
     res.json({
-      token,
-      url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-subtitles?token=${encodeURIComponent(token)}`,
+      token: preview.token,
+      url: `/api/projects/${encodeURIComponent(slug)}/video-editor/preview-subtitles?token=${encodeURIComponent(preview.token)}`,
       duration_sec: SUBTITLE_PREVIEW_DURATION,
-      width: SUBTITLE_PREVIEW_W,
-      height: SUBTITLE_PREVIEW_H,
+      width: preview.width,
+      height: preview.height,
       word_precision: style.word.mode === 'off' ? null : 'estimated',
     })
   } catch (e: any) {
@@ -1523,8 +1548,10 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
   }
   try {
     const backdrop = await subtitlePreviewBackdrop(slug, req.query.episode as string | undefined)
-    const produced = await renderSubtitlePreview(normalizeSubtitleStyle(legacy), sampleText, backdrop)
-    const file = cachedFileForToken(produced)
+    const produced = await renderSubtitlePreview(
+      normalizeSubtitleStyle(legacy), sampleText, backdrop, req.query.aspect_ratio as string | undefined,
+    )
+    const file = cachedFileForToken(produced.token)
     if (!file) throw new Error('preview render produced no readable output')
     streamPreview(res, file)
   } catch (e: any) {
@@ -1555,10 +1582,22 @@ router.post('/projects/:slug/video-editor/subtitle-preflight/:episodeId', async 
   const body = { ...(req.body || {}), episode_id: episodeId }
   try {
     const assets = await prepareUnifiedVideoAssemblyInputs(slug, episodeId, body)
+    const { w, h } = resolveRenderCanvas(body.resolution, body.aspect_ratio)
+    // Whether the scene images fit the chosen frame is a question about the
+    // RENDER, not about the captions, so it is answered even when subtitles are
+    // switched off — which is precisely the case where nothing else would say it.
+    const sourceAspect = await inspectSourceAspect(
+      (body.scenes || []).map((s: any) => s?.image_path).filter(Boolean),
+      w, h,
+    ).catch(() => null)
+
     const srtPath = body.subtitles?.srt_path
     if (!body.subtitles?.enabled || !srtPath || !existsSync(srtPath)) {
       return res.json({
         frames: [],
+        resolution: `${w}x${h}`,
+        aspect_ratio: displayAspectRatio(body.aspect_ratio, w, h),
+        source_aspect: sourceAspect,
         // Not an error: subtitles may simply be switched off, or this episode
         // may have no transcript at all. The page says which, rather than
         // showing an empty panel that looks like a broken feature.
@@ -1568,7 +1607,6 @@ router.post('/projects/:slug/video-editor/subtitle-preflight/:episodeId', async 
       })
     }
 
-    const { w, h } = resolveRenderResolution(body.resolution)
     const openingSec = assets.scene_plan_timing?.opening_reserved_sec || 0
     // Same rule the renderer applies: captions sit out the opening when there
     // IS one, unless the customer said otherwise.
@@ -1604,6 +1642,8 @@ router.post('/projects/:slug/video-editor/subtitle-preflight/:episodeId', async 
     res.json({
       ...result,
       resolution: `${w}x${h}`,
+      aspect_ratio: displayAspectRatio(body.aspect_ratio, w, h),
+      source_aspect: sourceAspect,
       duration_sec: durationSec,
       hide_during_intro: hideIntro,
       opening_reserved_sec: openingSec,

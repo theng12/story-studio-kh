@@ -245,6 +245,11 @@ export function useVideoAssemblyIo(s: VideoAssemblyIoState) {
       transition_pool: s.transition.pool,
       transition_randomize: s.transition.randomize_mode,
       resolution: s.exportSettings.resolution,
+      // v1.4.15 — the frame's shape. Rides in the same payload as the
+      // resolution, which means the caption preflight (built from this exact
+      // function) draws its frames at the render's real shape without any
+      // separate wiring.
+      aspect_ratio: s.exportSettings.aspect_ratio,
       quality: s.exportSettings.quality,
       fps: s.exportSettings.fps,
       encoding_effort: s.exportSettings.encoding_effort,

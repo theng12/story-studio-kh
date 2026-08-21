@@ -94,6 +94,9 @@ interface TransitionDef {
 const props = defineProps<{
   slug: string
   episodeId?: string
+  /** The render's shape, so the preview is drawn in the frame the transition
+   *  will actually land in (v1.4.15). Omitted = 16:9, as it always was. */
+  aspectRatio?: string
   transitions: TransitionDef[]
   primaryId: string
   pool: string[]
@@ -145,7 +148,7 @@ const selectionSummary = computed(() => {
 
 function previewUrl(id: string): string {
   const ep = props.episodeId ? `&episode=${encodeURIComponent(props.episodeId)}` : ''
-  return `/api/projects/${props.slug}/video-editor/preview-transition?type=${encodeURIComponent(id)}&duration=${props.duration.toFixed(2)}${ep}`
+  return `/api/projects/${props.slug}/video-editor/preview-transition?type=${encodeURIComponent(id)}&duration=${props.duration.toFixed(2)}${ep}${props.aspectRatio ? `&aspect_ratio=${encodeURIComponent(props.aspectRatio)}` : ''}`
 }
 
 function setPrimary(id: string) {

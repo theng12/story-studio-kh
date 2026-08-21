@@ -33,7 +33,7 @@ import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
-import type { GenerateVideoRequest, Job } from '../models/types.js'
+import type { GenerateAiVideoRequest, Job } from '../models/types.js'
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
   async function walk(dir: string, depth: number): Promise<string | null> {
@@ -69,7 +69,7 @@ async function findFileRecursive(dir: string, filenames: string[], depth = 0): P
   return null
 }
 
-async function loadPrompts(slug: string, episodeId: string, req: GenerateVideoRequest): Promise<Array<{ number: number; title: string; prompt: string }>> {
+async function loadPrompts(slug: string, episodeId: string, req: GenerateAiVideoRequest): Promise<Array<{ number: number; title: string; prompt: string }>> {
   const code = episodeId.toUpperCase()
 
   if (req.prompt_source === 'manual') {
@@ -133,7 +133,7 @@ async function loadSceneImages(slug: string, episodeId: string): Promise<Array<{
 
 export async function generateAiVideo(job: Job): Promise<void> {
   const { project_slug, episode_id, params } = job
-  const req = params as GenerateVideoRequest
+  const req = params as GenerateAiVideoRequest
 
   // Phase-wide download metrics (one tracker shared across every clip).
   // Veo clips can be hundreds of MB each — streaming bytes through the

@@ -77,7 +77,7 @@ function makeState() {
     titleCard:     reactive({ enabled: false, text: 'T', duration: 3, style: 'gold', background: '#000' }),
     chapterTitles: reactive({ enabled: false, style: 'gold', position: 'center', duration: 2.5, font_size: 'medium' }),
     outroCard:     reactive({ enabled: false, text: '', duration: 3, style: 'gold' }),
-    exportSettings: reactive({ resolution: '1080p', quality: 'high', format: 'mp4' }),
+    exportSettings: reactive({ resolution: '1080p', aspect_ratio: '9:16', quality: 'high', format: 'mp4' }),
     subtitles:     reactive({ enabled: false, source: 'chapters', srt_path: '', style: {} }),
     generating:    ref(false),
     jobOutput:     ref<string[]>([]),
@@ -116,6 +116,12 @@ describe('useVideoAssemblyIo.generateVideo()', () => {
     assert.equal(capturedBody.narration_path, undefined)
     assert.equal(capturedBody.merged_audio_path, undefined)
     assert.equal(capturedBody.scene_pool_mode, 'scene_plan')
+
+    // v1.4.15 — the frame's shape has to reach the backend, and it has to
+    // reach it through THIS builder: the caption preflight posts the same
+    // payload, so a preflight drawn at the wrong shape would prove nothing.
+    assert.equal(capturedBody.resolution, '1080p')
+    assert.equal(capturedBody.aspect_ratio, '9:16')
 
     // v1.0.354+: target-duration padding was removed. Video length follows
     // narration, with post-audio as the only intentional tail extension.

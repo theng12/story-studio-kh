@@ -33,8 +33,10 @@
  * judge.
  *
  * Representative: the picture behind them. The scene image visible at that
- * moment is drawn at the render's resolution with the same crop-fill, but Ken
- * Burns motion, transitions, grading, overlays and the logo are not reproduced —
+ * moment is drawn on the render's own canvas, fitted and padded exactly as the
+ * assembler fits it — so a portrait render of landscape stills shows the real
+ * black bars — but Ken Burns motion, transitions, grading, overlays and the
+ * logo are not reproduced —
  * this is a preflight check that must cost seconds, not a second render. The UI
  * says so, because a preview that quietly differs from the render is the defect
  * this module exists to catch.
@@ -225,10 +227,16 @@ export async function renderSubtitlePreflightFrames(
         ? [
             ...(await stillDecoderArgs(scene.image_path).catch(() => [] as string[])),
             '-loop', '1', '-t', '1', '-i', scene.image_path,
-            // Same crop-fill the renderer normalises a scene to the canvas with.
+            // v1.4.15 — fit-and-pad, which is what `normalizeFrame` actually
+            // does to a still scene. This used to crop-fill, and the comment
+            // beside it claimed that was what the renderer did. It was not, and
+            // the difference was invisible only because every canvas was 16:9
+            // and so was every scene image. At 9:16 it is the entire point: the
+            // frame has to show the black bars the render will really have, or
+            // it is a preview that hides the one thing worth previewing.
             '-filter_complex',
-            `[0:v]scale=${opts.width}:${opts.height}:force_original_aspect_ratio=increase,`
-            + `crop=${opts.width}:${opts.height},${place}[v]`,
+            `[0:v]scale=${opts.width}:${opts.height}:force_original_aspect_ratio=decrease,`
+            + `pad=${opts.width}:${opts.height}:(ow-iw)/2:(oh-ih)/2:color=black,${place}[v]`,
             '-map', '[v]', '-frames:v', '1', '-y', outPath,
           ]
         : [

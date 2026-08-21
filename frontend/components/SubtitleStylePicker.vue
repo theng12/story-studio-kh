@@ -417,6 +417,9 @@ import { BUILT_IN_SUBTITLE_PRESETS, type BuiltInSubtitlePreset } from '@shared/s
 const props = defineProps<{
   slug: string
   episodeId?: string
+  /** The render's shape. Where a caption wraps and how wide its margins sit are
+   *  exactly what this preview is for, and both change with the frame. */
+  aspectRatio?: string
   style: SubtitleStyleDocument
   backdropUrl?: string
   sampleText: string
@@ -794,6 +797,7 @@ async function renderExact() {
       {
         style: props.style,
         text: props.sampleText,
+        ...(props.aspectRatio ? { aspect_ratio: props.aspectRatio } : {}),
         ...(props.episodeId ? { episode: props.episodeId } : {}),
       },
     )

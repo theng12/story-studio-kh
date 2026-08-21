@@ -636,6 +636,7 @@
           v-else
           :slug="slug"
           :episode-id="episodeId"
+          :aspect-ratio="exportSettings.aspect_ratio"
           :transitions="transitionsCatalog"
           :primary-id="transition.type"
           :pool="transition.pool"
@@ -674,6 +675,7 @@
           v-else
           :slug="slug"
           :episode-id="episodeId"
+          :aspect-ratio="exportSettings.aspect_ratio"
           :animations="animationsCatalog"
           :primary-id="sceneAnimation.type"
           :pool="sceneAnimation.pool"
@@ -1359,6 +1361,7 @@
           v-model="sceneEffects"
           :slug="slug"
           :episode-id="episodeId"
+          :aspect-ratio="exportSettings.aspect_ratio"
           :get="get"
           :post="post"
         />
@@ -2082,6 +2085,7 @@
           <SubtitleStylePicker
             :slug="slug"
             :episode-id="episodeId"
+            :aspect-ratio="exportSettings.aspect_ratio"
             :style="subtitles.style"
             :backdrop-url="subtitleBackdropUrl"
             :sample-text="sampleSubtitleText"
@@ -2095,9 +2099,10 @@
         <div class="settings-section mt-2">
           <h4>Caption check</h4>
           <p class="text-muted text-sm">
-            Three frames from this episode, with the captions burned in exactly as the render will burn
-            them. Look at them before rendering — the words, their timing and their placement are the
-            render's own; the picture behind them skips motion, grading and overlays.
+            Three frames from this episode, at the render's real size and shape, with the captions burned
+            in exactly as the render will burn them. Look at them before rendering — the words, their
+            timing, their placement and the frame they sit in are the render's own; the picture behind
+            them skips motion, grading and overlays.
           </p>
 
           <div class="flex gap-2 items-center mt-2">
@@ -2106,7 +2111,8 @@
               {{ preflightRunning ? 'Rendering frames…' : subtitlePreflight ? 'Check again' : 'Check captions' }}
             </button>
             <span v-if="subtitlePreflight?.frames?.length" class="text-muted text-sm">
-              {{ subtitlePreflight.subtitle_filename }} · {{ subtitlePreflight.resolution }} ·
+              {{ subtitlePreflight.subtitle_filename }} ·
+              {{ subtitlePreflight.resolution }} ({{ subtitlePreflight.aspect_ratio }}) ·
               {{ (subtitlePreflight.elapsed_ms / 1000).toFixed(1) }}s
             </span>
           </div>
@@ -2114,6 +2120,18 @@
           <p v-if="subtitlePreflight?.skipped" class="text-muted text-sm mt-2">
             {{ subtitlePreflight.skipped }}
           </p>
+
+          <!-- v1.4.15 — said BEFORE the encode rather than discovered after it.
+               Shown whether or not there are caption frames, because a shape
+               mismatch is a fact about the render, not about the captions. -->
+          <WorkspaceNotice
+            v-if="subtitlePreflight?.source_aspect?.message"
+            tone="warning"
+            title="Your pictures are not the shape of this render"
+            class="mt-2"
+          >
+            {{ subtitlePreflight.source_aspect.message }}
+          </WorkspaceNotice>
 
           <div v-if="subtitlePreflight?.frames?.length" class="preflight-frames mt-2">
             <figure v-for="frame in subtitlePreflight.frames" :key="frame.filename" class="preflight-frame">
@@ -2233,15 +2251,39 @@
         <div class="form-group">
           <label>Resolution</label>
           <select v-model="exportSettings.resolution" class="select">
-            <option value="720p">720p — 1280×720</option>
-            <option value="1080p">1080p — 1920×1080 (YouTube standard)</option>
-            <option value="1440p">1440p — 2560×1440</option>
-            <option value="4k">4K — 3840×2160</option>
+            <option v-for="tier in resolutionOptions" :key="tier.value" :value="tier.value">
+              {{ tier.label }}
+            </option>
           </select>
           <p class="text-muted text-sm mt-1">
             Bigger = sharper on larger screens, but file size scales roughly with pixel count.
             <strong>720p</strong> is ~44 % smaller than 1080p with barely-perceptible loss
             on sleep-story content (audience eyes are closed).
+          </p>
+        </div>
+
+        <!-- Aspect ratio -->
+        <div class="form-group">
+          <label>Aspect Ratio</label>
+          <select v-model="exportSettings.aspect_ratio" class="select">
+            <option v-for="opt in aspectOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+          <p class="text-muted text-sm mt-1">
+            This render will be <strong>{{ renderCanvas.w }}×{{ renderCanvas.h }}</strong>.
+            <template v-if="formatRecommendedAspect && formatRecommendedAspect !== exportSettings.aspect_ratio">
+              This channel's format recommends {{ formatRecommendedAspect }} —
+              <button type="button" class="aspect-format-link"
+                      @click="exportSettings.aspect_ratio = formatRecommendedAspect">
+                use that instead
+              </button>.
+            </template>
+            <template v-else-if="formatRecommendedAspect">
+              Seeded from this channel's format.
+            </template>
+            Scene images are fitted inside the frame, so pictures of a different shape get black
+            bars. Run the caption check below to see the real frame before you render.
           </p>
         </div>
 
@@ -2483,8 +2525,11 @@
             <span>{{ transitionLabel }} ({{ transition.type === 'none' ? 'N/A' : transition.duration.toFixed(1) + 's' }})</span>
           </div>
           <div class="summary-row">
-            <span class="text-muted">Resolution</span>
-            <span>{{ exportSettings.resolution }}</span>
+            <span class="text-muted">Frame</span>
+            <span>
+              {{ renderCanvas.w }}×{{ renderCanvas.h }} ·
+              {{ exportSettings.resolution }} {{ exportSettings.aspect_ratio }}
+            </span>
           </div>
           <div class="summary-row">
             <span class="text-muted">Render location</span>
@@ -2557,6 +2602,7 @@
 import type { CSSProperties } from 'vue'
 import { applyTitleImagePreset, snapshotTitleImagePreset } from '~/utils/video-assembly-presets'
 import { describeMergedAudioOpening } from '~/utils/merged-audio-opening'
+import { aspectRatioOptions, canvasFor, parseAspectRatio, DEFAULT_ASPECT_RATIO } from '~/utils/aspect-ratios'
 import { describeSubtitleBurn } from '~/utils/subtitle-episode-selection'
 import {
   applyOverlayTimings,
@@ -3733,11 +3779,21 @@ interface SubtitlePreflightFrame {
   cue_text: string
   scene_number: number | null
 }
+/** v1.4.15 — the shape check travels with the frames. See `lib/source-aspect.ts`. */
+interface SourceAspectReport {
+  checked: number
+  mismatched: number
+  source_aspect: string
+  canvas_aspect: string
+  message: string
+}
 const subtitlePreflight = ref<{
   frames: SubtitlePreflightFrame[]
   subtitle_filename: string
   elapsed_ms: number
   resolution: string
+  aspect_ratio?: string
+  source_aspect?: SourceAspectReport | null
   skipped?: string
 } | null>(null)
 const preflightRunning = ref(false)
@@ -3786,12 +3842,6 @@ function formatPreflightTime(sec: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-// Anything that changes what the captions will look like invalidates the frames
-// he approved. A confirmation that outlives the thing it was about is worthless.
-watch(
-  () => [subtitles.enabled, subtitles.hide_during_intro, JSON.stringify(subtitles.style)].join('|'),
-  () => resetSubtitlePreflight(),
-)
 
 // Subtitle creation moved to the dedicated Subtitles tab. Video Assembly only
 // reads the existing SRT list (via loadSubtitlesStatus above) to let the user
@@ -3831,6 +3881,8 @@ const outroCard = reactive({
 // --------------- Step 6: Export ---------------
 const exportSettings = reactive<{
   resolution: '720p' | '1080p' | '1440p' | '4k'
+  /** A `W:H` string, not a closed union — see `~/utils/aspect-ratios`. */
+  aspect_ratio: string
   quality: 'compact' | 'fast' | 'medium' | 'high'
   fps: 24 | 25 | 30 | 60
   encoding_effort: 'ultrafast' | 'medium' | 'slow' | 'hardware'
@@ -3838,12 +3890,77 @@ const exportSettings = reactive<{
   format: 'mp4' | 'mov' | 'webm'
 }>({
   resolution: '1080p',
+  // 16:9 until the channel's format says otherwise (seeded below) or he picks.
+  aspect_ratio: DEFAULT_ASPECT_RATIO,
   quality: 'high',
   fps: 30,
   encoding_effort: 'medium',
   codec: 'h264',
   format: 'mp4',
 })
+
+/**
+ * What this channel's format recommends, or '' when it says nothing.
+ *
+ * `imagePrompts.recommendedAspect` already exists, is already typed, and is
+ * already what the Scene and Thumbnail generators default their aspect to —
+ * so the video follows the same declaration rather than a second setting that
+ * could disagree with it. It is a DEFAULT, never a lock: the picker still
+ * offers everything, and a saved preset still wins.
+ */
+const formatRecommendedAspect = ref('')
+
+/** The frame the current pair of choices will actually produce. */
+const renderCanvas = computed(() => canvasFor(exportSettings.resolution, exportSettings.aspect_ratio))
+
+/**
+ * The picker's shapes, plus whatever this channel's format asks for so an
+ * unusual recommendation is reachable without editing any list.
+ */
+const aspectOptions = computed(() =>
+  aspectRatioOptions(formatRecommendedAspect.value, exportSettings.aspect_ratio))
+
+/**
+ * Resolution labels carry the real pixel dimensions, which now depend on the
+ * chosen shape — "1080p — 1920×1080" is a lie on a vertical render.
+ */
+const RESOLUTION_TIERS = [
+  { value: '720p', name: '720p' },
+  { value: '1080p', name: '1080p', note: 'YouTube standard' },
+  { value: '1440p', name: '1440p' },
+  { value: '4k', name: '4K' },
+]
+const resolutionOptions = computed(() => RESOLUTION_TIERS.map((tier) => {
+  const c = canvasFor(tier.value, exportSettings.aspect_ratio)
+  // "1080p — 1920×1080 (YouTube standard)" is true of the widescreen frame and
+  // of no other, so the note travels with the shape it belongs to rather than
+  // sitting beside "1080×1920" claiming to be the standard.
+  const note = tier.note && c.w >= c.h ? ` (${tier.note})` : ''
+  return { value: tier.value, label: `${tier.name} — ${c.w}×${c.h}${note}` }
+}))
+
+// Anything that changes what the captions will look like invalidates the frames
+// he approved. A confirmation that outlives the thing it was about is worthless.
+//
+// v1.4.15 adds the canvas to that list. Frame size and shape set the caption's
+// PlayRes, its wrap width and its margins, so an approved frame drawn at
+// 1920×1080 says nothing about the same captions at 1080×1920 — and after this
+// release the shape can change with one click. (Resolution belonged here
+// before this release too and did not; that is fixed with the same line.)
+//
+// Registered AFTER `exportSettings` is declared, and it must stay there:
+// `watch` evaluates its getter once immediately to collect dependencies, so a
+// getter naming `exportSettings` from above that `const` is a temporal-dead-zone
+// error that takes the whole page down with a 500. No gate saw it — typecheck
+// cannot see initialisation order and no test mounts this page; opening the
+// page in a browser found it in one load.
+watch(
+  () => [
+    subtitles.enabled, subtitles.hide_during_intro, JSON.stringify(subtitles.style),
+    exportSettings.resolution, exportSettings.aspect_ratio,
+  ].join('|'),
+  () => resetSubtitlePreflight(),
+)
 
 /**
  * Quality-tier → CRF value. Mirrors `QUALITY_PRESETS` in the backend;
@@ -4576,6 +4693,12 @@ const estimatedFileSize = computed(() => {
 // live in the PresetPicker above; these are the "I just want a good default
 // without learning CRF" escape hatches. Each previews its estimated size
 // + render time using the same factor math as the live estimator below.
+//
+// They deliberately carry NO `aspect_ratio` (v1.4.15). These are compression
+// choices — how big the file is and how long the encode takes — and the frame's
+// shape is not one. A "Fast draft" click must not turn a Short back into a
+// widescreen video; see the Preset Boundaries section of AGENTS.md. Do not
+// "complete" these objects by adding a shape to them.
 interface QuickExportPreset {
   id: string
   label: string
@@ -5440,6 +5563,17 @@ const formatDefaultTimelineClipDurationSec = ref<number>(7200)
 async function applyVideoFormatDefaultsIfNoPreset() {
   try {
     const f = await get<any>(`/projects/${slug.value}/effective-format`)
+    // The shape the channel's own format asks for. Read before the
+    // `videoDefaults` guard below, because a format may declare a recommended
+    // aspect and no video defaults at all.
+    const recommended = f?.imagePrompts?.recommendedAspect
+    if (typeof recommended === 'string' && parseAspectRatio(recommended)) {
+      formatRecommendedAspect.value = recommended
+      // Seeding, not forcing: this runs BEFORE saved presets load, so a preset
+      // the customer saved himself still wins — same order every other
+      // format-seeded default on this page uses.
+      exportSettings.aspect_ratio = recommended
+    }
     const v = f?.script?.videoDefaults
     if (!v) return
     if (typeof v.secondsPerScene === 'number' && v.secondsPerScene > 0) {
@@ -5620,6 +5754,20 @@ onUnmounted(() => {
 }
 .preflight-frame figcaption { margin-top: 4px; }
 .preflight-cue { font-style: italic; }
+
+/* A plain inline link inside the aspect hint. Written out rather than reusing
+   `.btn-link`, which exists only as a scoped rule on two other pages and would
+   therefore have matched nothing here. */
+.aspect-format-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.aspect-format-link:hover { color: var(--accent-hover); }
 
 /* Color-grading "Fine-Tune" hint sits very close to the label above. */
 .fine-tune-hint { margin: 2px 0 6px; }

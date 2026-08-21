@@ -163,6 +163,9 @@ interface AppliedOverlay {
 const props = defineProps<{
   slug: string
   episodeId?: string
+  /** The render's shape. Corner logos, lower thirds, scrims and cinematic bars
+   *  are laid out against the frame, so the preview has to use the real one. */
+  aspectRatio?: string
   /** `useApi().get` / `.post`, passed in so this component owns no transport. */
   get: (url: string) => Promise<any>
   post: (url: string, body: unknown) => Promise<any>
@@ -336,6 +339,7 @@ async function preview(entry: OverlayEntry): Promise<void> {
       overlays: [{ id: entry.id, params: applied(entry)?.params || {} }],
     }
     if (props.episodeId) body.episode = props.episodeId
+    if (props.aspectRatio) body.aspect_ratio = props.aspectRatio
     const result = await props.post(`/projects/${props.slug}/video-editor/preview-effect`, body)
     previewUrls[entry.id] = result.url
   } catch (e: any) {

@@ -38,6 +38,8 @@ import { getWorkTempDir } from '../lib/work-tempdir.js'
 import { resolveSceneImagesDir } from './scene-image.js'
 import { resolveVideoAssetsDir } from './scene-clip.js'
 import { buildVideoFrameFilter } from '../lib/video-frame-filter.js'
+import { displayAspectRatio, frameTextUnit, resolveRenderCanvas } from '../lib/render-canvas.js'
+import { inspectSourceAspect } from '../lib/source-aspect.js'
 import { buildContextualCueDrawtextFilters } from '../lib/contextual-cue-filters.js'
 import { measureOpeningSec } from '../lib/opening-duration.js'
 import {
@@ -49,7 +51,7 @@ import {
   calculateLogoPosition,
   computeVignetteAngle,
 } from '../lib/video-effects.js'
-import { compileSceneOverlay } from '../lib/scene-effect-compiler.js'
+import { compileSceneOverlay, letterboxBarHeight } from '../lib/scene-effect-compiler.js'
 import { assertNoUnavailablePackOverlays, resolveAppliedOverlays } from '../contracts/scene-effect-presets.js'
 import { listSceneEffectLibrary } from '../services/style-effect-loader.js'
 import { requireJobCompletion, declareJobDegraded } from '../services/job-completion.js'
@@ -82,22 +84,12 @@ import type {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
-const RESOLUTIONS: Record<string, { w: number; h: number }> = {
-  '720p':  { w: 1280, h: 720 },
-  '1080p': { w: 1920, h: 1080 },
-  '1440p': { w: 2560, h: 1440 },
-  '4k':    { w: 3840, h: 2160 },
-}
-
-/**
- * The canvas a render will use. Exported (v1.4.0) so the caption preflight draws
- * its frames at the render's own resolution — `buildSubtitleAssDocument` sets
- * PlayRes from these numbers, so a preflight at a different size would describe
- * a differently-scaled caption from the one that gets burned.
- */
-export function resolveRenderResolution(resolution?: string): { w: number; h: number } {
-  return RESOLUTIONS[resolution || ''] || RESOLUTIONS['1080p']!
-}
+// The canvas a render will use now lives in `lib/render-canvas.ts`, along with
+// the four hardcoded landscape sizes this file used to hold (v1.4.15). The
+// caption preflight imports it from there directly — it must draw its frames at
+// the render's own canvas, because `buildSubtitleAssDocument` takes its PlayRes
+// from these numbers and a preflight at another size would describe a
+// differently-scaled caption from the one that gets burned.
 
 const TIMESTAMP_SCENE_IMAGES_SUBFOLDER = 'scene_images'
 const SCENE_PLAN_FILENAME = 'scene_plan.json'
@@ -1336,7 +1328,10 @@ export async function generateVideo(job: Job): Promise<void> {
     throw new Error(`Narration audio not found: ${req.narration_path}`)
   }
 
-  const { w, h } = RESOLUTIONS[req.resolution] || RESOLUTIONS['1080p']
+  const { w, h } = resolveRenderCanvas(req.resolution, req.aspect_ratio)
+  // The canvas is now two choices rather than one, so the log says which frame
+  // is being drawn before anything is drawn on it.
+  job.output_lines.push(`Canvas: ${w}×${h} (${displayAspectRatio(req.aspect_ratio, w, h)}, ${req.resolution || '1080p'})`)
   const baseQuality = QUALITY_PRESETS[req.quality] || QUALITY_PRESETS['medium']
   const fps = req.fps ?? DEFAULT_FPS
   // Every clip-prep function reads from this shared bag. `fps` hitches a
@@ -1842,6 +1837,18 @@ export async function generateVideo(job: Job): Promise<void> {
         job.output_lines.push(`Intro captions: could not trim (${e?.message || e}) — burning the full SRT.`)
       }
     }
+
+    // Do the scene images fit the frame he asked for? Letterboxing a set of
+    // 16:9 stills into a 9:16 canvas is not an error, but finding out about it
+    // by watching the finished Short is the expensive way. Said here, before
+    // any encode, and never fatal — see `lib/source-aspect.ts`.
+    try {
+      const shapes = await inspectSourceAspect(
+        (req.scenes || []).map(s => s.image_path).filter(Boolean),
+        w, h,
+      )
+      if (shapes.message) job.output_lines.push(`⚠ ${shapes.message}`)
+    } catch { /* a shape check must never be the thing that fails a render */ }
 
     // ── Caption preflight frames, for an UNATTENDED render (v1.4.0) ────────
     //
@@ -2757,7 +2764,10 @@ async function prepareSceneClips(
     // so older projects render byte-identically. See
     // VideoChapterTitles.animation in types.ts for preset semantics.
     if (canDrawtext && chapterTitles?.enabled && scene.title && scene.show_title) {
-      const fontSize = getFontSize(chapterTitles.font_size, h)
+      // Size against the SHORT edge (identical to `h` on any landscape canvas),
+      // position against the height — a vertical fraction is still a vertical
+      // fraction in portrait, but `h/18` is nearly twice too big there.
+      const fontSize = getFontSize(chapterTitles.font_size, frameTextUnit(w, h))
       const yPos = getTextPosition(chapterTitles.position, h)
       const fontColor = getStyleColor(chapterTitles.style)
       const titleDur = chapterTitles.duration || 3
@@ -2918,8 +2928,20 @@ async function prepareTextCardClip(
   }
 
   const textColor = getStyleColor(card.style || 'white')
-  const mainSize = Math.max(32, Math.round(h * (kind === 'title' ? 0.075 : 0.06)))
-  const mainY = kind === 'title' && 'subtitle' in card && card.subtitle ? '(h-text_h)/2-40' : '(h-text_h)/2'
+  // v1.4.15 — sized against the frame's SHORT edge. `h` was the short edge on
+  // every canvas that existed before this release, so 16:9 output is unchanged;
+  // in portrait, `h` is the long edge and a title at 7.5% of it overflowed the
+  // frame sideways.
+  const mainSize = Math.max(32, Math.round(frameTextUnit(w, h) * (kind === 'title' ? 0.075 : 0.06)))
+  // The gap between title and subtitle now scales with the type it separates.
+  // It used to be a flat 40px above centre and 45px below, which was tuned at
+  // 1080p and was already wrong at 4K — the type tripled and the gap did not.
+  // At 1080p these still compute to 41 and 45, so the pinned look is preserved.
+  const gapAbove = Math.round(mainSize * 0.5)
+  const gapBelow = Math.round(mainSize * 0.55)
+  const mainY = kind === 'title' && 'subtitle' in card && card.subtitle
+    ? `(h-text_h)/2-${gapAbove}`
+    : '(h-text_h)/2'
   filters.push(
     `drawtext=text='${escapeDrawtext(card.text || '')}':fontsize=${mainSize}:fontcolor=${textColor}:` +
     `borderw=2:bordercolor=black@0.65:x=(w-text_w)/2:y=${mainY}`,
@@ -2927,7 +2949,7 @@ async function prepareTextCardClip(
   if (kind === 'title' && 'subtitle' in card && card.subtitle?.trim()) {
     filters.push(
       `drawtext=text='${escapeDrawtext(card.subtitle)}':fontsize=${Math.max(22, Math.round(mainSize * 0.48))}:` +
-      `fontcolor=white:borderw=1:bordercolor=black@0.65:x=(w-text_w)/2:y=(h/2)+45`,
+      `fontcolor=white:borderw=1:bordercolor=black@0.65:x=(w-text_w)/2:y=(h/2)+${gapBelow}`,
     )
   }
   filters.push('format=yuv420p')
@@ -4466,11 +4488,26 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
   // 7. Letterbox — global, but drawn over the existing frame. It does not
   // squeeze, crop, or otherwise change the source picture geometry.
   if (letterbox?.enabled) {
-    const lb = vn()
-    const filter = buildLetterboxFilter(vLabel, lb, w, h, letterbox.ratio, letterbox.color || 'black')
-    if (filter) {
-      filterParts.push(filter)
-      vLabel = lb
+    // v1.4.15 — cinematic bars are a landscape idea. Every ratio this effect
+    // offers (2.35:1, 2.00:1, 1.85:1) is wider than any canvas, so on a
+    // portrait frame the arithmetic is still valid and paints bars over most
+    // of the picture. Rather than ship a Short that is 76% black, the effect
+    // steps aside and says so — a skipped effect is recoverable, a ruined
+    // render is not.
+    const barHeight = letterboxBarHeight(w, h, letterbox.ratio)
+    if (barHeight * 2 > h * 0.5) {
+      job.output_lines.push(
+        `Cinematic letterbox (${letterbox.ratio}) skipped: it would cover `
+        + `${Math.round((barHeight * 2 / h) * 100)}% of a ${w}×${h} frame. `
+        + 'Those bars are made for widescreen; this render is not.',
+      )
+    } else {
+      const lb = vn()
+      const filter = buildLetterboxFilter(vLabel, lb, w, h, letterbox.ratio, letterbox.color || 'black')
+      if (filter) {
+        filterParts.push(filter)
+        vLabel = lb
+      }
     }
   }
 
@@ -4622,7 +4659,11 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
       // reference — it only corrects aspect-ratio distortion; the v1.0.413
       // assumption that it pinned a 1080 reference is why rendered fonts
       // came out 3.75× larger than the preview.)
-      filterParts.push(`${vLabel}subtitles=filename=${escapeFilterPath(subtitles.srt_path)}:original_size=1920x1080:force_style='${ass}'${st}`)
+      // v1.4.15 — `original_size` is the render's own canvas, not a literal
+      // 1920x1080. It corrects libass's aspect-ratio distortion, so pinning it
+      // to 16:9 skewed every caption this fallback drew onto a portrait or
+      // square frame.
+      filterParts.push(`${vLabel}subtitles=filename=${escapeFilterPath(subtitles.srt_path)}:original_size=${w}x${h}:force_style='${ass}'${st}`)
       job.output_lines.push(`Burning in subtitles: ${path.basename(subtitles.srt_path)}`)
     }
     vLabel = st
@@ -5168,11 +5209,17 @@ function getStyleColor(style: string): string {
   return map[style] || 'white'
 }
 
-function getFontSize(size: string, height: number): number {
+/**
+ * `unit` is the frame's SHORT edge, not its height (v1.4.15). On every
+ * landscape canvas the two are the same number, so nothing that shipped moves;
+ * on a portrait canvas the height is the LONG edge and sizing text against it
+ * produced captions nearly twice as wide as the frame could hold.
+ */
+function getFontSize(size: string, unit: number): number {
   const map: Record<string, number> = {
-    'small': height / 25,
-    'medium': height / 18,
-    'large': height / 12,
+    'small': unit / 25,
+    'medium': unit / 18,
+    'large': unit / 12,
   }
   return Math.round(map[size] || map['medium'])
 }

@@ -81,6 +81,9 @@ interface AnimationDef {
 const props = defineProps<{
   slug: string
   episodeId?: string
+  /** The render's shape, so the preview is drawn in the frame the effect will
+   *  actually land in (v1.4.15). Omitted = 16:9, as it always was. */
+  aspectRatio?: string
   animations: AnimationDef[]
   primaryId: string
   pool: string[]
@@ -131,7 +134,8 @@ const selectionSummary = computed(() => {
 
 function previewUrl(id: string) {
   const ep = props.episodeId ? `&episode=${encodeURIComponent(props.episodeId)}` : ''
-  return `/api/projects/${props.slug}/video-editor/preview-animation?type=${encodeURIComponent(id)}${ep}`
+  const ar = props.aspectRatio ? `&aspect_ratio=${encodeURIComponent(props.aspectRatio)}` : ''
+  return `/api/projects/${props.slug}/video-editor/preview-animation?type=${encodeURIComponent(id)}${ep}${ar}`
 }
 
 function togglePool(id: string) {
