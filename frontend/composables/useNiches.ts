@@ -116,6 +116,9 @@ export interface Niche {
   scriptSystemPromptRole?: string
   titleShapeRules?: string[]
   narratorStyles?: Array<{ id: string; label: string; description?: string }>
+  /** How this Formula's YouTube titles should be pitched. Absent means the
+   *  Format's own wording applies. */
+  metadataTitleStyleHint?: string
   activeTopicPacks?: TopicPack[]
   defaultThumbnailTemplateId?: string
   scriptStructure?: {
@@ -125,6 +128,9 @@ export interface Niche {
     lengthMinutesRange?: [number, number]
     durationPresets?: number[]
     defaultWordsPerMinute?: number
+    /** True when a chapter is its own subject rather than part of one story —
+     *  the generator switches between listicle and narrative mode on it. */
+    chaptersIndependent?: boolean
     visualPacingProfile?: {
       opening_duration_sec: number
       opening: { min_sec: number; max_sec: number }

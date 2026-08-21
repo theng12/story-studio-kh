@@ -156,6 +156,48 @@ const FormulaProductionKitSchema = z.object({
 }).strict()
 
 /** Body for POST /niches and PUT /niches/:id (full-document replace). */
+/**
+ * The episode shape of a Series Formula — the only part of a Formula the owner
+ * edits by hand, and the reason this is a PATCH rather than a field on
+ * `NicheSchema`.
+ *
+ * `NicheSchema` is `.strict()` and describes about a third of a real Formula:
+ * it has no `scriptStructure`, no `narratorStyles`, no `titleShapeRules`, no
+ * `pacingArc`. `PUT /niches/:id` parses a whole document through it and saves
+ * `parsed.data`, so a built-in Formula cannot survive that route — it is
+ * rejected for carrying keys the schema does not list, and had it been
+ * accepted, everything unlisted would have been dropped from the fork. That is
+ * why nothing has ever called it for a built-in.
+ *
+ * Widening `NicheSchema` to the full document would mean keeping two
+ * descriptions of a large, growing shape in step forever, and the day they
+ * drift is the day an edit quietly deletes a pacing arc. So the edit path is a
+ * MERGE of a small, closed patch instead: whatever this schema does not
+ * mention is not touched, by construction rather than by care.
+ */
+export const EpisodeShapePatchSchema = z.object({
+  defaultChapterCount: z.number().int().min(1).max(100),
+  chapterCountRange: z.tuple([z.number().int().min(1).max(100), z.number().int().min(1).max(100)]),
+  defaultLengthMinutes: z.number().int().min(1).max(600),
+  lengthMinutesRange: z.tuple([z.number().int().min(1).max(600), z.number().int().min(1).max(600)]),
+  defaultWordsPerMinute: z.number().int().min(50).max(300),
+  chaptersIndependent: z.boolean(),
+  /** Empty string clears it, so the Formula falls back to the Format's tone. */
+  metadataTitleStyleHint: z.string().max(1000),
+}).strict()
+  .refine(v => v.chapterCountRange[0] <= v.chapterCountRange[1],
+    { message: 'The smallest chapter count must not be larger than the largest', path: ['chapterCountRange'] })
+  .refine(v => v.lengthMinutesRange[0] <= v.lengthMinutesRange[1],
+    { message: 'The shortest episode must not be longer than the longest', path: ['lengthMinutesRange'] })
+  // A default outside its own range is the bug that produced the thing this
+  // whole feature exists to fix: a shared 8-minute default sitting under a
+  // 3-20 minute ceiling, so a two-hour sleep story could not even be asked for.
+  .refine(v => v.defaultChapterCount >= v.chapterCountRange[0] && v.defaultChapterCount <= v.chapterCountRange[1],
+    { message: 'The usual chapter count must sit inside the smallest and largest', path: ['defaultChapterCount'] })
+  .refine(v => v.defaultLengthMinutes >= v.lengthMinutesRange[0] && v.defaultLengthMinutes <= v.lengthMinutesRange[1],
+    { message: 'The usual length must sit inside the shortest and longest', path: ['defaultLengthMinutes'] })
+export type EpisodeShapePatch = z.infer<typeof EpisodeShapePatchSchema>
+
 export const NicheSchema = z.object({
   id: z.string()
     .min(1, 'id is required')

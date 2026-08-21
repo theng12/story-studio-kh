@@ -5,6 +5,7 @@
  *   GET    /api/niches/:id                → single niche
  *   POST   /api/niches                    → create user-custom (id from body)
  *   PUT    /api/niches/:id                → full-document replace (user-custom only)
+ *   PATCH  /api/niches/:id/episode-shape  → merge chapters/length/pace/tone only
  *   DELETE /api/niches/:id                → delete user-custom (built-ins refused)
  *   PUT    /api/projects/:slug/niche      → set/unset { niche_id: string | null }
  *   GET    /api/projects/:slug/effective-niche → resolved niche after overrides
@@ -22,7 +23,7 @@ import * as tpl from '../services/topic-pack-loader.js'
 import * as pm from '../services/project-manager.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { respondWithError } from '../lib/humanize-backend-error.js'
-import { NicheSchema, SetProjectNicheSchema, TopicPackSchema } from '../contracts/index.js'
+import { EpisodeShapePatchSchema, NicheSchema, SetProjectNicheSchema, TopicPackSchema } from '../contracts/index.js'
 import type { Niche, TopicPack } from '../models/types.js'
 import { listVisualStyles } from '../services/visual-style-loader.js'
 import { updateProjectContentSelections } from '../content-packs/project-pins.js'
@@ -251,6 +252,93 @@ router.put('/niches/:id', async (req, res) => {
     res.json(toWrite)
   } catch (e: any) {
     respondWithError(res, e, 'Failed to update niche')
+  }
+})
+
+// ── Episode shape (chapters, length, pace, title tone) ─────────────────────
+
+/**
+ * Change how long a Formula's episodes run, how many chapters they carry, how
+ * fast they are read, and how their titles are pitched.
+ *
+ * A MERGE, not a replace, and that is the whole point. `PUT /niches/:id` runs
+ * the document through `NicheSchema`, which is `.strict()` and lists roughly a
+ * third of a real Formula — no `scriptStructure`, no `narratorStyles`, no
+ * `titleShapeRules`, no `pacingArc`. A built-in cannot round-trip that route:
+ * it is refused for carrying keys the schema does not know, and if it were
+ * accepted, every key the schema does not know would be dropped from the fork.
+ * Editing "Sleep Stories" would have silently deleted its ten narrator voices.
+ *
+ * Here the stored document is loaded, the patched keys are written onto it, and
+ * everything else is carried across untouched. Nothing can be lost by omission
+ * because nothing is rebuilt.
+ *
+ * `project_slug` is not optional in practice. `forkLegacyContentForEdit` only
+ * repoints the project at the new fork when it is given one — without it the
+ * edit lands in a fork nothing reads, and the owner sees a saved change that
+ * does nothing. The UI always sends it; the route refuses a built-in without
+ * it rather than writing an orphan.
+ */
+router.patch('/niches/:id/episode-shape', async (req, res) => {
+  try {
+    const requestedId = req.params.id
+    const parsed = EpisodeShapePatchSchema.safeParse(req.body)
+    if (!parsed.success) {
+      return res.status(400).json({ detail: parsed.error.issues.map(i => i.message).join('; ') })
+    }
+    const projectSlug = typeof req.query.project_slug === 'string' && req.query.project_slug
+      ? req.query.project_slug
+      : undefined
+    const contentPackOptions = packOptionsFor(req)
+
+    if (!isUserForkId(requestedId) && !projectSlug) {
+      return res.status(400).json({
+        detail: 'Editing a built-in Formula needs the project it is being edited for, '
+          + 'so the new copy can be pointed at that project. Without it the change would be saved somewhere nothing reads.',
+      })
+    }
+
+    const forkId = isUserForkId(requestedId)
+      ? requestedId
+      : (await forkLegacyContentForEdit(
+          { kind: 'series-formula', legacyId: requestedId, projectSlug },
+          contentPackOptions,
+        )).fork_id
+
+    const current = await nl.loadNiche(forkId, contentPackOptions)
+    if (!current) return res.status(404).json({ detail: 'Formula not found' })
+
+    const patch = parsed.data
+    const next: Niche = {
+      ...current,
+      id: forkId,
+      builtin: false,
+      // Presets are derived rather than asked for: three points on the range he
+      // already set is what the duration picker wants, and one fewer field is
+      // one fewer way to write a preset that sits outside its own range.
+      scriptStructure: {
+        ...(current.scriptStructure || {}),
+        defaultChapterCount: patch.defaultChapterCount,
+        chapterCountRange: [patch.chapterCountRange[0], patch.chapterCountRange[1]],
+        defaultLengthMinutes: patch.defaultLengthMinutes,
+        lengthMinutesRange: [patch.lengthMinutesRange[0], patch.lengthMinutesRange[1]],
+        durationPresets: Array.from(new Set([
+          patch.lengthMinutesRange[0], patch.defaultLengthMinutes, patch.lengthMinutesRange[1],
+        ])).sort((a, b) => a - b),
+        defaultWordsPerMinute: patch.defaultWordsPerMinute,
+        chaptersIndependent: patch.chaptersIndependent,
+      },
+    }
+    // An empty box means "say nothing here", which is not the same as saying
+    // the empty string — the Format's own tone should take over.
+    if (patch.metadataTitleStyleHint.trim()) next.metadataTitleStyleHint = patch.metadataTitleStyleHint.trim()
+    else delete (next as { metadataTitleStyleHint?: string }).metadataTitleStyleHint
+
+    await saveUserForkDocument(forkId, next, contentPackOptions)
+    nl.invalidateNicheCache(forkId)
+    res.json({ id: forkId, forked_from: isUserForkId(requestedId) ? null : requestedId, niche: next })
+  } catch (e: any) {
+    respondWithError(res, e, 'Failed to update the episode shape')
   }
 })
 

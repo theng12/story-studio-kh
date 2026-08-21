@@ -353,6 +353,135 @@
           :disabled="nicheSaving"
         />
 
+        <!-- v1.4.18 — the episode shape, editable. Sits with the Formula it
+             belongs to rather than in the library, because it is a decision
+             about THIS channel's episodes. -->
+        <section v-if="nicheId" class="episode-shape-card mt-3">
+          <div class="episode-shape-head">
+            <div>
+              <span class="settings-section-kicker">Episode shape</span>
+              <h4>How long an episode runs, and how it is read</h4>
+              <p class="text-muted text-sm mb-0">
+                These are the numbers every new episode of this channel starts from. Change them
+                whenever you like — the first change makes this channel its own copy of the Formula,
+                so no other channel is affected.
+              </p>
+            </div>
+            <button
+              v-if="!shapeOpen"
+              class="btn btn-sm btn-secondary"
+              @click="openEpisodeShape"
+            >Change</button>
+          </div>
+
+          <div v-if="!shapeOpen" class="episode-shape-grid">
+            <div class="episode-shape-item">
+              <span>Usual length</span>
+              <strong>{{ selectedNicheProfile?.scriptStructure?.defaultLengthMinutes ?? 8 }} min</strong>
+              <small>
+                Allowed {{ selectedNicheProfile?.scriptStructure?.lengthMinutesRange?.[0] ?? 3 }}–{{
+                  selectedNicheProfile?.scriptStructure?.lengthMinutesRange?.[1] ?? 20 }} min
+              </small>
+            </div>
+            <div class="episode-shape-item">
+              <span>Chapters</span>
+              <strong>{{ selectedNicheProfile?.scriptStructure?.defaultChapterCount ?? 5 }}</strong>
+              <small>
+                Allowed {{ selectedNicheProfile?.scriptStructure?.chapterCountRange?.[0] ?? 1 }}–{{
+                  selectedNicheProfile?.scriptStructure?.chapterCountRange?.[1] ?? 20 }}
+              </small>
+            </div>
+            <div class="episode-shape-item">
+              <span>Reading pace</span>
+              <strong>{{ selectedNicheProfile?.scriptStructure?.defaultWordsPerMinute ?? 160 }} wpm</strong>
+              <small>Slower for sleep and prayer, faster for explainers.</small>
+            </div>
+            <div class="episode-shape-item">
+              <span>Chapters</span>
+              <strong>{{ selectedNicheProfile?.scriptStructure?.chaptersIndependent ? 'Standalone' : 'One story' }}</strong>
+              <small>
+                {{ selectedNicheProfile?.scriptStructure?.chaptersIndependent
+                  ? 'Each chapter is its own subject, like a list.'
+                  : 'Chapters continue into each other.' }}
+              </small>
+            </div>
+          </div>
+
+          <form v-else class="episode-shape-form" @submit.prevent="saveEpisodeShape">
+            <div class="episode-shape-fields">
+              <label>
+                <span>Usual length (minutes)</span>
+                <input v-model.number="shapeForm!.defaultLengthMinutes" type="number" min="1" max="600" />
+              </label>
+              <label>
+                <span>Shortest allowed</span>
+                <input v-model.number="shapeForm!.minutesMin" type="number" min="1" max="600" />
+              </label>
+              <label>
+                <span>Longest allowed</span>
+                <input v-model.number="shapeForm!.minutesMax" type="number" min="1" max="600" />
+              </label>
+              <label>
+                <span>Usual chapters</span>
+                <input v-model.number="shapeForm!.defaultChapterCount" type="number" min="1" max="100" />
+              </label>
+              <label>
+                <span>Fewest allowed</span>
+                <input v-model.number="shapeForm!.chapterMin" type="number" min="1" max="100" />
+              </label>
+              <label>
+                <span>Most allowed</span>
+                <input v-model.number="shapeForm!.chapterMax" type="number" min="1" max="100" />
+              </label>
+              <label>
+                <span>Reading pace (words per minute)</span>
+                <input v-model.number="shapeForm!.defaultWordsPerMinute" type="number" min="50" max="300" />
+              </label>
+            </div>
+
+            <p class="episode-shape-maths text-muted text-sm">
+              At these settings an episode is about
+              <strong>{{ shapeTotalWords.toLocaleString() }}</strong> words —
+              roughly <strong>{{ shapeWordsPerChapter.toLocaleString() }}</strong> per chapter.
+            </p>
+
+            <label class="episode-shape-check">
+              <input v-model="shapeForm!.chaptersIndependent" type="checkbox" />
+              <span>
+                Each chapter stands alone
+                <small class="text-muted">
+                  Tick this for lists and countdowns, where a chapter is its own subject. Leave it
+                  clear when the chapters tell one continuing story.
+                </small>
+              </span>
+            </label>
+
+            <label class="episode-shape-tone">
+              <span>Title voice</span>
+              <textarea
+                v-model="shapeForm!.metadataTitleStyleHint"
+                rows="2"
+                placeholder="Leave empty to use the format's own wording."
+              ></textarea>
+              <small class="text-muted">
+                How titles for this channel should be pitched, in your words — for example
+                “Name the creature and the strange fact. No mystery-baiting.”
+              </small>
+            </label>
+
+            <p v-if="shapeError" class="error-box mt-2">{{ shapeError }}</p>
+
+            <div class="episode-shape-actions">
+              <button class="btn btn-sm btn-primary" type="submit" :disabled="shapeSaving">
+                {{ shapeSaving ? 'Saving…' : 'Save episode shape' }}
+              </button>
+              <button class="btn btn-sm btn-ghost" type="button" :disabled="shapeSaving" @click="shapeOpen = false">
+                Cancel
+              </button>
+            </div>
+          </form>
+        </section>
+
         <section v-if="selectedProductionKit" class="production-kit-card mt-3">
           <div class="production-kit-head">
             <div>
@@ -429,9 +558,10 @@
           >+ Create custom niche</button>
         </div>
         <p class="text-muted text-sm">
-          All built-in + custom niches available on this machine. Built-in niches
-          are read-only (shipped with the app). Custom niches are stored under your
-          user data dir and can be deleted if no project still references them.
+          Every Formula on this machine, built-in and custom. A built-in Formula is
+          never overwritten: changing a channel's episode shape on the Project formula
+          tab makes that channel its own copy and leaves the original alone. Custom
+          Formulas can be deleted once no project still uses them.
         </p>
 
         <div v-if="nicheLibLoading" class="muted mt-3">Loading niches…</div>
@@ -1972,7 +2102,7 @@ definePageMeta({ layout: 'dashboard' })
 useAppTitle('Settings')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
-const { get, post, put, del } = useApi()
+const { get, post, put, patch, del } = useApi()
 const { styles: visualStyles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
 onMounted(() => { void refreshVisualStyles() })
 const { ask } = useConfirm()
@@ -2118,6 +2248,7 @@ const {
   error: nicheLibError,
   createNiche: createNicheApi,
   deleteNiche: deleteNicheApi,
+  refresh: refreshNiches,
 } = useNiches()
 const nicheId = ref<string>('')
 const topicPackIds = ref<string[]>([])
@@ -2159,6 +2290,99 @@ const selectedProductionKitDurations = computed(() => {
   const presets = selectedNicheProfile.value?.scriptStructure?.durationPresets || []
   return presets.length ? presets.map(value => `${value} min`).join(' · ') : 'Formula default'
 })
+
+// ── Episode shape (v1.4.18) ───────────────────────────────────────────────
+// 1.4.16 gave every Formula its own chapters, length and pace, and left no way
+// to change them without editing JSON. The owner: "series formula editing ui.
+// do it please then, i thought you already did it."
+//
+// This edits through PATCH /niches/:id/episode-shape, a MERGE. The
+// full-document PUT beside it validates against `NicheSchema`, which does not
+// contain scriptStructure, narratorStyles, pacingArc or titleShapeRules — so
+// sending a real Formula through it is refused, and would have stripped those
+// fields if it were not. See routes/niches.ts.
+const shapeOpen = ref(false)
+const shapeSaving = ref(false)
+const shapeError = ref('')
+interface EpisodeShapeForm {
+  defaultChapterCount: number
+  chapterMin: number
+  chapterMax: number
+  defaultLengthMinutes: number
+  minutesMin: number
+  minutesMax: number
+  defaultWordsPerMinute: number
+  chaptersIndependent: boolean
+  metadataTitleStyleHint: string
+}
+const shapeForm = ref<EpisodeShapeForm | null>(null)
+
+/** Roughly how many words a chapter carries at this shape — the number that
+ *  makes a length and a pace mean something together. */
+const shapeWordsPerChapter = computed(() => {
+  const f = shapeForm.value
+  if (!f || !f.defaultChapterCount) return 0
+  return Math.round((f.defaultLengthMinutes * f.defaultWordsPerMinute) / f.defaultChapterCount)
+})
+const shapeTotalWords = computed(() => {
+  const f = shapeForm.value
+  return f ? Math.round(f.defaultLengthMinutes * f.defaultWordsPerMinute) : 0
+})
+
+function openEpisodeShape() {
+  const n = selectedNicheProfile.value
+  const ss: any = n?.scriptStructure || {}
+  shapeError.value = ''
+  shapeForm.value = {
+    defaultChapterCount: ss.defaultChapterCount ?? 5,
+    chapterMin: ss.chapterCountRange?.[0] ?? 1,
+    chapterMax: ss.chapterCountRange?.[1] ?? 20,
+    defaultLengthMinutes: ss.defaultLengthMinutes ?? 8,
+    minutesMin: ss.lengthMinutesRange?.[0] ?? 3,
+    minutesMax: ss.lengthMinutesRange?.[1] ?? 20,
+    defaultWordsPerMinute: ss.defaultWordsPerMinute ?? 160,
+    chaptersIndependent: !!ss.chaptersIndependent,
+    metadataTitleStyleHint: (n as any)?.metadataTitleStyleHint || '',
+  }
+  shapeOpen.value = true
+}
+
+async function saveEpisodeShape() {
+  const f = shapeForm.value
+  if (!f || !nicheId.value) return
+  shapeSaving.value = true
+  shapeError.value = ''
+  try {
+    // project_slug is not optional in effect: without it the fork is written
+    // and nothing points at it, so the change would look saved and do nothing.
+    const res = await patch(
+      `/niches/${encodeURIComponent(nicheId.value)}/episode-shape`
+      + `?project_slug=${encodeURIComponent(slug.value)}`,
+      {
+        defaultChapterCount: Number(f.defaultChapterCount),
+        chapterCountRange: [Number(f.chapterMin), Number(f.chapterMax)],
+        defaultLengthMinutes: Number(f.defaultLengthMinutes),
+        lengthMinutesRange: [Number(f.minutesMin), Number(f.minutesMax)],
+        defaultWordsPerMinute: Number(f.defaultWordsPerMinute),
+        chaptersIndependent: !!f.chaptersIndependent,
+        metadataTitleStyleHint: f.metadataTitleStyleHint || '',
+      },
+    )
+    // A built-in becomes a user copy on first edit, so the project's Formula id
+    // changes underneath us. Reload both or the page keeps showing the old one.
+    await refreshNiches()
+    await loadProject(slug.value)
+    syncNicheFromProject()
+    shapeOpen.value = false
+    success(res?.forked_from
+      ? 'Episode shape saved — this channel now uses its own copy of the Formula'
+      : 'Episode shape saved')
+  } catch (e: any) {
+    shapeError.value = e?.data?.detail || e?.message || 'Could not save the episode shape'
+  } finally {
+    shapeSaving.value = false
+  }
+}
 
 function syncNicheFromProject() {
   const m = project.value as any
@@ -5960,6 +6184,41 @@ async function deleteProject() {
   flex-wrap: wrap;
 }
 .niche-lib-tile .btn.danger { color: var(--error, #e25c5c); }
+
+/* v1.4.18 — the episode shape, read as a summary and edited in place. */
+.episode-shape-card {
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 10px;
+  padding: 16px;
+  background: var(--surface-2, rgba(255, 255, 255, 0.02));
+}
+.episode-shape-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.episode-shape-head h4 { margin: 2px 0 6px; }
+.episode-shape-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.episode-shape-item { display: flex; flex-direction: column; gap: 2px; }
+.episode-shape-item > span { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.65; }
+.episode-shape-item > strong { font-size: 18px; }
+.episode-shape-item > small { opacity: 0.6; }
+.episode-shape-form { margin-top: 14px; }
+.episode-shape-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+.episode-shape-fields label { display: flex; flex-direction: column; gap: 4px; }
+.episode-shape-fields label > span { font-size: 13px; opacity: 0.8; }
+.episode-shape-maths { margin: 12px 0 0; }
+.episode-shape-check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; }
+.episode-shape-check small { display: block; margin-top: 2px; }
+.episode-shape-tone { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; }
+.episode-shape-tone > span { font-size: 13px; opacity: 0.8; }
+.episode-shape-tone textarea { width: 100%; resize: vertical; }
+.episode-shape-actions { display: flex; gap: 8px; margin-top: 16px; }
 
 .production-kit-card {
   border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--border));

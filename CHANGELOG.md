@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.18 — 2026-08-22
+
+- **You can now change a channel's episode shape yourself.** Project Settings → Channel Identity → Project formula has an **Episode shape** panel: usual length and the shortest and longest allowed, usual chapter count and its range, reading pace, whether chapters stand alone, and the title voice. You set these numbers on 21 formulas yesterday and had no way to change them afterwards without editing files. Your words: *"series formula editing ui. do it please then, i thought you already did it."* Fair — I said 1.4.16 would wire it and it did not.
+- **It shows you what the numbers mean before you save.** Change the length or the pace and it tells you roughly how many words that is per episode and per chapter, so a "45-minute episode at 155 words a minute" is a real amount of writing rather than two abstract numbers.
+- **A built-in formula is never overwritten.** The first change makes that channel its own copy, and every other channel using the same formula is untouched. The panel says so before you save, and the confirmation says which happened.
+- **Numbers that contradict each other are refused, with a reason.** A usual length of 90 minutes inside a 40–50 range is rejected rather than quietly clamped — that exact shape, a default sitting outside its own range, is what made a two-hour sleep story impossible to request before yesterday.
+- **This was the part that could have gone badly.** The existing "save formula" path checks documents against a description that has never included chapters, length, pace, narrator voices, title rules or the chapter-by-chapter plan. Saving a real formula through it would have thrown all of those away — editing Sleep Stories would have deleted its ten narrator voices. The new editor changes only the fields you touched and carries everything else across untouched, and there is now a test that edits the Hidden Mechanics formula and checks its nine named chapters and ten voices are still there afterwards.
+
+---
+
 ## v1.4.17 — 2026-08-22
 
 - **The caption check now lets you hear the narration, not just read it.** Each of the three frames has a player under it holding exactly the words on that frame, cut from the narration the render will use. You said it plainly: *"this subtitle render is a good idea but there's nothing for me to hear so I can compare it at all."* You were right, and it undercut the whole point — reading a caption proves the words exist, it cannot prove they are the words being spoken there. The fault this check was built to catch was one episode's captions burned onto another, and both episodes' captions read perfectly well on their own.

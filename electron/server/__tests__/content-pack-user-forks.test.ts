@@ -327,6 +327,152 @@ describe('explicit legacy Content Pack user forks', () => {
     assert.deepEqual(await fs.readdir(forkRoot).catch(() => []), [])
   })
 
+  /**
+   * v1.4.18 — the owner edits a Formula's episode shape.
+   *
+   * "series formula editing ui. do it please then, i thought you already did
+   * it." He was right to expect it: 1.4.16 set every Formula's chapters,
+   * length and pace, and left him no way to change them without editing JSON.
+   *
+   * The reason it is a PATCH is the thing this test exists to pin. `NicheSchema`
+   * is `.strict()` and lists about a third of a real Formula — no
+   * `scriptStructure`, no `narratorStyles`, no `pacingArc`, no
+   * `titleShapeRules`. `PUT /niches/:id` saves `parsed.data`, so a whole
+   * Formula sent through it is either refused for carrying unknown keys or,
+   * had it not been strict, silently stripped of everything unlisted. Editing
+   * the sleep Formula would have deleted its ten narrator voices.
+   */
+  test('editing a Formula episode shape keeps everything the niche schema has never heard of', async () => {
+    await isolated()
+    const legacy = await writeLegacyShadows()
+    const project = await projectManager.createProject({
+      name: 'Episode Shape Project', niche_id: legacy.ids.nicheId,
+    })
+    const app = express()
+    app.use(express.json())
+    app.use('/api', nichesRouter)
+
+    const before = await nicheLoader.loadNiche(legacy.ids.nicheId)
+    assert.ok(before, 'the legacy Formula must load')
+    // The real Formula, so this is not a straw fixture: nine named chapters,
+    // ten narrator voices, its own title rules.
+    assert.ok((before.narratorStyles?.length || 0) > 0)
+    assert.ok((before.scriptStructure?.pacingArc?.length || 0) > 0)
+    assert.ok((before.titleShapeRules?.length || 0) > 0)
+
+    const patched = await request(app)
+      .patch(`/api/niches/${legacy.ids.nicheId}/episode-shape?project_slug=${project.slug}`)
+      .send({
+        defaultChapterCount: 11,
+        chapterCountRange: [9, 13],
+        defaultLengthMinutes: 52,
+        lengthMinutesRange: [45, 60],
+        defaultWordsPerMinute: 138,
+        chaptersIndependent: true,
+        metadataTitleStyleHint: 'Name the mechanism and the consequence.',
+      })
+      .expect(200)
+
+    assert.match(patched.body.id, /^user:/)
+    assert.equal(patched.body.forked_from, legacy.ids.nicheId)
+    const after = patched.body.niche
+    assert.equal(after.scriptStructure.defaultLengthMinutes, 52)
+    assert.deepEqual(after.scriptStructure.lengthMinutesRange, [45, 60])
+    assert.equal(after.scriptStructure.defaultChapterCount, 11)
+    assert.equal(after.scriptStructure.defaultWordsPerMinute, 138)
+    assert.equal(after.metadataTitleStyleHint, 'Name the mechanism and the consequence.')
+    // Derived from the range and the default, so a preset can never sit
+    // outside the range it came from.
+    assert.deepEqual(after.scriptStructure.durationPresets, [45, 52, 60])
+
+    // THE POINT. None of these are in NicheSchema.
+    assert.deepEqual(after.narratorStyles, before.narratorStyles)
+    assert.deepEqual(after.scriptStructure.pacingArc, before.scriptStructure?.pacingArc)
+    assert.deepEqual(after.titleShapeRules, before.titleShapeRules)
+    assert.deepEqual(after.scriptStructure.additionalRules, before.scriptStructure?.additionalRules)
+
+    // And the project actually reads the edit, rather than an orphan fork.
+    const reloaded = await projectManager.getProject(project.slug)
+    const effective = await nicheLoader.getEffectiveNicheFor(reloaded!)
+    assert.equal(effective?.scriptStructure?.defaultLengthMinutes, 52)
+    assert.deepEqual(effective?.narratorStyles, before.narratorStyles)
+  })
+
+  test('the full-document route is the reason the episode shape is a patch', async () => {
+    await isolated()
+    const legacy = await writeLegacyShadows()
+    const project = await projectManager.createProject({
+      name: 'Strict Schema Project', niche_id: legacy.ids.nicheId,
+    })
+    const app = express()
+    app.use(express.json())
+    app.use('/api', nichesRouter)
+
+    const whole = await nicheLoader.loadNiche(legacy.ids.nicheId)
+    // Sending a real Formula back through PUT is refused, not silently
+    // truncated — which is the only reason no edit has ever destroyed one.
+    await request(app)
+      .put(`/api/niches/${legacy.ids.nicheId}?project_slug=${project.slug}`)
+      .send({ ...whole, builtin: false })
+      .expect(400)
+  })
+
+  test('editing a built-in without naming the project is refused, not silently orphaned', async () => {
+    await isolated()
+    const app = express()
+    app.use(express.json())
+    app.use('/api', nichesRouter)
+
+    // `forkLegacyContentForEdit` only repoints a project when it is given one.
+    // Without a slug the fork is written and nothing ever reads it, so the
+    // owner sees "saved" and nothing changes — the worst available outcome.
+    const refused = await request(app)
+      .patch('/api/niches/sleep/episode-shape')
+      .send({
+        defaultChapterCount: 15, chapterCountRange: [10, 24],
+        defaultLengthMinutes: 135, lengthMinutesRange: [120, 150],
+        defaultWordsPerMinute: 115, chaptersIndependent: false,
+        metadataTitleStyleHint: '',
+      })
+      .expect(400)
+    assert.match(refused.body.detail, /project/i)
+  })
+
+  test('a shape that contradicts itself is refused with words, not clamped', async () => {
+    await isolated()
+    const legacy = await writeLegacyShadows()
+    const project = await projectManager.createProject({
+      name: 'Bad Shape Project', niche_id: legacy.ids.nicheId,
+    })
+    const app = express()
+    app.use(express.json())
+    app.use('/api', nichesRouter)
+
+    const base = {
+      defaultChapterCount: 9, chapterCountRange: [9, 9],
+      defaultLengthMinutes: 45, lengthMinutesRange: [40, 50],
+      defaultWordsPerMinute: 140, chaptersIndependent: true,
+      metadataTitleStyleHint: '',
+    }
+    const url = `/api/niches/${legacy.ids.nicheId}/episode-shape?project_slug=${project.slug}`
+
+    // A default outside its own range is exactly the shape of the defect this
+    // whole feature exists to end: an 8-minute default under a 20-minute
+    // ceiling meant a two-hour sleep story could not even be requested.
+    const outside = await request(app).patch(url)
+      .send({ ...base, defaultLengthMinutes: 90 }).expect(400)
+    assert.match(outside.body.detail, /usual length/i)
+
+    const inverted = await request(app).patch(url)
+      .send({ ...base, lengthMinutesRange: [50, 40] }).expect(400)
+    assert.match(inverted.body.detail, /shortest/i)
+
+    // Silently dropping an unknown key is how a typo becomes a setting that
+    // never applied.
+    await request(app).patch(url)
+      .send({ ...base, defaultLenghtMinutes: 45 }).expect(400)
+  })
+
   test('edit routes fork legacy Formula, Topic, and Thumbnail content without overwriting originals', async () => {
     await isolated()
     const legacy = await writeLegacyShadows()
