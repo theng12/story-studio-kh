@@ -40,6 +40,29 @@ import {
 } from '../services/youtube-metadata-finalizer.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 
+/**
+ * The last-resort title voice, for a project whose Format AND Niche both say
+ * nothing about tone.
+ *
+ * Deliberately generic. The string that used to sit here was a sleep-story
+ * brief -- "Hook-y, curiosity-driven, calm/dreamlike tone" -- and because the
+ * shipped Format left `titleStyleHint` as the empty string, it reached every
+ * niche that had not written its own. That was thirteen of twenty-one,
+ * including prayer, preaching, psychology, philosophy and all four nature
+ * channels, none of which is calm-and-dreamlike.
+ *
+ * All twenty-one now state their own tone, and the Format carries a neutral
+ * one, so this fires only for something the owner has added and not yet given
+ * a voice. It must therefore be a voice that is wrong for nobody, rather than
+ * right for one channel and wrong for twelve.
+ */
+const DEFAULT_TITLE_TONE =
+  'Clear and specific to the subject — say what the episode is actually about. '
+  + 'No hype words, no all-caps, no manufactured urgency.'
+
+/** Matching last-resort purpose. The shipped Format sets its own. */
+const DEFAULT_TITLE_PURPOSE = 'for an episode of this series'
+
 interface MetadataParams {
   episode_id: string
   title?: string
@@ -361,8 +384,18 @@ export async function generateMetadata(job: Job): Promise<void> {
       // titleStyleHint from the project's effective Format so listicle /
       // educational / true-crime channels don't get "calm/dreamlike"
       // sleep-story instructions baked into their batch metadata.
-      const titlePurpose = fmtMeta?.purposeNote || 'for a sleep story episode'
-      const titleTone = fmtMeta?.titleStyleHint || 'Hook-y, curiosity-driven, calm/dreamlike tone'
+      //
+      // THAT FIX ONLY HALF-WORKED FOR SIX YEARS OF RELEASES, and 1.4.16 closes
+      // it. The Format's `titleStyleHint` was the empty string, which is falsy,
+      // so the `||` fell straight through to the literal below -- and thirteen
+      // of the twenty-one niches set no `metadataTitleStyleHint` of their own.
+      // Prayer, preaching, psychology, philosophy and all four nature channels
+      // were being told to write "calm/dreamlike" sleep-story titles. The
+      // niches now each state their own tone, the Format carries a neutral one
+      // for anything the owner adds later, and the tone is no longer a string
+      // an engineer owns: it is data, editable per niche and per format.
+      const titlePurpose = fmtMeta?.purposeNote || DEFAULT_TITLE_PURPOSE
+      const titleTone = fmtMeta?.titleStyleHint || DEFAULT_TITLE_TONE
       const titlePrompt = `Generate ${title_count} SEO-optimized video title options ${titlePurpose}.
 Episode: ${episode_id} — ${title}
 Story context:

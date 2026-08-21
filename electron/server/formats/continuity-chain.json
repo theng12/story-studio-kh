@@ -32,10 +32,22 @@
     ],
     "closingHint": "End with a specific resolution, implication, or invitation appropriate to the Series Formula.",
     "defaultChapterCount": 5,
-    "chapterCountRange": [3, 10],
+    "chapterCountRange": [
+      3,
+      10
+    ],
     "defaultLengthMinutes": 8,
-    "lengthMinutesRange": [3, 20],
-    "durationPresets": [5, 6, 8, 10, 12],
+    "lengthMinutesRange": [
+      3,
+      20
+    ],
+    "durationPresets": [
+      5,
+      6,
+      8,
+      10,
+      12
+    ],
     "defaultWordsPerMinute": 160,
     "chaptersIndependent": false,
     "narratorStyles": [
@@ -71,7 +83,10 @@
   "imagePrompts": {
     "purposeNote": "(populated by the Scene Plan page — the LLM produces one visual prompt per planned scene, paced to the user-set min/max scene length. Character references are used only when the project selects character continuity.)",
     "visualStyleHint": "Describe the subject, location, action, and visual hierarchy for this beat. Preserve a recurring character, wardrobe, and setting only when the project uses character continuity.",
-    "defaultScenesTotalRange": [20, 120],
+    "defaultScenesTotalRange": [
+      20,
+      120
+    ],
     "defaultThumbnails": 3,
     "defaultStyleTag": "Cohesive, grounded, slightly cinematic scene design. Maintain visual continuity across the episode; preserve the same person only when a character reference is active.",
     "characterReferenceMode": "none",
@@ -85,12 +100,16 @@
       ],
       "defaultTextStyle": "shadow",
       "defaultFontStyle": "bold",
-    "avoid": ["faceless or distant framing", "generic stock feel", "a recurring character when the episode has no character-continuity requirement"]
+      "avoid": [
+        "faceless or distant framing",
+        "generic stock feel",
+        "a recurring character when the episode has no character-continuity requirement"
+      ]
     }
   },
   "metadata": {
     "purposeNote": "for a Series Formula rendered with the Continuity Engine",
-    "titleStyleHint": "",
+    "titleStyleHint": "Clear and specific to the subject — say what the episode is actually about. No hype words, no all-caps, no manufactured urgency.",
     "titleHookRules": [],
     "tagsContext": "for the project's selected Series Formula",
     "tagsHookRules": [

@@ -6,7 +6,13 @@
   "description": "Second-person life-path explainers that place the viewer inside a role, rank, or occupation and carry them through recruitment, daily routine, hierarchy, danger, rewards, advancement, failure, and likely ending.",
   "channel_promise": "Role → Reality",
   "audience": "Viewers who enjoy immersive history, hierarchy explainers, and second-person documentary storytelling.",
-  "youtube_tags_hint": ["POV history", "your life as", "every tier explained", "immersive documentary", "historical jobs"],
+  "youtube_tags_hint": [
+    "POV history",
+    "your life as",
+    "every tier explained",
+    "immersive documentary",
+    "historical jobs"
+  ],
   "formula_family": "Immersive paths",
   "tagline": "Live the whole ladder from inside the role.",
   "perspective_policy": "Second-person immersive, grounded in period-appropriate daily decisions.",
@@ -33,22 +39,22 @@
     "Name place or period when it changes the role materially."
   ],
   "script_structure": {
-    "default_chapter_count": 9,
+    "default_chapter_count": 8,
     "chapter_count_range": [
-      7,
+      5,
       12
     ],
-    "default_length_minutes": 22,
+    "default_length_minutes": 25,
     "length_minutes_range": [
-      15,
+      20,
       30
     ],
     "duration_presets": [
-      15,
-      22,
+      20,
+      25,
       30
     ],
-    "default_words_per_minute": 145,
+    "default_words_per_minute": 155,
     "chapters_independent": true,
     "pacing_arc": [
       "Entry and selection.",
@@ -183,5 +189,6 @@
     "description_max_chars": 3500,
     "title_max_length": 100,
     "tag_count": 15
-  }
+  },
+  "metadata_title_style_hint": "Second person, present tense. Name the role and the era plainly — 'A Day As a Roman Legionary', never 'You Won't Believe What It Was Like'."
 }

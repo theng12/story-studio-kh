@@ -6,8 +6,9 @@
   "builtin": true,
   "schemaVersion": 1,
   "kind": "series-formula",
-  "compatibleTopicPackIds": ["economics-businesses"],
-
+  "compatibleTopicPackIds": [
+    "economics-businesses"
+  ],
   "exampleTopics": [
     "If I had $1000 today, here's exactly what I'd do to multiply it",
     "If I had a MacBook today, here's how I'd make money with it",
@@ -18,47 +19,99 @@
     "My exact morning routine to get more done before 9am",
     "How I'd learn a high-income skill in 30 days"
   ],
-
   "vocabulary": {
     "mood": [
-      "aspirational", "motivating", "candid", "energetic", "personal",
-      "practical", "confident", "hustle", "grounded", "real"
+      "aspirational",
+      "motivating",
+      "candid",
+      "energetic",
+      "personal",
+      "practical",
+      "confident",
+      "hustle",
+      "grounded",
+      "real"
     ],
     "theme": [
-      "money", "side-hustle", "productivity", "tech", "entrepreneurship",
-      "self-improvement", "daily-routine", "challenge", "first-person",
+      "money",
+      "side-hustle",
+      "productivity",
+      "tech",
+      "entrepreneurship",
+      "self-improvement",
+      "daily-routine",
+      "challenge",
+      "first-person",
       "lifestyle"
     ],
     "genre": [
-      "POV", "vlog-style", "challenge", "how-I-would", "day-in-the-life",
-      "walkthrough", "experiment"
+      "POV",
+      "vlog-style",
+      "challenge",
+      "how-I-would",
+      "day-in-the-life",
+      "walkthrough",
+      "experiment"
     ],
     "keyword": [
-      "if I had", "here's what I'd do", "how I would", "starting from",
-      "in 24 hours", "with just", "step by step", "from scratch",
-      "my plan to", "first dollar", "first client", "first 1000",
-      "morning routine", "high-income skill", "passive income",
-      "side income", "build in public", "zero to one", "day one",
-      "the exact steps", "what I'd buy first", "what I'd avoid"
+      "if I had",
+      "here's what I'd do",
+      "how I would",
+      "starting from",
+      "in 24 hours",
+      "with just",
+      "step by step",
+      "from scratch",
+      "my plan to",
+      "first dollar",
+      "first client",
+      "first 1000",
+      "morning routine",
+      "high-income skill",
+      "passive income",
+      "side income",
+      "build in public",
+      "zero to one",
+      "day one",
+      "the exact steps",
+      "what I'd buy first",
+      "what I'd avoid"
     ]
   },
-
   "youtubeTagsHint": [
-    "side hustle", "make money online", "pov", "first person", "productivity",
-    "entrepreneurship", "how i would", "money", "day in the life", "challenge"
+    "side hustle",
+    "make money online",
+    "pov",
+    "first person",
+    "productivity",
+    "entrepreneurship",
+    "how i would",
+    "money",
+    "day in the life",
+    "challenge"
   ],
-
   "audienceHint": "Viewers who want a relatable, first-person walkthrough they can imagine themselves doing — aspirational money / productivity / self-improvement audiences.",
-
   "ideaSystemPromptRole": "You generate first-person, point-of-view episode ideas for a creator-led channel where ONE consistent on-screen character carries the whole video. Frame every idea from the creator's perspective and make it lend itself to a sequence of concrete, visualizable moments the character physically moves through (sitting at a desk, opening a laptop, walking into a shop, counting cash). Favour aspirational, actionable, 'here's exactly what I'd do' angles over abstract commentary.",
-
   "ideaGuidanceText": "Each idea should imply a clear sequence of scenes the character physically moves through, so the continuity chain has distinct beats to render. 'How to save money' is too abstract; 'If I had $1000 today, here's exactly what I'd do to multiply it' gives a walkable, scene-by-scene arc. Keep it first-person and concrete.",
-
   "scriptContext": "Write in first person as one on-screen creator walking the viewer through a concrete plan, step by step. Anchor each beat to a physical, visualizable action or location — the visual planner turns each into its own scene.",
-
   "scriptSystemPromptRole": "You are writing a first-person, point-of-view narration where ONE creator carries the whole video and the visuals are rendered scene-by-scene to match the audio. Give the visual planner clear, concrete physical beats to latch onto — what the on-screen creator is doing, holding, looking at, or where they are. Short, vivid, action-anchored sentences beat long abstract ones. The tone is aspirational, candid, and practical — 'here's exactly what I'd do'.",
-
   "scriptStructure": {
+    "defaultChapterCount": 8,
+    "chapterCountRange": [
+      5,
+      12
+    ],
+    "defaultLengthMinutes": 25,
+    "lengthMinutesRange": [
+      20,
+      30
+    ],
+    "durationPresets": [
+      20,
+      25,
+      30
+    ],
+    "defaultWordsPerMinute": 170,
     "pacingArc": [
       "Hook: state the first-person premise ('If I had X today…').",
       "Setup: the starting situation, shown as an establishing scene.",
@@ -74,16 +127,25 @@
       "Close with a clear payoff or call to action that lands the POV premise."
     ]
   },
-
   "scriptClosingHint": "End on the payoff that resolves the opening 'if I had…' premise, then a clean call to action.",
-
   "narratorStyles": [
-    { "id": "A", "label": "Casual first-person", "description": "Relaxed, conversational 'talking to a friend' voice. The default for POV creator content." },
-    { "id": "B", "label": "High-energy hustle",  "description": "Faster, punchier, motivational — leans into momentum and quick wins." },
-    { "id": "C", "label": "Calm and deliberate", "description": "Measured, confident, 'let me walk you through this' pacing. Good for thoughtful walkthroughs." }
+    {
+      "id": "A",
+      "label": "Casual first-person",
+      "description": "Relaxed, conversational 'talking to a friend' voice. The default for POV creator content."
+    },
+    {
+      "id": "B",
+      "label": "High-energy hustle",
+      "description": "Faster, punchier, motivational — leans into momentum and quick wins."
+    },
+    {
+      "id": "C",
+      "label": "Calm and deliberate",
+      "description": "Measured, confident, 'let me walk you through this' pacing. Good for thoughtful walkthroughs."
+    }
   ],
   "defaultNarratorStyleId": "A",
-
   "titleShapeRules": [
     "Titles are FIRST-PERSON and pay off a concrete premise.",
     "Established shapes (vary the constraint/goal across the batch):",
@@ -93,13 +155,19 @@
     "REQUIRED: name a concrete constraint or starting point ($1000, a MacBook, 24 hours, zero) and imply a clear result the viewer wants.",
     "FORBIDDEN: vague self-help phrasing ('Unlock your potential'), get-rich-quick hype, all-caps."
   ],
-  "titleLengthRange": [5, 14],
+  "titleLengthRange": [
+    5,
+    14
+  ],
   "structuralVariety": "vary-subject-only",
-
   "visualStyleHint": "consistent on-screen creator across every scene — authentic, grounded, slightly cinematic",
   "visualStyleSheet": "Keep the SAME creator, wardrobe, and setting consistent across every scene — the continuity chain depends on it. Authentic, grounded, slightly cinematic. Describe what the creator is doing in this beat; the look is carried by the reference images.",
-  "defaultStyleKeywords": ["consistent character", "authentic", "grounded", "cinematic"],
-
+  "defaultStyleKeywords": [
+    "consistent character",
+    "authentic",
+    "grounded",
+    "cinematic"
+  ],
   "metadataTitleStyleHint": "first-person premise with a concrete payoff — 'If I had X, here's how I'd Y'",
   "metadataTitleHookRules": [
     "Lead with the first-person premise the video pays off.",

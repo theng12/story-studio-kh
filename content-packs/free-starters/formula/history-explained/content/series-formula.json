@@ -6,7 +6,17 @@
   "description": "Short narrated history facts — events, people, oddities. Tone is curious and grounded; voice is the friend who reads a lot. Pair with archival footage, museum/artifact B-Roll, or stylized animated re-enactments (anime / cinematic cuts work for younger audiences).",
   "channel_promise": "Event → Consequence",
   "audience": "History viewers who want grounded, concrete stories about change over time.",
-  "youtube_tags_hint": ["history", "history facts", "ancient history", "medieval history", "world history", "history shorts", "history explained", "historical mysteries", "did you know history"],
+  "youtube_tags_hint": [
+    "history",
+    "history facts",
+    "ancient history",
+    "medieval history",
+    "world history",
+    "history shorts",
+    "history explained",
+    "historical mysteries",
+    "did you know history"
+  ],
   "formula_family": "Evidence & systems",
   "tagline": "Everything we forgot. Briefly remembered.",
   "perspective_policy": "Third-person source-led documentary narration.",
@@ -33,22 +43,22 @@
     "Never use vague eras as the subject."
   ],
   "script_structure": {
-    "default_chapter_count": 8,
+    "default_chapter_count": 12,
     "chapter_count_range": [
-      6,
-      10
+      8,
+      16
     ],
-    "default_length_minutes": 18,
+    "default_length_minutes": 45,
     "length_minutes_range": [
-      12,
-      25
+      40,
+      50
     ],
     "duration_presets": [
-      12,
-      18,
-      25
+      40,
+      45,
+      50
     ],
-    "default_words_per_minute": 145,
+    "default_words_per_minute": 155,
     "chapters_independent": true,
     "pacing_arc": [
       "Specific historical event and stakes.",
@@ -358,5 +368,6 @@
     "description_max_chars": 4000,
     "title_max_length": 100,
     "tag_count": 15
-  }
+  },
+  "metadata_title_style_hint": "Concrete event, specific place, specific people. No mystery-baiting, no 'what they don't want you to know'."
 }

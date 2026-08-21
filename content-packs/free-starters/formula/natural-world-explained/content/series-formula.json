@@ -6,7 +6,16 @@
   "description": "Vertebrate and invertebrate animal subjects — mammals, birds, reptiles, amphibians, fish, cephalopods, crustaceans. Covers anything in Kingdom Animalia except Insects (separate niche, since insect content has its own visual + narrative conventions). The default niche for Bound-style 'Why It Sucks To Be Born As X' explainers since the reference channel is animal-heavy.",
   "channel_promise": "Instinct → Ecosystem",
   "audience": "Viewers who enjoy wildlife biology, nature documentaries, and specific animal adaptations.",
-  "youtube_tags_hint": ["animals", "animal facts", "wildlife", "zoology", "weird animals", "nature explainer", "evolution", "ecology"],
+  "youtube_tags_hint": [
+    "animals",
+    "animal facts",
+    "wildlife",
+    "zoology",
+    "weird animals",
+    "nature explainer",
+    "evolution",
+    "ecology"
+  ],
   "formula_family": "Living world",
   "tagline": "Born hunted, hungry, or weirdly built.",
   "perspective_policy": "Third-person natural-history narration; never invent animal thoughts or dialogue.",
@@ -52,20 +61,20 @@
   "script_structure": {
     "default_chapter_count": 8,
     "chapter_count_range": [
-      6,
-      10
+      5,
+      12
     ],
-    "default_length_minutes": 20,
+    "default_length_minutes": 25,
     "length_minutes_range": [
-      15,
-      30
-    ],
-    "duration_presets": [
-      15,
       20,
       30
     ],
-    "default_words_per_minute": 145,
+    "duration_presets": [
+      20,
+      25,
+      30
+    ],
+    "default_words_per_minute": 150,
     "chapters_independent": true,
     "pacing_arc": [
       "Open on a concrete survival pressure.",
@@ -321,7 +330,7 @@
     12
   ],
   "structural_variety": "vary-subject-only",
-  "metadata_title_style_hint": "Specific animal and biological pressure.",
+  "metadata_title_style_hint": "Concrete and surprising — name the creature and the strange, specific thing about it. No mystery-baiting, no 'you won't believe'.",
   "metadata_title_hook_rules": [
     "Keep the species explicit."
   ],

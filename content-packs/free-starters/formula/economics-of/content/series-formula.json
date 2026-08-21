@@ -6,7 +6,18 @@
   "description": "Long-form economics explainers about what it costs, earns, and risks to own or operate a real business.",
   "channel_promise": "Cost → Constraint",
   "audience": "Curious viewers, aspiring owners, operators, founders, and business students.",
-  "youtube_tags_hint": ["business economics", "business explained", "how businesses work", "cost of running a business", "startup costs", "profit margins", "business ownership", "unit economics", "company analysis", "entrepreneurship"],
+  "youtube_tags_hint": [
+    "business economics",
+    "business explained",
+    "how businesses work",
+    "cost of running a business",
+    "startup costs",
+    "profit margins",
+    "business ownership",
+    "unit economics",
+    "company analysis",
+    "entrepreneurship"
+  ],
   "formula_family": "Evidence & systems",
   "tagline": "What it really costs to own the business.",
   "perspective_policy": "Third-person analytical explainer. Address the business, system, or decision — not a generic viewer avatar.",
@@ -56,17 +67,17 @@
       8,
       12
     ],
-    "default_length_minutes": 25,
+    "default_length_minutes": 22,
     "length_minutes_range": [
       20,
-      30
+      25
     ],
     "duration_presets": [
       20,
-      25,
-      30
+      22,
+      25
     ],
-    "default_words_per_minute": 145,
+    "default_words_per_minute": 160,
     "chapters_independent": true,
     "pacing_arc": [
       "Chapter 1: Cold open — put the viewer in the owner's position and expose the surprising financial tension",

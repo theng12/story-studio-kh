@@ -6,18 +6,43 @@
   "builtin": true,
   "schemaVersion": 1,
   "kind": "series-formula",
-  "defaultTopicPackIds": ["pov-law-enforcement", "pov-criminal-hierarchies", "pov-historical-occupations"],
-  "compatibleTopicPackIds": ["pov-law-enforcement", "pov-criminal-hierarchies", "pov-historical-occupations"],
+  "defaultTopicPackIds": [
+    "pov-law-enforcement",
+    "pov-criminal-hierarchies",
+    "pov-historical-occupations"
+  ],
+  "compatibleTopicPackIds": [
+    "pov-law-enforcement",
+    "pov-criminal-hierarchies",
+    "pov-historical-occupations"
+  ],
   "ideaAxes": [
     {
       "id": "life-stage",
       "label": "Life stage",
-      "values": ["entry and selection", "training", "ordinary duty", "first crisis", "advancement", "peak authority", "downfall or retirement"]
+      "values": [
+        "entry and selection",
+        "training",
+        "ordinary duty",
+        "first crisis",
+        "advancement",
+        "peak authority",
+        "downfall or retirement"
+      ]
     },
     {
       "id": "inside-lens",
       "label": "Inside lens",
-      "values": ["daily routine", "hierarchy", "tools", "pay and rewards", "risk", "moral compromise", "survival odds", "public reputation"]
+      "values": [
+        "daily routine",
+        "hierarchy",
+        "tools",
+        "pay and rewards",
+        "risk",
+        "moral compromise",
+        "survival odds",
+        "public reputation"
+      ]
     }
   ],
   "exampleTopics": [
@@ -28,10 +53,38 @@
     "POV: Your Life as a Pirate Quartermaster"
   ],
   "vocabulary": {
-    "genre": ["immersive history", "role explainer", "second-person documentary", "hierarchy breakdown"],
-    "mood": ["immersive", "unsentimental", "tense", "curious", "grounded"],
-    "theme": ["hierarchy", "daily life", "risk", "status", "advancement", "survival", "power"],
-    "keyword": ["POV", "your life as", "every tier", "rank", "training", "duty", "promotion", "downfall"]
+    "genre": [
+      "immersive history",
+      "role explainer",
+      "second-person documentary",
+      "hierarchy breakdown"
+    ],
+    "mood": [
+      "immersive",
+      "unsentimental",
+      "tense",
+      "curious",
+      "grounded"
+    ],
+    "theme": [
+      "hierarchy",
+      "daily life",
+      "risk",
+      "status",
+      "advancement",
+      "survival",
+      "power"
+    ],
+    "keyword": [
+      "POV",
+      "your life as",
+      "every tier",
+      "rank",
+      "training",
+      "duty",
+      "promotion",
+      "downfall"
+    ]
   },
   "audienceHint": "Viewers who enjoy immersive history, hierarchy explainers, career ladders, and second-person documentary storytelling.",
   "scriptContext": "Address the viewer as 'you'. Move chronologically through entry, training, daily work, rank, danger, rewards, and ending. Make each tier materially different in authority, routine, incentives, and risk. Avoid game-stat language and empty cinematic roleplay; explain the real system from the inside.",
@@ -43,5 +96,30 @@
     "Prefer 'POV: Your Life in Every Tier of [specific institution]' for a rank ladder.",
     "Name the place or period when the role changes materially across contexts."
   ],
-  "youtubeTagsHint": ["POV history", "your life as", "every tier explained", "immersive documentary", "historical jobs"]
+  "youtubeTagsHint": [
+    "POV history",
+    "your life as",
+    "every tier explained",
+    "immersive documentary",
+    "historical jobs"
+  ],
+  "scriptStructure": {
+    "defaultChapterCount": 8,
+    "chapterCountRange": [
+      5,
+      12
+    ],
+    "defaultLengthMinutes": 25,
+    "lengthMinutesRange": [
+      20,
+      30
+    ],
+    "durationPresets": [
+      20,
+      25,
+      30
+    ],
+    "defaultWordsPerMinute": 155
+  },
+  "metadataTitleStyleHint": "Second person, present tense. Name the role and the era plainly — 'A Day As a Roman Legionary', never 'You Won't Believe What It Was Like'."
 }

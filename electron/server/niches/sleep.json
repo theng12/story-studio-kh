@@ -5,13 +5,11 @@
   "tagline": "A quiet story to drift off to.",
   "builtin": true,
   "schemaVersion": 1,
-
   "openingProfile": {
     "id": "sleep-landing",
     "label": "Sleep landing",
     "description": "A gentle branded welcome and settling ritual before the story begins."
   },
-
   "exampleTopics": [
     "The Lantern Keeper's Last Light",
     "The Tailor Who Stitched The Snow",
@@ -26,66 +24,198 @@
     "A Letter Found in the Lighthouse",
     "The Long Walk Home Through First Snow"
   ],
-
   "vocabulary": {
     "mood": [
-      "gentle", "calm", "soothing", "tender", "wistful", "tranquil",
-      "peaceful", "hushed wonder", "tender patience", "gentle nostalgia",
-      "quiet resolve", "dreamlike", "lulling", "hushed", "muted",
-      "embered", "soft-spoken", "fireside", "candle-lit", "drifting",
-      "amber-toned", "moonlit", "sun-dappled", "lake-still", "cottage-warm",
-      "slow-burning", "snow-quieted", "tide-rocked", "starlit",
-      "wool-blanket", "library-hushed"
+      "gentle",
+      "calm",
+      "soothing",
+      "tender",
+      "wistful",
+      "tranquil",
+      "peaceful",
+      "hushed wonder",
+      "tender patience",
+      "gentle nostalgia",
+      "quiet resolve",
+      "dreamlike",
+      "lulling",
+      "hushed",
+      "muted",
+      "embered",
+      "soft-spoken",
+      "fireside",
+      "candle-lit",
+      "drifting",
+      "amber-toned",
+      "moonlit",
+      "sun-dappled",
+      "lake-still",
+      "cottage-warm",
+      "slow-burning",
+      "snow-quieted",
+      "tide-rocked",
+      "starlit",
+      "wool-blanket",
+      "library-hushed"
     ],
     "theme": [
-      "solitude", "memory", "rekindling", "craftsmanship", "time", "loss",
-      "patience", "wonder", "nature", "heritage", "reflection", "homecoming",
-      "letting-go", "gentle-discovery", "quiet-courage", "tending",
-      "stewardship", "small-mercies", "first-snow", "lost-and-found-objects",
-      "intergenerational-quiet", "rural-rhythm", "the-long-walk",
-      "the-slow-task", "kindness-among-strangers", "watching-weather",
-      "tending-the-fire", "writing-a-letter", "the-old-house",
-      "the-found-map", "the-returning-light"
+      "solitude",
+      "memory",
+      "rekindling",
+      "craftsmanship",
+      "time",
+      "loss",
+      "patience",
+      "wonder",
+      "nature",
+      "heritage",
+      "reflection",
+      "homecoming",
+      "letting-go",
+      "gentle-discovery",
+      "quiet-courage",
+      "tending",
+      "stewardship",
+      "small-mercies",
+      "first-snow",
+      "lost-and-found-objects",
+      "intergenerational-quiet",
+      "rural-rhythm",
+      "the-long-walk",
+      "the-slow-task",
+      "kindness-among-strangers",
+      "watching-weather",
+      "tending-the-fire",
+      "writing-a-letter",
+      "the-old-house",
+      "the-found-map",
+      "the-returning-light"
     ],
     "genre": [
-      "fairy-tale", "folklore", "slice-of-life", "pastoral", "bedtime-story",
-      "cozy-mystery", "anthology", "watercolour-fable", "old-world-tale",
-      "lakeside-memoir", "village-chronicle", "winter-tale", "river-tale",
-      "harbour-tale", "garden-tale"
+      "fairy-tale",
+      "folklore",
+      "slice-of-life",
+      "pastoral",
+      "bedtime-story",
+      "cozy-mystery",
+      "anthology",
+      "watercolour-fable",
+      "old-world-tale",
+      "lakeside-memoir",
+      "village-chronicle",
+      "winter-tale",
+      "river-tale",
+      "harbour-tale",
+      "garden-tale"
     ],
     "keyword": [
-      "forest", "ocean", "mountain", "valley", "village", "hamlet", "island",
-      "twilight", "dawn", "dusk", "starlight", "moonlit", "lantern", "candle",
-      "whisper", "river", "stream", "brook", "meadow", "field", "garden",
-      "orchard", "snow", "frost", "cabin", "cottage", "lighthouse", "tower",
-      "windmill", "bridge", "library", "observatory", "loom", "kiln", "forge",
-      "compass", "locket", "clock", "pocket watch", "owl", "stag", "fox",
-      "hare", "swan", "heron", "kingfisher", "moth", "firefly", "grandmother",
-      "grandfather", "wanderer", "scholar", "sailor", "innkeeper", "ferryman",
-      "weaver", "miller", "cartographer", "bookbinder", "watchmaker",
-      "lighthouse keeper", "hearth", "embers", "kettle", "ancient map",
-      "tide chart", "diary", "the long autumn", "the first thaw",
-      "the candle in the window", "the kettle's whistle"
+      "forest",
+      "ocean",
+      "mountain",
+      "valley",
+      "village",
+      "hamlet",
+      "island",
+      "twilight",
+      "dawn",
+      "dusk",
+      "starlight",
+      "moonlit",
+      "lantern",
+      "candle",
+      "whisper",
+      "river",
+      "stream",
+      "brook",
+      "meadow",
+      "field",
+      "garden",
+      "orchard",
+      "snow",
+      "frost",
+      "cabin",
+      "cottage",
+      "lighthouse",
+      "tower",
+      "windmill",
+      "bridge",
+      "library",
+      "observatory",
+      "loom",
+      "kiln",
+      "forge",
+      "compass",
+      "locket",
+      "clock",
+      "pocket watch",
+      "owl",
+      "stag",
+      "fox",
+      "hare",
+      "swan",
+      "heron",
+      "kingfisher",
+      "moth",
+      "firefly",
+      "grandmother",
+      "grandfather",
+      "wanderer",
+      "scholar",
+      "sailor",
+      "innkeeper",
+      "ferryman",
+      "weaver",
+      "miller",
+      "cartographer",
+      "bookbinder",
+      "watchmaker",
+      "lighthouse keeper",
+      "hearth",
+      "embers",
+      "kettle",
+      "ancient map",
+      "tide chart",
+      "diary",
+      "the long autumn",
+      "the first thaw",
+      "the candle in the window",
+      "the kettle's whistle"
     ]
   },
-
   "youtubeTagsHint": [
-    "sleep story", "bedtime story", "sleep stories for adults", "relaxing story",
-    "story to fall asleep to", "calm narration", "sleep meditation story",
-    "cozy bedtime story", "asmr story", "long sleep story"
+    "sleep story",
+    "bedtime story",
+    "sleep stories for adults",
+    "relaxing story",
+    "story to fall asleep to",
+    "calm narration",
+    "sleep meditation story",
+    "cozy bedtime story",
+    "asmr story",
+    "long sleep story"
   ],
-
   "audienceHint": "Adults listening in bed with the lights off — they want to drift away, not be gripped. Mobile, headphones, eyes closed.",
-
   "ideaSystemPromptRole": "You generate ideas for a SLEEP-STORY channel. Every episode is a quiet, low-stakes bedtime narrative with a single gentle character and one small, soothing task or journey. The point is to lull the listener to sleep — never to grip them. Favour cosy, sensory, slow-living premises (a lighthouse keeper restoring a beacon, a tailor mending something impossible-but-calm) over plot, conflict, or stakes.",
-
   "ideaGuidanceText": "Sleep-friendly above all. Low stakes, no violence, no cliffhangers, no jump scares, no loud reveals. The premise should suggest a slow, repetitive, comforting activity the listener can sink into. Concrete sensory anchors (twilight, lantern, snow, a kettle, a garden) beat abstract concepts.",
-
   "scriptContext": "This is a sleep story — its job is to ease the listener toward sleep. Keep the pace unhurried and the stakes near zero. Lean into sensory, repetitive, soothing detail. Nothing startling, loud, or tense should ever happen.",
-
   "scriptSystemPromptRole": "You are a world-class sleep-story author. You write long, gentle, literary bedtime narratives for listeners drifting off to sleep. Your prose is slow, warm, and lulling — rich sensory detail, soft cadence, gentle repetition, no tension or sudden turns. A single quiet character moves through one small, soothing task or journey across the chapters.",
-
   "scriptStructure": {
+    "defaultChapterCount": 15,
+    "chapterCountRange": [
+      10,
+      24
+    ],
+    "defaultLengthMinutes": 135,
+    "lengthMinutesRange": [
+      120,
+      150
+    ],
+    "durationPresets": [
+      120,
+      135,
+      150
+    ],
+    "defaultWordsPerMinute": 115,
     "pacingArc": [
       "Chapters 1-3: Settle the listener into the place and the character — establish the cosy world, the soft light, the small task ahead. Nothing urgent.",
       "Chapters 4-6: The gentle middle — the character moves slowly through the task or journey, noticing sensory detail. Calm, unhurried, repetitive in a soothing way.",
@@ -101,23 +231,60 @@
       "Favour long, soft, flowing sentences with gentle rhythm — but vary length so it never feels mechanical."
     ]
   },
-
   "scriptClosingHint": "Slow the pace and soften the language as the story closes. End on a still, peaceful image — the listener should already be drifting off.",
-
   "narratorStyles": [
-    { "id": "A", "label": "Warm and intimate",          "description": "First-person narrator, very close to the character's inner world. Feels like a whispered confidence." },
-    { "id": "B", "label": "Gentle third-person observer", "description": "Lyrical, slightly poetic, like watching from a warm window." },
-    { "id": "C", "label": "Classic quiet storyteller",   "description": "Traditional \"once there was\" tone, timeless and cosy, like a fireside tale." },
-    { "id": "D", "label": "Poetic and lyrical",          "description": "Rich metaphors, flowing sentences, language that sounds like music." },
-    { "id": "E", "label": "Whimsical and playful",       "description": "Light-hearted, a little cheeky, with gentle humour. Good for softer, lighter tales." },
-    { "id": "F", "label": "Mysterious and atmospheric",  "description": "Fog-shrouded prose, building gentle intrigue slowly — but never tension. The world feels ancient and soft." },
-    { "id": "G", "label": "Grandparent bedtime voice",   "description": "Warm, unhurried, with the cadence of someone who has told a thousand stories and loves every one." },
-    { "id": "H", "label": "Nature documentary calm",     "description": "Patient, reverent, finding wonder in small details of the natural world." },
-    { "id": "I", "label": "Meditative and mindful",      "description": "Present-tense awareness, grounding the listener in each sensory moment. Breath-paced prose." },
-    { "id": "J", "label": "Fairy tale narrator",         "description": "Storybook formality with a wink. \"Once upon a time\" energy, gentle moral arcs, soft endings." }
+    {
+      "id": "A",
+      "label": "Warm and intimate",
+      "description": "First-person narrator, very close to the character's inner world. Feels like a whispered confidence."
+    },
+    {
+      "id": "B",
+      "label": "Gentle third-person observer",
+      "description": "Lyrical, slightly poetic, like watching from a warm window."
+    },
+    {
+      "id": "C",
+      "label": "Classic quiet storyteller",
+      "description": "Traditional \"once there was\" tone, timeless and cosy, like a fireside tale."
+    },
+    {
+      "id": "D",
+      "label": "Poetic and lyrical",
+      "description": "Rich metaphors, flowing sentences, language that sounds like music."
+    },
+    {
+      "id": "E",
+      "label": "Whimsical and playful",
+      "description": "Light-hearted, a little cheeky, with gentle humour. Good for softer, lighter tales."
+    },
+    {
+      "id": "F",
+      "label": "Mysterious and atmospheric",
+      "description": "Fog-shrouded prose, building gentle intrigue slowly — but never tension. The world feels ancient and soft."
+    },
+    {
+      "id": "G",
+      "label": "Grandparent bedtime voice",
+      "description": "Warm, unhurried, with the cadence of someone who has told a thousand stories and loves every one."
+    },
+    {
+      "id": "H",
+      "label": "Nature documentary calm",
+      "description": "Patient, reverent, finding wonder in small details of the natural world."
+    },
+    {
+      "id": "I",
+      "label": "Meditative and mindful",
+      "description": "Present-tense awareness, grounding the listener in each sensory moment. Breath-paced prose."
+    },
+    {
+      "id": "J",
+      "label": "Fairy tale narrator",
+      "description": "Storybook formality with a wink. \"Once upon a time\" energy, gentle moral arcs, soft endings."
+    }
   ],
   "defaultNarratorStyleId": "A",
-
   "titleShapeRules": [
     "Titles are LITERARY and EVOCATIVE — one concrete noun phrase that hints at a quiet story.",
     "Pattern shapes that work (mix across the batch — never repeat the same shape twice in one batch):",
@@ -128,24 +295,38 @@
     "FORBIDDEN: hype words (BEST, MUST, NOW), all-caps, urgency, question marks. Sleep listeners come for calm.",
     "Sensory imagery is encouraged — twilight, lantern, snow, river, garden — drawn from the keyword pool."
   ],
-  "titleLengthRange": [4, 9],
+  "titleLengthRange": [
+    4,
+    9
+  ],
   "loglineShapeRules": [
     "One literary sentence (or two short ones) introducing a SPECIFIC gentle character and a SPECIFIC quiet task or journey.",
     "Concrete sensory image — name an object, place, or time of year. No generic premise descriptions.",
     "Tone is gentle, unhurried, suggestive of slowing down."
   ],
-  "loglineSentenceRange": [1, 2],
+  "loglineSentenceRange": [
+    1,
+    2
+  ],
   "themeShapeRules": [
     "Pick 2-4 EMOTIONAL or ATMOSPHERIC keywords (solitude, memory, rekindling, craftsmanship, patience).",
     "Avoid plot keywords (revenge, war, betrayal) — sleep themes lean inward and calm."
   ],
-  "themeCountRange": [2, 4],
+  "themeCountRange": [
+    2,
+    4
+  ],
   "structuralVariety": "vary-all",
-
   "visualStyleHint": "soft, dreamlike, warm and luminous — gentle illustration that lulls rather than dazzles",
   "visualStyleSheet": "Soft, dreamlike illustration. Warm, luminous, low-contrast colour palette — amber, moonlit blue, candle-gold. Gentle, slightly hazy focus. Calm, uncluttered compositions with a single quiet subject. Nothing harsh, saturated, or busy.",
-  "defaultStyleKeywords": ["soft", "dreamlike", "warm", "luminous", "low-contrast", "gentle"],
-
+  "defaultStyleKeywords": [
+    "soft",
+    "dreamlike",
+    "warm",
+    "luminous",
+    "low-contrast",
+    "gentle"
+  ],
   "metadataTitleStyleHint": "calm and literary — a quiet, evocative noun phrase that signals a relaxing bedtime story, never clickbait",
   "metadataTitleHookRules": [
     "Signal the calm up front — words like 'sleep story', 'bedtime', 'relaxing', or the gentle subject itself.",

@@ -4,6 +4,18 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.16 — 2026-08-21
+
+- **Every one of your 21 channels now has its own runtime, chapter count and speaking pace.** Until today only two of them did. The other nineteen fell through to one shared setting — five chapters, eight minutes, 160 words a minute — and, more importantly, to a shared **maximum of twenty minutes**. A sleep story is now 135 minutes by default and may run to 150; a prayer is 18; Hidden Mechanics is 45; the nature channels and the explainers sit around 25. The numbers are yours: you gave them on 2026-08-21 and they are written in each channel's own file, not in the program.
+- **Speaking pace now follows delivery instead of one number for everybody.** 160 words a minute is a news-reading pace and suited almost none of your channels. Sleep and mindfulness now sit at 115, prayer at 120, preaching and philosophy at 145, the history and nature channels at 150–155, business at 160, the listicle voice at 165 and hustle at 170. Slower channels get more words on the page for the same runtime, faster ones fewer, so a "25-minute episode" is actually 25 minutes on each of them.
+- **Thirteen channels were being told to write sleep-story titles.** Prayer, preaching, psychology, philosophy, devotional, mindfulness, motivation, history narration, the POV channel and all four nature channels had no title voice of their own, so the program fell back to a line written into the code: *"Hook-y, curiosity-driven, calm/dreamlike tone."* A fix in v1.0.69 was meant to prevent exactly this, but it only worked for channels that stated their own voice, and these thirteen did not. All 21 now do, in their own words.
+- **That tone is no longer written into the program.** It is a setting on the channel and on the format, so you can change it without anybody touching code. What remains in the program is a deliberately plain last-resort line for a channel you add later and have not given a voice yet.
+- **Hidden Mechanics keeps its nine parts.** Its runtime moved from 36 to 45 minutes as you asked, but the nine chapters are a named sequence — from "The familiar story" to "The changed world" — so the extra time became longer chapters rather than more of them.
+- **Deep Time was left exactly as it was**, at 150 minutes and 120 words a minute. It already had considered settings, and cutting it would have halved your longest format on the strength of a bad reading on my part.
+- **Your eleven sellable content packs carry the same numbers.** They are copies of these same channels, and they had no runtime at all before today, so anybody who bought one got the twenty-minute cap. Say the word if you would rather a pack differ from your own channel.
+
+---
+
 ## v1.4.15 — 2026-08-21
 
 - **You can now choose the shape of a video, not just its size.** Video Assembly has a new Aspect Ratio box beside Resolution, offering widescreen 16:9, vertical 9:16 for Shorts and Reels, square 1:1, 4:5 for Instagram and 21:9 ultrawide. Until today every video Story Studio assembled on this Mac was widescreen and there was no way to make a vertical one, even though the picture side has offered vertical for a long time — so a channel could generate tall pictures and then get them squeezed into a wide frame with black bars down both sides, with nothing said about it.

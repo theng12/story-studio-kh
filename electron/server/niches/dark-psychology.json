@@ -5,7 +5,6 @@
   "tagline": "The hidden psychology of who we really are.",
   "builtin": true,
   "schemaVersion": 1,
-
   "exampleTopics": [
     "The Psychology of Effortless Charm",
     "The Dark Side of Kindness",
@@ -16,48 +15,100 @@
     "The Psychology of a Child Who Grew Up Too Fast",
     "The Quiet Power of People Who Stay Silent"
   ],
-
   "vocabulary": {
     "mood": [
-      "contemplative", "profound", "quiet", "reflective", "poetic", "reverent",
-      "intimate", "shadowed", "meditative", "unsettling", "tender", "haunting"
+      "contemplative",
+      "profound",
+      "quiet",
+      "reflective",
+      "poetic",
+      "reverent",
+      "intimate",
+      "shadowed",
+      "meditative",
+      "unsettling",
+      "tender",
+      "haunting"
     ],
     "theme": [
-      "the shadow self", "archetypes", "the human condition", "hidden motives",
-      "vulnerability", "the unconscious", "paradox", "solitude", "awareness",
-      "projection", "the inner child", "alienation", "authenticity", "the mask"
+      "the shadow self",
+      "archetypes",
+      "the human condition",
+      "hidden motives",
+      "vulnerability",
+      "the unconscious",
+      "paradox",
+      "solitude",
+      "awareness",
+      "projection",
+      "the inner child",
+      "alienation",
+      "authenticity",
+      "the mask"
     ],
     "genre": [
-      "psychological essay", "video essay", "contemplative narration",
-      "dark psychology", "philosophical", "Jungian", "introspective"
+      "psychological essay",
+      "video essay",
+      "contemplative narration",
+      "dark psychology",
+      "philosophical",
+      "Jungian",
+      "introspective"
     ],
     "keyword": [
-      "the psychology of", "the dark side of", "the hidden", "why we",
-      "the paradox of", "people who", "the quiet", "beneath the surface",
-      "the shadow", "the archetype of", "what nobody tells you about",
-      "the truth about", "the part of you that", "the cost of", "the price of"
+      "the psychology of",
+      "the dark side of",
+      "the hidden",
+      "why we",
+      "the paradox of",
+      "people who",
+      "the quiet",
+      "beneath the surface",
+      "the shadow",
+      "the archetype of",
+      "what nobody tells you about",
+      "the truth about",
+      "the part of you that",
+      "the cost of",
+      "the price of"
     ]
   },
-
   "youtubeTagsHint": [
-    "psychology", "dark psychology", "human behavior", "philosophy",
-    "carl jung", "shadow self", "psychology of", "deep thinking",
-    "human nature", "introspection", "video essay", "stoicism"
+    "psychology",
+    "dark psychology",
+    "human behavior",
+    "philosophy",
+    "carl jung",
+    "shadow self",
+    "psychology of",
+    "deep thinking",
+    "human nature",
+    "introspection",
+    "video essay",
+    "stoicism"
   ],
-
   "audienceHint": "Introspective viewers who want to understand the hidden psychology of human behaviour — late-night thinkers, philosophy and Jung readers, people drawn to the shadow side of human nature rather than quick self-help fixes.",
-
   "ideaSystemPromptRole": "You generate ideas for a contemplative dark-psychology video-essay channel. Each idea is ONE recognisable human pattern, person-type, or behaviour whose HIDDEN or SHADOW psychology you'll unpack — the charming person, the ignored child, the one who's too aware, the family scapegoat, the slow slide into madness. Frame it so it can be explored as a layered meditation, often through an archetype (the Fool, the Scapegoat, the shadow). Pitch evocative, slightly uncomfortable, profound hooks — never practical 'how-to', never clinical, never listicle.",
-
   "ideaGuidanceText": "Each idea is a single contemplative essay topic about the hidden psychology of a human pattern — something the viewer recognises in themselves or others, and that carries a little discomfort or profundity. Lean into the shadow side, the paradox, the overlooked truth. Archetype framing (the Fool, the Scapegoat, the Ignored Child, the shadow self) is welcome. Titles take shapes like 'The Psychology of X', 'The Dark Side of Y', 'People Who Are Z', 'How Someone Goes …'. Avoid practical advice, '5 signs/tips' listicles, and clinical diagnosis — these are meditations on the human condition, not self-help.",
-
   "scriptContext": "Write a single contemplative psychology essay — one idea explored in deepening layers, second-person 'you' and universal 'we', profound and slightly poetic. Weave in real named psychological concepts and philosophy as accessible meditation, and frame the idea through an archetype where it fits. The visual planner turns each beat of the narration into its own painted scene, so let each movement evoke a clear image.",
-
   "scriptSystemPromptRole": "You are a psychology video-essayist in the contemplative, slightly poetic tradition (think a thoughtful narrated essay on the human condition). You take ONE recognisable human pattern and unfold its hidden psychology in deepening layers — never a listicle, never clinical, never practical 'how-to'. You write in second person ('you') and universal 'we', with a calm, profound, faintly literary voice. You weave in REAL named concepts and studies (benign violation theory, the Pratfall effect, emotional contagion, self-concordance, cognitive flexibility) and philosophy (Stoic apatheia, the Jungian shadow and archetypes), but you always unpack them plainly — no jargon left bare. You explore the shadow side with empathy and wonder, illuminating rather than diagnosing or sensationalising. Let ideas breathe; favour resonant, rhythmic prose where each paragraph adds a new lens, and close on a distilled, quietly profound truth.",
-
   "scriptStructure": {
     "defaultChapterCount": 6,
-    "chapterCountRange": [5, 8],
+    "chapterCountRange": [
+      5,
+      8
+    ],
+    "defaultLengthMinutes": 25,
+    "lengthMinutesRange": [
+      20,
+      30
+    ],
+    "durationPresets": [
+      20,
+      25,
+      30
+    ],
+    "defaultWordsPerMinute": 150,
     "pacingArc": [
       "Open with a vivid, relatable observation of the behaviour or person — make the viewer recognise it instantly ('There's something fascinating about those who…').",
       "Name the surface pattern, then signal there's something deeper beneath it ('but beneath that lightness, a quiet psychology few ever notice').",
@@ -75,16 +126,25 @@
       "Close on a distilled philosophical truth that reframes the whole essay — not a call-to-action, not a how-to summary."
     ]
   },
-
   "scriptClosingHint": "End on one distilled, quietly profound sentence that reframes the whole essay — a truth, not advice ('and maybe that's the quiet beauty of it all…').",
-
   "narratorStyles": [
-    { "id": "A", "label": "Calm and contemplative", "description": "Measured, reverent, unhurried — lets each idea breathe. The default voice for these essays." },
-    { "id": "B", "label": "Intimate and reflective", "description": "Close and quiet, almost a thought shared in confidence. Draws the listener inward." },
-    { "id": "C", "label": "Documentary-profound", "description": "Composed and authoritative with weight, like a narrated essay on the human condition." }
+    {
+      "id": "A",
+      "label": "Calm and contemplative",
+      "description": "Measured, reverent, unhurried — lets each idea breathe. The default voice for these essays."
+    },
+    {
+      "id": "B",
+      "label": "Intimate and reflective",
+      "description": "Close and quiet, almost a thought shared in confidence. Draws the listener inward."
+    },
+    {
+      "id": "C",
+      "label": "Documentary-profound",
+      "description": "Composed and authoritative with weight, like a narrated essay on the human condition."
+    }
   ],
   "defaultNarratorStyleId": "A",
-
   "titleShapeRules": [
     "Titles are EVOCATIVE and profound, hinting at a hidden or shadow truth. Vary the shape across the batch:",
     "  - 'The Psychology of {X}'                         (e.g. 'The Psychology of Effortless Charm')",
@@ -95,19 +155,28 @@
     "  - 'The {Adjective} {Person/Child}'                (e.g. 'The Ignored Child')",
     "FORBIDDEN: clickbait hype, all-caps, numbered/listicle framing ('5 Signs…'), get-fixed self-help phrasing. The tone is profound and a little dark, never sensational."
   ],
-  "titleLengthRange": [3, 9],
+  "titleLengthRange": [
+    3,
+    9
+  ],
   "structuralVariety": "vary-all",
-
   "visualStyleHint": "thick impasto oil painting, expressive brushstrokes, non-realistic — different animals doing very human things",
   "visualStyleSheet": "Every scene is a THICK IMPASTO OIL PAINTING — heavy, visible brushstrokes and palette-knife texture, expressive and gestural. Explicitly NOT photorealistic, NOT a photograph, NOT clean digital art, NOT cartoon or anime. Muted, moody, slightly desaturated palette with a single warm accent and soft, low, painterly light. The recurring motif: a DIFFERENT ANIMAL in each scene portrayed doing a distinctly HUMAN activity that mirrors the narration's current idea — a fox reading a letter by lamplight, a crow in a suit alone at a desk, a hare on a park bench at dusk, a stag staring into a cracked mirror. Anthropomorphic but painterly and quietly surreal — dignified, melancholic, never cute or cartoonish. Keep the MEDIUM, brushwork, texture, and muted palette IDENTICAL across every scene so the whole video reads as one continuous series of paintings; only the animal, its human activity, and the setting change to match the moment.",
   "defaultStyleKeywords": [
-    "thick impasto oil painting", "heavy visible brushstrokes", "palette-knife texture",
-    "expressive painterly", "non-photorealistic", "muted moody desaturated palette",
-    "soft low painterly light", "anthropomorphic animal", "doing a human activity",
-    "quietly surreal", "melancholic", "dignified"
+    "thick impasto oil painting",
+    "heavy visible brushstrokes",
+    "palette-knife texture",
+    "expressive painterly",
+    "non-photorealistic",
+    "muted moody desaturated palette",
+    "soft low painterly light",
+    "anthropomorphic animal",
+    "doing a human activity",
+    "quietly surreal",
+    "melancholic",
+    "dignified"
   ],
   "thumbnailStyleSheet": "A dark, sketchy CHARCOAL-AND-INK illustration in the manner of Tim Burton / Ralph Steadman — scratchy graphite linework, wild frantic strokes, smudged shading, off-kilter and unsettling. ONE haunted subject (often an anthropomorphic figure with huge stark white eyes and a hollow stare) on a plain warm cream / off-white paper background. High contrast: near-black subject against the pale ground, single muted accent colour at most (a dull red). Hand-drawn, raw, expressive — NOT painted, NOT photorealistic, NOT clean or digital. Leave clear negative space (typically one side) for a bold condensed black title. Emotive and a little eerie — it should make the viewer feel the psychological weight at a glance.",
-
   "metadataTitleStyleHint": "profound, contemplative, a little dark — 'The Psychology of X' / 'The Dark Side of Y', never clickbait",
   "metadataTitleHookRules": [
     "Lead with the recognisable human pattern or person-type the essay unpacks.",
@@ -118,6 +187,5 @@
     "Mix broad terms (psychology, human behavior, philosophy, Carl Jung) with the specific topic + archetype.",
     "Each tag 1-4 words, no '#' prefix."
   ],
-
   "defaultThumbnailTemplateId": "portrait-block-right"
 }

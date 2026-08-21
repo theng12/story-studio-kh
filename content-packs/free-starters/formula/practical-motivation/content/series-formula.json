@@ -6,7 +6,18 @@
   "description": "Spoken-word motivational narration — discipline, mindset, hard work, resilience. Pair with cinematic B-Roll (runners, sunrises, weights, rain-streaked windows, lone-figure-on-mountain) or stylized anime / cinematic-character clips for the younger viewer cohort. Tone is direct, charged, but earned — avoid empty hype.",
   "channel_promise": "Friction → Action",
   "audience": "Listeners who want a practical next step for work, learning, routines, or creative projects.",
-  "youtube_tags_hint": ["motivation", "discipline", "mindset", "self improvement", "motivational speech", "hard work", "grit", "stoic motivation", "daily motivation", "high performance"],
+  "youtube_tags_hint": [
+    "motivation",
+    "discipline",
+    "mindset",
+    "self improvement",
+    "motivational speech",
+    "hard work",
+    "grit",
+    "stoic motivation",
+    "daily motivation",
+    "high performance"
+  ],
   "formula_family": "Mind & ideas",
   "tagline": "Show up. Even when it's quiet.",
   "perspective_policy": "Direct second-person practical coaching without hype.",
@@ -48,22 +59,22 @@
     "Avoid hustle language, shame, and guarantees."
   ],
   "script_structure": {
-    "default_chapter_count": 7,
+    "default_chapter_count": 6,
     "chapter_count_range": [
-      5,
+      4,
       9
     ],
-    "default_length_minutes": 14,
+    "default_length_minutes": 25,
     "length_minutes_range": [
-      8,
-      20
+      20,
+      30
     ],
     "duration_presets": [
-      8,
-      14,
-      20
+      20,
+      25,
+      30
     ],
-    "default_words_per_minute": 135,
+    "default_words_per_minute": 150,
     "chapters_independent": true,
     "pacing_arc": [
       "Name the everyday friction.",
@@ -321,7 +332,7 @@
     8
   ],
   "structural_variety": "vary-subject-only",
-  "metadata_title_style_hint": "Specific, grounded, and non-hyped.",
+  "metadata_title_style_hint": "Direct, second person, present tense. A challenge or a promise the viewer can act on today — never a tease.",
   "metadata_title_hook_rules": [
     "Name the friction and practical action without a promise."
   ],

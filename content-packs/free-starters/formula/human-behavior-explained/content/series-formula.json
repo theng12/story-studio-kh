@@ -6,7 +6,18 @@
   "description": "Pop-psychology narration — habits, cognitive biases, relationships, mental health, focus, anxiety, ADHD, stoicism-as-CBT. Tone is curious and practical, grounded in research without being academic. Pair with B-Roll of people in everyday moments (commute, coffee, gym, phone, mirror) or abstract footage (waves, candles, ink dropping in water).",
   "channel_promise": "Signal → Choice",
   "audience": "Adults curious about why people think, feel, and act as they do.",
-  "youtube_tags_hint": ["psychology", "mental health", "self improvement", "habits", "cognitive bias", "anxiety relief", "behavioral psychology", "pop psychology", "psychology facts", "mindset"],
+  "youtube_tags_hint": [
+    "psychology",
+    "mental health",
+    "self improvement",
+    "habits",
+    "cognitive bias",
+    "anxiety relief",
+    "behavioral psychology",
+    "pop psychology",
+    "psychology facts",
+    "mindset"
+  ],
   "formula_family": "Mind & ideas",
   "tagline": "Why your brain does that — and what to do about it.",
   "perspective_policy": "Warm third-person explainer with sparing “we” only where genuinely shared.",
@@ -35,20 +46,20 @@
   "script_structure": {
     "default_chapter_count": 8,
     "chapter_count_range": [
-      6,
-      10
+      5,
+      12
     ],
-    "default_length_minutes": 18,
+    "default_length_minutes": 25,
     "length_minutes_range": [
-      12,
-      25
+      20,
+      30
     ],
     "duration_presets": [
-      12,
-      18,
-      25
+      20,
+      25,
+      30
     ],
-    "default_words_per_minute": 145,
+    "default_words_per_minute": 160,
     "chapters_independent": true,
     "pacing_arc": [
       "Observable signal.",
@@ -343,5 +354,6 @@
     "description_max_chars": 3500,
     "title_max_length": 100,
     "tag_count": 15
-  }
+  },
+  "metadata_title_style_hint": "A question, or a behaviour the viewer recognises in themselves. Plain language, evidence-led, never 'the shocking truth about'."
 }

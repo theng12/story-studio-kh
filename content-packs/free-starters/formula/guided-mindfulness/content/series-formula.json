@@ -6,7 +6,18 @@
   "description": "Guided meditation, breathing exercises, body-scan, present-moment awareness. Tone is slow, present, breath-paced. Pair with B-Roll of breathing landscapes — rolling fog, slow water, candle flame, forest canopy, sunrise breath. Best for short morning resets, anxiety relief, sleep wind-down.",
   "channel_promise": "Pause → Presence",
   "audience": "Listeners looking for a short, non-medical moment of attention in an ordinary day.",
-  "youtube_tags_hint": ["mindfulness", "meditation", "guided meditation", "breathing exercise", "box breathing", "body scan", "anxiety meditation", "morning meditation", "sleep meditation", "5 minute meditation"],
+  "youtube_tags_hint": [
+    "mindfulness",
+    "meditation",
+    "guided meditation",
+    "breathing exercise",
+    "box breathing",
+    "body scan",
+    "anxiety meditation",
+    "morning meditation",
+    "sleep meditation",
+    "5 minute meditation"
+  ],
   "formula_family": "Mind & ideas",
   "tagline": "Notice. Breathe. Begin again.",
   "perspective_policy": "Gentle second-person guidance with calm, unforced language.",
@@ -50,20 +61,20 @@
   "script_structure": {
     "default_chapter_count": 5,
     "chapter_count_range": [
-      4,
-      7
+      3,
+      8
     ],
-    "default_length_minutes": 10,
+    "default_length_minutes": 25,
     "length_minutes_range": [
-      5,
-      15
+      20,
+      30
     ],
     "duration_presets": [
-      5,
-      10,
-      15
+      20,
+      25,
+      30
     ],
-    "default_words_per_minute": 110,
+    "default_words_per_minute": 115,
     "chapters_independent": true,
     "pacing_arc": [
       "Arrive in one concrete everyday setting.",
@@ -318,7 +329,7 @@
     9
   ],
   "structural_variety": "vary-subject-only",
-  "metadata_title_style_hint": "Plain, specific, and calm.",
+  "metadata_title_style_hint": "Calm and literal — say what the session does and roughly how long it takes. No urgency, no superlatives.",
   "metadata_title_hook_rules": [
     "Name the practice and ordinary context without promising an outcome."
   ],

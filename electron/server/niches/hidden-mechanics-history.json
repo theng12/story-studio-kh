@@ -33,22 +33,54 @@
     {
       "id": "causal-mechanism",
       "label": "Causal mechanism",
-      "values": ["state capacity", "fiscal pressure", "credit and debt", "trade and extraction", "elite coalition", "popular mobilization", "diplomacy and deterrence", "military logistics", "technology and industry", "demography and public health", "resources and geography"]
+      "values": [
+        "state capacity",
+        "fiscal pressure",
+        "credit and debt",
+        "trade and extraction",
+        "elite coalition",
+        "popular mobilization",
+        "diplomacy and deterrence",
+        "military logistics",
+        "technology and industry",
+        "demography and public health",
+        "resources and geography"
+      ]
     },
     {
       "id": "popular-account-gap",
       "label": "What the familiar account misses",
-      "values": ["a single-cause story", "a great-person story", "an inevitability story", "the economic mechanism", "the institutional constraint", "the long-run condition", "the role of contingency", "the people bearing the cost"]
+      "values": [
+        "a single-cause story",
+        "a great-person story",
+        "an inevitability story",
+        "the economic mechanism",
+        "the institutional constraint",
+        "the long-run condition",
+        "the role of contingency",
+        "the people bearing the cost"
+      ]
     },
     {
       "id": "causal-stage",
       "label": "Causal stage",
-      "values": ["long-run condition", "accelerating pressure", "immediate trigger", "critical decision", "unintended consequence"]
+      "values": [
+        "long-run condition",
+        "accelerating pressure",
+        "immediate trigger",
+        "critical decision",
+        "unintended consequence"
+      ]
     },
     {
       "id": "evidence-posture",
       "label": "Evidence posture",
-      "values": ["well-documented record", "contested interpretation", "source-limited reconstruction", "new evidence or reinterpretation"]
+      "values": [
+        "well-documented record",
+        "contested interpretation",
+        "source-limited reconstruction",
+        "new evidence or reinterpretation"
+      ]
     }
   ],
   "exampleTopics": [
@@ -60,10 +92,47 @@
     "Why the Soviet Union Could No Longer Hold Together"
   ],
   "vocabulary": {
-    "mood": ["investigative", "clear-eyed", "measured", "evidence-led", "patient", "analytical", "historically grounded", "precise", "unsensational"],
-    "theme": ["causation", "institutions", "power", "state capacity", "trade", "debt", "war", "social change", "contingency", "historical interpretation"],
-    "genre": ["long-form history documentary", "historical causality", "political economy history", "world history explainer", "historical investigation"],
-    "keyword": ["history explained", "historical causes", "political economy", "empires", "revolutions", "financial history", "world order", "trade history", "historical documentary"]
+    "mood": [
+      "investigative",
+      "clear-eyed",
+      "measured",
+      "evidence-led",
+      "patient",
+      "analytical",
+      "historically grounded",
+      "precise",
+      "unsensational"
+    ],
+    "theme": [
+      "causation",
+      "institutions",
+      "power",
+      "state capacity",
+      "trade",
+      "debt",
+      "war",
+      "social change",
+      "contingency",
+      "historical interpretation"
+    ],
+    "genre": [
+      "long-form history documentary",
+      "historical causality",
+      "political economy history",
+      "world history explainer",
+      "historical investigation"
+    ],
+    "keyword": [
+      "history explained",
+      "historical causes",
+      "political economy",
+      "empires",
+      "revolutions",
+      "financial history",
+      "world order",
+      "trade history",
+      "historical documentary"
+    ]
   },
   "audienceHint": "Viewers who want 30-45 minute evidence-led explanations of why major historical outcomes happened, including the economic and institutional forces that a simple event summary leaves out.",
   "ideaSystemPromptRole": "You generate original episode ideas for a long-form historical-causality documentary channel. Each episode examines ONE major historical outcome, transformation, crisis, or settlement and reconstructs the interacting causes beneath the familiar story. Choose durable questions with an identifiable outcome, a credible evidence path, and more than one causal layer. Do not imitate a named channel or package ordinary history as a secret cover-up.",
@@ -73,10 +142,20 @@
   "scriptClosingHint": "Close by returning to the outcome: state the best-supported causal picture, the important uncertainty or debate that remains, and the concrete consequence that followed. Do not turn nuance into a teaser or a grand moral.",
   "scriptStructure": {
     "defaultChapterCount": 9,
-    "chapterCountRange": [9, 9],
-    "defaultLengthMinutes": 36,
-    "lengthMinutesRange": [30, 45],
-    "durationPresets": [30, 36, 45],
+    "chapterCountRange": [
+      9,
+      9
+    ],
+    "defaultLengthMinutes": 45,
+    "lengthMinutesRange": [
+      40,
+      50
+    ],
+    "durationPresets": [
+      40,
+      45,
+      50
+    ],
     "defaultWordsPerMinute": 140,
     "chaptersIndependent": true,
     "pacingArc": [
@@ -103,14 +182,41 @@
   "perspectivePolicy": "Third-person evidence-led documentary narration. Explain historical actors, systems, and evidence without placing the viewer inside an invented past.",
   "narrativeQualityContract": {
     "openingPolicy": "Open on the actual outcome, dated decision, material trace, or historical contradiction. Establish the episode directly; do not use a generic audience-address hook.",
-    "forbiddenPatterns": ["Imagine you are there", "You won't believe", "Watch what happens next", "history's best kept secret", "the truth THEY hid", "historians got everything wrong", "invented quotations", "false certainty"],
-    "requiredHabits": ["Separate evidence, inference, and interpretation in plain language.", "Name the institutions and mechanisms connecting conditions to outcomes.", "Use dates, places, groups, and material constraints precisely.", "Treat disagreement proportionately; a popular simplification is not proof of a scholarly cover-up.", "Vary chapter openings among evidence, place, decision, process, or consequence."],
+    "forbiddenPatterns": [
+      "Imagine you are there",
+      "You won't believe",
+      "Watch what happens next",
+      "history's best kept secret",
+      "the truth THEY hid",
+      "historians got everything wrong",
+      "invented quotations",
+      "false certainty"
+    ],
+    "requiredHabits": [
+      "Separate evidence, inference, and interpretation in plain language.",
+      "Name the institutions and mechanisms connecting conditions to outcomes.",
+      "Use dates, places, groups, and material constraints precisely.",
+      "Treat disagreement proportionately; a popular simplification is not proof of a scholarly cover-up.",
+      "Vary chapter openings among evidence, place, decision, process, or consequence."
+    ],
     "closingPolicy": "Close the historical inquiry with its best-supported causal account and remaining uncertainty; never manufacture a final reveal or sequel tease."
   },
   "narratorStyles": [
-    { "id": "historical-investigator", "label": "Historical investigator", "description": "Measured, lucid, and evidence-forward; connects institutions and decisions without sensationalising them." },
-    { "id": "political-economy-documentary", "label": "Political economy documentary", "description": "Clear and analytical, making money, power, infrastructure, and state capacity understandable in spoken language." },
-    { "id": "human-scale-historian", "label": "Human-scale historian", "description": "Patient and concrete, keeping real people and costs visible inside large historical systems." }
+    {
+      "id": "historical-investigator",
+      "label": "Historical investigator",
+      "description": "Measured, lucid, and evidence-forward; connects institutions and decisions without sensationalising them."
+    },
+    {
+      "id": "political-economy-documentary",
+      "label": "Political economy documentary",
+      "description": "Clear and analytical, making money, power, infrastructure, and state capacity understandable in spoken language."
+    },
+    {
+      "id": "human-scale-historian",
+      "label": "Human-scale historian",
+      "description": "Patient and concrete, keeping real people and costs visible inside large historical systems."
+    }
   ],
   "defaultNarratorStyleId": "historical-investigator",
   "titleShapeRules": [
@@ -119,15 +225,43 @@
     "A title may contrast a familiar account with a more complete one, but must not assert a hidden conspiracy, false consensus, or that historians are universally wrong.",
     "FORBIDDEN: 'secret truth', 'cover-up', unsupported villain claims, all-caps hype, and titles that turn an unresolved debate into a settled reveal."
   ],
-  "titleLengthRange": [6, 16],
-  "loglineShapeRules": ["Write 1-2 concise sentences naming the historical outcome, the causal mechanism under examination, and the evidence or interpretive boundary."],
-  "loglineSentenceRange": [1, 2],
-  "themeShapeRules": ["Choose 2-4 concrete terms spanning outcome, period or place, mechanism, and institution or evidence type."],
-  "themeCountRange": [2, 4],
+  "titleLengthRange": [
+    6,
+    16
+  ],
+  "loglineShapeRules": [
+    "Write 1-2 concise sentences naming the historical outcome, the causal mechanism under examination, and the evidence or interpretive boundary."
+  ],
+  "loglineSentenceRange": [
+    1,
+    2
+  ],
+  "themeShapeRules": [
+    "Choose 2-4 concrete terms spanning outcome, period or place, mechanism, and institution or evidence type."
+  ],
+  "themeCountRange": [
+    2,
+    4
+  ],
   "structuralVariety": "vary-all",
   "defaultThumbnailTemplateId": "archival-map-investigation",
-  "youtubeTagsHint": ["history documentary", "history explained", "historical causes", "political economy history", "world history", "financial history", "empires and revolutions"],
+  "youtubeTagsHint": [
+    "history documentary",
+    "history explained",
+    "historical causes",
+    "political economy history",
+    "world history",
+    "financial history",
+    "empires and revolutions"
+  ],
   "metadataTitleStyleHint": "Specific, evidence-led long-form history title that names the outcome and hints at the causal mechanism without conspiracy framing.",
-  "metadataTitleHookRules": ["Name the outcome early.", "Make the explanatory question concrete rather than simply calling an event important.", "Do not promise a secret, cover-up, or universal historical correction."],
-  "metadataTagsHookRules": ["Mix the exact period, place, outcome, institution, and mechanism actually covered.", "Do not add unmentioned countries, wars, people, or conspiratorial terms for reach."]
+  "metadataTitleHookRules": [
+    "Name the outcome early.",
+    "Make the explanatory question concrete rather than simply calling an event important.",
+    "Do not promise a secret, cover-up, or universal historical correction."
+  ],
+  "metadataTagsHookRules": [
+    "Mix the exact period, place, outcome, institution, and mechanism actually covered.",
+    "Do not add unmentioned countries, wars, people, or conspiratorial terms for reach."
+  ]
 }

@@ -425,7 +425,12 @@ describe('format-loader', () => {
     assert.equal(thumbnail?.defaultFontStyle, 'bold')
   })
 
-  test('Hidden Mechanics of History owns a nine-part, 30-45 minute causal reconstruction', async () => {
+  // 40-50 minutes is the owner's decision of 2026-08-21, replacing 30-45. The
+  // NINE PARTS ARE NOT HIS TO CHANGE CASUALLY and were left alone deliberately:
+  // the pacing arc names all nine (Chapter 1 "The familiar story" through
+  // Chapter 9 "The changed world"), so the range stays pinned at [9, 9] and the
+  // extra runtime lands as longer chapters, not more of them.
+  test('Hidden Mechanics of History owns a nine-part, 40-50 minute causal reconstruction', async () => {
     const nicheLoader = await import('../services/niche-loader.js')
     const shell = (await loader.loadFormat('continuity-chain'))!
     const niche = await nicheLoader.loadNiche('hidden-mechanics-history')
@@ -434,8 +439,8 @@ describe('format-loader', () => {
     const merged = loader.applyNicheToFormat(shell, niche!)
     assert.equal(merged.script.defaultChapterCount, 9)
     assert.deepEqual(merged.script.chapterCountRange, [9, 9])
-    assert.equal(merged.script.defaultLengthMinutes, 36)
-    assert.deepEqual(merged.script.lengthMinutesRange, [30, 45])
+    assert.equal(merged.script.defaultLengthMinutes, 45)
+    assert.deepEqual(merged.script.lengthMinutesRange, [40, 50])
     assert.match(merged.script.pacingArc[0] || '', /familiar story/i)
     assert.ok(merged.script.additionalRules.some(rule => /Never treat correlation/i.test(rule)))
     assert.ok((merged.idea.titleShapeRules || []).some(rule => /Hidden Mechanics/i.test(rule)))

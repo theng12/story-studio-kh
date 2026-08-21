@@ -6,7 +6,18 @@
   "description": "Long, gentle bedtime narratives written to be listened to as the mind drifts off. Low-stakes, character-led stories with a slow, literary, lulling voice — no tension, no jump scares, no cliffhangers. Topics span cosy villages, lighthouse keepers, quiet crafts, slow journeys, first snow, the old house. Pair with soft, dreamlike scene imagery or calming B-Roll. Best for sleep / relaxation / bedtime channels.",
   "channel_promise": "Setting → Rest",
   "audience": "Adults listening in bed who want a calm story to drift alongside, not an attention-grabbing plot.",
-  "youtube_tags_hint": ["sleep story", "bedtime story", "sleep stories for adults", "relaxing story", "story to fall asleep to", "calm narration", "sleep meditation story", "cozy bedtime story", "asmr story", "long sleep story"],
+  "youtube_tags_hint": [
+    "sleep story",
+    "bedtime story",
+    "sleep stories for adults",
+    "relaxing story",
+    "story to fall asleep to",
+    "calm narration",
+    "sleep meditation story",
+    "cozy bedtime story",
+    "asmr story",
+    "long sleep story"
+  ],
   "formula_family": "Calm stories",
   "tagline": "A quiet story to drift off to.",
   "perspective_policy": "Use the Formula-selected sleep narrator; never a high-energy host.",
@@ -53,22 +64,22 @@
     "Avoid hype, urgency, questions, and plot danger."
   ],
   "script_structure": {
-    "default_chapter_count": 10,
+    "default_chapter_count": 15,
     "chapter_count_range": [
-      8,
-      14
+      10,
+      24
     ],
-    "default_length_minutes": 50,
+    "default_length_minutes": 135,
     "length_minutes_range": [
-      35,
-      70
+      120,
+      150
     ],
     "duration_presets": [
-      35,
-      50,
-      70
+      120,
+      135,
+      150
     ],
-    "default_words_per_minute": 105,
+    "default_words_per_minute": 115,
     "chapters_independent": false,
     "motion_profile_id": "ambient-documentary",
     "pacing_arc": [
