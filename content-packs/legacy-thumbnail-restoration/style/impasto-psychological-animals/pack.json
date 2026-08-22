@@ -1,0 +1,13 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.style.impasto-psychological-animals",
+    "family": "com.storystudio.family.style.impasto-psychological-animals"
+  }
+}

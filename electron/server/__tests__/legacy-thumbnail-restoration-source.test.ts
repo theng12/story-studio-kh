@@ -14,12 +14,22 @@ const RESTORATION_ROOT = path.join(ROOT, 'content-packs', 'legacy-thumbnail-rest
 const FORMULA_ID = 'com.storystudio.formula.natural-world-explained'
 const RECIPE_ROOT = path.join(RESTORATION_ROOT, 'thumbnail', 'animal-hardship-annotation')
 const STYLE_ROOT = path.join(RESTORATION_ROOT, 'style', 'hand-drawn-hardship-cartoon')
+const IMPASTO_STYLE_ROOT = path.join(RESTORATION_ROOT, 'style', 'impasto-psychological-animals')
+const CAPI_RECIPE_ROOT = path.join(
+  ROOT,
+  'content-packs',
+  'psychology-editorial',
+  'thumbnail',
+  'editorial-psychology-symbolic-split',
+)
 const RECIPE_ASSETS = [
   'animal-hardship-annotation-1.webp',
   'animal-hardship-annotation-2.webp',
   'animal-hardship-annotation-3.webp',
 ] as const
 const STYLE_ASSET = 'hand-drawn-hardship-cartoon.webp'
+const IMPASTO_STYLE_ASSET = 'impasto-psychological-animals.webp'
+const HUMAN_BEHAVIOR_FORMULA_ID = 'com.storystudio.formula.human-behavior-explained'
 const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdiscount\b|GenStudio/i
 
 function sha256(bytes: Uint8Array): string {
@@ -109,10 +119,40 @@ test('Hand-Drawn Hardship Cartoon has one ledgered, decodable owner-derived styl
   await assertWebp(STYLE_ROOT, STYLE_ASSET, ledger)
 })
 
+test('Impasto Psychological Animals retains the Capi recipe and supplies a distinct text-free style preview', async () => {
+  const capiRecipe = await readJson(path.join(CAPI_RECIPE_ROOT, 'content', 'thumbnail-recipe.json'))
+  const ledger = await fs.readFile(path.join(RESTORATION_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
+  parseContentPackDocument('thumbnail-recipe', capiRecipe)
+  assert.equal(capiRecipe.id, 'com.storystudio.thumbnail.editorial-psychology-symbolic-split')
+  assert.equal((capiRecipe.preview_assets as unknown[]).length, 5)
+  assert.deepEqual(capiRecipe.compatible_formula_ids, [HUMAN_BEHAVIOR_FORMULA_ID])
+
+  await assertPack(
+    IMPASTO_STYLE_ROOT,
+    'com.storystudio.pack.style.impasto-psychological-animals',
+    'com.storystudio.sku.style.impasto-psychological-animals',
+    'com.storystudio.family.style.impasto-psychological-animals',
+  )
+  const impasto = await readJson(path.join(IMPASTO_STYLE_ROOT, 'content', 'visual-style.json'))
+  assert.doesNotMatch(JSON.stringify(impasto), forbiddenRuntimeMetadata)
+  parseContentPackDocument('visual-style', impasto)
+  assert.equal(impasto.id, 'com.storystudio.style.impasto-psychological-animals')
+  assert.deepEqual(impasto.compatible_formula_ids, [HUMAN_BEHAVIOR_FORMULA_ID])
+  assert.deepEqual(impasto.preview_assets, [`assets/${IMPASTO_STYLE_ASSET}`])
+  assert.match(String(impasto.style_bible), /thick impasto oil paint/i)
+  assert.match(String(impasto.style_bible), /muted melancholy/i)
+  assert.match(String(impasto.style_bible), /anthropomorphic animal/i)
+  assert.match(String(impasto.style_bible), /strong figure-ground separation/i)
+  assert.match(String(impasto.style_bible), /opposing title-safe band/i)
+  assert.doesNotMatch(String(impasto.style_bible), /Emotional Armor|Capi|EP\d{4}/i)
+  await assertWebp(IMPASTO_STYLE_ROOT, IMPASTO_STYLE_ASSET, ledger)
+})
+
 test('Restoration runtime documents retain no owner paths or commercial/provider metadata', async () => {
   const runtimeDocuments = await Promise.all([
     readJson(path.join(RECIPE_ROOT, 'content', 'thumbnail-recipe.json')),
     readJson(path.join(STYLE_ROOT, 'content', 'visual-style.json')),
+    readJson(path.join(IMPASTO_STYLE_ROOT, 'content', 'visual-style.json')),
   ])
   assert.doesNotMatch(JSON.stringify(runtimeDocuments), forbiddenRuntimeMetadata)
 })
