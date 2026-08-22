@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.28 — 2026-08-22
+
+- **The two throughput numbers now have a screen. Until now they had none.** Settings → This Mac → *How much runs at once*. You asked where to change them and the honest answer was nowhere: both had been moved out of the program's code into a settings file the app reads when it starts, with no page and no way to reach them. That is half a fix — a number you cannot get to is barely better than one written into the code.
+- **Two boxes.** *Episodes transcribing at once* (2) — each episode still transcribes all its chapters together, this is how many episodes start together. *Writing jobs at once* (8) — ideas, outlines, chapters, metadata, image prompts and scene plans share this one. Both show their standard value and accept 1 to 50.
+- **Saving takes effect immediately, not at the next restart.** The queue is updated as well as the file. A setting that quietly does nothing until you restart is one you stop trusting.
+- **They live on This Mac rather than on a channel** because they describe what this machine's fleet can absorb, not anything about a particular show.
+
+---
+
 ## v1.4.27 — 2026-08-22
 
 - **Writing jobs now run 8 at a time instead of 50.** Ideas, outlines, chapters, metadata, image prompts and scene plans all shared one queue that allowed fifty at once. When a lot were started together they waited a **median of 15 minutes**, and sometimes twenty. Eight is the number: your chat work has already run eight at once successfully, GenStudio itself only accepts twelve so anything above that just hides the queue rather than shortening it, and fifty is what produced the long waits.

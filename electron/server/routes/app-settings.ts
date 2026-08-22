@@ -44,6 +44,59 @@ import {
 export const router = Router()
 const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
 
+/**
+ * How much work runs at once — the two queues that can stampede.
+ *
+ * v1.4.28. Both numbers became settings in 1.4.23 and 1.4.27 and NEITHER had
+ * anywhere to change them: they lived in `app-settings.json`, read once at
+ * boot, with no route and no screen. The owner asked "where can that settings
+ * be changed at?" and the honest answer was nowhere. Moving a number out of
+ * the code and into a file he cannot reach is half a fix; his rule is that a
+ * number he might want different is his to change.
+ */
+router.get('/app-settings/concurrency', async (_req, res) => {
+  try {
+    const {
+      getSubtitleEpisodeConcurrency, getLlmConcurrency,
+      SUBTITLE_EPISODE_CONCURRENCY_DEFAULT, LLM_CONCURRENCY_DEFAULT,
+    } = await import('../services/app-settings.js')
+    res.json({
+      subtitle_episode_concurrency: await getSubtitleEpisodeConcurrency(),
+      llm_concurrency: await getLlmConcurrency(),
+      defaults: {
+        subtitle_episode_concurrency: SUBTITLE_EPISODE_CONCURRENCY_DEFAULT,
+        llm_concurrency: LLM_CONCURRENCY_DEFAULT,
+      },
+    })
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to read the concurrency settings'))
+  }
+})
+
+router.put('/app-settings/concurrency', async (req, res) => {
+  try {
+    const settings = await import('../services/app-settings.js')
+    const jq = await import('../services/job-queue.js')
+    const out: Record<string, number> = {}
+    // Applied to the live queue as well as stored. Writing the file alone
+    // would mean the change did nothing until the next restart — which is
+    // exactly the kind of silent no-op that makes a setting untrustworthy.
+    if (req.body?.subtitle_episode_concurrency !== undefined) {
+      const n = await settings.setSubtitleEpisodeConcurrency(req.body.subtitle_episode_concurrency)
+      jq.setSubtitleTranscribeConcurrency(n)
+      out.subtitle_episode_concurrency = n
+    }
+    if (req.body?.llm_concurrency !== undefined) {
+      const n = await settings.setLlmConcurrencySetting(req.body.llm_concurrency)
+      jq.setLlmConcurrency(n)
+      out.llm_concurrency = n
+    }
+    res.json(out)
+  } catch (e: any) {
+    res.status(e?.statusCode || 500).json(humanizeBackendError(e, 'Failed to save the concurrency settings'))
+  }
+})
+
 router.get('/app-settings/notifications', async (_req, res) => {
   try {
     res.json(await getNotifierSettings())

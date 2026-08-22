@@ -6,6 +6,51 @@
       <p>Story Studio uses one GenStudio API URL and one API key for every AI catalog, job, and credit event. The key may be all-access or scoped.</p>
     </header>
 
+    <!-- v1.4.28 — the two queues that can stampede. Machine-wide, not
+         per-channel: they describe what this Mac's fleet can absorb. -->
+    <section class="panel concurrency">
+      <div>
+        <span class="eyebrow">Throughput</span>
+        <h4>How much runs at once</h4>
+        <p class="hint">
+          Both of these were fixed numbers in the program until today. Raise them as you add
+          machines; lower them if your fleet starts refusing work.
+        </p>
+      </div>
+
+      <div v-if="concurrencyLoaded" class="concurrency-fields">
+        <label>
+          <span>Episodes transcribing at once</span>
+          <input v-model.number="subtitleEpisodes" type="number" min="1" max="50" />
+          <small>
+            Each episode still transcribes all its chapters at the same time — this is how many
+            EPISODES start together. Thirty at once is what overwhelmed the fleet and lost a third
+            of the work.
+          </small>
+        </label>
+        <label>
+          <span>Writing jobs at once</span>
+          <input v-model.number="llmJobs" type="number" min="1" max="50" />
+          <small>
+            Ideas, outlines, chapters, metadata, image prompts and scene plans share this.
+            GenStudio itself accepts 12, so past that the queue just moves out of sight.
+          </small>
+        </label>
+      </div>
+
+      <p v-if="concurrencyError" class="error-box">{{ concurrencyError }}</p>
+
+      <div class="concurrency-actions">
+        <button class="btn btn-sm btn-primary" type="button" :disabled="concurrencySaving" @click="saveConcurrency">
+          {{ concurrencySaving ? 'Saving…' : 'Save' }}
+        </button>
+        <span v-if="concurrencyDefaults" class="hint">
+          Defaults: {{ concurrencyDefaults.subtitle_episode_concurrency }} episodes,
+          {{ concurrencyDefaults.llm_concurrency }} writing jobs.
+        </span>
+      </div>
+    </section>
+
     <section class="panel appearance">
       <div>
         <span class="eyebrow">Display</span>
@@ -221,10 +266,57 @@ async function removeKey(): Promise<void> {
   } finally { busy.value = '' }
 }
 
-onMounted(() => { void load() })
+// v1.4.28 — the two throughput numbers, finally reachable.
+//
+// Both became settings (1.4.23, 1.4.27) and neither had a screen: they lived in
+// app-settings.json, read once at boot, with no route and no control. The owner
+// asked where to change them and the answer was nowhere. A number moved out of
+// the code into a file he cannot reach is half a fix.
+const concurrencyLoaded = ref(false)
+const concurrencySaving = ref(false)
+const concurrencyError = ref('')
+const subtitleEpisodes = ref(2)
+const llmJobs = ref(8)
+const concurrencyDefaults = ref<{ subtitle_episode_concurrency: number; llm_concurrency: number } | null>(null)
+
+async function loadConcurrency() {
+  try {
+    const r: any = await get('/app-settings/concurrency')
+    subtitleEpisodes.value = r?.subtitle_episode_concurrency ?? 2
+    llmJobs.value = r?.llm_concurrency ?? 8
+    concurrencyDefaults.value = r?.defaults ?? null
+  } catch { /* an unreachable setting must not break the whole page */ }
+  concurrencyLoaded.value = true
+}
+
+async function saveConcurrency() {
+  concurrencySaving.value = true
+  concurrencyError.value = ''
+  try {
+    await put('/app-settings/concurrency', {
+      subtitle_episode_concurrency: Number(subtitleEpisodes.value),
+      llm_concurrency: Number(llmJobs.value),
+    })
+    // The route applies these to the live queue as well as storing them, so
+    // the change takes effect on the next job rather than the next restart.
+  } catch (e: any) {
+    concurrencyError.value = e?.data?.detail || e?.message || 'Could not save'
+  } finally {
+    concurrencySaving.value = false
+  }
+}
+
+onMounted(() => { void load(); void loadConcurrency() })
 </script>
 
 <style scoped>
+/* v1.4.28 — the throughput panel. */
+.concurrency-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 12px; }
+.concurrency-fields label { display: flex; flex-direction: column; gap: 4px; }
+.concurrency-fields label > span { font-size: 13px; opacity: 0.85; }
+.concurrency-fields label > small { opacity: 0.6; line-height: 1.4; }
+.concurrency-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+
 .emoji-toggle {
   display: flex;
   align-items: center;
