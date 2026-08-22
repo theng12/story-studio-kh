@@ -313,7 +313,16 @@ describe('the prose call sites are left alone', () => {
     assert.ok(!callRegion('lib/chunked-narration.ts', 'const repairText = await withModelFallback(job, params, model => callAiWithRetry(').includes('outputContract'))
     // The one JSON call expansion depends on keeps its contract, passed as its
     // own argument rather than on the shared ctx above.
-    assert.ok(text.includes('outlineOutputContract(params.totalChapters)'))
+    //
+    // v1.4.36 — matched by shape rather than by exact text. This asserted the
+    // literal `outlineOutputContract(params.totalChapters)` and so failed the
+    // moment the owner's headroom ceiling became a second argument. What it is
+    // actually guarding is unchanged and is what is checked here: the outline
+    // call still declares a contract, that contract is still driven by the
+    // requested chapter count, and it still travels as its own argument instead
+    // of leaking onto the shared ctx that the prose calls use.
+    assert.match(text, /outlineOutputContract\(params\.totalChapters(, [A-Za-z][\w.]*)?\)/,
+      'the outline call must still declare its contract from the requested chapter count')
   })
 
   test('metadata description, titles and tags ask for no contract', () => {

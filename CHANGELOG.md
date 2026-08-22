@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.36 — 2026-08-23
+
+- **An outline that comes back LONGER than asked for is now kept, not thrown away.** EP0056 asked for 10 chapters, the model wrote 11, and the whole thing was binned — after GenStudio had already done the work and charged for it, with no automatic retry. You paid for an outline that contained everything you wanted plus a bonus chapter, and got nothing.
+- **A longer episode is more runtime, so extra chapters are the point, not a defect.** The extra chapters now flow all the way through: expansion, the completion checks, the outline editor and the cleanup sweep all follow what the outline actually produced instead of what was requested.
+- **It can still never come back SHORT.** That rejection stays exactly as it was, and for a good reason: a short outline gets quietly padded with empty chapters that turn into waffle nobody notices. Long is an opportunity; short is a hole.
+- **The limit is yours, in Settings.** "Extra chapters allowed" defaults to 2 — up to double the target. It exists only to stop a garbled answer turning into hundreds of paid chapters, not to police quality. Set it to 1 if you ever want the exact number.
+
+---
+
 ## v1.4.35 — 2026-08-23
 
 - **The Pause button now actually pauses.** It did not, in four places. On image batches it stopped nothing at all — the app carried on buying every remaining scene and thumbnail to the end of the run. On subtitles a Pause pressed during a wait was ignored for up to five minutes. Contextual Cues and Image Pool had the same gap.

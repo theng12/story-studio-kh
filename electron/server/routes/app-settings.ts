@@ -57,15 +57,21 @@ const CUSTOMER_SECRET_PROVIDERS = ['genstudio'] as const
 router.get('/app-settings/concurrency', async (_req, res) => {
   try {
     const {
-      getSubtitleEpisodeConcurrency, getLlmConcurrency,
+      getSubtitleEpisodeConcurrency, getLlmConcurrency, getOutlineHeadroom,
       SUBTITLE_EPISODE_CONCURRENCY_DEFAULT, LLM_CONCURRENCY_DEFAULT,
+      OUTLINE_HEADROOM_DEFAULT,
     } = await import('../services/app-settings.js')
     res.json({
       subtitle_episode_concurrency: await getSubtitleEpisodeConcurrency(),
       llm_concurrency: await getLlmConcurrency(),
+      // v1.4.36 — not a concurrency number, but it rides here for the same
+      // reason the other two do: it is a number the owner may want different,
+      // so it must have a route and a screen rather than living only in a file.
+      outline_chapter_headroom: await getOutlineHeadroom(),
       defaults: {
         subtitle_episode_concurrency: SUBTITLE_EPISODE_CONCURRENCY_DEFAULT,
         llm_concurrency: LLM_CONCURRENCY_DEFAULT,
+        outline_chapter_headroom: OUTLINE_HEADROOM_DEFAULT,
       },
     })
   } catch (e: any) {
@@ -90,6 +96,11 @@ router.put('/app-settings/concurrency', async (req, res) => {
       const n = await settings.setLlmConcurrencySetting(req.body.llm_concurrency)
       jq.setLlmConcurrency(n)
       out.llm_concurrency = n
+    }
+    // Read fresh by every outline build, so there is no live queue to update —
+    // the next outline picks it up.
+    if (req.body?.outline_chapter_headroom !== undefined) {
+      out.outline_chapter_headroom = await settings.setOutlineHeadroom(req.body.outline_chapter_headroom)
     }
     res.json(out)
   } catch (e: any) {

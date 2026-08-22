@@ -237,6 +237,61 @@ export async function setSubtitleEpisodeConcurrency(value: unknown): Promise<num
   return n
 }
 
+/**
+ * v1.4.36 — how many chapters BEYOND the target an outline may come back with.
+ *
+ * THE OWNER'S RULING, 2026-08-23, on finding an outline binned for returning 11
+ * chapters when 10 were asked for:
+ *
+ *   "i don't want to throw it away at all. in fact i embrace this extra
+ *    chapters. we must never have hardcoded maximum, it can be extra just now
+ *    below our threshold. because longer videos means more screen time more ads
+ *    slot. so i always want a longer video. this to me is an opportunity, i
+ *    never know why there was a hardcoded 10 requirement at all."
+ *
+ * He is right about the economics and right about the constant. The outline
+ * contract demanded EXACTLY the requested count — `minItems` and `maxItems`
+ * both set to it — so a model that wrote an extra chapter had its whole answer
+ * rejected AFTER GenStudio had completed and charged for it, and the retry is
+ * manual. He paid for a complete outline and got nothing, because it was too
+ * GOOD.
+ *
+ * The floor stays and is not negotiable: a SHORT outline is silently padded
+ * with empty chapters that expand into unanchored filler and then pass every
+ * downstream audit, so under-delivery must still be rejected loudly while it is
+ * cheap. See `outlineOutputContract` for that argument in full. Nothing in it
+ * applies to an outline that is too long — everything asked for is present,
+ * plus more.
+ *
+ * This exists at all only to stop a runaway: a malformed answer with 500
+ * chapters would become 500 paid expansion calls. It is a headroom multiple
+ * rather than a count, so it scales with whatever a formula asks for, and it is
+ * a setting he owns rather than a number in the source — which is the whole
+ * point of the ruling.
+ */
+export const OUTLINE_HEADROOM_KEY = 'outline_chapter_headroom'
+/** 2× the target. An 11-for-10 sails through; so does 20-for-10. */
+export const OUTLINE_HEADROOM_DEFAULT = 2
+
+export async function getOutlineHeadroom(): Promise<number> {
+  const raw = await getAppSetting(OUTLINE_HEADROOM_KEY)
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < 1) return OUTLINE_HEADROOM_DEFAULT
+  return Math.min(10, n)
+}
+
+export async function setOutlineHeadroom(value: unknown): Promise<number> {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < 1 || n > 10) {
+    throw Object.assign(
+      new Error('Extra chapters allowed must be a multiple between 1 and 10 (1 = exactly the target, 2 = up to double).'),
+      { statusCode: 400, expose: true },
+    )
+  }
+  await setAppSetting(OUTLINE_HEADROOM_KEY, n)
+  return n
+}
+
 export const VOICE_PRESETS_KEY = 'voice_presets'
 export const VOICE_FAVOURITES_KEY = 'voice_favourites'
 

@@ -52,6 +52,7 @@ import { callAi, callAiWithRetry, parseStructuredJson } from './ai-client.js'
 import { GenStudioChatIncompleteError, GenStudioChatProductUnavailableError, isGenStudioInsufficientCredits } from './genstudio-client.js'
 import { stripGenStudioModelPrefix } from '../services/genstudio-model-migration.js'
 import { outlineOutputContract } from './story-output-contracts.js'
+import { getOutlineHeadroom } from '../services/app-settings.js'
 import type { TextOutputContract } from './json-output-contract.js'
 import { writeJsonAtomic } from './atomic-store.js'
 import { resolveResearchPaths } from './research-paths.js'
@@ -731,11 +732,26 @@ export async function buildOutlineOnly(
   )
   const outline = await buildOutline(job, params, mode)
   const nowIso = new Date().toISOString()
+  if (outline.length > params.totalChapters) {
+    job.output_lines.push(
+      `[chunked] The outline came back with ${outline.length} chapters for a target of ${params.totalChapters}. `
+      + 'Keeping all of them — a longer episode is more runtime, and everything asked for is present. '
+      + 'Change "Extra chapters allowed" in settings if you would rather cap it.',
+    )
+  }
   const sidecar: ChunkedSidecar = {
     schema_version: 3,
     episode_id: params.episode_id,
     mode,
-    total_chapters: params.totalChapters,
+    // v1.4.36 — what the outline ACTUALLY produced, not what was requested.
+    // This one line is what carries an over-length outline through the rest of
+    // the pipeline: expansion, the completion audits, the outline-edit route
+    // and the cleanup sweep all measure against `total_chapters` and compare it
+    // to `outline.length`. Recording the request here instead would have made
+    // an accepted 11-chapter outline fail every one of them. The
+    // imported-outline path below has always derived it this way
+    // (`total_chapters: entries.length`); this makes the generated path agree.
+    total_chapters: outline.length,
     outline,
     outline_completed_at: nowIso,
     // Default = unapproved (user must review). One-shot wrappers pass
@@ -1105,9 +1121,16 @@ async function buildOutline(
       ? `${job.project_slug}:manual-retry:${job.genstudio_chat_retry_scope}`
       : undefined,
   }
+  // v1.4.36 — the target is a FLOOR, not a cap. See `outlineOutputContract` and
+  // the owner's ruling recorded on `OUTLINE_HEADROOM_KEY`: an outline that
+  // over-delivers is an opportunity (more runtime, more ad slots), not a
+  // defect, and it used to be binned after GenStudio had already charged for
+  // it. The ceiling is a runaway guard the owner controls, never a constant.
+  const headroom = await getOutlineHeadroom()
+  const maxChapters = Math.max(params.totalChapters, Math.floor(params.totalChapters * headroom))
   const arr = await withModelFallback(job, params, model => callForJsonArray(
     model, params.systemPrompt, prompt, params.apiKeys, ctx,
-    outlineOutputContract(params.totalChapters),
+    outlineOutputContract(params.totalChapters, maxChapters),
   ))
 
   // Normalise: clamp `n` into 1..totalChapters and drop duplicates.
@@ -1131,7 +1154,11 @@ async function buildOutline(
   for (const item of arr) {
     if (!item || typeof item !== 'object') continue
     const n = Number(item.n)
-    if (!Number.isFinite(n) || n < 1 || n > params.totalChapters) {
+    // v1.4.36 — the bound is the headroom ceiling, not the target. It was
+    // `params.totalChapters`, which would have dropped every extra chapter here
+    // even once the schema above allowed it — the same rejection one level
+    // down, and a silent one this time.
+    if (!Number.isFinite(n) || n < 1 || n > maxChapters) {
       outOfRange.push(item.n)
       continue
     }
@@ -1150,7 +1177,12 @@ async function buildOutline(
   }
   const out: OutlineEntry[] = []
   const synthesized: number[] = []
-  for (let n = 1; n <= params.totalChapters; n++) {
+  // Cover every slot the model actually filled, never fewer than the target.
+  // The floor still holds — a gap below the target is still synthesised and
+  // still announced below — but a chapter the model wrote past the target is
+  // kept rather than discarded.
+  const delivered = Math.max(params.totalChapters, ...[...byN.keys()])
+  for (let n = 1; n <= delivered; n++) {
     const e = byN.get(n)
     if (e) out.push(e)
     else {

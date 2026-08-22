@@ -36,6 +36,15 @@
             GenStudio itself accepts 12, so past that the queue just moves out of sight.
           </small>
         </label>
+        <label>
+          <span>Extra chapters allowed</span>
+          <input v-model.number="outlineHeadroom" type="number" min="1" max="10" step="0.5" />
+          <small>
+            How far past the target an outline may go. 2 means up to double. An outline that
+            comes back longer is kept — a longer episode is more runtime — and it is never
+            allowed to come back SHORT. Set 1 to demand the exact number.
+          </small>
+        </label>
       </div>
 
       <p v-if="concurrencyError" class="error-box">{{ concurrencyError }}</p>
@@ -46,7 +55,8 @@
         </button>
         <span v-if="concurrencyDefaults" class="hint">
           Defaults: {{ concurrencyDefaults.subtitle_episode_concurrency }} episodes,
-          {{ concurrencyDefaults.llm_concurrency }} writing jobs.
+          {{ concurrencyDefaults.llm_concurrency }} writing jobs,
+          {{ concurrencyDefaults.outline_chapter_headroom }}× chapters.
         </span>
       </div>
     </section>
@@ -277,13 +287,19 @@ const concurrencySaving = ref(false)
 const concurrencyError = ref('')
 const subtitleEpisodes = ref(2)
 const llmJobs = ref(8)
-const concurrencyDefaults = ref<{ subtitle_episode_concurrency: number; llm_concurrency: number } | null>(null)
+const outlineHeadroom = ref(2)
+const concurrencyDefaults = ref<{
+  subtitle_episode_concurrency: number
+  llm_concurrency: number
+  outline_chapter_headroom: number
+} | null>(null)
 
 async function loadConcurrency() {
   try {
     const r: any = await get('/app-settings/concurrency')
     subtitleEpisodes.value = r?.subtitle_episode_concurrency ?? 2
     llmJobs.value = r?.llm_concurrency ?? 8
+    outlineHeadroom.value = r?.outline_chapter_headroom ?? 2
     concurrencyDefaults.value = r?.defaults ?? null
   } catch { /* an unreachable setting must not break the whole page */ }
   concurrencyLoaded.value = true
@@ -296,6 +312,7 @@ async function saveConcurrency() {
     await put('/app-settings/concurrency', {
       subtitle_episode_concurrency: Number(subtitleEpisodes.value),
       llm_concurrency: Number(llmJobs.value),
+      outline_chapter_headroom: Number(outlineHeadroom.value),
     })
     // The route applies these to the live queue as well as storing them, so
     // the change takes effect on the next job rather than the next restart.

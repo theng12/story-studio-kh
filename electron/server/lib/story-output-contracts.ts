@@ -483,18 +483,48 @@ export function imagePoolPromptsOutputContract(): TextOutputContract {
  * where it can — `buildOutline` now names every slot it had to synthesise, in
  * the job log, instead of padding in silence.
  */
-export function outlineOutputContract(chapterCount: number): TextOutputContract {
+/**
+ * v1.4.36 — THE FLOOR IS THE CONTRACT. THE CEILING IS HEADROOM.
+ *
+ * Everything argued above is about an outline that is too SHORT, and all of it
+ * still stands. None of it applies to one that is too LONG: every chapter
+ * asked for is present, nothing is padded, nothing expands into filler. There
+ * is simply more.
+ *
+ * `maxItems` used to equal `chapterCount`, so a model that wrote an eleventh
+ * chapter for a ten-chapter target had its entire answer rejected — after
+ * GenStudio had completed the request and charged for it, with the retry
+ * MANUAL. The owner paid for a complete outline and received nothing, because
+ * it over-delivered. His ruling on seeing it (2026-08-23): "i embrace this
+ * extra chapters... longer videos means more screen time more ads slot... we
+ * must never have hardcoded maximum."
+ *
+ * `maxChapters` therefore comes from the owner's `outline_chapter_headroom`
+ * setting rather than from this file. It is not a quality bar — it is a
+ * runaway guard, because a malformed answer with 500 chapters becomes 500 paid
+ * expansion calls. `n`'s upper bound moves with it for the same reason: leaving
+ * it at `chapterCount` would have let an eleventh chapter through the array
+ * bound and then rejected it one level down, which is the same bug wearing a
+ * different hat.
+ *
+ * @param chapterCount the target — a FLOOR, and still exact in what it demands.
+ * @param maxChapters  the ceiling. Defaults to the target when not supplied, so
+ *   every caller that has not been taught about headroom behaves exactly as it
+ *   did before this parameter existed.
+ */
+export function outlineOutputContract(chapterCount: number, maxChapters?: number): TextOutputContract {
+  const ceiling = Math.max(chapterCount, Math.floor(maxChapters ?? chapterCount))
   return localSchema('story_outline', {
     type: 'object',
     properties: {
       chapters: {
         type: 'array',
         minItems: chapterCount,
-        maxItems: chapterCount,
+        maxItems: ceiling,
         items: {
           type: 'object',
           properties: {
-            n: { type: 'integer', minimum: 1, maximum: chapterCount },
+            n: { type: 'integer', minimum: 1, maximum: ceiling },
             title: { type: 'string', minLength: 1, maxLength: 300 },
             synopsis: { type: 'string', maxLength: 5_000 },
             hook_line: { type: 'string', maxLength: 2_000 },
