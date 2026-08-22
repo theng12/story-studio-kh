@@ -22,6 +22,13 @@ const CAPI_RECIPE_ROOT = path.join(
   'thumbnail',
   'editorial-psychology-symbolic-split',
 )
+const CAPI_PASTEL_STYLE_ROOT = path.join(
+  ROOT,
+  'content-packs',
+  'psychology-editorial',
+  'style',
+  'pastel-surreal-psychological-collage',
+)
 const RECIPE_ASSETS = [
   'animal-hardship-annotation-1.webp',
   'animal-hardship-annotation-2.webp',
@@ -30,6 +37,22 @@ const RECIPE_ASSETS = [
 const STYLE_ASSET = 'hand-drawn-hardship-cartoon.webp'
 const IMPASTO_STYLE_ASSET = 'impasto-psychological-animals.webp'
 const HUMAN_BEHAVIOR_FORMULA_ID = 'com.storystudio.formula.human-behavior-explained'
+const CAPI_RECIPE_ASSETS = [
+  'editorial-psychology-symbolic-split-1.webp',
+  'editorial-psychology-symbolic-split-2.webp',
+  'editorial-psychology-symbolic-split-3.webp',
+  'editorial-psychology-symbolic-split-4.webp',
+  'editorial-psychology-symbolic-split-5.webp',
+] as const
+const CAPI_RECIPE_ASSET_HASHES = [
+  'f82c5659ca989b27af5cf789c6270b4ef40aa24ec6060f1a91e015374a52f277',
+  'cf65e48ae0215b3ab8e4a331f91b0cc126ee8fc0dea63724836b6b0bd7a744fb',
+  '7d419bf83d807f8ce287040f51e5d620617e595f6bd09dc5ca7ee332252b6290',
+  'fb5be086761b7effc5ae325ac8d2458f7da071c710c3e4dcfb5155fb523b1166',
+  'b816e5ed7fb95eb16e16f95100e1e7b4840ee0f3f046e0d8eca4c766d820e492',
+] as const
+const CAPI_PASTEL_ASSET = 'pastel-surreal-psychological-collage.webp'
+const CAPI_PASTEL_HASH = '398cb595ce5c285570ce057cb81c86b73a739a5d220fc44a85faa7378b2e87ab'
 const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdiscount\b|GenStudio/i
 
 function sha256(bytes: Uint8Array): string {
@@ -124,8 +147,20 @@ test('Impasto Psychological Animals retains the Capi recipe and supplies a disti
   const ledger = await fs.readFile(path.join(RESTORATION_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   parseContentPackDocument('thumbnail-recipe', capiRecipe)
   assert.equal(capiRecipe.id, 'com.storystudio.thumbnail.editorial-psychology-symbolic-split')
-  assert.equal((capiRecipe.preview_assets as unknown[]).length, 5)
+  assert.deepEqual(capiRecipe.preview_assets, CAPI_RECIPE_ASSETS.map(asset => `assets/${asset}`))
   assert.deepEqual(capiRecipe.compatible_formula_ids, [HUMAN_BEHAVIOR_FORMULA_ID])
+  for (let index = 0; index < CAPI_RECIPE_ASSETS.length; index += 1) {
+    const bytes = await fs.readFile(path.join(CAPI_RECIPE_ROOT, 'assets', CAPI_RECIPE_ASSETS[index]))
+    assert.equal(sha256(bytes), CAPI_RECIPE_ASSET_HASHES[index])
+  }
+  const capiPastel = await readJson(path.join(CAPI_PASTEL_STYLE_ROOT, 'content', 'visual-style.json'))
+  assert.equal(capiPastel.id, 'com.storystudio.style.pastel-surreal-psychological-collage')
+  assert.deepEqual(capiPastel.preview_assets, [`assets/${CAPI_PASTEL_ASSET}`])
+  assert.deepEqual(capiPastel.compatible_formula_ids, [HUMAN_BEHAVIOR_FORMULA_ID])
+  assert.equal(
+    sha256(await fs.readFile(path.join(CAPI_PASTEL_STYLE_ROOT, 'assets', CAPI_PASTEL_ASSET))),
+    CAPI_PASTEL_HASH,
+  )
 
   await assertPack(
     IMPASTO_STYLE_ROOT,
