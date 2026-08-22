@@ -1,6 +1,65 @@
 {
-  "revision": 1,
-  "batches": [],
+  "revision": 2,
+  "batches": [
+    {
+      "revision": 2,
+      "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+      "request": {
+        "expected_revision": 1,
+        "coordinator": {
+          "task": "author-capi-psychology-components",
+          "branch": "codex/capi-psychology-components"
+        },
+        "proposal_ref": "owner-approved Capi psychology thumbnail recipe and visual style, 2026-08-23",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+            "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+            "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.pastel-surreal-psychological-collage",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
   "transitions": [],
   "records": [
     {
@@ -1467,6 +1526,52 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+      "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+      "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+      "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+      "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
           "status": "proposed"
         }
       }
