@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.24 — 2026-08-22
+
+- **A chapter turned away because every machine was busy now waits and asks again.** This is the other half of yesterday's flood: of 353 transcriptions, 122 were refused for want of a free machine and simply dropped, leaving you to chase each one by hand. They now wait and retry — three times, after 30 seconds, 2 minutes and 5 minutes.
+- **It is free to retry, and that is the only reason it happens automatically.** GenStudio refuses these before any machine has touched the job, and gives the whole reservation back — its own words are *"the job never reached a worker, so there is nothing to settle."* So trying again is a fresh charge for work that never happened, never a second charge for the same work.
+- **It checks the money, not just the reason.** If a job somehow came back saying "no machine free" while still having taken credits, it is not retried — because that would mean a provider had been paid and might have done the work. When something stops matching what it promised, the right move is to stop, not to try again.
+- **Only a busy fleet is retried.** A genuine fault — unreadable audio, a provider refusing the request — is reported straight away as before. Retrying those would turn a clear error into ten minutes of silence followed by the same clear error.
+- **Cancelling still means cancelling.** A chapter you cancel is never resubmitted.
+- **The waits are minutes, not seconds, on purpose.** GenStudio already waits a full fifteen minutes for a free machine before giving up, so anything reaching this point means the fleet is genuinely full. Retrying two seconds later would just rejoin the same queue.
+
+---
+
 ## v1.4.23 — 2026-08-22
 
 - **Thirty episodes at once flooded your own fleet, and a third of the work was refused.** You started thirty transcriptions together and watched many fail. Checking GenStudio afterwards: **231 transcriptions succeeded and 122 were refused** because no machine was free, with 103 running at the peak. Every job started in the same second and the refusals landed in a three-minute window as the fleet filled up.

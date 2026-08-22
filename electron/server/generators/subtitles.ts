@@ -143,6 +143,55 @@ export function isTerminalGenStudioTranscriptionProviderError(error: unknown): b
 }
 
 /**
+ * GenStudio could not find a free machine for this job, and gave the money back.
+ *
+ * v1.4.24. The owner started thirty episodes at once; 122 of 353 transcriptions
+ * came back with `SITE_PLACEMENT_EXHAUSTED` and were dropped with "re-run to
+ * fill it in". Each of those had to be chased by hand.
+ *
+ * RETRYING THIS IS PROVABLY FREE, which is the only reason it is done
+ * automatically. GenStudio raises this code from one place, and its own comment
+ * states the two facts that matter:
+ *
+ *   "The job never reached a worker, so there is nothing to settle: the
+ *    reservation is returned whole."   — images/service.py, then billing.release()
+ *
+ * No provider did any work, and the credits came back. A retry is therefore a
+ * fresh charge for work that never happened, not a second charge for the same
+ * work — the hazard the rest of this file is built to avoid.
+ *
+ * BOTH CONDITIONS ARE CHECKED, not just the code. A capacity code arriving with
+ * credits still settled would mean the assumption above had stopped holding,
+ * and this must not retry on an assumption it can no longer verify.
+ */
+const FLEET_BUSY_FAILURE_CODES = new Set([
+  'SITE_PLACEMENT_EXHAUSTED',
+  'SITE_CAPACITY_UNAVAILABLE',
+])
+
+export function isFleetBusyTranscriptionFailure(error: unknown): boolean {
+  if (!(error instanceof GenStudioTerminalFailureError)) return false
+  if (error.modality !== 'transcription') return false
+  if (error.cancelled) return false
+  if (!FLEET_BUSY_FAILURE_CODES.has(String(error.failureCode || ''))) return false
+  // Settled credits mean a provider was paid, which means work may have been
+  // done. Never resubmit over that, whatever the code says.
+  if (typeof error.settledCredits === 'number' && error.settledCredits > 0) return false
+  return true
+}
+
+/**
+ * How long to wait before asking again, per attempt.
+ *
+ * Minutes, not milliseconds, and deliberately so: GenStudio already waits a
+ * FIFTEEN-MINUTE placement window before it declares this failure, so a chapter
+ * that gets here has already been queued a long time and the fleet is genuinely
+ * saturated. Retrying in two seconds would only rejoin the same jam and burn an
+ * attempt. These delays give the wave in front of it time to drain.
+ */
+const FLEET_BUSY_RETRY_DELAYS_MS = [30_000, 120_000, 300_000]
+
+/**
  * Persist the terminal outcome of one transcription request.
  *
  * A settled SRT that GenStudio no longer serves is recorded as
@@ -736,7 +785,10 @@ async function transcribePerChapter(
         : null
       const requestIdentity = `${projectSlug}:${code}:transcription:${manifestKey}`
       const terminalFailure = isTerminalGenStudioTranscriptionTaskFailure(reusableTask)
-      const recoveryTask = terminalFailure ? null : reusableTask
+      // `let`, because a fleet-busy retry abandons the recovered identity: that
+      // request is settled-failed and replaying it would return the same
+      // failure forever. See the retry loop below.
+      let recoveryTask = terminalFailure ? null : reusableTask
       // A terminal provider task and an explicit re-run both need an identity
       // GenStudio has not seen, or its own server-side dedupe hands back the
       // very artifact we are trying to replace.
@@ -831,9 +883,51 @@ async function transcribePerChapter(
       }
       let result: Awaited<ReturnType<typeof transcribeWithGenStudio>>
       try {
-        result = recoveryTask?.task_id
-          ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, recoveryTask.task_id, transcriptionRequest)
-          : await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
+        // v1.4.24 — a chapter refused for want of a free machine waits and asks
+        // again instead of being dropped. Safe because GenStudio releases the
+        // reservation whole on this failure and no worker ever saw the job; see
+        // `isFleetBusyTranscriptionFailure`. Every attempt carries a FRESH
+        // idempotency key, because the previous identity is settled-failed and
+        // replaying it would return the same failure forever.
+        let fleetBusyAttempt = 0
+        for (;;) {
+          try {
+            result = recoveryTask?.task_id
+              ? await recoverTranscriptionWithGenStudio(genstudio.apiKey, recoveryTask.task_id, transcriptionRequest)
+              : await transcribeWithGenStudio(genstudio.apiKey, transcriptionRequest)
+            break
+          } catch (attemptError) {
+            const delay = FLEET_BUSY_RETRY_DELAYS_MS[fleetBusyAttempt]
+            if (delay === undefined || !isFleetBusyTranscriptionFailure(attemptError)) throw attemptError
+            if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id)) throw attemptError
+            fleetBusyAttempt++
+            job.output_lines.push(
+              `  ${sec.slug}: every machine was busy, so no charge was made. `
+              + `Waiting ${Math.round(delay / 1000)}s and trying again `
+              + `(attempt ${fleetBusyAttempt} of ${FLEET_BUSY_RETRY_DELAYS_MS.length}).`,
+            )
+            await new Promise(resolve => setTimeout(resolve, delay))
+            if (jq.isCancelled(job.job_id)) throw attemptError
+            jq.throwIfPauseRequested(job.job_id)
+            // A settled-failed identity cannot be replayed, so mint a new one.
+            idempotencyKey = buildGenStudioTranscriptionIdempotencyKey({
+              requestIdentity: `${requestIdentity}:fleet-busy-retry-${fleetBusyAttempt}:${job.job_id}`,
+              fileSha256: currentAudioHash.slice('sha256:'.length),
+              modelId: genstudio.modelId,
+              language: genstudio.language,
+              wordTimestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
+            })
+            submittedAt = new Date().toISOString()
+            transcriptionRequest.idempotencyKey = idempotencyKey
+            recoveryTask = null
+            await recordTaskStrict(outDir, manifestKey, {
+              provider: 'genstudio', task_id: '', submitted_at: submittedAt,
+              input_hash: currentInputHash, idempotency_key: idempotencyKey,
+              word_timestamps: TRANSCRIPTION_WORD_TIMESTAMPS,
+              operation: 'transcription', last_state: 'prepared',
+            })
+          }
+        }
       } catch (error) {
         if (isTerminalGenStudioTranscriptionProviderError(error)) {
           await markTerminalTranscriptionRequest({
