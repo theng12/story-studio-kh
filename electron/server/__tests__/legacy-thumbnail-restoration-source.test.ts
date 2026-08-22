@@ -142,6 +142,21 @@ const ESTABLISHED_THREE_PREVIEW_FAMILIES = [
 ] as const
 const CENTERED_HERO_CUSTOM_ID = 'centered-hero-headline-custom'
 const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdiscount\b|GenStudio/i
+const privateKeyMaterial = /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|private[ _-]?key/i
+const RESTORED_RECIPE_AUDIT = [
+  ['com.storystudio.thumbnail.annotated-business-board', 'content-packs/free-starters/thumbnail/annotated-business-board'],
+  ['com.storystudio.thumbnail.centered-hero-headline', 'content-packs/free-starters/thumbnail/centered-hero-headline'],
+  ['com.storystudio.thumbnail.curiosity-question-cartoon', 'content-packs/free-starters/thumbnail/curiosity-question-cartoon'],
+  ['com.storystudio.thumbnail.documentary-label-tableau', 'content-packs/free-starters/thumbnail/documentary-label-tableau'],
+  ['com.storystudio.thumbnail.portrait-block-right', 'content-packs/free-starters/thumbnail/portrait-block-right'],
+  ['com.storystudio.thumbnail.prehistoric-discovery', 'content-packs/free-starters/thumbnail/prehistoric-discovery'],
+  ['com.storystudio.thumbnail.dreamscape-story-window', 'content-packs/free-starters/thumbnail/dreamscape-story-window'],
+  ['com.storystudio.thumbnail.archival-map-investigation', 'content-packs/paid/archival-ledger/thumbnail/archival-map-investigation'],
+  ['com.storystudio.thumbnail.editorial-psychology-symbolic-split', 'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split'],
+  ['com.storystudio.thumbnail.animal-hardship-annotation', 'content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation'],
+  ['com.storystudio.thumbnail.prehistoric-survival-title-card', 'content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card'],
+  ['com.storystudio.thumbnail.dreamlike-story-title-card', 'content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card'],
+] as const
 
 function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
@@ -481,4 +496,27 @@ test('centered 94px headline custom remains outside signed source and authoring 
     false,
     'a user-fork identity must not enter the authoring registry as a pack, item, family, or SKU',
   )
+})
+
+test('the twelve restored recipe galleries remain decodable, bounded, and free of private-key material', async () => {
+  for (const [id, relativeDirectory] of RESTORED_RECIPE_AUDIT) {
+    const root = path.join(ROOT, relativeDirectory)
+    const recipe = await readJson(path.join(root, 'content', 'thumbnail-recipe.json'))
+    parseContentPackDocument('thumbnail-recipe', recipe)
+    assert.equal(recipe.id, id)
+    assert.doesNotMatch(JSON.stringify(recipe), privateKeyMaterial)
+    assert.ok(Array.isArray(recipe.preview_assets))
+    assert.ok(recipe.preview_assets.length >= 3 && recipe.preview_assets.length <= 5, `${id} has three to five previews`)
+    for (const preview of recipe.preview_assets) {
+      assert.match(String(preview), /^assets\/[^/]+\.webp$/)
+      const bytes = await fs.readFile(path.join(root, String(preview)))
+      assert.doesNotMatch(bytes.toString('latin1'), privateKeyMaterial)
+      const metadata = await sharp(bytes, { failOn: 'error' }).metadata()
+      assert.deepEqual(
+        { format: metadata.format, width: metadata.width, height: metadata.height },
+        { format: 'webp', width: 1672, height: 941 },
+        `${id} preview ${preview} decodes at the catalog dimensions`,
+      )
+    }
+  }
 })
