@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.32 — 2026-08-23
+
+- **"Retry all" is here, next to "Repair all".** Two buttons you press yourself. It never repairs for you and it never retries what it cannot vouch for.
+- **What it will and will not re-run.** Anything with no repair option (most job types, subtitles included) is retried straight away — a repair could never have helped it. Anything you repaired that still came up short is retried, because the shortfall is proven. Anything you never repaired, or whose repair failed, is **left alone and listed**, because your machines may already have finished it and you would pay a second time. That is the exact trap that got a combined button removed once before.
+- **A number the app knew and never told you.** Repairing pictures reports how many are still missing, and the Jobs page had been dropping it — you saw a plain "repaired" tick whether four were missing or none. It now shows the real count, which is also what makes Retry all able to tell "proved missing" from "never checked".
+- Everything goes through the normal queue, so a big Retry all is paced rather than fired all at once.
+
+---
+
 ## v1.4.31 — 2026-08-23
 
 - **Motion Review now waits when your machines are busy** instead of throwing the clip away. Six of eight generators protected.

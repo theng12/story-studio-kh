@@ -275,6 +275,15 @@
       >
         {{ repairingAllFailed ? 'Repairing…' : `🔧 Repair all failed (${repairableFailedJobs.length})` }}
       </button>
+      <button
+        v-if="failedJobsForRetryAll.length > 0"
+        class="btn btn-sm retry-all-btn"
+        :disabled="retryingAllFailed"
+        :title="retryAllTooltip"
+        @click="retryAllFailed"
+      >
+        {{ retryingAllFailed ? 'Sending…' : `↻ Retry all (${retryAllTriage.retry.length})` }}
+      </button>
     </div>
 
     <!-- Sort Bar -->
@@ -811,6 +820,12 @@ import type { DeepReadonly } from 'vue'
 import type { Job } from '~/composables/useJobs'
 import { publicProviderLabel } from '~/composables/useModelGroups'
 import { buildLatestBatchSummary, formatElapsed } from '~/composables/useBatchSummary'
+import {
+  describeRetryAllTriage,
+  normaliseRepairResult,
+  triageFailedJobsForRetryAll,
+  type RepairRecord,
+} from '~/utils/repair-triage'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -1110,6 +1125,32 @@ const errorExpanded = ref<string | null>(null)
 // Persistent per-job repair result so the user can see WHICH cards they've
 // repaired and the outcome (the toast is transient; the card stays red).
 const repairOutcome = ref<Record<string, { text: string; kind: string }>>({})
+// v1.4.32 — the same repair, kept as NUMBERS rather than as the sentence above.
+// "Retry all" decides from this, and a decision about spending money must not be
+// made by parsing a chip string back into a state.
+//
+// Persisted, deliberately. Left in memory it would be forgotten on every reload,
+// and every repairable failed job would then look "never repaired" — safe, but
+// it makes the button useless in the ordinary case of repairing a batch, closing
+// the app, and coming back. It is the same knowledge either way.
+const REPAIR_STATE_KEY = 'story-studio:repair-state:v1'
+const repairState = ref<Record<string, RepairRecord>>(loadRepairState())
+function loadRepairState(): Record<string, RepairRecord> {
+  try {
+    const raw = typeof localStorage === 'undefined' ? null : localStorage.getItem(REPAIR_STATE_KEY)
+    const parsed = raw ? JSON.parse(raw) : null
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch { return {} }
+}
+function setRepairState(jobId: string, record: RepairRecord | null) {
+  const next = { ...repairState.value }
+  if (record) next[jobId] = record
+  else delete next[jobId]
+  repairState.value = next
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(REPAIR_STATE_KEY, JSON.stringify(next))
+  } catch { /* a full or disabled store costs us the persistence, never the run */ }
+}
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 
@@ -1266,6 +1307,85 @@ async function repairAllFailed() {
     success('Repair-all finished. Cards show each result; anything still failed needs a Retry (regenerate).')
   } finally {
     repairingAllFailed.value = false
+  }
+}
+
+// ── Retry all ─────────────────────────────────────────────────────────────
+// v1.4.32 — the owner's design, agreed 2026-08-22: two buttons he presses
+// himself rather than one that chains. The chain is the thing that already
+// burned him — v1.0.114 removed "Repair & Retry all" after its repair half
+// failing and its retry half firing anyway produced real duplicate charges.
+//
+// So this button is always clickable and never repairs. It sorts what is
+// failed into three piles and resubmits only the pile whose state is
+// definitely known. Everything it declines is named, with the reason, so
+// declining is visible rather than silent.
+//
+// Rejected on the way here, with reasons: a confirmation popup (gets clicked
+// through, and cannot tell "proved missing" from "never checked"); a global
+// grey-out until a repair has run (wrong for the 32 job types that have no
+// repair path at all, subtitles among them).
+const retryingAllFailed = ref(false)
+const failedJobsForRetryAll = computed(() =>
+  jobs.value.filter((j: RJob) => j.status === 'error' || j.status === 'cancelled')
+)
+const retryAllTriage = computed(() => triageFailedJobsForRetryAll(
+  failedJobsForRetryAll.value as RJob[],
+  (j: RJob) => jobCanBeRepaired(j),
+  (jobId: string) => repairState.value[jobId],
+))
+const retryAllTooltip = computed(() => describeRetryAllTriage(retryAllTriage.value as any))
+
+async function retryAllFailed() {
+  const triage = retryAllTriage.value
+  if (triage.retry.length === 0) {
+    // Never silently do nothing. If everything is held back, say so and point
+    // at the free action that would unblock it.
+    if (triage.blocked.length > 0) {
+      info(describeRetryAllTriage(triage as any))
+    } else if (triage.alreadyComplete.length > 0) {
+      success('Nothing to retry — every failed job already had its files on disk after a repair. You can dismiss them.')
+    } else {
+      info('Nothing failed that can be retried.')
+    }
+    return
+  }
+  const snapshot = [...triage.retry] as RJob[]
+  retryingAllFailed.value = true
+  info(describeRetryAllTriage(triage as any))
+  try {
+    // Bounded the same way Repair-all is. Posting is not running — each retry
+    // enqueues a job and the queue paces execution (the episode lane is bounded
+    // at 2 since 1.4.27, the writing lane at 8), which is what stops a repeat of
+    // the 30-episodes-at-once flood of 2026-08-22. This cap only stops us
+    // firing thirty HTTP requests in the same tick.
+    const CONCURRENCY = 3
+    let cursor = 0
+    let failures = 0
+    async function worker() {
+      while (cursor < snapshot.length) {
+        const idx = cursor++
+        if (idx >= snapshot.length) return
+        const target = snapshot[idx]!
+        try {
+          await retryJob(target)
+          // The repair we knew about belonged to the run that just failed. Once
+          // it is re-queued that knowledge is stale, so it is dropped rather
+          // than left to license a second retry later.
+          setRepairState(target.job_id, null)
+        } catch (e: any) {
+          failures++
+          console.warn('[retry-all] retry failed:', e?.message || e)
+        }
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, () => worker()))
+    if (failures > 0) showError(`${failures} of ${snapshot.length} retries could not be sent. The rest went to the queue.`)
+    // retryJob surfaces its own per-job errors, so this says what was SENT
+    // rather than claiming everything was accepted.
+    else success(`Sent ${snapshot.length} job(s) to the queue. It runs them at its own pace; any that were refused say so on their card.`)
+  } finally {
+    retryingAllFailed.value = false
   }
 }
 
@@ -1991,10 +2111,18 @@ async function repairJobOnly(job: RJob) {
       if (terminal?.result && typeof terminal.result === 'object') Object.assign(resp, terminal.result)
     }
 
-    // Sync repair returns a useful summary; queued repair returns nothing
-    // until we re-fetch the job, so we just say "done" for those.
-    const recovered = typeof resp?.recovered === 'number' ? resp.recovered : null
-    const missing = typeof resp?.still_missing === 'number' ? resp.still_missing : null
+    // v1.4.32 — read BOTH reconciler shapes. This used to look at
+    // `still_missing` alone, which the image reconciler does not have: it
+    // splits the same number into `needs_fresh_generation` + `unrecoverable`.
+    // So for all three image job types this fell through to a bare
+    // "✓ repaired" chip and threw away the one number that says whether a
+    // retry is needed — the repair knew, and did not say.
+    const normalised = normaliseRepairResult(resp)
+    setRepairState(job.job_id, normalised
+      ? { outcome: 'measured', result: normalised }
+      : { outcome: 'inconclusive' })
+    const recovered = normalised ? normalised.recovered : null
+    const missing = normalised ? normalised.stillMissing : null
     let chip: { text: string; kind: string }
     if (recovered !== null && missing !== null) {
       if (missing === 0 && recovered > 0) {
@@ -2029,11 +2157,16 @@ async function repairJobOnly(job: RJob) {
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: chip }
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Repair failed')
+    setRepairState(job.job_id, { outcome: 'failed' })
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'repair failed', kind: 'warn' } }
   }
 }
 
 async function retryJob(job: RJob) {
+  // v1.4.32 — whatever a repair found belonged to the run that just failed.
+  // Re-running makes it stale, so it is dropped here rather than left behind to
+  // license a later Retry all.
+  setRepairState(job.job_id, null)
   const projectSlug = jobProjectSlug(job)
   // These queue-owned jobs must preserve their exact durable request params.
   // Motion jobs without a saved pair are historical jobs: the executor alone
@@ -2200,7 +2333,11 @@ async function waitForJobTerminal(jobId: string, timeoutMs: number, projectSlug:
     if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') return job
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
-  throw new Error(`Repair job ${jobId} did not finish within ${timeoutMs / 1000}s — proceeding with retry anyway.`)
+  // v1.4.32 — this used to end "proceeding with retry anyway", from the
+  // combined Repair-then-Retry path removed in v1.0.114. Nothing retries after
+  // a repair any more, and a timed-out repair is exactly the state Retry all
+  // refuses to act on.
+  throw new Error(`Repair job ${jobId} did not finish within ${timeoutMs / 1000}s. Nothing was retried.`)
 }
 
 async function clearFinished() {
@@ -2796,6 +2933,9 @@ async function clearFinished() {
 .status-chip.active.sc-error { background: #e06c75; border-color: #e06c75; }
 .status-count { margin-left: 5px; opacity: 0.8; font-variant-numeric: tabular-nums; }
 .repair-all-btn { white-space: nowrap; }
+/* Deliberately NOT btn-primary. Repair is free and is the one to reach for
+   first; Retry spends money. The visual weight should say which is which. */
+.retry-all-btn { white-space: nowrap; }
 .repair-chip { font-size: var(--font-xs); padding: 2px 8px; border-radius: 10px; border: 1px solid var(--border, #333); white-space: nowrap; }
 .repair-chip.rc-ok { color: #98c379; border-color: rgba(152, 195, 121, 0.4); }
 .repair-chip.rc-warn { color: #e5c07b; border-color: rgba(229, 192, 123, 0.4); }
