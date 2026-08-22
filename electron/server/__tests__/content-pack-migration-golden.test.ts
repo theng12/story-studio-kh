@@ -422,10 +422,16 @@ test('a centered headline legacy user template stays a 94px project override', a
     assert.equal(custom?.id, customId)
     assert.equal(custom?.textZones?.[0]?.fontSize, 94)
 
-    const niche = await nicheLoader.getEffectiveNicheFor(projectFor('psychology'))
+    const niche = await nicheLoader.getEffectiveNicheFor(projectFor('animals'))
     assert.ok(niche)
+    assert.equal(niche.defaultThumbnailTemplateId, 'curiosity-question-cartoon')
+    const nicheDefault = await thumbnailTemplateLoader.getEffectiveTemplateFor(
+      projectFor('animals'),
+      niche,
+    )
+    assert.equal(nicheDefault?.id, 'curiosity-question-cartoon')
     const effective = await thumbnailTemplateLoader.getEffectiveTemplateFor(
-      projectFor('psychology'),
+      projectFor('animals'),
       niche,
       { thumbnail_template_id: customId },
     )
