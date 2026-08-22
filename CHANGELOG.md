@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.29 — 2026-08-22
+
+- **Your publishing cadence was saving but never loading. Fixed.** The panel wrote your days, time and the auto-schedule tick correctly — and then showed you an empty form every time you opened it, because the app was only allowed to hand back a fixed list of settings and these two were not on it. Worse than merely annoying: if you had pressed Save on that blank form for any reason, it would have wiped your real cadence and quietly switched automatic scheduling off. You can now see what is actually set.
+- **Scene Review waits when your machines are busy** instead of throwing the picture away and asking you to run it again. Same as subtitles, voice and images. Three tries — 30 seconds, 2 minutes, 5 minutes — and the log says plainly that nothing was charged.
+- **A safety feature would have cancelled that fix, and nearly did.** The app pauses a job when nothing finishes for ten minutes. A full render farm is exactly what causes nothing to finish — so it would have paused the job and killed the waiting. The pause is now held off only for as long as a scene is genuinely waiting, and never longer.
+- **A waiting scene now says so.** While it waits you see "waiting, retry at…" rather than a spinner that looks like a hang.
+- Four of eight generators protected — subtitles, voice, images and Scene Review. The remaining four are still named in the app's own tests.
+
+---
+
 ## v1.4.28 — 2026-08-22
 
 - **The two throughput numbers now have a screen. Until now they had none.** Settings → This Mac → *How much runs at once*. You asked where to change them and the honest answer was nowhere: both had been moved out of the program's code into a settings file the app reads when it starts, with no page and no way to reach them. That is half a fix — a number you cannot get to is barely better than one written into the code.
