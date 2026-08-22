@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.34 — 2026-08-23
+
+- **Image Pool now waits when your machines are busy. That is all eight generators — the whole set is protected.**
+- **This last one was the easiest to lose work in without noticing.** A pool has no script and no scene list to check against, so asking for 40 images and quietly getting 31 has nothing to contradict it. It now waits 30 seconds, then 2 minutes, then 5, and says plainly that nothing was charged.
+- **Nothing else about the run changed.** An image that runs out of waits fails exactly as before and the rest of the pool carries on. Running out of credits still stops everything immediately, with no waiting.
+- Behind the scenes, the checklist that tracked which generators still had this fault is now closed. In its place is a stricter rule: any new generator that talks to your machines must handle this from the day it is written, or the tests fail.
+
+---
+
 ## v1.4.33 — 2026-08-23
 
 - **Contextual Cues now waits when your machines are busy** instead of throwing away the episode's whole batch of proposed labels. Seven of eight generators protected; one left.

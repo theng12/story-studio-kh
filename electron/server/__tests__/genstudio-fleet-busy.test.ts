@@ -20,10 +20,16 @@
  * and never gets investigated. That is why this is a register and not a note:
  * a gap nobody can see is a gap nobody fixes.
  *
- * HOW TO USE IT. Adopting the rule in a generator means moving its name from
- * `NOT_YET_PROTECTED` to `PROTECTED`. Adding a NEW generator that handles
- * GenStudio failures without appearing in either list fails this test, so the
- * question "what about the others?" can never quietly go stale again.
+ * AS OF 1.4.34 THE ANSWER TO HIS QUESTION IS "ALL EIGHT". The debt list is
+ * gone rather than left standing empty, because an empty list is a reassurance
+ * nobody re-reads. What remains is stricter: EVERY generator that handles a
+ * GenStudio terminal failure must use the shared rule. A new one that does not
+ * fails this test the day it is written, so the question "what about the
+ * others?" can never quietly go stale again.
+ *
+ * If a generator ever genuinely must not wait, add it to `EXEMPT` below WITH
+ * the reason. Do not reintroduce a debt list — the whole point is that the gap
+ * has to be argued for, not merely recorded.
  */
 
 import { test, describe } from 'node:test'
@@ -72,19 +78,19 @@ const PROTECTED = new Set([
                     //          15s retry rejoins a jam GenStudio already waited
                     //          15 minutes on, and sharing a counter would have
                     //          let a fleet wait eat a backpressure attempt.
+  'image-pool-generate.ts', // 1.4.34 — the last one, and the easiest to lose
+                    //          work in unnoticed: a pool has no script or scene
+                    //          list to check a shortfall against, so "40
+                    //          images" quietly returning 31 has nothing to
+                    //          contradict it.
 ])
 
 /**
- * Generators that still drop the item. Each will lose work in a busy-fleet
- * burst exactly the way subtitles did; none has been observed doing so except
- * audio, which did it five times unnoticed.
- *
- * Moving one out of this list is the whole job. It is not a permitted state —
- * it is a debt with names on it.
+ * Generators that handle a GenStudio terminal failure and deliberately do NOT
+ * wait for the fleet. Empty, and it should stay that way: a name here needs a
+ * reason beside it that survives being read aloud to the owner.
  */
-const NOT_YET_PROTECTED = new Set([
-  'image-pool-generate.ts',
-])
+const EXEMPT = new Map<string, string>([])
 
 async function generatorsHandlingGenStudioFailures(): Promise<string[]> {
   const files = (await readdir(GENERATORS)).filter(f => f.endsWith('.ts'))
@@ -99,10 +105,10 @@ async function generatorsHandlingGenStudioFailures(): Promise<string[]> {
 describe('the register of who waits for a busy fleet', () => {
   test('every generator that handles a GenStudio failure is accounted for', async () => {
     const handling = await generatorsHandlingGenStudioFailures()
-    const unaccounted = handling.filter(f => !PROTECTED.has(f) && !NOT_YET_PROTECTED.has(f))
+    const unaccounted = handling.filter(f => !PROTECTED.has(f) && !EXEMPT.has(f))
     assert.deepEqual(unaccounted, [],
-      `These generators handle GenStudio failures and appear in neither list: ${unaccounted.join(', ')}. `
-      + 'Add the fleet-busy retry and put them in PROTECTED, or record the debt in NOT_YET_PROTECTED. '
+      `These generators handle GenStudio failures and do not wait for a busy fleet: ${unaccounted.join(', ')}. `
+      + 'Add the fleet-busy retry and put them in PROTECTED, or argue the exemption in EXEMPT. '
       + 'Silently doing neither is how a generator drops the owner\'s work for a year without anyone noticing.')
   })
 
@@ -116,14 +122,18 @@ describe('the register of who waits for a busy fleet', () => {
     }
   })
 
-  test('the debt is named, not vague', () => {
-    // If this ever empties, delete the list rather than leaving an empty
-    // reassurance behind.
-    assert.ok(NOT_YET_PROTECTED.size > 0)
-    // Named individually rather than by count, so removing one without doing
-    // the work fails here instead of quietly shrinking the debt.
-    assert.ok(NOT_YET_PROTECTED.has('image-pool-generate.ts'),
-      'image-pool-generate must stay named until it is protected')
+  test('all eight are protected, and an exemption must carry its reason', async () => {
+    const handling = await generatorsHandlingGenStudioFailures()
+    assert.equal(handling.length, 8,
+      `Expected the eight known GenStudio generators, found ${handling.length}: ${handling.join(', ')}. `
+      + 'A new one is not a problem — add it to PROTECTED and update this count — but it must not '
+      + 'arrive unnoticed.')
+    assert.deepEqual([...handling].filter(f => !PROTECTED.has(f)), [],
+      'every generator that handles a GenStudio failure now waits for a busy fleet')
+    for (const [name, reason] of EXEMPT) {
+      assert.ok(reason.trim().length > 20,
+        `${name} is exempt without a reason worth reading. An exemption is an argument, not a list entry.`)
+    }
   })
 })
 
