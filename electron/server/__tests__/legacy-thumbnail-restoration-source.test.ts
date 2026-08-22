@@ -27,6 +27,13 @@ const PREHISTORIC_DISCOVERY_ROOT = path.join(
   'thumbnail',
   'prehistoric-discovery',
 )
+const PREHISTORIC_STYLE_ROOT = path.join(
+  ROOT,
+  'content-packs',
+  'free-starters',
+  'style',
+  'prehistoric-stick-cartoon',
+)
 const CAPI_RECIPE_ROOT = path.join(
   ROOT,
   'content-packs',
@@ -160,6 +167,19 @@ test('Prehistoric Survival Title Card remains a full-title survival recipe disti
 
   assert.equal(discovery.headline_mode, 'curiosity-hook')
   assert.notEqual(discovery.headline_mode, recipe.headline_mode)
+
+  await assertPack(
+    PREHISTORIC_STYLE_ROOT,
+    'com.storystudio.pack.style.prehistoric-stick-cartoon',
+    'com.storystudio.sku.style.prehistoric-stick-cartoon',
+    'com.storystudio.family.style.prehistoric-stick-cartoon',
+  )
+  const prehistoricStyle = await readJson(path.join(PREHISTORIC_STYLE_ROOT, 'content', 'visual-style.json'))
+  assert.equal(prehistoricStyle.id, 'com.storystudio.style.prehistoric-stick-cartoon')
+  assert.deepEqual(prehistoricStyle.compatible_formula_ids, [ANCIENT_HUMANS_FORMULA_ID])
+  await assert.rejects(fs.access(path.join(RESTORATION_ROOT, 'style', 'prehistoric-stick-cartoon')), {
+    code: 'ENOENT',
+  })
 })
 
 test('Hand-Drawn Hardship Cartoon has one ledgered, decodable owner-derived style preview', async () => {
