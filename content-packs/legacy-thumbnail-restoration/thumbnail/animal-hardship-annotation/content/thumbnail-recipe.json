@@ -1,0 +1,58 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.animal-hardship-annotation",
+  "name": "Animal Hardship Annotation",
+  "description": "A direct 16:9 animal explainer cover pairing one expressive animal with one restrained hand-drawn hardship note.",
+  "layout": "hero",
+  "category": "Natural world",
+  "tags": [
+    "animals",
+    "natural world",
+    "hand-drawn annotation",
+    "hardship",
+    "in-image title"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Create a clear 16:9 animal hardship cover with one anatomically legible, expressive animal in its natural setting. Use one hand-drawn arrow that points to one concrete survival constraint and exactly one 3–6 word handwritten hardship annotation. Reserve a readable, uncluttered card for the full episode title rendered directly by the selected image model. Keep the subject, arrow, annotation, and title card in one immediate reading path.",
+  "composition_rules": [
+    "Show one anatomically coherent expressive animal as the undisputed hero.",
+    "Use exactly one hand-drawn arrow and exactly one 3–6 word handwritten hardship annotation.",
+    "Give the full episode title one readable title card with enough contrast for small-screen viewing.",
+    "Keep the title card separate from the animal's face, body, and survival detail."
+  ],
+  "required_elements": [
+    "One anatomically legible expressive animal",
+    "One hand-drawn arrow",
+    "One 3–6 word handwritten hardship annotation",
+    "A readable full episode-title card rendered by the image model"
+  ],
+  "avoid_elements": [
+    "A copied MineePod title or episode wording",
+    "Multiple arrows or multiple handwritten captions",
+    "Generic curiosity-only wording that does not name a concrete constraint",
+    "Watermarks, logos, channel branding, or copied trade dress",
+    "Violent cruelty, malformed anatomy, or malformed text",
+    "Post-render typography compositing"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Render the complete intended full episode title directly into the title card. Use one line only when the title remains clearly readable; otherwise split it across two or three balanced lines. Do not reuse any saved episode wording, channel prefix, logo, or fixed catchphrase.",
+  "default_text_style": "high contrast",
+  "default_font_style": "bold editorial",
+  "default_text_position": "center",
+  "headline_formats": [
+    "WHY {ANIMAL} STRUGGLES",
+    "THE HARD LIFE OF {ANIMAL}",
+    "HOW {ANIMAL} SURVIVES"
+  ],
+  "visual_style_guidance": "Keep the recipe independent of its active visual style: it requires one legible animal, one arrow, one short hardship note, and a full-title card, while medium, palette, and line treatment come from the selected style.",
+  "preview_assets": [
+    "assets/animal-hardship-annotation-1.webp",
+    "assets/animal-hardship-annotation-2.webp",
+    "assets/animal-hardship-annotation-3.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.natural-world-explained"
+  ]
+}
