@@ -95,6 +95,51 @@ const DREAMLIKE_RECIPE_ASSETS = [
   'dreamlike-story-title-card-3.webp',
 ] as const
 const DREAMLIKE_STYLE_ASSET = 'dreamlike-luminous-sleep-illustration.webp'
+const FREE_STARTER_ROOT = path.join(ROOT, 'content-packs', 'free-starters')
+const ENRICHED_FREE_STARTER_GALLERIES = [
+  {
+    slug: 'centered-hero-headline',
+    assets: [
+      'centered-hero-headline.webp',
+      'centered-hero-headline-2.webp',
+      'centered-hero-headline-3.webp',
+    ],
+    firstHash: '330334bf935e06fb8167a4ea8321d37a92f64b12a88e9564ccb9cf45f893d2ab',
+  },
+  {
+    slug: 'portrait-block-right',
+    assets: [
+      'portrait-block-right.webp',
+      'portrait-block-right-2.webp',
+      'portrait-block-right-3.webp',
+    ],
+    firstHash: 'd7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f',
+  },
+  {
+    slug: 'dreamscape-story-window',
+    assets: [
+      'dreamscape-story-window.webp',
+      'dreamscape-story-window-2.webp',
+      'dreamscape-story-window-3.webp',
+    ],
+    firstHash: '1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce',
+  },
+  {
+    slug: 'prehistoric-discovery',
+    assets: [
+      'prehistoric-discovery.webp',
+      'prehistoric-discovery-2.webp',
+      'prehistoric-discovery-3.webp',
+    ],
+    firstHash: '557f86602b5f96f8d92fc28f981c79eb1121d63b2f7ab1d8bff535e8524dfd14',
+  },
+] as const
+const ESTABLISHED_THREE_PREVIEW_FAMILIES = [
+  'annotated-business-board',
+  'curiosity-question-cartoon',
+  'documentary-label-tableau',
+  'archival-map-investigation',
+] as const
 const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdiscount\b|GenStudio/i
 
 function sha256(bytes: Uint8Array): string {
@@ -127,6 +172,24 @@ async function assertWebp(root: string, asset: string, ledger: string) {
   assert.ok(bytes.byteLength > 20_000, `${asset} must be a substantive preview`)
   assert.match(ledger, new RegExp(`\\| .*${asset.replace('.', '\\.')}`))
   assert.match(ledger, new RegExp(sha256(bytes)))
+}
+
+async function assertFreeStarterWebp(root: string, asset: string, ownerId: string, recordId: string) {
+  const bytes = await fs.readFile(path.join(root, 'assets', asset))
+  const metadata = await sharp(bytes, { failOn: 'error' }).metadata()
+  assert.equal(metadata.format, 'webp')
+  assert.equal(metadata.width, 1672)
+  assert.equal(metadata.height, 941)
+  assert.ok(bytes.byteLength > 20_000, `${asset} must be a substantive preview`)
+
+  const provenance = await fs.readFile(path.join(FREE_STARTER_ROOT, 'ASSET-PROVENANCE.md'), 'utf8')
+  const match = provenance.match(/<!-- free-starter-preview-provenance\n([\s\S]*?)\n-->/)
+  assert.ok(match, 'free-starter provenance registry is present')
+  const record = (JSON.parse(match[1]) as Array<Record<string, unknown>>).find(candidate => candidate.id === recordId)
+  assert.ok(record, `${recordId} provenance is present`)
+  assert.equal(record.ownerId, ownerId)
+  assert.equal(record.sourcePath, path.relative(ROOT, path.join(root, 'assets', asset)))
+  assert.equal(record.sha256, sha256(bytes))
 }
 
 test('Animal Hardship Annotation has three ledgered, decodable owner-derived recipe previews', async () => {
@@ -340,6 +403,32 @@ test('Dreamlike Luminous Sleep Illustration supplies a text-free, ledgered style
   assert.match(String(style.negative_prompt), /visual peril|loud saturated neon|photoreal stock imagery/i)
   assert.match(String(style.negative_prompt), /logos\/watermarks|copied trade dress|malformed anatomy|malformed text/i)
   await assertWebp(DREAMLIKE_STYLE_ROOT, DREAMLIKE_STYLE_ASSET, ledger)
+})
+
+test('the restored lineup preserves index-zero bytes and gives every legacy recipe three decodable previews', async () => {
+  for (const gallery of ENRICHED_FREE_STARTER_GALLERIES) {
+    const root = path.join(FREE_STARTER_ROOT, 'thumbnail', gallery.slug)
+    const recipe = await readJson(path.join(root, 'content', 'thumbnail-recipe.json'))
+    assert.deepEqual(recipe.preview_assets, gallery.assets.map(asset => `assets/${asset}`))
+    assert.equal(
+      sha256(await fs.readFile(path.join(root, 'assets', gallery.assets[0]))),
+      gallery.firstHash,
+      `${gallery.slug} retains its existing first preview byte-for-byte`,
+    )
+    for (const [index, asset] of gallery.assets.entries()) {
+      await assertFreeStarterWebp(root, asset, gallery.slug, index === 0 ? gallery.slug : `${gallery.slug}-${index + 1}`)
+    }
+  }
+
+  for (const id of ESTABLISHED_THREE_PREVIEW_FAMILIES) {
+    const template = await readJson(path.join(ROOT, 'electron', 'server', 'thumbnail-templates', `${id}.json`))
+    assert.equal(Array.isArray(template.previewImages) && template.previewImages.length, 3, `${id} keeps three previews`)
+    for (const preview of template.previewImages as string[]) {
+      const bytes = await fs.readFile(path.join(ROOT, 'frontend', 'public', preview.replace(/^\//, '')))
+      const metadata = await sharp(bytes, { failOn: 'error' }).metadata()
+      assert.equal(metadata.format, 'webp')
+    }
+  }
 })
 
 test('Restoration runtime documents retain no owner paths or commercial/provider metadata', async () => {

@@ -6,6 +6,11 @@
   "builtin": true,
   "schemaVersion": 1,
   "recommendedNicheIds": ["prayer"],
+  "previewImages": [
+    "/thumbnail-recipe-previews/portrait-block-right.webp",
+    "/thumbnail-recipe-previews/portrait-block-right-capi-01.webp",
+    "/thumbnail-recipe-previews/portrait-block-right-abiding-faith-01.webp"
+  ],
 
   "aspectRatio": "16:9",
   "canvas": { "width": 1920, "height": 1080 },

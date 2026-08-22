@@ -11,6 +11,8 @@ const documentaryTemplatePath = resolve(root, 'electron/server/thumbnail-templat
 const deepTimeNichePath = resolve(root, 'electron/server/niches/deep-time-documentary.json')
 const hiddenMechanicsNichePath = resolve(root, 'electron/server/niches/hidden-mechanics-history.json')
 const archivalMapTemplatePath = resolve(root, 'electron/server/thumbnail-templates/archival-map-investigation.json')
+const centeredHeroTemplatePath = resolve(root, 'electron/server/thumbnail-templates/centered-hero-headline.json')
+const portraitBlockTemplatePath = resolve(root, 'electron/server/thumbnail-templates/portrait-block-right.json')
 
 test('annotated business board ships an AI-headline recipe and three real browseable examples', () => {
   const recipe = JSON.parse(readFileSync(templatePath, 'utf8'))
@@ -84,4 +86,36 @@ test('Hidden Mechanics of History binds its visual style and thumbnail recipe as
   const niche = JSON.parse(readFileSync(hiddenMechanicsNichePath, 'utf8'))
   assert.equal(niche.defaultThumbnailTemplateId, 'archival-map-investigation')
   assert.equal(niche.productionKit.recommendedVisualStyleId, 'builtin-archival-documentary-reconstruction')
+})
+
+test('centered and portrait legacy templates expose three source-backed browseable previews without changing their first URL', () => {
+  for (const [templatePath, id, expected] of [
+    [
+      centeredHeroTemplatePath,
+      'centered-hero-headline',
+      [
+        '/thumbnail-recipe-previews/centered-hero-headline.webp',
+        '/thumbnail-recipe-previews/centered-hero-headline-dozing-knight-01.webp',
+        '/thumbnail-recipe-previews/centered-hero-headline-dozing-knight-05.webp',
+      ],
+    ],
+    [
+      portraitBlockTemplatePath,
+      'portrait-block-right',
+      [
+        '/thumbnail-recipe-previews/portrait-block-right.webp',
+        '/thumbnail-recipe-previews/portrait-block-right-capi-01.webp',
+        '/thumbnail-recipe-previews/portrait-block-right-abiding-faith-01.webp',
+      ],
+    ],
+  ] as const) {
+    const recipe = JSON.parse(readFileSync(templatePath, 'utf8'))
+    assert.equal(recipe.id, id)
+    assert.deepEqual(recipe.previewImages, expected)
+    for (const preview of recipe.previewImages) {
+      const diskPath = resolve(root, 'frontend/public', preview.replace(/^\//, ''))
+      assert.equal(existsSync(diskPath), true, `${preview} exists`)
+      assert.ok(statSync(diskPath).size > 20_000, `${preview} is a real raster preview`)
+    }
+  }
 })

@@ -118,7 +118,7 @@ function assertDeclaredPreview(records, ownerId, publicPath) {
   const record = records.find(row => row.sourcePath === sourcePath)
   assert.ok(record, `missing provenance record for declared ${publicPath}`)
   assert.equal(record.ownerId, ownerId, `declared ${publicPath} must retain ${ownerId} provenance`)
-  assert.equal(record.provenance, 'migrated-approved-built-in')
+  assert.ok(['migrated-approved-built-in', 'publisher-created-tool-generated-original', 'owner-supplied-saved-output-derived'].includes(record.provenance))
   assert.match(record.sha256, /^[a-f0-9]{64}$/)
   return record
 }
@@ -144,6 +144,7 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
   assert.deepEqual(new Set(records.map(row => row.provenance)), new Set([
     'migrated-approved-built-in',
     'publisher-created-tool-generated-original',
+    'owner-supplied-saved-output-derived',
   ]))
 
   const styleDeclarations = registry.styles.map(row => {
@@ -164,7 +165,7 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
   }
   for (const { row, template } of recipeDeclarations) {
     const declaredPaths = template.previewImages || []
-    const approvedRecords = records.filter(record => record.ownerId === row.sourceId && record.status === 'approved')
+    const approvedRecords = records.filter(record => record.ownerId === row.sourceId && record.status === 'approved' && record.sourcePath?.startsWith('frontend/public/'))
     assert.equal(declaredPaths.length, approvedRecords.length, `${row.sourceId} preview declarations must match its approved ledger records`)
     for (const publicPath of declaredPaths) {
       const record = assertDeclaredPreview(records, row.sourceId, publicPath)

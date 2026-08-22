@@ -37,7 +37,9 @@
   ],
   "visual_style_guidance": "Use a left-side historical portrait and right-side black gradient; preserve clear mobile-readable separation between figure and headline.",
   "preview_assets": [
-    "assets/portrait-block-right.webp"
+    "assets/portrait-block-right.webp",
+    "assets/portrait-block-right-2.webp",
+    "assets/portrait-block-right-3.webp"
   ],
   "compatible_formula_ids": [
     "com.storystudio.formula.prayer",

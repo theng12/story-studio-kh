@@ -6,6 +6,11 @@
   "builtin": true,
   "schemaVersion": 1,
   "recommendedNicheIds": ["motivation", "history-narration", "psychology"],
+  "previewImages": [
+    "/thumbnail-recipe-previews/centered-hero-headline.webp",
+    "/thumbnail-recipe-previews/centered-hero-headline-dozing-knight-01.webp",
+    "/thumbnail-recipe-previews/centered-hero-headline-dozing-knight-05.webp"
+  ],
 
   "aspectRatio": "16:9",
   "canvas": { "width": 1920, "height": 1080 },
