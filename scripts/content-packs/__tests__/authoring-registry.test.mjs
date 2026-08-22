@@ -127,6 +127,21 @@ function reservationRecord(kind, slug) {
   }
 }
 
+function successorReservation(record, expectedRevision, version = '1.0.1') {
+  const { receipt_ref, ...requestRecord } = structuredClone(record)
+  return {
+    expected_revision: expectedRevision,
+    coordinator: { task: 'content-pack-authoring', branch: 'codex/versioned-authoring-identities' },
+    proposal_ref: `proposal:successor:${record.pack_id}@${version}`,
+    records: [{
+      ...requestRecord,
+      version,
+      status: 'reserved',
+      source_path: `${record.source_path}-v${version.replaceAll('.', '-')}`,
+    }],
+  }
+}
+
 async function materializeReservedStyle(root, record) {
   const destination = join(root, record.source_path)
   await cp(join(root, 'content-packs', 'free-starters', 'style', 'cinematic-photoreal'), destination, { recursive: true })
@@ -191,6 +206,131 @@ test('reserves a complete batch once with a deterministic receipt', async (t) =>
     reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: reservationRequest(initial.revision) }),
     /stale expected revision/i,
   )
+})
+
+test('reserves a stable leaf successor without changing its historical version or receipt', async (t) => {
+  const { reserveAuthoringBatch, verifyAuthoringReceipt } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const before = JSON.parse(await readFile(copy, 'utf8'))
+  const original = before.records.find((record) => record.pack_id === 'com.storystudio.pack.style.cinematic-photoreal')
+  const request = successorReservation(original, before.revision)
+
+  const result = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
+  const after = JSON.parse(await readFile(copy, 'utf8'))
+  const historical = after.records.find((record) => record.pack_id === original.pack_id && record.version === original.version)
+  const successor = after.records.find((record) => record.pack_id === original.pack_id && record.version === '1.0.1')
+
+  assert.deepEqual(historical, original)
+  assert.deepEqual(successor, { receipt_ref: result.receipt_ref, ...request.records[0] })
+  assert.notEqual(successor.source_path, historical.source_path)
+  assert.deepEqual(await verifyAuthoringReceipt({
+    registryPath: copy,
+    repositoryRoot: root,
+    revision: result.revision,
+    receiptRef: result.receipt_ref,
+    expectedIdentity: request.records[0],
+  }), { revision: result.revision, receipt_ref: result.receipt_ref, identity: request.records[0] })
+})
+
+test('keeps versioned identity lineages exclusive and exact without mutating failed reservations', async (t) => {
+  const { reserveAuthoringBatch } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  const original = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.style.cinematic-photoreal')
+  const accepted = successorReservation(original, registry.revision)
+  const successor = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: accepted })
+  const before = await readFile(copy)
+  const baseRequest = () => successorReservation(original, successor.revision, '1.0.2')
+  const crossPackRequest = () => {
+    const request = reservationRequest(successor.revision)
+    request.records[0].version = '1.0.2'
+    request.records[0].source_path = 'content-packs/reserved/style/reserved-style-v1-0-2'
+    return request
+  }
+  const cases = [
+    ['same version', () => successorReservation(original, successor.revision, '1.0.1'), /duplicate pack_id@version/i],
+    ['same source', () => ({ ...baseRequest(), records: [{ ...baseRequest().records[0], source_path: original.source_path }] }), /duplicate source_path/i],
+    ['different publisher', () => ({ ...baseRequest(), records: [{ ...baseRequest().records[0], publisher_id: 'outside-authority' }] }), /publisher_id.*com\.storystudio/i],
+    ['different kind', () => ({ ...baseRequest(), records: [{ ...baseRequest().records[0], kind: 'thumbnail-recipe' }] }), /pack_id.*namespace/i],
+    ['different item', () => ({ ...baseRequest(), records: [{ ...baseRequest().records[0], item_id: 'com.storystudio.style.other' }] }), /lineage.*item_id|item_id.*lineage/i],
+    ['different family', () => ({ ...baseRequest(), records: [{ ...baseRequest().records[0], stocking_proposal: { ...baseRequest().records[0].stocking_proposal, family: { id: 'com.storystudio.family.style.other', status: 'reserved' } } }] }), /lineage.*family|family.*lineage/i],
+    ['different SKU', () => ({ ...baseRequest(), records: [{ ...baseRequest().records[0], stocking_proposal: { ...baseRequest().records[0].stocking_proposal, sku: { id: 'com.storystudio.sku.style.other', status: 'reserved' } } }] }), /lineage.*sku|sku.*lineage/i],
+    ['cross-pack item', () => {
+      const request = crossPackRequest()
+      request.records[0].item_id = original.item_id
+      return request
+    }, /item_id.*different pack|different pack.*item_id/i],
+    ['cross-pack family', () => {
+      const request = crossPackRequest()
+      request.records[0].stocking_proposal.family.id = original.stocking_proposal.family.id
+      return request
+    }, /family.*different pack|different pack.*family/i],
+    ['cross-pack SKU', () => {
+      const request = crossPackRequest()
+      request.records[0].stocking_proposal.sku.id = original.stocking_proposal.sku.id
+      return request
+    }, /sku.*different pack|different pack.*sku/i],
+  ]
+  for (const [, request, error] of cases) {
+    await assert.rejects(reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: request() }), error)
+    assert.deepEqual(await readFile(copy), before)
+  }
+})
+
+test('uses version-qualified dependency nodes while rejecting every same-pack self dependency', async (t) => {
+  const { reserveAuthoringBatch } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  const original = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.style.cinematic-photoreal')
+  const self = successorReservation(original, registry.revision)
+  self.records[0].dependencies = [{ pack_id: original.pack_id, version: original.version }]
+  const initialBytes = await readFile(copy)
+  await assert.rejects(
+    reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: self }),
+    /depend on itself/i,
+  )
+  assert.deepEqual(await readFile(copy), initialBytes)
+
+  const firstA = reservationRecord('visual-style', 'version-node-a')
+  const firstB = reservationRecord('visual-style', 'version-node-b')
+  const secondA = {
+    ...structuredClone(firstA),
+    version: '1.0.1',
+    source_path: 'content-packs/reserved/style/version-node-a-v1-0-1',
+    dependencies: [{ pack_id: firstB.pack_id, version: '1.0.1' }],
+  }
+  const secondB = {
+    ...structuredClone(firstB),
+    version: '1.0.1',
+    source_path: 'content-packs/reserved/style/version-node-b-v1-0-1',
+    dependencies: [{ pack_id: firstA.pack_id, version: '1.0.0' }],
+  }
+  const exactVersions = {
+    expected_revision: registry.revision,
+    coordinator: { task: 'content-pack-authoring', branch: 'codex/versioned-authoring-identities' },
+    proposal_ref: 'proposal:version-qualified-dependencies',
+    records: [firstA, secondA, firstB, secondB],
+  }
+  const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: exactVersions })
+  assert.equal(reserved.revision, registry.revision + 1)
+
+  const beforeCycle = await readFile(copy)
+  const cycle = {
+    ...exactVersions,
+    expected_revision: reserved.revision,
+    records: [
+      { ...structuredClone(firstA), version: '1.0.2', source_path: 'content-packs/reserved/style/version-node-a-v1-0-2', dependencies: [{ pack_id: firstB.pack_id, version: '1.0.2' }] },
+      { ...structuredClone(firstB), version: '1.0.2', source_path: 'content-packs/reserved/style/version-node-b-v1-0-2', dependencies: [{ pack_id: firstA.pack_id, version: '1.0.2' }] },
+    ],
+  }
+  await assert.rejects(reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: cycle }), /cyclic dependency/i)
+  assert.deepEqual(await readFile(copy), beforeCycle)
 })
 
 test('leaves registry bytes unchanged for stale, colliding, malformed, unknown, and GenStudio-owned requests', async (t) => {
