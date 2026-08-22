@@ -2134,7 +2134,26 @@
             {{ subtitlePreflight.source_aspect.message }}
           </WorkspaceNotice>
 
-          <div v-if="subtitlePreflight?.frames?.length" class="preflight-frames mt-2">
+          <!-- v1.4.22 — evidence about a file that has since changed is worse
+               than no evidence: it is what nearly sent the owner off to
+               re-transcribe a transcript that was already correct. -->
+          <WorkspaceNotice
+            v-if="preflightStale"
+            tone="warning"
+            title="Your subtitles changed after this check ran"
+            class="mt-2"
+          >
+            The frames and clips below describe an older version of this episode's subtitle file, so
+            a caption that disagrees with what you hear here proves nothing. Run the check again
+            before reading anything into it.
+            <template #actions>
+              <button class="btn btn-sm btn-primary" :disabled="preflightRunning" @click="runSubtitlePreflight">
+                {{ preflightRunning ? 'Checking…' : 'Check again' }}
+              </button>
+            </template>
+          </WorkspaceNotice>
+
+          <div v-if="subtitlePreflight?.frames?.length" class="preflight-frames mt-2" :class="{ 'is-stale': preflightStale }">
             <figure v-for="frame in subtitlePreflight.frames" :key="frame.filename" class="preflight-frame">
               <img :src="preflightFrameUrl(frame)" :alt="`Caption at ${formatPreflightTime(frame.time_sec)}`" />
               <figcaption class="text-muted text-sm">
@@ -2160,7 +2179,7 @@
           </div>
 
           <WorkspaceNotice
-            v-if="subtitlePreflight?.frames?.length && !preflightConfirmed"
+            v-if="subtitlePreflight?.frames?.length && !preflightConfirmed && !preflightStale"
             tone="warning"
             title="Do these captions belong to this episode?"
             class="mt-2"
@@ -3809,6 +3828,9 @@ interface SourceAspectReport {
 }
 const subtitlePreflight = ref<{
   frames: SubtitlePreflightFrame[]
+  /** v1.4.22 — identity of the subtitle file these frames describe. */
+  subtitle_path?: string
+  subtitle_fingerprint?: { mtime_ms: number; size: number } | null
   subtitle_filename: string
   elapsed_ms: number
   resolution: string
@@ -3836,6 +3858,7 @@ async function runSubtitlePreflight(): Promise<boolean> {
       buildVideoAssemblyPayload(),
     )
     preflightCacheKey.value = Date.now()
+    preflightStale.value = false
     // Nothing to look at — subtitles are off, or this episode has none. There is
     // no caption to get wrong, so there is nothing to hold the render for.
     if (subtitlePreflight.value?.skipped) preflightConfirmed.value = true
@@ -3850,6 +3873,48 @@ async function runSubtitlePreflight(): Promise<boolean> {
   } finally {
     preflightRunning.value = false
   }
+}
+
+/**
+ * v1.4.22 — has the subtitle file changed since this check ran?
+ *
+ * The owner opened the caption check on EP0051, saw captions that did not
+ * match the narration underneath them, and was about to re-transcribe a
+ * transcript that was already correct. The panel was showing a result from
+ * before his last re-stitch — the file had been rewritten nine minutes after
+ * the run he was reading.
+ *
+ * Stale evidence is worse than none here. This panel exists to be trusted
+ * before an expensive render, so the moment it might be describing an older
+ * file it must stop claiming anything and say so.
+ */
+const preflightStale = ref(false)
+
+async function checkPreflightFreshness(): Promise<void> {
+  const current = subtitlePreflight.value
+  const known = current?.subtitle_fingerprint
+  const path = current?.subtitle_path
+  if (!current?.frames?.length || !known || !path) return
+  try {
+    const res: any = await get(
+      `/projects/${slug.value}/video-editor/subtitle-preflight/${episodeId.value}/fingerprint`
+      + `?path=${encodeURIComponent(path)}`,
+    )
+    const now = res?.fingerprint
+    const changed = !now || now.mtime_ms !== known.mtime_ms || now.size !== known.size
+    if (changed) {
+      preflightStale.value = true
+      // A confirmation given against evidence that no longer holds is not a
+      // confirmation. Withdraw it rather than let a render proceed on it.
+      preflightConfirmed.value = false
+    }
+  } catch { /* a freshness check that cannot run must not invalidate a good result */ }
+}
+
+if (typeof window !== 'undefined') {
+  // On return to the window, because the usual way this goes stale is the owner
+  // re-stitching in another tab and coming back to a panel that looks current.
+  window.addEventListener('focus', () => { void checkPreflightFreshness() })
 }
 
 function preflightFrameUrl(frame: SubtitlePreflightFrame): string {
@@ -5766,6 +5831,8 @@ onUnmounted(() => {
 /* Subtitles SRT path display (monospaced filename). */
 .srt-path-mono { font-family: ui-monospace, monospace; }
 
+/* v1.4.22 — a stale check is visibly not evidence. */
+.preflight-frames.is-stale { opacity: 0.45; filter: grayscale(0.6); }
 /* v1.4.0 — caption preflight frames. Wide enough to read a caption at a glance,
    and they wrap rather than shrink so a 16:9 still never becomes a thumbnail. */
 .preflight-frames { display: flex; gap: 12px; flex-wrap: wrap; }

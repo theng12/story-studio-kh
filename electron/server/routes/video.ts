@@ -1577,6 +1577,38 @@ router.get('/projects/:slug/video-editor/preview-subtitles', async (req, res) =>
  * before a person has waited for an encode. The response body is therefore also
  * the answer to "would this render succeed?".
  */
+/**
+ * Is a caption check still describing the file it was drawn from?
+ *
+ * Deliberately cheap — one `stat`, no ffmpeg, no episode assembly — because
+ * the page asks on every focus. A check whose freshness costs as much as the
+ * check itself would simply not get asked.
+ */
+router.get('/projects/:slug/video-editor/subtitle-preflight/:episodeId/fingerprint', async (req, res) => {
+  try {
+    const rawPath = typeof req.query.path === 'string' ? req.query.path : ''
+    if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
+    const project = await pm.getProject(req.params.slug)
+    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    let filePath = rawPath
+    try {
+      filePath = resolveAssetPath(rawPath, project.output_root)
+    } catch (e: any) {
+      return res.status(400).json(humanizeBackendError(e, 'Could not resolve subtitle path'))
+    }
+    try {
+      const st = await fs.stat(filePath)
+      res.json({ fingerprint: { mtime_ms: Math.round(st.mtimeMs), size: st.size } })
+    } catch {
+      // Gone is a change too — a deleted burn target must invalidate the check
+      // rather than leave it looking authoritative.
+      res.json({ fingerprint: null, missing: true })
+    }
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not check the subtitle file'))
+  }
+})
+
 router.post('/projects/:slug/video-editor/subtitle-preflight/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
   const body = { ...(req.body || {}), episode_id: episodeId }
@@ -1642,6 +1674,25 @@ router.post('/projects/:slug/video-editor/subtitle-preflight/:episodeId', async 
       // frame can be heard as well as read.
       narrationPath: assets.merged_audio[0]?.path || null,
     })
+    // v1.4.22 — a fingerprint of the subtitle file these frames were drawn
+    // from, so the page can tell when it is showing evidence about a file that
+    // has since changed.
+    //
+    // The owner hit this on EP0051: he opened the check, saw captions that did
+    // not match the narration under them, and was about to re-transcribe a
+    // transcript that was already correct. The panel was holding a result from
+    // before the last re-stitch — `EP0051_stitched.srt` had been rewritten
+    // nine minutes after the run that produced what he was looking at.
+    //
+    // Stale evidence is worse here than no evidence. The whole point of this
+    // check is to be the thing you trust before spending an hour on a render,
+    // so it must never quietly answer a question about an older file.
+    let subtitleFingerprint: { mtime_ms: number; size: number } | null = null
+    try {
+      const st = await fs.stat(srtPath)
+      subtitleFingerprint = { mtime_ms: Math.round(st.mtimeMs), size: st.size }
+    } catch { /* the frames are still valid; we just cannot offer a freshness check */ }
+
     res.json({
       ...result,
       resolution: `${w}x${h}`,
@@ -1650,6 +1701,8 @@ router.post('/projects/:slug/video-editor/subtitle-preflight/:episodeId', async 
       duration_sec: durationSec,
       hide_during_intro: hideIntro,
       opening_reserved_sec: openingSec,
+      subtitle_path: srtPath,
+      subtitle_fingerprint: subtitleFingerprint,
     })
   } catch (e: any) {
     // 409 matches the render preflight: this is a "your episode is not ready"

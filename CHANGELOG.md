@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.22 — 2026-08-22
+
+- **The caption check was showing you an old answer, and that nearly cost you an hour.** You opened it on EP0051, saw captions that did not match the narration underneath them, and were about to re-transcribe. Your transcript was fine. What you were looking at was a check that had run before your last re-stitch — the subtitle files were rewritten at 14:23 and 14:32, after the run whose results were still on screen. Running it fresh gave captions matching the file exactly.
+- **It now knows when the file has moved on.** Each check records which version of the subtitle file it looked at. Come back to the page after re-stitching and it greys the frames out, says plainly that they describe an older version, and offers to run again — instead of quietly looking authoritative.
+- **A confirmation given on stale evidence is withdrawn.** If you had already ticked "these are right", that tick is undone when the file changes, so a render can never be waved through on a check that no longer applies.
+- **The frames themselves were never wrong.** Nothing was miscounting or mistimed — the check simply had no way to know which version of your subtitles it had read, so it kept answering a question about a file that no longer existed in that form. That gap had been there since the caption check first shipped; adding the audio clips is what finally made it visible.
+
+---
+
 ## v1.4.21 — 2026-08-22
 
 - **Your upload scheduling now has tests. Nothing was wrong with it.** You said it plainly — *"i've schedules and upload for a while. no issues whatsoever"* — and that matches what I found. The code was correct; it simply had nothing protecting it. Every failure I hit while writing these tests was my own test setup, never your scheduling.
