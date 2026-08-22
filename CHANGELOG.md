@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.31 — 2026-08-23
+
+- **Motion Review now waits when your machines are busy** instead of throwing the clip away. Six of eight generators protected.
+- **This one was the worst of the set.** The "make every scene move" run had no safety net around each scene, so a single busy moment on scene 3 of 50 killed the whole episode's motion pass — not one clip, all of them. Now it waits 30 seconds, then 2 minutes, then 5, and says in plain words that nothing was charged.
+- **Video is the most expensive thing the app buys**, so it still refuses to re-ask about anything except the one failure that provably cost nothing. Cancel and Pause are honoured within seconds during a wait, not at the end of it.
+
+---
+
 ## v1.4.30 — 2026-08-23
 
 - **Scene Images now waits when your machines are busy** instead of dropping the picture and asking you to run it again. Five of eight generators protected.

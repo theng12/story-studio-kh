@@ -59,6 +59,13 @@ const PROTECTED = new Set([
                     //          10-minute stall watchdog while waiting: a busy
                     //          fleet is exactly what trips it, and the pause it
                     //          raises would have cancelled the retry itself.
+  'scene-clip.ts',  // 1.4.31 — Motion Review, and the worst shape of the six:
+                    //          generateSceneClipsBatchJob loops every scene with
+                    //          no per-scene catch, so one refusal on scene 3 of
+                    //          50 threw out of the batch and ended the episode's
+                    //          entire motion pass. Video is also the priciest
+                    //          modality, so retrying anything wider would cost
+                    //          the most here.
 ])
 
 /**
@@ -70,7 +77,6 @@ const PROTECTED = new Set([
  * it is a debt with names on it.
  */
 const NOT_YET_PROTECTED = new Set([
-  'scene-clip.ts',            // Motion Review
   'contextual-cues.ts',
   'image-pool-generate.ts',
 ])
@@ -109,10 +115,12 @@ describe('the register of who waits for a busy fleet', () => {
     // If this ever empties, delete the list rather than leaving an empty
     // reassurance behind.
     assert.ok(NOT_YET_PROTECTED.size > 0)
-    // Scene Review is the highest-volume generator in ordinary use, so it is
-    // the one most likely to meet a busy fleet next.
-    assert.ok(NOT_YET_PROTECTED.has('scene-clip.ts'),
-      'Motion Review must stay named until it is protected')
+    // Named individually rather than by count, so removing one without doing
+    // the work fails here instead of quietly shrinking the debt.
+    assert.ok(NOT_YET_PROTECTED.has('contextual-cues.ts'),
+      'contextual-cues must stay named until it is protected')
+    assert.ok(NOT_YET_PROTECTED.has('image-pool-generate.ts'),
+      'image-pool-generate must stay named until it is protected')
   })
 })
 
