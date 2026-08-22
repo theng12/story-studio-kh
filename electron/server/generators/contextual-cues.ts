@@ -10,7 +10,7 @@ import { existsSync } from 'fs'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { getConfig } from '../services/project-manager.js'
-import { checkpointJobState, isCancelled } from '../services/job-queue.js'
+import { checkpointJobState, isCancelled, isPauseRequested } from '../services/job-queue.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import {
   autoApproveEligibleCues,
@@ -33,7 +33,8 @@ import {
 import { SCENE_PLAN_FILENAME } from './scene-plan.js'
 import type { ContextualCue, ContextualCueAutoApprovalHold, ContextualCueKind, ContextualCueProposalSettings, ContextualCueTemplate, ContextualCueTimeline, Job, ScenePlan } from '../models/types.js'
 import { CONTEXTUAL_CUES_OUTPUT_CONTRACT } from '../lib/story-output-contracts.js'
-import { GenStudioChatTerminalFailureError, genStudioAdmissionSnapshot, listChatModels } from '../lib/genstudio-client.js'
+import { GenStudioChatTerminalFailureError, GenStudioTerminalFailureError, genStudioAdmissionSnapshot, listChatModels } from '../lib/genstudio-client.js'
+import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 import { truncateChars } from '../lib/well-formed-text.js'
@@ -62,6 +63,104 @@ async function waitWhileActive(jobId: string, delayMs: number): Promise<void> {
   while (Date.now() < deadline) {
     if (isCancelled(jobId)) throw new Error('Cancelled by user')
     await new Promise(resolve => setTimeout(resolve, Math.min(250, deadline - Date.now())))
+  }
+}
+
+/**
+ * The modality every request in this generator belongs to.
+ *
+ * `callAi` reaches GenStudio's durable language endpoint, whose failures arrive
+ * as `GenStudioChatTerminalFailureError` — and that class builds its base with
+ * `super('chat', job, …)` in lib/genstudio-client.ts. Named here rather than
+ * spelled inline at the call site so the test can assert it against a LIVE
+ * error instance: if the string upstream is ever renamed, the test fails loudly
+ * instead of the guard below silently matching nothing and quietly turning the
+ * retry off again. A saturated image or TTS queue says nothing about whether
+ * THIS batch's credits came back.
+ */
+export const CONTEXTUAL_CUE_GENSTUDIO_MODALITY = 'chat'
+
+/**
+ * v1.4.33 — "every machine was busy", the second failure this generator asks
+ * about again, and the last one it will.
+ *
+ * WHY. GenStudio places every job on a fleet machine, and with none free it
+ * settles the job FAILED with `SITE_PLACEMENT_EXHAUSTED` after a fifteen-minute
+ * placement window. A generator that does not recognise that DROPS the item and
+ * tells the owner to re-run it by hand. It has already happened twice:
+ * transcription lost 122 of 353 items in one burst, and TTS lost 5 over three
+ * days that nobody noticed for nine, because the only symptom is a missing
+ * asset a later manual retry quietly fills in. Here a refusal does not lose one
+ * cue — it throws out of the batch loop and ends the episode's whole proposal
+ * pass, discarding every batch not yet written to the progress file.
+ *
+ * WHY RESUBMITTING IS FREE. GenStudio raises this code from one place and says
+ * there what became of the money:
+ *
+ *   "The job never reached a worker, so there is nothing to settle: the
+ *    reservation is returned whole."  — images/service.py, then billing.release()
+ *
+ * No provider was engaged and the credits came back, so another attempt is a
+ * fresh charge for work that never happened — not a second charge for the same
+ * work. The argument does not extend one inch further: a provider that WAS
+ * engaged may already have done and billed the work, which is why a "Repair &
+ * Retry all" button was removed from this app in v1.0.114.
+ *
+ * WHY ITS OWN LADDER, SEPARATE FROM BACKPRESSURE. This generator already
+ * retried one capacity failure — `LANGUAGE_PROVIDER_BACKPRESSURE`, two attempts
+ * fifteen seconds apart. That is the right shape for a provider shedding load
+ * for a moment and the wrong shape for a saturated fleet, which GenStudio has
+ * ALREADY waited fifteen minutes on before saying so: a fifteen-second retry
+ * rejoins the same jam and burns the attempt. The two ladders therefore stay
+ * separate and neither spends the other's budget, which also leaves the
+ * backpressure path behaving exactly as it did before this existed.
+ *
+ * This deliberately does NOT reuse `generators/images.ts`'s `imageRetryPlan`,
+ * which ALSO retries a declined route (`CLOUD_PROVIDER_EXHAUSTED`) on a
+ * seconds-long schedule and hardcodes the image modality; nor
+ * `sceneClipFleetBusyRetryPlan`, pinned to `'video'`. Borrowing either to save
+ * a few lines would smuggle a second, unasked-for behaviour change into a fix
+ * about a busy fleet.
+ *
+ * Exported as a pure function so the decision is testable on its own, without
+ * driving a real episode of paid batches against a saturated fleet to watch it.
+ *
+ * @param retriesUsed fleet-busy retries already granted for THIS batch.
+ */
+export function contextualCueFleetBusyRetryPlan(
+  error: unknown,
+  retriesUsed: number,
+): { waitMs: number; reason: string } | null {
+  if (!isFleetBusyFailure(error, CONTEXTUAL_CUE_GENSTUDIO_MODALITY)) return null
+  const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[retriesUsed]
+  if (waitMs === undefined) return null
+  return { waitMs, reason: 'Every machine was busy' }
+}
+
+/**
+ * Sleep before re-asking a busy fleet — in short slices, so a Cancel or a Pause
+ * pressed during a five-minute wait is honoured within seconds rather than at
+ * the end of it.
+ *
+ * Separate from `waitWhileActive` above on purpose. That one sleeps in 250ms
+ * slices and THROWS on cancel, which is right for a fifteen-second backpressure
+ * cooldown, but it does not look at Pause at all — so on its own it would carry
+ * a resubmission straight through the owner pressing Pause. This one returns
+ * instead of throwing, leaving the caller to re-read both signals and rethrow
+ * the original GenStudio failure, so a paused run fails the batch exactly as it
+ * does today rather than buying another job.
+ *
+ * Nothing external can interrupt this wait either. The job queue's stall
+ * circuit breaker — which a fleet wait is precisely the thing to trip — has
+ * exactly one caller in the app, continuity-render.ts, which had to suppress
+ * its own 10-minute pause while waiting. There is no such timer here, and this
+ * generator must not grow one without suppressing it around this wait.
+ */
+async function waitForFleetCapacity(jobId: string, delayMs: number): Promise<void> {
+  const deadline = Date.now() + delayMs
+  while (Date.now() < deadline) {
+    if (isCancelled(jobId) || isPauseRequested(jobId)) return
+    await new Promise(resolve => setTimeout(resolve, Math.min(2_000, deadline - Date.now())))
   }
 }
 
@@ -215,8 +314,30 @@ export async function generateContextualCues(job: Job): Promise<void> {
       await waitWhileActive(job.job_id, pacingDelay)
     }
     let batchCandidates: CueCandidate[] | null = null
-    for (let attempt = 0; attempt <= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES; attempt++) {
-      job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'running', attempt: attempt + 1, max_attempts: CONTEXTUAL_CUE_BACKPRESSURE_RETRIES + 1 }]
+    // v1.4.33 — TWO independent retry ladders for this batch, deliberately not
+    // one. Provider backpressure keeps its own budget (2 retries, 15s apart)
+    // and a busy fleet gets its own (FLEET_BUSY_RETRY_DELAYS_MS, 30s/2m/5m),
+    // and neither spends the other's. Sharing a counter would have meant a
+    // fleet wait silently eating a backpressure retry — a change to the
+    // backpressure path, which must behave exactly as it did before. A batch
+    // that alternates between the two codes therefore makes at most
+    // 1 + 2 + 3 = 6 submissions and waits at most 30s + 7m30s in total, all of
+    // it bounded, and every one of those submissions is for work no provider
+    // ever did.
+    let attemptNum = 1
+    let backpressureRetries = 0
+    let fleetBusyRetries = 0
+    // The ceiling shown to the owner. It starts at exactly the number this
+    // generator has always displayed, so a run that only ever meets
+    // backpressure looks identical; a busy fleet raises it to cover the
+    // attempts that ladder actually buys, and never lowers it.
+    let maxAttempts = CONTEXTUAL_CUE_BACKPRESSURE_RETRIES + 1
+    for (;;) {
+      // Re-read at the top of EVERY attempt, not just once per batch: a
+      // resubmission must never start after the owner has already stopped the
+      // run, and a fleet wait runs into minutes.
+      if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
+      job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'running', attempt: attemptNum, max_attempts: maxAttempts }]
       // Hoisted so it can be handed to the emoji policy as the source text:
       // it carries his narration, and an emoji he wrote into the script means
       // the cues proposed from it are left alone.
@@ -242,6 +363,46 @@ export async function generateContextualCues(job: Job): Promise<void> {
         })))
         break
       } catch (error) {
+        // ── "Every machine was busy" — wait, then ask again ──
+        // The only OTHER failure this generator resubmits; see
+        // `contextualCueFleetBusyRetryPlan` for why it costs nothing and why
+        // nothing else qualifies. A dead job id is REQUIRED, because the next
+        // identity is derived from it: without one the scope cannot be
+        // promoted, and the retry would replay a settled-failed key, which
+        // returns the same failure forever. Pause is honoured alongside Cancel
+        // here — a five-minute wait is long enough for the owner to change his
+        // mind mid-way, and buying a fresh job after he pressed Pause would
+        // overrule him.
+        const fleetBusyPlan = contextualCueFleetBusyRetryPlan(error, fleetBusyRetries)
+        const deadJobId = error instanceof GenStudioTerminalFailureError ? error.jobId : ''
+        if (fleetBusyPlan && deadJobId && !isCancelled(job.job_id) && !isPauseRequested(job.job_id)) {
+          // The SAME object that goes to disk, so an in-process retry and a
+          // crash-replay derive one identity for one retry, never two.
+          progress = {
+            ...progress,
+            retry_scopes: { ...(progress.retry_scopes || {}), [String(index)]: deadJobId },
+            updated_at: new Date().toISOString(),
+          }
+          await writeContextualCueProgress(planPath, progress)
+          fleetBusyRetries++
+          maxAttempts = Math.max(maxAttempts, attemptNum + 1 + (FLEET_BUSY_RETRY_DELAYS_MS.length - fleetBusyRetries))
+          job.output_lines.push(
+            `Batch ${index + 1}: ${fleetBusyPlan.reason.toLowerCase()} — the request never reached one, `
+            + 'so nothing was charged and the credits were returned whole. '
+            + `Waiting ${Math.round(fleetBusyPlan.waitMs / 1000)}s and asking again `
+            + `(attempt ${attemptNum + 1} of ${maxAttempts}).`,
+          )
+          job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'waiting_retry', attempt: attemptNum, max_attempts: maxAttempts, retry_at: new Date(Date.now() + fleetBusyPlan.waitMs).toISOString(), reason: 'every machine was busy' }]
+          await waitForFleetCapacity(job.job_id, fleetBusyPlan.waitMs)
+          // Re-read after the wait. Minutes passed, and a Cancel or a Pause
+          // pressed during them is the owner's last word — the batch then fails
+          // exactly as it does today rather than being resubmitted.
+          if (!isCancelled(job.job_id) && !isPauseRequested(job.job_id)) {
+            attemptNum++
+            continue
+          }
+          throw error
+        }
         const releasedBackpressure = error instanceof GenStudioChatTerminalFailureError
           && isReleasedContextualCueBackpressure(error)
         if (!releasedBackpressure) throw error
@@ -251,12 +412,19 @@ export async function generateContextualCues(job: Job): Promise<void> {
           updated_at: new Date().toISOString(),
         }
         await writeContextualCueProgress(planPath, progress)
-        if (attempt >= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES) throw error
+        if (backpressureRetries >= CONTEXTUAL_CUE_BACKPRESSURE_RETRIES) throw error
+        backpressureRetries++
+        // Same widening as the fleet branch, and a no-op when only this ladder
+        // ever fires: 1+1+1 and 2+1+0 are both 3, today's number exactly. It
+        // only matters after a fleet wait has already raised the count, where
+        // without it the label could read "5 of 4".
+        maxAttempts = Math.max(maxAttempts, attemptNum + 1 + (CONTEXTUAL_CUE_BACKPRESSURE_RETRIES - backpressureRetries))
         job.output_lines.push(
           `Batch ${index + 1} met confirmed provider backpressure. GenStudio settled 0 credits and released the full reservation; retrying only this batch after a bounded cooldown.`,
         )
-        job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'waiting_retry', attempt: attempt + 1, max_attempts: CONTEXTUAL_CUE_BACKPRESSURE_RETRIES + 1, retry_at: new Date(Date.now() + CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS).toISOString(), reason: 'provider backpressure' }]
+        job.item_progress.active = [{ label: `Batch ${index + 1}`, key: `batch-${index}`, state: 'waiting_retry', attempt: attemptNum, max_attempts: maxAttempts, retry_at: new Date(Date.now() + CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS).toISOString(), reason: 'provider backpressure' }]
         await waitWhileActive(job.job_id, CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS)
+        attemptNum++
       }
     }
     if (!batchCandidates) throw new Error(`Contextual cue batch ${index + 1} produced no result.`)

@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.33 — 2026-08-23
+
+- **Contextual Cues now waits when your machines are busy** instead of throwing away the episode's whole batch of proposed labels. Seven of eight generators protected; one left.
+- **This one already knew how to wait — for a different problem.** It had a 15-second retry for the provider being briefly overloaded. A busy fleet is not that: GenStudio has already spent fifteen minutes looking for a free machine before it gives up, so a 15-second retry just rejoins the same queue. The two now have separate waits and separate budgets, and the old one behaves exactly as it did before.
+- Cancel and Pause are honoured within seconds during a wait, and every wait says plainly that nothing was charged.
+
+---
+
 ## v1.4.32 — 2026-08-23
 
 - **"Retry all" is here, next to "Repair all".** Two buttons you press yourself. It never repairs for you and it never retries what it cannot vouch for.

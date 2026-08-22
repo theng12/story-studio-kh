@@ -66,6 +66,12 @@ const PROTECTED = new Set([
                     //          entire motion pass. Video is also the priciest
                     //          modality, so retrying anything wider would cost
                     //          the most here.
+  'contextual-cues.ts', // 1.4.33 — the only one that already retried a
+                    //          DIFFERENT capacity code. Its 15s backpressure
+                    //          ladder was kept separate rather than widened: a
+                    //          15s retry rejoins a jam GenStudio already waited
+                    //          15 minutes on, and sharing a counter would have
+                    //          let a fleet wait eat a backpressure attempt.
 ])
 
 /**
@@ -77,7 +83,6 @@ const PROTECTED = new Set([
  * it is a debt with names on it.
  */
 const NOT_YET_PROTECTED = new Set([
-  'contextual-cues.ts',
   'image-pool-generate.ts',
 ])
 
@@ -117,8 +122,6 @@ describe('the register of who waits for a busy fleet', () => {
     assert.ok(NOT_YET_PROTECTED.size > 0)
     // Named individually rather than by count, so removing one without doing
     // the work fails here instead of quietly shrinking the debt.
-    assert.ok(NOT_YET_PROTECTED.has('contextual-cues.ts'),
-      'contextual-cues must stay named until it is protected')
     assert.ok(NOT_YET_PROTECTED.has('image-pool-generate.ts'),
       'image-pool-generate must stay named until it is protected')
   })
