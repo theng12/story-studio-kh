@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.27 — 2026-08-22
+
+- **Writing jobs now run 8 at a time instead of 50.** Ideas, outlines, chapters, metadata, image prompts and scene plans all shared one queue that allowed fifty at once. When a lot were started together they waited a **median of 15 minutes**, and sometimes twenty. Eight is the number: your chat work has already run eight at once successfully, GenStudio itself only accepts twelve so anything above that just hides the queue rather than shortening it, and fifty is what produced the long waits.
+- **It is a setting.** Raise it as you add machines.
+- **This was the last unlimited queue.** Every other kind of job already ran one at a time; writing and subtitles were the only two that could stampede, and both are now bounded.
+- **The thing you were worried about was never happening.** A slow generator does not block a fast one — each kind of work has its own queue. Over one week, image generation and transcription were running at the same moment **15,257 times**, image and voice 6,038, chat and image 5,301. Scene Review being slow only ever slows Scene Review. Nothing needed building; it is now locked in by a test so it cannot quietly stop being true.
+- **One trade worth knowing.** Those six kinds of writing share a single queue. At fifty that never mattered; at eight, a burst of slow scene plans can delay quick metadata. If that ever bites, the answer is a separate limit for each kind — never a bigger shared number, which would only bring the long waits back. That instruction is written into the code.
+
+---
+
 ## v1.4.26 — 2026-08-22
 
 - **Image generation now waits when your machines are busy, instead of throwing the picture away.** This is the biggest one of the set: image generation is the busiest thing the app does — 7,419 jobs on your fleet in the last 30 days, five times more than the transcription that failed on you today. It had simply never met a burst. It would have.

@@ -46,6 +46,19 @@ export function runBootMigrations(): void {
     console.log(`[boot] subtitle episodes running at once: ${n}`)
   })().catch(error => console.error('[boot] subtitle concurrency load failed:', error?.message || error)))
 
+  // v1.4.27 — the same story as the subtitle lane. `setLlmConcurrency` has
+  // existed since the group was written and nothing outside a test ever called
+  // it, so the writing lane sat at 50 and a burst of 21+ chat jobs waited a
+  // median of 15.6 minutes. Reading the owner's setting here is what makes the
+  // number his.
+  tasks.push((async () => {
+    const { getLlmConcurrency } = await import('../services/app-settings.js')
+    const { setLlmConcurrency } = await import('../services/job-queue.js')
+    const n = await getLlmConcurrency()
+    setLlmConcurrency(n)
+    console.log(`[boot] writing jobs running at once: ${n}`)
+  })().catch(error => console.error('[boot] llm concurrency load failed:', error?.message || error)))
+
   tasks.push((async () => {
     const { getAllDisabledEndpoints } = await import('../services/app-settings.js')
     const { setDisabledEndpoints } = await import('../lib/endpoint-pool.js')

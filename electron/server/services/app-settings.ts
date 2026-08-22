@@ -163,6 +163,56 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
  * nothing outside a test has ever called it — the knob existed, unreachable,
  * pinned at 50.
  */
+/**
+ * How many writing jobs may run at once — ideas, outlines, chapters, metadata,
+ * image prompts and scene plans all share this one lane.
+ *
+ * WHY IT IS 8 (v1.4.27). The owner: *"LLM is fast and slow depending on what
+ * they are so we can't let it burst. it must be queue behind one another but we
+ * can let 5-10 run at the same time."* Three independent numbers agree with
+ * him and pick 8 out of that range:
+ *
+ *   MEASURED — chat execution has peaked at exactly 8 concurrent in this
+ *     platform's history, and worked. Nothing suggests the fleet minds 8.
+ *   THE FAR END — GenStudio runs chat 12 wide (`jobs.chat_concurrency`).
+ *     Story Studio pushing past that does not make anything faster; it just
+ *     moves the queue somewhere the owner cannot see it.
+ *   THE FAILURE — chat submitted in bursts of 21+ in one minute waited a
+ *     MEDIAN of 15.6 minutes, 95th percentile 20 minutes. That is what the old
+ *     limit of 50 actually bought.
+ *
+ * THE KNOWN TRADE, stated because it is the owner's own concern applied one
+ * level down: these six job types share ONE lane, so with 8 slots a burst of
+ * slow scene plans can delay fast metadata. At 50 that never bit. If it starts
+ * to, the fix is a limit per type rather than a bigger shared number — raising
+ * this back toward 50 would only restore the 20-minute queue.
+ *
+ * Like `subtitle_episode_concurrency`, this exists because `setLlmConcurrency`
+ * has been in `job-queue.ts` since it was written and NOTHING outside a test
+ * has ever called it. The dial was there, unreachable, pinned at 50.
+ */
+export const LLM_CONCURRENCY_KEY = 'llm_concurrency'
+export const LLM_CONCURRENCY_DEFAULT = 8
+
+export async function getLlmConcurrency(): Promise<number> {
+  const raw = await getAppSetting(LLM_CONCURRENCY_KEY)
+  const n = Math.floor(Number(raw))
+  if (!Number.isFinite(n) || n < 1) return LLM_CONCURRENCY_DEFAULT
+  return Math.min(50, n)
+}
+
+export async function setLlmConcurrencySetting(value: unknown): Promise<number> {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 1 || n > 50) {
+    throw Object.assign(
+      new Error('Writing jobs running at once must be a whole number between 1 and 50.'),
+      { statusCode: 400, expose: true },
+    )
+  }
+  await setAppSetting(LLM_CONCURRENCY_KEY, n)
+  return n
+}
+
 export const SUBTITLE_EPISODE_CONCURRENCY_KEY = 'subtitle_episode_concurrency'
 export const SUBTITLE_EPISODE_CONCURRENCY_DEFAULT = 2
 
