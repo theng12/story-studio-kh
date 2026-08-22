@@ -1,5 +1,5 @@
 {
-  "revision": 2,
+  "revision": 3,
   "batches": [
     {
       "revision": 2,
@@ -52,6 +52,152 @@
               },
               "sku": {
                 "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 3,
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "request": {
+        "expected_revision": 2,
+        "coordinator": {
+          "task": "legacy-thumbnail-restoration",
+          "branch": "codex/capi-psychology-components"
+        },
+        "proposal_ref": "owner-approved legacy thumbnail restoration, 2026-08-23",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.animal-hardship-annotation",
+            "item_id": "com.storystudio.thumbnail.animal-hardship-annotation",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.animal-hardship-annotation",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.animal-hardship-annotation",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.prehistoric-survival-title-card",
+            "item_id": "com.storystudio.thumbnail.prehistoric-survival-title-card",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.prehistoric-survival-title-card",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.prehistoric-survival-title-card",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.dreamlike-story-title-card",
+            "item_id": "com.storystudio.thumbnail.dreamlike-story-title-card",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.dreamlike-story-title-card",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.dreamlike-story-title-card",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.hand-drawn-hardship-cartoon",
+            "item_id": "com.storystudio.style.hand-drawn-hardship-cartoon",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.hand-drawn-hardship-cartoon",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.hand-drawn-hardship-cartoon",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+            "item_id": "com.storystudio.style.impasto-psychological-animals",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.impasto-psychological-animals",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.impasto-psychological-animals",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.dreamlike-luminous-sleep-illustration",
+            "item_id": "com.storystudio.style.dreamlike-luminous-sleep-illustration",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.dreamlike-luminous-sleep-illustration",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.dreamlike-luminous-sleep-illustration",
                 "status": "proposed"
               }
             }
@@ -1572,6 +1718,144 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.thumbnail.animal-hardship-annotation",
+      "item_id": "com.storystudio.thumbnail.animal-hardship-annotation",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.animal-hardship-annotation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.animal-hardship-annotation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.thumbnail.prehistoric-survival-title-card",
+      "item_id": "com.storystudio.thumbnail.prehistoric-survival-title-card",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.prehistoric-survival-title-card",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.prehistoric-survival-title-card",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.thumbnail.dreamlike-story-title-card",
+      "item_id": "com.storystudio.thumbnail.dreamlike-story-title-card",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.dreamlike-story-title-card",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.dreamlike-story-title-card",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.style.hand-drawn-hardship-cartoon",
+      "item_id": "com.storystudio.style.hand-drawn-hardship-cartoon",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.hand-drawn-hardship-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.hand-drawn-hardship-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+      "item_id": "com.storystudio.style.impasto-psychological-animals",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.impasto-psychological-animals",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.impasto-psychological-animals",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.style.dreamlike-luminous-sleep-illustration",
+      "item_id": "com.storystudio.style.dreamlike-luminous-sleep-illustration",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.dreamlike-luminous-sleep-illustration",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.dreamlike-luminous-sleep-illustration",
           "status": "proposed"
         }
       }
