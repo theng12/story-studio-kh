@@ -201,7 +201,7 @@ test('leaves registry bytes unchanged for stale, colliding, malformed, unknown, 
   const original = await readFile(copy)
   const initial = await registrySnapshot(copy)
   const cases = [
-    ['stale', (request) => { request.expected_revision = 99 }, /stale expected revision/i],
+    ['stale', (request) => { request.expected_revision = initial.revision + 1 }, /stale expected revision/i],
     ['pack collision', (request) => { request.records[0].pack_id = 'com.storystudio.pack.style.cinematic-photoreal' }, /duplicate pack_id/i],
     ['item collision', (request) => { request.records[0].item_id = 'com.storystudio.style.cinematic-photoreal' }, /duplicate item_id/i],
     ['bundle collision', (request) => {
