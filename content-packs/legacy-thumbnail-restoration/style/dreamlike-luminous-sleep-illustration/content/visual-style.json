@@ -1,0 +1,23 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.dreamlike-luminous-sleep-illustration",
+  "name": "Dreamlike Luminous Sleep Illustration",
+  "description": "A luminous watercolor-and-gouache sleep-story language with moonlit blues, candle gold, and softly painted story-world detail.",
+  "category": "Illustration",
+  "tags": [
+    "dreamlike",
+    "luminous",
+    "sleep story",
+    "watercolor",
+    "candlelight"
+  ],
+  "style_bible": "Paint quiet story worlds in luminous watercolor and soft gouache illustration. Layer moonlit blue shadow, amber glow, and candle gold highlights over tactile paper grain, feathered edges, and gentle color blooms. Use rounded, graceful silhouettes, softly lit foliage or interiors, and a single calm character or modest prop when the scene calls for one. Keep the lighting diffuse and restful, with generous breathing room and a bedtime pace rather than drama.",
+  "negative_prompt": "Reject visual peril, violence, urgency, cliffhangers, alarming faces, loud saturated neon, high-contrast spectacle, photoreal stock imagery, glossy CGI, hard vector edges, logos/watermarks, copied trade dress, dense collage, malformed anatomy, and malformed text.",
+  "preview_assets": [
+    "assets/dreamlike-luminous-sleep-illustration.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-story"
+  ]
+}

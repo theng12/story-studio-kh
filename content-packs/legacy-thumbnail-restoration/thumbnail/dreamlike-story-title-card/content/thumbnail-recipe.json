@@ -1,0 +1,56 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.dreamlike-story-title-card",
+  "name": "Dreamlike Story Title Card",
+  "description": "A calm illustrated sleep-story cover with one gentle subject or quiet setting and a large, luminous gold-serif episode title.",
+  "layout": "hero",
+  "category": "Sleep Story",
+  "tags": [
+    "sleep story",
+    "dreamlike illustration",
+    "gold serif title",
+    "low arousal",
+    "moonlit"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Create a low-arousal 16:9 sleep-story cover with one gentle subject or quiet setting, rendered in amber, moonlit blue, or candle gold illustration. Reserve a large, uncluttered title-safe field for the complete episode title, keeping the reading path calm and leaving visual rest around the subject and title card.",
+  "composition_rules": [
+    "Show one gentle subject or one quiet setting as the undisputed focus.",
+    "Use a spacious low-arousal title-safe field with no competing labels or decoration.",
+    "Balance moonlit blue, amber, or candle-gold illumination without spectacle.",
+    "Keep the title field and focal subject immediately legible at small-screen size."
+  ],
+  "required_elements": [
+    "One gentle subject or quiet setting",
+    "Amber, moonlit-blue, or candle-gold illustrated light",
+    "A large calm gold-serif full episode-title card rendered by the image model",
+    "Low-arousal title-safe composition"
+  ],
+  "avoid_elements": [
+    "Violence, visual peril, urgency, cliffhangers, or alarming faces",
+    "High-contrast spectacle, loud saturated neon, or dense collage",
+    "Watermarks, logos, channel branding, copied story titles, or copied trade dress",
+    "Malformed anatomy, malformed text, or post-render typography compositing"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Render the complete intended episode title directly into one large calm gold serif title card. Set a short title on one or two balanced lines; use three balanced lines only when needed for readability. Do not copy a saved story title, channel prefix, logo, or fixed catchphrase.",
+  "default_text_style": "gold serif",
+  "default_font_style": "serif",
+  "default_text_position": "center",
+  "headline_formats": [
+    "{EPISODE_TITLE}",
+    "A QUIET {SETTING}",
+    "THE GENTLE {JOURNEY}"
+  ],
+  "visual_style_guidance": "Keep the thumbnail recipe independent of the active visual style: it requires a gentle focus, luminous amber/moonlit/candle-gold light, a generous title-safe field, and a directly rendered full title. Medium, brushwork, character design, and palette nuance come from the selected style.",
+  "preview_assets": [
+    "assets/dreamlike-story-title-card-1.webp",
+    "assets/dreamlike-story-title-card-2.webp",
+    "assets/dreamlike-story-title-card-3.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.sleep-story"
+  ]
+}

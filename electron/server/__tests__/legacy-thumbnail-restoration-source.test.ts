@@ -78,6 +78,23 @@ const CAPI_RECIPE_ASSET_HASHES = [
 ] as const
 const CAPI_PASTEL_ASSET = 'pastel-surreal-psychological-collage.webp'
 const CAPI_PASTEL_HASH = '398cb595ce5c285570ce057cb81c86b73a739a5d220fc44a85faa7378b2e87ab'
+const DREAMLIKE_RECIPE_ROOT = path.join(
+  RESTORATION_ROOT,
+  'thumbnail',
+  'dreamlike-story-title-card',
+)
+const DREAMLIKE_STYLE_ROOT = path.join(
+  RESTORATION_ROOT,
+  'style',
+  'dreamlike-luminous-sleep-illustration',
+)
+const SLEEP_STORY_FORMULA_ID = 'com.storystudio.formula.sleep-story'
+const DREAMLIKE_RECIPE_ASSETS = [
+  'dreamlike-story-title-card-1.webp',
+  'dreamlike-story-title-card-2.webp',
+  'dreamlike-story-title-card-3.webp',
+] as const
+const DREAMLIKE_STYLE_ASSET = 'dreamlike-luminous-sleep-illustration.webp'
 const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdiscount\b|GenStudio/i
 
 function sha256(bytes: Uint8Array): string {
@@ -253,11 +270,85 @@ test('Impasto Psychological Animals retains the Capi recipe and supplies a disti
   await assertWebp(IMPASTO_STYLE_ROOT, IMPASTO_STYLE_ASSET, ledger)
 })
 
+test('Dreamlike Sleep Title Card stays distinct from the framed Dreamscape recipe', async () => {
+  await assertPack(
+    DREAMLIKE_RECIPE_ROOT,
+    'com.storystudio.pack.thumbnail.dreamlike-story-title-card',
+    'com.storystudio.sku.thumbnail.dreamlike-story-title-card',
+    'com.storystudio.family.thumbnail.dreamlike-story-title-card',
+  )
+  const recipe = await readJson(path.join(DREAMLIKE_RECIPE_ROOT, 'content', 'thumbnail-recipe.json'))
+  const dreamscape = await readJson(path.join(
+    ROOT,
+    'content-packs',
+    'free-starters',
+    'thumbnail',
+    'dreamscape-story-window',
+    'content',
+    'thumbnail-recipe.json',
+  ))
+  const ledger = await fs.readFile(path.join(RESTORATION_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
+
+  assert.doesNotMatch(JSON.stringify(recipe), forbiddenRuntimeMetadata)
+  assert.doesNotMatch(
+    JSON.stringify(recipe),
+    /The Elephant Who Loved the Rain|Paper Lanterns|Cave of Whispers|TerraNash|Story Sprout/i,
+  )
+  parseContentPackDocument('thumbnail-recipe', recipe)
+  assert.equal(recipe.id, 'com.storystudio.thumbnail.dreamlike-story-title-card')
+  assert.equal(recipe.layout, 'hero')
+  assert.equal(recipe.aspect_ratio, '16:9')
+  assert.equal(recipe.title_mode, 'ai')
+  assert.equal(recipe.headline_mode, 'episode-title')
+  assert.deepEqual(recipe.compatible_formula_ids, [SLEEP_STORY_FORMULA_ID])
+  assert.deepEqual(recipe.preview_assets, DREAMLIKE_RECIPE_ASSETS.map(asset => `assets/${asset}`))
+  assert.match(String(recipe.composition_guidance), /gentle subject|quiet setting/i)
+  assert.match(String(recipe.composition_guidance), /amber|moonlit blue|candle gold/i)
+  assert.match(String(recipe.headline_guidance), /gold serif/i)
+  assert.match(String(recipe.composition_guidance), /low-arousal|title-safe/i)
+  assert.doesNotMatch(String(recipe.composition_guidance), /window|doorway|frame/i)
+  assert.match(String(recipe.avoid_elements), /violence|urgency|cliffhangers|alarming faces/i)
+  assert.match(String(recipe.avoid_elements), /high-contrast spectacle|watermarks|logos|copied story titles|malformed text/i)
+  for (const asset of DREAMLIKE_RECIPE_ASSETS) await assertWebp(DREAMLIKE_RECIPE_ROOT, asset, ledger)
+
+  assert.match(String(dreamscape.composition_guidance), /window|doorway|frame/i)
+  assert.notEqual(dreamscape.composition_guidance, recipe.composition_guidance)
+})
+
+test('Dreamlike Luminous Sleep Illustration supplies a text-free, ledgered style preview', async () => {
+  await assertPack(
+    DREAMLIKE_STYLE_ROOT,
+    'com.storystudio.pack.style.dreamlike-luminous-sleep-illustration',
+    'com.storystudio.sku.style.dreamlike-luminous-sleep-illustration',
+    'com.storystudio.family.style.dreamlike-luminous-sleep-illustration',
+  )
+  const style = await readJson(path.join(DREAMLIKE_STYLE_ROOT, 'content', 'visual-style.json'))
+  const ledger = await fs.readFile(path.join(RESTORATION_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
+
+  assert.doesNotMatch(JSON.stringify(style), forbiddenRuntimeMetadata)
+  assert.doesNotMatch(
+    JSON.stringify(style),
+    /The Elephant Who Loved the Rain|Paper Lanterns|Cave of Whispers|TerraNash|Story Sprout/i,
+  )
+  parseContentPackDocument('visual-style', style)
+  assert.equal(style.id, 'com.storystudio.style.dreamlike-luminous-sleep-illustration')
+  assert.equal(style.category, 'Illustration')
+  assert.deepEqual(style.compatible_formula_ids, [SLEEP_STORY_FORMULA_ID])
+  assert.deepEqual(style.preview_assets, [`assets/${DREAMLIKE_STYLE_ASSET}`])
+  assert.match(String(style.style_bible), /amber|moonlit blue|candle gold/i)
+  assert.match(String(style.style_bible), /watercolor|gouache|illustration/i)
+  assert.match(String(style.negative_prompt), /visual peril|loud saturated neon|photoreal stock imagery/i)
+  assert.match(String(style.negative_prompt), /logos\/watermarks|copied trade dress|malformed anatomy|malformed text/i)
+  await assertWebp(DREAMLIKE_STYLE_ROOT, DREAMLIKE_STYLE_ASSET, ledger)
+})
+
 test('Restoration runtime documents retain no owner paths or commercial/provider metadata', async () => {
   const runtimeDocuments = await Promise.all([
     readJson(path.join(RECIPE_ROOT, 'content', 'thumbnail-recipe.json')),
     readJson(path.join(STYLE_ROOT, 'content', 'visual-style.json')),
     readJson(path.join(IMPASTO_STYLE_ROOT, 'content', 'visual-style.json')),
+    readJson(path.join(DREAMLIKE_RECIPE_ROOT, 'content', 'thumbnail-recipe.json')),
+    readJson(path.join(DREAMLIKE_STYLE_ROOT, 'content', 'visual-style.json')),
   ])
   assert.doesNotMatch(JSON.stringify(runtimeDocuments), forbiddenRuntimeMetadata)
 })
