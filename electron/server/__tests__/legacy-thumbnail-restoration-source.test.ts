@@ -96,9 +96,14 @@ const DREAMLIKE_RECIPE_ASSETS = [
 ] as const
 const DREAMLIKE_STYLE_ASSET = 'dreamlike-luminous-sleep-illustration.webp'
 const FREE_STARTER_ROOT = path.join(ROOT, 'content-packs', 'free-starters')
-const ENRICHED_FREE_STARTER_GALLERIES = [
+const VERSIONED_FREE_STARTER_GALLERIES = [
   {
     slug: 'centered-hero-headline',
+    historicalHashes: {
+      'pack.json': '879414768773630f3e68b5294a044688d8f4e3a7aa6442b4b4767ef6159b2efe',
+      'content/thumbnail-recipe.json': '3f51f8e86e1f2866764932f67a632e9db634dad2d0e7d18f77053dadb8b1b253',
+      'assets/centered-hero-headline.webp': '330334bf935e06fb8167a4ea8321d37a92f64b12a88e9564ccb9cf45f893d2ab',
+    },
     assets: [
       'centered-hero-headline.webp',
       'centered-hero-headline-2.webp',
@@ -108,6 +113,11 @@ const ENRICHED_FREE_STARTER_GALLERIES = [
   },
   {
     slug: 'portrait-block-right',
+    historicalHashes: {
+      'pack.json': '1990565fc67d1646a2c45e98c6cbd34ee4cc9629a32b095ebbd55f4cf39009aa',
+      'content/thumbnail-recipe.json': '2198086e0ce362d59abb78740cc12df1b30b49c45f35be054c1376248078f908',
+      'assets/portrait-block-right.webp': 'd7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f',
+    },
     assets: [
       'portrait-block-right.webp',
       'portrait-block-right-2.webp',
@@ -117,6 +127,11 @@ const ENRICHED_FREE_STARTER_GALLERIES = [
   },
   {
     slug: 'dreamscape-story-window',
+    historicalHashes: {
+      'pack.json': '62c958b88f46010600c532fd8eb2149ef2fcd631eb99803f6677085663c0b736',
+      'content/thumbnail-recipe.json': 'f699c850469798aff6406a9d3d440d8b4c445b703457fe26148a43d60301f296',
+      'assets/dreamscape-story-window.webp': '1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce',
+    },
     assets: [
       'dreamscape-story-window.webp',
       'dreamscape-story-window-2.webp',
@@ -126,6 +141,11 @@ const ENRICHED_FREE_STARTER_GALLERIES = [
   },
   {
     slug: 'prehistoric-discovery',
+    historicalHashes: {
+      'pack.json': '4802b098abd371f34b005fa86b949741e631a7f37fd9b6beca958d43176ad2c6',
+      'content/thumbnail-recipe.json': '87f69dc592ea05525f1d4fa59d239b9f04fcd5b3258234353a583038cef122f9',
+      'assets/prehistoric-discovery.webp': '557f86602b5f96f8d92fc28f981c79eb1121d63b2f7ab1d8bff535e8524dfd14',
+    },
     assets: [
       'prehistoric-discovery.webp',
       'prehistoric-discovery-2.webp',
@@ -145,12 +165,12 @@ const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdi
 const privateKeyMaterial = /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|private[ _-]?key/i
 const RESTORED_RECIPE_AUDIT = [
   ['com.storystudio.thumbnail.annotated-business-board', 'content-packs/free-starters/thumbnail/annotated-business-board'],
-  ['com.storystudio.thumbnail.centered-hero-headline', 'content-packs/free-starters/thumbnail/centered-hero-headline'],
+  ['com.storystudio.thumbnail.centered-hero-headline', 'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1'],
   ['com.storystudio.thumbnail.curiosity-question-cartoon', 'content-packs/free-starters/thumbnail/curiosity-question-cartoon'],
   ['com.storystudio.thumbnail.documentary-label-tableau', 'content-packs/free-starters/thumbnail/documentary-label-tableau'],
-  ['com.storystudio.thumbnail.portrait-block-right', 'content-packs/free-starters/thumbnail/portrait-block-right'],
-  ['com.storystudio.thumbnail.prehistoric-discovery', 'content-packs/free-starters/thumbnail/prehistoric-discovery'],
-  ['com.storystudio.thumbnail.dreamscape-story-window', 'content-packs/free-starters/thumbnail/dreamscape-story-window'],
+  ['com.storystudio.thumbnail.portrait-block-right', 'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1'],
+  ['com.storystudio.thumbnail.prehistoric-discovery', 'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1'],
+  ['com.storystudio.thumbnail.dreamscape-story-window', 'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1'],
   ['com.storystudio.thumbnail.archival-map-investigation', 'content-packs/paid/archival-ledger/thumbnail/archival-map-investigation'],
   ['com.storystudio.thumbnail.editorial-psychology-symbolic-split', 'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split'],
   ['com.storystudio.thumbnail.animal-hardship-annotation', 'content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation'],
@@ -443,18 +463,31 @@ test('Dreamlike Luminous Sleep Illustration supplies a text-free, ledgered style
   await assertWebp(DREAMLIKE_STYLE_ROOT, DREAMLIKE_STYLE_ASSET, ledger)
 })
 
-test('the restored lineup preserves index-zero bytes and gives every legacy recipe three decodable previews', async () => {
-  for (const gallery of ENRICHED_FREE_STARTER_GALLERIES) {
-    const root = path.join(FREE_STARTER_ROOT, 'thumbnail', gallery.slug)
-    const recipe = await readJson(path.join(root, 'content', 'thumbnail-recipe.json'))
-    assert.deepEqual(recipe.preview_assets, gallery.assets.map(asset => `assets/${asset}`))
+test('published 1.0.0 free-starter sources retain their historical bytes while 1.0.1 successors carry the enriched galleries', async () => {
+  for (const gallery of VERSIONED_FREE_STARTER_GALLERIES) {
+    const historicalRoot = path.join(FREE_STARTER_ROOT, 'thumbnail', gallery.slug)
+    const successorRoot = path.join(FREE_STARTER_ROOT, 'thumbnail', `${gallery.slug}-v1.0.1`)
+    const historicalRecipe = await readJson(path.join(historicalRoot, 'content', 'thumbnail-recipe.json'))
+    const successorManifest = await readJson(path.join(successorRoot, 'pack.json'))
+    const successorRecipe = await readJson(path.join(successorRoot, 'content', 'thumbnail-recipe.json'))
+    assert.deepEqual(historicalRecipe.preview_assets, [`assets/${gallery.assets[0]}`])
+    for (const [relativePath, expectedHash] of Object.entries(gallery.historicalHashes)) {
+      assert.equal(sha256(await fs.readFile(path.join(historicalRoot, relativePath))), expectedHash, `${gallery.slug} historical ${relativePath} retains commit 46711262 bytes`)
+    }
+    assert.equal(successorManifest.version, '1.0.1')
+    assert.equal(successorManifest.pack_id, `com.storystudio.pack.thumbnail.${gallery.slug}`)
+    const entitlement = successorManifest.entitlement as { family: string, sku: string }
+    assert.equal(entitlement.family, `com.storystudio.family.thumbnail.${gallery.slug}`)
+    assert.equal(entitlement.sku, `com.storystudio.sku.thumbnail.${gallery.slug}`)
+    assert.deepEqual(successorRecipe.preview_assets, gallery.assets.map(asset => `assets/${asset}`))
+    assert.equal(successorRecipe.id, `com.storystudio.thumbnail.${gallery.slug}`)
     assert.equal(
-      sha256(await fs.readFile(path.join(root, 'assets', gallery.assets[0]))),
+      sha256(await fs.readFile(path.join(successorRoot, 'assets', gallery.assets[0]))),
       gallery.firstHash,
-      `${gallery.slug} retains its existing first preview byte-for-byte`,
+      `${gallery.slug} successor retains its approved index-zero preview byte-for-byte`,
     )
     for (const [index, asset] of gallery.assets.entries()) {
-      await assertFreeStarterWebp(root, asset, gallery.slug, index === 0 ? gallery.slug : `${gallery.slug}-${index + 1}`)
+      await assertFreeStarterWebp(successorRoot, asset, gallery.slug, index === 0 ? `${gallery.slug}-v1.0.1` : `${gallery.slug}-${index + 1}`)
     }
   }
 

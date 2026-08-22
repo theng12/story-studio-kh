@@ -37,9 +37,7 @@
   ],
   "visual_style_guidance": "Use a clear background scene with a full black dim overlay around fifty percent strength; keep the large warm-yellow centered headline dominant.",
   "preview_assets": [
-    "assets/centered-hero-headline.webp",
-    "assets/centered-hero-headline-2.webp",
-    "assets/centered-hero-headline-3.webp"
+    "assets/centered-hero-headline.webp"
   ],
   "compatible_formula_ids": [
     "com.storystudio.formula.motivation",

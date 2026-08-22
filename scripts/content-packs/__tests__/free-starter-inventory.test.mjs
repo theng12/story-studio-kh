@@ -216,7 +216,7 @@ test('declared preview redirects cannot cross a Style or Recipe provenance ident
   )
 })
 
-test('free Starter Channel Kit source tree contains the exact 46 independently versioned packs', async () => {
+test('free Starter Channel Kit source tree contains 46 stable pack lineages plus four 1.0.1 gallery successors', async () => {
   const sourceRoots = ['formula', 'topic', 'style', 'thumbnail', 'kit']
   const packSources = []
   for (const root of sourceRoots) {
@@ -228,10 +228,17 @@ test('free Starter Channel Kit source tree contains the exact 46 independently v
       packSources.push({ relative, source })
     }
   }
-  assert.equal(packSources.length, 46)
+  assert.equal(packSources.length, 50)
   assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 46)
   for (const { relative, source } of packSources) {
-    assert.equal(source.version, '1.0.0', `${relative} must retain its launch version`)
+    assert.ok(['1.0.0', '1.0.1'].includes(source.version), `${relative} must use a registered release version`)
     assert.match(source.entitlement.family, /^com\.storystudio\.family\./)
   }
+  const successors = packSources.filter(({ source }) => source.version === '1.0.1')
+  assert.deepEqual(successors.map(({ relative }) => relative).sort(), [
+    'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1/pack.json',
+    'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1/pack.json',
+    'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1/pack.json',
+    'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1/pack.json',
+  ])
 })

@@ -17,12 +17,12 @@ const TEST_MIN_APP_VERSION = '9.9.9'
 
 const RESTORED_RECIPES = [
   ['com.storystudio.thumbnail.annotated-business-board', 'content-packs/free-starters/thumbnail/annotated-business-board'],
-  ['com.storystudio.thumbnail.centered-hero-headline', 'content-packs/free-starters/thumbnail/centered-hero-headline'],
+  ['com.storystudio.thumbnail.centered-hero-headline', 'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1'],
   ['com.storystudio.thumbnail.curiosity-question-cartoon', 'content-packs/free-starters/thumbnail/curiosity-question-cartoon'],
   ['com.storystudio.thumbnail.documentary-label-tableau', 'content-packs/free-starters/thumbnail/documentary-label-tableau'],
-  ['com.storystudio.thumbnail.portrait-block-right', 'content-packs/free-starters/thumbnail/portrait-block-right'],
-  ['com.storystudio.thumbnail.prehistoric-discovery', 'content-packs/free-starters/thumbnail/prehistoric-discovery'],
-  ['com.storystudio.thumbnail.dreamscape-story-window', 'content-packs/free-starters/thumbnail/dreamscape-story-window'],
+  ['com.storystudio.thumbnail.portrait-block-right', 'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1'],
+  ['com.storystudio.thumbnail.prehistoric-discovery', 'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1'],
+  ['com.storystudio.thumbnail.dreamscape-story-window', 'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1'],
   ['com.storystudio.thumbnail.archival-map-investigation', 'content-packs/paid/archival-ledger/thumbnail/archival-map-investigation'],
   ['com.storystudio.thumbnail.editorial-psychology-symbolic-split', 'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split'],
   ['com.storystudio.thumbnail.animal-hardship-annotation', 'content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation'],
@@ -37,10 +37,10 @@ const QUALIFIED_SOURCES = [
   'content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card',
   'content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card',
   'content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration',
-  'content-packs/free-starters/thumbnail/centered-hero-headline',
-  'content-packs/free-starters/thumbnail/portrait-block-right',
-  'content-packs/free-starters/thumbnail/dreamscape-story-window',
-  'content-packs/free-starters/thumbnail/prehistoric-discovery',
+  'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1',
+  'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1',
+  'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1',
+  'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1',
 ]
 
 const PRIVATE_MATERIAL = /-----BEGIN (?:[A-Z ]+ )?PRIVATE KEY-----|private[ _-]?key/i

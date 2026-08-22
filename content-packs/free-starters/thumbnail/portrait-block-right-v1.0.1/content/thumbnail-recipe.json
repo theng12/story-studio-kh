@@ -1,0 +1,48 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.portrait-block-right",
+  "name": "Portrait + Right Title Block",
+  "description": "Subject portrait fills the left side of the canvas; a right-anchored bold all-caps title sits over a dimmed right gradient. A horizontal accent rule + centered subtitle banner anchors the bottom. Logo slot top-left.",
+  "layout": "hero",
+  "category": "Documentary",
+  "tags": [
+    "portrait",
+    "history",
+    "pov",
+    "title block"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Place one historically grounded subject portrait on the left and an uncluttered right-anchored title block over a strong dim gradient.",
+  "required_elements": [
+    "one historically grounded portrait on the left",
+    "large uppercase episode headline on the right",
+    "clear dark right-side gradient"
+  ],
+  "avoid_elements": [
+    "modern costume errors",
+    "glamorized violence or coercion",
+    "subtitle banner",
+    "illegible text",
+    "logos or watermarks"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Render the exact episode title in a bold all-caps right-anchored title block.",
+  "default_text_style": "shadow",
+  "default_font_style": "bold",
+  "default_text_position": "center",
+  "headline_formats": [
+    "{EPISODE_TITLE}"
+  ],
+  "visual_style_guidance": "Use a left-side historical portrait and right-side black gradient; preserve clear mobile-readable separation between figure and headline.",
+  "preview_assets": [
+    "assets/portrait-block-right.webp",
+    "assets/portrait-block-right-2.webp",
+    "assets/portrait-block-right-3.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.prayer",
+    "com.storystudio.formula.pov-your-life-as"
+  ]
+}

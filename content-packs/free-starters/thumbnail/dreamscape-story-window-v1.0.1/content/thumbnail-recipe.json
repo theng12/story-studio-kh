@@ -1,0 +1,10 @@
+{
+  "kind": "thumbnail-recipe", "schema_version": 1, "id": "com.storystudio.thumbnail.dreamscape-story-window", "name": "Dreamscape Story Window", "description": "A calm story-world vignette seen through one quiet window of light, with a small readable title and a single gentle focal subject.",
+  "layout": "hero", "category": "Sleep Story", "tags": ["sleep", "storybook", "dreamscape", "window", "calm"], "aspect_ratio": "16:9", "title_mode": "ai",
+  "composition_guidance": "Build one original, low-arousal story setting with a window, doorway, or frame of warm light. Keep one gentle character or small task visible and leave calm negative space for a short title.",
+  "required_elements": ["one quiet setting seen through a window, doorway, or frame", "one gentle character or calming task", "one short readable episode title in a safe text area"],
+  "avoid_elements": ["violence, peril, urgency, cliffhangers, or alarming faces", "dense collage, competing focal subjects, or high-contrast spectacle", "logos, watermarks, copied compositions, or illegible text"],
+  "headline_mode": "episode-title", "headline_guidance": "Render the exact concise episode title in calm, readable title case without adding a tease or command.", "default_text_style": "shadow", "default_font_style": "serif", "default_text_position": "bottom",
+  "headline_formats": ["{EPISODE_TITLE}"], "visual_style_guidance": "Original soft watercolor storybook composition with a warm window glow, moonlit blues, paper texture, gentle shapes, and enough visual rest for a listener who is winding down.",
+  "preview_assets": ["assets/dreamscape-story-window.webp", "assets/dreamscape-story-window-2.webp", "assets/dreamscape-story-window-3.webp"], "compatible_formula_ids": ["com.storystudio.formula.sleep-story"]
+}

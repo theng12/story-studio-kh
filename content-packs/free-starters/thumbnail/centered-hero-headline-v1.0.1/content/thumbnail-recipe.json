@@ -1,0 +1,50 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.centered-hero-headline",
+  "name": "Centered Hero Headline",
+  "description": "Full-canvas dim overlay (~50% strength) with one big centered all-caps headline. No subtitle banner, no accent rule. Works for hype-style channels — true-crime storytelling, motivation, breaking-news takes — where the title needs to dominate and the portrait is supporting context.",
+  "layout": "hero",
+  "category": "Explainer",
+  "tags": [
+    "headline",
+    "centered",
+    "psychology",
+    "history"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build a single emotionally legible hero scene with a full-canvas dim overlay and one large centered title; the scene supports the words rather than competing with them.",
+  "required_elements": [
+    "one large centered all-caps episode headline",
+    "one clear supporting hero subject",
+    "full dim overlay for legibility"
+  ],
+  "avoid_elements": [
+    "subtitle banner",
+    "accent rule",
+    "multiple competing focal subjects",
+    "illegible text",
+    "logos or watermarks"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Render the exact episode title as one big centered all-caps headline.",
+  "default_text_style": "shadow",
+  "default_font_style": "bold",
+  "default_text_position": "center",
+  "headline_formats": [
+    "{EPISODE_TITLE}"
+  ],
+  "visual_style_guidance": "Use a clear background scene with a full black dim overlay around fifty percent strength; keep the large warm-yellow centered headline dominant.",
+  "preview_assets": [
+    "assets/centered-hero-headline.webp",
+    "assets/centered-hero-headline-2.webp",
+    "assets/centered-hero-headline-3.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.motivation",
+    "com.storystudio.formula.history-explained",
+    "com.storystudio.formula.human-behavior-explained",
+    "com.storystudio.formula.guided-mindfulness"
+  ]
+}
