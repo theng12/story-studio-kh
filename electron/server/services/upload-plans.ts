@@ -163,6 +163,56 @@ export async function removePlan(slug: string, id: string): Promise<boolean> {
 // YouTube without `.000Z` milliseconds — exact-string set membership
 // never matched the `Date.toISOString()` candidates emitted here.)
 
+/**
+ * The latest FUTURE slot already claimed, so a schedule walk resumes past it.
+ *
+ * ONE COPY, as of v1.4.21. This scan existed three times — twice in
+ * `routes/upload.ts` (preview and apply) and once in
+ * `services/episode-autoschedule.ts` — because when the third was written the
+ * apply route had no tests at all, and refactoring untested code that sets the
+ * owner's real publish dates was the worse risk. `upload-plan-apply-routes.test.ts`
+ * closed that gap, so the copies collapse here.
+ *
+ * Four properties, each of which is a bug if lost:
+ *
+ *   PAST CLAIMS DO NOT COUNT. A video that went live last week must not push
+ *   the next episode a week further out, or the schedule drifts forward every
+ *   time an old episode is looked at.
+ *
+ *   THE TARGETS ARE EXCLUDED. An episode being scheduled must not be walked
+ *   past by its own existing claim, or re-applying moves it every time.
+ *
+ *   THE LATEST WINS, not the first — resuming from a nearer claim would
+ *   double-book a later one.
+ *
+ *   TIMESTAMPS ARE PARSED, not compared as text. The v1.0.42 defect this
+ *   replaced held claims in a `Set<string>`, which missed any YouTube-synced
+ *   value whose ISO form lacked `.000Z` and silently double-booked the slot.
+ */
+export async function latestFutureClaimMs(
+  slug: string,
+  platform: UploadPlatform,
+  excludeCodes: Iterable<string>,
+  deps: {
+    getAcceptedIdeas: (slug: string) => Promise<Array<{ episode_code?: string | null; title?: string | null }>>
+    readSidecar: (slug: string, code: string, title: string, platform: UploadPlatform)
+      => Promise<{ scheduled_for?: string | null } | null>
+  },
+  now: number = Date.now(),
+): Promise<number> {
+  const excluded = new Set(excludeCodes)
+  const accepted = await deps.getAcceptedIdeas(slug)
+  let latest = 0
+  await Promise.all(accepted.map(async (idea) => {
+    if (!idea.episode_code || excluded.has(idea.episode_code)) return
+    const sc = await deps.readSidecar(slug, idea.episode_code, idea.title || '', platform)
+    if (!sc?.scheduled_for) return
+    const t = Date.parse(sc.scheduled_for)
+    if (Number.isFinite(t) && t > now && t > latest) latest = t
+  }))
+  return latest
+}
+
 export function computeSlots(
   schedule: UploadSchedule,
   count: number,

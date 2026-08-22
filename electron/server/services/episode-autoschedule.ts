@@ -15,20 +15,16 @@
  * upload"), and it is also what makes this safe to run unattended — a bad
  * render cannot reach a channel.
  *
- * ── On the duplicated claim-walk ──
+ * ── On the claim-walk ──
  *
- * `POST /upload/plans/:id/apply` contains the same "find the latest future
- * claim so the walk resumes past it" scan. That scan is NOT extracted, on
- * purpose: the apply route has no tests at all — `upload-plans-compute.test.ts`
- * covers `computeSlots` thoroughly and the route not once — so refactoring it
- * would mean editing untested code that schedules real uploads, with nothing to
- * catch a mistake before it reached YouTube.
+ * `POST /upload/plans/:id/apply` and its preview need the same "find the
+ * latest future claim so the walk resumes past it" scan. That was duplicated
+ * here on purpose in 1.4.20: the apply route had no tests, and refactoring
+ * untested code that sets real publish dates was the worse risk.
  *
- * The duplication is bounded and guarded instead. The hard part (`computeSlots`
- * and all its calendar, interval and monthly maths) is shared and has fifteen
- * tests. Only the claim scan is copied, and
- * `episode-autoschedule-drift.test.ts` fails, naming the divergence, if the two
- * copies stop agreeing.
+ * `upload-plan-apply-routes.test.ts` closed that gap in 1.4.21 — the scan now
+ * lives once, in `upload-plans.latestFutureClaimMs`, and all three callers use
+ * it. The drift alarm that guarded the duplicate is gone with the duplicate.
  */
 
 import * as im from './idea-manager.js'
@@ -47,29 +43,24 @@ export interface AutoScheduleResult {
 }
 
 /**
- * The latest FUTURE slot already claimed by any other episode.
+ * The latest future claim, from the one shared copy in `upload-plans.ts`.
  *
- * Mirrors the scan in `POST /upload/plans/:id/apply`. Past slots are ignored
- * deliberately — a video that went live last week must not push new episodes
- * further out — and the target episode is excluded so re-running on the same
- * episode reuses its own slot rather than walking past it.
+ * This used to be a deliberate duplicate of the scan in `routes/upload.ts`,
+ * because that route had no tests and refactoring it would have risked the
+ * owner's real publish dates with nothing to catch a mistake.
+ * `upload-plan-apply-routes.test.ts` closed that gap in v1.4.21, so preview,
+ * apply and this path now walk the same code.
  */
-export async function latestFutureClaim(
+async function latestFutureClaim(
   slug: string,
   platform: UploadPlatform,
   excludeCode: string,
-  now: number = Date.now(),
 ): Promise<Date | undefined> {
-  const accepted = await im.getIdeas(slug, 'accepted')
-  let latest = 0
-  await Promise.all(accepted.map(async (idea: any) => {
-    if (!idea.episode_code || idea.episode_code === excludeCode) return
-    const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', platform)
-    if (!sc?.scheduled_for) return
-    const t = Date.parse(sc.scheduled_for)
-    if (Number.isFinite(t) && t > now && t > latest) latest = t
-  }))
-  return latest ? new Date(latest) : undefined
+  const ms = await plans.latestFutureClaimMs(
+    slug, platform, [excludeCode],
+    { getAcceptedIdeas: s => im.getIdeas(s, 'accepted'), readSidecar: readSidecarRaw },
+  )
+  return ms ? new Date(ms) : undefined
 }
 
 export async function scheduleEpisodeWithActivePlan(

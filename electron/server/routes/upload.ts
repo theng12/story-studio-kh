@@ -1760,15 +1760,11 @@ router.post('/projects/:slug/upload/plans/:id/preview', async (req, res) => {
           targetIdeas.set(idea.episode_code, { title: idea.title || '' })
         }
       }
-      await Promise.all(allAccepted.map(async (idea) => {
-        if (!idea.episode_code || targetSet.has(idea.episode_code)) return
-        const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', plan.platform)
-        if (!sc?.scheduled_for) return
-        const t = Date.parse(sc.scheduled_for)
-        if (Number.isFinite(t) && t > nowMs && t > latestFutureClaimMs) {
-          latestFutureClaimMs = t
-        }
-      }))
+      latestFutureClaimMs = await plans.latestFutureClaimMs(
+        slug, plan.platform, targetSet,
+        { getAcceptedIdeas: s => im.getIdeas(s, 'accepted'), readSidecar: readSidecarRaw },
+        nowMs,
+      )
       const publicChecks = await Promise.all(Array.from(targetIdeas.entries()).map(async ([code, info]) => {
         const sc = await readSidecarRaw(slug, code, info.title, plan.platform)
         return sc?.privacy_status === 'public' ? code : null
@@ -1835,19 +1831,10 @@ router.post('/projects/:slug/upload/plans/:id/apply', async (req, res) => {
     // Replaces the v1.0.42 `claimedSlots` Set<string> approach, which
     // silently failed on any sidecar `scheduled_for` whose ISO format
     // didn't include `.000Z` milliseconds (YouTube-synced values).
-    const targetSet = new Set(episode_codes)
-    const allAccepted = await im.getIdeas(slug, 'accepted')
-    const nowMs = Date.now()
-    let latestFutureClaimMs = 0
-    await Promise.all(allAccepted.map(async (idea) => {
-      if (!idea.episode_code || targetSet.has(idea.episode_code)) return
-      const sc = await readSidecarRaw(slug, idea.episode_code, idea.title || '', plan.platform)
-      if (!sc?.scheduled_for) return
-      const t = Date.parse(sc.scheduled_for)
-      if (Number.isFinite(t) && t > nowMs && t > latestFutureClaimMs) {
-        latestFutureClaimMs = t
-      }
-    }))
+    const latestFutureClaimMs = await plans.latestFutureClaimMs(
+      slug, plan.platform, new Set(episode_codes),
+      { getAcceptedIdeas: s => im.getIdeas(s, 'accepted'), readSidecar: readSidecarRaw },
+    )
 
     const minStartDate = latestFutureClaimMs ? new Date(latestFutureClaimMs) : undefined
     const slots = plans.computeSlots(plan.schedule, episode_codes.length, { minStartDate })

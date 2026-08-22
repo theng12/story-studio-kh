@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.21 — 2026-08-22
+
+- **Your upload scheduling now has tests. Nothing was wrong with it.** You said it plainly — *"i've schedules and upload for a while. no issues whatsoever"* — and that matches what I found. The code was correct; it simply had nothing protecting it. Every failure I hit while writing these tests was my own test setup, never your scheduling.
+- **What is now locked down** is the part that decides where your next episode lands: a video that already went live never pushes new episodes further out, the newest booked date is the one that counts, an episode being rescheduled is not pushed past its own date, and a video that is already public on YouTube is never given a new publish time. That last one is your rule, and it is now impossible to lose quietly.
+- **One awkward date format is pinned too.** YouTube sometimes returns times without fractions of a second, and an older version compared them as plain text and missed them — which could book two videos into the same slot. That is now checked.
+- **The duplicate I warned you about is gone.** Last night's scheduling shared its calendar maths but kept its own copy of one small piece, because touching untested code that sets your real publish dates was the greater risk. With tests in place that risk is gone, so the three copies — preview, apply, and automatic scheduling — are now one.
+- **The reminder I left myself worked.** I had added a test that would deliberately fail the moment anyone covered that route, telling whoever saw it to remove the duplicate rather than let a temporary shortcut become permanent. It fired today, named the file that changed the situation, and has been retired along with the duplication it was watching.
+
+---
+
 ## v1.4.20 — 2026-08-22
 
 - **A finished episode can now take its own publish slot.** Turn on *Give each episode a publish time as soon as it finishes rendering* in Channel Identity and every render lands in your schedule by itself — no picking it out of the upload list, no pressing apply. **Nothing is sent to YouTube.** The episode gets its date and waits; you still press upload, which is what you asked for.

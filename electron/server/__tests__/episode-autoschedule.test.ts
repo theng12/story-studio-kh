@@ -10,9 +10,12 @@
  *   1. It never moves an episode that is already public or already scheduled.
  *      This path runs unattended, and a local schedule that disagrees with a
  *      live video is exactly what nobody would notice.
- *   2. Its claim-walk agrees with the apply route's. That one is a deliberate
- *      copy — see `episode-autoschedule-drift.test.ts` for why, and for the
- *      alarm that fires when the two stop agreeing.
+ *   2. Its claim-walk IS the apply route's. It was a deliberate copy in 1.4.20,
+ *      guarded by a drift alarm, because the apply route had no tests and
+ *      refactoring it would have risked real publish dates. 1.4.21 tested that
+ *      route, collapsed all three copies into
+ *      `upload-plans.latestFutureClaimMs`, and retired the alarm with the
+ *      duplicate it existed to watch.
  */
 
 import { test, describe } from 'node:test'
