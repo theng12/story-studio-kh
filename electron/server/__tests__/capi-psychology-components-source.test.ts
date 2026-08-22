@@ -26,6 +26,39 @@ const RECIPE = {
   ],
 } as const
 
+const RECIPE_PREVIEW_DIVERSITY = [
+  {
+    asset: 'editorial-psychology-symbolic-split-1.webp',
+    placement: 'left',
+    sourceName: 'EP0014_Thumb01_v2.png',
+    sha256: 'f82c5659ca989b27af5cf789c6270b4ef40aa24ec6060f1a91e015374a52f277',
+  },
+  {
+    asset: 'editorial-psychology-symbolic-split-2.webp',
+    placement: 'left',
+    sourceName: 'EP0017_Thumb01_v2.png',
+    sha256: 'cf65e48ae0215b3ab8e4a331f91b0cc126ee8fc0dea63724836b6b0bd7a744fb',
+  },
+  {
+    asset: 'editorial-psychology-symbolic-split-3.webp',
+    placement: 'center-left',
+    sourceName: 'EP0022_Thumb01_v1.png',
+    sha256: '7d419bf83d807f8ce287040f51e5d620617e595f6bd09dc5ca7ee332252b6290',
+  },
+  {
+    asset: 'editorial-psychology-symbolic-split-4.webp',
+    placement: 'right',
+    sourceName: 'EP0043_Thumb02_v1.png',
+    sha256: 'fb5be086761b7effc5ae325ac8d2458f7da071c710c3e4dcfb5155fb523b1166',
+  },
+  {
+    asset: 'editorial-psychology-symbolic-split-5.webp',
+    placement: 'center-left',
+    sourceName: 'EP0050_Thumb04_v1.png',
+    sha256: 'b816e5ed7fb95eb16e16f95100e1e7b4840ee0f3f046e0d8eca4c766d820e492',
+  },
+] as const
+
 const STYLE = {
   root: path.join(PSYCHOLOGY_EDITORIAL_ROOT, 'style', 'pastel-surreal-psychological-collage'),
   packId: 'com.storystudio.pack.style.pastel-surreal-psychological-collage',
@@ -102,6 +135,37 @@ test('Editorial Psychology Symbolic Split preserves the reusable direct-title re
   assert.match(String(recipe.headline_guidance), /one line[\s\S]*two lines[\s\S]*three lines|1[–/, ]+2[–/, ]+3/i)
   assert.match(String(recipe.headline_guidance), /complete.*headline|headline.*complete/i)
   assert.ok(Array.isArray(recipe.headline_formats) && recipe.headline_formats.length >= 4)
+})
+
+test('Editorial Psychology Symbolic Split keeps its reviewed left, center-left, and right preview evidence', async () => {
+  assert.deepEqual(RECIPE.assets, RECIPE_PREVIEW_DIVERSITY.map(preview => preview.asset))
+  assert.deepEqual([...new Set(RECIPE_PREVIEW_DIVERSITY.map(preview => preview.placement))], ['left', 'center-left', 'right'])
+
+  const ledger = await fs.readFile(path.join(PSYCHOLOGY_EDITORIAL_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
+  for (const preview of RECIPE_PREVIEW_DIVERSITY) {
+    const bytes = await fs.readFile(path.join(RECIPE.root, 'assets', preview.asset))
+    assert.equal(sha256(bytes), preview.sha256, `${preview.asset} must remain the reviewed owner-derived preview`)
+
+    const evidenceLine = ledger.split('\n').find(line => line.includes(preview.asset))
+    assert.ok(evidenceLine?.includes(preview.sourceName), `${preview.asset} must retain its reviewed owner source`)
+    assert.ok(evidenceLine?.includes(`Placement: \`${preview.placement}\``), `${preview.asset} must retain its reviewed placement`)
+  }
+
+  const rightAsset = await sharp(path.join(RECIPE.root, 'assets', 'editorial-psychology-symbolic-split-4.webp'))
+    .resize(192, 108)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  let leftDarkPixels = 0
+  let rightDarkPixels = 0
+  for (let index = 0; index < rightAsset.data.length; index += rightAsset.info.channels) {
+    const luminance = (rightAsset.data[index] + rightAsset.data[index + 1] + rightAsset.data[index + 2]) / 3
+    if (luminance >= 45) continue
+    const x = (index / rightAsset.info.channels) % rightAsset.info.width
+    if (x < rightAsset.info.width / 2) leftDarkPixels += 1
+    else rightDarkPixels += 1
+  }
+  assert.ok(rightDarkPixels > leftDarkPixels * 3, 'reviewed right-side preview must retain its right-weighted symbolic figure')
 })
 
 test('Pastel Surreal Psychological Collage preserves the reusable visual and safety contract', async () => {
