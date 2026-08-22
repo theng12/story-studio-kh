@@ -28,7 +28,11 @@ The legacy-gallery restoration adds examples, not products or default changes:
 
 - **Dozing Knight** output is compatibility evidence for the existing
   `centered-hero-headline` recipe together with `builtin-pixel-art-story`; no
-  Dozing Knight pack, channel identity, or franchise wording is created.
+  Dozing Knight pack, channel identity, or franchise wording is created. Its
+  two added previews use title-free left hero crops over a strongly blurred
+  version of the same owner source, then a uniform dim and generic outlined
+  headline; this keeps the lantern and apothecary subjects legible without
+  retaining source wording or creating a title card.
 - **Abiding Faith** output is compatibility evidence for the existing
   `portrait-block-right` recipe together with the signed
   `cinematic-photoreal` style; it does not make prayer-only semantics part of
