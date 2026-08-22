@@ -15,6 +15,18 @@ const FORMULA_ID = 'com.storystudio.formula.natural-world-explained'
 const RECIPE_ROOT = path.join(RESTORATION_ROOT, 'thumbnail', 'animal-hardship-annotation')
 const STYLE_ROOT = path.join(RESTORATION_ROOT, 'style', 'hand-drawn-hardship-cartoon')
 const IMPASTO_STYLE_ROOT = path.join(RESTORATION_ROOT, 'style', 'impasto-psychological-animals')
+const PREHISTORIC_SURVIVAL_ROOT = path.join(
+  RESTORATION_ROOT,
+  'thumbnail',
+  'prehistoric-survival-title-card',
+)
+const PREHISTORIC_DISCOVERY_ROOT = path.join(
+  ROOT,
+  'content-packs',
+  'free-starters',
+  'thumbnail',
+  'prehistoric-discovery',
+)
 const CAPI_RECIPE_ROOT = path.join(
   ROOT,
   'content-packs',
@@ -36,6 +48,12 @@ const RECIPE_ASSETS = [
 ] as const
 const STYLE_ASSET = 'hand-drawn-hardship-cartoon.webp'
 const IMPASTO_STYLE_ASSET = 'impasto-psychological-animals.webp'
+const PREHISTORIC_SURVIVAL_ASSETS = [
+  'prehistoric-survival-title-card-1.webp',
+  'prehistoric-survival-title-card-2.webp',
+  'prehistoric-survival-title-card-3.webp',
+] as const
+const ANCIENT_HUMANS_FORMULA_ID = 'com.storystudio.formula.ancient-humans'
 const HUMAN_BEHAVIOR_FORMULA_ID = 'com.storystudio.formula.human-behavior-explained'
 const CAPI_RECIPE_ASSETS = [
   'editorial-psychology-symbolic-split-1.webp',
@@ -110,6 +128,38 @@ test('Animal Hardship Annotation has three ledgered, decodable owner-derived rec
   assert.match(String(recipe.headline_guidance), /full.*episode title/i)
   for (const asset of RECIPE_ASSETS) await assertWebp(RECIPE_ROOT, asset, ledger)
   assert.match(String(recipe.avoid_elements), /MineePod|multiple arrows|generic curiosity-only|watermarks|logos|malformed text|copied trade dress/i)
+})
+
+test('Prehistoric Survival Title Card remains a full-title survival recipe distinct from Prehistoric Discovery', async () => {
+  await assertPack(
+    PREHISTORIC_SURVIVAL_ROOT,
+    'com.storystudio.pack.thumbnail.prehistoric-survival-title-card',
+    'com.storystudio.sku.thumbnail.prehistoric-survival-title-card',
+    'com.storystudio.family.thumbnail.prehistoric-survival-title-card',
+  )
+  const recipe = await readJson(path.join(PREHISTORIC_SURVIVAL_ROOT, 'content', 'thumbnail-recipe.json'))
+  const discovery = await readJson(path.join(PREHISTORIC_DISCOVERY_ROOT, 'content', 'thumbnail-recipe.json'))
+  const ledger = await fs.readFile(path.join(RESTORATION_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
+
+  assert.doesNotMatch(JSON.stringify(recipe), forbiddenRuntimeMetadata)
+  parseContentPackDocument('thumbnail-recipe', recipe)
+  assert.equal(recipe.id, 'com.storystudio.thumbnail.prehistoric-survival-title-card')
+  assert.equal(recipe.layout, 'hero')
+  assert.equal(recipe.aspect_ratio, '16:9')
+  assert.equal(recipe.title_mode, 'ai')
+  assert.equal(recipe.headline_mode, 'episode-title')
+  assert.deepEqual(recipe.compatible_formula_ids, [ANCIENT_HUMANS_FORMULA_ID])
+  assert.deepEqual(recipe.preview_assets, PREHISTORIC_SURVIVAL_ASSETS.map(asset => `assets/${asset}`))
+  assert.match(String(recipe.composition_guidance), /stick-limbed/i)
+  assert.match(String(recipe.composition_guidance), /full.*title|full.*question/i)
+  assert.match(String(recipe.composition_guidance), /human.*animal|animal.*human|human.*material|material.*human/i)
+  assert.match(String(recipe.avoid_elements), /fantasy armor|modern objects|fake archaeology/i)
+  assert.match(String(recipe.avoid_elements), /violence|watermarks|logos|copied/i)
+  assert.match(String(recipe.headline_guidance), /one.*two.*three|three.*two.*one/i)
+  for (const asset of PREHISTORIC_SURVIVAL_ASSETS) await assertWebp(PREHISTORIC_SURVIVAL_ROOT, asset, ledger)
+
+  assert.equal(discovery.headline_mode, 'curiosity-hook')
+  assert.notEqual(discovery.headline_mode, recipe.headline_mode)
 })
 
 test('Hand-Drawn Hardship Cartoon has one ledgered, decodable owner-derived style preview', async () => {
