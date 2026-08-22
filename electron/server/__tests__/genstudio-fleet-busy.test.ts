@@ -51,6 +51,10 @@ const PROTECTED = new Set([
   'audio.ts',       // 1.4.25 — the 5 refusals nobody noticed on 13-15 Aug
   'images.ts',      // 1.4.26 — 7,419 fleet-placed attempts in 30 days, the highest
                     //          volume in the app and it had never met a burst
+  'scene-images-batch.ts', // 1.4.30 — also had to stop an in-memory manifest
+                    //          entry diverging from disk, or an in-process
+                    //          retry would derive a different identity than a
+                    //          crash-replay: two identities for one retry.
   'continuity-render.ts', // 1.4.29 — Scene Review. Also had to suppress the
                     //          10-minute stall watchdog while waiting: a busy
                     //          fleet is exactly what trips it, and the pause it
@@ -66,7 +70,6 @@ const PROTECTED = new Set([
  * it is a debt with names on it.
  */
 const NOT_YET_PROTECTED = new Set([
-  'scene-images-batch.ts',
   'scene-clip.ts',            // Motion Review
   'contextual-cues.ts',
   'image-pool-generate.ts',
@@ -108,8 +111,8 @@ describe('the register of who waits for a busy fleet', () => {
     assert.ok(NOT_YET_PROTECTED.size > 0)
     // Scene Review is the highest-volume generator in ordinary use, so it is
     // the one most likely to meet a busy fleet next.
-    assert.ok(NOT_YET_PROTECTED.has('scene-images-batch.ts'),
-      'the remaining image path must stay named until it is protected')
+    assert.ok(NOT_YET_PROTECTED.has('scene-clip.ts'),
+      'Motion Review must stay named until it is protected')
   })
 })
 

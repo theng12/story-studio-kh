@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.30 — 2026-08-23
+
+- **Scene Images now waits when your machines are busy** instead of dropping the picture and asking you to run it again. Five of eight generators protected.
+- **It also closed a fault that was harmless until today.** Two copies of the same internal record disagreed slightly — and nothing read the second one, so it never mattered. Adding a retry makes something read it, and the app would then have asked for the same picture under two different names. That is exactly how you end up paying twice for one image. It was found and fixed rather than built on top of.
+- **Two things noted, not changed.** A waiting scene here does not show "waiting" the way Scene Review now does — it shows a log line and a percentage that stops moving, which could read as a hang. And pressing Pause mid-picture still does not take effect, only during the new waiting. Both change behaviour for every scene, so neither belongs in a retry fix.
+
+---
+
 ## v1.4.29 — 2026-08-22
 
 - **Your publishing cadence was saving but never loading. Fixed.** The panel wrote your days, time and the auto-schedule tick correctly — and then showed you an empty form every time you opened it, because the app was only allowed to hand back a fixed list of settings and these two were not on it. Worse than merely annoying: if you had pressed Save on that blank form for any reason, it would have wiped your real cadence and quietly switched automatic scheduling off. You can now see what is actually set.
