@@ -20,6 +20,7 @@ import {
   listTtsModels as listGenStudioTtsModels,
   listVoices as listGenStudioVoices,
 } from '../lib/genstudio-client.js'
+import { isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
 import {
   delayUnlessAborted,
   nextTtsRouteRetryIdentity,
@@ -898,13 +899,29 @@ export async function generateAudio(job: Job): Promise<void> {
             }).catch(() => { /* evidence write must never mask the real failure */ })
           }
 
-          // The ONE failure worth asking again about. Every route GenStudio
-          // ranked for this product declined to take the request, which proves
-          // no provider did any work and the reservation was released — so
-          // another attempt costs time and nothing else. Any other terminal
-          // code may describe work a provider already performed, and fails
-          // fast here rather than being paid for twice.
-          if (!isGenStudioRouteExhausted(e) || attempt >= TTS_ROUTE_RETRY_MAX_ATTEMPTS) {
+          // THE FAILURES WORTH ASKING AGAIN ABOUT — both of which prove no
+          // provider did any work and the reservation was released, so another
+          // attempt costs time and nothing else. Any other terminal code may
+          // describe work a provider already performed, and fails fast here
+          // rather than being paid for twice.
+          //
+          //   CLOUD_PROVIDER_EXHAUSTED — every route GenStudio ranked for this
+          //     product declined to take the request. Handled since 1.2.x.
+          //
+          //   SITE_PLACEMENT_EXHAUSTED / SITE_CAPACITY_UNAVAILABLE (v1.4.25) —
+          //     GenStudio itself could not find a free MACHINE. A different
+          //     thing from a provider declining, and it was not covered here:
+          //     `tts-capacity-retry.ts` shipped on 7 August against the
+          //     provider code alone, and VOICE_TTS then hit the fleet code five
+          //     times on 13-15 August and lost those sections silently. Nobody
+          //     noticed, because the only symptom is a missing chapter that a
+          //     later manual retry quietly fills in.
+          //
+          // The owner found the same hole in subtitles the hard way — 122 of
+          // 353 refused in one burst — and asked the obvious next question:
+          // "what about the other generators". This is one of the answers.
+          const worthRetrying = isGenStudioRouteExhausted(e) || isFleetBusyFailure(e, 'tts')
+          if (!worthRetrying || attempt >= TTS_ROUTE_RETRY_MAX_ATTEMPTS) {
             failedTasks++
             // Settled-pool semantics: one chunk failure doesn't kill the
             // batch. The queue stamps status='error' after the loop if
@@ -915,7 +932,9 @@ export async function generateAudio(job: Job): Promise<void> {
           }
 
           const waitMs = ttsRouteRetryDelayMs(attempt - 1)
-          const reason = `No ${genStudioProviderLabel} route would accept this request`
+          const reason = isFleetBusyFailure(e, 'tts')
+            ? 'Every machine was busy'
+            : `No ${genStudioProviderLabel} route would accept this request`
           activeTasks.set(chunkFilename, {
             label: task.sectionLabel,
             key: task.sectionSlug,

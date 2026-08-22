@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.25 — 2026-08-22
+
+- **You asked what else has this bug. Here is the honest answer: eight generators could lose work when your machines are busy, and until yesterday none of them handled it.** Subtitles was fixed yesterday because you happened to run thirty episodes at once and saw it. Audio is fixed today. Six remain, and they are now written down by name inside the app's own tests rather than left as something I might remember.
+- **It had already happened to your voice generation and nobody noticed.** Five voice jobs were refused for a busy fleet on 13–15 August and their sections were silently dropped. That is the shape of this whole problem: the only symptom is a missing piece that a later retry quietly fills in, so it looks like ordinary flakiness and never gets looked at.
+- **Voice generation now waits and asks again**, using the retry machinery it already had for a different kind of busy — a provider declining, which it has handled since 7 August. The gap was that a provider saying no and your own fleet being full are different things, and only the first was covered.
+- **The remaining six are tracked, not forgotten.** Scene Review, Motion Review, Images, Scene Images, Contextual Cues and Image Pool. A test names them, and a new generator that handles these failures without either fixing or declaring the gap will fail the build. The question "what about the others?" can no longer go quietly stale.
+- **Nothing here retries anything that might have cost you money.** Only the two codes that mean GenStudio never gave the job to a machine, where the whole reservation is returned. If a job ever reports that while still having taken credits, it stops rather than resubmits.
+
+---
+
 ## v1.4.24 — 2026-08-22
 
 - **A chapter turned away because every machine was busy now waits and asks again.** This is the other half of yesterday's flood: of 353 transcriptions, 122 were refused for want of a free machine and simply dropped, leaving you to chase each one by hand. They now wait and retry — three times, after 30 seconds, 2 minutes and 5 minutes.

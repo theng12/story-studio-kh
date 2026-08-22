@@ -149,16 +149,17 @@ test('a TTS failure is not treated as a transcription retry', async () => {
   assert.equal(isFleetBusyTranscriptionFailure(null), false)
 })
 
-test('the waits are minutes, because GenStudio already waited fifteen', () => {
+test('the waits are minutes, because GenStudio already waited fifteen', async () => {
   // SITE_PLACEMENT_EXHAUSTED is only raised after a fifteen-minute placement
   // window, so a chapter that reaches here has been queued a long time and the
   // fleet is genuinely saturated. A two-second retry would rejoin the same jam
   // and burn an attempt for nothing.
-  const source = readFileSync(
-    new URL('../generators/subtitles.ts', import.meta.url), 'utf8')
-  const match = source.match(/FLEET_BUSY_RETRY_DELAYS_MS = \[([^\]]+)\]/)
-  assert.ok(match, 'the backoff schedule must still be declared')
-  const delays = match[1].split(',').map(v => Number(v.replace(/[_\s]/g, '')))
+  //
+  // Imported rather than scraped from source: 1.4.25 moved the schedule into
+  // `lib/genstudio-fleet-busy.ts` so every generator can share it, and a test
+  // that reads a file path silently stops testing anything when the code moves.
+  const { FLEET_BUSY_RETRY_DELAYS_MS } = await import('../lib/genstudio-fleet-busy.js')
+  const delays = [...FLEET_BUSY_RETRY_DELAYS_MS]
   assert.equal(delays.length, 3, 'three attempts, then give up and report it')
   assert.ok(delays.every(d => d >= 30_000), 'every wait must be tens of seconds at least')
   assert.ok(delays.every((d, i) => i === 0 || d > delays[i - 1]!), 'waits must grow')

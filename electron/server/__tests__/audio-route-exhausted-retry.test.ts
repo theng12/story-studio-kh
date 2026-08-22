@@ -262,8 +262,16 @@ test('the audio generator paces, retries and reports what it is doing', () => {
   assert.match(source, /resolveGenStudioTtsFanout\(tasks\.length, ttsModel\.provider_submit_concurrency\)/)
   assert.doesNotMatch(source, /resolveGenStudioLocalFanout/)
 
-  // Retried on the one code that proves nothing was bought, and bounded.
-  assert.match(source, /if \(!isGenStudioRouteExhausted\(e\) \|\| attempt >= TTS_ROUTE_RETRY_MAX_ATTEMPTS\)/)
+  // Retried on the codes that prove nothing was bought, and bounded.
+  //
+  // TWO of them since 1.4.25, not one. `CLOUD_PROVIDER_EXHAUSTED` means every
+  // provider route declined; `SITE_PLACEMENT_EXHAUSTED` means GenStudio itself
+  // had no free MACHINE. Both release the whole reservation, and only the first
+  // was covered — so VOICE_TTS lost five sections to the second on 13-15 August
+  // and nobody noticed, because a dropped section looks like ordinary
+  // flakiness. See `lib/genstudio-fleet-busy.ts`.
+  assert.match(source, /const worthRetrying = isGenStudioRouteExhausted\(e\) \|\| isFleetBusyFailure\(e, 'tts'\)/)
+  assert.match(source, /if \(!worthRetrying \|\| attempt >= TTS_ROUTE_RETRY_MAX_ATTEMPTS\)/)
   assert.match(source, /nextTtsRouteRetryIdentity\(submissionIdentity, e\.jobId/)
   // The retry must not reclaim the job it is replacing.
   assert.match(source, /recoveryEntry = null/)

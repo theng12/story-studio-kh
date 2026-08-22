@@ -32,6 +32,7 @@ import { fileExistsWithContent } from '../lib/http-retry.js'
 import { hashInput, readManifest, recordTaskStrict } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import type { GenStudioTranscriptionRequest } from '../lib/genstudio-client.js'
+import { isFleetBusyFailure, FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { Job } from '../models/types.js'
 import { requireAudioAssemblyReady } from '../services/audio-workflow-readiness.js'
@@ -143,53 +144,13 @@ export function isTerminalGenStudioTranscriptionProviderError(error: unknown): b
 }
 
 /**
- * GenStudio could not find a free machine for this job, and gave the money back.
- *
- * v1.4.24. The owner started thirty episodes at once; 122 of 353 transcriptions
- * came back with `SITE_PLACEMENT_EXHAUSTED` and were dropped with "re-run to
- * fill it in". Each of those had to be chased by hand.
- *
- * RETRYING THIS IS PROVABLY FREE, which is the only reason it is done
- * automatically. GenStudio raises this code from one place, and its own comment
- * states the two facts that matter:
- *
- *   "The job never reached a worker, so there is nothing to settle: the
- *    reservation is returned whole."   — images/service.py, then billing.release()
- *
- * No provider did any work, and the credits came back. A retry is therefore a
- * fresh charge for work that never happened, not a second charge for the same
- * work — the hazard the rest of this file is built to avoid.
- *
- * BOTH CONDITIONS ARE CHECKED, not just the code. A capacity code arriving with
- * credits still settled would mean the assumption above had stopped holding,
- * and this must not retry on an assumption it can no longer verify.
+ * "Every machine was busy" — see `lib/genstudio-fleet-busy.ts` for the rule and
+ * for why retrying it is free. Re-exported here because 1.4.24 shipped it under
+ * this name and the tests, and any future reader, should still find it.
  */
-const FLEET_BUSY_FAILURE_CODES = new Set([
-  'SITE_PLACEMENT_EXHAUSTED',
-  'SITE_CAPACITY_UNAVAILABLE',
-])
-
 export function isFleetBusyTranscriptionFailure(error: unknown): boolean {
-  if (!(error instanceof GenStudioTerminalFailureError)) return false
-  if (error.modality !== 'transcription') return false
-  if (error.cancelled) return false
-  if (!FLEET_BUSY_FAILURE_CODES.has(String(error.failureCode || ''))) return false
-  // Settled credits mean a provider was paid, which means work may have been
-  // done. Never resubmit over that, whatever the code says.
-  if (typeof error.settledCredits === 'number' && error.settledCredits > 0) return false
-  return true
+  return isFleetBusyFailure(error, 'transcription')
 }
-
-/**
- * How long to wait before asking again, per attempt.
- *
- * Minutes, not milliseconds, and deliberately so: GenStudio already waits a
- * FIFTEEN-MINUTE placement window before it declares this failure, so a chapter
- * that gets here has already been queued a long time and the fleet is genuinely
- * saturated. Retrying in two seconds would only rejoin the same jam and burn an
- * attempt. These delays give the wave in front of it time to drain.
- */
-const FLEET_BUSY_RETRY_DELAYS_MS = [30_000, 120_000, 300_000]
 
 /**
  * Persist the terminal outcome of one transcription request.
