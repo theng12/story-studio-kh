@@ -33,6 +33,7 @@ import {
   IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
   imageRouteRetryDelayMs,
 } from '../services/image-route-retry.js'
+import { isFleetBusyFailure, FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
 import type { Character, JobItemAttempt } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
@@ -63,6 +64,64 @@ export function thumbnailReferenceGuidance(strength: ThumbnailReferenceStrength)
 
 export function thumbnailReferenceStrengthValue(strength: ThumbnailReferenceStrength): number {
   return { loose: 0.3, balanced: 0.6, strong: 0.85 }[strength]
+}
+
+/** What a retryable image failure buys: how long to wait, and what to tell the owner. */
+export interface ImageRetryPlan {
+  waitMs: number
+  reason: string
+  /** Total attempts allowed for THIS kind of refusal, including the first. */
+  maxAttempts: number
+}
+
+/**
+ * The only two image failures worth asking again about — and the wait each earns.
+ *
+ * Both prove no provider did any work and the whole reservation came back, so a
+ * second attempt costs time and nothing else. Every OTHER terminal code may
+ * describe work a provider already performed, returns `null` here, and fails
+ * fast at the call site rather than being paid for twice. That asymmetry is the
+ * entire point: a "Repair & Retry all" button was removed in v1.0.114 because
+ * it did not make it.
+ *
+ *   CLOUD_PROVIDER_EXHAUSTED — every route GenStudio ranked for this product
+ *     declined the request. Handled here since the image retry shipped.
+ *
+ *   SITE_PLACEMENT_EXHAUSTED / SITE_CAPACITY_UNAVAILABLE (v1.4.26) — GenStudio
+ *     could not find a free MACHINE, which is a different thing from a provider
+ *     declining and was not covered until now. Images are 100% fleet-placed and
+ *     the highest-volume operation in the app (7,419 attempts in 30 days); they
+ *     have simply not met a burst yet. Transcription did, and lost 122 of 353
+ *     items in one; TTS did, and lost 5 that nobody noticed for two days.
+ *
+ * The two waits are deliberately different. A busy fleet is declared only AFTER
+ * GenStudio has already held the job in a fifteen-minute placement window, so
+ * anything reaching here means the fleet is genuinely saturated and the shared
+ * minutes-long schedule applies — a 15-second retry would just rejoin the same
+ * jam and burn an attempt. A declined route is a per-second condition and keeps
+ * its own jittered seconds-long backoff.
+ *
+ * Exported as a pure function so the decision can be tested on its own, without
+ * driving a whole 333-scene batch to observe it.
+ *
+ * @param attemptNum the 1-based attempt that just failed.
+ */
+export function imageRetryPlan(e: unknown, attemptNum: number): ImageRetryPlan | null {
+  if (isFleetBusyFailure(e, 'image')) {
+    // Bounded by the shared schedule's own length, not by the image route
+    // constant, so retuning one can never silently walk off the end of the other.
+    const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
+    if (waitMs === undefined) return null
+    return { waitMs, reason: 'Every machine was busy', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+  }
+  if (isGenStudioRouteExhausted(e) && attemptNum < IMAGE_ROUTE_RETRY_MAX_ATTEMPTS) {
+    return {
+      waitMs: imageRouteRetryDelayMs(attemptNum - 1),
+      reason: 'No image route would accept this request',
+      maxAttempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+    }
+  }
+  return null
 }
 
 /**
@@ -837,44 +896,56 @@ export async function generateImages(job: Job): Promise<void> {
           if (e instanceof GenStudioImageTerminalFailureError && attempt) {
             await recordImageState(bgDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
           }
-          // The ONE failure worth asking again about: every route GenStudio
-          // ranked for this product declined to take the request, which proves
-          // no provider did any work and the reservation was released — so
-          // another attempt costs time and nothing else. Every other terminal
-          // code may describe work a provider already performed, and fails
-          // fast below rather than being paid for twice. Bounded, and never
-          // scheduled once the job itself is being torn down.
-          if (isGenStudioRouteExhausted(e) && attempt && attemptNum < IMAGE_ROUTE_RETRY_MAX_ATTEMPTS
-            && !jq.isCancelled(job.job_id)) {
-            const waitMs = imageRouteRetryDelayMs(attemptNum - 1)
-            const reason = 'No image route would accept this request'
+          // The failures worth asking again about: a route that declined the
+          // request, and — new in v1.4.26 — a fleet with no free machine. Both
+          // prove no provider did any work and the reservation came back whole,
+          // so another attempt costs time and nothing else. Every other
+          // terminal code may describe work a provider already performed, gets
+          // no plan, and fails fast below rather than being paid for twice.
+          // See `imageRetryPlan` for the argument and the two schedules.
+          const plan = imageRetryPlan(e, attemptNum)
+          // Never scheduled once the job is being torn down. A pause is the
+          // owner's instruction too, and a busy-fleet wait runs into minutes —
+          // do not sit out one he has already stopped. Cancellation is checked
+          // here, aborts the wait itself, and is checked again after it.
+          const fleetBusy = isFleetBusyFailure(e, 'image')
+          if (plan && attempt && !jq.isCancelled(job.job_id)
+            && !(fleetBusy && jq.isPauseRequested(job.job_id))) {
+            const { waitMs, reason, maxAttempts } = plan
             activeItems.set(key, {
               label,
               key,
               state: 'waiting_retry',
               attempt: attemptNum,
-              max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+              max_attempts: maxAttempts,
               retry_at: new Date(Date.now() + waitMs).toISOString(),
               reason,
             })
             publishProgress()
             job.output_lines.push(
               `  Scene ${scene.number}: ${reason.toLowerCase()} — nothing was charged.`
-              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${IMAGE_ROUTE_RETRY_MAX_ATTEMPTS}).`,
+              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${maxAttempts}).`,
             )
             // Derived from the job that just failed, so this retry is
             // repeatable: replaying it returns the job GenStudio already has
             // for it instead of selling a second one. Reuses the same
             // deterministic promotion a manual Retry performs across job
-            // runs — see `deriveRouteRetryAttempt`.
+            // runs — see `deriveRouteRetryAttempt`. Chosen over minting a
+            // fresh identity (what subtitles.ts must do, having no such chain)
+            // precisely because a crash between the wait and the resubmission
+            // must not turn one retry into two charges.
             attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt)
             await delayUnlessAborted(waitMs, cancelController.signal)
             if (jq.isCancelled(job.job_id)) {
               job.output_lines.push('  Cancelled.')
               return
             }
+            if (fleetBusy && jq.isPauseRequested(job.job_id)) {
+              job.output_lines.push('  Paused.')
+              return
+            }
             activeItems.set(key, {
-              label, key, state: 'running', attempt: attemptNum + 1, max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+              label, key, state: 'running', attempt: attemptNum + 1, max_attempts: maxAttempts,
             })
             publishProgress()
             continue
@@ -1000,23 +1071,26 @@ export async function generateImages(job: Job): Promise<void> {
           if (e instanceof GenStudioImageTerminalFailureError && attempt) {
             await recordImageState(thumbDir, filename, attempt, 'failed', e.jobId || acceptedTaskId, acceptedKey)
           }
-          if (isGenStudioRouteExhausted(e) && attempt && attemptNum < IMAGE_ROUTE_RETRY_MAX_ATTEMPTS
-            && !jq.isCancelled(job.job_id)) {
-            const waitMs = imageRouteRetryDelayMs(attemptNum - 1)
-            const reason = 'No image route would accept this request'
+          // Same two retryable refusals as `runScene`, on the same terms — see
+          // the comment there and `imageRetryPlan`.
+          const plan = imageRetryPlan(e, attemptNum)
+          const fleetBusy = isFleetBusyFailure(e, 'image')
+          if (plan && attempt && !jq.isCancelled(job.job_id)
+            && !(fleetBusy && jq.isPauseRequested(job.job_id))) {
+            const { waitMs, reason, maxAttempts } = plan
             activeItems.set(key, {
               label,
               key,
               state: 'waiting_retry',
               attempt: attemptNum,
-              max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+              max_attempts: maxAttempts,
               retry_at: new Date(Date.now() + waitMs).toISOString(),
               reason,
             })
             publishProgress()
             job.output_lines.push(
               `  Thumbnail ${thumb.number}: ${reason.toLowerCase()} — nothing was charged.`
-              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${IMAGE_ROUTE_RETRY_MAX_ATTEMPTS}).`,
+              + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${maxAttempts}).`,
             )
             attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt)
             await delayUnlessAborted(waitMs, cancelController.signal)
@@ -1024,8 +1098,12 @@ export async function generateImages(job: Job): Promise<void> {
               job.output_lines.push('  Cancelled.')
               return
             }
+            if (fleetBusy && jq.isPauseRequested(job.job_id)) {
+              job.output_lines.push('  Paused.')
+              return
+            }
             activeItems.set(key, {
-              label, key, state: 'running', attempt: attemptNum + 1, max_attempts: IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
+              label, key, state: 'running', attempt: attemptNum + 1, max_attempts: maxAttempts,
             })
             publishProgress()
             continue

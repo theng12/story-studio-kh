@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.26 — 2026-08-22
+
+- **Image generation now waits when your machines are busy, instead of throwing the picture away.** This is the biggest one of the set: image generation is the busiest thing the app does — 7,419 jobs on your fleet in the last 30 days, five times more than the transcription that failed on you today. It had simply never met a burst. It would have.
+- **It reuses the waiting that was already there.** Images already knew how to wait when no picture provider would take the work; it just didn't recognise "your own machines are full" as the same kind of problem. Two separate waiting schedules are kept apart on purpose, so changing one can never break the other.
+- **A crash mid-wait cannot buy you a second picture.** Each retry is labelled from what already happened rather than made up fresh, so if the app dies while waiting, the next run asks for the same picture again instead of paying for another one.
+- **Found and deliberately not fixed:** pausing does not really work anywhere in the image generator — it only ever checks for cancel. Pause now works inside the new waiting, but making it work across a whole image batch is a separate change with its own consequences, so it was left alone and written down rather than slipped in.
+- Three of eight generators now protected — subtitles, voice and images. The remaining five are still named in the app's own tests so they cannot be quietly forgotten.
+
+---
+
 ## v1.4.25 — 2026-08-22
 
 - **You asked what else has this bug. Here is the honest answer: eight generators could lose work when your machines are busy, and until yesterday none of them handled it.** Subtitles was fixed yesterday because you happened to run thirty episodes at once and saw it. Audio is fixed today. Six remain, and they are now written down by name inside the app's own tests rather than left as something I might remember.

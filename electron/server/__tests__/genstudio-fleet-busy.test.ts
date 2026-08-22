@@ -49,6 +49,8 @@ const GENERATORS = path.join(
 const PROTECTED = new Set([
   'subtitles.ts',   // 1.4.24 — the 122-refusal run that started this
   'audio.ts',       // 1.4.25 — the 5 refusals nobody noticed on 13-15 Aug
+  'images.ts',      // 1.4.26 — 7,419 fleet-placed attempts in 30 days, the highest
+                    //          volume in the app and it had never met a burst
 ])
 
 /**
@@ -60,7 +62,6 @@ const PROTECTED = new Set([
  * it is a debt with names on it.
  */
 const NOT_YET_PROTECTED = new Set([
-  'images.ts',
   'scene-images-batch.ts',
   'scene-clip.ts',            // Motion Review
   'continuity-render.ts',     // Scene Review — highest volume in normal use
