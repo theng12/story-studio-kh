@@ -353,6 +353,88 @@
           :disabled="nicheSaving"
         />
 
+        <!-- v1.4.20 — how often this channel publishes. Channel-level, because
+             an upload plan cannot exist before a YouTube account is connected. -->
+        <section class="episode-shape-card mt-3">
+          <div class="episode-shape-head">
+            <div>
+              <span class="settings-section-kicker">Publishing cadence</span>
+              <h4>How often this channel puts out an episode</h4>
+              <p class="text-muted text-sm mb-0">
+                Set the rhythm once and each finished episode takes the next free slot on its own.
+                <template v-if="cadenceHasPlan">
+                  This channel already has an upload plan, so that plan is what actually schedules —
+                  edit it in Upload Center. What you set here seeds any new account you connect.
+                </template>
+                <template v-else>
+                  This becomes the channel's upload plan the moment you connect a YouTube account.
+                </template>
+              </p>
+            </div>
+          </div>
+
+          <div v-if="cadenceLoaded" class="cadence-body">
+            <div class="cadence-days">
+              <button
+                v-for="(label, day) in WEEKDAY_LABELS"
+                :key="day"
+                type="button"
+                class="cadence-day"
+                :class="{ on: cadenceWeekdays.includes(day) }"
+                @click="toggleCadenceWeekday(day)"
+              >{{ label }}</button>
+            </div>
+
+            <div class="episode-shape-fields mt-2">
+              <label>
+                <span>Time of day</span>
+                <input v-model="cadenceTime" type="time" />
+              </label>
+              <label>
+                <span>Every</span>
+                <select v-model.number="cadenceIntervalWeeks">
+                  <option :value="1">week</option>
+                  <option :value="2">2 weeks</option>
+                  <option :value="3">3 weeks</option>
+                  <option :value="4">4 weeks</option>
+                </select>
+              </label>
+              <label>
+                <span>Time zone</span>
+                <input v-model="cadenceTimezone" type="text" placeholder="Asia/Phnom_Penh" />
+              </label>
+            </div>
+
+            <p class="episode-shape-maths text-muted text-sm">
+              <template v-if="cadencePerMonth">
+                That is about <strong>{{ cadencePerMonth }}</strong> episodes a month.
+              </template>
+              <template v-else>
+                Pick at least one day — a schedule with no days can never produce a slot.
+              </template>
+            </p>
+
+            <label class="episode-shape-check">
+              <input v-model="autoScheduleOnRender" type="checkbox" />
+              <span>
+                Give each episode a publish time as soon as it finishes rendering
+                <small class="text-muted">
+                  Nothing is sent to YouTube — the episode just gets its slot, and you still press
+                  upload. An episode that is already live, or already has a time, is left alone.
+                </small>
+              </span>
+            </label>
+
+            <p v-if="cadenceError" class="error-box mt-2">{{ cadenceError }}</p>
+
+            <div class="episode-shape-actions">
+              <button class="btn btn-sm btn-primary" type="button" :disabled="cadenceSaving" @click="saveCadence">
+                {{ cadenceSaving ? 'Saving…' : 'Save cadence' }}
+              </button>
+            </div>
+          </div>
+        </section>
+
         <!-- v1.4.18 — the episode shape, editable. Sits with the Formula it
              belongs to rather than in the library, because it is a decision
              about THIS channel's episodes. -->
@@ -2104,7 +2186,7 @@ const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, put, patch, del } = useApi()
 const { styles: visualStyles, refresh: refreshVisualStyles } = useVisualStyleCatalog()
-onMounted(() => { void refreshVisualStyles() })
+onMounted(() => { void refreshVisualStyles(); void loadCadence() })
 const { ask } = useConfirm()
 const { project, config, refreshConfig, loadProject } = useProject()
 const { success, error: showError, info } = useToast()
@@ -2290,6 +2372,95 @@ const selectedProductionKitDurations = computed(() => {
   const presets = selectedNicheProfile.value?.scriptStructure?.durationPresets || []
   return presets.length ? presets.map(value => `${value} min`).join(' · ') : 'Formula default'
 })
+
+// ── Publishing cadence (v1.4.20) ──────────────────────────────────────────
+// The owner: "right now my upload plan is in upload center. what if i make it
+// part of the channel creation? but also make it adjustable."
+//
+// The cadence belongs to the CHANNEL; the plan belongs to the ACCOUNT. A plan
+// is keyed platform:account_id and so cannot exist before YouTube is connected
+// — Boundful's channel predates its account by months. Setting the cadence
+// here means a channel has a rhythm from day one and the plan is created from
+// it on connect. Once a plan exists the PLAN is the authority; this is a seed.
+const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const cadenceLoaded = ref(false)
+const cadenceSaving = ref(false)
+const cadenceError = ref('')
+const cadenceWeekdays = ref<number[]>([])
+const cadenceTime = ref('18:00')
+const cadenceTimezone = ref('')
+const cadenceIntervalWeeks = ref(1)
+const autoScheduleOnRender = ref(false)
+/** True once this channel has a real plan — from then on this screen is a seed. */
+const cadenceHasPlan = ref(false)
+
+function toggleCadenceWeekday(day: number) {
+  const i = cadenceWeekdays.value.indexOf(day)
+  if (i >= 0) cadenceWeekdays.value.splice(i, 1)
+  else cadenceWeekdays.value.push(day)
+  cadenceWeekdays.value.sort((a, b) => a - b)
+}
+
+/** Episodes a month at this cadence — the number that makes it concrete. */
+const cadencePerMonth = computed(() => {
+  const perWeek = cadenceWeekdays.value.length
+  if (!perWeek) return 0
+  return Math.round((perWeek / Math.max(1, cadenceIntervalWeeks.value)) * 4.345)
+})
+
+async function loadCadence() {
+  try {
+    const cfg: any = await get(`/projects/${slug.value}/settings/config`)
+    const c = cfg?.publish_cadence || cfg?.config?.publish_cadence
+    if (c?.schedule) {
+      cadenceWeekdays.value = Array.isArray(c.schedule.weekdays) ? [...c.schedule.weekdays] : []
+      cadenceTime.value = c.schedule.time_local || '18:00'
+      cadenceTimezone.value = c.schedule.timezone || ''
+      cadenceIntervalWeeks.value = c.schedule.interval_weeks || 1
+    }
+    const auto = cfg?.auto_schedule_on_render ?? cfg?.config?.auto_schedule_on_render
+    autoScheduleOnRender.value = auto === true
+    if (!cadenceTimezone.value) {
+      cadenceTimezone.value = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    }
+    // Does a plan already exist? If so this screen stops being the authority.
+    try {
+      const plans: any = await get(`/projects/${slug.value}/upload/plans`)
+      const list = Array.isArray(plans) ? plans : (plans?.plans || [])
+      cadenceHasPlan.value = list.length > 0
+    } catch { cadenceHasPlan.value = false }
+  } catch { /* a channel with no config yet is a fine starting state */ }
+  cadenceLoaded.value = true
+}
+
+async function saveCadence() {
+  cadenceSaving.value = true
+  cadenceError.value = ''
+  try {
+    if (!cadenceWeekdays.value.length) {
+      throw new Error('Pick at least one day, or the schedule can never produce a slot.')
+    }
+    await put(`/projects/${slug.value}/settings/config`, {
+      publish_cadence: {
+        schedule: {
+          weekdays: [...cadenceWeekdays.value],
+          time_local: cadenceTime.value,
+          timezone: cadenceTimezone.value,
+          interval_weeks: cadenceIntervalWeeks.value,
+        },
+        defaults: { privacy_status: 'private', made_for_kids: false },
+      },
+      auto_schedule_on_render: autoScheduleOnRender.value,
+    })
+    success(cadenceHasPlan.value
+      ? 'Publishing cadence saved. Your existing upload plan is unchanged — edit that in Upload Center.'
+      : 'Publishing cadence saved. It becomes this channel\'s plan when you connect YouTube.')
+  } catch (e: any) {
+    cadenceError.value = e?.data?.detail || e?.message || 'Could not save the cadence'
+  } finally {
+    cadenceSaving.value = false
+  }
+}
 
 // ── Episode shape (v1.4.18) ───────────────────────────────────────────────
 // 1.4.16 gave every Formula its own chapters, length and pace, and left no way
@@ -6184,6 +6355,20 @@ async function deleteProject() {
   flex-wrap: wrap;
 }
 .niche-lib-tile .btn.danger { color: var(--error, #e25c5c); }
+
+/* v1.4.20 — publishing cadence day picker. */
+.cadence-body { margin-top: 14px; }
+.cadence-days { display: flex; gap: 6px; flex-wrap: wrap; }
+.cadence-day {
+  border: 1px solid var(--border, #2a2a2a);
+  background: transparent;
+  color: inherit;
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.cadence-day.on { background: var(--accent, #d9a441); color: #1a1a1a; border-color: transparent; font-weight: 600; }
 
 /* v1.4.18 — the episode shape, read as a summary and edited in place. */
 .episode-shape-card {

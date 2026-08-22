@@ -879,6 +879,17 @@ export async function createProject(
       audio_models: { ...DEFAULT_AUDIO_MODELS },
       video_models: { ...DEFAULT_VIDEO_MODELS },
       image_pricing_last_updated: '', audio_pricing_last_updated: '', video_pricing_last_updated: '',
+      // v1.4.20 — the channel's publishing rhythm, chosen at creation. Only
+      // written when the caller supplied one: an absent cadence must stay
+      // absent rather than become a default nobody chose, because
+      // `ensurePlanForAccount` treats "has a cadence" as permission to make a
+      // plan on the owner's behalf.
+      ...(req.publish_cadence?.schedule ? { publish_cadence: {
+        schedule: req.publish_cadence.schedule,
+        defaults: req.publish_cadence.defaults
+          || { privacy_status: 'private', made_for_kids: false },
+      } } : {}),
+      ...(req.auto_schedule_on_render === true ? { auto_schedule_on_render: true } : {}),
     })
   }
   // No per-project secrets.json is seeded — API keys live in the

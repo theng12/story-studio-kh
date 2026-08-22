@@ -1468,6 +1468,29 @@ export interface Pointer {
 
 export interface CreateProjectRequest {
   name: string
+  /**
+   * v1.4.20 — how often this channel publishes, set when the channel is made.
+   *
+   * An Upload Plan is keyed `platform:account_id` and so cannot exist before a
+   * YouTube account is connected — Boundful's channel predates its account by
+   * months. Storing the cadence on the CHANNEL means a new channel has a
+   * publishing rhythm from day one, and the plan is created from it the moment
+   * an account is connected. See services/publish-cadence.ts.
+   */
+  publish_cadence?: {
+    schedule: {
+      weekdays: number[]
+      time_local: string
+      timezone: string
+      interval_weeks?: number
+      monthly_day?: number
+      start_date?: string
+      end_date?: string
+    }
+    defaults?: { privacy_status: 'private' | 'unlisted' | 'public'; language?: string; made_for_kids?: boolean }
+  }
+  /** v1.4.20 — write a publish time onto each episode as its render finishes. */
+  auto_schedule_on_render?: boolean
   template?: string
   episode_prefix?: string
   episode_digits?: number

@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.20 — 2026-08-22
+
+- **A finished episode can now take its own publish slot.** Turn on *Give each episode a publish time as soon as it finishes rendering* in Channel Identity and every render lands in your schedule by itself — no picking it out of the upload list, no pressing apply. **Nothing is sent to YouTube.** The episode gets its date and waits; you still press upload, which is what you asked for.
+- **Your publishing rhythm now belongs to the channel, not to Upload Center.** Set the days, the time and the interval in Channel Identity, and it tells you how many episodes a month that works out to. An upload plan can only exist once a YouTube account is connected — your Boundful channel existed for months before its account did — so the rhythm lives on the channel and becomes the plan the moment you connect.
+- **Your existing channels are untouched.** All eleven already have plans, and a plan always wins: the cadence screen says so plainly and points you to Upload Center. Re-authorising an expired token will never reset a schedule you have tuned.
+- **Nothing that is already live gets moved.** An episode that is public on YouTube, or that already has a publish time, is left exactly as it is. That was your condition, and it was already the rule the manual apply followed since v1.0.46.
+- **One thing I checked and did not change:** your schedule never needed its start date bumped. It already walks past the last slot you claimed, so each new episode lands after the previous one automatically.
+- **On the duplicated logic.** The scheduling code shares all the calendar maths with the manual apply, but copies one small piece — the scan that finds the last claimed slot. That is deliberate: the apply route you rely on has no tests at all, so refactoring it would risk your real upload dates with nothing to catch a mistake. Instead there is a test that fails, naming the difference, if the two copies ever stop agreeing — and another that fails the day somebody adds tests to that route, so the shortcut gets revisited instead of outliving its reason.
+
+---
+
 ## v1.4.19 — 2026-08-22
 
 - **One-click renders were quietly dropping three of your settings.** You remembered this and you were right. A render started from the Pipeline used a hand-written copy of what the Video Assembly page sends, and three things had never been added to that copy — so the same episode rendered two different ways depending on which button you pressed, with nothing said either way.

@@ -463,6 +463,15 @@ router.post('/projects/:slug/upload/oauth/start', async (req, res) => {
         thumbnail_url: result.channel.thumbnail_url,
       })
       await store.writeTokens(slug, 'youtube', account.id, result.tokens)
+      // v1.4.20 — turn the channel's publishing cadence into a real plan now
+      // that there is an account to key one to. Does nothing when the channel
+      // set no cadence, and nothing when this account already has an active
+      // plan: re-authorising an expired token must never reset a schedule the
+      // owner has since tuned. Never allowed to fail the connection.
+      try {
+        const { ensurePlanForAccount } = await import('../services/publish-cadence.js')
+        await ensurePlanForAccount(slug, 'youtube', account.id, account.label)
+      } catch { /* a channel without a plan is still a connected channel */ }
     }).catch(() => { /* surfaced via getFlowStatus */ })
 
     res.json({ flow_id: state.flow_id, auth_url: state.auth_url })

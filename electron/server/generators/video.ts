@@ -114,6 +114,51 @@ async function selfHealFinalPromotion(
   }
 }
 
+
+/**
+ * Give the finished episode its slot in the channel's publishing schedule.
+ *
+ * v1.4.20, and the owner's report is the whole reason: *"i have to manually
+ * update the schedule each time. and also select the videos."* The queue lists
+ * episodes on its own — what was manual was picking the new ones out of it and
+ * pressing apply. A render already knows which episode it just made, so there
+ * is nothing to pick.
+ *
+ * NEVER TOUCHES YOUTUBE. It writes a local publish time and stops, which the
+ * owner chose ("enqueue and schedule only — you press upload") and which is
+ * also what makes it safe to run unattended: a bad render cannot reach a
+ * channel. It also declines to move an episode that is already public or
+ * already scheduled, so re-rendering never disturbs a date you have set.
+ *
+ * Best-effort by construction. A render that produced a good video must not be
+ * reported as failed because a schedule could not be written, so every outcome
+ * — including "no plan yet" — is a line in the job log, not an error.
+ */
+async function autoScheduleFinishedEpisode(
+  job: Job, project_slug: string, code: string,
+): Promise<void> {
+  try {
+    const pm = await import('../services/project-manager.js')
+    const config = (await pm.getConfig(project_slug)) as any
+    // Off unless the channel says otherwise — publishing cadence is the
+    // owner's, and a schedule appearing on its own would be a surprise.
+    if (config?.auto_schedule_on_render !== true) return
+
+    const { scheduleEpisodeWithActivePlan } = await import('../services/episode-autoschedule.js')
+    const result = await scheduleEpisodeWithActivePlan(project_slug, code, 'youtube')
+    if (result.scheduled) {
+      job.output_lines.push(
+        `Scheduled for ${result.publish_at} by plan "${result.plan_name}". `
+        + 'Nothing has been sent to YouTube — upload it from Upload Center when you are ready.',
+      )
+    } else if (result.reason) {
+      job.output_lines.push(`Not scheduled: ${result.reason}`)
+    }
+  } catch (e: any) {
+    job.output_lines.push(`Could not write a publish time (${e?.message || e}) — the video is fine.`)
+  }
+}
+
 async function verifyFinalVideo(job: Job, outputPath: string, finalName: string): Promise<void> {
   const valid = path.basename(outputPath) === finalName && fileExistsNonEmpty(outputPath)
   requireJobCompletion(job, {
@@ -1607,6 +1652,8 @@ export async function generateVideo(job: Job): Promise<void> {
         episodeStatusCache.invalidate(project_slug, code)
       } catch { /* best-effort */ }
 
+      await autoScheduleFinishedEpisode(job, project_slug, code)
+
       succeeded = true
       return  // skip the standard scene-clip pipeline below
     }
@@ -2369,6 +2416,8 @@ export async function generateVideo(job: Job): Promise<void> {
       const { episodeStatusCache } = await import('../services/episode-status-cache.js')
       episodeStatusCache.invalidate(project_slug, code)
     } catch { /* best-effort — not worth failing the job over */ }
+
+    await autoScheduleFinishedEpisode(job, project_slug, code)
 
     succeeded = true
 
