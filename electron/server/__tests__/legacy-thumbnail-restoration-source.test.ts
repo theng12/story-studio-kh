@@ -140,6 +140,7 @@ const ESTABLISHED_THREE_PREVIEW_FAMILIES = [
   'documentary-label-tableau',
   'archival-map-investigation',
 ] as const
+const CENTERED_HERO_CUSTOM_ID = 'centered-hero-headline-custom'
 const forbiddenRuntimeMetadata = /\/Users\/|\bprovider\b|model_id|\bprice\b|\bdiscount\b|GenStudio/i
 
 function sha256(bytes: Uint8Array): string {
@@ -148,6 +149,28 @@ function sha256(bytes: Uint8Array): string {
 
 async function readJson(file: string): Promise<Record<string, unknown>> {
   return JSON.parse(await fs.readFile(file, 'utf8')) as Record<string, unknown>
+}
+
+async function sourceJsonFiles(root: string): Promise<string[]> {
+  const files: string[] = []
+  for (const entry of await fs.readdir(root, { withFileTypes: true })) {
+    const candidate = path.join(root, entry.name)
+    if (entry.isDirectory()) {
+      files.push(...await sourceJsonFiles(candidate))
+    } else if (entry.isFile() && entry.name === 'pack.json') {
+      files.push(candidate)
+    } else if (entry.isFile() && path.basename(root) === 'content' && entry.name.endsWith('.json')) {
+      files.push(candidate)
+    }
+  }
+  return files
+}
+
+function stringValues(value: unknown): string[] {
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) return value.flatMap(stringValues)
+  if (!value || typeof value !== 'object') return []
+  return Object.values(value as Record<string, unknown>).flatMap(stringValues)
 }
 
 async function assertPack(root: string, packId: string, sku: string, family: string) {
@@ -440,4 +463,22 @@ test('Restoration runtime documents retain no owner paths or commercial/provider
     readJson(path.join(DREAMLIKE_STYLE_ROOT, 'content', 'visual-style.json')),
   ])
   assert.doesNotMatch(JSON.stringify(runtimeDocuments), forbiddenRuntimeMetadata)
+})
+
+test('centered 94px headline custom remains outside signed source and authoring identities', async () => {
+  const registry = await readJson(path.join(ROOT, 'content-packs', 'authoring-registry.json'))
+  const sourceDocuments = await Promise.all(
+    (await sourceJsonFiles(path.join(ROOT, 'content-packs'))).map(readJson),
+  )
+
+  assert.equal(
+    sourceDocuments.flatMap(stringValues).some(value => value.includes(CENTERED_HERO_CUSTOM_ID)),
+    false,
+    'a user-fork identity must not become a signed source product ID, family, or SKU',
+  )
+  assert.equal(
+    stringValues(registry).some(value => value.includes(CENTERED_HERO_CUSTOM_ID)),
+    false,
+    'a user-fork identity must not enter the authoring registry as a pack, item, family, or SKU',
+  )
 })
