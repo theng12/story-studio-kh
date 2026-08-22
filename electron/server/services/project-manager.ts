@@ -1214,6 +1214,21 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     // so old projects without the field keep working without migration.
     category_id: typeof (config as any).category_id === 'number'
       ? (config as any).category_id : undefined,
+    // v1.4.29 — the channel's publishing rhythm and the switch that gives each
+    // finished episode a publish time.
+    //
+    // BOTH WERE WRITE-ONLY UNTIL NOW, and that is worse than it sounds. This
+    // function returns an explicit whitelist; `updateConfig` passes unknown
+    // keys through. So 1.4.20's cadence panel SAVED correctly and then read
+    // back nothing — it showed an empty form every time it was opened, however
+    // carefully the owner had filled it in. If he then pressed Save on that
+    // blank form for any reason, it overwrote the real cadence with defaults
+    // and silently switched auto-scheduling off.
+    //
+    // Found because he asked "do i need to tick somewhere?" and the honest
+    // answer required reading the setting back, which nothing could do.
+    publish_cadence: (config as any).publish_cadence,
+    auto_schedule_on_render: (config as any).auto_schedule_on_render === true,
     // Fall back to defaults when the project was created before defaults
     // were seeded (keeps the Settings → Models tab populated for old projects).
     image_models: (config.image_models && Object.keys(config.image_models).length)
