@@ -30,6 +30,22 @@ export function runBootMigrations(): void {
     }
   })().catch(error => console.error('[boot] library migration failed:', error?.message || error)))
 
+  // v1.4.23 — apply the owner's episode-transcription concurrency.
+  //
+  // `job-queue.setSubtitleTranscribeConcurrency` has existed since the group
+  // was written and nothing outside a test has ever called it, so the limit
+  // sat at its hardcoded 50. Thirty episodes fired at once became ~350
+  // simultaneous requests and a third of them were refused for want of a free
+  // machine. Reading the setting here is what makes the number the owner's
+  // rather than the code's.
+  tasks.push((async () => {
+    const { getSubtitleEpisodeConcurrency } = await import('../services/app-settings.js')
+    const { setSubtitleTranscribeConcurrency } = await import('../services/job-queue.js')
+    const n = await getSubtitleEpisodeConcurrency()
+    setSubtitleTranscribeConcurrency(n)
+    console.log(`[boot] subtitle episodes running at once: ${n}`)
+  })().catch(error => console.error('[boot] subtitle concurrency load failed:', error?.message || error)))
+
   tasks.push((async () => {
     const { getAllDisabledEndpoints } = await import('../services/app-settings.js')
     const { setDisabledEndpoints } = await import('../lib/endpoint-pool.js')

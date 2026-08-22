@@ -135,6 +135,58 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
 // `voice_presets`/`voice_favourites` into these keys on first run after
 // upgrade. Per-project fields stay readable for older app builds.
 
+/**
+ * How many EPISODES may transcribe at the same time.
+ *
+ * WHY THIS EXISTS (v1.4.23). The owner fired thirty episodes of transcription
+ * in one go and watched a third of it fail. Measured on GenStudio afterwards:
+ * 231 transcriptions succeeded, 122 failed with SITE_PLACEMENT_EXHAUSTED, and
+ * peak concurrency hit 103. All thirty jobs were created in the same second
+ * and the failures clustered into three minutes as the fleet filled.
+ *
+ * His reading was right about the fix and inverted about the cause: the
+ * CHAPTERS inside an episode were already concurrent — `transcribePerChapter`
+ * runs a bounded pool ten wide, which is what makes a single episode fast and
+ * is exactly what he asked for. What was unbounded was EPISODES. The job
+ * queue's `subtitle_transcribe` group admitted fifty at once, so thirty
+ * episodes times roughly eleven chapters arrived as one wave of ~350 requests.
+ *
+ * DEFAULT 2, not 50. Two episodes at ten chapters each is about twenty
+ * requests in flight — comfortably inside what the fleet absorbed — while each
+ * episode still transcribes all its chapters simultaneously, which is the part
+ * that determines how long any ONE episode takes. Queueing episodes costs
+ * nothing a customer can perceive; flooding the fleet costs a third of them.
+ *
+ * It is a setting rather than a constant because the right number is a
+ * property of the owner's fleet on the day, not of this code. `job-queue.ts`
+ * has carried `setSubtitleTranscribeConcurrency` since it was written and
+ * nothing outside a test has ever called it — the knob existed, unreachable,
+ * pinned at 50.
+ */
+export const SUBTITLE_EPISODE_CONCURRENCY_KEY = 'subtitle_episode_concurrency'
+export const SUBTITLE_EPISODE_CONCURRENCY_DEFAULT = 2
+
+export async function getSubtitleEpisodeConcurrency(): Promise<number> {
+  const raw = await getAppSetting(SUBTITLE_EPISODE_CONCURRENCY_KEY)
+  const n = Math.floor(Number(raw))
+  // An absent or unusable value is the default, never 50: the whole point is
+  // that nobody inherits the flood by accident.
+  if (!Number.isFinite(n) || n < 1) return SUBTITLE_EPISODE_CONCURRENCY_DEFAULT
+  return Math.min(50, n)
+}
+
+export async function setSubtitleEpisodeConcurrency(value: unknown): Promise<number> {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 1 || n > 50) {
+    throw Object.assign(
+      new Error('Episodes transcribing at once must be a whole number between 1 and 50.'),
+      { statusCode: 400, expose: true },
+    )
+  }
+  await setAppSetting(SUBTITLE_EPISODE_CONCURRENCY_KEY, n)
+  return n
+}
+
 export const VOICE_PRESETS_KEY = 'voice_presets'
 export const VOICE_FAVOURITES_KEY = 'voice_favourites'
 

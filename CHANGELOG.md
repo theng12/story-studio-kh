@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.23 — 2026-08-22
+
+- **Thirty episodes at once flooded your own fleet, and a third of the work was refused.** You started thirty transcriptions together and watched many fail. Checking GenStudio afterwards: **231 transcriptions succeeded and 122 were refused** because no machine was free, with 103 running at the peak. Every job started in the same second and the refusals landed in a three-minute window as the fleet filled up.
+- **You were right about the fix and the cause was the other way round.** The chapters inside an episode were *already* running side by side, ten at a time — that is what makes a single episode fast, and it is exactly what you asked for. What was unlimited was **episodes**: the queue let fifty start at once, so thirty episodes of about eleven chapters each arrived as one wave of roughly 350 requests.
+- **Episodes now queue; chapters still run side by side.** Two episodes at a time by default, each still transcribing all its chapters simultaneously. That is about twenty requests in flight instead of a hundred — and a single episode takes exactly as long as it did before, because the part that decides that has not changed.
+- **The number is yours.** It sits in your app settings and can go from 1 to 50. If your fleet grows, raise it.
+- **The switch existed all along and nothing could reach it.** The queue has had a setting for this since it was written, and no part of the app outside a test ever called it — so it sat at fifty, unreachable. It is now read when Story Studio starts.
+- **Still to do, and it would have saved most of those 122:** when a chapter is refused because every machine is busy, it is given up on rather than waited for and retried. That is a separate change to the part that handles billing, so it is not in this release.
+
+---
+
 ## v1.4.22 — 2026-08-22
 
 - **The caption check was showing you an old answer, and that nearly cost you an hour.** You opened it on EP0051, saw captions that did not match the narration underneath them, and were about to re-transcribe. Your transcript was fine. What you were looking at was a check that had run before your last re-stitch — the subtitle files were rewritten at 14:23 and 14:32, after the run whose results were still on screen. Running it fresh gave captions matching the file exactly.
