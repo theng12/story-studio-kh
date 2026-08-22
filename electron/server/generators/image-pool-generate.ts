@@ -248,6 +248,13 @@ export async function generateImagePoolImages(job: Job): Promise<void> {
   itemLoop:
   for (const item of remaining) {
     if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+    // v1.4.35 — Pause is read here, before the next PAID submit. The loop had
+    // only ever read Cancel, so pressing Pause let it carry on buying images
+    // one after another until the pool finished. `throwIfPauseRequested` raises
+    // JobPausedError, which the queue settles as `paused` rather than `error`:
+    // images already accepted are allowed to finish and save, and Resume
+    // submits only what is still missing from disk.
+    jq.throwIfPauseRequested(job.job_id)
     // v1.4.34 — attempts for THIS item. Only a busy fleet earns another one;
     // every other outcome, good or bad, leaves this inner loop on the first
     // pass. Nothing here changes the shape of the run: an item that exhausts

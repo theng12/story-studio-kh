@@ -73,3 +73,35 @@ export function isFleetBusyFailure(error: unknown, modality?: string): boolean {
  * for longer than that.
  */
 export const FLEET_BUSY_RETRY_DELAYS_MS: readonly number[] = [30_000, 120_000, 300_000]
+
+/**
+ * v1.4.35 — sleep for `ms`, but stop early when `stop()` says to.
+ *
+ * WHY THIS IS SHARED. Five generators now wait minutes for a busy fleet, and
+ * the waits are the longest single stretch in the app where the owner is
+ * holding a button that has to work. Written per-generator it drifted
+ * immediately: three had a 2-second-sliced copy that honoured Cancel AND
+ * Pause, subtitles.ts had a bare `setTimeout` that honoured neither and slept
+ * out the full five minutes, and images.ts passed an AbortController that was
+ * only ever aborted on Cancel. Same wait, three different answers to "does
+ * Pause work".
+ *
+ * `stop` is a predicate rather than an AbortSignal on purpose. Pause is polled
+ * state on the job queue, not an event, and the generator that tried to model
+ * it as a signal is exactly the one that got it wrong.
+ *
+ * Returns rather than throws: the caller knows whether a stop means "fail this
+ * item as it fails today" or "raise JobPausedError", and that differs by
+ * generator. Deciding it here would flatten the distinction.
+ */
+export async function waitUnlessStopped(
+  ms: number,
+  stop: () => boolean,
+  sliceMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + ms
+  while (Date.now() < deadline) {
+    if (stop()) return
+    await new Promise(resolve => setTimeout(resolve, Math.min(sliceMs, deadline - Date.now())))
+  }
+}

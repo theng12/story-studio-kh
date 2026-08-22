@@ -33,7 +33,7 @@ import {
   IMAGE_ROUTE_RETRY_MAX_ATTEMPTS,
   imageRouteRetryDelayMs,
 } from '../services/image-route-retry.js'
-import { isFleetBusyFailure, FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
+import { isFleetBusyFailure, FLEET_BUSY_RETRY_DELAYS_MS, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
 import type { Character, JobItemAttempt } from '../models/types.js'
 import type { GenerateImagesRequest, Job, ImageModelConfig } from '../models/types.js'
 import { resolveConfiguredAspectRatio, resolveConfiguredOutputOption, resolveImageModelConfig } from '../services/image-model-resolver.js'
@@ -935,7 +935,22 @@ export async function generateImages(job: Job): Promise<void> {
             // precisely because a crash between the wait and the resubmission
             // must not turn one retry into two charges.
             attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt)
-            await delayUnlessAborted(waitMs, cancelController.signal)
+            // v1.4.35 — the fleet-busy wait now ends on Pause too. Both
+            // schedules used to share `cancelController`, which the 500ms
+            // watcher aborts on CANCEL ONLY, so a Pause pressed mid-wait slept
+            // out the remaining time (up to five minutes) before the gate below
+            // saw it. Branching here rather than widening that controller keeps
+            // the ROUTE-exhaustion path byte-identical: it has never checked
+            // pause, and waking it early would turn its paced retry into an
+            // immediate one.
+            if (fleetBusy) {
+              await waitUnlessStopped(
+                waitMs,
+                () => jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id),
+              )
+            } else {
+              await delayUnlessAborted(waitMs, cancelController.signal)
+            }
             if (jq.isCancelled(job.job_id)) {
               job.output_lines.push('  Cancelled.')
               return
@@ -1093,7 +1108,22 @@ export async function generateImages(job: Job): Promise<void> {
               + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attemptNum + 1} of ${maxAttempts}).`,
             )
             attempt = deriveRouteRetryAttempt(attempt, e.jobId || acceptedTaskId, finalPrompt)
-            await delayUnlessAborted(waitMs, cancelController.signal)
+            // v1.4.35 — the fleet-busy wait now ends on Pause too. Both
+            // schedules used to share `cancelController`, which the 500ms
+            // watcher aborts on CANCEL ONLY, so a Pause pressed mid-wait slept
+            // out the remaining time (up to five minutes) before the gate below
+            // saw it. Branching here rather than widening that controller keeps
+            // the ROUTE-exhaustion path byte-identical: it has never checked
+            // pause, and waking it early would turn its paced retry into an
+            // immediate one.
+            if (fleetBusy) {
+              await waitUnlessStopped(
+                waitMs,
+                () => jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id),
+              )
+            } else {
+              await delayUnlessAborted(waitMs, cancelController.signal)
+            }
             if (jq.isCancelled(job.job_id)) {
               job.output_lines.push('  Cancelled.')
               return
@@ -1125,9 +1155,22 @@ export async function generateImages(job: Job): Promise<void> {
    *  work they already aborted — in-flight provider calls can't be
    *  interrupted but at least we won't start new ones.
    *
+   *  v1.4.35 — and as soon as it is PAUSED, which it did not do before. This
+   *  pool read Cancel and nothing else, so pressing Pause on an image batch
+   *  stopped nothing: the workers went on buying every remaining scene and
+   *  thumbnail to the end of the run. Pause now stops new items exactly the way
+   *  Cancel does, and for the same reason — an in-flight provider call cannot
+   *  be interrupted and its result has already been paid for, so it is allowed
+   *  to finish and save rather than being thrown away. What separates the two
+   *  is what happens afterwards: see the `throwIfPauseRequested` below, which
+   *  settles the job as `paused` instead of `error`.
    */
   async function runPool<T>(items: T[], worker: (item: T) => Promise<void>) {
     const isCancelled = () => jq.isCancelled(job.job_id)
+    // Both mean "start nothing new". Named apart from `isCancelled` because the
+    // two diverge after the pool drains, and conflating them there is what
+    // would turn a deliberate Pause into a failed job.
+    const shouldStopStarting = () => isCancelled() || jq.isPauseRequested(job.job_id)
     let cursor = 0
     let active = 0
     let launched = 0
@@ -1146,7 +1189,7 @@ export async function generateImages(job: Job): Promise<void> {
     let resolveAll!: () => void
     const allWorkersDone = new Promise<void>(resolve => { resolveAll = resolve })
     const maybeFinish = () => {
-      if (!settled && (isCancelled() || ((fatalError || cursor >= items.length) && active === 0))) {
+      if (!settled && (shouldStopStarting() || ((fatalError || cursor >= items.length) && active === 0))) {
         settled = true
         resolveAll()
       }
@@ -1154,7 +1197,7 @@ export async function generateImages(job: Job): Promise<void> {
 
     async function next(): Promise<void> {
       while (cursor < items.length) {
-        if (isCancelled() || fatalError) return
+        if (shouldStopStarting() || fatalError) return
         const i = cursor++
         try {
           await worker(items[i]!)
@@ -1176,7 +1219,7 @@ export async function generateImages(job: Job): Promise<void> {
     }
 
     const ensureWorkers = () => {
-      if (cursor >= items.length || isCancelled() || fatalError) return
+      if (cursor >= items.length || shouldStopStarting() || fatalError) return
       const want = Math.min(maxWorkers, items.length - cursor + active)
       while (active < want) spawnWorker()
     }
@@ -1210,6 +1253,9 @@ export async function generateImages(job: Job): Promise<void> {
         publishProgress()
         for (const scene of filteredScenes) {
           if (jq.isCancelled(job.job_id)) break
+          // v1.4.35 — chain mode is the serial path and had the same gap as the
+          // pool: Cancel stopped it, Pause did not.
+          if (jq.isPauseRequested(job.job_id)) break
           await runScene(scene)
         }
       } else {
@@ -1234,6 +1280,22 @@ export async function generateImages(job: Job): Promise<void> {
   } finally {
     clearInterval(cancelWatcher)
   }
+
+  // v1.4.35 — a paused run stops HERE, before the completion audit below.
+  //
+  // Without this, everything above would work and the owner would still be
+  // told his job FAILED: the pool stops early on Pause, so the images he
+  // deliberately did not buy are missing from disk, and `requireJobCompletion`
+  // reports missing items by throwing — which the queue turns into `error`.
+  // Being punished for pressing Pause is not better than Pause doing nothing;
+  // it is worse, because it looks like a bug in the run.
+  //
+  // `throwIfPauseRequested` raises JobPausedError, which the queue settles as
+  // `paused`: accepted provider work was allowed to finish and save, and Resume
+  // submits only what is still missing on disk. Placed after the `finally` so
+  // the cancel watcher is always cleared first, and before the audit so the
+  // audit never sees a deliberately short run.
+  jq.throwIfPauseRequested(job.job_id)
 
   // Partial-failure semantics: if ANY item failed, the job must not be
   // stamped "done" — otherwise the UI shows a green success toast while

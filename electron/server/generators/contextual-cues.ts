@@ -10,7 +10,7 @@ import { existsSync } from 'fs'
 import { callAi, sanitizeJsonControlChars } from '../lib/ai-client.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { getConfig } from '../services/project-manager.js'
-import { checkpointJobState, isCancelled, isPauseRequested } from '../services/job-queue.js'
+import { checkpointJobState, isCancelled, isPauseRequested, throwIfPauseRequested } from '../services/job-queue.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import {
   autoApproveEligibleCues,
@@ -58,10 +58,22 @@ function chunk<T>(items: T[], size: number): T[][] {
 const CONTEXTUAL_CUE_BACKPRESSURE_RETRIES = 2
 const CONTEXTUAL_CUE_BACKPRESSURE_COOLDOWN_MS = 15_000
 
+/**
+ * The short wait used for request pacing and for the backpressure cooldown.
+ *
+ * v1.4.35 — it now honours Pause as well as Cancel. It had only ever checked
+ * Cancel, so a Pause pressed during a pacing delay or a 15-second cooldown was
+ * ignored and the batch went on to submit a paid request anyway. Pause raises
+ * `JobPausedError`, which the job queue settles as `paused` — accepted provider
+ * work is allowed to finish and save, and Resume submits only what is still
+ * missing. Throwing a plain Error here instead would have marked the job
+ * FAILED for doing exactly what the owner asked.
+ */
 async function waitWhileActive(jobId: string, delayMs: number): Promise<void> {
   const deadline = Date.now() + delayMs
   while (Date.now() < deadline) {
     if (isCancelled(jobId)) throw new Error('Cancelled by user')
+    throwIfPauseRequested(jobId)
     await new Promise(resolve => setTimeout(resolve, Math.min(250, deadline - Date.now())))
   }
 }

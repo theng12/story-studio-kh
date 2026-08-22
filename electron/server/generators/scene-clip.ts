@@ -47,6 +47,7 @@ import {
   type GenStudioVideoVariant,
   type GenStudioVideoModel,
   type GenStudioVideoRequest,
+  isGenStudioInsufficientCredits,
 } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId } from '../services/genstudio-model-migration.js'
 import { FLEET_BUSY_RETRY_DELAYS_MS, isFleetBusyFailure } from '../lib/genstudio-fleet-busy.js'
@@ -632,11 +633,14 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
 
   const originalParams = job.params
   job.output_lines.push(`Motion Clips: ${ready.length} scene(s), processed in order to avoid provider bursts.`)
+  const clipFailures: string[] = []
   try {
     for (let index = 0; index < ready.length; index++) {
       if (jq.isCancelled(job.job_id)) throw new Error('Cancelled by user')
+      jq.throwIfPauseRequested(job.job_id)
       const scene = ready[index]!
       job.params = {
+        ...job.params,
         episode_id,
         scene_id: scene.id,
         model,
@@ -646,11 +650,56 @@ export async function generateSceneClipsBatchJob(job: Job): Promise<void> {
         resolution: params.resolution,
         auto_approve_clip: true,
       }
-      await generateSceneClipJob(job)
+      try {
+        await generateSceneClipJob(job)
+      } catch (error) {
+        // v1.4.35 — one refused clip no longer ends the episode's whole motion
+        // pass.
+        //
+        // This loop had NO per-scene catch, so a single failure on scene 3 of
+        // 50 threw out of the batch and the remaining 47 were never attempted —
+        // not failed, not reported, simply never tried. 1.4.31 made a busy
+        // fleet wait, which meant the batch survived a busy moment, but it
+        // still died outright on any other refusal. Every comparable generator
+        // in this app (images.ts, image-pool-generate.ts) records the item and
+        // carries on, and `auditSceneClipCompletion` below already names every
+        // missing clip — so continuing loses no information and gains 47 clips.
+        //
+        // Three things still stop the whole run, because continuing would be
+        // wrong for each: the owner cancelled, the owner paused, or the account
+        // is out of credits (every subsequent scene would fail identically and
+        // charge nothing but time).
+        if (error instanceof jq.JobPausedError || jq.isPauseRequested(job.job_id)) throw error
+        if (jq.isCancelled(job.job_id)) throw error
+        if (isGenStudioInsufficientCredits(error)) throw error
+        const reason = error instanceof Error ? error.message : String(error)
+        clipFailures.push(`${scene.id}: ${reason}`)
+        job.output_lines.push(`✗ ${scene.id} failed: ${reason}. Continuing with the remaining scene(s).`)
+      }
       job.progress = Math.round(((index + 1) / ready.length) * 100)
     }
   } finally {
-    job.params = originalParams
+    // v1.4.35 — carry the recovery checkpoint back out.
+    //
+    // `checkpointGenStudioAsset` writes `genstudio_recovery` onto whatever
+    // object `job.params` currently points at — which, inside this loop, is the
+    // per-scene object built above. Restoring `originalParams` wholesale threw
+    // every one of those checkpoints away, so batch-mode crash recovery lost
+    // the hints it is entirely made of. (It cost no money: the retry identity
+    // derives from the on-disk task manifest, which was always written
+    // correctly. It cost recovery quality.) The per-scene object now spreads
+    // the current params first, so the checkpoint accumulates across scenes,
+    // and it is handed back here rather than discarded.
+    const carried = (job.params as Record<string, unknown> | undefined)?.genstudio_recovery
+    job.params = carried
+      ? { ...originalParams, genstudio_recovery: carried }
+      : originalParams
+  }
+  if (clipFailures.length) {
+    job.output_lines.push(
+      `${clipFailures.length} of ${ready.length} clip(s) failed; the rest were generated. `
+      + 'Retry re-submits only what is still missing.',
+    )
   }
   const audit = await auditSceneClipCompletion(planPath, requiredIds, clipsDir)
   requireJobCompletion(job, {

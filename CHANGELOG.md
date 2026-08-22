@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.35 — 2026-08-23
+
+- **The Pause button now actually pauses.** It did not, in four places. On image batches it stopped nothing at all — the app carried on buying every remaining scene and thumbnail to the end of the run. On subtitles a Pause pressed during a wait was ignored for up to five minutes. Contextual Cues and Image Pool had the same gap.
+- **And a paused job now says "paused", not "failed".** This is the part that mattered. Once the app genuinely stops early, the pictures you chose not to buy are missing from disk — and its own final check treats missing files as a failure. So a working Pause would have punished you for pressing it. It now settles as paused, keeps everything already bought, and Resume buys only what is genuinely still missing.
+- **One refused clip no longer ends an episode's whole motion pass.** "Make every scene move" had no safety net around each scene, so a failure on scene 3 of 50 threw away the other 47 — never attempted, never reported. Each scene is now handled on its own and the run continues, naming what failed. Cancel, Pause, and running out of credits still stop everything, because carrying on would be wrong for each.
+- **Motion batches stop discarding their own crash-recovery notes.** They were being overwritten at the end of every run. It never cost money — the retry identity is read from disk — but recovery after a crash was working from nothing.
+
+---
+
 ## v1.4.34 — 2026-08-23
 
 - **Image Pool now waits when your machines are busy. That is all eight generators — the whole set is protected.**

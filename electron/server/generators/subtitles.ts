@@ -32,7 +32,7 @@ import { fileExistsWithContent } from '../lib/http-retry.js'
 import { hashInput, readManifest, recordTaskStrict } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import type { GenStudioTranscriptionRequest } from '../lib/genstudio-client.js'
-import { isFleetBusyFailure, FLEET_BUSY_RETRY_DELAYS_MS } from '../lib/genstudio-fleet-busy.js'
+import { isFleetBusyFailure, FLEET_BUSY_RETRY_DELAYS_MS, waitUnlessStopped } from '../lib/genstudio-fleet-busy.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import type { Job } from '../models/types.js'
 import { requireAudioAssemblyReady } from '../services/audio-workflow-readiness.js'
@@ -867,7 +867,16 @@ async function transcribePerChapter(
               + `Waiting ${Math.round(delay / 1000)}s and trying again `
               + `(attempt ${fleetBusyAttempt} of ${FLEET_BUSY_RETRY_DELAYS_MS.length}).`,
             )
-            await new Promise(resolve => setTimeout(resolve, delay))
+            // v1.4.35 — sliced, so a Cancel or Pause pressed four minutes into
+            // a five-minute wait is honoured within seconds. This was a bare
+            // setTimeout: the gate above ran BEFORE the sleep and nothing ran
+            // during it, so a Pause arriving mid-wait slept out the remaining
+            // time and then submitted anyway.
+            await waitUnlessStopped(
+              delay,
+              () => jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id),
+            )
+            if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id)) throw attemptError
             if (jq.isCancelled(job.job_id)) throw attemptError
             jq.throwIfPauseRequested(job.job_id)
             // A settled-failed identity cannot be replayed, so mint a new one.
