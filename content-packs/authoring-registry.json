@@ -1,5 +1,5 @@
 {
-  "revision": 3,
+  "revision": 4,
   "batches": [
     {
       "revision": 2,
@@ -198,6 +198,108 @@
               },
               "sku": {
                 "id": "com.storystudio.sku.style.dreamlike-luminous-sleep-illustration",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 4,
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "request": {
+        "expected_revision": 3,
+        "coordinator": {
+          "task": "legacy-thumbnail-restoration",
+          "branch": "codex/capi-psychology-components"
+        },
+        "proposal_ref": "owner-approved legacy thumbnail restoration successors, 2026-08-23",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+            "item_id": "com.storystudio.thumbnail.centered-hero-headline",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.centered-hero-headline",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.centered-hero-headline",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+            "item_id": "com.storystudio.thumbnail.portrait-block-right",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.portrait-block-right",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.portrait-block-right",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+            "item_id": "com.storystudio.thumbnail.dreamscape-story-window",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.dreamscape-story-window",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.dreamscape-story-window",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+            "item_id": "com.storystudio.thumbnail.prehistoric-discovery",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.prehistoric-discovery",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.prehistoric-discovery",
                 "status": "proposed"
               }
             }
@@ -1856,6 +1958,98 @@
         },
         "sku": {
           "id": "com.storystudio.sku.style.dreamlike-luminous-sleep-illustration",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+      "item_id": "com.storystudio.thumbnail.centered-hero-headline",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.centered-hero-headline",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.centered-hero-headline",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+      "item_id": "com.storystudio.thumbnail.portrait-block-right",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.portrait-block-right",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.portrait-block-right",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+      "item_id": "com.storystudio.thumbnail.dreamscape-story-window",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.dreamscape-story-window",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.dreamscape-story-window",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+      "item_id": "com.storystudio.thumbnail.prehistoric-discovery",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.prehistoric-discovery",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.prehistoric-discovery",
           "status": "proposed"
         }
       }
