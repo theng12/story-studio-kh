@@ -2183,6 +2183,8 @@ export const JOB_TYPES = [
   'image_pool_generate',
   /** v1.4.37 — top up a channel's music library from one style brief. */
   'music_generate',
+  /** v1.4.37 — assemble one music video from the library. Spends nothing. */
+  'music_video',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]

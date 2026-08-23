@@ -870,6 +870,9 @@ const queues: Record<JobType, QueueState> = {
   // on the critical path of an episode, so it must not compete with narration
   // audio for that lane's slots.
   music_generate: { pending: [], running: false, executor: null },
+  // Assembly is local FFmpeg work that buys nothing, so it shares no lane with
+  // anything that spends money and cannot be starved by a paid queue.
+  music_video: { pending: [], running: false, executor: null },
   metadata: { pending: [], running: false, executor: null },
   video: { pending: [], running: false, executor: null },
   video_assembly: { pending: [], running: false, executor: null },

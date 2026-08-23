@@ -1,0 +1,319 @@
+<!--
+  v1.4.37 — Music Library: a channel's record collection, and the page that
+  builds a music video from it.
+
+  NOT the music panel inside Audio Merge. That one manages the background bed
+  that ducks under narration — one track per episode. This is a library a
+  music-mix video is BUILT FROM, many tracks at a time. Both stay, per the
+  owner's ruling, because they are different jobs.
+
+  THE PAGE IS ORGANISED AROUND WHAT SPENDS MONEY. Exactly one action here buys
+  anything, and it says so and shows the cost first. Everything else — previewing
+  a mix, building the video — reads the library and buys nothing. That is the
+  same lesson as Repair vs Retry: a button that spends as a side effect of doing
+  something else is how the owner got charged twice before.
+-->
+<template>
+  <div>
+    <div class="page-header">
+      <Breadcrumb />
+      <h1 class="page-title">Music Library</h1>
+    </div>
+
+    <p class="text-muted mt-2 mb-2" style="font-size: 13px;">
+      Your channel's songs. Buy them once, use them in as many videos as you like —
+      building a video never costs anything. You can also drop audio files straight
+      into the folder in Finder and they appear here.
+    </p>
+
+    <!-- ── 1. The library ─────────────────────────────────────────── -->
+    <section class="card mt-3">
+      <div class="ml-head">
+        <h3>1. Your songs</h3>
+        <span v-if="library" class="text-muted text-sm">
+          {{ library.tracks.length }} track(s) ·
+          {{ formatMinutes(library.available_seconds) }} usable
+        </span>
+      </div>
+
+      <p v-if="library && !library.tracks.length" class="text-muted mt-2 text-sm">
+        Nothing here yet. Add songs below, or drop audio files into
+        <code>{{ library.folder }}</code>.
+      </p>
+
+      <div v-if="library && library.tracks.length" class="table-wrap mt-2">
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th><th>Length</th><th>Used</th><th>Last used</th><th>On</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="track in library.tracks" :key="track.filename">
+              <td>
+                <strong>{{ track.title }}</strong>
+                <small v-if="track.sibling_group" class="sib" title="Came from the same request as another track — the mix keeps them apart">
+                  take {{ track.sibling_index }}
+                </small>
+              </td>
+              <td class="num">{{ track.duration_sec ? formatClock(track.duration_sec) : '—' }}</td>
+              <td class="num">{{ track.times_used }}</td>
+              <td class="text-muted text-sm">{{ track.last_used_at ? formatDate(track.last_used_at) : 'never' }}</td>
+              <td>
+                <input
+                  type="checkbox"
+                  :checked="track.enabled"
+                  :aria-label="`Include ${track.title} in mixes`"
+                  @change="setEnabled(track, ($event.target as HTMLInputElement).checked)"
+                >
+              </td>
+              <td>
+                <button class="btn btn-sm" @click="remove(track)">Remove</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-if="unmeasured" class="warn mt-2">
+        {{ unmeasured }} track(s) have no measured length, so a mix will skip them.
+      </p>
+    </section>
+
+    <!-- ── 2. Top up — THE ONLY PAID ACTION ───────────────────────── -->
+    <section class="card mt-3">
+      <h3>2. Add songs <span class="cost-flag">costs credits</span></h3>
+      <p class="text-muted text-sm mt-1">
+        Describe the sound once. Each song gets its own instruction, so you don't
+        get twenty versions of the same thing. Every variation the model returns is kept.
+      </p>
+
+      <label class="ml-label mt-2">The sound of this channel</label>
+      <textarea
+        v-model="brief"
+        class="input"
+        rows="3"
+        placeholder="Warm lo-fi, rainy night, vinyl crackle, 80bpm"
+      ></textarea>
+
+      <div class="ml-row mt-2">
+        <label class="ml-label">
+          How many songs
+          <input v-model.number="count" type="number" min="1" max="100" class="input narrow">
+        </label>
+        <label class="ml-label check">
+          <input v-model="instrumental" type="checkbox">
+          Instrumental (no singing)
+        </label>
+      </div>
+
+      <p v-if="genError" class="error-box mt-2">{{ genError }}</p>
+
+      <div class="ml-actions mt-2">
+        <button class="btn btn-primary" :disabled="!brief.trim() || generating" @click="topUp">
+          {{ generating ? 'Starting…' : `Add ${count} song(s)` }}
+        </button>
+        <span class="text-muted text-sm">Runs as a job — watch it on the Jobs page.</span>
+      </div>
+    </section>
+
+    <!-- ── 3. Build a video — FREE ────────────────────────────────── -->
+    <section class="card mt-3">
+      <h3>3. Build a video <span class="free-flag">free</span></h3>
+      <p class="text-muted text-sm mt-1">
+        Picks from the songs you already own. Never buys anything — if the library
+        is too short it tells you rather than making a shorter video.
+      </p>
+
+      <div class="ml-row mt-2">
+        <label class="ml-label">
+          Episode
+          <input v-model="episodeId" class="input narrow" placeholder="EP0001">
+        </label>
+        <label class="ml-label">
+          Length (minutes)
+          <input v-model.number="targetMinutes" type="number" min="1" max="600" class="input narrow">
+        </label>
+        <label class="ml-label">
+          Gap between takes
+          <input v-model.number="siblingGap" type="number" min="0" max="50" class="input narrow">
+        </label>
+      </div>
+
+      <label class="ml-label mt-2">Background image or clip</label>
+      <input v-model="backgroundPath" class="input" placeholder="/path/to/background.png">
+
+      <div class="ml-actions mt-2">
+        <button class="btn" :disabled="previewing" @click="preview">
+          {{ previewing ? 'Checking…' : 'Preview the tracklist' }}
+        </button>
+        <button
+          class="btn btn-primary"
+          :disabled="!episodeId.trim() || !backgroundPath.trim() || rendering"
+          @click="render"
+        >
+          {{ rendering ? 'Starting…' : 'Build the video' }}
+        </button>
+      </div>
+
+      <p v-if="renderError" class="error-box mt-2">{{ renderError }}</p>
+
+      <div v-if="plan" class="preview mt-3">
+        <div class="ml-head">
+          <strong>{{ plan.entries.length }} track(s) · {{ formatMinutes(plan.total_sec) }}</strong>
+          <span v-if="plan.shortfall_sec > 0" class="warn-inline">
+            {{ formatMinutes(plan.shortfall_sec) }} short
+          </span>
+        </div>
+        <p v-for="(note, i) in plan.notes" :key="i" class="text-muted text-sm mt-1">{{ note }}</p>
+        <pre v-if="plan.tracklist" class="tracklist mt-2">{{ plan.tracklist }}</pre>
+      </div>
+    </section>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
+const slug = computed(() => String(route.params.slug || ''))
+const { get, post, patch, del } = useApi()
+const { success, error: showError } = useToast()
+
+interface LibraryTrack {
+  filename: string
+  title: string
+  enabled: boolean
+  duration_sec?: number
+  sibling_group?: string
+  sibling_index?: number
+  times_used: number
+  last_used_at: string | null
+}
+interface LibraryState { tracks: LibraryTrack[]; folder: string; available_seconds: number }
+interface MixPlan {
+  entries: { filename: string; title: string; start_sec: number; duration_sec: number }[]
+  total_sec: number
+  shortfall_sec: number
+  notes: string[]
+  tracklist: string
+}
+
+const library = ref<LibraryState | null>(null)
+const brief = ref('')
+const count = ref(10)
+const instrumental = ref(true)
+const generating = ref(false)
+const genError = ref('')
+
+const episodeId = ref('')
+const targetMinutes = ref(60)
+const siblingGap = ref(5)
+const backgroundPath = ref('')
+const plan = ref<MixPlan | null>(null)
+const previewing = ref(false)
+const rendering = ref(false)
+const renderError = ref('')
+
+const unmeasured = computed(() =>
+  (library.value?.tracks || []).filter(t => !t.duration_sec).length)
+
+function formatClock(seconds: number): string {
+  const s = Math.floor(seconds)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+function formatMinutes(seconds: number): string {
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}h ${String(minutes % 60).padStart(2, '0')}m`
+}
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString()
+}
+
+async function load() {
+  try { library.value = await get(`/projects/${slug.value}/music-library`) }
+  catch { /* an unreachable library must not break the page */ }
+}
+
+async function setEnabled(track: LibraryTrack, enabled: boolean) {
+  try { library.value = await patch(`/projects/${slug.value}/music-library/tracks/${encodeURIComponent(track.filename)}`, { enabled }) }
+  catch (e: any) { showError(e?.data?.detail || 'Could not update the track') }
+}
+
+async function remove(track: LibraryTrack) {
+  try {
+    library.value = await del(`/projects/${slug.value}/music-library/tracks/${encodeURIComponent(track.filename)}`)
+    success(`Removed ${track.title}`)
+  } catch (e: any) { showError(e?.data?.detail || 'Could not remove the track') }
+}
+
+async function topUp() {
+  generating.value = true
+  genError.value = ''
+  try {
+    await post(`/projects/${slug.value}/music-library/generate`, {
+      brief: brief.value, count: count.value, instrumental: instrumental.value,
+    })
+    success(`Adding ${count.value} song(s). Watch it on the Jobs page; the library fills as they arrive.`)
+  } catch (e: any) {
+    genError.value = e?.data?.detail || e?.message || 'Could not start the top-up'
+  } finally { generating.value = false }
+}
+
+async function preview() {
+  previewing.value = true
+  renderError.value = ''
+  try {
+    plan.value = await post(`/projects/${slug.value}/music-library/preview-mix`, {
+      target_seconds: targetMinutes.value * 60,
+      episode_id: episodeId.value || 'preview',
+      sibling_gap_tracks: siblingGap.value,
+    })
+  } catch (e: any) {
+    renderError.value = e?.data?.detail || 'Could not plan the mix'
+  } finally { previewing.value = false }
+}
+
+async function render() {
+  rendering.value = true
+  renderError.value = ''
+  try {
+    await post(`/projects/${slug.value}/music-library/render`, {
+      episode_id: episodeId.value,
+      target_seconds: targetMinutes.value * 60,
+      background_path: backgroundPath.value,
+      sibling_gap_tracks: siblingGap.value,
+    })
+    success(`Building the video for ${episodeId.value}. Nothing was charged.`)
+  } catch (e: any) {
+    renderError.value = e?.data?.detail || 'Could not start the video'
+  } finally { rendering.value = false }
+}
+
+onMounted(() => { void load() })
+</script>
+
+<style scoped>
+.ml-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ml-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; }
+.ml-label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.ml-label.check { flex-direction: row; align-items: center; gap: 6px; }
+.ml-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.input.narrow { width: 110px; }
+.table-wrap { overflow-x: auto; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.sib { margin-left: 6px; opacity: .65; font-size: 12px; }
+.cost-flag, .free-flag {
+  font-size: 12px; padding: 2px 8px; border-radius: 3px; margin-left: 8px; vertical-align: middle;
+}
+.cost-flag { background: rgba(220, 150, 60, .16); color: #c2803a; }
+.free-flag { background: rgba(80, 160, 120, .16); color: #3f8f68; }
+.warn, .warn-inline { color: #c2803a; font-size: 13px; }
+.tracklist {
+  white-space: pre-wrap; font-size: 13px; line-height: 1.6; max-height: 320px; overflow-y: auto;
+  padding: 12px; border-radius: 4px; background: rgba(127, 127, 127, .08);
+}
+.preview { border-top: 1px solid rgba(127, 127, 127, .25); padding-top: 12px; }
+</style>

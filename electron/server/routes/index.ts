@@ -34,6 +34,7 @@ import { router as contentPacksRouter } from './content-packs.js'
 import { router as contentStoreRouter } from './content-store.js'
 import { router as recencyRouter } from './recency.js'
 import { router as musicPoolRouter } from './music-pool.js'
+import { router as musicLibraryRouter } from './music-library.js'
 import { router as libraryRouter } from './library.js'
 import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
 import { router as imagePreviewRouter } from './image-preview.js'
@@ -88,6 +89,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', contentStoreRouter)
   app.use('/api', recencyRouter)
   app.use('/api', musicPoolRouter)
+  app.use('/api', musicLibraryRouter)
   app.use('/api', libraryRouter)
   app.use('/api', softDeletedProjectsRouter)
   app.use('/api', imagePreviewRouter)
