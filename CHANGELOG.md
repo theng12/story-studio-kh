@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.42 — 2026-08-23
+
+- **Saving the throughput settings told you nothing.** It also threw away the server's reply, so a number the server adjusted to fit a limit still showed as what you typed — you'd have walked away believing a value that wasn't real. It now reports what is actually in effect.
+- **Every throughput setting is a dropdown with the reasoning in it**, instead of a box you had to guess at. "Auto" was a magic word you could only use if someone told you it existed.
+- Each option says why: which number is recommended, which one overwhelmed the fleet last week, which one GenStudio itself accepts. Custom is still there on every field, and there's a "Use recommended" button to put everything back.
+
+---
+
 ## v1.4.41 — 2026-08-23
 
 - **Both throughput numbers are now yours, in Settings.** "Episodes making images at once" (3) and "Images per episode at once" (auto — follows what your account can actually run, and rises by itself as you add machines).

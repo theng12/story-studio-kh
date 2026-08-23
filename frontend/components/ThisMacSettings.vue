@@ -19,63 +19,35 @@
       </div>
 
       <div v-if="concurrencyLoaded" class="concurrency-fields">
-        <label>
-          <span>Episodes transcribing at once</span>
-          <input v-model.number="subtitleEpisodes" type="number" min="1" max="50" />
-          <small>
-            Each episode still transcribes all its chapters at the same time — this is how many
-            EPISODES start together. Thirty at once is what overwhelmed the fleet and lost a third
-            of the work.
-          </small>
-        </label>
-        <label>
-          <span>Writing jobs at once</span>
-          <input v-model.number="llmJobs" type="number" min="1" max="50" />
-          <small>
-            Ideas, outlines, chapters, metadata, image prompts and scene plans share this.
-            GenStudio itself accepts 12, so past that the queue just moves out of sight.
-          </small>
-        </label>
-        <label>
-          <span>Episodes making images at once</span>
-          <input v-model.number="imageEpisodes" type="number" min="1" max="50" />
-          <small>
-            Scene Review, Images, Thumbnails and Image Pool share this. It was effectively 1 until
-            1.4.39, which is why a big batch left most of your machines idle.
-          </small>
-        </label>
-        <label>
-          <span>Images per episode at once</span>
-          <input v-model="imageFanout" class="fanout-input" placeholder="auto" />
-          <small>
-            "auto" follows what GenStudio says your account can run, so it rises by itself as you
-            add machines. Type a number to override it either way.
-          </small>
-        </label>
-        <label>
-          <span>Extra chapters allowed</span>
-          <input v-model.number="outlineHeadroom" type="number" min="1" max="10" step="0.5" />
-          <small>
-            How far past the target an outline may go. 2 means up to double. An outline that
-            comes back longer is kept — a longer episode is more runtime — and it is never
-            allowed to come back SHORT. Set 1 to demand the exact number.
-          </small>
+        <label v-for="field in throughputFields" :key="field.key">
+          <span>{{ field.label }}</span>
+          <select :value="presetValueFor(field)" @change="onPreset(field, $event)">
+            <option v-for="choice in field.choices" :key="String(choice.value)" :value="String(choice.value)">
+              {{ choice.label }}
+            </option>
+            <option value="__custom">Custom…</option>
+          </select>
+          <input
+            v-if="presetValueFor(field) === '__custom'"
+            :value="String(models[field.key])"
+            class="custom-value"
+            :aria-label="`Custom value for ${field.label}`"
+            @input="onCustom(field, $event)"
+          />
+          <small>{{ field.help }}</small>
         </label>
       </div>
 
       <p v-if="concurrencyError" class="error-box">{{ concurrencyError }}</p>
+      <p v-if="concurrencySaved" class="saved-box">{{ concurrencySaved }}</p>
 
       <div class="concurrency-actions">
         <button class="btn btn-sm btn-primary" type="button" :disabled="concurrencySaving" @click="saveConcurrency">
           {{ concurrencySaving ? 'Saving…' : 'Save' }}
         </button>
-        <span v-if="concurrencyDefaults" class="hint">
-          Defaults: {{ concurrencyDefaults.subtitle_episode_concurrency }} episodes,
-          {{ concurrencyDefaults.llm_concurrency }} writing jobs,
-          {{ concurrencyDefaults.image_episode_concurrency }} image episodes,
-          {{ concurrencyDefaults.image_fanout_per_episode }} images per episode,
-          {{ concurrencyDefaults.outline_chapter_headroom }}× chapters.
-        </span>
+        <button class="btn btn-sm" type="button" :disabled="concurrencySaving" @click="restoreDefaults">
+          Use recommended
+        </button>
       </div>
     </section>
 
@@ -170,6 +142,7 @@
 </template>
 
 <script setup lang="ts">
+import { reactive } from 'vue'
 type ThemeChoice = 'light' | 'dark' | 'system'
 interface ProviderRow { providerId: string; hasKey: boolean; keyMasked: string }
 interface ContentStoreProbe { read_scope: 'verified'; purchase_scope: 'required_unverified' }
@@ -303,28 +276,148 @@ async function removeKey(): Promise<void> {
 const concurrencyLoaded = ref(false)
 const concurrencySaving = ref(false)
 const concurrencyError = ref('')
-const subtitleEpisodes = ref(2)
-const llmJobs = ref(8)
-const imageEpisodes = ref(3)
-const imageFanout = ref<string>('auto')
-const outlineHeadroom = ref(2)
-const concurrencyDefaults = ref<{
-  subtitle_episode_concurrency: number
-  llm_concurrency: number
-  image_episode_concurrency: number
-  image_fanout_per_episode: number | string
-  outline_chapter_headroom: number
-} | null>(null)
+/** What was ACTUALLY applied, echoed back from the route. */
+const concurrencySaved = ref('')
+
+/**
+ * v1.4.42 — every throughput number is a pick-list with a Custom escape.
+ *
+ * THE OWNER, on the first version: "i changed and saved. no update or feedback
+ * and also there's no dropdown for the auto so i won't know to use auto."
+ *
+ * Both were real. The save was silent — it discarded the route's response, so a
+ * value the server clamped looked exactly like one it accepted. And "auto" was
+ * a magic word you had to be told existed; a bare text box cannot teach it.
+ *
+ * The recommendations carry the reasoning that is otherwise only in a commit
+ * message: which number caused the flood, which left the fleet idle, which one
+ * GenStudio itself accepts.
+ */
+interface ThroughputChoice { value: string | number; label: string }
+interface ThroughputField {
+  key: 'subtitleEpisodes' | 'llmJobs' | 'imageEpisodes' | 'imageFanout' | 'outlineHeadroom'
+  label: string
+  help: string
+  choices: ThroughputChoice[]
+}
+
+const models = reactive<Record<ThroughputField['key'], string | number>>({
+  subtitleEpisodes: 2,
+  llmJobs: 8,
+  imageEpisodes: 3,
+  imageFanout: 'auto',
+  outlineHeadroom: 2,
+})
+
+const throughputFields: ThroughputField[] = [
+  {
+    key: 'subtitleEpisodes',
+    label: 'Episodes transcribing at once',
+    help: 'Each episode still transcribes all its chapters together — this is how many EPISODES '
+      + 'start at the same time. Thirty at once overwhelmed the fleet and lost a third of the work.',
+    choices: [
+      { value: 1, label: '1 — one at a time' },
+      { value: 2, label: '2 — recommended' },
+      { value: 3, label: '3' },
+      { value: 5, label: '5 — a large fleet' },
+      { value: 10, label: '10 — aggressive' },
+    ],
+  },
+  {
+    key: 'llmJobs',
+    label: 'Writing jobs at once',
+    help: 'Ideas, outlines, chapters, metadata, image prompts and scene plans share this. '
+      + 'GenStudio itself accepts 12, so past that the queue just moves out of sight.',
+    choices: [
+      { value: 4, label: '4 — cautious' },
+      { value: 8, label: '8 — recommended' },
+      { value: 12, label: '12 — what GenStudio accepts' },
+      { value: 20, label: '20' },
+    ],
+  },
+  {
+    key: 'imageEpisodes',
+    label: 'Episodes making images at once',
+    help: 'Scene Review, Thumbnails and Image Pool share this. It was effectively 1 until 1.4.39, '
+      + 'which is why a big batch left most of your machines idle.',
+    choices: [
+      { value: 1, label: '1 — one at a time' },
+      { value: 3, label: '3 — recommended' },
+      { value: 5, label: '5 — a large fleet' },
+      { value: 8, label: '8' },
+      { value: 12, label: '12 — aggressive' },
+    ],
+  },
+  {
+    key: 'imageFanout',
+    label: 'Images per episode at once',
+    help: 'Auto follows what GenStudio says your account can run, so it rises by itself as you add '
+      + 'machines. A number overrides it either way — higher is safe, since GenStudio queues the surplus.',
+    choices: [
+      { value: 'auto', label: 'Auto — follows your account (recommended)' },
+      { value: 25, label: '25 — gentle' },
+      { value: 50, label: '50 — the old fixed value' },
+      { value: 100, label: '100' },
+      { value: 200, label: '200' },
+    ],
+  },
+  {
+    key: 'outlineHeadroom',
+    label: 'Extra chapters allowed',
+    help: 'How far past the target an outline may go. A longer outline is kept — more runtime — and '
+      + 'it is never allowed to come back SHORT.',
+    choices: [
+      { value: 1, label: '1 — exactly the target' },
+      { value: 1.5, label: '1.5×' },
+      { value: 2, label: '2× — recommended' },
+      { value: 3, label: '3×' },
+    ],
+  },
+]
+
+/** The select shows a preset when the value matches one, otherwise "Custom…". */
+function presetValueFor(field: ThroughputField): string {
+  const current = String(models[field.key])
+  return field.choices.some(c => String(c.value) === current) ? current : '__custom'
+}
+
+function onPreset(field: ThroughputField, event: Event) {
+  const chosen = (event.target as HTMLSelectElement).value
+  concurrencySaved.value = ''
+  if (chosen === '__custom') {
+    // Seed the custom box with what is showing, so switching to Custom never
+    // blanks a value the owner has to retype.
+    models[field.key] = field.key === 'imageFanout' && models[field.key] === 'auto'
+      ? 128 : models[field.key]
+    return
+  }
+  models[field.key] = chosen === 'auto' ? 'auto' : Number(chosen)
+}
+
+function onCustom(field: ThroughputField, event: Event) {
+  const raw = (event.target as HTMLInputElement).value.trim()
+  concurrencySaved.value = ''
+  models[field.key] = field.key === 'imageFanout' && raw.toLowerCase() === 'auto'
+    ? 'auto' : (raw === '' ? '' : Number(raw))
+}
+
+function restoreDefaults() {
+  models.subtitleEpisodes = 2
+  models.llmJobs = 8
+  models.imageEpisodes = 3
+  models.imageFanout = 'auto'
+  models.outlineHeadroom = 2
+  concurrencySaved.value = ''
+}
 
 async function loadConcurrency() {
   try {
     const r: any = await get('/app-settings/concurrency')
-    subtitleEpisodes.value = r?.subtitle_episode_concurrency ?? 2
-    llmJobs.value = r?.llm_concurrency ?? 8
-    imageEpisodes.value = r?.image_episode_concurrency ?? 3
-    imageFanout.value = String(r?.image_fanout_per_episode ?? 'auto')
-    outlineHeadroom.value = r?.outline_chapter_headroom ?? 2
-    concurrencyDefaults.value = r?.defaults ?? null
+    models.subtitleEpisodes = r?.subtitle_episode_concurrency ?? 2
+    models.llmJobs = r?.llm_concurrency ?? 8
+    models.imageEpisodes = r?.image_episode_concurrency ?? 3
+    models.imageFanout = r?.image_fanout_per_episode ?? 'auto'
+    models.outlineHeadroom = r?.outline_chapter_headroom ?? 2
   } catch { /* an unreachable setting must not break the whole page */ }
   concurrencyLoaded.value = true
 }
@@ -332,17 +425,25 @@ async function loadConcurrency() {
 async function saveConcurrency() {
   concurrencySaving.value = true
   concurrencyError.value = ''
+  concurrencySaved.value = ''
   try {
-    await put('/app-settings/concurrency', {
-      subtitle_episode_concurrency: Number(subtitleEpisodes.value),
-      llm_concurrency: Number(llmJobs.value),
-      image_episode_concurrency: Number(imageEpisodes.value),
-      image_fanout_per_episode: imageFanout.value.trim().toLowerCase() === 'auto'
-        ? 'auto' : Number(imageFanout.value),
-      outline_chapter_headroom: Number(outlineHeadroom.value),
+    const applied: any = await put('/app-settings/concurrency', {
+      subtitle_episode_concurrency: Number(models.subtitleEpisodes),
+      llm_concurrency: Number(models.llmJobs),
+      image_episode_concurrency: Number(models.imageEpisodes),
+      image_fanout_per_episode: models.imageFanout === 'auto' ? 'auto' : Number(models.imageFanout),
+      outline_chapter_headroom: Number(models.outlineHeadroom),
     })
-    // The route applies these to the live queue as well as storing them, so
-    // the change takes effect on the next job rather than the next restart.
+    // Show what was ACTUALLY applied, not what was typed. The server clamps,
+    // and a clamped value that looks accepted is a lie the owner acts on.
+    if (applied?.subtitle_episode_concurrency !== undefined) models.subtitleEpisodes = applied.subtitle_episode_concurrency
+    if (applied?.llm_concurrency !== undefined) models.llmJobs = applied.llm_concurrency
+    if (applied?.image_episode_concurrency !== undefined) models.imageEpisodes = applied.image_episode_concurrency
+    if (applied?.image_fanout_per_episode !== undefined) models.imageFanout = applied.image_fanout_per_episode
+    if (applied?.outline_chapter_headroom !== undefined) models.outlineHeadroom = applied.outline_chapter_headroom
+    concurrencySaved.value = `Saved and already in effect: ${models.imageEpisodes} image episode(s) at once, `
+      + `${models.imageFanout === 'auto' ? 'auto' : models.imageFanout} images per episode, `
+      + `${models.subtitleEpisodes} transcribing, ${models.llmJobs} writing.`
   } catch (e: any) {
     concurrencyError.value = e?.data?.detail || e?.message || 'Could not save'
   } finally {
@@ -409,5 +510,12 @@ header p, .panel p { margin: 4px 0 0; color: var(--text-muted); font-size: 12px;
   .appearance { align-items: stretch; flex-direction: column; }
   .theme-picker { align-self: flex-start; }
   .field-row .btn { flex: 1 1 auto; }
+}
+
+.concurrency-fields select { width: 100%; }
+.custom-value { width: 100%; margin-top: 6px; }
+.saved-box {
+  margin-top: 8px; padding: 8px 12px; border-radius: 4px; font-size: 13px;
+  background: rgba(80, 160, 120, .14); color: #3f8f68;
 }
 </style>
