@@ -86,6 +86,9 @@ const STEP = {
   scenePlan:    { key: 'scene-plan',   label: 'Scene Plan',     icon: '📚', path: '/scene-plan', phase: 'video' },
   contextualCues: { key: 'contextual-cues', label: 'Contextual Cues', icon: '🏷️', path: '/contextual-cues', phase: 'video', optional: true },
   soundDesign: { key: 'sound-design', label: 'Sound Design', icon: '🎵', path: '/sound-design', phase: 'video', optional: true },
+  // v1.4.37 — the music library. `optional` because a scripted channel never
+  // touches it, and a music channel touches almost nothing else.
+  musicLibrary: { key: 'music', label: 'Music Library', icon: '🎼', path: '/music', phase: 'media', optional: true },
   sceneReview:  { key: 'scene-review', label: 'Scene Review',   icon: '✅', path: '/scene-review', phase: 'video' },
   motionReview: { key: 'motion-review', label: 'Motion Review', icon: '🎬', path: '/motion-review', phase: 'video', optional: true },
   videoAssembly:    { key: 'video-assembly',     label: 'Video Assembly',     icon: '🎞', path: '/video-assembly', phase: 'video' },

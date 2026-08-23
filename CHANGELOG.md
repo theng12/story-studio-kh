@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.38 — 2026-08-23
+
+- **Music channels.** A new "Music Mix" format and a Music Library page: buy songs once, then build as many long-form music videos from them as you like. Building a video never costs anything.
+- **Your library is a shelf, not a shopping list.** One request to the music model returns two complete songs for one charge, and both are kept. About ten requests buys an hour of music, so a two-hundred-song library costs roughly six dollars once — and after that the fiftieth video costs exactly what the second did: nothing.
+- **The page is organised around what spends money.** Exactly one section is marked "costs credits" and tells you how many songs you're ordering. Preview and Build are marked free, and Preview shows you the whole tracklist and runtime before you commit to anything.
+- **It never quietly buys or quietly shortens.** If your library is too short for the length you asked for, it says by how much and stops — it will not top itself up mid-build.
+- **Two songs from one request are kept apart in a mix.** They come from the same instruction, so they sound like cousins; back to back a listener hears one song looping.
+- **Fifty worlds to choose from, and they're data.** Add one, edit a scene, change the music styles — no code change needed. A two-hour video loops one still image, so it takes minutes to make rather than hours.
+
+---
+
 ## v1.4.37 — 2026-08-23
 
 - **Scene Plan now refuses a model that cannot return structured data, before it spends anything.** Four batches failed today on a DeepSeek model that publishes no structured-output support. Your system can only *ask* such a model for JSON and reject what comes back — so it answered properly for two chunks of forty scenes and wrote prose for the third. Two episodes stopped at exactly 80 of 111 and 80 of 113. That was never a size limit; it was where the luck ran out.
