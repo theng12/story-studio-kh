@@ -982,6 +982,7 @@ const SUBTITLE_TRANSCRIBE_GROUP = 'subtitle_transcribe'
  * twelve episodes and the number nobody set is the one that bites.
  */
 const IMAGE_EPISODE_GROUP = 'image_episode'
+const THUMBNAIL_EPISODE_GROUP = 'thumbnail_episode'
 const VIDEO_EPISODE_GROUP = 'video_episode'
 const AUDIO_EPISODE_GROUP = 'audio_episode'
 
@@ -1007,9 +1008,29 @@ const AUDIO_EPISODE_GROUP = 'audio_episode'
  * Local-only work (music_video, broll_normalize, video_assembly) is deliberately
  * absent: it is CPU on this Mac, not fleet capacity, and running three at once
  * would compete with the machine the owner is using.
+ *
+ * v1.4.49 — THUMBNAILS ARE THEIR OWN LANE, for the same reason audio is not in
+ * the image lane. The owner: "thumbnail usually is me using cloud api while
+ * for the scene review i'll usually use my local flux 2 klein. can we split
+ * the 2 so a 3 thumbnail generation doesn't block my local fleet?"
+ *
+ * He is right and the comment above already said why without going far enough:
+ * the test is whether two kinds of work compete for the SAME capacity. Three
+ * thumbnail episodes on a cloud API consumed the whole image budget and left
+ * forty-one local machines idle waiting for a slot they were never going to
+ * take. Separate lanes mean neither can starve the other.
+ *
+ * Split by JOB TYPE rather than by which model was chosen, deliberately: the
+ * lane a job sits in must be knowable when it is queued and must not change
+ * under it. If he ever renders thumbnails on the local fleet they get their own
+ * budget rather than sharing Scene Review's — a stated trade, and the reason
+ * both numbers are his to set.
  */
 const IMAGE_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
-  'thumb_images', 'image_pool_generate', 'continuity_render',
+  'image_pool_generate', 'continuity_render',
+])
+const THUMBNAIL_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
+  'thumb_images',
 ])
 const VIDEO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'video', 'scene_clip_generate', 'scene_clips_batch',
@@ -1018,9 +1039,10 @@ const AUDIO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'audio', 'music_generate',
 ])
 const FLEET_EPISODE_GROUPS: ReadonlySet<string> = new Set([
-  IMAGE_EPISODE_GROUP, VIDEO_EPISODE_GROUP, AUDIO_EPISODE_GROUP,
+  IMAGE_EPISODE_GROUP, THUMBNAIL_EPISODE_GROUP, VIDEO_EPISODE_GROUP, AUDIO_EPISODE_GROUP,
 ])
 function fleetEpisodeTypesFor(group: string): ReadonlySet<JobType> {
+  if (group === THUMBNAIL_EPISODE_GROUP) return THUMBNAIL_EPISODE_TYPES
   if (group === VIDEO_EPISODE_GROUP) return VIDEO_EPISODE_TYPES
   if (group === AUDIO_EPISODE_GROUP) return AUDIO_EPISODE_TYPES
   return IMAGE_EPISODE_TYPES
@@ -1042,6 +1064,7 @@ function groupOf(type: JobType, job?: Job): string {
   if (type === 'subtitles_transcribe') return SUBTITLE_TRANSCRIBE_GROUP
   if (usesLocalTextFleet(job)) return LOCAL_LLM_GROUP
   if (IMAGE_EPISODE_TYPES.has(type)) return IMAGE_EPISODE_GROUP
+  if (THUMBNAIL_EPISODE_TYPES.has(type)) return THUMBNAIL_EPISODE_GROUP
   if (VIDEO_EPISODE_TYPES.has(type)) return VIDEO_EPISODE_GROUP
   if (AUDIO_EPISODE_TYPES.has(type)) return AUDIO_EPISODE_GROUP
   return LLM_TYPES.has(type) ? LLM_GROUP : type
@@ -1054,6 +1077,13 @@ const groupActive: Record<string, number> = {}
 let llmConcurrency = 50
 let subtitleTranscribeConcurrency = 50
 let imageEpisodeConcurrency = 1
+/**
+ * Thumbnails have their own budget because they usually buy from a cloud API
+ * while Scene Review buys from the local fleet. Starts at 1 for the same
+ * reason as the image lane: a build that never applies the owner's setting is
+ * unchanged rather than surprising.
+ */
+let thumbnailEpisodeConcurrency = 1
 export function setLlmConcurrency(n: number): void {
   llmConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
 }
@@ -1080,6 +1110,14 @@ export function getImageEpisodeConcurrency(): number {
   return imageEpisodeConcurrency
 }
 
+export function setThumbnailEpisodeConcurrency(n: number): void {
+  thumbnailEpisodeConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
+  for (const t of fleetEpisodeTypesFor(THUMBNAIL_EPISODE_GROUP)) pump(t)
+}
+export function getThumbnailEpisodeConcurrency(): number {
+  return thumbnailEpisodeConcurrency
+}
+
 /**
  * The owner's explicit images-per-episode override, or 0 for "follow the
  * account". Held here beside the other live concurrency values so a generator
@@ -1100,6 +1138,7 @@ function groupLimit(group: string): number {
   // the machine queue and backpressure.
   if (group === LOCAL_LLM_GROUP) return Number.POSITIVE_INFINITY
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
+  if (group === THUMBNAIL_EPISODE_GROUP) return thumbnailEpisodeConcurrency
   if (FLEET_EPISODE_GROUPS.has(group)) return imageEpisodeConcurrency
   return 1
 }

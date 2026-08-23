@@ -52,16 +52,20 @@ describe('every kind of fleet work is pipelined, not just images', () => {
       return from.slice(0, from.indexOf('])'))
     }
     // v1.4.41 — `scene_images` and `images` went with the retired generator.
-    // The BULK image work that shares a budget is: Scene Review
-    // (`continuity_render`), the thumbnail generator, and the image pool.
+    // v1.4.49 — `thumb_images` moved to its OWN lane: it usually buys from a
+    // cloud API while Scene Review buys from the local fleet, so three
+    // thumbnail episodes must not consume the budget the fleet is waiting on.
     //
     // `scene_image_generate` is deliberately NOT here. It is Scene Review's
     // single-scene repair — one image — and it keeps its own lane so a repair
     // never queues behind three bulk renders. Sharing the budget would make the
     // cheapest, most interactive request wait for the most expensive ones.
-    for (const type of ['thumb_images', 'image_pool_generate', 'continuity_render']) {
+    for (const type of ['image_pool_generate', 'continuity_render']) {
       assert.ok(decl('const IMAGE_EPISODE_TYPES').includes(`'${type}'`), `${type} missing from image group`)
     }
+    assert.ok(!decl('const IMAGE_EPISODE_TYPES').includes("'thumb_images'"),
+      'thumbnails share no budget with the local fleet')
+    assert.ok(decl('const THUMBNAIL_EPISODE_TYPES').includes("'thumb_images'"))
     for (const type of ['video', 'scene_clip_generate', 'scene_clips_batch']) {
       assert.ok(decl('const VIDEO_EPISODE_TYPES').includes(`'${type}'`), `${type} missing from video group`)
     }
@@ -74,7 +78,7 @@ describe('every kind of fleet work is pipelined, not just images', () => {
     // A fifty-episode image batch must not block a single narration job behind
     // it. Audio and image do not compete for the same fleet capability.
     const body = await read('services/job-queue.ts')
-    assert.match(body, /const FLEET_EPISODE_GROUPS[\s\S]{0,200}?IMAGE_EPISODE_GROUP, VIDEO_EPISODE_GROUP, AUDIO_EPISODE_GROUP/)
+    assert.match(body, /const FLEET_EPISODE_GROUPS[\s\S]{0,200}?IMAGE_EPISODE_GROUP, THUMBNAIL_EPISODE_GROUP, VIDEO_EPISODE_GROUP, AUDIO_EPISODE_GROUP/)
     assert.match(body, /if \(FLEET_EPISODE_GROUPS\.has\(group\)\) return imageEpisodeConcurrency/,
       'one dial, applied per kind')
   })
@@ -96,6 +100,7 @@ describe('every kind of fleet work is pipelined, not just images', () => {
     // nobody set is the one that bites.
     const body = await read('services/job-queue.ts')
     assert.match(body, /if \(IMAGE_EPISODE_TYPES\.has\(type\)\) return IMAGE_EPISODE_GROUP/)
+    assert.match(body, /if \(THUMBNAIL_EPISODE_TYPES\.has\(type\)\) return THUMBNAIL_EPISODE_GROUP/)
     assert.match(body, /if \(VIDEO_EPISODE_TYPES\.has\(type\)\) return VIDEO_EPISODE_GROUP/)
     assert.match(body, /if \(AUDIO_EPISODE_TYPES\.has\(type\)\) return AUDIO_EPISODE_GROUP/)
   })
@@ -153,12 +158,82 @@ describe('the number is the owner\'s, not the code\'s', () => {
   test('it has a screen — the last two settings did not, and that was the bug', async () => {
     const panel = await readFile(
       path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
-    assert.match(panel, /Episodes making images at once/, 'the owner must be able to see the setting')
+    assert.match(panel, /Episodes making scene images at once/, 'the owner must be able to see the setting')
     // v1.4.44 — assert the LABEL and the request field, not the internal ref
     // name. The 1.4.42 panel rewrite moved these to one reactive object and
     // this assertion started matching a variable that no longer existed. The
     // setting still worked; only the copy of the source in the test was stale.
     assert.match(panel, /image_episode_concurrency: Number\(models\.imageEpisodes\)/,
       'and the screen must actually send it')
+  })
+})
+
+/**
+ * v1.4.49 — thumbnails are their own lane.
+ *
+ * The owner, looking at his own job list: "i just realized that thumbnail and
+ * scene review share the same lane. they shouldn't because thumbnail usually
+ * is me using cloud api while for the scene review i'll usually use my local
+ * flux 2 klein. can we split the 2 so a 3 thumbnail generation doesn't block
+ * my local fleet?"
+ *
+ * Right, and the 1.4.41 comment already contained the principle without going
+ * far enough: separate budgets exist because two kinds of work do not compete
+ * for the same capacity. Three thumbnail episodes on a cloud API consumed the
+ * whole image budget while forty-one local machines waited for a slot they
+ * were never going to take.
+ */
+describe('thumbnails do not spend the local fleet\'s budget', () => {
+  test('thumb_images is in its own group, not the image group', async () => {
+    const body = await read('services/job-queue.ts')
+    const decl = (marker: string) => {
+      const from = body.slice(body.indexOf(marker))
+      return from.slice(0, from.indexOf('])'))
+    }
+    assert.ok(decl('const THUMBNAIL_EPISODE_TYPES').includes("'thumb_images'"))
+    assert.ok(!decl('const IMAGE_EPISODE_TYPES').includes("'thumb_images'"))
+    // And Scene Review keeps the lane it needs.
+    assert.ok(decl('const IMAGE_EPISODE_TYPES').includes("'continuity_render'"))
+  })
+
+  test('it has its own budget, read before the shared fleet number', async () => {
+    const body = await read('services/job-queue.ts')
+    // Order matters: the thumbnail check must come FIRST, or the shared
+    // `FLEET_EPISODE_GROUPS` branch would answer for it and the split would be
+    // cosmetic.
+    assert.match(
+      body,
+      /if \(group === THUMBNAIL_EPISODE_GROUP\) return thumbnailEpisodeConcurrency\n\s*if \(FLEET_EPISODE_GROUPS\.has\(group\)\) return imageEpisodeConcurrency/,
+    )
+  })
+
+  test('a freed thumbnail slot pumps thumbnails, not scene renders', async () => {
+    const body = await read('services/job-queue.ts')
+    assert.match(body, /if \(group === THUMBNAIL_EPISODE_GROUP\) return THUMBNAIL_EPISODE_TYPES/)
+  })
+
+  test('the number is stored, applied at boot, routed, and on the screen', async () => {
+    const settings = await read('services/app-settings.ts')
+    assert.match(settings, /THUMBNAIL_EPISODE_CONCURRENCY_KEY = 'thumbnail_episode_concurrency'/)
+    assert.match(settings, /export async function setThumbnailEpisodeConcurrency/)
+    const boot = await read('boot/migrations.ts')
+    assert.match(boot, /setThumbnailEpisodeConcurrency\(thumbs\)/)
+    const route = await read('routes/app-settings.ts')
+    assert.match(route, /thumbnail_episode_concurrency: await getThumbnailEpisodeConcurrency\(\)/)
+    assert.match(route, /jq\.setThumbnailEpisodeConcurrency\(n\)/,
+      'storing it without applying it means the change does nothing until a restart')
+    const panel = await readFile(
+      path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
+    assert.match(panel, /Episodes making thumbnails at once/)
+    assert.match(panel, /thumbnail_episode_concurrency: Number\(models\.thumbnailEpisodes\)/)
+  })
+
+  test('the two lanes are described as separate on screen, not as one', async () => {
+    const panel = await readFile(
+      path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
+    // The old help text said "Scene Review, Thumbnails and Image Pool share
+    // this", which is now false and would send him to the wrong dial.
+    assert.ok(!panel.includes('Scene Review, Thumbnails and Image Pool share this'))
+    assert.match(panel, /Thumbnails have their own number below/)
   })
 })

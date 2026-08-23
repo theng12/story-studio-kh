@@ -355,6 +355,34 @@ export async function setImageEpisodeConcurrency(value: unknown): Promise<number
   return n
 }
 
+export const THUMBNAIL_EPISODE_CONCURRENCY_KEY = 'thumbnail_episode_concurrency'
+/**
+ * Thumbnails usually buy from a cloud API, not the local fleet, so this is a
+ * separate number from the image lane: three thumbnail episodes must not
+ * consume the budget that Scene Review needs. Three is the same starting point
+ * as images — busy, with headroom — and it is his to change.
+ */
+export const THUMBNAIL_EPISODE_CONCURRENCY_DEFAULT = 3
+
+export async function getThumbnailEpisodeConcurrency(): Promise<number> {
+  const raw = await getAppSetting(THUMBNAIL_EPISODE_CONCURRENCY_KEY)
+  const n = Math.floor(Number(raw))
+  if (!Number.isFinite(n) || n < 1) return THUMBNAIL_EPISODE_CONCURRENCY_DEFAULT
+  return Math.min(50, n)
+}
+
+export async function setThumbnailEpisodeConcurrency(value: unknown): Promise<number> {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 1 || n > 50) {
+    throw Object.assign(
+      new Error('Episodes making thumbnails at once must be a whole number between 1 and 50.'),
+      { statusCode: 400, expose: true },
+    )
+  }
+  await setAppSetting(THUMBNAIL_EPISODE_CONCURRENCY_KEY, n)
+  return n
+}
+
 export const OUTLINE_HEADROOM_KEY = 'outline_chapter_headroom'
 /** 2× the target. An 11-for-10 sails through; so does 20-for-10. */
 export const OUTLINE_HEADROOM_DEFAULT = 2

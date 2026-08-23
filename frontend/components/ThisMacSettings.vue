@@ -295,7 +295,7 @@ const concurrencySaved = ref('')
  */
 interface ThroughputChoice { value: string | number; label: string }
 interface ThroughputField {
-  key: 'subtitleEpisodes' | 'llmJobs' | 'imageEpisodes' | 'imageFanout' | 'outlineHeadroom'
+  key: 'subtitleEpisodes' | 'llmJobs' | 'imageEpisodes' | 'thumbnailEpisodes' | 'imageFanout' | 'outlineHeadroom'
   label: string
   help: string
   choices: ThroughputChoice[]
@@ -306,6 +306,7 @@ const models = reactive<Record<ThroughputField['key'], string | number>>({
   llmJobs: 8,
   imageEpisodes: 3,
   imageFanout: 'auto',
+  thumbnailEpisodes: 3,
   outlineHeadroom: 2,
 })
 
@@ -337,15 +338,29 @@ const throughputFields: ThroughputField[] = [
   },
   {
     key: 'imageEpisodes',
-    label: 'Episodes making images at once',
-    help: 'Scene Review, Thumbnails and Image Pool share this. It was effectively 1 until 1.4.39, '
-      + 'which is why a big batch left most of your machines idle.',
+    label: 'Episodes making scene images at once',
+    help: 'Scene Review and Image Pool share this — the work that runs on your own machines. '
+      + 'Thumbnails have their own number below, so a few cloud thumbnails can never hold up '
+      + 'your fleet.',
     choices: [
       { value: 1, label: '1 — one at a time' },
       { value: 3, label: '3 — recommended' },
       { value: 5, label: '5 — a large fleet' },
       { value: 8, label: '8' },
       { value: 12, label: '12 — aggressive' },
+    ],
+  },
+  {
+    key: 'thumbnailEpisodes',
+    label: 'Episodes making thumbnails at once',
+    help: 'Separate from scene images because thumbnails usually run on a cloud model while '
+      + 'Scene Review runs on your own machines. They no longer compete: raising this cannot '
+      + 'slow your fleet down, and a thumbnail batch cannot stall it.',
+    choices: [
+      { value: 1, label: '1 — one at a time' },
+      { value: 3, label: '3 — recommended' },
+      { value: 5, label: '5' },
+      { value: 8, label: '8 — a lot of cloud calls at once' },
     ],
   },
   {
@@ -406,6 +421,7 @@ function restoreDefaults() {
   models.llmJobs = 8
   models.imageEpisodes = 3
   models.imageFanout = 'auto'
+  models.thumbnailEpisodes = 3
   models.outlineHeadroom = 2
   concurrencySaved.value = ''
 }
@@ -417,6 +433,7 @@ async function loadConcurrency() {
     models.llmJobs = r?.llm_concurrency ?? 8
     models.imageEpisodes = r?.image_episode_concurrency ?? 3
     models.imageFanout = r?.image_fanout_per_episode ?? 'auto'
+    models.thumbnailEpisodes = r?.thumbnail_episode_concurrency ?? 3
     models.outlineHeadroom = r?.outline_chapter_headroom ?? 2
   } catch { /* an unreachable setting must not break the whole page */ }
   concurrencyLoaded.value = true
@@ -432,6 +449,7 @@ async function saveConcurrency() {
       llm_concurrency: Number(models.llmJobs),
       image_episode_concurrency: Number(models.imageEpisodes),
       image_fanout_per_episode: models.imageFanout === 'auto' ? 'auto' : Number(models.imageFanout),
+      thumbnail_episode_concurrency: Number(models.thumbnailEpisodes),
       outline_chapter_headroom: Number(models.outlineHeadroom),
     })
     // Show what was ACTUALLY applied, not what was typed. The server clamps,
@@ -440,6 +458,7 @@ async function saveConcurrency() {
     if (applied?.llm_concurrency !== undefined) models.llmJobs = applied.llm_concurrency
     if (applied?.image_episode_concurrency !== undefined) models.imageEpisodes = applied.image_episode_concurrency
     if (applied?.image_fanout_per_episode !== undefined) models.imageFanout = applied.image_fanout_per_episode
+    if (applied?.thumbnail_episode_concurrency !== undefined) models.thumbnailEpisodes = applied.thumbnail_episode_concurrency
     if (applied?.outline_chapter_headroom !== undefined) models.outlineHeadroom = applied.outline_chapter_headroom
     concurrencySaved.value = `Saved and already in effect: ${models.imageEpisodes} image episode(s) at once, `
       + `${models.imageFanout === 'auto' ? 'auto' : models.imageFanout} images per episode, `

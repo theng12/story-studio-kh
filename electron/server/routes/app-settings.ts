@@ -58,9 +58,10 @@ router.get('/app-settings/concurrency', async (_req, res) => {
   try {
     const {
       getSubtitleEpisodeConcurrency, getLlmConcurrency, getOutlineHeadroom,
-      getImageEpisodeConcurrency, getImageFanout,
+      getImageEpisodeConcurrency, getImageFanout, getThumbnailEpisodeConcurrency,
       SUBTITLE_EPISODE_CONCURRENCY_DEFAULT, LLM_CONCURRENCY_DEFAULT,
       OUTLINE_HEADROOM_DEFAULT, IMAGE_EPISODE_CONCURRENCY_DEFAULT,
+      THUMBNAIL_EPISODE_CONCURRENCY_DEFAULT,
     } = await import('../services/app-settings.js')
     res.json({
       subtitle_episode_concurrency: await getSubtitleEpisodeConcurrency(),
@@ -69,12 +70,14 @@ router.get('/app-settings/concurrency', async (_req, res) => {
       // reason the other two do: it is a number the owner may want different,
       // so it must have a route and a screen rather than living only in a file.
       image_episode_concurrency: await getImageEpisodeConcurrency(),
+      thumbnail_episode_concurrency: await getThumbnailEpisodeConcurrency(),
       image_fanout_per_episode: await getImageFanout(),
       outline_chapter_headroom: await getOutlineHeadroom(),
       defaults: {
         subtitle_episode_concurrency: SUBTITLE_EPISODE_CONCURRENCY_DEFAULT,
         llm_concurrency: LLM_CONCURRENCY_DEFAULT,
         image_episode_concurrency: IMAGE_EPISODE_CONCURRENCY_DEFAULT,
+        thumbnail_episode_concurrency: THUMBNAIL_EPISODE_CONCURRENCY_DEFAULT,
         image_fanout_per_episode: 'auto',
         outline_chapter_headroom: OUTLINE_HEADROOM_DEFAULT,
       },
@@ -108,6 +111,14 @@ router.put('/app-settings/concurrency', async (req, res) => {
       const n = await settings.setImageEpisodeConcurrency(req.body.image_episode_concurrency)
       jq.setImageEpisodeConcurrency(n)
       out.image_episode_concurrency = n
+    }
+    // A separate lane from the one above: thumbnails usually buy from a cloud
+    // API while Scene Review buys from the local fleet, so three thumbnail
+    // episodes must not consume the budget forty-one machines are waiting on.
+    if (req.body?.thumbnail_episode_concurrency !== undefined) {
+      const n = await settings.setThumbnailEpisodeConcurrency(req.body.thumbnail_episode_concurrency)
+      jq.setThumbnailEpisodeConcurrency(n)
+      out.thumbnail_episode_concurrency = n
     }
     if (req.body?.image_fanout_per_episode !== undefined) {
       const value = await settings.setImageFanout(req.body.image_fanout_per_episode)

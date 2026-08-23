@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.49 — 2026-08-24
+
+- **Thumbnails no longer hold up your fleet.** Thumbnails and Scene Review shared one budget, so three thumbnail episodes — which run on a cloud model — consumed the whole allowance while your local machines sat waiting for a slot they were never going to take. They are separate lanes now: neither can starve the other.
+- **Two numbers instead of one**, both in Settings. "Episodes making scene images at once" covers Scene Review and Image Pool — the work on your own machines. "Episodes making thumbnails at once" is its own dial, and raising it cannot slow your fleet down.
+- The split is by the kind of job, not by which model you happened to pick, so the lane a job sits in is settled when it is queued and never changes underneath it.
+
+---
+
 ## v1.4.48 — 2026-08-24
 
 - **Opening a large channel re-read the same two files hundreds of times.** Listing Capi's 302 episodes went back to disk for `ideas.json` (275 KB) and `project.json` once *per episode*, several times over — roughly 68 MB of the same JSON parsed to answer one request, for two files that cannot change while that request is being answered. That is where the seven-second first load went.
