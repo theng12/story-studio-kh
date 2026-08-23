@@ -1,15 +1,22 @@
 import assert from 'node:assert/strict'
 import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const REGISTRY_PATH = join(ROOT, 'content-packs', 'authoring-registry.json')
 const KIT_ROOT = join(ROOT, 'content-packs', 'symbolic-psychology-studio', 'kit', 'symbolic-psychology-studio')
-const CANDIDATE_LEDGER = '/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/evidence-ledger.json'
-const CANDIDATE_HANDOFFS = '/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/candidate-handoffs.json'
-const RECEIVER_HANDOFF = '/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/receiver-handoff.json'
+const EVIDENCE_ROOT = process.env.STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT
+if (EVIDENCE_ROOT && !isAbsolute(EVIDENCE_ROOT)) {
+  throw new Error('STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT must be an absolute path')
+}
+const CANDIDATE_LEDGER = EVIDENCE_ROOT ? join(EVIDENCE_ROOT, 'evidence-ledger.json') : undefined
+const CANDIDATE_HANDOFFS = EVIDENCE_ROOT ? join(EVIDENCE_ROOT, 'candidate-handoffs.json') : undefined
+const RECEIVER_HANDOFF = EVIDENCE_ROOT ? join(EVIDENCE_ROOT, 'receiver-handoff.json') : undefined
+const EVIDENCE_TEST = EVIDENCE_ROOT
+  ? {}
+  : { skip: 'Set STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT to an absolute artifact root to run external evidence assertions.' }
 
 const RECIPE_RECEIPT = 'authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa'
 const IMPASTO_RECEIPT = 'authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5'
@@ -86,7 +93,7 @@ test('kit closure: the coordinator is a pack-only exact six-node closure', async
   }
 })
 
-test('candidate summaries: each new candidate uses the minimal Story-owned v1 summary', async () => {
+test('evidence audit: each new candidate uses the minimal Story-owned v1 summary', EVIDENCE_TEST, async () => {
   const ledger = await readJson(CANDIDATE_LEDGER)
   const expected = new Map([
     [CLOSURE[2][0], { kind: 'thumbnail-recipe', slots: { 'thumbnail-recipe': 1 }, summary: 'Sparse single-subject psychology thumbnail grammar with an AI-rendered concise title.' }],
@@ -115,7 +122,7 @@ test('candidate summaries: each new candidate uses the minimal Story-owned v1 su
   }
 })
 
-test('candidate handoffs keep Recipe and Oil review-pending, Pastel and coordinator blocked, and the receiver non-mutating', async () => {
+test('evidence audit: Oil is stocking-ready while Recipe, Pastel, and Kit remain blocked', EVIDENCE_TEST, async () => {
   const handoffs = await readJson(CANDIDATE_HANDOFFS)
   const receiver = await readJson(RECEIVER_HANDOFF)
   const requiredFields = [
@@ -127,43 +134,71 @@ test('candidate handoffs keep Recipe and Oil review-pending, Pastel and coordina
     'safety', 'copy', 'commercial-boundary',
   ]
 
-  assert.equal(handoffs.status, 'candidate-built-review-pending')
+  assert.equal(handoffs.status, 'partial-review-complete-blocked')
   assert.equal(handoffs.handoffs.length, 4)
   for (const handoff of handoffs.handoffs) {
     assert.deepEqual(Object.keys(handoff).sort(), [...requiredFields].sort())
+    const isRecipe = handoff.identity.pack_id === CLOSURE[2][0]
     const isPastel = handoff.identity.pack_id === CLOSURE[3][0]
-    assert.equal(handoff.status, handoff.component === 'coordinator' || isPastel ? 'blocked' : 'candidate-built-review-pending')
+    const isOil = handoff.identity.pack_id === CLOSURE[5][0]
+    assert.equal(handoff.status, isOil ? 'ready-for-owner-stocking' : 'blocked')
     assert.deepEqual(Object.keys(handoff.review_requests), reviewNames)
     for (const reviewName of reviewNames) {
       const expected = reviewName === 'thumbnail' && handoff.component !== 'recipe'
+        || handoff.component === 'coordinator' && reviewName === 'visual'
         ? 'not_applicable'
-        : isPastel && reviewName === 'visual'
+        : isRecipe && ['originality/provenance', 'prompt-equivalence', 'visual', 'thumbnail'].includes(reviewName)
+          || isPastel && ['originality/provenance', 'prompt-equivalence', 'visual'].includes(reviewName)
+          || handoff.component === 'coordinator' && ['schema', 'compatibility', 'prompt-equivalence', 'safety'].includes(reviewName)
           ? 'blocked'
-          : handoff.component === 'coordinator' && reviewName === 'safety'
-            ? 'blocked'
-            : 'requested'
+          : 'passed'
       assert.equal(handoff.review_requests[reviewName].status, expected, `${handoff.identity.pack_id}: ${reviewName}`)
       if (expected === 'not_applicable') assert.ok(handoff.review_requests[reviewName].reason)
     }
-    assert.ok(handoff.blocked_by.some(blocker => blocker.status === 'review-pending'))
+    assert.equal(handoff.blocked_by.some(blocker => blocker.status === 'review-pending'), false)
+    if (isRecipe) {
+      assert.equal(handoff.source.candidate, null)
+      assert.ok(handoff.blocked_by.some(blocker => blocker.gate === 'gallery-diversity' && blocker.status === 'blocked'))
+    }
     if (isPastel) {
       assert.equal(handoff.source.candidate, null)
       assert.ok(handoff.blocked_by.some(blocker => blocker.gate === 'visual-preview' && blocker.status === 'blocked'))
     }
+    if (isOil) {
+      assert.match(handoff.source.candidate, /^archives\//)
+      assert.deepEqual(handoff.blocked_by, [])
+    }
     if (handoff.component === 'coordinator') {
+      assert.equal(handoff.source.candidate, null)
       assert.ok(handoff.blocked_by.some(blocker => blocker.gate === 'publisher-contract' && blocker.status === 'blocked'))
+      assert.ok(handoff.blocked_by.some(blocker => blocker.gate === 'blocked-dependency' && blocker.status === 'blocked'))
       assert.ok(handoff.blocked_by.some(blocker => blocker.gate === 'safety-compatibility' && blocker.status === 'blocked'))
       assert.match(handoff.intent, /commerce terms are undecided and not supplied/i)
       assert.doesNotMatch(handoff.intent, /\bfree\b|\bpaid\b|\bprice\b/i)
     }
   }
 
-  assert.equal(receiver.status, 'candidate-built-review-pending')
+  assert.equal(receiver.status, 'partial-review-complete-blocked')
   assert.notEqual(receiver.status, 'ready-for-owner-stocking')
+  assert.deepEqual(receiver.candidate_state, {
+    candidate_eligible: 1,
+    blocked: 3,
+    independent_reviews_complete: 9,
+    independent_reviews_requested: 9,
+  })
+  const oil = receiver.content_identities.find(candidate => candidate.pack_id === CLOSURE[5][0])
+  assert.equal(oil.candidate_status, 'ready-for-owner-stocking')
+  for (const blockedPack of [CLOSURE[2][0], CLOSURE[3][0], 'com.storystudio.pack.kit.symbolic-psychology-studio']) {
+    const candidate = receiver.content_identities.find(entry => entry.pack_id === blockedPack)
+    assert.equal(candidate.candidate_status, 'blocked')
+    assert.equal(candidate.archive_sha256, null)
+    assert.equal(candidate.archive_bytes, null)
+  }
   for (const excluded of [
     'upload', 'product draft creation', 'release draft creation', 'price decision', 'discount decision',
     'purchase', 'grant', 'production signing', 'publication', 'GenStudio mutation',
   ]) assert.ok(receiver.explicitly_not_done.includes(excluded), `receiver handoff must exclude ${excluded}`)
-  assert.ok(receiver.blocked_by.some(blocker => blocker.status === 'review-pending'))
+  assert.deepEqual(receiver.review_evidence.pending, [])
+  assert.equal(receiver.blocked_by.some(blocker => blocker.status === 'review-pending'), false)
   assert.ok(receiver.blocked_by.some(blocker => blocker.status === 'blocked-and-excluded' && blocker.component === 'Gothic Charcoal Animal Editorial'))
 })
