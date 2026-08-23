@@ -4,7 +4,7 @@
 
 **Goal:** Safely unblock the reviewed multi-Style Symbolic Psychology Studio contract, issue immutable Formula, Recipe, Pastel, and Kit successors, qualify local deterministic candidates, and leave stocking blocked until external preview, independent-review, and deployed-app gates are all true.
 
-**Architecture:** Preserve every issued `1.0.0` identity, source, archive, and review artifact as historical evidence. Extend the existing bundle-only manifest validator from exactly one Style to one-or-more ordered Styles, then add one explicit bundle-application transaction: the first ordered Style becomes the project's active default and every remaining exact Style is retained as a project-pinned alternative and resolved pin-first by exact owner/version/hash. Reserve receipt-bound `1.0.1` Formula, Recipe, and Pastel successors first; author Formula immediately, but keep Recipe/Pastel reserved until exact returned preview evidence passes review. Only then reserve and author a `1.0.1` Kit whose final closure pins all three qualified successors, build keyless candidates locally, and assemble—but never send—a receiver handoff.
+**Architecture:** Preserve every issued `1.0.0` identity, source, archive, and review artifact as historical evidence. Extend the existing bundle-only manifest validator from exactly one Style to one-or-more ordered Styles, then add one explicit bundle-application transaction: the first ordered Style becomes the project's active default and every remaining exact Style is retained as a project-pinned alternative. When such an owner pin exists, selection resolves it first by exact owner/version/hash and fails closed; when no pin exists, the nullable helper preserves the current legacy/local write. Reserve receipt-bound `1.0.1` Formula, Recipe, and Pastel successors first; author Formula immediately, but keep Recipe/Pastel reserved until exact returned preview evidence passes review. Only then reserve and author a `1.0.1` Kit whose final closure pins all three qualified successors, build keyless candidates locally, and assemble—but never send—a receiver handoff.
 
 **Tech Stack:** TypeScript, Zod, Node test runner, Content Pack archive/publisher tools, authoring-registry CAS/receipt CLI, SHA-256, sharp, GenStudio Store receipt-attested install fixtures.
 
@@ -23,12 +23,12 @@
 - Kit reservation is a later, separate CAS event. It may occur only after all three leaf successor receipts verify, Recipe/Pastel are authored and qualified, and the closure is final. Kit successor is expected at version `1.0.1`, in `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1/`, with this exact ordered closure: Formula `1.0.1`, Topic `1.0.0`, Recipe `1.0.1`, Pastel `1.0.1`, Impasto `1.0.0`, Oil `1.0.0`.
 - Bundle-only Channel Kits require exactly one Formula, at least one Topic, one-or-more Styles, and exactly one Recipe. Preserve exact component/dependency equality, order, unique component references, unique item IDs, external-only components, exact dependency use, namespace, archive, and signature/delivery safeguards.
 - Ordered Style semantics are structural: the first `visual-style` component is the active project default; the remaining exact Style components are installed and project-pinned alternatives. Persist every alternative's item owner and version, resolve that immutable installed version to its verified archive hash, and search these project pins before active discovery. Do not add `default_style_id`, copy Style documents into the Kit, or introduce a fifth creative schema.
-- Pin-first is fail-closed: once a project owns an item pin, a missing, recalled, corrupt, owner-mismatched, version-mismatched, or hash-mismatched pinned archive is an error. Never fall through to a newer active version. Preserve the existing conflict guard: changing a pinned pack version requires the explicit upgrade workflow.
+- Pin-first is conditional and fail-closed: only an existing `content_pack_items` owner pin invokes exact pack/version/hash resolution. For that pinned item, a missing, recalled, corrupt, owner-mismatched, version-mismatched, or hash-mismatched archive is an error and never falls through to a newer active version. With no owner pin, the project-preferred resolver returns `null`; current legacy/local config, niche, and topic writes continue without synthesizing a Content Pack pin. Preserve the existing conflict guard: changing a pinned pack version requires the explicit upgrade workflow.
 - Install/restore/checkout behavior remains exact-closure and fail-closed. A Kit apply is an explicit project action, never an install side effect, and it never silently upgrades an existing project pin.
 - Current application version is `1.4.31`. Multi-Style bundle-only archives must use the application release that first contains this support as their minimum version, expected `1.4.32`; a false `1.0.843` floor is forbidden because a `1.0.843` binary rejects this manifest. Formula `1.0.1`, whose schema is unchanged, may retain the truthful `1.0.843` floor.
 - Mandatory application release integrity: bump `package.json` and `package-lock.json` together, add the newest-first matching `CHANGELOG.md` entry, and pass `npm run check:changelog`. If the branch version is no longer `1.4.31` at execution time, stop and recompute the next patch and Kit minimum before building.
 - Keyless candidates use `genstudio-store-receipt-v1`, have no `key_id` or `signature.ed25519`, contain only strict JSON/permitted rasters, and remain at or below `52,428,800` bytes.
-- `component_summary` v1 appears only in the final local release handoff. It never enters source manifests, registry requests/records, archive manifests, historical rows, build ledgers, or review requests.
+- For this unblock wave, `component_summary` v1 is absent from every newly authored successor source/manifest, registry request/record, archive, build/candidate record, and structured review record; among fresh artifacts it appears only in the final local `release-handoff.json`. Grandfather the already-audited entries in the untouched Wave 1 historical `evidence-ledger.json`; do not remove, relocate, reinterpret, or backfill them. Fresh-artifact scans exclude the entire Wave 1 historical evidence root and separately prove that ledger's hash is unchanged.
 - Recipe and Pastel replacement generation remains Studio Hub/owner work. This control Mac may create reservation/expected-identity/test scaffolding that is not a discoverable Content Pack source, then checksum, decode, inspect, deterministically convert whole returned images, build, and validate after evidence returns. It may not copy replacement bytes into `1.0.0`, create incomplete `pack.json` source trees, generate, edit, submit, reserve capacity, spend, or infer missing prompt/quote/authority evidence.
 - No upload, product/release draft, product/release/account/wire identity, price/discount decision, purchase, grant, production signing, publication, deploy, tag, push, or GenStudio commerce mutation is authorized.
 - Oil remains independently candidate-ready. Do not deliver its receiver handoff until the evidence wording is reconciled and a fresh independent reviewer records a clean result.
@@ -40,8 +40,8 @@ The current architecture supports the required semantics with one small applicat
 1. `ContentPackBundleSchema.components` is ordered and already carries exact `pack_id`, `version`, `item_id`, and `kind` references.
 2. `content-store-delivery.ts` binds signed receipt positions to manifest dependency positions, recursively installs every exact dependency, verifies the whole immutable closure, and activates it atomically.
 3. `ProjectMeta` and config already represent one active `visual-style`; `content_pack_items` records item owner/kind and `content_pack_versions` records the exact owner version. Because same-version archive replacement is forbidden, resolving that owner/version from verified installed state supplies the immutable archive hash.
-4. The registry already searches `options.pins` before active discovery, but the project selection writers currently call `resolveCatalogItem(..., undefined, options)` before loading project pins. That gap would let a newer active Style win when selecting a Kit alternative.
-5. No production code currently consumes `manifest.bundles`; only schema/tests/publisher tooling do. Therefore the smallest missing application surface is one explicit project bundle-apply transaction plus one project-pin-first item resolver. Bundle apply exact-pins all creative components (including alternative Styles), selects the first Style, and reports the later ordered Styles as alternatives. Subsequent alternative selection resolves the project's owner/version/hash first and fails closed rather than falling back to active discovery.
+4. The registry already searches `options.pins` before active discovery, but the project selection writers currently call `resolveCatalogItem(..., undefined, options)` before loading an existing project pin. That gap would let a newer active Style win when selecting a Kit alternative. It does not justify converting unpinned legacy/local selections into catalog selections.
+5. No production code currently consumes `manifest.bundles`; only schema/tests/publisher tooling do. Therefore the smallest missing application surface is one explicit project bundle-apply transaction plus one nullable project-pin-first item resolver. Bundle apply exact-pins all creative components (including alternative Styles), selects the first Style, and reports the later ordered Styles as alternatives. Subsequent selection with an existing pin resolves the project's owner/version/hash first and fails closed; selection without a pin returns to the unchanged legacy/local write path.
 
 Do not auto-apply during purchase/install: the Store install route has no project context, and coupling install to project mutation would violate the existing transaction and pin boundaries.
 
@@ -66,7 +66,7 @@ Do not auto-apply during purchase/install: the Store install route has no projec
 | `electron/server/routes/content-packs.ts` | Explicit project bundle-apply endpoint; no Store purchase/install side effect |
 | `electron/server/__tests__/content-pack-contract.test.ts` | Multi-Style manifest acceptance and retained negative safeguards |
 | `scripts/content-packs/__tests__/publisher-tools.test.mjs` | Deterministic multi-Style bundle-only build/validate contract |
-| `electron/server/__tests__/content-pack-project-pins.test.ts` | Default Style, exact alternative pins, newer-active isolation, fail-closed conflicts |
+| `electron/server/__tests__/content-pack-project-pins.test.ts` | Default Style, exact alternative pins, newer-active isolation, fail-closed conflicts, and unchanged unpinned legacy/local writes |
 | `electron/server/__tests__/content-pack-installer.test.ts` | Exact dependency installation and minimum-app refusal |
 | `electron/server/__tests__/content-pack-recovery.test.ts` | Multi-Style recovery/boot verification |
 | `electron/server/__tests__/content-store-delivery-transaction.test.ts` | Receipt-position closure install/activation and failure rollback |
@@ -78,7 +78,7 @@ Do not auto-apply during purchase/install: the Store install route has no projec
 | `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1/` | Receipt-bound Pastel successor, created only after returned evidence qualifies |
 | `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1/pack.json` | Immutable six-node bundle-only Kit successor |
 | `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/source-scaffolds/` | Non-discoverable receipt-derived Recipe/Pastel source checklists; contains no `pack.json` or creative bytes |
-| `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/` | Existing Wave 1 evidence wording reconciled in place; historical bytes otherwise preserved |
+| `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/` | Historical root excluded from fresh-summary scans; wording is reconciled in two named JSON files while `evidence-ledger.json` and its audited summaries remain byte-identical |
 | `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/` | Fresh successor build evidence, blocked candidates, reviews, and final local-only receiver handoff |
 
 ---
@@ -88,6 +88,7 @@ Do not auto-apply during purchase/install: the Store install route has no projec
 **Files:**
 - Modify: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/candidate-handoffs.json`
 - Modify: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/review-requests.json`
+- Read and preserve byte-for-byte: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/evidence-ledger.json`
 - Modify: `scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs`
 - Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/evidence-reconciliation-review.md`
 
@@ -129,7 +130,7 @@ Change only contradictory prose:
 - Kit `golden_prompt_parity`: completed review is blocked by the Pastel mismatch and the Formula `1.0.0` diagnostic language; no review is pending.
 - Commercial-boundary acceptance: receiver must remain `partial-review-complete-blocked`, Oil may remain candidate-ready, and no receiver delivery or stocking mutation is authorized.
 
-Do not change hashes, archive paths, identities, counts, review results, Formula/Kit blockers, or the Oil readiness result.
+Do not change hashes, archive paths, identities, counts, review results, Formula/Kit blockers, or the Oil readiness result. Do not edit `evidence-ledger.json`: its existing audited `component_summary` entries are historical evidence, not violations by this successor wave.
 
 - [ ] **Step 4: Run both portability lanes**
 
@@ -143,7 +144,7 @@ Expected: no-env lane explicitly skips external assertions; explicit lane passes
 
 - [ ] **Step 5: Independent evidence review and commit**
 
-Have a fresh reviewer compare both JSON files, `receiver-handoff.json`, final rereview, and test assertions. Record `passed` only if every status and prose field agrees. Do not send or copy the Oil receiver handoff.
+Have a fresh reviewer compare both modified JSON files, `receiver-handoff.json`, the untouched `evidence-ledger.json`, final rereview, and test assertions. Record `passed` only if every status and prose field agrees and the evidence-ledger SHA-256 is identical before and after reconciliation. Do not send or copy the Oil receiver handoff.
 
 ```bash
 git add scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs \
@@ -169,7 +170,7 @@ External JSON is not a repository commit; record its SHA-256 before/after in the
 
 **Interfaces:**
 - Consumes: ordered `ContentPackBundleSchema.components`, project item-owner/version pins, and exact verified installed `ContentPackVersionRef` values.
-- Produces: `resolveProjectPreferredSelection(project, selection, options)`, `applyProjectContentBundle(slug, request, options)`, and a strict POST route that atomically pins Formula, Topics, every Style, and Recipe while activating only the first Style.
+- Produces: nullable `resolveProjectPreferredSelection(project, selection, options)`, `applyProjectContentBundle(slug, request, options)`, and a strict POST route that atomically pins Formula, Topics, every Style, and Recipe while activating only the first Style. A `null` project-preferred result preserves the caller's current unpinned legacy/local write.
 
 - [ ] **Step 1: Write RED manifest/publisher tests**
 
@@ -223,6 +224,8 @@ Test a project with the six exact installed components. Require:
 - bundle order, not name or current catalog default, determines the Style default.
 - after applying the Kit, installing/activating Style `1.0.2` does not change an alternative pinned at `1.0.1`: selection resolves the pinned owner/version to its original verified SHA and keeps `1.0.1`;
 - if pinned Style `1.0.1` becomes missing, recalled, corrupt, owner-mismatched, or hash-mismatched while `1.0.2` is active, selection fails with 409 and no project/config mutation; it never falls through to `1.0.2`.
+- for each existing config, niche, and topic selection path, a legacy/local item ID with no `content_pack_items` owner makes the project-preferred resolver return `null`, the current config/meta value is still written, and neither `content_pack_items` nor `content_pack_versions` gains a pin;
+- the same unpinned legacy/local tests remain unchanged even when an active catalog item with the same ID or a newer version exists: this helper does not silently adopt it, while explicit signed-catalog workflows keep their existing behavior outside this helper.
 
 Define the narrow interface:
 
@@ -254,19 +257,19 @@ async function resolveProjectPreferredSelection(
   project: ProjectMeta,
   selection: { id: string; kind: ContentPackItemKind },
   options: ContentPackProjectPinOptions,
-): Promise<SignedSelection>
+): Promise<SignedSelection | null>
 ```
 
 Resolution order is exact:
 
-1. inspect `project.content_pack_items[selection.id]` for the pinned owner and require its kind to match;
-2. read the owner's version from `project.content_pack_versions`; a pinned owner without a version is corrupt project state and fails 409;
-3. resolve that exact pack/version from verified installed/recovery state, obtaining its immutable `archive_sha256`;
-4. call `resolveCatalogItem(selection.id, exactRef, { ...options, pins: [exactRef, ...(options.pins ?? [])] })` and require item owner, version, kind, and returned archive hash to equal the exact ref;
-5. if any pinned fact cannot verify, throw `ContentPackMissingError`/409 and do not try active discovery;
-6. only when the project has no pin for this item may active discovery resolve a new explicit selection.
+1. inspect `project.content_pack_items[selection.id]` for a pinned owner;
+2. if no owner pin exists, return `null` immediately without calling `resolveCatalogItem` or active discovery;
+3. if a pin exists, require its kind to match and read the owner's version from `project.content_pack_versions`; a pinned owner without a version is corrupt project state and fails 409;
+4. resolve that exact pack/version from verified installed/recovery state, obtaining its immutable `archive_sha256`;
+5. call `resolveCatalogItem(selection.id, exactRef, { ...options, pins: [exactRef, ...(options.pins ?? [])] })` and require item owner, version, kind, and returned archive hash to equal the exact ref;
+6. if any pinned fact cannot verify, throw `ContentPackMissingError`/409 and do not try active discovery.
 
-Use this helper in config selection, niche/topic selection, and bundle application paths. Keep the existing different-version conflict check in `applyContentSelections` unchanged.
+Use this helper before the existing config, niche, and topic selection writes. When it returns a `SignedSelection`, retain current exact pack-pin behavior. When it returns `null`, run the existing unpinned legacy/local branch unchanged: write the selected local ID/config metadata but add no pack owner/version pin. Do not use the nullable result to weaken bundle application: the explicit bundle path resolves exact manifest component refs from the verified installed closure and pins every component. Keep the existing different-version conflict check in `applyContentSelections` unchanged.
 
 - [ ] **Step 5: Implement exact bundle resolution and one atomic project write**
 
@@ -677,7 +680,7 @@ Run one reserve call, copy the exact record minus receipt into expected identity
 
 - [ ] **Step 3: Write RED successor/immutability tests**
 
-Pin existing Kit `1.0.0` SHA/closure. Require `1.0.1` root entries `['pack.json']`, exact ordered dependencies/components, Formula/Recipe/Pastel `1.0.1`, remaining nodes `1.0.0`, Pastel first among Styles, dependency/component pair equality, and no `component_summary` in source/registry.
+Pin existing Kit `1.0.0` SHA/closure. Require `1.0.1` root entries `['pack.json']`, exact ordered dependencies/components, Formula/Recipe/Pastel `1.0.1`, remaining nodes `1.0.0`, Pastel first among Styles, dependency/component pair equality, and no `component_summary` in any newly authored successor source or registry record. Do not inspect the grandfathered Wave 1 evidence root as though it were new successor output.
 
 - [ ] **Step 4: Author from the exact Kit receipt and transition once**
 
@@ -730,13 +733,13 @@ npm run check:model-drift
 git diff --check
 ```
 
-Also re-run the opt-in Wave 1 external evidence audit and validate every retained candidate by exact profile/hash.
+Also re-run the opt-in Wave 1 external evidence audit and validate every retained candidate by exact profile/hash. The audit may read the historical root, but the fresh `component_summary` prohibition scan must exclude exactly `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/`.
 
 - [ ] **Step 2: Independent whole-wave review**
 
-Require clean schema, identity/receipt, immutability, dependency/order, install/recovery/application, safety, originality/provenance, prompt-equivalence, visual/thumbnail, copy, component-summary, security, model-drift, and commercial-boundary results. Reviewers must confirm no historical `1.0.0` source/archive/closure was rewritten and no commerce code/mutation occurred.
+Require clean schema, identity/receipt, immutability, dependency/order, install/recovery/application, safety, originality/provenance, prompt-equivalence, visual/thumbnail, copy, component-summary, security, model-drift, and commercial-boundary results. Reviewers must confirm no historical `1.0.0` source/archive/closure was rewritten, the grandfathered Wave 1 `evidence-ledger.json` hash did not change, and no commerce code/mutation occurred.
 
-- [ ] **Step 3: Write `component_summary` only in release handoff**
+- [ ] **Step 3: Write fresh `component_summary` only in the new release handoff**
 
 Formula successor:
 
@@ -787,7 +790,7 @@ Kit successor:
 }
 ```
 
-Assert `component_summary` appears nowhere else.
+Run a semantic recursive JSON-key scan, not a raw text search, over all newly authored successor source directories, successor reservation/expected-identity/promotion records, the four new registry records, fresh archive/build/candidate records, structured fresh review records, and `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/`. Exclude the entire historical Wave 1 evidence root named in Step 1. Require exactly the four `component_summary` keys above, all under the new `release-handoff.json`, and zero in every other fresh JSON/artifact. Markdown reviewers may discuss the field name but may not embed a structured summary object. Separately re-hash the excluded Wave 1 `evidence-ledger.json` and require its audited historical summary entries to remain byte-identical.
 
 - [ ] **Step 4: Assemble but do not deliver the receiver handoff**
 
@@ -814,11 +817,13 @@ Do not run `git push`, create a tag, deploy, upload an archive, or call any GenS
 
 ## Plan Self-Review
 
-**Spec coverage:** External review truth is reconciled first; Oil readiness is preserved without receiver delivery; publisher/application/install/recovery/checkout compatibility is TDD-covered; ordered Style default semantics and project-pin-first alternative resolution use current structures; Formula, Recipe, Pastel, and Kit successors are receipt-bound and immutable; every corresponding `1.0.0` source/hash/closure remains unchanged; candidates are deterministic/keyless; Recipe/Pastel stay owner/Studio Hub gated until exact returned evidence passes review; final handoff is local-only and stocking remains blocked.
+**Spec coverage:** External review truth is reconciled first; Oil readiness is preserved without receiver delivery; publisher/application/install/recovery/checkout compatibility is TDD-covered; ordered Style default semantics and conditional project-pin-first alternative resolution use current structures without changing unpinned legacy/local behavior; Formula, Recipe, Pastel, and Kit successors are receipt-bound and immutable; every corresponding `1.0.0` source/hash/closure remains unchanged; candidates are deterministic/keyless; Recipe/Pastel stay owner/Studio Hub gated until exact returned evidence passes review; final handoff is local-only and stocking remains blocked.
 
 **Identity consistency:** Stable pack/item/bundle/family/SKU lineages are reused only as proposed reservation inputs until a new receipt verifies. Formula, Recipe, Pastel, and Kit successors use distinct versioned source paths and exact `1.0.1` records; Recipe/Pastel source authoring waits for returned evidence, and Kit reservation waits for all three leaf receipts plus final qualification. The Kit closure is exactly Formula `1.0.1`, Topic `1.0.0`, Recipe `1.0.1`, Pastel `1.0.1`, Impasto `1.0.0`, Oil `1.0.0`, in that order.
 
-**Type consistency:** Bundle application consumes `ProjectContentBundleApplicationRequest` and returns `ProjectContentBundleApplicationResult`; first Style is `default_style_id`, later Styles are `alternative_style_ids`, and `style_refs` carries their exact installed owner/version/hash references for verification. Selection consults project item-owner/version pins before active discovery and fails closed on missing, recalled, corrupt, owner/version/hash-mismatched pins. The existing different-version conflict guard remains; no manifest `default_style_id` or fifth creative kind exists.
+**Type consistency:** Bundle application consumes `ProjectContentBundleApplicationRequest` and returns `ProjectContentBundleApplicationResult`; first Style is `default_style_id`, later Styles are `alternative_style_ids`, and `style_refs` carries their exact installed owner/version/hash references for verification. `resolveProjectPreferredSelection` returns `Promise<SignedSelection | null>`: an existing project owner pin resolves exact and fails closed on missing, recalled, corrupt, owner/version/hash mismatch, while no pin returns `null` and preserves the current unpinned config/niche/topic write without adding pack metadata. The existing different-version conflict guard remains; no manifest `default_style_id` or fifth creative kind exists.
+
+**Summary-scope consistency:** Newly authored Formula, Recipe, Pastel, and Kit source/registry/archive/build/review artifacts contain no `component_summary`; the four fresh summaries exist only in the new release handoff. The historical Wave 1 root is excluded from that fresh scan, and its already-audited `evidence-ledger.json` summaries are explicitly grandfathered and hash-preserved rather than deleted or backfilled.
 
 **Minimum-version consistency:** Schema-compatible Formula, Recipe, and Pastel successors may use their truthful existing `1.0.843` floor; Kit uses the application release that introduces multi-Style acceptance, expected `1.4.32`. Older binaries receive a tested update-required refusal before activation. A local version bump is not treated as deployment evidence.
 
