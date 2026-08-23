@@ -319,7 +319,7 @@ export function isSettledGenStudioJob(job: { state?: unknown; cancelled?: boolea
 }
 
 /** Every GenStudio product family Story Studio submits durable work to. */
-export type GenStudioModality = 'image' | 'video' | 'tts' | 'transcription' | 'chat'
+export type GenStudioModality = 'image' | 'video' | 'tts' | 'transcription' | 'chat' | 'music'
 
 /** The shape every settled GenStudio job response shares. */
 export interface GenStudioSettledJobShape {
@@ -407,6 +407,31 @@ export class GenStudioVideoTerminalFailureError extends GenStudioTerminalFailure
           + 'No legacy fallback was attempted.',
     )
     this.name = 'GenStudioVideoTerminalFailureError'
+  }
+}
+
+/**
+ * v1.4.37 — a settled music job.
+ *
+ * Music is the first modality where ONE settled job carries MORE THAN ONE paid
+ * artefact: Suno returns two complete tracks for a single charge, measured
+ * 2026-08-23 (100 credits reserved, 100 captured, two files). Everything about
+ * this class is therefore ordinary, but the RESULT type it accompanies is not —
+ * see `GenStudioMusicResult.tracks`.
+ */
+export class GenStudioMusicTerminalFailureError extends GenStudioTerminalFailureError {
+  constructor(job: GenStudioSettledJobShape) {
+    super(
+      'music',
+      job,
+      job.cancelled === true
+        ? `GenStudio KH music job ${job.id} was cancelled. `
+          + `${releasedCreditSettlement(job)} Retry submits a new job. No legacy fallback was attempted.`
+        : `GenStudio music generation failed${settledFailureCode(job) ? ` (${settledFailureCode(job)})` : ''}. `
+          + `${releasedCreditSettlement(job)} This job cannot be reopened; Retry submits a new job. `
+          + 'No legacy fallback was attempted.',
+    )
+    this.name = 'GenStudioMusicTerminalFailureError'
   }
 }
 
@@ -1848,7 +1873,18 @@ export class GenStudioChatProductUnavailableError extends Error {
   }
 }
 
-type GenStudioOperation = GenStudioModelCapability['operation']
+/**
+ * Every operation Story Studio records evidence for.
+ *
+ * v1.4.37 — `'music.generation'` is added HERE rather than to
+ * `GenStudioModelCapability['operation']` on purpose. That union describes the
+ * rows `/v1/models` publishes, and music is not one of them: it has its own
+ * catalogue at `/v1/music/models`. Evidence recording is a different concern —
+ * it covers everything this app actually does — so widening the capability
+ * union to satisfy it would have made the catalogue type claim a row shape
+ * GenStudio never emits.
+ */
+type GenStudioOperation = GenStudioModelCapability['operation'] | 'music.generation'
 
 const genStudioAdmission = new GenStudioAdmissionPool(async (apiKey): Promise<GenStudioAccountCapacity> => {
   const overview = await readAccountJson<GenStudioAccountOverview>(
@@ -4132,6 +4168,288 @@ export async function generateVideoWithGenStudio(
   request: GenStudioVideoRequest,
 ): Promise<GenStudioVideoResult> {
   return generateVideoWithGenStudioAdmitted(apiKey, request)
+}
+
+// ── Music ─────────────────────────────────────────────────────────────────
+//
+// v1.4.37. The first modality where ONE settled, once-charged job yields MORE
+// THAN ONE paid artefact. Measured on the first music job ever run through
+// GenStudio (2026-08-23): Suno V5.5 reserved 100 credits, captured 100, and
+// returned two complete tracks of 2:50 and 3:09. Both are the owner's. Taking
+// only `outputs[0]` would silently throw away half of what he paid for, which
+// is the whole reason `GenStudioMusicResult` carries an ARRAY and every caller
+// is forced to decide what to do with all of it.
+//
+// GenStudio does not declare how many to expect — Suno's `outputs_per_request`
+// is deliberately null so the rate card can promise "All returned variations",
+// which stays true whether one, two or three come back. So the count is read
+// from the response, never assumed.
+
+/** One track from a settled music job. */
+export interface GenStudioMusicTrack {
+  assetId: string
+  url: string
+}
+
+export interface GenStudioMusicResult {
+  /** EVERY track the job returned, in the order GenStudio listed them. */
+  tracks: GenStudioMusicTrack[]
+  jobId: string
+  modelId: string
+  downloadHeaders: Record<string, string>
+  creditCost: number
+  remainingCredits: number
+  priceVersion: string
+}
+
+/** `POST /v1/music/generations` and `GET /v1/music/jobs/{id}` response. */
+export interface GenStudioMusicJob extends GenStudioSettledJobShape {
+  state: GenStudioJob['state']
+  model_id: string
+  title: string
+  instrumental: boolean
+  outputs?: Array<{ asset_id?: string; url?: string }>
+  credit_cost: number
+  remaining_credits: number
+  price_version: string
+  routing_status_code?: string
+}
+
+export interface GenStudioMusicRequest extends GenStudioOperationContext {
+  title: string
+  prompt: string
+  lyrics?: string
+  instrumental: boolean
+  modelId: string
+  requestIdentity?: string
+  idempotencyKey?: string
+  isCancelled?: () => boolean
+  onJobAccepted?: (jobId: string, idempotencyKey: string) => Promise<void> | void
+  onState?: (state: string, jobId: string) => Promise<void> | void
+  onReconnect?: (jobId: string, reason: string) => Promise<void> | void
+}
+
+/**
+ * The idempotency key for one music request.
+ *
+ * `requestIdentity` is what a retry moves after a settled failure — a settled
+ * job can never be reopened, so without it a retry would replay the dead key
+ * forever. `instrumental` and `lyrics` are digest components because they
+ * change what is bought: the same prompt with vocals is a different song.
+ */
+export function buildGenStudioMusicIdempotencyKey(input: {
+  title: string
+  prompt: string
+  lyrics?: string
+  instrumental: boolean
+  modelId: string
+  requestIdentity?: string
+}): string {
+  const digest = createHash('sha256').update(JSON.stringify({
+    title: input.title.trim(),
+    prompt: input.prompt.trim(),
+    lyrics: input.lyrics?.trim() || null,
+    instrumental: input.instrumental,
+    model_id: input.modelId.trim(),
+    request_identity: input.requestIdentity || null,
+  })).digest('hex')
+  return `story-music-${digest.slice(0, 44)}`
+}
+
+/**
+ * Poll one accepted music job to a settled outcome. Mirrors `waitForVideoJob`:
+ * terminal is `succeeded` | `failed`, with cancellation riding on the
+ * `cancelled` boolean rather than a state of its own.
+ */
+async function waitForMusicJob(
+  baseUrl: string,
+  apiKey: string,
+  submitted: GenStudioMusicJob,
+  request: GenStudioMusicRequest,
+  deadline: number,
+): Promise<GenStudioMusicJob> {
+  let current = submitted
+  let reportedState = ''
+  let reportedRoutingState = ''
+  const reportState = async (): Promise<void> => {
+    const routingState = current.routing_status_code || ''
+    if (reportedState === current.state && reportedRoutingState === routingState) return
+    reportedState = current.state
+    reportedRoutingState = routingState
+    await recordGenStudioEvidence('music.generation', current)
+    await reportQueueState(request, current)
+    await request.onState?.(current.state, current.id)
+  }
+  await reportState()
+  const poller = createGenStudioJobPoller()
+  while (!isSettledGenStudioJob(current)) {
+    await submitQueuedRemoteCancellation('music.generation', baseUrl, apiKey, current.id, deadline)
+    if (request.isCancelled?.() || request.signal?.aborted) throw new Error('Cancelled by user')
+    if (Date.now() >= deadline) throw new Error('GenStudio music job timed out while waiting for completion.')
+    await poller.wait(deadline, request, current)
+    current = await requestJsonWithRetry(
+      `${apiBase(baseUrl)}/v1/music/jobs/${encodeURIComponent(current.id)}`,
+      { headers: authorization(apiKey) },
+      request,
+      deadline,
+    ) as GenStudioMusicJob
+    await reportState()
+  }
+  await genStudioAdmission.notifyTerminal(apiKey)
+  if (current.state === 'failed' || current.cancelled === true) {
+    throw new GenStudioMusicTerminalFailureError(current)
+  }
+  return current
+}
+
+/**
+ * Turn a settled job into every track it produced.
+ *
+ * Refuses an empty list rather than returning a result with no music in it: a
+ * succeeded job with nothing to download is a broken assumption, and silently
+ * handing back zero tracks would look to a caller exactly like a song the owner
+ * chose not to keep.
+ */
+function musicResult(
+  baseUrl: string,
+  apiKey: string,
+  completed: GenStudioMusicJob,
+): GenStudioMusicResult {
+  const tracks = (completed.outputs || [])
+    .filter(o => typeof o?.asset_id === 'string' && o.asset_id.trim().length > 0)
+    .map(o => ({
+      assetId: String(o.asset_id).trim(),
+      url: requestUrl(
+        baseUrl,
+        o.url || `/v1/music/jobs/${encodeURIComponent(completed.id)}/outputs/${encodeURIComponent(String(o.asset_id).trim())}`,
+      ),
+    }))
+  if (!tracks.length) {
+    throw new Error(`GenStudio music job ${completed.id} succeeded but returned no tracks.`)
+  }
+  return {
+    tracks,
+    jobId: completed.id,
+    modelId: completed.model_id,
+    downloadHeaders: authorization(apiKey),
+    creditCost: completed.credit_cost,
+    remainingCredits: completed.remaining_credits,
+    priceVersion: completed.price_version,
+  }
+}
+
+/** Reconnect to an already accepted music task. Never submits new work. */
+async function recoverMusicWithGenStudioAdmitted(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioMusicRequest,
+): Promise<GenStudioMusicResult> {
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const initial = await requestJsonWithRetry(
+    `${apiBase(baseUrl)}/v1/music/jobs/${encodeURIComponent(jobId)}`,
+    { headers: authorization(apiKey) },
+    request,
+    deadline,
+  ) as GenStudioMusicJob
+  // Classify BEFORE polling. A job that already failed cannot become a song,
+  // and a poll loop would only re-read the same terminal record forever.
+  if (initial.state === 'failed' || initial.cancelled === true) {
+    await recordGenStudioEvidence('music.generation', initial)
+    await reportQueueState(request, initial)
+    await request.onState?.(initial.state, initial.id)
+    throw new GenStudioMusicTerminalFailureError(initial)
+  }
+  const completed = initial.state === 'succeeded'
+    ? initial
+    : await waitForMusicJob(baseUrl, apiKey, initial, request, deadline)
+  if (completed === initial) {
+    await recordGenStudioEvidence('music.generation', initial)
+    await reportQueueState(request, initial)
+    await request.onState?.(initial.state, initial.id)
+  }
+  return musicResult(baseUrl, apiKey, completed)
+}
+
+export async function recoverMusicWithGenStudio(
+  apiKey: string,
+  jobId: string,
+  request: GenStudioMusicRequest,
+): Promise<GenStudioMusicResult> {
+  return recoverMusicWithGenStudioAdmitted(apiKey, jobId, request)
+}
+
+export async function generateMusicWithGenStudio(
+  apiKey: string,
+  request: GenStudioMusicRequest,
+): Promise<GenStudioMusicResult> {
+  const title = request.title.trim()
+  const prompt = request.prompt.trim()
+  const modelId = request.modelId.trim()
+  if (!title) throw new Error('GenStudio music requests need a title.')
+  if (!prompt) throw new Error('GenStudio music requests need a creative direction.')
+  if (!modelId) throw new Error('Select a GenStudio music model.')
+  // A caller that checkpointed its key before this call is authoritative: that
+  // persisted key is exactly what makes a lost submit response replay instead
+  // of creating a second paid job.
+  const idempotencyKey = request.idempotencyKey?.trim() || buildGenStudioMusicIdempotencyKey({
+    title,
+    prompt,
+    lyrics: request.lyrics,
+    instrumental: request.instrumental,
+    modelId,
+    requestIdentity: request.requestIdentity,
+  })
+  const baseUrl = await getGenStudioUrl()
+  const deadline = Date.now() + GENSTUDIO_LONG_JOB_TIMEOUT_MS
+  const requestPreview = await recordGenStudioRequestPreview('music.generation', {
+    method: 'POST',
+    path: '/v1/music/generations',
+    modelId,
+    idempotencyKey,
+    messages: [{ role: 'prompt', content: prompt }],
+    fields: [
+      ['title', title],
+      ['instrumental', request.instrumental],
+      ...(request.lyrics?.trim() ? [['lyrics_characters', request.lyrics.trim().length] as [string, number]] : []),
+    ],
+  })
+  const submitted = await submitJsonWithAdmission(
+    apiKey,
+    `${apiBase(baseUrl)}/v1/music/generations`,
+    {
+      method: 'POST',
+      headers: {
+        ...authorization(apiKey),
+        'Content-Type': 'application/json',
+        'Idempotency-Key': idempotencyKey,
+      },
+      body: wellFormedJson({
+        model_id: modelId,
+        title,
+        prompt,
+        instrumental: request.instrumental,
+        ...(request.lyrics?.trim() ? { lyrics: request.lyrics.trim() } : {}),
+      }),
+    },
+    request,
+    deadline,
+    GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
+    [],
+    { operation: 'music.generation', preview: requestPreview },
+  ) as GenStudioMusicJob
+  await recordGenStudioEvidence('music.generation', submitted, requestPreview)
+  await reportQueueState(request, submitted)
+  await request.onJobAccepted?.(submitted.id, idempotencyKey)
+  try {
+    return musicResult(baseUrl, apiKey, await waitForMusicJob(baseUrl, apiKey, submitted, request, deadline))
+  } catch (error) {
+    // A settled outcome is never reopened; only a lost connection reconnects,
+    // and it reconnects to the job we already paid for.
+    if (!shouldReconnectAcceptedTask(error, request)) throw error
+    await request.onReconnect?.(submitted.id, error instanceof Error ? error.message : String(error))
+    return recoverMusicWithGenStudioAdmitted(apiKey, submitted.id, request)
+  }
 }
 
 async function readAccountJson<T>(apiKey: string, pathName: string): Promise<T> {
