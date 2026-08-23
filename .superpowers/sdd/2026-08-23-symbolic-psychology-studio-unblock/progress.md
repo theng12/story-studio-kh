@@ -166,15 +166,19 @@ version `1.4.31` on all three package/lock surfaces.
   mismatched third-Style evidence leaves the root inactive and preserves
   existing project pins. Existing interrupted-final-activation recovery still
   reactivates the complete closure in one state checkpoint.
-- Boot recovery keeps the multi-Style root active while all six exact versions
-  are retained and disables root discovery when the third Style is absent.
-- Checkout carries the same six ordered positions, versions, entitlement
-  families, and configured quote price without a purchase POST, debit, grant,
-  receipt creation, or commerce implementation change.
+- Boot recovery materializes kind-correct Formula, Topic, Recipe, Pastel,
+  Impasto, and Oil documents, keeps the multi-Style root active while all six
+  exact versions are retained, and disables root discovery when the third
+  Style is absent.
+- Story Studio's persisted/public quote projection carries the same six ordered
+  positions, normalized kinds, versions, entitlement families, and configured
+  quote price at the truthful Kit floor `1.4.32`, without a purchase POST,
+  debit, grant, receipt creation, or commerce semantics change.
 - The Kit floor is exactly `1.4.32`. An explicit `1.4.31` install attempt names
   required `1.4.32` and current `1.4.31`, changes neither runtime state nor
-  project metadata, and Store delivery returns
-  `CONTENT_PACK_REQUIRES_NEWER_APP` before archive download.
+  project metadata, and the customer-facing Store route returns
+  `CONTENT_PACK_REQUIRES_NEWER_APP` with both exact versions before archive
+  download.
 
 ### TDD and release evidence
 
@@ -199,13 +203,36 @@ version `1.4.31` on all three package/lock surfaces.
   exceptions.
 - `git diff --check` — clean.
 
+### Task 3 review corrections
+
+- The Store delivery path now resolves one current app version per coordinated
+  delivery, uses it consistently for preflight/install/closure verification,
+  and retains required/current exact versions in the safe local refusal. A
+  route factory exposes only that app-version test seam; production still
+  resolves its packaged/source application version normally.
+- RED after review: the exact Store route assertion received required-only
+  detail before the compatibility message was corrected. GREEN proves required
+  `1.4.32`, current `1.4.31`, zero archive GETs, and unchanged Content Pack
+  runtime/project state.
+- The historical floor check no longer requires the live package to remain
+  exactly `1.4.32`; it uses the production exact-semver compatibility helper to
+  require current runtime `>= 1.4.32`, while the explicit `1.4.31` refusal and
+  manifest floor remain fixed regression facts.
+- Checkout now uses `createContentStoreQuote` plus the commerce journal and
+  public dependency normalization rather than treating the raw GenStudio
+  client response as end-to-end Story Studio evidence. Recovery archives now
+  carry documents whose declared kinds match all six root components.
+
 ### Scope and blocker
 
 Only compatibility fixtures changed in `content-store-paid-bundle.test.ts`;
-checkout, quote, purchase, receipt, pricing, ownership, and delivery production
-sources are unchanged. No identity was reserved, no Content Pack successor was
-authored, and no external evidence or handoff was touched. No DMG, deploy, tag,
-push, publish, upload, purchase, grant, or other external mutation occurred.
+checkout, quote, purchase, receipt, pricing, ownership, and commerce production
+semantics are unchanged. The review correction changes only Store delivery
+compatibility plumbing and the route's app-version test seam so the safe
+required/current detail is durable. No identity was reserved, no Content Pack
+successor was authored, and no external evidence or handoff was touched. No
+DMG, deploy, tag, push, publish, upload, purchase, grant, or other external
+mutation occurred.
 
 `app-release-not-deployed` remains an explicit Kit stocking blocker. The local
 `1.4.32` version/changelog update is release preparation only and is not

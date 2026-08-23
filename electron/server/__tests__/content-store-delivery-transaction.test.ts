@@ -11,7 +11,7 @@ import { mutateContentPackState, readContentPackState, withContentPackCoordinati
 import { setContentPackDiscoveryDisabled } from '../content-packs/lifecycle.js'
 import { setProjectContentPin } from '../content-packs/project-pins.js'
 import { readContentStoreCommerceState } from '../content-store/commerce-state.js'
-import { router as contentStoreRouter } from '../routes/content-store.js'
+import { createContentStoreRouter } from '../routes/content-store.js'
 import { setApiKey } from '../services/app-secrets-store.js'
 import { setGenStudioUrl } from '../services/app-settings.js'
 import { installOwnedContentStoreRelease } from '../services/content-store-delivery.js'
@@ -139,14 +139,14 @@ async function archive(options: {
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
-function app(): express.Express {
+function app(options: { appVersion?: string } = {}): express.Express {
   const instance = express()
   instance.use(express.json({ limit: '10mb' }))
-  instance.use('/api', contentStoreRouter)
+  instance.use('/api', createContentStoreRouter(options))
   return instance
 }
 
-async function setupClosure() {
+async function setupClosure(options: { appVersion?: string } = {}) {
   const temporary = await useTempDataDir()
   cleanup = temporary.cleanup
   mock = await startMockGenStudioService()
@@ -187,7 +187,7 @@ async function setupClosure() {
   }))
   mock.seedContentProductOwnership(ACCOUNT, 'product-sentinel')
 
-  const local = app()
+  const local = app(options)
   const quoted = await request(local).post('/api/content-store/quotes').send({ product_id: ROOT.productId, release_id: null }).expect(201)
   await request(local).post(`/api/content-store/quotes/${quoted.body.quote_id}/purchase`).send({}).expect(200)
 
@@ -263,19 +263,17 @@ test('binds the exact Formula→Topic→Recipe→Pastel→Impasto→Oil receipt 
 })
 
 test('returns CONTENT_PACK_REQUIRES_NEWER_APP before the exact root downloads or mutates project/runtime state', async () => {
-  const closure = await setupClosure()
+  const closure = await setupClosure({ appVersion: '1.4.31' })
   const paths = getContentPackRuntimePaths()
   const project = await projectManager.createProject({ name: 'Older app delivery refusal' })
   const projectBefore = structuredClone(await projectManager.getProject(project.slug))
   const stateBefore = await readContentPackState(paths)
   const archiveGetsBefore = mock!.contentArchiveGetCount
-  ;(closure.root.current_release as Record<string, unknown>).min_story_version = '999.0.0'
-
   const response = await request(closure.local)
     .post(`/api/content-store/releases/release-${ROOT.productId}/install`).send({}).expect(409)
 
   assert.equal(response.body.code, 'CONTENT_PACK_REQUIRES_NEWER_APP')
-  assert.match(response.body.detail, /requires Story Studio 999\.0\.0 or newer/i)
+  assert.match(response.body.detail, /requires Story Studio 1\.4\.32 or newer \(this app is 1\.4\.31\)/i)
   assert.equal(mock!.contentArchiveGetCount, archiveGetsBefore)
   assert.deepEqual(await readContentPackState(paths), stateBefore)
   assert.deepEqual(await projectManager.getProject(project.slug), projectBefore)

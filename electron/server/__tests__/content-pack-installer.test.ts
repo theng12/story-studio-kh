@@ -8,7 +8,12 @@ import { fileURLToPath } from 'node:url'
 
 import JSZip from 'jszip'
 
-import { installContentPack, quarantineContentPackBytes, resolveContentPackAppVersion } from '../content-packs/installer.js'
+import {
+  assertContentPackAppCompatible,
+  installContentPack,
+  quarantineContentPackBytes,
+  resolveContentPackAppVersion,
+} from '../content-packs/installer.js'
 import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
@@ -175,7 +180,7 @@ describe('Content Pack local installer', () => {
   })
 
   test('refuses the six-member multi-Style Kit below 1.4.32 before archive activation or project mutation', async () => {
-    assert.equal(PACKAGE_VERSION, '1.4.32', 'the application release carrying multi-Style Kit support must be 1.4.32')
+    await assert.doesNotReject(assertContentPackAppCompatible('1.4.32', PACKAGE_VERSION))
     const paths = await isolated()
     const archiveBytes = await buildMultiStyleKitArchive()
     const project = await projectManager.createProject({ name: 'Compatibility refusal baseline' })

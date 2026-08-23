@@ -22,7 +22,13 @@ const QuoteBodySchema = z.object({
   release_id: OPAQUE_ID.nullable().default(null),
 }).strict()
 
-export const router = Router()
+export interface ContentStoreRouterOptions {
+  /** Test-only seam forwarded to Store delivery compatibility checks. */
+  appVersion?: string
+}
+
+export function createContentStoreRouter(options: ContentStoreRouterOptions = {}): Router {
+const router = Router()
 
 router.use((req, res, next) => {
   const declared = Number(req.headers['content-length'] || 0)
@@ -161,7 +167,7 @@ router.post('/content-store/restore', async (req, res) => {
 router.post('/content-store/releases/:releaseId/install', async (req, res) => {
   try {
     emptyBody(req.body)
-    res.json(await installOwnedContentStoreRelease(OPAQUE_ID.parse(firstParam(req.params.releaseId))))
+    res.json(await installOwnedContentStoreRelease(OPAQUE_ID.parse(firstParam(req.params.releaseId)), options))
   } catch (error) {
     handleFailure(res, error, 'Failed to install the owned Content Pack.', 'content:read')
   }
@@ -192,3 +198,8 @@ router.use((error: unknown, _req: Request, res: Response, next: NextFunction) =>
   }
   next(error)
 })
+
+return router
+}
+
+export const router = createContentStoreRouter()

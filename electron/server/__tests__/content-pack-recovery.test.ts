@@ -11,6 +11,7 @@ import { createContentPackKeyring, getFirstPartyContentPackVerificationPolicy } 
 import { getContentPackRuntimePaths, resolveContentPackRecoveryRoot } from '../content-packs/runtime-paths.js'
 import { listVerifiedRecoveryPacks, verifyContentPackRuntimeAtBoot } from '../content-packs/recovery.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
+import type { ContentPackDocument } from '../content-packs/types.js'
 import { useTempDataDir } from './_helpers.js'
 
 const PUBLISHER_ID = 'com.storystudio'
@@ -47,28 +48,70 @@ async function buildArchive(version: string): Promise<Uint8Array> {
   return buildLeafArchive('com.storystudio.recovery-test', version)
 }
 
-async function buildLeafArchive(packId: string, version: string): Promise<Uint8Array> {
-  const document = Buffer.from(JSON.stringify({
+function componentDocument(component: typeof MULTI_STYLE_COMPONENTS[number]): ContentPackDocument {
+  if (component.kind === 'series-formula') return {
+    kind: component.kind, schema_version: 1, id: component.item_id, name: 'Human Behavior Explained',
+    description: 'A recovery fixture Formula.', channel_promise: 'Explain one bounded behavior.', audience: 'Curious adults.',
+    narrative_rules: ['Stay non-diagnostic.'], title_rules: ['Name the mechanism.'], script_structure: {
+      default_chapter_count: 3, chapter_count_range: [2, 4], default_length_minutes: 10,
+      length_minutes_range: [5, 15], duration_presets: [5, 10, 15], default_words_per_minute: 120,
+      chapters_independent: true, pacing_arc: ['Question', 'Mechanism', 'Takeaway'], additional_rules: ['Stay precise.'],
+    },
+    compatible_topic_pack_ids: [MULTI_STYLE_COMPONENTS[1].item_id], default_topic_pack_ids: [MULTI_STYLE_COMPONENTS[1].item_id],
+    recommended_visual_style_ids: [], recommended_thumbnail_recipe_ids: [], script_context: 'Use non-diagnostic psychology.',
+  }
+  if (component.kind === 'topic-pack') return {
+    kind: component.kind, schema_version: 1, id: component.item_id, name: 'Human Behavior and Social Dynamics',
+    description: 'A recovery fixture Topic.', compatible_formula_ids: [MULTI_STYLE_COMPONENTS[0].item_id],
+    subjects: ['Belonging'], episode_objects: ['Social signal'], time_place_scopes: ['Everyday life'], mechanisms: ['Norms'],
+    evidence_lenses: ['Observed behavior'], exclusions: [], max_siblings_per_subject: 4, prompt_context: 'Keep examples bounded.',
+  }
+  if (component.kind === 'thumbnail-recipe') return {
+    kind: component.kind, schema_version: 1, id: component.item_id, name: 'Editorial Psychology Symbolic Split',
+    description: 'A recovery fixture Recipe.', layout: 'hero', category: 'Editorial', tags: ['psychology'],
+    aspect_ratio: '16:9', title_mode: 'ai', composition_guidance: 'One symbolic subject.', required_elements: ['Subject'],
+    avoid_elements: ['Clutter'], headline_mode: 'episode-title', headline_guidance: 'Keep it short.',
+    default_text_style: 'Ivory', default_font_style: 'Serif', default_text_position: 'top',
+    headline_formats: ['HIDDEN MOTIVES'], visual_style_guidance: 'Restrained.', preview_assets: ['assets/preview.png'],
+    compatible_formula_ids: [MULTI_STYLE_COMPONENTS[0].item_id],
+  }
+  return {
+    kind: component.kind, schema_version: 1, id: component.item_id, name: `Recovery ${component.item_id.split('.').at(-1)}`,
+    description: 'A recovery fixture Style.', category: 'Editorial', tags: ['psychology'],
+    style_bible: 'Keep the scene clear.', negative_prompt: 'No text.', preview_assets: ['assets/preview.png'],
+    compatible_formula_ids: [MULTI_STYLE_COMPONENTS[0].item_id],
+  }
+}
+
+async function buildLeafArchive(
+  packId: string,
+  version: string,
+  component?: typeof MULTI_STYLE_COMPONENTS[number],
+): Promise<Uint8Array> {
+  const documentValue: ContentPackDocument = component ? componentDocument(component) : {
     kind: 'visual-style', schema_version: 1, id: `${packId}.style`, name: 'Recovery Test',
     description: 'A local recovery test style.', category: 'Test', tags: ['test'],
     style_bible: `Keep recovery at ${version}.`, negative_prompt: 'No text.',
     preview_assets: ['assets/preview.png'], compatible_formula_ids: [],
-  }), 'utf8')
+  }
+  const document = Buffer.from(JSON.stringify(documentValue), 'utf8')
+  const contentPath = `content/${documentValue.kind}.json`
+  const hasPreview = documentValue.kind === 'visual-style' || documentValue.kind === 'thumbnail-recipe'
   const manifest = Buffer.from(JSON.stringify({
     pack_format: 1, pack_id: packId, publisher_id: PUBLISHER_ID, key_id: KEY_ID, version,
     min_app_version: '1.0.0', lifecycle: 'active',
     entitlement: { sku: `${packId}.sku`, family: `${packId}.family` }, bundles: [],
-    items: [{ id: `${packId}.style`, kind: 'visual-style', schema_version: 1, path: 'content/visual-style.json' }],
+    items: [{ id: documentValue.id, kind: documentValue.kind, schema_version: 1, path: contentPath }],
     files: [
-      { path: 'content/visual-style.json', sha256: sha256(document), bytes: document.byteLength, mime: 'application/json' },
-      { path: 'assets/preview.png', sha256: sha256(PNG_1PX), bytes: PNG_1PX.byteLength, mime: 'image/png' },
+      { path: contentPath, sha256: sha256(document), bytes: document.byteLength, mime: 'application/json' },
+      ...(hasPreview ? [{ path: 'assets/preview.png', sha256: sha256(PNG_1PX), bytes: PNG_1PX.byteLength, mime: 'image/png' }] : []),
     ],
   }), 'utf8')
   const zip = new JSZip()
   zip.file('manifest.json', manifest, { createFolders: false })
   zip.file('signature.ed25519', sign(null, manifest, keyPair.privateKey), { createFolders: false })
-  zip.file('content/visual-style.json', document, { createFolders: false })
-  zip.file('assets/preview.png', PNG_1PX, { createFolders: false })
+  zip.file(contentPath, document, { createFolders: false })
+  if (hasPreview) zip.file('assets/preview.png', PNG_1PX, { createFolders: false })
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
@@ -197,7 +240,7 @@ describe('Content Pack recovery catalog', () => {
   test('keeps the exact six-member multi-Style root active only while its retained closure verifies', async () => {
     const { paths, recoveryRoot } = await isolated()
     for (const component of MULTI_STYLE_COMPONENTS) {
-      const archiveBytes = await buildLeafArchive(component.pack_id, component.version)
+      const archiveBytes = await buildLeafArchive(component.pack_id, component.version, component)
       await installContentPack(request(archiveBytes), { paths, policy, appVersion: '1.4.32' })
     }
     const rootArchive = await buildMultiStyleRootArchive()
@@ -210,6 +253,10 @@ describe('Content Pack recovery catalog', () => {
     assert.deepEqual(
       healthyState.packs[MULTI_STYLE_ROOT_ID]!.versions['1.0.1']!.manifest.dependencies,
       MULTI_STYLE_COMPONENTS.map(({ pack_id, version }) => ({ pack_id, version })),
+    )
+    assert.deepEqual(
+      MULTI_STYLE_COMPONENTS.map(component => healthyState.packs[component.pack_id]!.versions[component.version]!.manifest.items[0]!.kind),
+      MULTI_STYLE_COMPONENTS.map(component => component.kind),
     )
 
     const thirdStyle = MULTI_STYLE_COMPONENTS[5]

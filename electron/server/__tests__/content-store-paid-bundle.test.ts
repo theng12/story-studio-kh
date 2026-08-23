@@ -58,6 +58,7 @@ function product(input: {
   packId?: string
   price?: number
   version?: string
+  minStoryVersion?: string
   operatorDiscount?: typeof OPERATOR_DISCOUNT | null
   bundleComponents?: Array<{ product_id: string; entitlement_family: string; component_credit_value: number }>
 }) {
@@ -70,7 +71,7 @@ function product(input: {
     current_release: {
       release_id: `crel_${input.productId}`, pack_id: input.packId ?? `com.storystudio.pack.${input.productId}`,
       version: input.version ?? '1.0.0', archive_sha256: 'a'.repeat(64), archive_bytes: 4096, archive_available: false,
-      min_story_version: '1.0.0', changelog: 'First release.', component_summary: {},
+      min_story_version: input.minStoryVersion ?? '1.0.0', changelog: 'First release.', component_summary: {},
     },
     compatible: true, compatibility_reason: null,
     bundle_components: (input.bundleComponents ?? []).map(component => ({ ...component, title: component.product_id, kind: 'topic_pack', owned: false })),
@@ -110,7 +111,7 @@ async function setup() {
     product({
       productId: SYMBOLIC_KIT.productId, family: SYMBOLIC_KIT.family, kind: 'niche_bundle',
       packId: SYMBOLIC_KIT.packId, price: SYMBOLIC_KIT.price, version: SYMBOLIC_KIT.version,
-      bundleComponents: symbolicBundleComponents,
+      minStoryVersion: '1.4.32', bundleComponents: symbolicBundleComponents,
     }),
     ...SYMBOLIC_COMPONENTS.map(component => product({
       productId: component.productId,
@@ -140,20 +141,19 @@ async function acquireSharedFamily() {
 test('carries Formula→Topic→Recipe→Pastel→Impasto→Oil through checkout without purchasing or changing commerce semantics', async () => {
   const service = await setup()
 
-  const quote = await quoteGenStudioContentProduct(KEY, {
+  const quoted = facts(await createContentStoreQuote({
     product_id: SYMBOLIC_KIT.productId,
     release_id: null,
-  })
-  const signed = facts(quote.signedQuote.value)
+  }))
 
-  assert.equal(signed.base_credit_price, SYMBOLIC_KIT.price)
-  assert.equal(signed.discount_credits, 0)
-  assert.equal(signed.operator_discount_credits, 0)
-  assert.equal(signed.quoted_credits, SYMBOLIC_KIT.price)
-  assert.deepEqual(signed.owned_components, [])
-  assert.deepEqual(signed.entitlement_families, [SYMBOLIC_KIT.family, ...SYMBOLIC_COMPONENTS.map(component => component.family)])
+  assert.equal(quoted.base_credit_price, SYMBOLIC_KIT.price)
+  assert.equal(quoted.discount_credits, 0)
+  assert.equal(quoted.operator_discount_credits, 0)
+  assert.equal(quoted.quoted_credits, SYMBOLIC_KIT.price)
+  assert.deepEqual(quoted.owned_components, [])
+  assert.deepEqual(quoted.entitlement_families, [SYMBOLIC_KIT.family, ...SYMBOLIC_COMPONENTS.map(component => component.family)])
   assert.deepEqual(
-    signed.bundle_closure.map((entry: Record<string, unknown>) => ({
+    quoted.bundle_closure.map((entry: Record<string, unknown>) => ({
       position: entry.position,
       product_id: entry.product_id,
       entitlement_family: entry.entitlement_family,
@@ -166,6 +166,30 @@ test('carries Formula→Topic→Recipe→Pastel→Impasto→Oil through checkout
       version: component.version,
     })),
   )
+  assert.deepEqual(
+    quoted.dependencies.map((entry: Record<string, unknown>) => ({
+      position: entry.position,
+      productId: entry.productId,
+      entitlementFamily: entry.entitlementFamily,
+      version: entry.version,
+      kind: entry.kind,
+      states: entry.states,
+    })),
+    SYMBOLIC_COMPONENTS.map((component, position) => ({
+      position,
+      productId: component.productId,
+      entitlementFamily: component.family,
+      version: component.version,
+      kind: component.kind,
+      states: ['free', 'included'],
+    })),
+  )
+  const saved = (await readContentStoreCommerceState()).attempts[quoted.quote_id]!
+  assert.equal(saved.status, 'quoted')
+  assert.deepEqual(saved.bundle_closure, quoted.bundle_closure)
+  const overview = facts(await loadContentStoreOverview())
+  const kit = overview.products.find((candidate: Record<string, unknown>) => candidate.productId === SYMBOLIC_KIT.productId)
+  assert.equal(kit.currentRelease.minStoryVersion, '1.4.32')
   assert.equal(service.contentPurchasePostCount, 0)
   assert.deepEqual(service.contentPurchaseCharges, [])
   assert.equal(service.totalCreditsCharged, 0)
