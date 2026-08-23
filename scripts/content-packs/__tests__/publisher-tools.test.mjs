@@ -84,6 +84,8 @@ async function writeBundleOnlySource(root, { config = {}, entries = [] } = {}) {
       { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0' },
       { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0' },
       { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0' },
+      { pack_id: 'com.storystudio.style.free-starter-impasto', version: '1.0.0' },
+      { pack_id: 'com.storystudio.style.free-starter-oil', version: '1.0.0' },
       { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0' },
     ],
     bundles: [{
@@ -94,6 +96,8 @@ async function writeBundleOnlySource(root, { config = {}, entries = [] } = {}) {
         { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0', item_id: 'com.storystudio.formula.free-starter', kind: 'series-formula' },
         { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter', kind: 'topic-pack' },
         { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0', item_id: 'com.storystudio.style.free-starter', kind: 'visual-style' },
+        { pack_id: 'com.storystudio.style.free-starter-impasto', version: '1.0.0', item_id: 'com.storystudio.style.free-starter-impasto', kind: 'visual-style' },
+        { pack_id: 'com.storystudio.style.free-starter-oil', version: '1.0.0', item_id: 'com.storystudio.style.free-starter-oil', kind: 'visual-style' },
         { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0', item_id: 'com.storystudio.thumbnail.free-starter', kind: 'thumbnail-recipe' },
       ],
     }],
@@ -255,6 +259,7 @@ test('buildContentPack signs only a complete token-resolved bundle-only coordina
   t.after(() => rm(fixture.root, { recursive: true, force: true }))
   const source = await writeBundleOnlySource(fixture.root)
   const output = join(fixture.root, 'bundle-only.sspack')
+  const repeatOutput = join(fixture.root, 'bundle-only-repeat.sspack')
   const { buildContentPack, validateContentPack } = await import('../lib.mjs')
 
   await assert.rejects(
@@ -279,11 +284,22 @@ test('buildContentPack signs only a complete token-resolved bundle-only coordina
     minAppVersion: '1.0.0',
     keyId: 'com.storystudio.key.free-starter',
   })
+  await buildContentPack({
+    sourceDirectory: source,
+    privateKeyPath: fixture.privateKeyPath,
+    outputPath: repeatOutput,
+    minAppVersion: '1.0.0',
+    keyId: 'com.storystudio.key.free-starter',
+  })
   assert.equal(result.packId, 'com.storystudio.bundle.free-starter')
+  assert.deepEqual(await readFile(repeatOutput), await readFile(output))
   const archive = await JSZip.loadAsync(await readFile(output))
   const signedManifest = JSON.parse(await archive.file('manifest.json').async('text'))
   assert.equal(signedManifest.key_id, 'com.storystudio.key.free-starter')
   assert.equal(signedManifest.min_app_version, '1.0.0')
+  assert.deepEqual(signedManifest.bundles[0].components.map(component => component.kind), [
+    'series-formula', 'topic-pack', 'visual-style', 'visual-style', 'visual-style', 'thumbnail-recipe',
+  ])
   await validateContentPack({
     archivePath: output,
     keyId: 'com.storystudio.key.free-starter',

@@ -745,8 +745,8 @@ export const ContentPackManifestSchema = z.object({
     }
     const components = manifest.bundles[0]?.components ?? []
     const count = (kind: ContentPackItemKind) => components.filter(component => component.kind === kind).length
-    if (count('series-formula') !== 1 || count('topic-pack') < 1 || count('visual-style') !== 1 || count('thumbnail-recipe') !== 1) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', 0, 'components'], message: 'bundle-only coordination packs require exactly one Formula, at least one Topic Pack, exactly one Style, and exactly one Recipe component' })
+    if (count('series-formula') !== 1 || count('topic-pack') < 1 || count('visual-style') < 1 || count('thumbnail-recipe') !== 1) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', 0, 'components'], message: 'bundle-only coordination packs require exactly one Formula, at least one Topic Pack, one or more Styles, and exactly one Recipe component' })
     }
     for (const [index, component] of components.entries()) {
       if (component.pack_id === manifest.pack_id) {

@@ -64,10 +64,67 @@ quarantine item, publisher code, or external JSON was changed.
 - Independent read-only comparison and stale-string scan are recorded in
   `evidence-reconciliation-review.md`.
 
+## Task 2 multi-Style bundle publisher/application support
+
+Task 2 implementation started from
+`87915223df6d9b05c75fd0f8058b16e62d1920db` on the required
+`codex/content-expansion-portfolio` branch. The worktree was clean at dispatch.
+
+### Implemented contract
+
+- Bundle-only manifests now accept one-or-more ordered `visual-style`
+  components while retaining the exact Formula, Topic, Recipe, uniqueness,
+  external-reference, dependency, namespace, file, archive, and trust guards.
+- `resolveProjectPreferredSelection` resolves an existing owner/version pin
+  first, verifies the exact retained archive hash, and fails closed without
+  active discovery. With no owner pin it performs signed discovery and returns
+  an exact ref for the existing pin write; only a confirmed catalog miss
+  returns `null` for the unchanged legacy/local no-pin write.
+- `applyProjectContentBundle` verifies the exact installed root and closure
+  under the Content Pack coordination lock, pins every component, activates
+  the first ordered Style, retains later Styles as alternatives, and uses the
+  existing rollback-safe project/config transaction. It performs no install,
+  purchase, quote, or network action.
+- `POST /content-packs/projects/:slug/bundles/apply` strictly accepts only
+  `root` and `bundle_id`, validates slug and exact identities, and returns safe
+  400/404/409 failures.
+
+### TDD and regression proof
+
+- RED: the new three-Style contract and publisher fixtures failed on the old
+  exactly-one-Style refinement; the publisher build also refused the same
+  source for that reason.
+- RED: the project-pin suite initially failed because
+  `applyProjectContentBundle` did not exist, and the strict route suite returned
+  404 because the explicit action had not been registered.
+- GREEN: focused suites cover deterministic three-Style publisher output;
+  ordered default/alternatives; exact style refs; Formula/Topic/Recipe and all
+  Style pins; missing, disabled, recalled, corrupt, wrong-kind, duplicate and
+  conflicting closures; atomic rollback; newer-active isolation; missing,
+  recalled, owner-mismatched and hash-mismatched fail-closed selection;
+  unpinned Formula/Topic/Style/Recipe discovery and kind validation; and config,
+  niche, and topic legacy/local writes after one observed catalog miss each.
+- The route regression proves the pack-state inventory is unchanged by bundle
+  apply, so the project action cannot install or activate archive versions as a
+  side effect.
+
+### Scope preserved
+
+`runtime-types.ts`, installer/checkout/commerce sources, package versions,
+`CHANGELOG.md`, Content Pack source trees, authoring registry, external
+evidence, and handoffs are unchanged. No identity reservation, upload,
+publication, deploy, tag, push, purchase, or other external mutation occurred.
+
+### Verification
+
+- `npx tsx --test electron/server/__tests__/content-pack-contract.test.ts electron/server/__tests__/content-pack-project-pins.test.ts electron/server/__tests__/content-pack-routes.test.ts`
+  — 60 passed, 0 failed.
+- `node --test scripts/content-packs/__tests__/publisher-tools.test.mjs`
+  — 23 passed, 0 failed.
+- `npm run typecheck:electron` — Electron TypeScript check passes.
+
 ## Next task
 
-Task 2: add and review the multi-Style bundle publisher/application support.
-Preserve the exact ordered Formula → Topic → Recipe → Pastel → Impasto → Oil
-closure, keep apply explicit and atomic, and retain project-pin-first,
-fail-closed semantics. Do not begin successor authoring, stocking, publishing,
-or any external mutation as part of that task.
+Task 3 remains release/compatibility work and is deliberately not started here.
+It owns installer/recovery/checkout fixtures plus the application version and
+changelog update.
