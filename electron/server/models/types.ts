@@ -2181,6 +2181,8 @@ export const JOB_TYPES = [
   'scene_clips_batch', 'continuity_render',
   'prompt_director', 'composition_generate', 'expression_markup', 'contextual_cues',
   'image_pool_generate',
+  /** v1.4.37 — top up a channel's music library from one style brief. */
+  'music_generate',
 ] as const
 
 export type JobType = typeof JOB_TYPES[number]

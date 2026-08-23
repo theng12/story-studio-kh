@@ -20,7 +20,8 @@
  * and never gets investigated. That is why this is a register and not a note:
  * a gap nobody can see is a gap nobody fixes.
  *
- * AS OF 1.4.34 THE ANSWER TO HIS QUESTION IS "ALL EIGHT". The debt list is
+ * AS OF 1.4.34 THE ANSWER TO HIS QUESTION IS "ALL OF THEM" (eight then, nine
+ * since music arrived in 1.4.37). The debt list is
  * gone rather than left standing empty, because an empty list is a reassurance
  * nobody re-reads. What remains is stricter: EVERY generator that handles a
  * GenStudio terminal failure must use the shared rule. A new one that does not
@@ -83,6 +84,9 @@ const PROTECTED = new Set([
                     //          list to check a shortfall against, so "40
                     //          images" quietly returning 31 has nothing to
                     //          contradict it.
+  'music-generate.ts', // 1.4.37 — the ninth. Music is the first modality where
+                    //          ONE charge yields TWO paid tracks, so a dropped
+                    //          request loses twice as much as it looks like.
 ])
 
 /**
@@ -122,10 +126,10 @@ describe('the register of who waits for a busy fleet', () => {
     }
   })
 
-  test('all eight are protected, and an exemption must carry its reason', async () => {
+  test('all nine are protected, and an exemption must carry its reason', async () => {
     const handling = await generatorsHandlingGenStudioFailures()
-    assert.equal(handling.length, 8,
-      `Expected the eight known GenStudio generators, found ${handling.length}: ${handling.join(', ')}. `
+    assert.equal(handling.length, 9,
+      `Expected the nine known GenStudio generators, found ${handling.length}: ${handling.join(', ')}. `
       + 'A new one is not a problem — add it to PROTECTED and update this count — but it must not '
       + 'arrive unnoticed.')
     assert.deepEqual([...handling].filter(f => !PROTECTED.has(f)), [],

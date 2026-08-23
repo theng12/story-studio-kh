@@ -866,6 +866,10 @@ const queues: Record<JobType, QueueState> = {
   images_repair: { pending: [], running: false, executor: null },
   audio: { pending: [], running: false, executor: null },
   audio_merge: { pending: [], running: false, executor: null },
+  // v1.4.37 — its own lane. Music tops up a library ahead of time and is never
+  // on the critical path of an episode, so it must not compete with narration
+  // audio for that lane's slots.
+  music_generate: { pending: [], running: false, executor: null },
   metadata: { pending: [], running: false, executor: null },
   video: { pending: [], running: false, executor: null },
   video_assembly: { pending: [], running: false, executor: null },

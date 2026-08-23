@@ -251,19 +251,24 @@ test('a short job is still answered inside a couple of seconds', () => {
 
 // ── One schedule, not five copies ──────────────────────────────────────────
 
-test('all five wait loops share the one poller and the flat interval is gone', () => {
+test('every wait loop shares the one poller and the flat interval is gone', () => {
   const client = source('../lib/genstudio-client.ts')
   const created = client.match(/const poller = createGenStudioJobPoller\(\)/g) || []
   const waited = client.match(/await poller\.wait\(deadline, request, current\)/g) || []
-  // FIVE job-wait loops, one per modality — plus ONE more: the language
-  // submission reattachment loop in `submitLanguageJson`, which waits out a
+  // SIX job-wait loops, one per modality — image, video, tts, transcription,
+  // chat, and music since 1.4.37 — plus ONE more: the language submission
+  // reattachment loop in `submitLanguageJson`, which waits out a
   // `request_in_progress` refusal before replaying the same idempotency key.
   // It belongs on this schedule for the same reason the others do (a job that
   // may run for minutes must not be re-asked every second), but it advances by
   // re-POSTing rather than by reading `current`, so it is counted in `created`
   // and deliberately not in `waited`.
-  assert.equal(created.length, 6, 'every wait loop must build a poller')
-  assert.equal(waited.length, 5, 'every job-wait loop must poll through the shared schedule')
+  //
+  // These counts are the point of the test, not incidental to it: a new
+  // modality that hand-rolls its own polling interval would leave them equal
+  // and pass silently, which is exactly the drift this alarm exists to catch.
+  assert.equal(created.length, 7, 'every wait loop must build a poller')
+  assert.equal(waited.length, 6, 'every job-wait loop must poll through the shared schedule')
   assert.match(
     client,
     /await poller\.wait\(\s*deadline,\s*request,/,

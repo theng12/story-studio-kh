@@ -222,6 +222,12 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
       retry_hint: 'Recovered files were saved. Items without a task result need fresh generation.',
     })
   }))
+  // v1.4.37 — tops up a channel's music library. guardMedia because it writes
+  // audio files into the project folder like every other media generator.
+  registerExecutor('music_generate', guardMedia(async (job) => {
+    const { generateMusicLibraryTracks } = await import('../generators/music-generate.js')
+    await generateMusicLibraryTracks(job)
+  }))
   registerExecutor('audio', guardMedia(generateAudio))
   registerExecutor('audio_merge', guardMedia(generateAudioMerge))
   registerExecutor('metadata', generateMetadata)
