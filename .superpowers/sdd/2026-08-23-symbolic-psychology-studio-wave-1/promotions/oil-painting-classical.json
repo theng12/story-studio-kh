@@ -1,0 +1,13 @@
+{
+  "expected_revision": 14,
+  "coordinator": {
+    "task": "symbolic-psychology-studio-wave-1",
+    "branch": "codex/content-expansion-portfolio"
+  },
+  "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+  "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+  "version": "1.0.0",
+  "changes": {
+    "status": "authored"
+  }
+}

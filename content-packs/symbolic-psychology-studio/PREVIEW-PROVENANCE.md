@@ -2,7 +2,7 @@
 
 ## Oil Painting Classical
 
-- Status: evidenced built-in asset; Store packaging source remains unauthored.
+- Status: evidenced built-in asset; Store packaging reproduces the cited shared contract and exact preview byte.
 - Asset: `frontend/public/builtin-style-previews/oil-painting-classical.webp`
 - Source commit: `3838fbccc33d7f58485063c2819e23c80c792976`
 - SHA-256: `721e0b45be473e1a9c868874c0e6662914f5b1ad4829748607268c520258615a`

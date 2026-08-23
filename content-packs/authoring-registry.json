@@ -1,5 +1,5 @@
 {
-  "revision": 14,
+  "revision": 16,
   "batches": [
     {
       "revision": 2,
@@ -731,6 +731,40 @@
         },
         "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
         "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 15,
+      "transition_ref": "lifecycle:a15a3a9c61204c603fe26996d10511e0b3b3144a55d9940980902fec782deffb",
+      "request": {
+        "expected_revision": 14,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+        "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 16,
+      "transition_ref": "lifecycle:eb9be1a66bf9810fa56c74d83f57c54da9d9433bff1438fa5ff6d7ebc30745d2",
+      "request": {
+        "expected_revision": 15,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+        "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -2693,7 +2727,7 @@
       "min_app_version_status": "release-bound",
       "kind": "visual-style",
       "source_path": "content-packs/symbolic-psychology-studio/style/oil-painting-classical",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -2716,7 +2750,7 @@
       "min_app_version_status": "release-bound",
       "kind": "channel-kit",
       "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
