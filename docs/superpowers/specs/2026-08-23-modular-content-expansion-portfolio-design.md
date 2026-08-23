@@ -67,6 +67,23 @@ Before any source authoring wave, the coordinator validates `content-packs/autho
 
 Family/SKU values, if later returned as part of a reservation, are stocking proposals marked proposed, reserved, or confirmed with field-exact GenStudio evidence. GenStudio alone owns product/release/account/wire identities, quotes, prices, discounts, ownership, purchase, delivery, and publication.
 
+### 3.3 GenStudio `component_summary` object
+
+GenStudio's deployed release contract accepts `component_summary` as an object, not a prose string. Every new expansion release handoff uses this minimal Story-owned shape:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "thumbnail-recipe",
+  "summary": "Short human-readable description.",
+  "slots": {
+    "thumbnail-recipe": 1
+  }
+}
+```
+
+`kind` is exactly one canonical Story kind: `series-formula`, `topic-pack`, `visual-style`, `thumbnail-recipe`, or `channel-kit`. A leaf's `slots` contains only its own kind with count `1`. A Channel Kit's `slots` contains the nonzero counts of its exact creative closure under `series-formula`, `topic-pack`, `visual-style`, and `thumbnail-recipe`. Zero-valued keys are omitted. The object never duplicates Story or GenStudio identities, versions, hashes, dependency members, prices, or publication state; those already have authoritative fields. Existing releases are not backfilled without separate owner authority.
+
 ## 4. Approved offering portfolio
 
 ### 4.1 Free Symbolic Psychology Studio
