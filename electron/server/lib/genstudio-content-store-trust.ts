@@ -149,6 +149,56 @@ function receiptObject(value: unknown, field: string): Record<string, unknown> {
  * grant is deliberately excluded: it authorizes transfer for 900 seconds but
  * is not offline evidence.
  */
+/**
+ * v1.4.46 — the restore-receipt form of delivery evidence, for a FREE UPGRADE.
+ *
+ * A purchase receipt names one release, frozen on the day it was bought, and
+ * `verifyContentStoreDeliveryReceipt` above reads exactly that shape. A free
+ * upgrade has no purchase and so no such receipt; what authorises it is the
+ * restore receipt, which lists the CURRENT release of every family the account
+ * owns and is minted fresh on every check.
+ *
+ * The bar is the same bar. The signature must verify under the same keyring,
+ * the account must match, and the receipt must name this exact release —
+ * family, release id, pack id, version, archive hash AND byte count. What it
+ * does not require is a `bundle_closure`, because nothing was pinned at
+ * purchase time: for an upgrade, a kit's dependency must be the version the
+ * account is entitled to NOW, which is what this receipt states.
+ */
+export function verifyContentStoreRestoreDeliveryReceipt(
+  publicKey: GenStudioContentPublicKey,
+  receipt: GenStudioContentReceipt,
+  expected: Omit<ExpectedContentDelivery, 'productId'>,
+): void {
+  if (receipt.keyId !== receipt.signedReceipt.value.key_id) {
+    throw new Error('Restore delivery receipt key_id does not match its signed payload')
+  }
+  verifySignature(publicKey, receipt.signedReceipt, receipt.receiptSignature, 'genstudio.content.restore.v1', 'Restore delivery receipt')
+  const payload = receipt.signedReceipt.value
+  if (payload.account_id !== expected.accountId || payload.content_account_id !== expected.accountId) {
+    throw new Error('Restore delivery receipt belongs to a different account')
+  }
+  const releases = payload.releases
+  if (!Array.isArray(releases)) throw new Error('Restore delivery receipt releases must be an array')
+  const named = releases.some(entry => {
+    if (!entry || typeof entry !== 'object') return false
+    const row = entry as Record<string, unknown>
+    return row.entitlement_family === expected.entitlementFamily
+      && row.release_id === expected.releaseId
+      && row.pack_id === expected.packId
+      && row.version === expected.version
+      && row.archive_sha256 === expected.archiveSha256
+      && row.archive_bytes === expected.archiveBytes
+  })
+  if (!named) {
+    throw new Error('Restore delivery receipt does not attest to this exact release')
+  }
+  const families = payload.entitlement_families
+  if (!Array.isArray(families) || !families.includes(expected.entitlementFamily)) {
+    throw new Error('Restore delivery receipt does not list this entitlement family as owned')
+  }
+}
+
 export function verifyContentStoreDeliveryReceipt(
   publicKey: GenStudioContentPublicKey,
   receipt: GenStudioContentReceipt,

@@ -5,6 +5,7 @@ import {
 import {
   verifyContentStoreDeliveryClosureMemberReceipt,
   verifyContentStoreDeliveryReceipt,
+  verifyContentStoreRestoreDeliveryReceipt,
 } from '../lib/genstudio-content-store-trust.js'
 
 export interface GenStudioDeliveryAttestation {
@@ -46,6 +47,24 @@ export interface GenStudioDeliveryClosurePin {
 }
 
 /** Read closure facts only from the already-signed canonical receipt payload. */
+/**
+ * The `releases[]` a RESTORE receipt attests to, or null when this evidence is
+ * not a restore receipt at all. Never throws for a purchase receipt — the
+ * caller falls through to the closure path in that case.
+ */
+function readGenStudioRestoreReleases(
+  evidence: Pick<GenStudioDeliveryAttestation, 'receipt_canonical_json'>,
+): Array<Record<string, unknown>> | null {
+  let payload: Record<string, unknown>
+  try { payload = JSON.parse(evidence.receipt_canonical_json) as Record<string, unknown> } catch {
+    throw new Error('GenStudio delivery receipt evidence is not valid JSON')
+  }
+  if (String(payload.typ || '') !== 'genstudio.content.restore.v1') return null
+  if (!Array.isArray(payload.releases)) throw new Error('GenStudio restore receipt has no attested releases')
+  return payload.releases.filter((value): value is Record<string, unknown> =>
+    Boolean(value) && typeof value === 'object' && !Array.isArray(value))
+}
+
 export function readGenStudioDeliveryClosure(
   evidence: Pick<GenStudioDeliveryAttestation, 'receipt_canonical_json'>,
 ): GenStudioDeliveryClosurePin[] {
@@ -71,6 +90,32 @@ function verifyClosureAssignments(evidence: GenStudioDeliveryAttestation, manife
   if (evidence.subject === 'bundle-closure-member') {
     if (dependencies.length || evidence.closure_members.length) {
       throw new Error('A GenStudio bundle closure member may not declare an unbound nested dependency closure')
+    }
+    return
+  }
+  // v1.4.46 — a restore receipt pins nothing, because nothing was bought. It
+  // states the account's CURRENT release per family, and for a free upgrade
+  // that is the correct binding: a kit's dependency must be the version the
+  // account is entitled to now, not the one pinned on the day it was bought.
+  // Every field is still matched exactly; only where the truth is read from
+  // changes.
+  const attested = readGenStudioRestoreReleases(evidence)
+  if (attested !== null) {
+    if (evidence.closure_members.length !== dependencies.length) {
+      throw new Error('GenStudio delivery closure does not match Content Pack dependencies')
+    }
+    for (const [index, dependency] of dependencies.entries()) {
+      const assignment = evidence.closure_members[index]
+      const row = assignment && attested.find(candidate =>
+        candidate.entitlement_family === assignment.entitlement_family
+        && candidate.release_id === assignment.release_id
+        && candidate.pack_id === dependency.pack_id
+        && candidate.version === dependency.version
+        && candidate.archive_sha256 === assignment.archive_sha256)
+      if (!assignment || !row || assignment.position !== index
+        || assignment.pack_id !== dependency.pack_id || assignment.version !== dependency.version) {
+        throw new Error(`GenStudio restore attestation ${index} does not bind this dependency`)
+      }
     }
     return
   }
@@ -123,7 +168,17 @@ export function verifyGenStudioDeliveryAttestation(
     canonicalization: 'json:sorted-keys,no-whitespace,utf-8',
   })
   const receipt = { signedReceipt, receiptSignature: evidence.receipt_signature, keyId: evidence.key_id, raw: canonicalizeContentStoreObject({ receipt: payload, receipt_signature: evidence.receipt_signature, key_id: evidence.key_id }) }
-  if (evidence.subject === 'receipt-root') {
+  // Which KIND of receipt this is, read from the receipt itself rather than a
+  // flag beside it: a restore receipt authorises a free upgrade and states the
+  // account's CURRENT releases; a purchase receipt states one frozen release.
+  // See `verifyContentStoreRestoreDeliveryReceipt`.
+  if (String((payload as { typ?: unknown }).typ || '') === 'genstudio.content.restore.v1') {
+    verifyContentStoreRestoreDeliveryReceipt(publicKey, receipt, {
+      accountId: evidence.account_id, entitlementFamily: evidence.entitlement_family,
+      releaseId: evidence.release_id, packId: evidence.pack_id, version: evidence.version,
+      archiveSha256: evidence.archive_sha256, archiveBytes: evidence.archive_bytes,
+    })
+  } else if (evidence.subject === 'receipt-root') {
     verifyContentStoreDeliveryReceipt(publicKey, receipt, {
       accountId: evidence.account_id, productId: evidence.product_id, entitlementFamily: evidence.entitlement_family,
       releaseId: evidence.release_id, packId: evidence.pack_id, version: evidence.version,

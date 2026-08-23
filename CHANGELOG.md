@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.46 — 2026-08-23
+
+- **The update still would not install, and this is the actual reason.** 1.4.45 taught the app to accept your account-wide proof of ownership, and it got further — then failed with a generic "Failed to install". Underneath, the pack file was being quarantined as invalid: the final check still read your proof in the *purchase* shape, looking for a product block, a release block and a purchase-time component list. Your account-wide proof has none of those; it lists the current version of everything you own. So it verified the signature, found the wrong shape, and threw the file away.
+- **The check now reads whichever kind of proof it was given**, decided by the proof itself rather than a flag beside it. The bar is unchanged: same signing key, same account, and it must name this exact pack, version, contents hash and byte count. A kit's four components bind the same way — to the versions you are entitled to today, which is the whole point of a free upgrade.
+- **This is the third attempt at one bug, and the first two were called fixed while it was still broken.** Both were checked by reading the source rather than by installing anything, and neither could see a quarantined file behind a generic error. There is now a test that publishes a new version, offers it as an update and installs it — and it fails if any part of that chain breaks.
+
+---
+
 ## v1.4.45 — 2026-08-23
 
 - **"Install update" did nothing on all five kits, and it never could have.** The app demanded a purchase receipt naming the exact new version — but a free upgrade is never purchased, so no such receipt exists or ever will. Your original receipt is frozen at the version you bought, deliberately, because a receipt has to keep saying what it said on the day. Every free upgrade the store has ever offered was refused for this reason.
