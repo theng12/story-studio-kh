@@ -30,6 +30,57 @@ type RegistryRecord = {
   }
 }
 
+const QUESTION_LADDER_SAFETY_CONTRACT = {
+  perspective_policy: "Use an evidence-aware, non-diagnostic narrator who explains the question without prescribing a universal answer or pretending to know the viewer's circumstances.",
+  narrative_quality_contract: {
+    opening_policy: 'Open with one concrete audience question and state the scope that the episode can responsibly answer.',
+    forbidden_patterns: [
+      "You won't believe",
+      'The truth they hid',
+      'Watch what happens next',
+      'diagnosing the viewer',
+      'medical or legal certainty',
+      'one-size-fits-all directives',
+      'unsupported causal claims',
+    ],
+    required_habits: [
+      'Define important terms before explaining the mechanism.',
+      'Distinguish claims, supporting evidence, and uncertainty.',
+      'Name a meaningful trade-off and at least one exception.',
+      'Keep the conclusion inside the stated evidence boundary.',
+    ],
+    closing_policy: 'End with the bounded conclusion the evidence supports, the important uncertainty that remains, and no universal directive.',
+  },
+  title_rules: [
+    'Frame one concrete, answerable question in plain language.',
+    'Reject bait, fear framing, secret-reveal language, and promises the episode cannot prove.',
+    'Reject medical and legal certainty, diagnostic labels, and one-size-fits-all directives.',
+    'Do not imply a universal result, guaranteed outcome, or individualized professional guidance.',
+  ],
+  idea_system_prompt_role: 'Generate distinct, concrete audience questions that can be answered through a mechanism, a real trade-off, an exception, and a bounded evidence-aware conclusion. Reject duplicates, bait, diagnosis, medical or legal certainty, and universal directives.',
+  idea_guidance_text: "Make every candidate's question intent, mechanism depth, trade-off, exception class, and conclusion boundary explicit. Do not queue a candidate until normalized-title and question fingerprints have been checked against existing episodes and the current batch.",
+  script_context: 'Answer one concrete question in six dependent steps: define the scope, explain the mechanism, weigh a trade-off, test an exception, and stop at the strongest conclusion the evidence supports. Separate claim, evidence, inference, anecdote, and uncertainty in plain language.',
+  script_system_prompt_role: 'You are a clear, evidence-aware, non-diagnostic explainer. You neither sensationalize uncertainty nor disguise it. You never diagnose the viewer, claim medical or legal certainty, fabricate evidence, or turn a general explanation into individualized professional advice.',
+  title_shape_rules: [
+    'Use a direct question whose nouns reveal the concrete subject.',
+    'A comparison question must name the options or criteria rather than promise one universal winner.',
+    'An observation question must not imply causation before the episode weighs evidence and alternatives.',
+  ],
+} as const
+
+function assertQuestionLadderSafety(formula: Record<string, unknown>): void {
+  assert.deepEqual({
+    perspective_policy: formula.perspective_policy,
+    narrative_quality_contract: formula.narrative_quality_contract,
+    title_rules: formula.title_rules,
+    idea_system_prompt_role: formula.idea_system_prompt_role,
+    idea_guidance_text: formula.idea_guidance_text,
+    script_context: formula.script_context,
+    script_system_prompt_role: formula.script_system_prompt_role,
+    title_shape_rules: formula.title_shape_rules,
+  }, QUESTION_LADDER_SAFETY_CONTRACT, 'Question Ladder must preserve the approved prohibitive safety contract')
+}
+
 async function readJson(file: string): Promise<Record<string, unknown>> {
   return JSON.parse(await fs.readFile(file, 'utf8')) as Record<string, unknown>
 }
@@ -92,13 +143,16 @@ test('Question Ladder Formula is receipt-bound and preserves its evidence-safe e
 
   assert.match((formula.evidence_expectations as string[]).join(' '), /claim.*evidence.*uncertainty/i)
   assert.match(scriptStructure.additional_rules.join(' '), /recency.*before.*queued|before.*queued.*recency/i)
-  assert.match(String(formula.perspective_policy), /non-diagnostic/i)
+  assertQuestionLadderSafety(formula)
 
-  const titleRules = (formula.title_rules as string[]).join(' ')
-  assert.match(titleRules, /bait/i)
-  assert.match(titleRules, /medical.*legal.*certainty|legal.*medical.*certainty/i)
-  assert.match(titleRules, /one-size-fits-all/i)
-  assert.doesNotMatch(titleRules, /guarantee results|certain cure/i)
+  const unsafeFormula = structuredClone(formula)
+  unsafeFormula.title_rules = [
+    'Use bait, medical and legal certainty, and one-size-fits-all directives.',
+  ]
+  assert.throws(
+    () => assertQuestionLadderSafety(unsafeFormula),
+    /must preserve the approved prohibitive safety contract/,
+  )
 
   assert.deepEqual(formula.compatible_topic_pack_ids, [topicRecord.item_id])
   assert.deepEqual(formula.recommended_thumbnail_recipe_ids, [recipeRecord.item_id])
