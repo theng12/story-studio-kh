@@ -197,6 +197,27 @@ export async function resolveOwnedContentStoreDependency(
   )
 }
 
+/**
+ * Does this signed restore-receipt `releases[]` row attest to exactly this
+ * release of exactly this family?
+ *
+ * Exported so the matching rule can be tested on its own: it is the whole of
+ * what makes accepting a restore receipt safe, and it must never soften into
+ * "same family, close enough".
+ */
+export function restoreReceiptAttestsRelease(
+  row: Record<string, unknown>,
+  entitlementFamily: string,
+  release: Pick<GenStudioContentRelease, 'releaseId' | 'packId' | 'version' | 'archiveSha256' | 'archiveBytes'>,
+): boolean {
+  return row.entitlement_family === entitlementFamily
+    && row.release_id === release.releaseId
+    && row.pack_id === release.packId
+    && row.version === release.version
+    && row.archive_sha256 === release.archiveSha256
+    && row.archive_bytes === release.archiveBytes
+}
+
 function releaseKey(release: GenStudioContentRelease): string {
   return `${release.packId}@${release.version}`
 }
@@ -228,7 +249,55 @@ function deliveryAttestation(
     return direct || closure
   })
   if (!matchingReceipt) {
-    throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_MISSING', 'GenStudio did not return permanent signed receipt evidence for this owned release.')
+    // v1.4.45 — a FREE UPGRADE has no purchase receipt, and never will.
+    //
+    // Ownership is family-level: buying "A Life As…" entitles the account to
+    // whatever release that family currently points at, for ever. The purchase
+    // receipt is deliberately frozen at the version bought on the day —
+    // GenStudio's `purchase_receipts` says so in as many words: "a receipt
+    // attests to what was bought on the day, and a retirement or a reprice
+    // since then must not be able to restate it." So no purchase receipt can
+    // ever name 1.0.1, and the check above refused every free upgrade the
+    // Store has ever offered. The owner hit it on all five kit successors:
+    // "i tried updating, nothing happened here."
+    //
+    // The RESTORE receipt is the artefact for this, and GenStudio mints it
+    // fresh on every call precisely to say "this account, these families,
+    // these current releases, at this instant". It is signed by the same
+    // keyring and is already verified in `fetchVerifiedOwnership` before we
+    // get here, so accepting it is not a weakening — for an upgrade it is the
+    // stronger evidence, because it is current rather than historical.
+    //
+    // Every identifying field is still matched exactly. A restore receipt that
+    // does not name this precise release, pack, version, hash AND byte count
+    // is no more acceptable than a missing one.
+    const attested = Array.isArray(context.receipts.restoreReceipt.signedReceipt.value.releases)
+      ? context.receipts.restoreReceipt.signedReceipt.value.releases as Array<Record<string, unknown>>
+      : []
+    const currentRelease = attested.find(row =>
+      restoreReceiptAttestsRelease(row, entitlement.entitlementFamily, release))
+    if (!currentRelease) {
+      throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_MISSING', 'GenStudio did not return permanent signed receipt evidence for this owned release.')
+    }
+    return {
+      account_id: context.account.accountId,
+      product_id: entitlement.productId,
+      entitlement_family: entitlement.entitlementFamily,
+      release_id: release.releaseId,
+      pack_id: release.packId,
+      version: release.version,
+      archive_sha256: release.archiveSha256,
+      archive_bytes: release.archiveBytes,
+      genstudio_origin: context.origin,
+      // The evidence is the release the restore receipt itself attests to, so
+      // the subject is the receipt root; a bundle closure is a purchase-time
+      // shape and does not apply.
+      subject: 'receipt-root',
+      closure_members: [],
+      key_id: context.receipts.restoreReceipt.keyId,
+      receipt_canonical_json: context.receipts.restoreReceipt.signedReceipt.canonicalJson,
+      receipt_signature: context.receipts.restoreReceipt.receiptSignature,
+    }
   }
   const payload = matchingReceipt.signedReceipt.value
   const direct = (payload.product as Record<string, unknown> | undefined)?.product_id === entitlement.productId
@@ -261,7 +330,37 @@ async function bindRootClosure(
     if (dependencies.length) throw new ContentStoreLocalError(409, 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'GenStudio 1.14 receipt closure does not authorize nested bundle-member dependencies.')
     return evidence
   }
-  const payload = JSON.parse(evidence.receipt_canonical_json) as { bundle_closure?: unknown[] }
+  const payload = JSON.parse(evidence.receipt_canonical_json) as {
+    bundle_closure?: unknown[]
+    releases?: unknown[]
+  }
+  // v1.4.45 — a free upgrade is authorised by the RESTORE receipt, which
+  // carries no `bundle_closure`: it is not a purchase, so nothing was pinned
+  // at purchase time. What it carries instead is `releases` — the current
+  // release of every family this account owns — and that is the right binding
+  // for an upgrade, because a kit's dependency must be the version the account
+  // is entitled to NOW, not the one it was entitled to on the day it was
+  // bought. Derived from the receipt's own shape rather than a flag, so a
+  // persisted attestation needs no new field to be read correctly.
+  const restoreAttested = Array.isArray(payload.releases) && !Array.isArray(payload.bundle_closure)
+  if (restoreAttested) {
+    const attested = payload.releases as Array<Record<string, unknown>>
+    const closure_members = await Promise.all(dependencies.map(async (dependency, position) => {
+      const owned = await resolveOwnedContentStoreDependency(context, dependency.pack_id, dependency.version)
+      const pin = attested.find(row =>
+        row.entitlement_family === owned.entitlement.entitlementFamily
+        && row.release_id === owned.release.releaseId
+        && row.pack_id === owned.release.packId
+        && row.version === owned.release.version
+        && row.archive_sha256 === owned.release.archiveSha256)
+      if (!pin) {
+        throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed GenStudio restore receipt does not attest to this exact dependency.')
+      }
+      return { position, pack_id: dependency.pack_id, version: dependency.version, product_id: owned.entitlement.productId,
+        entitlement_family: owned.entitlement.entitlementFamily, release_id: owned.release.releaseId, archive_sha256: owned.release.archiveSha256 }
+    }))
+    return { ...evidence, closure_members }
+  }
   if (!Array.isArray(payload.bundle_closure) || payload.bundle_closure.length !== dependencies.length) {
     throw new ContentStoreLocalError(409, 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'The signed GenStudio receipt closure does not match this pack before installation.')
   }

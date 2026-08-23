@@ -136,6 +136,27 @@ interface MockContentPurchaseRecord {
   entitlementFamilies: string[]
   creditsCharged: number
   issuedAt: string
+  /**
+   * The release as it stood WHEN THIS WAS BOUGHT, and the bundle closure that
+   * was pinned with it.
+   *
+   * v1.4.45 — this mock used to build every purchase receipt from the
+   * product's CURRENT release, so a receipt silently restated itself whenever
+   * a successor was published. Real GenStudio does the opposite and says so:
+   * "a receipt attests to what was bought on the day, and a retirement or a
+   * reprice since then must not be able to restate it."
+   *
+   * That difference is exactly why no test caught free upgrades being
+   * uninstallable: in the mock the frozen purchase receipt kept naming the new
+   * version, so the code path that had to handle a receipt naming the OLD one
+   * was never exercised.
+   *
+   * Only the release is frozen here. The bundle closure stays computed from
+   * the product, because a seeded kit's components are registered after the
+   * kit itself and pinning an empty closure would break every fixture that
+   * seeds ownership.
+   */
+  release: Record<string, unknown>
 }
 
 interface MockOwnedContentReleaseState {
@@ -497,6 +518,38 @@ export class MockGenStudioService {
     this.contentArchives.set(digest, Uint8Array.from(archiveBytes))
   }
 
+  /**
+   * Publish a successor release for a product the account may already own.
+   *
+   * Entitlements are family-level with no version column, so the owner gets
+   * this for free and the Store offers it as an update. Crucially the
+   * `current_release` OBJECT is replaced rather than edited, which is what
+   * leaves an existing purchase receipt still naming the version it bought --
+   * exactly what real GenStudio does, and the case free upgrades have to work
+   * through.
+   */
+  publishContentSuccessor(
+    productId: string,
+    version: string,
+    archiveBytes: Uint8Array,
+  ): { releaseId: string; archiveSha256: string } {
+    const product = this.contentProducts.find(entry => entry.product_id === productId)
+    if (!product) throw new Error(`Unknown mock Content Store product: ${productId}`)
+    const previous = product.current_release as Record<string, unknown>
+    const digest = createHash('sha256').update(archiveBytes).digest('hex')
+    const releaseId = `${String(previous.release_id)}_${version.replace(/\./g, '_')}`
+    product.current_release = {
+      ...previous,
+      release_id: releaseId,
+      version,
+      archive_sha256: digest,
+      archive_bytes: archiveBytes.byteLength,
+      archive_available: true,
+    }
+    this.contentArchives.set(digest, Uint8Array.from(archiveBytes))
+    return { releaseId, archiveSha256: digest }
+  }
+
   setContentOwnedReleaseState(releaseId: string, state: MockOwnedContentReleaseState): void {
     if (!this.contentProducts.some(product => (product.current_release as Record<string, unknown> | null)?.release_id === releaseId)) {
       throw new Error(`Unknown mock Content Store release: ${releaseId}`)
@@ -541,7 +594,16 @@ export class MockGenStudioService {
     const issuedAt = '2026-08-14T09:12:44Z'
     ownership.set(family, { productId, purchaseId, grantedAt: issuedAt })
     const records = this.contentPurchaseRecords.get(accountId) || []
-    records.push({ purchaseId, productId, entitlementFamilies: [family], creditsCharged: 0, issuedAt })
+    records.push({
+      purchaseId, productId, entitlementFamilies: [family], creditsCharged: 0, issuedAt,
+      // Held BY REFERENCE, deliberately. A fixture may still be filling in the
+      // archive hash and byte count on this release after the purchase (that
+      // is the order several of them use), and those belong to the version
+      // that was bought. Publishing a SUCCESSOR replaces `current_release`
+      // with a new object, so this reference keeps pointing at the version
+      // this purchase actually paid for -- which is the freeze being modelled.
+      release: product.current_release as Record<string, unknown>,
+    })
     this.contentPurchaseRecords.set(accountId, records)
   }
 
@@ -796,7 +858,9 @@ export class MockGenStudioService {
     }
     const purchaseReceipts = (this.contentPurchaseRecords.get(accountId) || []).map(record => {
       const product = this.contentProducts.find(candidate => candidate.product_id === record.productId)
-      const release = product?.current_release
+      // The release the receipt names is the one recorded at purchase time,
+      // never the product's current one. See MockContentPurchaseRecord.release.
+      const release = record.release
       if (!product || !release) throw new Error('Mock Content Store receipt has no product release')
       const receipt = {
         typ: 'genstudio.content.receipt.v1', key_id: 'mock-content-key', receipt_id: `crc_${record.purchaseId}`,
@@ -1021,6 +1085,13 @@ export class MockGenStudioService {
     const record: MockContentPurchaseRecord = {
       purchaseId, productId: String(product.product_id), entitlementFamilies,
       creditsCharged: charged, issuedAt,
+      // Held BY REFERENCE, deliberately. A fixture may still be filling in the
+      // archive hash and byte count on this release after the purchase (that
+      // is the order several of them use), and those belong to the version
+      // that was bought. Publishing a SUCCESSOR replaces `current_release`
+      // with a new object, so this reference keeps pointing at the version
+      // this purchase actually paid for -- which is the freeze being modelled.
+      release: product.current_release as Record<string, unknown>,
     }
     const records = this.contentPurchaseRecords.get(accountId) || []
     records.push(record)

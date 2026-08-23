@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.45 — 2026-08-23
+
+- **"Install update" did nothing on all five kits, and it never could have.** The app demanded a purchase receipt naming the exact new version — but a free upgrade is never purchased, so no such receipt exists or ever will. Your original receipt is frozen at the version you bought, deliberately, because a receipt has to keep saying what it said on the day. Every free upgrade the store has ever offered was refused for this reason.
+- **It now accepts the account-wide receipt GenStudio mints fresh on every check**, which exists precisely to say "this account, these packs, these current versions, right now". It is signed by the same key and was already being verified before this point — for an upgrade it is the stronger evidence, because it is current rather than historical. Every identifying detail is still matched exactly: pack, version, contents hash and byte count.
+- **A kit's four components now bind to the version you are entitled to today** rather than the one pinned on the day you bought the kit, which is the whole point of a free upgrade.
+- **The test fixture was hiding this.** It rebuilt every purchase receipt from the pack's *current* version, so a receipt quietly rewrote itself whenever a new version appeared — the exact situation the code had to handle was impossible to reach in a test. It now freezes at purchase, like the real thing.
+
+---
+
 ## v1.4.44 — 2026-08-23
 
 - **Every Content Store pack you own has been switched off since you installed them.** All 55 of them, since 16 August. They downloaded, they verified, they show as installed — but each one was missing the single marker that tells the app which version to actually use, and without it every formula, style and thumbnail template inside them was skipped. You have been running on the built-in ones the whole time and nothing said otherwise.
