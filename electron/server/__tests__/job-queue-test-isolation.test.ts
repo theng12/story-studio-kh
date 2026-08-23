@@ -69,11 +69,11 @@ test('a delayed queue completion cannot write into the configured projects root 
 
   try {
     const jq = await import('../services/job-queue.js')
-    jq.registerExecutor('broll_autotag', delayedExecutor)
+    jq.registerExecutor('broll_normalize', delayedExecutor)
     jq.registerExecutor('composition_generate', delayedExecutor)
     const existingProjectJob = jq.enqueuePreparedForTest({
       project_slug: existingSlug,
-      type: 'broll_autotag',
+      type: 'broll_normalize',
       episode_id: 'EP0001',
       title: 'Delayed existing-project isolation sentinel',
       params: {},

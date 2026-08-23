@@ -736,7 +736,6 @@ test('static inventory supplements the runtime checkpoint seams', () => {
     '../generators/audio.ts',
     '../generators/subtitles.ts',
     '../generators/images.ts',
-    '../generators/scene-images-batch.ts',
     '../generators/continuity-render.ts',
     '../generators/image-pool-generate.ts',
     '../generators/scene-clip.ts',

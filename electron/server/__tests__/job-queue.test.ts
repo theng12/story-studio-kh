@@ -96,12 +96,12 @@ describe('Scene Review and Pipeline render ownership', () => {
     let releaseLegacy!: () => void
     const legacyBlock = new Promise<void>((resolve) => { releaseLegacy = resolve })
     let metadataRuns = 0
-    jq.registerExecutor('scene_images_batch', async () => await legacyBlock)
+    jq.registerExecutor('continuity_render', async () => await legacyBlock)
     jq.registerExecutor('metadata', async () => { metadataRuns++ })
 
     const legacy = jq.enqueuePreparedForTest({
       project_slug: proj.slug,
-      type: 'scene_images_batch',
+      type: 'continuity_render',
       episode_id: 'EP001',
       title: 'Legacy Scene Review batch',
       params: { scene_ids: ['ep001-scene-0001'] },
@@ -135,7 +135,7 @@ describe('Scene Review and Pipeline render ownership', () => {
     }
     assert.equal(metadataRuns, 1, 'the adopted render should continue the Pipeline exactly once')
     const projectJobs = await jq.getJobs(proj.slug)
-    assert.equal(projectJobs.filter(job => job.type === 'scene_images_batch' || job.type === 'continuity_render').length, 1)
+    assert.equal(projectJobs.filter(job => job.type === 'continuity_render').length, 1)
   })
 
   test('a render owned by another Pipeline cannot have its continuation replaced', async () => {
@@ -457,7 +457,7 @@ describe('Concurrent enqueues across different job types', () => {
     // across two types and asserts every one landed in jobs.json with
     // status=done.
     const proj = await pm.createProject({ name: 'JQ Concurrent' })
-    jq.registerExecutor('images', async (j) => {
+    jq.registerExecutor('thumb_images', async (j) => {
       // Tiny but non-trivial work so multiple jobs interleave on the
       // event loop and the persist write is genuinely racy.
       await new Promise((r) => setTimeout(r, 5))
@@ -472,7 +472,7 @@ describe('Concurrent enqueues across different job types', () => {
     const enqueued: string[] = []
     for (let i = 0; i < N / 2; i++) {
       const a = jq.enqueuePreparedForTest({
-        project_slug: proj.slug, type: 'images',
+        project_slug: proj.slug, type: 'thumb_images',
         episode_id: `EP${String(100 + i).padStart(3, '0')}`,
         title: `img-${i}`, params: {},
       })

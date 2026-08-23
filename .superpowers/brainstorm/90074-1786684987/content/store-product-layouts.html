@@ -1,0 +1,111 @@
+<style>
+  .pack-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; margin-top:24px; }
+  .pack-option { border:1px solid #3a3e4b; border-radius:18px; overflow:hidden; background:#171922; cursor:pointer; transition:.18s ease; }
+  .pack-option:hover { border-color:#d9ad53; transform:translateY(-2px); }
+  .pack-option.selected { border:2px solid #efbd59; box-shadow:0 0 0 3px rgba(239,189,89,.15); }
+  .choice-head { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid #303441; background:#1e212c; }
+  .choice-letter { width:30px; height:30px; border-radius:10px; background:#eab856; color:#17130b; display:grid; place-items:center; font-weight:800; }
+  .choice-title { font-weight:750; color:#f4f2ec; }
+  .store-screen { min-height:520px; padding:15px; color:#e8e7e3; font-size:12px; }
+  .store-bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; color:#a9adbb; }
+  .store-back { color:#e8b752; font-size:11px; }
+  .hero-panel { border:1px solid #333744; border-radius:14px; padding:14px; background:linear-gradient(145deg,#242019,#1d2029 60%); }
+  .eyebrow { color:#e8b752; text-transform:uppercase; letter-spacing:.12em; font-size:9px; font-weight:800; }
+  .pack-name { font-size:20px; line-height:1.12; margin:6px 0 7px; color:#fff; font-weight:800; }
+  .pack-copy { color:#adb1bf; line-height:1.45; }
+  .price-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:13px; }
+  .price { color:#f7cc73; font-size:15px; font-weight:800; }
+  .quote-button { border:0; border-radius:9px; background:#eab856; color:#18130b; padding:8px 11px; font-weight:800; font-size:10px; }
+  .section-label { margin:16px 0 8px; color:#9096a8; font-size:9px; text-transform:uppercase; letter-spacing:.12em; font-weight:800; }
+  .video-hero { aspect-ratio:16/9; border-radius:12px; background:linear-gradient(135deg,#69482d,#1c2430 60%,#0f1118); display:grid; place-items:center; position:relative; overflow:hidden; border:1px solid #514635; }
+  .video-hero:before { content:''; position:absolute; inset:0; background:linear-gradient(90deg,rgba(0,0,0,.35),transparent),repeating-linear-gradient(0deg,transparent 0 20px,rgba(255,255,255,.025) 20px 21px); }
+  .play { width:44px; height:44px; border-radius:50%; display:grid; place-items:center; background:#edbd5f; color:#18130b; font-size:18px; position:relative; }
+  .video-caption { position:absolute; left:12px; bottom:10px; right:10px; font-weight:750; color:white; text-shadow:0 1px 8px #000; }
+  .video-row { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-top:8px; }
+  .video-tile { aspect-ratio:16/10; border-radius:8px; background:#292d39; border:1px solid #3a3f4e; padding:7px; display:flex; align-items:end; color:#d7d8de; font-size:8px; }
+  .component-list { display:grid; gap:7px; }
+  .component { display:flex; gap:8px; padding:9px; background:#222530; border:1px solid #343846; border-radius:9px; }
+  .component-icon { width:26px; height:26px; flex:0 0 auto; display:grid; place-items:center; border-radius:8px; background:#373020; color:#edbc59; font-weight:800; }
+  .component strong { display:block; color:#f0eee8; font-size:10px; }
+  .component span { color:#969cab; font-size:8px; }
+  .split-proof { display:grid; grid-template-columns:1.03fr .97fr; gap:9px; }
+  .mini-proof { min-height:160px; border:1px solid #4a4233; border-radius:10px; background:linear-gradient(145deg,#654328,#1d2430); padding:10px; display:flex; flex-direction:column; justify-content:flex-end; }
+  .mini-proof b { color:#fff; }
+  .trust-note { margin-top:10px; padding:8px; border-radius:8px; background:#1f2a27; border:1px solid #315047; color:#9fd3b8; font-size:8px; line-height:1.4; }
+  .layout-note { padding:14px 16px 16px; color:#9ca1af; line-height:1.45; border-top:1px solid #303441; min-height:62px; }
+  @media (max-width:1000px) { .pack-grid { grid-template-columns:1fr; } .store-screen { min-height:auto; } }
+</style>
+
+<h2>How should the first flagship pack be presented?</h2>
+<p class="subtitle">All three use the same product and future YouTube links. Click the structure that makes the value easiest to understand.</p>
+
+<div class="pack-grid">
+  <div class="pack-option" data-choice="proof-first" onclick="toggleSelect(this)">
+    <div class="choice-head"><div class="choice-letter">A</div><div class="choice-title">Proof first</div></div>
+    <div class="store-screen">
+      <div class="store-bar"><span class="store-back">← Content Store</span><span>Permanent ownership</span></div>
+      <div class="hero-panel">
+        <div class="eyebrow">Complete Channel Kit</div>
+        <div class="pack-name">Hidden Systems:<br>Money, Power &amp; Empire</div>
+        <div class="pack-copy">Build evidence-aware documentaries about the institutions and mechanisms that quietly shaped history.</div>
+      </div>
+      <div class="section-label">See what it creates</div>
+      <div class="video-hero"><div class="play">▶</div><div class="video-caption">How Debt Built an Empire</div></div>
+      <div class="video-row"><div class="video-tile">The Tax System Behind Rome</div><div class="video-tile">Who Controlled the Silver?</div><div class="video-tile">The Bank That Funded a War</div></div>
+      <div class="section-label">Included</div>
+      <div class="component-list"><div class="component"><div class="component-icon">4</div><div><strong>Four production components</strong><span>Formula · Topics · Visual style · Thumbnail recipe</span></div></div></div>
+      <div class="price-row"><div><div class="price">Published credit price</div><small style="color:#9297a6">Exact quote before purchase</small></div><button class="quote-button">See exact quote</button></div>
+    </div>
+    <div class="layout-note">Best for proving quality immediately. Customers see real output before reading the technical contents.</div>
+  </div>
+
+  <div class="pack-option" data-choice="product-first" onclick="toggleSelect(this)">
+    <div class="choice-head"><div class="choice-letter">B</div><div class="choice-title">Product first</div></div>
+    <div class="store-screen">
+      <div class="store-bar"><span class="store-back">← Content Store</span><span>Complete kit</span></div>
+      <div class="hero-panel">
+        <div class="eyebrow">Complete Channel Kit</div>
+        <div class="pack-name">Hidden Systems:<br>Money, Power &amp; Empire</div>
+        <div class="pack-copy">A full documentary production identity with structured idea coverage and coordinated visual direction.</div>
+        <div class="price-row"><div class="price">Published credit price</div><button class="quote-button">See exact quote</button></div>
+      </div>
+      <div class="section-label">Everything included</div>
+      <div class="component-list">
+        <div class="component"><div class="component-icon">F</div><div><strong>Hidden Systems Documentary</strong><span>Series Formula</span></div></div>
+        <div class="component"><div class="component-icon">T</div><div><strong>Money, Debt &amp; Financial Power</strong><span>250-subject Topic Pack</span></div></div>
+        <div class="component"><div class="component-icon">V</div><div><strong>Archival Power Investigation</strong><span>Visual Style</span></div></div>
+        <div class="component"><div class="component-icon">R</div><div><strong>The Hidden Mechanism</strong><span>Thumbnail Recipe</span></div></div>
+      </div>
+      <div class="section-label">Example videos</div>
+      <div class="video-row"><div class="video-tile">Debt &amp; Empire</div><div class="video-tile">Tax &amp; Power</div><div class="video-tile">Trade Systems</div></div>
+      <div class="trust-note">Example links are supplied by the publisher. Results also depend on selected models, voice, and editorial choices.</div>
+    </div>
+    <div class="layout-note">Best for buyers who compare components and understand packs already. The commercial contents lead.</div>
+  </div>
+
+  <div class="pack-option" data-choice="balanced-split" onclick="toggleSelect(this)">
+    <div class="choice-head"><div class="choice-letter">C</div><div class="choice-title">Balanced split</div></div>
+    <div class="store-screen">
+      <div class="store-bar"><span class="store-back">← Content Store</span><span>Story Studio verified</span></div>
+      <div class="hero-panel">
+        <div class="eyebrow">Complete Channel Kit</div>
+        <div class="pack-name">Hidden Systems:<br>Money, Power &amp; Empire</div>
+        <div class="pack-copy">A documentary system for turning hidden historical mechanisms into clear, visually consistent episodes.</div>
+        <div class="price-row"><div class="price">Published credit price</div><button class="quote-button">See exact quote</button></div>
+      </div>
+      <div class="section-label">Proof and contents</div>
+      <div class="split-proof">
+        <div class="mini-proof"><div class="play" style="width:34px;height:34px;font-size:14px;margin-bottom:20px">▶</div><b>How Debt Built an Empire</b><span style="color:#c1c4cc;font-size:8px">Watch on YouTube</span></div>
+        <div class="component-list">
+          <div class="component"><div class="component-icon">F</div><div><strong>Formula</strong><span>Investigative structure</span></div></div>
+          <div class="component"><div class="component-icon">T</div><div><strong>Topics</strong><span>500+ safe ideas</span></div></div>
+          <div class="component"><div class="component-icon">V</div><div><strong>Visuals</strong><span>Style + thumbnail</span></div></div>
+        </div>
+      </div>
+      <div class="section-label">More example episodes</div>
+      <div class="video-row"><div class="video-tile">Roman Taxes</div><div class="video-tile">Silver Networks</div><div class="video-tile">War Finance</div></div>
+      <div class="trust-note">Permanent GenStudio account ownership · Exact signed versions · Install and rollback in Story Studio</div>
+    </div>
+    <div class="layout-note">Our recommendation: proof and product facts share the first screen without making either feel secondary.</div>
+  </div>
+</div>

@@ -58,10 +58,6 @@ const PROTECTED = new Set([
   'audio.ts',       // 1.4.25 — the 5 refusals nobody noticed on 13-15 Aug
   'images.ts',      // 1.4.26 — 7,419 fleet-placed attempts in 30 days, the highest
                     //          volume in the app and it had never met a burst
-  'scene-images-batch.ts', // 1.4.30 — also had to stop an in-memory manifest
-                    //          entry diverging from disk, or an in-process
-                    //          retry would derive a different identity than a
-                    //          crash-replay: two identities for one retry.
   'continuity-render.ts', // 1.4.29 — Scene Review. Also had to suppress the
                     //          10-minute stall watchdog while waiting: a busy
                     //          fleet is exactly what trips it, and the pause it
@@ -126,10 +122,10 @@ describe('the register of who waits for a busy fleet', () => {
     }
   })
 
-  test('all nine are protected, and an exemption must carry its reason', async () => {
+  test('all of them are protected, and an exemption must carry its reason', async () => {
     const handling = await generatorsHandlingGenStudioFailures()
-    assert.equal(handling.length, 9,
-      `Expected the nine known GenStudio generators, found ${handling.length}: ${handling.join(', ')}. `
+    assert.equal(handling.length, 8,
+      `Expected the eight known GenStudio generators, found ${handling.length}: ${handling.join(', ')}. `
       + 'A new one is not a problem — add it to PROTECTED and update this count — but it must not '
       + 'arrive unnoticed.')
     assert.deepEqual([...handling].filter(f => !PROTECTED.has(f)), [],

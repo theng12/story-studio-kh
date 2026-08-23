@@ -541,11 +541,11 @@ test('registered audio and image auditors reject an empty authoritative output s
   await fs.writeFile(paths.scene_prompts_docx, '')
 
   const audioAuditor = getJobCancellationAuditor('audio')
-  const imageAuditor = getJobCancellationAuditor('images')
+  const imageAuditor = getJobCancellationAuditor('thumb_images')
   assert.ok(audioAuditor)
   assert.ok(imageAuditor)
   assert.equal(await audioAuditor!({ ...job(), project_slug: project.slug, episode_id: 'EP0001', type: 'audio' }), 'repair-required')
-  assert.equal(await imageAuditor!({ ...job(), project_slug: project.slug, episode_id: 'EP0001', type: 'images' }), 'repair-required')
+  assert.equal(await imageAuditor!({ ...job(), project_slug: project.slug, episode_id: 'EP0001', type: 'thumb_images' }), 'repair-required')
 })
 
 test('cold persisted cancellation reconciles outside a generation lane and retains its duplicate lock', async () => {

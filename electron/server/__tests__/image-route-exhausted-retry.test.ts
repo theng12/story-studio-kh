@@ -42,7 +42,7 @@ import type { Job } from '../models/types.js'
 
 function job(): Job {
   return {
-    job_id: 'image-batch-01', project_slug: 'test', type: 'scene_images', episode_id: 'EP0067', title: '',
+    job_id: 'image-batch-01', project_slug: 'test', type: 'thumb_images', episode_id: 'EP0067', title: '',
     status: 'running', created_at: '', started_at: '', finished_at: null, error: null,
     output_lines: [], params: {},
   }
@@ -249,7 +249,8 @@ test('images.ts reuses the retry-scope chain and progress machinery instead of i
 
   // The fan-out width itself is untouched: still the shared account-level
   // resolver, still called the same way inside the pool.
-  assert.match(source, /const maxWorkers = resolveGenStudioLocalFanout\(items\.length\)/)
+  // v1.4.40 — reads the account's published ceiling instead of a constant 50.
+  assert.match(source, /const maxWorkers = resolveGenStudioLocalFanout\(\s*\n?\s*items\.length,[\s\S]{0,200}?burst_concurrency_ceiling/)
 
   // The old early-throw that bypassed the completion audit and only showed
   // the first 3 failures is gone.

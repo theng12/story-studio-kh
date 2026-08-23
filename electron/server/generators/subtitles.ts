@@ -660,7 +660,8 @@ async function transcribePerChapter(
   const failures: Array<{ slug: string; error: string }> = []
 
   const { resolveGenStudioLocalFanout } = await import('../lib/genstudio-runtime.js')
-  const concurrency = resolveGenStudioLocalFanout(sections.length)
+  const { genStudioAdmissionSnapshot } = await import('../lib/genstudio-client.js')
+  const concurrency = resolveGenStudioLocalFanout(sections.length, genStudioAdmissionSnapshot()?.burst_concurrency_ceiling, jq.getImageFanoutOverride())
   job.output_lines.push(
     `Staging ${sections.length} transcription request(s); GenStudio account admission is authoritative…`,
   )

@@ -11,7 +11,6 @@ const serverRoot = path.resolve(here, '..')
 const generationFiles = [
   'generators/images.ts',
   'generators/scene-image.ts',
-  'generators/scene-images-batch.ts',
   'generators/continuity-render.ts',
   'generators/image-pool-generate.ts',
   'generators/composition-template.ts',
@@ -53,7 +52,11 @@ test('Scene Review batches recover accepted work and leave scheduling to GenStud
   const generator = await fs.readFile(path.join(serverRoot, 'generators/continuity-render.ts'), 'utf8')
   const route = await fs.readFile(path.join(serverRoot, 'routes/scene-review.ts'), 'utf8')
 
-  assert.match(generator, /resolveGenStudioLocalFanout\(scenes\.length\)/)
+  // v1.4.40 — the width is now the account's published ceiling (with the
+  // owner's optional override), not a constant. What this alarm guards is
+  // unchanged: scheduling is still GenStudio's, and Story still asks rather
+  // than inventing a number.
+  assert.match(generator, /resolveGenStudioLocalFanout\(\s*\n?\s*scenes\.length,[\s\S]{0,200}?burst_concurrency_ceiling/)
   assert.match(generator, /tryRecoverImageFromManifest[\s\S]*imageProvider\.generateImage/)
   assert.match(generator, /manifestEntry\?\.input_hash === expectedInputHash/)
   assert.match(generator, /render_attempt_id/)

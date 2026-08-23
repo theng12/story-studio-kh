@@ -2171,13 +2171,12 @@ export interface UpdateConfigRequest {
 
 export const JOB_TYPES = [
   'idea_campaign', 'broll_select', 'script-only', 'introduction-only', 'chapter-only',
-  'outline_only', 'expand_chapters', 'image_prompts', 'images',
-  'scene_images', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
+  'outline_only', 'expand_chapters', 'image_prompts', 'thumb_images', 'images_repair', 'audio', 'audio_merge',
   'metadata', 'video', 'video_assembly',
   'subtitles_transcribe', 'youtube_upload', 'youtube_playlist_update',
   'youtube_thumbnail_refresh', 'broll_normalize', 'broll_assemble',
-  'broll_autotag', 'research_run', 'scene_plan_run',
-  'scene_image_generate', 'scene_images_batch', 'scene_clip_generate',
+  'research_run', 'scene_plan_run',
+  'scene_image_generate', 'scene_clip_generate',
   'scene_clips_batch', 'continuity_render',
   'prompt_director', 'composition_generate', 'expression_markup', 'contextual_cues',
   'image_pool_generate',

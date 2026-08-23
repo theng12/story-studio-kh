@@ -13,7 +13,7 @@ type Evidence = NonNullable<Job['genstudio_jobs']>[number]
 function job(overrides: Partial<Job> = {}): Pick<Job, 'status' | 'type' | 'params' | 'genstudio_jobs' | 'remote_cancellations'> {
   return {
     status: 'running',
-    type: 'images',
+    type: 'thumb_images',
     params: {},
     ...overrides,
   }
@@ -134,7 +134,7 @@ describe('server-owned job controls', () => {
 
   test('keeps pause disabled for image jobs without a proven cooperative item boundary', () => {
     const control = classifyJobControl(job({
-      type: 'images',
+      type: 'thumb_images',
       genstudio_jobs: [evidence('image.generation', 'running', { dispatch_state: 'dispatched', cancellable: false })],
     }), { remoteCancellationAudited: true })
 
@@ -218,7 +218,7 @@ describe('server-owned job controls', () => {
   })
 
   test('does not mistake local model identifiers or no evidence for a stoppable local job', () => {
-    assert.equal(isProvenLocalStopCapableJob({ type: 'images', params: { model: 'imagestudio:local' } }), false)
+    assert.equal(isProvenLocalStopCapableJob({ type: 'thumb_images', params: { model: 'imagestudio:local' } }), false)
     assert.equal(isProvenLocalStopCapableJob({ type: 'audio', params: { model: 'macos-say' } }), false)
     assert.equal(classifyJobControl(job({ params: { model: 'unknown-cloud-model' } }), { remoteCancellationAudited: true }).action, 'pause-submissions')
     assert.equal(classifyJobControl(job({ params: { model: 'imagestudio:local' } }), { remoteCancellationAudited: true }).action, 'pause-submissions')

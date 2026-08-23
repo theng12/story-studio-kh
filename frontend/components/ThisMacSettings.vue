@@ -37,6 +37,22 @@
           </small>
         </label>
         <label>
+          <span>Episodes making images at once</span>
+          <input v-model.number="imageEpisodes" type="number" min="1" max="50" />
+          <small>
+            Scene Review, Images, Thumbnails and Image Pool share this. It was effectively 1 until
+            1.4.39, which is why a big batch left most of your machines idle.
+          </small>
+        </label>
+        <label>
+          <span>Images per episode at once</span>
+          <input v-model="imageFanout" class="fanout-input" placeholder="auto" />
+          <small>
+            "auto" follows what GenStudio says your account can run, so it rises by itself as you
+            add machines. Type a number to override it either way.
+          </small>
+        </label>
+        <label>
           <span>Extra chapters allowed</span>
           <input v-model.number="outlineHeadroom" type="number" min="1" max="10" step="0.5" />
           <small>
@@ -56,6 +72,8 @@
         <span v-if="concurrencyDefaults" class="hint">
           Defaults: {{ concurrencyDefaults.subtitle_episode_concurrency }} episodes,
           {{ concurrencyDefaults.llm_concurrency }} writing jobs,
+          {{ concurrencyDefaults.image_episode_concurrency }} image episodes,
+          {{ concurrencyDefaults.image_fanout_per_episode }} images per episode,
           {{ concurrencyDefaults.outline_chapter_headroom }}× chapters.
         </span>
       </div>
@@ -287,10 +305,14 @@ const concurrencySaving = ref(false)
 const concurrencyError = ref('')
 const subtitleEpisodes = ref(2)
 const llmJobs = ref(8)
+const imageEpisodes = ref(3)
+const imageFanout = ref<string>('auto')
 const outlineHeadroom = ref(2)
 const concurrencyDefaults = ref<{
   subtitle_episode_concurrency: number
   llm_concurrency: number
+  image_episode_concurrency: number
+  image_fanout_per_episode: number | string
   outline_chapter_headroom: number
 } | null>(null)
 
@@ -299,6 +321,8 @@ async function loadConcurrency() {
     const r: any = await get('/app-settings/concurrency')
     subtitleEpisodes.value = r?.subtitle_episode_concurrency ?? 2
     llmJobs.value = r?.llm_concurrency ?? 8
+    imageEpisodes.value = r?.image_episode_concurrency ?? 3
+    imageFanout.value = String(r?.image_fanout_per_episode ?? 'auto')
     outlineHeadroom.value = r?.outline_chapter_headroom ?? 2
     concurrencyDefaults.value = r?.defaults ?? null
   } catch { /* an unreachable setting must not break the whole page */ }
@@ -312,6 +336,9 @@ async function saveConcurrency() {
     await put('/app-settings/concurrency', {
       subtitle_episode_concurrency: Number(subtitleEpisodes.value),
       llm_concurrency: Number(llmJobs.value),
+      image_episode_concurrency: Number(imageEpisodes.value),
+      image_fanout_per_episode: imageFanout.value.trim().toLowerCase() === 'auto'
+        ? 'auto' : Number(imageFanout.value),
       outline_chapter_headroom: Number(outlineHeadroom.value),
     })
     // The route applies these to the live queue as well as storing them, so

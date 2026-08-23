@@ -29,8 +29,8 @@ describe('local auto-retry policy', () => {
   })
 
   test('retries local image generation but not image APIs', () => {
-    assert.equal(policy('scene_images_batch', { model: 'imagestudio:org/model' }).eligible, true)
-    assert.equal(policy('images', { model: 'gpt-image-1' }).eligible, false)
+    assert.equal(policy('continuity_render', { model: 'imagestudio:org/model' }).eligible, true)
+    assert.equal(policy('thumb_images', { model: 'gpt-image-1' }).eligible, false)
     assert.equal(policy('thumb_images', { model: 'flux-kontext-pro' }).eligible, false)
   })
 

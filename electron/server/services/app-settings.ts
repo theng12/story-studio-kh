@@ -269,6 +269,92 @@ export async function setSubtitleEpisodeConcurrency(value: unknown): Promise<num
  * a setting he owns rather than a number in the source — which is the whole
  * point of the ruling.
  */
+/**
+ * v1.4.39 — how many EPISODES may generate images at the same time.
+ *
+ * MEASURED 2026-08-23, on the owner's own batch: he queued 50 Scene Review jobs
+ * and 51 of his 74 online fleet workers were idle. A location connected that
+ * morning had one busy worker out of twenty. Neither the fleet nor GenStudio
+ * was the limit — his account bursts to 128 concurrent paid jobs and 25 were
+ * running. Story Studio was running the episodes ONE AT A TIME, because every
+ * queue lane outside the LLM and subtitle groups gets a single boolean slot.
+ *
+ * DEFAULT 3, NOT 1 AND NOT 30. One leaves the fleet idle, which is what he just
+ * hit. Thirty is the 2026-08-22 transcription flood, where 122 of 353 items were
+ * refused. Three episodes at roughly 25 concurrent requests each is about 75
+ * against a 128 ceiling — busy, with headroom, and every image generator now
+ * waits politely when the fleet is full rather than dropping work.
+ *
+ * His fleet grows most weeks, so this is a setting rather than a constant. When
+ * it doubles again, the number he wants is a number he can change.
+ */
+/**
+ * v1.4.41 — how many requests ONE episode may have in flight, as the owner's
+ * number rather than the code's.
+ *
+ * `'auto'` — the default — follows what GenStudio publishes for the account
+ * (`burst_concurrency_ceiling`, 128 at the time of writing), so a growing fleet
+ * raises it with nothing to remember. That is the honest default: the account
+ * already knows the answer and Story should not hold a second opinion.
+ *
+ * An explicit number overrides it in EITHER direction. Lower to leave headroom
+ * for something else; higher to stage more than GenStudio will start, which is
+ * safe because GenStudio queues the surplus rather than refusing it.
+ *
+ * It exists because the owner's standing rule is that a number he might want
+ * different is his to change — and because the constant this replaces sat at
+ * 50 for long enough to leave two thirds of his paid capacity idle without
+ * anything reporting it.
+ */
+export const IMAGE_FANOUT_KEY = 'image_fanout_per_episode'
+/** 'auto' = follow the account's published ceiling. */
+export type ImageFanoutSetting = 'auto' | number
+
+export async function getImageFanout(): Promise<ImageFanoutSetting> {
+  const raw = await getAppSetting(IMAGE_FANOUT_KEY)
+  if (raw === 'auto' || raw == null || raw === '') return 'auto'
+  const n = Math.floor(Number(raw))
+  return Number.isFinite(n) && n >= 1 ? Math.min(500, n) : 'auto'
+}
+
+export async function setImageFanout(value: unknown): Promise<ImageFanoutSetting> {
+  if (value === 'auto' || value == null || value === '' || value === 0) {
+    await setAppSetting(IMAGE_FANOUT_KEY, 'auto')
+    return 'auto'
+  }
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 1 || n > 500) {
+    throw Object.assign(
+      new Error('Images per episode at once must be "auto", or a whole number between 1 and 500.'),
+      { statusCode: 400, expose: true },
+    )
+  }
+  await setAppSetting(IMAGE_FANOUT_KEY, n)
+  return n
+}
+
+export const IMAGE_EPISODE_CONCURRENCY_KEY = 'image_episode_concurrency'
+export const IMAGE_EPISODE_CONCURRENCY_DEFAULT = 3
+
+export async function getImageEpisodeConcurrency(): Promise<number> {
+  const raw = await getAppSetting(IMAGE_EPISODE_CONCURRENCY_KEY)
+  const n = Math.floor(Number(raw))
+  if (!Number.isFinite(n) || n < 1) return IMAGE_EPISODE_CONCURRENCY_DEFAULT
+  return Math.min(50, n)
+}
+
+export async function setImageEpisodeConcurrency(value: unknown): Promise<number> {
+  const n = Math.floor(Number(value))
+  if (!Number.isFinite(n) || n < 1 || n > 50) {
+    throw Object.assign(
+      new Error('Episodes generating images at once must be a whole number between 1 and 50.'),
+      { statusCode: 400, expose: true },
+    )
+  }
+  await setAppSetting(IMAGE_EPISODE_CONCURRENCY_KEY, n)
+  return n
+}
+
 export const OUTLINE_HEADROOM_KEY = 'outline_chapter_headroom'
 /** 2× the target. An 11-for-10 sails through; so does 20-for-10. */
 export const OUTLINE_HEADROOM_DEFAULT = 2

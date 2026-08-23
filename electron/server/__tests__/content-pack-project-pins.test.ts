@@ -323,7 +323,7 @@ describe('exact project Content Pack pins', () => {
     }
     await fs.writeFile(projectPath, `${JSON.stringify(imported, null, 2)}\n`)
 
-    for (const jobType of ['images', 'thumb_images', 'continuity_render', 'prompt_director', 'composition_generate'] as const) {
+    for (const jobType of ['thumb_images', 'thumb_images', 'continuity_render', 'prompt_director', 'composition_generate'] as const) {
       assert.deepEqual(await snapshotProjectContentPackProvenance(project.slug, jobType, options), [])
     }
     await assert.rejects(

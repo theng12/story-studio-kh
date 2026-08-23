@@ -32,7 +32,7 @@ import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-re
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
-import { isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
+import { isGenStudioInsufficientCredits , genStudioAdmissionSnapshot } from '../lib/genstudio-client.js'
 import type { GenerateAiVideoRequest, Job } from '../models/types.js'
 
 async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
@@ -235,7 +235,11 @@ export async function generateAiVideo(job: Job): Promise<void> {
   const errors: string[] = []
   const isCancelled = () => jq.isCancelled(job.job_id)
 
-  const concurrency = resolveGenStudioLocalFanout(prompts.length)
+  const concurrency = resolveGenStudioLocalFanout(
+      prompts.length,
+      genStudioAdmissionSnapshot()?.burst_concurrency_ceiling,
+      jq.getImageFanoutOverride(),
+    )
   if (prompts.length > 1) {
     job.output_lines.push(`Staging ${prompts.length} motion request(s); GenStudio account admission is authoritative.`)
   }

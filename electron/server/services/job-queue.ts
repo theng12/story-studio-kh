@@ -859,8 +859,6 @@ const queues: Record<JobType, QueueState> = {
   outline_only: { pending: [], running: false, executor: null },
   expand_chapters: { pending: [], running: false, executor: null },
   image_prompts: { pending: [], running: false, executor: null },
-  images: { pending: [], running: false, executor: null },
-  scene_images: { pending: [], running: false, executor: null },
   thumb_images: { pending: [], running: false, executor: null },
   // Image repair uses the queue lifecycle but never submits a new provider job.
   images_repair: { pending: [], running: false, executor: null },
@@ -900,7 +898,6 @@ const queues: Record<JobType, QueueState> = {
   broll_assemble: { pending: [], running: false, executor: null },
   // Vision-LLM auto-tag — frames a clip's midpoint, asks GPT-4o-mini
   // for short tags, writes to the pool sidecar. Cheap (~$0.002/clip).
-  broll_autotag: { pending: [], running: false, executor: null },
   // v1.0.142+: Research phase for the timestamp-driven pipeline.
   // One-shot adapter call (Perplexity / LLM-only)
   // → writes research.json + research.md to the episode dir.
@@ -915,7 +912,6 @@ const queues: Record<JobType, QueueState> = {
   // One job per scene; bulk "Generate all missing" enqueues N of these.
   scene_image_generate: { pending: [], running: false, executor: null },
   // Bulk Scene Plan image generation with per-scene durable checkpoints.
-  scene_images_batch: { pending: [], running: false, executor: null },
   // v1.0.470 — Phase 2: animate one scene's image into a clip (image-to-video).
   scene_clip_generate: { pending: [], running: false, executor: null },
   scene_clips_batch: { pending: [], running: false, executor: null },
@@ -966,6 +962,69 @@ export function unregisteredJobTypes(): JobType[] {
 const LLM_GROUP = 'llm'
 const LOCAL_LLM_GROUP = 'local_llm'
 const SUBTITLE_TRANSCRIBE_GROUP = 'subtitle_transcribe'
+/**
+ * v1.4.39 — the image episode group.
+ *
+ * MEASURED 2026-08-23. The owner queued 50 Scene Review jobs at 100+ images an
+ * episode and asked whether his machines were all working. They were not: 21 of
+ * 74 online fleet workers were busy and 51 were idle, and a location connected
+ * that morning had ONE busy worker out of twenty.
+ *
+ * The fleet was not the limit and neither was GenStudio — his account is tier 5
+ * with priority, so its burst ceiling is 128 concurrent paid jobs and only 25
+ * were running. The limit was HERE: every type outside the LLM and subtitle
+ * groups falls to `groupLimit() === 1`, one boolean slot per lane. So fifty
+ * queued episodes ran strictly one at a time, and each episode's internal
+ * fan-out was the only parallelism in the system.
+ *
+ * These four types all buy images from the same fleet, so they share ONE budget
+ * rather than getting a lane each — otherwise four lanes of three would be
+ * twelve episodes and the number nobody set is the one that bites.
+ */
+const IMAGE_EPISODE_GROUP = 'image_episode'
+const VIDEO_EPISODE_GROUP = 'video_episode'
+const AUDIO_EPISODE_GROUP = 'audio_episode'
+
+/**
+ * v1.4.41 — SEPARATE budgets per kind of fleet work, all reading one setting.
+ *
+ * THE OWNER'S POINT, and it is the one that generalises: "when we reach the
+ * last 8 images and the machines stall, the rest of the workers have nothing to
+ * do... that's why we must have at least 2-3 episodes able to queue alongside,
+ * so when the first finishes it just joins the second. I think this should
+ * apply to all types of generation actually."
+ *
+ * Exactly right, and 1.4.39 only half-did it: `continuity_render` — SCENE
+ * REVIEW, the very job type he had 50 of queued — was not in the image group,
+ * so the fix missed the batch that prompted it. He found that, not a test.
+ *
+ * WHY THREE GROUPS RATHER THAN ONE SHARED BUDGET. Audio and image do not
+ * compete for the same fleet capability, and one shared number would let a
+ * fifty-episode image batch starve a single narration job behind it. Separate
+ * budgets mean a kind of work can always start even while another kind is
+ * saturated. They read the SAME setting, so there is still one dial.
+ *
+ * Local-only work (music_video, broll_normalize, video_assembly) is deliberately
+ * absent: it is CPU on this Mac, not fleet capacity, and running three at once
+ * would compete with the machine the owner is using.
+ */
+const IMAGE_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
+  'thumb_images', 'image_pool_generate', 'continuity_render',
+])
+const VIDEO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
+  'video', 'scene_clip_generate', 'scene_clips_batch',
+])
+const AUDIO_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
+  'audio', 'music_generate',
+])
+const FLEET_EPISODE_GROUPS: ReadonlySet<string> = new Set([
+  IMAGE_EPISODE_GROUP, VIDEO_EPISODE_GROUP, AUDIO_EPISODE_GROUP,
+])
+function fleetEpisodeTypesFor(group: string): ReadonlySet<JobType> {
+  if (group === VIDEO_EPISODE_GROUP) return VIDEO_EPISODE_TYPES
+  if (group === AUDIO_EPISODE_GROUP) return AUDIO_EPISODE_TYPES
+  return IMAGE_EPISODE_TYPES
+}
 const LLM_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'idea_campaign', 'outline_only', 'expand_chapters', 'metadata', 'image_prompts', 'scene_plan_run',
 ])
@@ -982,6 +1041,9 @@ function usesLocalTextFleet(job: Job | undefined): boolean {
 function groupOf(type: JobType, job?: Job): string {
   if (type === 'subtitles_transcribe') return SUBTITLE_TRANSCRIBE_GROUP
   if (usesLocalTextFleet(job)) return LOCAL_LLM_GROUP
+  if (IMAGE_EPISODE_TYPES.has(type)) return IMAGE_EPISODE_GROUP
+  if (VIDEO_EPISODE_TYPES.has(type)) return VIDEO_EPISODE_GROUP
+  if (AUDIO_EPISODE_TYPES.has(type)) return AUDIO_EPISODE_GROUP
   return LLM_TYPES.has(type) ? LLM_GROUP : type
 }
 /** Active (running) job count for the shared LLM group. Non-LLM types track
@@ -991,6 +1053,7 @@ const groupActive: Record<string, number> = {}
  * user-facing concurrency policy that can conflict with GenStudio. */
 let llmConcurrency = 50
 let subtitleTranscribeConcurrency = 50
+let imageEpisodeConcurrency = 1
 export function setLlmConcurrency(n: number): void {
   llmConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
 }
@@ -1004,12 +1067,40 @@ export function setSubtitleTranscribeConcurrency(n: number): void {
 export function getSubtitleTranscribeConcurrency(): number {
   return subtitleTranscribeConcurrency
 }
+/**
+ * Starts at 1 — today's behaviour exactly — so a build that never applies the
+ * owner's setting is unchanged rather than surprising. `boot` reads the stored
+ * value and raises it; nothing here decides policy.
+ */
+export function setImageEpisodeConcurrency(n: number): void {
+  imageEpisodeConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
+  for (const group of FLEET_EPISODE_GROUPS) for (const t of fleetEpisodeTypesFor(group)) pump(t)
+}
+export function getImageEpisodeConcurrency(): number {
+  return imageEpisodeConcurrency
+}
+
+/**
+ * The owner's explicit images-per-episode override, or 0 for "follow the
+ * account". Held here beside the other live concurrency values so a generator
+ * can read it synchronously mid-run rather than awaiting a settings read for
+ * every job.
+ */
+let imageFanoutOverride = 0
+export function setImageFanoutOverride(n: unknown): void {
+  const value = Math.floor(Number(n))
+  imageFanoutOverride = Number.isFinite(value) && value >= 1 ? Math.min(500, value) : 0
+}
+export function getImageFanoutOverride(): number {
+  return imageFanoutOverride
+}
 function groupLimit(group: string): number {
   if (group === LLM_GROUP) return llmConcurrency
   // Local Chat Studio work is admitted immediately; its own dispatcher owns
   // the machine queue and backpressure.
   if (group === LOCAL_LLM_GROUP) return Number.POSITIVE_INFINITY
   if (group === SUBTITLE_TRANSCRIBE_GROUP) return subtitleTranscribeConcurrency
+  if (FLEET_EPISODE_GROUPS.has(group)) return imageEpisodeConcurrency
   return 1
 }
 
@@ -1307,7 +1398,7 @@ function pump(type: JobType): void {
   const q = queues[type]
   const next = q.pending[0]
   const group = groupOf(type, next)
-  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP) {
+  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
     while (q.pending.length > 0 && (groupActive[group] || 0) < groupLimit(group)) {
       if (groupOf(type, q.pending[0]) !== group) break
       const job = q.pending.shift()!
@@ -1333,12 +1424,15 @@ function pump(type: JobType): void {
 function pumpGroup(group: string): void {
   if (group === LLM_GROUP || group === LOCAL_LLM_GROUP) for (const t of LLM_TYPES) pump(t)
   else if (group === SUBTITLE_TRANSCRIBE_GROUP) pump('subtitles_transcribe')
+  // A freed image slot can be taken by ANY image type, not just the one that
+  // finished — the four share one budget.
+  else if (FLEET_EPISODE_GROUPS.has(group)) for (const t of fleetEpisodeTypesFor(group)) pump(t)
 }
 
 /** Release the slot a finished job held, then pull in the next work. */
 function releaseSlot(type: JobType, job: Job): void {
   const group = groupOf(type, job)
-  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP) {
+  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
     groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
     pumpGroup(group)
   } else {
@@ -1800,7 +1894,8 @@ export function isDuplicate(
  * one queue resource so they can never submit the same scenes twice.
  */
 function isBulkSceneRender(job: Job): boolean {
-  if (job.type === 'scene_images_batch') return true
+  // v1.4.41 — `scene_images_batch` was the retired generator's bulk type and is
+  // gone; `continuity_render` (Scene Review) is now the only bulk renderer.
   return job.type === 'continuity_render' && !job.params?.single_scene_id
 }
 
@@ -1998,8 +2093,7 @@ function enqueuePrepared(
   // Cross-type atomic dedupe for the retired Scene Review batch name and the
   // canonical continuity renderer. Full renders conflict with either full
   // type; a single-scene repair also waits behind an active full render.
-  const isBulkRequest = opts.type === 'scene_images_batch'
-    || (opts.type === 'continuity_render' && !opts.params?.single_scene_id)
+  const isBulkRequest = opts.type === 'continuity_render' && !opts.params?.single_scene_id
   const isSingleSceneRequest = opts.type === 'continuity_render' && !!opts.params?.single_scene_id
   if ((isBulkRequest || isSingleSceneRequest)
       && findActiveBulkSceneRenderInternal(opts.project_slug, opts.episode_id)) {

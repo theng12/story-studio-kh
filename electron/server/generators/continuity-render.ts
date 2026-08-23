@@ -33,7 +33,7 @@ import {
   terminalImageManifestEntry,
   tryRecoverImageFromManifestEntry,
 } from '../lib/manifest-recovery.js'
-import { GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
+import { GenStudioImageTerminalFailureError, isGenStudioInsufficientCredits , genStudioAdmissionSnapshot } from '../lib/genstudio-client.js'
 import { checkpointGenStudioAsset } from '../services/genstudio-recovery.js'
 import { resolveGenStudioLocalFanout } from '../lib/genstudio-runtime.js'
 import { deactivateSceneRenderStatus, RENDER_STATUS_FILENAME, writeSceneRenderStatus } from '../services/scene-render-status.js'
@@ -332,7 +332,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
     includeCharacter: boolean
   } => ({ params: providerParams, includeCharacter: isCharacterScene(scene) })
 
-  const concurrency = resolveGenStudioLocalFanout(scenes.length)
+  const concurrency = resolveGenStudioLocalFanout(
+      scenes.length,
+      genStudioAdmissionSnapshot()?.burst_concurrency_ceiling,
+      jq.getImageFanoutOverride(),
+    )
 
   // GenStudio-owned text-to-image batch.
     const toRender = selectSceneImageBatch(scenes, {

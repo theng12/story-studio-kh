@@ -30,8 +30,7 @@ const PAUSABLE_SUBMISSION_TYPES = new Set<Job['type']>([
   // These executors check the cooperative pause marker between submissions.
   // Image batches currently do not, so advertising Pause there would let an
   // in-flight batch continue submitting work after promising otherwise.
-  'audio', 'subtitles_transcribe', 'continuity_render', 'scene_images_batch',
-])
+  'audio', 'subtitles_transcribe', 'continuity_render', ])
 
 function control(
   action: JobControl['action'],

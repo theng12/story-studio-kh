@@ -59,6 +59,31 @@ export function runBootMigrations(): void {
     console.log(`[boot] writing jobs running at once: ${n}`)
   })().catch(error => console.error('[boot] llm concurrency load failed:', error?.message || error)))
 
+  // v1.4.39 — the third lane with the same story, found by measurement rather
+  // than by report. The owner queued 50 Scene Review jobs and asked whether his
+  // machines were all working; 51 of 74 online fleet workers were idle, and a
+  // location connected that morning had one busy worker out of twenty. Neither
+  // the fleet nor GenStudio was the limit — his account bursts to 128 and 25
+  // were running. Image episodes ran ONE AT A TIME because every lane outside
+  // the LLM and subtitle groups gets a single boolean slot.
+  tasks.push((async () => {
+    const { getImageEpisodeConcurrency } = await import('../services/app-settings.js')
+    const { setImageEpisodeConcurrency } = await import('../services/job-queue.js')
+    const n = await getImageEpisodeConcurrency()
+    setImageEpisodeConcurrency(n)
+    console.log(`[boot] episodes generating images at once: ${n}`)
+  })().catch(error => console.error('[boot] image concurrency load failed:', error?.message || error)))
+
+  // v1.4.41 — the owner's images-per-episode override. 'auto' follows the
+  // account's published ceiling, which is the default and the honest answer.
+  tasks.push((async () => {
+    const { getImageFanout } = await import('../services/app-settings.js')
+    const { setImageFanoutOverride } = await import('../services/job-queue.js')
+    const setting = await getImageFanout()
+    setImageFanoutOverride(setting === 'auto' ? 0 : setting)
+    console.log(`[boot] images per episode at once: ${setting === 'auto' ? 'auto (follows GenStudio)' : setting}`)
+  })().catch(error => console.error('[boot] image fanout load failed:', error?.message || error)))
+
   tasks.push((async () => {
     const { getAllDisabledEndpoints } = await import('../services/app-settings.js')
     const { setDisabledEndpoints } = await import('../lib/endpoint-pool.js')

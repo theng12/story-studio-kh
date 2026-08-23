@@ -674,7 +674,6 @@ test('no image submit boundary defaults an aspect ratio to a hardcoded 16:9', ()
   for (const file of [
     '../generators/images.ts',
     '../generators/scene-image.ts',
-    '../generators/scene-images-batch.ts',
     '../generators/composition-template.ts',
     '../generators/continuity-render.ts',
     '../generators/image-pool-generate.ts',

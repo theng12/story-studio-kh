@@ -33,7 +33,6 @@ import { runResearchJob } from '../generators/research.js'
 import { runScenePlanJob } from '../generators/scene-plan.js'
 import { generateContextualCues } from '../generators/contextual-cues.js'
 import { generateSceneImageJob } from '../generators/scene-image.js'
-import { generateSceneImagesBatchJob } from '../generators/scene-images-batch.js'
 import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/scene-clip.js'
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
 import { runPromptDirectorJob } from '../generators/prompt-director.js'
@@ -110,19 +109,17 @@ function registerCancellationAuditors(): void {
     const status = await inspectSubtitleCompletion(paths.episode_dir, paths.subtitles_dir, job.episode_id, { require_per_section: true })
     return status.complete ? 'complete' : 'repair-required'
   })
-  for (const type of ['images', 'scene_images', 'thumb_images'] as const) {
-    registerJobCancellationAuditor(type, async job => {
-      const mode = type === 'thumb_images' ? 'thumbnails' : 'all'
-      const status = await getImageStatus(job.project_slug, job.episode_id, mode)
-      const parts = type === 'scene_images'
-        ? [status.scenes].filter(Boolean)
-        : type === 'thumb_images'
-          ? [status.thumbnails].filter(Boolean)
-          : [status.scenes, status.thumbnails].filter(Boolean)
-      return parts.length > 0 && parts.every(part => part!.total > 0 && part!.missing.length === 0) ? 'complete' : 'repair-required'
-    })
-  }
-  for (const type of ['scene_image_generate', 'scene_images_batch', 'continuity_render'] as const) {
+  // v1.4.41 — `thumb_images` is the only surviving member of the old image
+  // trio. `images` and `scene_images` were registered here for years but
+  // nothing could enqueue them: `POST /generate/images` assigns `thumb_images`
+  // for mode 'thumbs' and returns 410 "Legacy Scene Images generation is
+  // retired" for anything else.
+  registerJobCancellationAuditor('thumb_images', async job => {
+    const status = await getImageStatus(job.project_slug, job.episode_id, 'thumbnails')
+    const parts = [status.thumbnails].filter(Boolean)
+    return parts.length > 0 && parts.every(part => part!.total > 0 && part!.missing.length === 0) ? 'complete' : 'repair-required'
+  })
+  for (const type of ['scene_image_generate', 'continuity_render'] as const) {
     registerJobCancellationAuditor(type, auditSceneImages)
   }
   registerJobCancellationAuditor('composition_generate', async job => {
@@ -200,8 +197,6 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('outline_only', generateOutlineOnly)
   registerExecutor('expand_chapters', generateExpandChapters)
   registerExecutor('image_prompts', generateImagePrompts)
-  registerExecutor('images', guardMedia(generateImages))
-  registerExecutor('scene_images', guardMedia(generateImages))
   registerExecutor('thumb_images', guardMedia(generateImages))
   // Repair = recover already-paid-for results from the provider's stored
   // task records. Wraps `reconcileImages` so the existing job-queue lifecycle
@@ -247,7 +242,6 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('broll_normalize', normalizeBroll)
   registerExecutor('broll_select', generateBrollSelection)
   registerExecutor('broll_assemble', guardMedia(generateBrollAssemble))
-  registerExecutor('broll_autotag', generateBrollAutotag)
   // v1.0.410+ — generate stills into an Image Pool (grow the pool).
   registerExecutor('image_pool_generate', generateImagePoolImages)
   // v1.0.142+ — Research phase for the timestamp-driven pipeline.
@@ -257,7 +251,6 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('contextual_cues', generateContextualCues)
   // v1.0.144+ — Per-scene image generator (one job per scene).
   registerExecutor('scene_image_generate', generateSceneImageJob)
-  registerExecutor('scene_images_batch', generateSceneImagesBatchJob)
   // v1.0.470 — Phase 2: per-scene image-to-video clip. Heavy media → guarded.
   registerExecutor('scene_clip_generate', guardMedia(generateSceneClipJob))
   registerExecutor('scene_clips_batch', guardMedia(generateSceneClipsBatchJob))

@@ -58,8 +58,9 @@ router.get('/app-settings/concurrency', async (_req, res) => {
   try {
     const {
       getSubtitleEpisodeConcurrency, getLlmConcurrency, getOutlineHeadroom,
+      getImageEpisodeConcurrency, getImageFanout,
       SUBTITLE_EPISODE_CONCURRENCY_DEFAULT, LLM_CONCURRENCY_DEFAULT,
-      OUTLINE_HEADROOM_DEFAULT,
+      OUTLINE_HEADROOM_DEFAULT, IMAGE_EPISODE_CONCURRENCY_DEFAULT,
     } = await import('../services/app-settings.js')
     res.json({
       subtitle_episode_concurrency: await getSubtitleEpisodeConcurrency(),
@@ -67,10 +68,14 @@ router.get('/app-settings/concurrency', async (_req, res) => {
       // v1.4.36 — not a concurrency number, but it rides here for the same
       // reason the other two do: it is a number the owner may want different,
       // so it must have a route and a screen rather than living only in a file.
+      image_episode_concurrency: await getImageEpisodeConcurrency(),
+      image_fanout_per_episode: await getImageFanout(),
       outline_chapter_headroom: await getOutlineHeadroom(),
       defaults: {
         subtitle_episode_concurrency: SUBTITLE_EPISODE_CONCURRENCY_DEFAULT,
         llm_concurrency: LLM_CONCURRENCY_DEFAULT,
+        image_episode_concurrency: IMAGE_EPISODE_CONCURRENCY_DEFAULT,
+        image_fanout_per_episode: 'auto',
         outline_chapter_headroom: OUTLINE_HEADROOM_DEFAULT,
       },
     })
@@ -99,6 +104,16 @@ router.put('/app-settings/concurrency', async (req, res) => {
     }
     // Read fresh by every outline build, so there is no live queue to update —
     // the next outline picks it up.
+    if (req.body?.image_episode_concurrency !== undefined) {
+      const n = await settings.setImageEpisodeConcurrency(req.body.image_episode_concurrency)
+      jq.setImageEpisodeConcurrency(n)
+      out.image_episode_concurrency = n
+    }
+    if (req.body?.image_fanout_per_episode !== undefined) {
+      const value = await settings.setImageFanout(req.body.image_fanout_per_episode)
+      jq.setImageFanoutOverride(value === 'auto' ? 0 : value)
+      out.image_fanout_per_episode = value as never
+    }
     if (req.body?.outline_chapter_headroom !== undefined) {
       out.outline_chapter_headroom = await settings.setOutlineHeadroom(req.body.outline_chapter_headroom)
     }

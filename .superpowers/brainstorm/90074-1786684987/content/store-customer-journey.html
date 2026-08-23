@@ -1,0 +1,104 @@
+<style>
+  .journey { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; margin:24px 0 18px; }
+  .screen { border:1px solid #3a3e4b; border-radius:18px; overflow:hidden; background:#171922; min-height:590px; color:#ebe9e4; }
+  .screen-head { padding:12px 15px; background:#20232d; border-bottom:1px solid #343846; display:flex; align-items:center; justify-content:space-between; }
+  .step { display:flex; align-items:center; gap:9px; font-weight:800; }
+  .step-num { width:27px;height:27px;border-radius:9px;background:#e9b957;color:#17130c;display:grid;place-items:center; }
+  .screen-body { padding:15px; font-size:11px; }
+  .store-tabs { display:flex; background:#242735; border-radius:10px; padding:3px; margin-bottom:14px; }
+  .store-tab { flex:1; padding:8px; text-align:center; color:#9ea4b3; }
+  .store-tab.active { background:#181b24; color:#f2eee7; border:1px solid #3a3f4e; border-radius:8px; font-weight:750; }
+  .balance { display:flex; justify-content:space-between; gap:8px; padding:9px 10px; border-radius:9px; background:#1e2926; border:1px solid #304a42; color:#a7cfbe; margin-bottom:13px; }
+  .product-card { border:1px solid #46413a; border-radius:14px; overflow:hidden; background:#20222b; }
+  .cover { height:180px; padding:15px; display:flex; flex-direction:column; justify-content:flex-end; background:radial-gradient(circle at 74% 30%,rgba(232,185,87,.25),transparent 25%),linear-gradient(135deg,#4c321f,#1c2530 52%,#0e1219); position:relative; }
+  .cover:after { content:''; position:absolute; inset:0; background:repeating-linear-gradient(0deg,transparent 0 23px,rgba(255,255,255,.025) 23px 24px); }
+  .cover > * { position:relative; z-index:1; }
+  .kind { color:#f0bd5a; letter-spacing:.12em; text-transform:uppercase; font-size:8px; font-weight:850; }
+  .title { font-size:18px; line-height:1.12; font-weight:850; color:white; margin:5px 0; }
+  .cover p { margin:0; color:#c6c7cb; line-height:1.35; }
+  .card-body { padding:12px; }
+  .facts { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }
+  .pill { padding:5px 7px; border-radius:999px; background:#2a2d38; border:1px solid #3b3f4d; color:#bec2cd; font-size:8px; }
+  .price-line { display:flex; justify-content:space-between; align-items:end; gap:8px; }
+  .price { color:#f2c66d; font-weight:850; font-size:14px; }
+  .small { color:#9197a7; font-size:8px; }
+  .button { border:0; border-radius:9px; padding:8px 10px; font-size:9px; font-weight:800; background:#e9b957; color:#17130c; }
+  .button.secondary { background:#2b2f3a; color:#e8e8e6; border:1px solid #414654; }
+  .detail-hero { padding:13px; border:1px solid #454137; background:linear-gradient(145deg,#282119,#20232c); border-radius:12px; }
+  .detail-title { font-size:18px; line-height:1.1; font-weight:850; margin:5px 0 7px; }
+  .section-label { margin:14px 0 7px; color:#959aaa; letter-spacing:.12em; text-transform:uppercase; font-size:8px; font-weight:850; }
+  .proof-grid { display:grid; grid-template-columns:1.1fr .9fr; gap:8px; }
+  .proof-main { min-height:140px; border-radius:10px; border:1px solid #514534; background:linear-gradient(145deg,#654328,#1d2631); padding:10px; display:flex; flex-direction:column; justify-content:flex-end; }
+  .play { width:32px;height:32px;border-radius:50%;display:grid;place-items:center;background:#eaba59;color:#17130c;margin-bottom:20px; }
+  .component-stack { display:grid; gap:6px; }
+  .component { padding:8px;border-radius:8px;background:#242733;border:1px solid #373b49; }
+  .component b { display:block; font-size:9px; }
+  .component span { color:#969cab; font-size:8px; }
+  .video-row { display:grid;grid-template-columns:repeat(3,1fr);gap:6px; }
+  .video { min-height:58px;border-radius:8px;background:#292d39;border:1px solid #3b404d;padding:6px;display:flex;align-items:end;font-size:7px;color:#d8d9dd; }
+  .ownership { display:flex;align-items:center;gap:9px;padding:10px;border-radius:10px;background:#1d2d27;border:1px solid #39604f;color:#aee2c7;margin-bottom:13px; }
+  .check { width:27px;height:27px;border-radius:50%;display:grid;place-items:center;background:#63c993;color:#102219;font-weight:900; }
+  .install-card { border:1px solid #3a3f4c;border-radius:12px;padding:12px;background:#20232d;margin-bottom:9px; }
+  .install-card h4 { margin:0 0 5px;font-size:11px; }
+  .install-card p { margin:0;color:#9da2b0;line-height:1.4; }
+  .status-row { display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:10px; }
+  .status { color:#edbd60;font-size:8px;font-weight:800; }
+  .safety { padding:9px;border-radius:9px;background:#26282e;border:1px solid #3a3d47;color:#aeb2bd;line-height:1.45;font-size:8px; }
+  .flow-choice { display:flex;gap:12px;justify-content:center;margin-top:18px; }
+  .flow-choice .option { max-width:330px; }
+  @media(max-width:1000px){.journey{grid-template-columns:1fr}.screen{min-height:auto}}
+</style>
+
+<h2>First product customer journey</h2>
+<p class="subtitle">The approved balanced detail layout now connects the shelf to permanent ownership and installation.</p>
+
+<div class="journey">
+  <div class="screen">
+    <div class="screen-head"><div class="step"><span class="step-num">1</span> Discover</div><span class="small">Story Studio Store</span></div>
+    <div class="screen-body">
+      <div class="balance"><span>Content-spendable balance</span><strong>4,000 credits</strong></div>
+      <div class="store-tabs"><div class="store-tab active">Discover · 1</div><div class="store-tab">Owned · 0</div></div>
+      <div class="product-card">
+        <div class="cover"><div class="kind">Complete Channel Kit</div><div class="title">Hidden Systems:<br>Money, Power &amp; Empire</div><p>Documentaries about the systems that quietly shaped history.</p></div>
+        <div class="card-body">
+          <div class="facts"><span class="pill">500+ safe ideas</span><span class="pill">4 components</span><span class="pill">Example videos</span></div>
+          <div class="price-line"><div><div class="price">Published price</div><div class="small">Permanent ownership</div></div><button class="button">View kit</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen">
+    <div class="screen-head"><div class="step"><span class="step-num">2</span> Evaluate</div><span class="small">Balanced detail</span></div>
+    <div class="screen-body">
+      <div class="detail-hero"><div class="kind">Complete Channel Kit</div><div class="detail-title">Hidden Systems:<br>Money, Power &amp; Empire</div><div style="color:#aeb2bd;line-height:1.4">A documentary system for turning hidden historical mechanisms into clear, visually consistent episodes.</div><div class="price-line" style="margin-top:10px"><div class="price">Published price</div><button class="button">See exact quote</button></div></div>
+      <div class="section-label">Proof and contents</div>
+      <div class="proof-grid">
+        <div class="proof-main"><div class="play">▶</div><b>How Debt Built an Empire</b><span class="small">Watch on YouTube</span></div>
+        <div class="component-stack"><div class="component"><b>Series Formula</b><span>Investigative documentary</span></div><div class="component"><b>Topic Pack</b><span>Money and financial power</span></div><div class="component"><b>Visual system</b><span>Style + thumbnail recipe</span></div></div>
+      </div>
+      <div class="section-label">More example episodes</div>
+      <div class="video-row"><div class="video">Roman Taxes</div><div class="video">Silver Networks</div><div class="video">War Finance</div></div>
+      <div class="safety" style="margin-top:10px">Examples demonstrate the pack structure. Models, voices, source material, and editorial choices can change the final result.</div>
+    </div>
+  </div>
+
+  <div class="screen">
+    <div class="screen-head"><div class="step"><span class="step-num">3</span> Own and install</div><span class="small">Same GenStudio account</span></div>
+    <div class="screen-body">
+      <div class="ownership"><div class="check">✓</div><div><strong>Owned permanently</strong><div class="small" style="color:#8fc4aa">Available from any API key on this GenStudio account</div></div></div>
+      <div class="store-tabs"><div class="store-tab">Discover · 1</div><div class="store-tab active">Owned · 1</div></div>
+      <div class="install-card"><h4>Hidden Systems: Money, Power &amp; Empire</h4><p>Receipt verified · Signed archive available · Compatible with Story Studio</p><div class="status-row"><span class="status">Not installed on this Mac</span><button class="button">Install kit</button></div></div>
+      <div class="install-card"><h4>Install all four exact components</h4><p>Story Studio pins the Formula, Topic Pack, Visual Style, and Thumbnail Recipe to reviewed versions. Existing projects do not change automatically.</p></div>
+      <div class="install-card"><h4>After installation</h4><p>Create a new channel with this kit, or explicitly adopt it in an existing compatible project. Updates remain optional and reversible.</p><div class="status-row"><span class="status">No silent upgrades</span><button class="button secondary">View contents</button></div></div>
+      <div class="section-label">Your example library</div>
+      <div class="video-row"><div class="video">Debt &amp; Empire</div><div class="video">Tax &amp; Power</div><div class="video">Trade Systems</div></div>
+      <div class="safety" style="margin-top:10px">Ownership lives in GenStudio. Verified pack files and exact project pins live in Story Studio.</div>
+    </div>
+  </div>
+</div>
+
+<div class="flow-choice options">
+  <div class="option" data-choice="approve-journey" onclick="toggleSelect(this)"><div class="letter">✓</div><div class="content"><h3>Approve this journey</h3><p>Use this shelf → proof → owned/install structure for the first product.</p></div></div>
+  <div class="option" data-choice="revise-journey" onclick="toggleSelect(this)"><div class="letter">↺</div><div class="content"><h3>I want changes</h3><p>Select this and describe what should be different in the conversation.</p></div></div>
+</div>

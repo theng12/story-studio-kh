@@ -4,6 +4,33 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.41 — 2026-08-23
+
+- **Both throughput numbers are now yours, in Settings.** "Episodes making images at once" (3) and "Images per episode at once" (auto — follows what your account can actually run, and rises by itself as you add machines).
+- **The first attempt at this missed Scene Review**, which is the only image generator you still use. It would have shipped, you'd have installed it, and your batch would still have run one episode at a time. Now every kind of fleet work is pipelined — images, video and narration each with their own allowance, so a big picture batch cannot block a voice job queued behind it.
+- **The retired scene-image generator is gone, root and stem.** Four job types, one whole generator file, its executor registrations, queue lanes, cancellation auditors and retry-policy entries. The front door had returned "this is retired, use Scene Review" for a long time; the machinery behind it was still wired up and still looked alive.
+- Your three image generators are untouched and confirmed working: Scene Review, the thumbnail generator, and image pool generation.
+
+---
+
+## v1.4.40 — 2026-08-23
+
+- **The other half of the idle-fleet problem.** One episode of 108 images was running exactly 50 of them — because 50 was written into the code. Your account's published limit is 128, and GenStudio had **nothing** queued. Nothing was full, nothing was throttling, nothing was waiting. The app just never offered more work.
+- **It now asks how much you can run instead of guessing.** GenStudio already publishes your real ceiling, so a 108-image episode now goes out as 108. This is safe because GenStudio decides what actually starts — the app can't flood it, only under-feed it, which is exactly what it was doing.
+- **When your fleet grows, this grows with it.** Your ceiling rises as you add machines, and the app follows. Nothing to set and nothing to remember.
+- If your account ever publishes no ceiling, it falls back to the old 50 — unknown stays cautious rather than unlimited.
+
+---
+
+## v1.4.39 — 2026-08-23
+
+- **Your machines were mostly idle and nothing said so.** With 50 Scene Review jobs queued, 51 of your 74 online fleet workers had nothing to do — and a location connected that morning had one busy worker out of twenty.
+- **Neither the fleet nor GenStudio was the limit.** Your account can run 128 jobs at once; 25 were running. Story Studio was doing the episodes **one at a time**, because image work only ever had a single slot. Fifty queued episodes were strictly serial, no matter how many machines you owned.
+- **"Episodes making images at once" is now a setting, defaulting to 3.** Scene Review, Images, Thumbnails and Image Pool share it. One left your fleet idle; thirty is the flood that lost a third of a transcription run last week. Three is busy with headroom — and since your fleet grows most weeks, the number is yours to raise.
+- This is the third lane with the same story, and the first found by measuring rather than by something breaking.
+
+---
+
 ## v1.4.38 — 2026-08-23
 
 - **Music channels.** A new "Music Mix" format and a Music Library page: buy songs once, then build as many long-form music videos from them as you like. Building a video never costs anything.

@@ -83,16 +83,12 @@ const TEXT_MODEL_TYPES = new Set<JobType>([
   'metadata',
   'prompt_director',
   'expression_markup',
-  'broll_autotag',
-])
+  ])
 
 const IMAGE_MODEL_TYPES = new Set<JobType>([
-  'images',
-  'scene_images',
   'thumb_images',
   'scene_image_generate',
-  'scene_images_batch',
-  'continuity_render',
+    'continuity_render',
   'composition_generate',
   'image_pool_generate',
 ])
