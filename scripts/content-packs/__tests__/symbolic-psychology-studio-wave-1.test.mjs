@@ -14,6 +14,7 @@ if (EVIDENCE_ROOT && !isAbsolute(EVIDENCE_ROOT)) {
 const CANDIDATE_LEDGER = EVIDENCE_ROOT ? join(EVIDENCE_ROOT, 'evidence-ledger.json') : undefined
 const CANDIDATE_HANDOFFS = EVIDENCE_ROOT ? join(EVIDENCE_ROOT, 'candidate-handoffs.json') : undefined
 const RECEIVER_HANDOFF = EVIDENCE_ROOT ? join(EVIDENCE_ROOT, 'receiver-handoff.json') : undefined
+const REVIEW_REQUESTS = EVIDENCE_ROOT ? join(EVIDENCE_ROOT, 'review-requests.json') : undefined
 const EVIDENCE_TEST = EVIDENCE_ROOT
   ? {}
   : { skip: 'Set STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT to an absolute artifact root to run external evidence assertions.' }
@@ -125,6 +126,7 @@ test('evidence audit: each new candidate uses the minimal Story-owned v1 summary
 test('evidence audit: Oil is stocking-ready while Recipe, Pastel, and Kit remain blocked', EVIDENCE_TEST, async () => {
   const handoffs = await readJson(CANDIDATE_HANDOFFS)
   const receiver = await readJson(RECEIVER_HANDOFF)
+  const reviewRequests = await readJson(REVIEW_REQUESTS)
   const requiredFields = [
     'status', 'component', 'reservation', 'identity', 'stocking_proposal', 'source', 'intent',
     'compatibility', 'dependencies', 'originality_provenance', 'evidence', 'review_requests', 'blocked_by',
@@ -201,4 +203,21 @@ test('evidence audit: Oil is stocking-ready while Recipe, Pastel, and Kit remain
   assert.deepEqual(receiver.review_evidence.pending, [])
   assert.equal(receiver.blocked_by.some(blocker => blocker.status === 'review-pending'), false)
   assert.ok(receiver.blocked_by.some(blocker => blocker.status === 'blocked-and-excluded' && blocker.component === 'Gothic Charcoal Animal Editorial'))
+
+  const promptEquivalence = reviewRequests.reviews.find(review => review.id === 'prompt-equivalence')
+  assert.equal(reviewRequests.status, 'review-complete-with-blockers')
+  assert.equal(promptEquivalence?.status, 'complete-with-blockers')
+  for (const blockedPack of [CLOSURE[3][0], 'com.storystudio.pack.kit.symbolic-psychology-studio']) {
+    const handoff = handoffs.handoffs.find(candidate => candidate.identity.pack_id === blockedPack)
+    assert.ok(handoff)
+    assert.equal(handoff.evidence.golden_prompt_parity.status, 'blocked')
+    assert.match(handoff.evidence.golden_prompt_parity.missing, /\bcomplete\b/i)
+    assert.doesNotMatch(handoff.evidence.golden_prompt_parity.missing, /\breview requested\b/i)
+  }
+
+  const commercialBoundary = reviewRequests.reviews.find(review => review.id === 'commercial-boundary')
+  assert.equal(commercialBoundary?.status, 'complete')
+  const commercialAcceptance = commercialBoundary?.acceptance.join(' ') ?? ''
+  assert.match(commercialAcceptance, /partial-review-complete-blocked/)
+  assert.doesNotMatch(commercialAcceptance, /candidate-built-review-pending/)
 })
