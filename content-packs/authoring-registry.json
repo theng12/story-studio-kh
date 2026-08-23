@@ -1,5 +1,5 @@
 {
-  "revision": 13,
+  "revision": 14,
   "batches": [
     {
       "revision": 2,
@@ -509,6 +509,89 @@
               },
               "sku": {
                 "id": "com.storystudio.sku.kit.first-humans",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 14,
+      "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+      "request": {
+        "expected_revision": 13,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "proposal_ref": "docs/superpowers/specs/2026-08-23-modular-content-expansion-portfolio-design.md#41-free-symbolic-psychology-studio",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+            "item_id": "com.storystudio.style.oil-painting-classical",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/symbolic-psychology-studio/style/oil-painting-classical",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.oil-painting-classical",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.oil-painting-classical",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+            "bundle_id": "com.storystudio.bundle.symbolic-psychology-studio",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+                "version": "1.0.0"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.symbolic-psychology-studio",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.symbolic-psychology-studio",
                 "status": "proposed"
               }
             }
@@ -2596,6 +2679,77 @@
         },
         "sku": {
           "id": "com.storystudio.sku.kit.first-humans",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+      "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+      "item_id": "com.storystudio.style.oil-painting-classical",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/symbolic-psychology-studio/style/oil-painting-classical",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.oil-painting-classical",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.oil-painting-classical",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+      "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+      "bundle_id": "com.storystudio.bundle.symbolic-psychology-studio",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio",
+      "status": "reserved",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+          "version": "1.0.0"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.symbolic-psychology-studio",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.symbolic-psychology-studio",
           "status": "proposed"
         }
       }

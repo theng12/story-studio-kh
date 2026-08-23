@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+  "item_id": "com.storystudio.style.oil-painting-classical",
+  "version": "1.0.0",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "visual-style",
+  "source_path": "content-packs/symbolic-psychology-studio/style/oil-painting-classical",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.style.oil-painting-classical",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.style.oil-painting-classical",
+      "status": "proposed"
+    }
+  }
+}
