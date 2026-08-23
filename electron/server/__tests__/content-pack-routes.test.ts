@@ -15,6 +15,7 @@ import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
 import { router as contentPacksRouter } from '../routes/content-packs.js'
 import * as projectManager from '../services/project-manager.js'
+import { errorBoundary } from '../lib/error-boundary.js'
 import { useTempDataDir } from './_helpers.js'
 
 const PUBLISHER_ID = 'com.storystudio'
@@ -75,14 +76,19 @@ async function buildArchive(options: {
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
-async function buildRouteBundleArchives(): Promise<{ component: Uint8Array; root: Uint8Array; componentPackId: string; bundleId: string }> {
-  const componentPackId = 'com.storystudio.routes-bundle-components'
+async function buildRouteBundleArchives() {
   const rootPackId = 'com.storystudio.routes-bundle-root'
   const bundleId = 'com.storystudio.bundle.routes-multi-style'
-  const formulaId = `${componentPackId}.formula`
-  const topicId = `${componentPackId}.topic`
-  const recipeId = `${componentPackId}.recipe`
-  const styleIds = ['pastel', 'impasto', 'oil'].map(name => `${componentPackId}.style-${name}`)
+  const componentPackIds = [
+    'com.storystudio.routes-bundle-formula',
+    'com.storystudio.routes-bundle-topic',
+    'com.storystudio.routes-bundle-recipe',
+    'com.storystudio.routes-bundle-style-pastel',
+    'com.storystudio.routes-bundle-style-impasto',
+    'com.storystudio.routes-bundle-style-oil',
+  ]
+  const itemIds = componentPackIds.map(packId => `${packId}.item`)
+  const [formulaId, topicId, recipeId, ...styleIds] = itemIds
   const documents = [
     {
       kind: 'series-formula', schema_version: 1, id: formulaId, name: 'Route Formula', description: 'Route formula.',
@@ -94,40 +100,46 @@ async function buildRouteBundleArchives(): Promise<{ component: Uint8Array; root
     { kind: 'thumbnail-recipe', schema_version: 1, id: recipeId, name: 'Route Recipe', description: 'Route recipe.', layout: 'hero', category: 'Test', tags: ['route'], aspect_ratio: '16:9', title_mode: 'ai', composition_guidance: 'One subject.', required_elements: ['Subject'], avoid_elements: ['Clutter'], headline_mode: 'episode-title', headline_guidance: 'Short.', default_text_style: 'Ivory', default_font_style: 'Serif', default_text_position: 'top', headline_formats: ['THE RECORD'], visual_style_guidance: 'Restrained.', preview_assets: ['assets/preview.png'], compatible_formula_ids: [formulaId] },
     ...styleIds.map((id, index) => ({ kind: 'visual-style', schema_version: 1, id, name: `Route Style ${index}`, description: 'Route style.', category: 'Test', tags: ['route'], style_bible: `Ordered style ${index}.`, negative_prompt: 'No text.', preview_assets: ['assets/preview.png'], compatible_formula_ids: [formulaId] })),
   ]
-  const content = documents.map((document, index) => ({ path: `content/item-${index}.json`, document, bytes: Buffer.from(JSON.stringify(document)) }))
-  const componentManifest = Buffer.from(JSON.stringify({
-    pack_format: 1, pack_id: componentPackId, publisher_id: PUBLISHER_ID, key_id: KEY_ID,
-    version: '1.0.0', min_app_version: '1.0.0', lifecycle: 'active',
-    entitlement: { sku: `${componentPackId}.sku`, family: `${componentPackId}.family` }, bundles: [],
-    items: content.map(item => ({ id: item.document.id, kind: item.document.kind, schema_version: 1, path: item.path })),
-    files: [...content.map(item => ({ path: item.path, sha256: sha256(item.bytes), bytes: item.bytes.byteLength, mime: 'application/json' })), { path: 'assets/preview.png', sha256: sha256(PNG_1PX), bytes: PNG_1PX.byteLength, mime: 'image/png' }],
+  const components = documents.map((document, index) => ({
+    pack_id: componentPackIds[index]!, version: '1.0.0', item_id: document.id, kind: document.kind,
   }))
-  const componentZip = new JSZip()
-  componentZip.file('manifest.json', componentManifest, { createFolders: false })
-  componentZip.file('signature.ed25519', sign(null, componentManifest, keyPair.privateKey), { createFolders: false })
-  for (const item of content) componentZip.file(item.path, item.bytes, { createFolders: false })
-  componentZip.file('assets/preview.png', PNG_1PX, { createFolders: false })
-
-  const components = [
-    { pack_id: componentPackId, version: '1.0.0', item_id: formulaId, kind: 'series-formula' },
-    { pack_id: componentPackId, version: '1.0.0', item_id: topicId, kind: 'topic-pack' },
-    { pack_id: componentPackId, version: '1.0.0', item_id: recipeId, kind: 'thumbnail-recipe' },
-    ...styleIds.map(item_id => ({ pack_id: componentPackId, version: '1.0.0', item_id, kind: 'visual-style' })),
-  ]
+  const componentArchives: Uint8Array[] = []
+  for (const [index, document] of documents.entries()) {
+    const packId = componentPackIds[index]!
+    const contentBytes = Buffer.from(JSON.stringify(document))
+    const usesPreview = document.kind === 'visual-style' || document.kind === 'thumbnail-recipe'
+    const componentManifest = Buffer.from(JSON.stringify({
+      pack_format: 1, pack_id: packId, publisher_id: PUBLISHER_ID, key_id: KEY_ID,
+      version: '1.0.0', min_app_version: '1.0.0', lifecycle: 'active',
+      entitlement: { sku: `${packId}.sku`, family: `${packId}.family` }, bundles: [],
+      items: [{ id: document.id, kind: document.kind, schema_version: 1, path: 'content/item.json' }],
+      files: [
+        { path: 'content/item.json', sha256: sha256(contentBytes), bytes: contentBytes.byteLength, mime: 'application/json' },
+        ...(usesPreview ? [{ path: 'assets/preview.png', sha256: sha256(PNG_1PX), bytes: PNG_1PX.byteLength, mime: 'image/png' }] : []),
+      ],
+    }))
+    const zip = new JSZip()
+    zip.file('manifest.json', componentManifest, { createFolders: false })
+    zip.file('signature.ed25519', sign(null, componentManifest, keyPair.privateKey), { createFolders: false })
+    zip.file('content/item.json', contentBytes, { createFolders: false })
+    if (usesPreview) zip.file('assets/preview.png', PNG_1PX, { createFolders: false })
+    componentArchives.push(await zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' }))
+  }
   const rootManifest = Buffer.from(JSON.stringify({
     pack_format: 1, pack_id: rootPackId, publisher_id: PUBLISHER_ID, key_id: KEY_ID,
     version: '1.0.0', min_app_version: '1.0.0', lifecycle: 'active',
     entitlement: { sku: `${rootPackId}.sku`, family: `${rootPackId}.family` },
-    dependencies: [{ pack_id: componentPackId, version: '1.0.0' }],
+    dependencies: components.map(({ pack_id, version }) => ({ pack_id, version })),
     bundles: [{ id: bundleId, kind: 'channel-kit', name: 'Route Multi-Style Kit', components }], items: [], files: [],
   }))
   const rootZip = new JSZip()
   rootZip.file('manifest.json', rootManifest, { createFolders: false })
   rootZip.file('signature.ed25519', sign(null, rootManifest, keyPair.privateKey), { createFolders: false })
   return {
-    component: await componentZip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' }),
+    componentArchives,
+    componentPackIds,
+    itemIds,
     root: await rootZip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' }),
-    componentPackId,
     bundleId,
   }
 }
@@ -141,7 +153,9 @@ async function isolated() {
   const contentPackOptions = { paths, policy, recoveryRoot, appVersion: '1.0.832' }
   const app = express()
   app.locals.contentPackOptions = contentPackOptions
+  app.use(express.json({ limit: '10mb' }))
   app.use('/api', contentPacksRouter)
+  app.use(errorBoundary)
   return { app, paths, recoveryRoot, contentPackOptions, tempDir: temp.dir }
 }
 
@@ -280,12 +294,18 @@ describe('local Content Pack management routes', () => {
   test('strictly validates and explicitly applies an installed multi-Style bundle without installation side effects', async () => {
     const { app, paths, contentPackOptions } = await isolated()
     const fixture = await buildRouteBundleArchives()
-    const component = await install(fixture.component, contentPackOptions)
+    const components = []
+    for (const archive of fixture.componentArchives) components.push(await install(archive, contentPackOptions))
     const root = await install(fixture.root, contentPackOptions)
     const project = await projectManager.createProject({ name: 'Route Bundle Apply' })
     const beforePacks = Object.keys((await readContentPackState(paths)).packs).sort()
 
     await request(app).post('/api/content-packs/projects/INVALID!/bundles/apply').send({}).expect(400)
+    await request(app).post(`/api/content-packs/projects/${project.slug}/bundles/apply`).send({
+      root: { pack_id: root.pack_id, version: root.version, archive_sha256: root.archive_sha256 },
+      bundle_id: fixture.bundleId,
+      padding: 'x'.repeat(17 * 1024),
+    }).expect(413)
     await request(app).post(`/api/content-packs/projects/${project.slug}/bundles/apply`).send({
       root: { pack_id: root.pack_id, version: root.version, archive_sha256: root.archive_sha256 },
       bundle_id: fixture.bundleId,
@@ -296,7 +316,7 @@ describe('local Content Pack management routes', () => {
       bundle_id: fixture.bundleId,
     }).expect(404)
     await request(app).post(`/api/content-packs/projects/${project.slug}/bundles/apply`).send({
-      root: { pack_id: component.pack_id, version: component.version, archive_sha256: component.archive_sha256 },
+      root: { pack_id: components[0].pack_id, version: components[0].version, archive_sha256: components[0].archive_sha256 },
       bundle_id: fixture.bundleId,
     }).expect(400)
 
@@ -304,24 +324,37 @@ describe('local Content Pack management routes', () => {
       root: { pack_id: root.pack_id, version: root.version, archive_sha256: root.archive_sha256 },
       bundle_id: fixture.bundleId,
     }).expect(200)
-    assert.equal(response.body.default_style_id, `${fixture.componentPackId}.style-pastel`)
-    assert.deepEqual(response.body.alternative_style_ids, [
-      `${fixture.componentPackId}.style-impasto`, `${fixture.componentPackId}.style-oil`,
-    ])
+    assert.equal(response.body.default_style_id, fixture.itemIds[3])
+    assert.deepEqual(response.body.alternative_style_ids, fixture.itemIds.slice(4))
     assert.deepEqual(Object.keys((await readContentPackState(paths)).packs).sort(), beforePacks)
 
     const saved = await projectManager.getProject(project.slug)
-    assert.equal(saved?.content_pack_versions?.[fixture.componentPackId], '1.0.0')
+    assert.deepEqual(saved?.content_pack_versions, Object.fromEntries(fixture.componentPackIds.map(packId => [packId, '1.0.0'])))
     assert.equal(Object.keys(saved?.content_pack_items ?? {}).length, 6)
 
     const conflictDir = path.join(projectManager.ensureProjectsRoot(), project.slug)
     const conflicted = JSON.parse(await fs.readFile(path.join(conflictDir, 'project.json'), 'utf8'))
-    conflicted.content_pack_versions[fixture.componentPackId] = '9.9.9'
+    conflicted.content_pack_versions[fixture.componentPackIds[0]] = '9.9.9'
     await fs.writeFile(path.join(conflictDir, 'project.json'), JSON.stringify(conflicted))
-    await request(app).post(`/api/content-packs/projects/${project.slug}/bundles/apply`).send({
+    const conflict = await request(app).post(`/api/content-packs/projects/${project.slug}/bundles/apply`).send({
       root: { pack_id: root.pack_id, version: root.version, archive_sha256: root.archive_sha256 },
       bundle_id: fixture.bundleId,
     }).expect(409)
+    assert.match(conflict.body.detail, /explicit upgrade|pins.*9\.9\.9/i)
+
+    const operationalFailureProject = await projectManager.createProject({ name: 'Route Bundle Operational Failure' })
+    app.locals.contentPackOptions = {
+      ...contentPackOptions,
+      hooks: { beforeProjectWrite: async () => { throw new Error('private disk failure detail') } },
+    }
+    const operationalFailure = await request(app)
+      .post(`/api/content-packs/projects/${operationalFailureProject.slug}/bundles/apply`)
+      .send({
+        root: { pack_id: root.pack_id, version: root.version, archive_sha256: root.archive_sha256 },
+        bundle_id: fixture.bundleId,
+      })
+      .expect(500)
+    assert.deepEqual(operationalFailure.body, { detail: 'Internal server error' })
   })
 
   test('serves only declared verified raster hashes and refuses symlink replacement', async () => {

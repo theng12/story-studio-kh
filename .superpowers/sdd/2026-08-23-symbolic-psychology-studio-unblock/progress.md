@@ -75,6 +75,9 @@ Task 2 implementation started from
 - Bundle-only manifests now accept one-or-more ordered `visual-style`
   components while retaining the exact Formula, Topic, Recipe, uniqueness,
   external-reference, dependency, namespace, file, archive, and trust guards.
+  Their dependency list must have identical cardinality and the exact ordered
+  owner pack/version sequence as Formula, Topic(s), Recipe, then Style(s),
+  preserving one component per dependency.
 - `resolveProjectPreferredSelection` resolves an existing owner/version pin
   first, verifies the exact retained archive hash, and fails closed without
   active discovery. With no owner pin it performs signed discovery and returns
@@ -83,30 +86,50 @@ Task 2 implementation started from
 - `applyProjectContentBundle` verifies the exact installed root and closure
   under the Content Pack coordination lock, pins every component, activates
   the first ordered Style, retains later Styles as alternatives, and uses the
-  existing rollback-safe project/config transaction. It performs no install,
-  purchase, quote, or network action.
+  existing coordinated project/config write path. Closure and pin conflicts
+  reject before either project file is written. Once writing starts, the path
+  first persists the fully pinned transitional project, then config, then the
+  final project; this is crash-consistent rather than strict crash-level
+  all-or-nothing. Runtime write failures attempt best-effort rollback, and the
+  injected phase regressions prove restoration when those rollback writes
+  succeed. It performs no install, purchase, quote, or network action.
 - `POST /content-packs/projects/:slug/bundles/apply` strictly accepts only
-  `root` and `bundle_id`, validates slug and exact identities, and returns safe
-  400/404/409 failures.
+  `root` and `bundle_id`, validates slug and exact identities, enforces its
+  16 KiB bound after the production global JSON parser, and returns only known
+  exposed 400/404/409 failures locally. Unknown operational failures reach the
+  terminal error boundary for logging and a generic 500 response.
 
 ### TDD and regression proof
 
 - RED: the new three-Style contract and publisher fixtures failed on the old
   exactly-one-Style refinement; the publisher build also refused the same
   source for that reason.
+- RED: reversed dependency order and unequal dependency/component cardinality
+  were accepted before exact ordered-closure validation was added.
 - RED: the project-pin suite initially failed because
   `applyProjectContentBundle` did not exist, and the strict route suite returned
   404 because the explicit action had not been registered.
+- RED: the transaction phase regression initially could not inject failures at
+  the three project/config write boundaries, and the route accepted an
+  oversized request after the production global parser had already parsed it.
 - GREEN: focused suites cover deterministic three-Style publisher output;
   ordered default/alternatives; exact style refs; Formula/Topic/Recipe and all
   Style pins; missing, disabled, recalled, corrupt, wrong-kind, duplicate and
-  conflicting closures; atomic rollback; newer-active isolation; missing,
+  conflicting closures; exact pre-write conflict rejection; crash-consistent
+  transitional pinning and successful best-effort rollback at all three write
+  boundaries; newer-active isolation; missing,
   recalled, owner-mismatched and hash-mismatched fail-closed selection;
   unpinned Formula/Topic/Style/Recipe discovery and kind validation; and config,
   niche, and topic legacy/local writes after one observed catalog miss each.
-- The route regression proves the pack-state inventory is unchanged by bundle
-  apply, so the project action cannot install or activate archive versions as a
-  side effect.
+- Route regressions prove the pack-state inventory is unchanged by bundle apply,
+  so the project action cannot install or activate archive versions as a side
+  effect; known conflicts remain explicit while unknown operational failures do
+  not leak details.
+
+The plan's word “atomic” is satisfied for validation/conflict rejection and
+coordinated successful application. If read as strict crash-level all-or-nothing
+across two JSON files, it is stronger than the existing architecture can
+guarantee; Task 2 does not claim or prove that stronger property.
 
 ### Scope preserved
 
@@ -118,10 +141,12 @@ publication, deploy, tag, push, purchase, or other external mutation occurred.
 ### Verification
 
 - `npx tsx --test electron/server/__tests__/content-pack-contract.test.ts electron/server/__tests__/content-pack-project-pins.test.ts electron/server/__tests__/content-pack-routes.test.ts`
-  — 60 passed, 0 failed.
+  — 62 passed, 0 failed.
 - `node --test scripts/content-packs/__tests__/publisher-tools.test.mjs`
-  — 23 passed, 0 failed.
+  — 24 passed, 0 failed.
 - `npm run typecheck:electron` — Electron TypeScript check passes.
+- `npm run check:security` — production security check passes.
+- `git diff --check` — clean.
 
 ## Next task
 

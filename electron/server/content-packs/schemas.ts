@@ -748,6 +748,17 @@ export const ContentPackManifestSchema = z.object({
     if (count('series-formula') !== 1 || count('topic-pack') < 1 || count('visual-style') < 1 || count('thumbnail-recipe') !== 1) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', 0, 'components'], message: 'bundle-only coordination packs require exactly one Formula, at least one Topic Pack, one or more Styles, and exactly one Recipe component' })
     }
+    const dependencies = manifest.dependencies ?? []
+    if (dependencies.length !== components.length) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dependencies'], message: 'bundle-only coordination packs require one ordered dependency per component' })
+    } else {
+      for (const [index, component] of components.entries()) {
+        const dependency = dependencies[index]
+        if (dependency?.pack_id !== component.pack_id || dependency.version !== component.version) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dependencies', index], message: 'bundle-only dependency order must equal the component owner sequence' })
+        }
+      }
+    }
     for (const [index, component] of components.entries()) {
       if (component.pack_id === manifest.pack_id) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['bundles', 0, 'components', index], message: 'bundle-only coordination components must be external' })

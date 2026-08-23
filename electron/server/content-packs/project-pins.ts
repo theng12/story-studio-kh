@@ -70,6 +70,8 @@ export interface ContentPackProjectPinOptions extends ContentPackRegistryOptions
     beforeProjectWrite?: () => Promise<void>
     /** Test seam proving that legacy/local writes follow a signed-catalog miss. */
     afterCatalogItemResolution?: (id: string, pin: ContentPackVersionRef | undefined) => void
+    /** Test seam for crash-consistent project/config write-phase evidence. */
+    consistentProjectWrite?: projectManager.ConsistentProjectWriteHooks
   }
 }
 
@@ -631,7 +633,7 @@ export async function applyProjectContentBundle(
           meta.thumbnail_template_id = recipe.id
         },
       )
-    })
+    }, options.hooks?.consistentProjectWrite)
     if (!updated) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
     return {
       project_slug: updated.slug,

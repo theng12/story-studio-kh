@@ -490,7 +490,7 @@ describe('exact project Content Pack pins', () => {
     assert.deepEqual(await projectManager.getConfig(project.slug), beforeConfig)
   })
 
-  test('applies one exact multi-Style bundle atomically and keeps a selected alternative on its pinned version', async () => {
+  test('applies one exact multi-Style bundle in one coordinated operation and keeps a selected alternative pinned', async () => {
     const { options } = await isolated()
     const { refs, root } = await installBundleFixture(options)
     const project = await projectManager.createProject({ name: 'Ordered Bundle Application' })
@@ -581,7 +581,7 @@ describe('exact project Content Pack pins', () => {
     }
   })
 
-  test('bundle application refuses an existing different-version pin and rolls back both files', async () => {
+  test('bundle application refuses an existing different-version pin before writing either file', async () => {
     const { options } = await isolated()
     const { root } = await installBundleFixture(options)
     const project = await projectManager.createProject({ name: 'Bundle Pin Conflict' })
@@ -602,6 +602,56 @@ describe('exact project Content Pack pins', () => {
     }, options), /explicit upgrade|pins.*1\.0\.2/i)
     assert.deepEqual(await projectManager.getProject(project.slug), beforeProject)
     assert.deepEqual(await projectManager.getConfig(project.slug), beforeConfig)
+  })
+
+  test('bundle writes expose crash-consistent transitional pins and roll back each injected write-phase failure', async () => {
+    for (const failurePhase of ['afterTransitionalProjectWrite', 'afterConfigWrite', 'beforeFinalProjectWrite'] as const) {
+      const { options } = await isolated()
+      const { root } = await installBundleFixture(options)
+      const project = await projectManager.createProject({ name: `Bundle Write Failure ${failurePhase}` })
+      const projectPath = path.join(projectManager.ensureProjectsRoot(), project.slug, 'project.json')
+      const configPath = path.join(projectManager.ensureProjectsRoot(), project.slug, 'config.json')
+      const beforeProject = await projectManager.getProject(project.slug)
+      const beforeConfig = await projectManager.getConfig(project.slug)
+      const observed: string[] = []
+      const inspectPhase = async (phase: typeof failurePhase) => {
+        observed.push(phase)
+        const currentProject = JSON.parse(await fs.readFile(projectPath, 'utf8'))
+        const currentConfig = JSON.parse(await fs.readFile(configPath, 'utf8'))
+        assert.deepEqual(currentProject.content_pack_versions,
+          Object.fromEntries(BUNDLE_COMPONENTS.map(component => [component.pack_id, component.version])))
+        assert.equal(Object.keys(currentProject.content_pack_items).length, BUNDLE_COMPONENTS.length)
+        assert.equal(currentProject.active_style_preset_id, BUNDLE_COMPONENTS[3].item_id)
+        assert.equal(
+          currentConfig.active_style_preset_id,
+          phase === 'afterTransitionalProjectWrite' ? beforeConfig?.active_style_preset_id : BUNDLE_COMPONENTS[3].item_id,
+        )
+        if (phase === failurePhase) throw new Error(`injected ${phase}`)
+      }
+
+      await assert.rejects(applyProjectContentBundle(project.slug, {
+        root: { pack_id: BUNDLE_PACK_ID, version: '1.0.1', archive_sha256: root.archive_sha256 },
+        bundle_id: BUNDLE_ID,
+      }, {
+        ...options,
+        hooks: {
+          consistentProjectWrite: {
+            afterTransitionalProjectWrite: () => inspectPhase('afterTransitionalProjectWrite'),
+            afterConfigWrite: () => inspectPhase('afterConfigWrite'),
+            beforeFinalProjectWrite: () => inspectPhase('beforeFinalProjectWrite'),
+          },
+        },
+      }), new RegExp(`injected ${failurePhase}`))
+      assert.deepEqual(observed, [
+        'afterTransitionalProjectWrite',
+        ...(['afterConfigWrite', 'beforeFinalProjectWrite'].includes(failurePhase) ? ['afterConfigWrite'] : []),
+        ...(failurePhase === 'beforeFinalProjectWrite' ? ['beforeFinalProjectWrite'] : []),
+      ])
+      assert.deepEqual(await projectManager.getProject(project.slug), beforeProject, failurePhase)
+      assert.deepEqual(await projectManager.getConfig(project.slug), beforeConfig, failurePhase)
+      await cleanup?.()
+      cleanup = undefined
+    }
   })
 
   test('missing, recalled, owner-mismatched, and hash-mismatched owner pins never fall through to a newer active Style', async () => {

@@ -83,10 +83,10 @@ async function writeBundleOnlySource(root, { config = {}, entries = [] } = {}) {
     dependencies: [
       { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0' },
       { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0' },
+      { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0' },
       { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0' },
       { pack_id: 'com.storystudio.style.free-starter-impasto', version: '1.0.0' },
       { pack_id: 'com.storystudio.style.free-starter-oil', version: '1.0.0' },
-      { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0' },
     ],
     bundles: [{
       id: 'com.storystudio.bundle.free-starter',
@@ -95,10 +95,10 @@ async function writeBundleOnlySource(root, { config = {}, entries = [] } = {}) {
       components: [
         { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0', item_id: 'com.storystudio.formula.free-starter', kind: 'series-formula' },
         { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter', kind: 'topic-pack' },
+        { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0', item_id: 'com.storystudio.thumbnail.free-starter', kind: 'thumbnail-recipe' },
         { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0', item_id: 'com.storystudio.style.free-starter', kind: 'visual-style' },
         { pack_id: 'com.storystudio.style.free-starter-impasto', version: '1.0.0', item_id: 'com.storystudio.style.free-starter-impasto', kind: 'visual-style' },
         { pack_id: 'com.storystudio.style.free-starter-oil', version: '1.0.0', item_id: 'com.storystudio.style.free-starter-oil', kind: 'visual-style' },
-        { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0', item_id: 'com.storystudio.thumbnail.free-starter', kind: 'thumbnail-recipe' },
       ],
     }],
     ...config,
@@ -298,7 +298,7 @@ test('buildContentPack signs only a complete token-resolved bundle-only coordina
   assert.equal(signedManifest.key_id, 'com.storystudio.key.free-starter')
   assert.equal(signedManifest.min_app_version, '1.0.0')
   assert.deepEqual(signedManifest.bundles[0].components.map(component => component.kind), [
-    'series-formula', 'topic-pack', 'visual-style', 'visual-style', 'visual-style', 'thumbnail-recipe',
+    'series-formula', 'topic-pack', 'thumbnail-recipe', 'visual-style', 'visual-style', 'visual-style',
   ])
   await validateContentPack({
     archivePath: output,
@@ -318,6 +318,49 @@ test('buildContentPack signs only a complete token-resolved bundle-only coordina
     }),
     /signature/i,
   )
+})
+
+test('buildContentPack rejects reordered or unequal bundle-only dependency/component closures', async (t) => {
+  const fixture = await makeFixture()
+  t.after(() => rm(fixture.root, { recursive: true, force: true }))
+  const { buildContentPack } = await import('../lib.mjs')
+  const baselineSource = await writeBundleOnlySource(fixture.root)
+  const baseline = JSON.parse(await readFile(join(baselineSource, 'pack.json'), 'utf8'))
+  await rm(baselineSource, { recursive: true })
+
+  const reordered = await writeBundleOnlySource(fixture.root, {
+    config: { dependencies: [baseline.dependencies[1], baseline.dependencies[0], ...baseline.dependencies.slice(2)] },
+  })
+  await assert.rejects(buildContentPack({
+    sourceDirectory: reordered,
+    privateKeyPath: fixture.privateKeyPath,
+    outputPath: join(fixture.root, 'reordered.sspack'),
+    minAppVersion: '1.0.0',
+    keyId: 'com.storystudio.key.free-starter',
+  }), /order|sequence|component/i)
+  await rm(reordered, { recursive: true })
+
+  const shared = baseline.dependencies[0]
+  const unequal = await writeBundleOnlySource(fixture.root, {
+    config: {
+      dependencies: [shared],
+      bundles: [{
+        ...baseline.bundles[0],
+        components: baseline.bundles[0].components.map(component => ({
+          ...component,
+          pack_id: shared.pack_id,
+          version: shared.version,
+        })),
+      }],
+    },
+  })
+  await assert.rejects(buildContentPack({
+    sourceDirectory: unequal,
+    privateKeyPath: fixture.privateKeyPath,
+    outputPath: join(fixture.root, 'unequal.sspack'),
+    minAppVersion: '1.0.0',
+    keyId: 'com.storystudio.key.free-starter',
+  }), /cardinality|one component|dependency/i)
 })
 
 test('buildContentPack refuses content or assets in a bundle-only source', async (t) => {
