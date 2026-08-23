@@ -1,0 +1,179 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.before-after-timeline",
+  "name": "Before/After Timeline",
+  "description": "A reusable evidence-aware Formula that establishes a baseline, names one change and its time window, follows measurements or observations through checkpoints, considers confounders, and ends with a bounded result without promising transformation or claiming causality.",
+  "channel_promise": "Baseline → Change → Evidence Boundary",
+  "audience": "General audiences seeking careful before/after accounts that distinguish observed change from causal proof.",
+  "formula_family": "Evidence-aware timelines",
+  "perspective_policy": "Use an evidence-aware narrator who distinguishes sequence, correlation, and causation; reports uncertainty; and never turns a bounded before/after observation into a universal transformation promise.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open with the starting baseline, the named change, and the time window the episode can responsibly examine.",
+    "forbidden_patterns": [
+      "guaranteed transformation",
+      "sequence presented as causal proof",
+      "correlation presented as causal proof",
+      "hidden or invented baseline",
+      "fabricated measurement",
+      "universal outcome"
+    ],
+    "required_habits": [
+      "Name the baseline before the change.",
+      "Keep timeline checkpoints in chronological order.",
+      "Separate measurements or observations from interpretation.",
+      "Name confounders and plausible alternatives before stating the result.",
+      "Keep the result bounded by the stated evidence and time window."
+    ],
+    "closing_policy": "End with the bounded result, the most important confounder or alternative, and the uncertainty that remains."
+  },
+  "narrative_rules": [
+    "Every episode must name the starting baseline, the change introduced, and the time window before presenting a result.",
+    "Separate measurements or observations from interpretation, then name confounders and plausible alternatives.",
+    "End with a bounded result that does not exceed the evidence or imply a universal outcome.",
+    "Do not hide a missing baseline, fabricate a measurement, or treat sequence alone as causation."
+  ],
+  "title_rules": [
+    "No transformation promise: never imply that the named change guarantees improvement, recovery, growth, or success.",
+    "No causal claim: never present before/after sequence or correlation as proof that the change caused the result.",
+    "Name the baseline, change, and bounded observation without universal outcome language."
+  ],
+  "script_structure": {
+    "default_chapter_count": 6,
+    "chapter_count_range": [
+      6,
+      6
+    ],
+    "default_length_minutes": 12,
+    "length_minutes_range": [
+      8,
+      20
+    ],
+    "duration_presets": [
+      8,
+      12,
+      20
+    ],
+    "default_words_per_minute": 145,
+    "chapters_independent": false,
+    "pacing_arc": [
+      "Starting baseline.",
+      "Change introduced.",
+      "Timeline checkpoints.",
+      "Measurements or observations.",
+      "Confounders and alternatives.",
+      "Bounded result."
+    ],
+    "additional_rules": [
+      "Require the baseline, change, time window, measurements or observations, confounders, and bounded result before a candidate is queued.",
+      "Keep the six stages in order because each stage qualifies the result that follows.",
+      "Reject a candidate when the baseline, time window, measurement or observation method, or confounder boundary is missing.",
+      "Reject transformation promises, causal claims inferred from sequence or correlation, and universal results."
+    ]
+  },
+  "compatible_topic_pack_ids": [],
+  "default_topic_pack_ids": [],
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.object-hero-question"
+  ],
+  "idea_axes": [
+    {
+      "id": "baseline",
+      "label": "Baseline",
+      "values": [
+        "current condition",
+        "starting measurement",
+        "existing process",
+        "initial constraint",
+        "comparison state",
+        "stated observation"
+      ]
+    },
+    {
+      "id": "change",
+      "label": "Change",
+      "values": [
+        "intervention introduced",
+        "process changed",
+        "tool adopted",
+        "environment adjusted",
+        "behavior attempted",
+        "policy or practice changed"
+      ]
+    },
+    {
+      "id": "time-window",
+      "label": "Time window",
+      "values": [
+        "immediate",
+        "one day",
+        "one week",
+        "one month",
+        "one cycle",
+        "stated follow-up period"
+      ]
+    },
+    {
+      "id": "measurement-or-observation",
+      "label": "Measurement or observation",
+      "values": [
+        "quantitative measure",
+        "measurement log",
+        "repeated observation",
+        "controlled comparison",
+        "documented output",
+        "attributed qualitative observation"
+      ]
+    },
+    {
+      "id": "confounder",
+      "label": "Confounder",
+      "values": [
+        "selection effect",
+        "concurrent change",
+        "regression to the mean",
+        "measurement change",
+        "external event",
+        "missing comparison"
+      ]
+    },
+    {
+      "id": "result-boundary",
+      "label": "Result boundary",
+      "values": [
+        "observed association",
+        "provisional result",
+        "bounded difference",
+        "mixed result",
+        "no clear change",
+        "unresolved result"
+      ]
+    }
+  ],
+  "evidence_expectations": [
+    "State how the baseline and follow-up were measured or observed, including any material change in method.",
+    "Keep measurements, attributed observations, interpretation, and causal inference distinct.",
+    "Name concurrent changes, selection effects, regression to the mean, missing comparisons, and other plausible confounders when relevant.",
+    "Do not invent a baseline, checkpoint, measurement, source, comparison, causal link, or outcome."
+  ],
+  "idea_system_prompt_role": "Generate distinct before/after episode ideas with a named baseline, one change, a stated time window, measurements or observations, confounders, and a bounded result. Reject transformation promises, causal claims, hidden baselines, fabricated measurements, and universal outcomes.",
+  "idea_guidance_text": "Make every assigned baseline, change, time window, measurement or observation, confounder, and result boundary explicit before queueing the candidate.",
+  "script_context": "Use six dependent stages: establish the starting baseline; introduce the change; mark timeline checkpoints; report measurements or observations; examine confounders and alternatives; state the bounded result. Sequence and correlation do not prove causation.",
+  "script_system_prompt_role": "You are an evidence-aware before/after narrator. Keep baseline, change, time window, measurements or observations, confounders, and bounded result distinct. Never promise transformation, invent measurements, or claim the change caused the result without adequate evidence.",
+  "script_closing_hint": "Close with the bounded result, the most important confounder or alternative, and the uncertainty that remains.",
+  "narrator_styles": [
+    {
+      "id": "evidence-aware-timeline-narrator",
+      "label": "Evidence-aware timeline narrator",
+      "description": "Chronological and precise; distinguishes observed differences, alternative explanations, and what remains uncertain."
+    }
+  ],
+  "default_narrator_style_id": "evidence-aware-timeline-narrator",
+  "title_shape_rules": [
+    "Name the concrete baseline or starting condition and the change being observed.",
+    "Use measured or observational language rather than transformation language.",
+    "Do not convert temporal order or correlation into a causal headline."
+  ],
+  "structural_variety": "vary-all"
+}

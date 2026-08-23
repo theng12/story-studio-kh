@@ -5,13 +5,55 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 
+import { contentPackDocumentToNiche } from '../content-packs/legacy-adapters.js'
 import { parseContentPackDocument } from '../content-packs/schemas.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const REGISTRY_PATH = path.join(ROOT, 'content-packs', 'authoring-registry.json')
 const QUESTION_LADDER_SOURCE = 'content-packs/reusable-primitives/formula/question-ladder'
 const AUDIENCE_QUESTION_SEEDER_SOURCE = 'content-packs/reusable-primitives/topic/audience-question-seeder'
+const BEFORE_AFTER_TIMELINE_SOURCE = 'content-packs/reusable-primitives/formula/before-after-timeline'
 const OBJECT_HERO_QUESTION_SOURCE = 'content-packs/reusable-primitives/thumbnail/object-hero-question'
+
+const BEFORE_AFTER_TIMELINE_PACING = [
+  'Starting baseline.',
+  'Change introduced.',
+  'Timeline checkpoints.',
+  'Measurements or observations.',
+  'Confounders and alternatives.',
+  'Bounded result.',
+] as const
+
+const BEFORE_AFTER_TIMELINE_AXES = [
+  'baseline',
+  'change',
+  'time-window',
+  'measurement-or-observation',
+  'confounder',
+  'result-boundary',
+] as const
+
+const BEFORE_AFTER_TIMELINE_REQUIREMENTS = [
+  'Every episode must name the starting baseline, the change introduced, and the time window before presenting a result.',
+  'Separate measurements or observations from interpretation, then name confounders and plausible alternatives.',
+  'End with a bounded result that does not exceed the evidence or imply a universal outcome.',
+  'Do not hide a missing baseline, fabricate a measurement, or treat sequence alone as causation.',
+] as const
+
+const BEFORE_AFTER_TIMELINE_TITLE_SAFETY = [
+  'No transformation promise: never imply that the named change guarantees improvement, recovery, growth, or success.',
+  'No causal claim: never present before/after sequence or correlation as proof that the change caused the result.',
+  'Name the baseline, change, and bounded observation without universal outcome language.',
+] as const
+
+const BEFORE_AFTER_TIMELINE_GOLDEN_PROMPT = {
+  pacingArc: BEFORE_AFTER_TIMELINE_PACING,
+  ideaSystemPromptRole: 'Generate distinct before/after episode ideas with a named baseline, one change, a stated time window, measurements or observations, confounders, and a bounded result. Reject transformation promises, causal claims, hidden baselines, fabricated measurements, and universal outcomes.',
+  ideaGuidanceText: 'Make every assigned baseline, change, time window, measurement or observation, confounder, and result boundary explicit before queueing the candidate.',
+  scriptContext: 'Use six dependent stages: establish the starting baseline; introduce the change; mark timeline checkpoints; report measurements or observations; examine confounders and alternatives; state the bounded result. Sequence and correlation do not prove causation.',
+  scriptSystemPromptRole: 'You are an evidence-aware before/after narrator. Keep baseline, change, time window, measurements or observations, confounders, and bounded result distinct. Never promise transformation, invent measurements, or claim the change caused the result without adequate evidence.',
+  scriptClosingHint: 'Close with the bounded result, the most important confounder or alternative, and the uncertainty that remains.',
+} as const
 
 const AUDIENCE_QUESTION_AXES = {
   'audience-context': [
@@ -399,4 +441,66 @@ test('Audience Question Seeder is receipt-bound and deterministically rejects du
       reason: 'subject, audience-context, question-intent, and constraint tuple repeats',
     }],
   })
+})
+
+test('Before/After Timeline Formula is receipt-bound and preserves a no-causality six-stage prompt', async () => {
+  const formulaRecord = await registryRecord(BEFORE_AFTER_TIMELINE_SOURCE)
+  const recipeRecord = await registryRecord(OBJECT_HERO_QUESTION_SOURCE)
+  assert.equal(recipeRecord.receipt_ref, formulaRecord.receipt_ref)
+
+  const sourceRoot = path.join(ROOT, formulaRecord.source_path)
+  const manifest = await readJson(path.join(sourceRoot, 'pack.json'))
+  const formula = await readJson(path.join(sourceRoot, 'content', 'series-formula.json'))
+  const parsed = parseContentPackDocument('series-formula', formula)
+  assert.equal(parsed.kind, 'series-formula')
+  if (parsed.kind !== 'series-formula') assert.fail('Before/After Timeline must parse as a series-formula')
+
+  assert.deepEqual(manifest, {
+    pack_format: 1,
+    pack_id: formulaRecord.pack_id,
+    publisher_id: formulaRecord.publisher_id,
+    key_id: '{{KEY_ID}}',
+    version: formulaRecord.version,
+    min_app_version: formulaRecord.min_app_version,
+    lifecycle: 'active',
+    entitlement: {
+      sku: formulaRecord.stocking_proposal.sku.id,
+      family: formulaRecord.stocking_proposal.family.id,
+    },
+  })
+  assert.equal(formula.id, formulaRecord.item_id)
+  assert.equal(formula.kind, formulaRecord.kind)
+  assert.equal(formula.schema_version, 1)
+  assert.equal(formula.channel_promise, 'Baseline → Change → Evidence Boundary')
+
+  const scriptStructure = formula.script_structure as { pacing_arc: string[], additional_rules: string[] }
+  assert.deepEqual(scriptStructure.pacing_arc, BEFORE_AFTER_TIMELINE_PACING)
+  const ideaAxes = formula.idea_axes as Array<{ id: string, values: string[] }>
+  assert.deepEqual(ideaAxes.map(axis => axis.id), BEFORE_AFTER_TIMELINE_AXES)
+  assert.ok(ideaAxes.every(axis => axis.values.length >= 3), 'each timeline axis must offer usable variation')
+  assert.deepEqual(formula.narrative_rules, BEFORE_AFTER_TIMELINE_REQUIREMENTS)
+  assert.deepEqual(formula.title_rules, BEFORE_AFTER_TIMELINE_TITLE_SAFETY)
+  assert.deepEqual(scriptStructure.additional_rules, [
+    'Require the baseline, change, time window, measurements or observations, confounders, and bounded result before a candidate is queued.',
+    'Keep the six stages in order because each stage qualifies the result that follows.',
+    'Reject a candidate when the baseline, time window, measurement or observation method, or confounder boundary is missing.',
+    'Reject transformation promises, causal claims inferred from sequence or correlation, and universal results.',
+  ])
+
+  assert.deepEqual(formula.compatible_topic_pack_ids, [])
+  assert.deepEqual(formula.default_topic_pack_ids, [])
+  assert.deepEqual(formula.recommended_thumbnail_recipe_ids, [recipeRecord.item_id])
+  assert.equal(Object.hasOwn(formula, 'default_thumbnail_recipe_id'), false)
+  assert.deepEqual(formula.recommended_visual_style_ids, [])
+
+  const runtimeFormula = contentPackDocumentToNiche(parsed)
+  assert.ok(runtimeFormula.scriptStructure, 'runtime Formula adapter must preserve script structure')
+  assert.deepEqual({
+    pacingArc: runtimeFormula.scriptStructure.pacingArc,
+    ideaSystemPromptRole: runtimeFormula.ideaSystemPromptRole,
+    ideaGuidanceText: runtimeFormula.ideaGuidanceText,
+    scriptContext: runtimeFormula.scriptContext,
+    scriptSystemPromptRole: runtimeFormula.scriptSystemPromptRole,
+    scriptClosingHint: runtimeFormula.scriptClosingHint,
+  }, BEFORE_AFTER_TIMELINE_GOLDEN_PROMPT)
 })
