@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Safely unblock the reviewed multi-Style Symbolic Psychology Studio contract, issue immutable Formula and Kit successors, qualify local deterministic candidates, and leave stocking blocked until external preview, independent-review, and deployed-app gates are all true.
+**Goal:** Safely unblock the reviewed multi-Style Symbolic Psychology Studio contract, issue immutable Formula, Recipe, Pastel, and Kit successors, qualify local deterministic candidates, and leave stocking blocked until external preview, independent-review, and deployed-app gates are all true.
 
-**Architecture:** Preserve every issued `1.0.0` identity, source, archive, and review artifact as historical evidence. Extend the existing bundle-only manifest validator from exactly one Style to one-or-more ordered Styles, then add one explicit bundle-application transaction: the first ordered Style becomes the project's active default and every remaining exact Style is installed and retained as an alternative by the already-verified closure. Reserve a receipt-bound `1.0.1` Human Behavior Formula successor and `1.0.1` Symbolic Psychology Studio Kit successor, build keyless candidates locally, and assemble—but never send—a receiver handoff only after all leaf, coordinator, app-release, and independent-review gates pass.
+**Architecture:** Preserve every issued `1.0.0` identity, source, archive, and review artifact as historical evidence. Extend the existing bundle-only manifest validator from exactly one Style to one-or-more ordered Styles, then add one explicit bundle-application transaction: the first ordered Style becomes the project's active default and every remaining exact Style is retained as a project-pinned alternative and resolved pin-first by exact owner/version/hash. Reserve receipt-bound `1.0.1` Formula, Recipe, and Pastel successors first; author Formula immediately, but keep Recipe/Pastel reserved until exact returned preview evidence passes review. Only then reserve and author a `1.0.1` Kit whose final closure pins all three qualified successors, build keyless candidates locally, and assemble—but never send—a receiver handoff.
 
 **Tech Stack:** TypeScript, Zod, Node test runner, Content Pack archive/publisher tools, authoring-registry CAS/receipt CLI, SHA-256, sharp, GenStudio Store receipt-attested install fixtures.
 
@@ -14,18 +14,22 @@
 
 - Coordinator branch is exactly `codex/content-expansion-portfolio`; do not reserve or transition registry records from another branch.
 - Registry baseline observed while writing this plan is revision `16` with `74` records. Validate before every mutation, use the revision returned by the immediately preceding serialized registry operation, and stop on stale CAS state.
-- Proposed values are not identities. The stable Formula and Kit lineages and proposed `1.0.1` versions may appear in a reservation request, but no successor source may be authored and no handoff may call either record issued until `verify-receipt` succeeds against the exact new receipt.
-- Never edit or regenerate the issued/live Formula source `content-packs/free-starters/formula/human-behavior-explained/` or the blocked Kit `1.0.0` source `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio/`. Their existing registry rows, receipt history, archives, build failure, review findings, and closure remain immutable evidence.
+- Proposed values are not identities. Stable Formula, Recipe, Pastel, and Kit lineages and proposed `1.0.1` versions may appear in reservation requests, but no successor source may be called issued until its exact receipt verifies; no Recipe/Pastel successor may transition to authored until returned preview evidence and independent review pass.
+- Never edit, regenerate, or replace any issued/authored `1.0.0` Formula, Recipe, Pastel, or Kit source byte. Pin their current source-file SHA-256 values in tests before successor work. Their registry rows, receipt history, archives/quarantine, review findings, and Kit `1.0.0` closure remain immutable evidence.
 - Formula successor is expected at version `1.0.1`, in `content-packs/free-starters/formula/human-behavior-explained-v1.0.1/`, with the same pack/item/family/SKU lineage as `1.0.0`. Its only editorial change is replacing vocabulary mood `diagnostic-but-warm` with exact text `non-diagnostic-and-warm`; all existing explicit non-diagnosis safeguards remain.
-- Kit successor is expected at version `1.0.1`, in `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1/`, with the same pack/bundle/family/SKU lineage as `1.0.0` and this exact ordered closure: Formula `1.0.1`, Topic `1.0.0`, Recipe `1.0.0`, Pastel `1.0.0`, Impasto `1.0.0`, Oil `1.0.0`.
+- Recipe successor is expected at version `1.0.1`, in `content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1/`, with the same pack/item/family/SKU lineage as `1.0.0`; it incorporates only the independently qualified replacement preview/gallery evidence.
+- Pastel successor is expected at version `1.0.1`, in `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1/`, with the same pack/item/family/SKU lineage as `1.0.0`; it incorporates only the independently qualified truthful matte-collage replacement preview.
+- Leaf successor reservation is one atomic Formula/Recipe/Pastel batch. Formula may transition after its source/safety tests pass. Recipe and Pastel remain `reserved` with non-discoverable scaffolding until exact returned bytes, prompt/quote/authority evidence, provenance, and review all pass; only then are their versioned source trees created and their transitions serialized.
+- Kit reservation is a later, separate CAS event. It may occur only after all three leaf successor receipts verify, Recipe/Pastel are authored and qualified, and the closure is final. Kit successor is expected at version `1.0.1`, in `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1/`, with this exact ordered closure: Formula `1.0.1`, Topic `1.0.0`, Recipe `1.0.1`, Pastel `1.0.1`, Impasto `1.0.0`, Oil `1.0.0`.
 - Bundle-only Channel Kits require exactly one Formula, at least one Topic, one-or-more Styles, and exactly one Recipe. Preserve exact component/dependency equality, order, unique component references, unique item IDs, external-only components, exact dependency use, namespace, archive, and signature/delivery safeguards.
-- Ordered Style semantics are structural: the first `visual-style` component is the active project default; the remaining exact Style components are installed alternatives. Do not add `default_style_id`, copy Style documents into the Kit, or introduce a fifth creative schema.
+- Ordered Style semantics are structural: the first `visual-style` component is the active project default; the remaining exact Style components are installed and project-pinned alternatives. Persist every alternative's item owner and version, resolve that immutable installed version to its verified archive hash, and search these project pins before active discovery. Do not add `default_style_id`, copy Style documents into the Kit, or introduce a fifth creative schema.
+- Pin-first is fail-closed: once a project owns an item pin, a missing, recalled, corrupt, owner-mismatched, version-mismatched, or hash-mismatched pinned archive is an error. Never fall through to a newer active version. Preserve the existing conflict guard: changing a pinned pack version requires the explicit upgrade workflow.
 - Install/restore/checkout behavior remains exact-closure and fail-closed. A Kit apply is an explicit project action, never an install side effect, and it never silently upgrades an existing project pin.
 - Current application version is `1.4.31`. Multi-Style bundle-only archives must use the application release that first contains this support as their minimum version, expected `1.4.32`; a false `1.0.843` floor is forbidden because a `1.0.843` binary rejects this manifest. Formula `1.0.1`, whose schema is unchanged, may retain the truthful `1.0.843` floor.
 - Mandatory application release integrity: bump `package.json` and `package-lock.json` together, add the newest-first matching `CHANGELOG.md` entry, and pass `npm run check:changelog`. If the branch version is no longer `1.4.31` at execution time, stop and recompute the next patch and Kit minimum before building.
 - Keyless candidates use `genstudio-store-receipt-v1`, have no `key_id` or `signature.ed25519`, contain only strict JSON/permitted rasters, and remain at or below `52,428,800` bytes.
 - `component_summary` v1 appears only in the final local release handoff. It never enters source manifests, registry requests/records, archive manifests, historical rows, build ledgers, or review requests.
-- Recipe and Pastel replacement generation remains Studio Hub/owner work. This control Mac may checksum, decode, inspect, deterministically convert whole returned images, build, and validate; it may not generate, edit, submit, reserve capacity, spend, or infer missing prompt/quote/authority evidence.
+- Recipe and Pastel replacement generation remains Studio Hub/owner work. This control Mac may create reservation/expected-identity/test scaffolding that is not a discoverable Content Pack source, then checksum, decode, inspect, deterministically convert whole returned images, build, and validate after evidence returns. It may not copy replacement bytes into `1.0.0`, create incomplete `pack.json` source trees, generate, edit, submit, reserve capacity, spend, or infer missing prompt/quote/authority evidence.
 - No upload, product/release draft, product/release/account/wire identity, price/discount decision, purchase, grant, production signing, publication, deploy, tag, push, or GenStudio commerce mutation is authorized.
 - Oil remains independently candidate-ready. Do not deliver its receiver handoff until the evidence wording is reconciled and a fresh independent reviewer records a clean result.
 
@@ -35,8 +39,9 @@ The current architecture supports the required semantics with one small applicat
 
 1. `ContentPackBundleSchema.components` is ordered and already carries exact `pack_id`, `version`, `item_id`, and `kind` references.
 2. `content-store-delivery.ts` binds signed receipt positions to manifest dependency positions, recursively installs every exact dependency, verifies the whole immutable closure, and activates it atomically.
-3. `ProjectMeta` and config already represent one active `visual-style`, while the installed catalog can retain multiple exact Style versions.
-4. No production code currently consumes `manifest.bundles`; only schema/tests/publisher tooling do. Therefore the smallest missing application surface is one explicit project bundle-apply transaction that resolves the exact root and all exact components, selects the first Style, exact-pins the creative selections, and reports the later ordered Styles as alternatives.
+3. `ProjectMeta` and config already represent one active `visual-style`; `content_pack_items` records item owner/kind and `content_pack_versions` records the exact owner version. Because same-version archive replacement is forbidden, resolving that owner/version from verified installed state supplies the immutable archive hash.
+4. The registry already searches `options.pins` before active discovery, but the project selection writers currently call `resolveCatalogItem(..., undefined, options)` before loading project pins. That gap would let a newer active Style win when selecting a Kit alternative.
+5. No production code currently consumes `manifest.bundles`; only schema/tests/publisher tooling do. Therefore the smallest missing application surface is one explicit project bundle-apply transaction plus one project-pin-first item resolver. Bundle apply exact-pins all creative components (including alternative Styles), selects the first Style, and reports the later ordered Styles as alternatives. Subsequent alternative selection resolves the project's owner/version/hash first and fails closed rather than falling back to active discovery.
 
 Do not auto-apply during purchase/install: the Store install route has no project context, and coupling install to project mutation would violate the existing transaction and pin boundaries.
 
@@ -56,20 +61,23 @@ Do not auto-apply during purchase/install: the Store install route has no projec
 | `scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs` | Opt-in external truth audit, extended to `review-requests.json` |
 | `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/` | Progress, reviews, reservation request, receipt-derived expected identities, build/review reports |
 | `electron/server/content-packs/schemas.ts` | One-or-more ordered Style cardinality for bundle-only coordinators |
-| `electron/server/content-packs/project-pins.ts` | Exact bundle resolution/application and first-Style default semantics |
+| `electron/server/content-packs/project-pins.ts` | Exact bundle application plus project-pin-first owner/version/hash item resolution |
 | `electron/server/content-packs/runtime-types.ts` | Strict bundle-application request/result types only if route-local types cannot express the boundary cleanly |
 | `electron/server/routes/content-packs.ts` | Explicit project bundle-apply endpoint; no Store purchase/install side effect |
 | `electron/server/__tests__/content-pack-contract.test.ts` | Multi-Style manifest acceptance and retained negative safeguards |
 | `scripts/content-packs/__tests__/publisher-tools.test.mjs` | Deterministic multi-Style bundle-only build/validate contract |
-| `electron/server/__tests__/content-pack-project-pins.test.ts` | Default Style, alternatives, atomic pins, conflict behavior |
+| `electron/server/__tests__/content-pack-project-pins.test.ts` | Default Style, exact alternative pins, newer-active isolation, fail-closed conflicts |
 | `electron/server/__tests__/content-pack-installer.test.ts` | Exact dependency installation and minimum-app refusal |
 | `electron/server/__tests__/content-pack-recovery.test.ts` | Multi-Style recovery/boot verification |
 | `electron/server/__tests__/content-store-delivery-transaction.test.ts` | Receipt-position closure install/activation and failure rollback |
 | `electron/server/__tests__/content-pack-routes.test.ts` | Bundle apply route validation and safe 409 responses |
 | `package.json`, `package-lock.json`, `CHANGELOG.md` | Application release containing multi-Style support |
-| `content-packs/authoring-registry.json` | Serialized receipt-bound Formula/Kit successor records |
+| `content-packs/authoring-registry.json` | First serialized Formula/Recipe/Pastel reservation/transitions, then later Kit reservation/transition |
 | `content-packs/free-starters/formula/human-behavior-explained-v1.0.1/` | Immutable non-diagnostic Formula successor |
+| `content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1/` | Receipt-bound Recipe successor, created only after returned evidence qualifies |
+| `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1/` | Receipt-bound Pastel successor, created only after returned evidence qualifies |
 | `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1/pack.json` | Immutable six-node bundle-only Kit successor |
+| `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/source-scaffolds/` | Non-discoverable receipt-derived Recipe/Pastel source checklists; contains no `pack.json` or creative bytes |
 | `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/` | Existing Wave 1 evidence wording reconciled in place; historical bytes otherwise preserved |
 | `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/` | Fresh successor build evidence, blocked candidates, reviews, and final local-only receiver handoff |
 
@@ -160,8 +168,8 @@ External JSON is not a repository commit; record its SHA-256 before/after in the
 - Modify: `scripts/content-packs/__tests__/publisher-tools.test.mjs`
 
 **Interfaces:**
-- Consumes: ordered `ContentPackBundleSchema.components` and exact installed `ContentPackVersionRef` values.
-- Produces: `applyProjectContentBundle(slug, request, options)` and a strict POST route that atomically applies Formula, Topics, first Style, and Recipe while reporting remaining Styles as alternatives.
+- Consumes: ordered `ContentPackBundleSchema.components`, project item-owner/version pins, and exact verified installed `ContentPackVersionRef` values.
+- Produces: `resolveProjectPreferredSelection(project, selection, options)`, `applyProjectContentBundle(slug, request, options)`, and a strict POST route that atomically pins Formula, Topics, every Style, and Recipe while activating only the first Style.
 
 - [ ] **Step 1: Write RED manifest/publisher tests**
 
@@ -209,10 +217,12 @@ Test a project with the six exact installed components. Require:
 - Pastel, the first Style, becomes `active_style_preset_id`.
 - Impasto and Oil are returned as ordered alternatives and remain exact installed closure members.
 - Recipe becomes `thumbnail_template_id`.
-- exact component pack versions/items are pinned atomically;
+- exact component pack versions/items, including every alternative Style, are pinned atomically;
 - a missing, recalled, disabled, hash-mismatched, wrong-kind, duplicate, or conflicting-version component makes the whole operation fail with no config/project mutation;
 - an existing pin at a different version yields a clear 409 and is never silently upgraded;
 - bundle order, not name or current catalog default, determines the Style default.
+- after applying the Kit, installing/activating Style `1.0.2` does not change an alternative pinned at `1.0.1`: selection resolves the pinned owner/version to its original verified SHA and keeps `1.0.1`;
+- if pinned Style `1.0.1` becomes missing, recalled, corrupt, owner-mismatched, or hash-mismatched while `1.0.2` is active, selection fails with 409 and no project/config mutation; it never falls through to `1.0.2`.
 
 Define the narrow interface:
 
@@ -229,12 +239,36 @@ export interface ProjectContentBundleApplicationResult {
   topic_pack_ids: string[]
   default_style_id: string
   alternative_style_ids: string[]
+  style_refs: Array<{ item_id: string; ref: ContentPackVersionRef }>
   thumbnail_recipe_id: string
   content_pack_versions: Record<string, string>
 }
 ```
 
-- [ ] **Step 4: Implement exact resolution and one atomic project write**
+- [ ] **Step 4: Implement the pin-first exact item resolver**
+
+Add one helper with this contract:
+
+```ts
+async function resolveProjectPreferredSelection(
+  project: ProjectMeta,
+  selection: { id: string; kind: ContentPackItemKind },
+  options: ContentPackProjectPinOptions,
+): Promise<SignedSelection>
+```
+
+Resolution order is exact:
+
+1. inspect `project.content_pack_items[selection.id]` for the pinned owner and require its kind to match;
+2. read the owner's version from `project.content_pack_versions`; a pinned owner without a version is corrupt project state and fails 409;
+3. resolve that exact pack/version from verified installed/recovery state, obtaining its immutable `archive_sha256`;
+4. call `resolveCatalogItem(selection.id, exactRef, { ...options, pins: [exactRef, ...(options.pins ?? [])] })` and require item owner, version, kind, and returned archive hash to equal the exact ref;
+5. if any pinned fact cannot verify, throw `ContentPackMissingError`/409 and do not try active discovery;
+6. only when the project has no pin for this item may active discovery resolve a new explicit selection.
+
+Use this helper in config selection, niche/topic selection, and bundle application paths. Keep the existing different-version conflict check in `applyContentSelections` unchanged.
+
+- [ ] **Step 5: Implement exact bundle resolution and one atomic project write**
 
 Inside the content-pack coordination lock:
 
@@ -243,16 +277,16 @@ Inside the content-pack coordination lock:
 3. call `verifyInstalledContentPackClosure` on the root;
 4. resolve every component's exact pack/version and confirm the item ID and kind exist;
 5. derive `styles = components.filter(kind === 'visual-style')`, `default = styles[0]`, alternatives `styles.slice(1)`;
-6. update config and project metadata consistently, applying all exact component pins but setting only the first Style active;
-7. return the exact result above.
+6. update config and project metadata consistently, persisting item-owner/version pins for every component including alternative Styles, but setting only the first Style active;
+7. return each Style's exact `ContentPackVersionRef` (including archive SHA) in the reviewed result or evidence so later selection can prove it did not drift.
 
 Use existing `applyContentSelections`/consistent project mutation primitives. Add no persisted `default_style_id`, no auto-upgrade, and no install/purchase side effect.
 
-- [ ] **Step 5: Add strict route validation**
+- [ ] **Step 6: Add strict route validation**
 
 Add `POST /content-packs/projects/:slug/bundles/apply` with a body containing only `root` and `bundle_id`. Reject unknown keys, invalid slugs/IDs, non-bundle roots, absent projects, and pin conflicts with safe 400/404/409 responses. The endpoint performs no network, quote, purchase, or install.
 
-- [ ] **Step 6: GREEN and focused review**
+- [ ] **Step 7: GREEN and focused review**
 
 ```bash
 npx tsx --test \
@@ -336,7 +370,7 @@ Add this customer-visible entry above `v1.4.31`:
 ```markdown
 ## v1.4.32 — 2026-08-23
 
-- **Channel Kits can include several exact Visual Styles.** The first listed Style is the default; the remaining installed Styles stay available as alternatives.
+- **Channel Kits can include several exact Visual Styles.** The first listed Style is the default; the remaining exact project-pinned Styles stay available as alternatives even when newer versions are installed.
 - **Applying a Kit is explicit and atomic.** Formula, Topics, Recipe, Style, and exact Content Pack pins change together, or nothing changes.
 - **Older Story Studio builds refuse these Kits clearly.** They must update before installation; no partial closure is activated.
 ```
@@ -372,84 +406,106 @@ No deploy/tag/push follows. Record `app-release-not-deployed` as a Kit stocking 
 
 ---
 
-### Task 4: Atomically Reserve Formula and Kit Successors
+### Task 4: Atomically Reserve Formula, Recipe, and Pastel Successors
 
 **Files:**
-- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/reservation-requests/formula-and-kit-v1.0.1.json`
-- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/human-behavior-explained-v1.0.1.json`
-- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/symbolic-psychology-studio-v1.0.1.json`
+- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/reservation-requests/formula-recipe-pastel-v1.0.1.json`
+- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/{human-behavior-explained,editorial-psychology-symbolic-split,pastel-surreal-psychological-collage}-v1.0.1.json`
+- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/source-scaffolds/{editorial-psychology-symbolic-split,pastel-surreal-psychological-collage}-v1.0.1.json`
+- Modify: `electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts`
 - Modify: `content-packs/authoring-registry.json`
 
 **Interfaces:**
-- Consumes: validated revision `16`/`74` or the newly observed serialized revision.
-- Produces: one exact new receipt binding both successor records.
+- Consumes: validated revision `16`/`74` or the newly observed serialized revision and immutable `1.0.0` lineage facts.
+- Produces: one exact new receipt binding three leaf successor records; no Kit record and no authored Recipe/Pastel source.
 
-- [ ] **Step 1: Validate and write one two-record request**
+- [ ] **Step 1: Pin `1.0.0` immutability before reservation**
+
+Add source tests with exact current SHA-256 values for Recipe `1.0.0` `pack.json`, content JSON, every preview asset, provenance rows, and Pastel `1.0.0` `pack.json`, content JSON, preview asset, and provenance row. These hashes remain unchanged through every later task.
+
+- [ ] **Step 2: Validate and write one three-record request**
 
 ```bash
 npm run content-pack:registry -- validate
 ```
 
-The request uses `expected_revision` from that output and coordinator `{ "task": "symbolic-psychology-studio-unblock", "branch": "codex/content-expansion-portfolio" }`.
-
-Formula proposal:
-
-```json
-{
-  "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
-  "item_id": "com.storystudio.formula.human-behavior-explained",
-  "version": "1.0.1",
-  "publisher_id": "com.storystudio",
-  "min_app_version": "{{MIN_APP_VERSION}}",
-  "min_app_version_status": "release-bound",
-  "kind": "series-formula",
-  "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.1",
-  "status": "reserved",
-  "dependencies": [],
-  "stocking_proposal": {
-    "family": { "id": "com.storystudio.family.formula.human-behavior-explained", "status": "proposed" },
-    "sku": { "id": "com.storystudio.sku.formula.human-behavior-explained", "status": "proposed" }
-  }
-}
-```
-
-Kit proposal uses stable Kit pack/bundle/family/SKU, version `1.0.1`, the versioned source path, and these exact ordered dependencies:
+The request uses the reported revision and coordinator `{ "task": "symbolic-psychology-studio-unblock-leaf-successors", "branch": "codex/content-expansion-portfolio" }`. Its three exact proposed records are:
 
 ```json
 [
-  { "pack_id": "com.storystudio.pack.formula.human-behavior-explained", "version": "1.0.1" },
-  { "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics", "version": "1.0.0" },
-  { "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split", "version": "1.0.0" },
-  { "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage", "version": "1.0.0" },
-  { "pack_id": "com.storystudio.pack.style.impasto-psychological-animals", "version": "1.0.0" },
-  { "pack_id": "com.storystudio.pack.style.oil-painting-classical", "version": "1.0.0" }
+  {
+    "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+    "item_id": "com.storystudio.formula.human-behavior-explained",
+    "version": "1.0.1",
+    "publisher_id": "com.storystudio",
+    "min_app_version": "{{MIN_APP_VERSION}}",
+    "min_app_version_status": "release-bound",
+    "kind": "series-formula",
+    "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.1",
+    "status": "reserved",
+    "dependencies": [],
+    "stocking_proposal": {
+      "family": { "id": "com.storystudio.family.formula.human-behavior-explained", "status": "proposed" },
+      "sku": { "id": "com.storystudio.sku.formula.human-behavior-explained", "status": "proposed" }
+    }
+  },
+  {
+    "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+    "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+    "version": "1.0.1",
+    "publisher_id": "com.storystudio",
+    "min_app_version": "{{MIN_APP_VERSION}}",
+    "min_app_version_status": "release-bound",
+    "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1",
+    "kind": "thumbnail-recipe",
+    "status": "reserved",
+    "dependencies": [],
+    "stocking_proposal": {
+      "family": { "id": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split", "status": "proposed" },
+      "sku": { "id": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split", "status": "proposed" }
+    }
+  },
+  {
+    "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+    "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+    "version": "1.0.1",
+    "publisher_id": "com.storystudio",
+    "min_app_version": "{{MIN_APP_VERSION}}",
+    "min_app_version_status": "release-bound",
+    "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1",
+    "kind": "visual-style",
+    "status": "reserved",
+    "dependencies": [],
+    "stocking_proposal": {
+      "family": { "id": "com.storystudio.family.style.pastel-surreal-psychological-collage", "status": "proposed" },
+      "sku": { "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage", "status": "proposed" }
+    }
+  }
 ]
 ```
 
-- [ ] **Step 2: Reserve once, then verify both exact records**
+- [ ] **Step 3: Reserve once and verify all three exact records**
 
-Run one `reserve` call. Copy each returned record minus `receipt_ref` into its expected identity file; do not hand-edit receipt-derived fields. Resolve the just-written batch by its exact coordinator task and verify both records against that batch:
+Resolve the written batch only by coordinator task `symbolic-psychology-studio-unblock-leaf-successors`, then run `verify-receipt` separately for Formula, Recipe, and Pastel expected identities. If any verification fails, create no successor source and reserve no Kit.
 
-```bash
-UNBLOCK_RECEIPT="$(jq -r '[.batches[] | select(.request.coordinator.task == "symbolic-psychology-studio-unblock")][-1].receipt_ref' content-packs/authoring-registry.json)"
-UNBLOCK_RESERVATION_REVISION="$(jq -r '[.batches[] | select(.request.coordinator.task == "symbolic-psychology-studio-unblock")][-1].revision' content-packs/authoring-registry.json)"
-test "$UNBLOCK_RECEIPT" != "null" && test "$UNBLOCK_RESERVATION_REVISION" != "null"
-npm run content-pack:registry -- verify-receipt --revision "$UNBLOCK_RESERVATION_REVISION" --receipt "$UNBLOCK_RECEIPT" --expected-identity .superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/human-behavior-explained-v1.0.1.json
-npm run content-pack:registry -- verify-receipt --revision "$UNBLOCK_RESERVATION_REVISION" --receipt "$UNBLOCK_RECEIPT" --expected-identity .superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/symbolic-psychology-studio-v1.0.1.json
-```
+- [ ] **Step 4: Create non-discoverable source scaffolds**
 
-If either verification fails, author no source.
+Each SDD scaffold records the verified receipt/ref, exact future source path, immutable predecessor hashes, required returned-evidence fields, exact preview acceptance contract, and the rule `registry_transition_allowed: false`. It contains no `pack.json`, asset, future hash, invented prompt/quote, or creative bytes, and therefore cannot be discovered as authored source.
 
-- [ ] **Step 3: Validate and commit reservation evidence**
+- [ ] **Step 5: Validate and commit reservation evidence**
 
 ```bash
 npm run content-pack:registry -- validate
 node --test scripts/content-packs/__tests__/authoring-registry.test.mjs
 git add content-packs/authoring-registry.json \
+  electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts \
   .superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/reservation-requests \
-  .superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities
-git commit -m "chore(content-packs): reserve symbolic successors"
+  .superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities \
+  .superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/source-scaffolds
+git commit -m "chore(content-packs): reserve symbolic leaf successors"
 ```
+
+Review must confirm Recipe/Pastel remain `reserved`, their versioned `content-packs/...-v1.0.1` directories do not exist, and Kit `1.0.1` is not reserved.
 
 ---
 
@@ -512,90 +568,25 @@ git commit -m "fix(content-packs): issue non-diagnostic behavior formula"
 
 ---
 
-### Task 6: Author and Build the Immutable Kit Successor
-
-**Files:**
-- Create: `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1/pack.json`
-- Modify: `electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts`
-- Modify: `scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs`
-- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/promotions/symbolic-psychology-studio-v1.0.1.json`
-- Modify: `content-packs/authoring-registry.json`
-- Create: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/build-evidence/`
-- Create: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/blocked-candidates/`
-
-**Interfaces:**
-- Consumes: verified Kit receipt, Formula `1.0.1`, Task 2 publisher support, Task 3 app version.
-- Produces: exact bundle-only Kit `1.0.1`, two equal keyless builds, and a blocked local candidate—not a stocking handoff.
-
-- [ ] **Step 1: Write RED successor/immutability tests**
-
-Pin the existing Kit `1.0.0` pack SHA and exact blocked closure. Require `1.0.1` root entries equal `['pack.json']`, with the exact six dependencies/components from Global Constraints. Assert:
-
-```js
-assert.deepEqual(successor.bundles[0].components
-  .filter(component => component.kind === 'visual-style')
-  .map(component => component.item_id), [
-    'com.storystudio.style.pastel-surreal-psychological-collage',
-    'com.storystudio.style.impasto-psychological-animals',
-    'com.storystudio.style.oil-painting-classical',
-  ])
-```
-
-Require Formula dependency/component version `1.0.1`, all other versions `1.0.0`, dependencies equal component pack/version pairs in order, and no `component_summary` anywhere in source/registry.
-
-- [ ] **Step 2: Author from the exact receipt**
-
-Create only `pack.json`, with version `1.0.1`, stable Kit identity/entitlement lineage, changelog `Uses the non-diagnostic Human Behavior Formula successor and preserves three ordered compatible visual styles.`, exact six-node closure, and tokenized key/minimum fields. Do not edit `1.0.0` or add content/assets.
-
-- [ ] **Step 3: GREEN, then serialize the Kit transition**
-
-After source/contract tests pass, transition only Kit `1.0.1` from reserved to authored using the exact receipt and revision returned after Formula transition. Re-verify receipt and registry.
-
-- [ ] **Step 4: Build Formula and Kit twice with truthful floors**
-
-Fail if the fresh external artifact root already exists. Build Formula `1.0.1` twice with `--min-app-version 1.0.843`. Build Kit `1.0.1` twice with `--min-app-version 1.4.32` (or the exact recomputed Task 3 release if version changed before execution):
-
-```bash
-npm run content-pack:build -- content-packs/free-starters/formula/human-behavior-explained-v1.0.1 --delivery-profile genstudio-store-receipt-v1 --min-app-version 1.0.843 --output /build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/build-evidence/human-behavior-explained-v1.0.1-a.sspack
-npm run content-pack:build -- content-packs/free-starters/formula/human-behavior-explained-v1.0.1 --delivery-profile genstudio-store-receipt-v1 --min-app-version 1.0.843 --output /build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/build-evidence/human-behavior-explained-v1.0.1-b.sspack
-npm run content-pack:build -- content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1 --delivery-profile genstudio-store-receipt-v1 --min-app-version 1.4.32 --output /build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/build-evidence/symbolic-psychology-studio-v1.0.1-a.sspack
-npm run content-pack:build -- content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1 --delivery-profile genstudio-store-receipt-v1 --min-app-version 1.4.32 --output /build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/build-evidence/symbolic-psychology-studio-v1.0.1-b.sspack
-```
-
-Validate each matching profile, assert each pair's bytes/SHA are equal, inspect ZIP entries/permissions, and prove absence of `key_id`, `signature.ed25519`, executable/URL/credential/provider/model/price/wire fields. Retain one Formula candidate and one Kit candidate under `blocked-candidates/`; the Kit is blocked by app release not deployed, Recipe review, Pastel review, and final independent closure review.
-
-- [ ] **Step 5: Commit repository source only**
-
-```bash
-git add content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1 \
-  content-packs/authoring-registry.json \
-  electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts \
-  scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs \
-  .superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/promotions/symbolic-psychology-studio-v1.0.1.json
-git commit -m "feat(content-packs): issue symbolic psychology kit successor"
-```
-
-Record external build hashes/paths in progress, but do not commit machine-local archives.
-
----
-
-### Task 7: Qualify Owner-Returned Recipe and Pastel Preview Bytes
+### Task 6: Qualify and Author Recipe and Pastel Successors
 
 **Files:**
 - Consume: `/build/Developer/_handoffs/2026-08-23_symbolic-psychology-recipe-preview-draft-prompt-batch.json`
 - Consume: `/build/Developer/_handoffs/2026-08-23_to-gpt-studiofleet_from-gpt-storystudio_symbolic-psychology-{recipe,pastel}-preview-replacement.md`
-- Modify only after complete returned evidence: `content-packs/psychology-editorial/PREVIEW-PROVENANCE.md`
-- Modify only after complete returned evidence: Recipe/Pastel exact `1.0.0` source assets and preview arrays
-- Modify: applicable source/evidence tests
+- Create only after complete returned evidence: `content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1/{pack.json,content/thumbnail-recipe.json,assets/...}`
+- Create only after complete returned evidence: `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1/{pack.json,content/visual-style.json,assets/...}`
+- Modify: `content-packs/psychology-editorial/PREVIEW-PROVENANCE.md` by adding successor rows; never edit/remove `1.0.0` rows
+- Modify: applicable source/evidence tests and `content-packs/authoring-registry.json`
+- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/promotions/{editorial-psychology-symbolic-split,pastel-surreal-psychological-collage}-v1.0.1.json`
 - Modify: fresh external build evidence and blocked-candidate inventory
 
 **Interfaces:**
-- Consumes: untouched returned rasters plus exact prompt batch, prompt hash, quote, owner approval, job/request ID, provider/model as published, timestamp, seed if published, cost receipt, license/rights basis, no-reference declaration, SHA, dimensions, type, byte size, decode result.
-- Produces: qualified Recipe/Pastel source bytes and fresh twice-built candidates only if all evidence and reviews pass.
+- Consumes: verified Recipe/Pastel successor receipts plus untouched returned rasters, exact prompt batch/hash, quote, owner approval, job/request ID, published provider/model, timestamp, seed if published, cost receipt, rights, no-reference declaration, SHA, dimensions, type, bytes, decode result.
+- Produces: authored Recipe/Pastel `1.0.1` source/candidates and serialized transitions only if all evidence and reviews pass; `1.0.0` remains byte-identical.
 
 - [ ] **Step 1: Stop unless authority is complete**
 
-Recipe requires owner approval of exact draft batch SHA `ceb4cee15331105d657ef5a7aea66a4e2e87877f32c5efe0a8022b48732c3c3b` and the exact returned quote before Studio Hub execution. Pastel requires a literal prompt batch and its hash, exact quote, and explicit owner job authority; the current capability-only request is insufficient. If any record is absent, mark Task 7 blocked and perform no generation/submission/source edit.
+Recipe requires owner approval of exact draft batch SHA `ceb4cee15331105d657ef5a7aea66a4e2e87877f32c5efe0a8022b48732c3c3b` and the exact returned quote before Studio Hub execution. Pastel requires a literal prompt batch and its hash, exact quote, and explicit owner job authority; the current capability-only request is insufficient. If any record is absent, leave both registry records `reserved`, leave the versioned source directories absent, mark Task 6 blocked, and reserve no Kit.
 
 - [ ] **Step 2: Verify returned evidence before touching source**
 
@@ -605,17 +596,100 @@ Hash the untouched raster and compare it to the returned receipt; decode with `s
 
 If returned bytes are already a qualifying `1672x941` WebP, byte-copy them. Otherwise use `sharp` for a full-frame deterministic resize/crop to `1672x941` and WebP encoding with fixed options recorded verbatim in provenance. No masking, inpainting, text overlay, compositing, selective edit, or reference-image repair is permitted.
 
-- [ ] **Step 4: Update evidence and run visual TDD**
+- [ ] **Step 4: Write successor RED tests and author only versioned sources**
 
-For Recipe, require the exact one-line `HIDDEN MOTIVES` headline, far-right three-quarter-profile medium-long subject, and material side/angle/distance diversity across the full gallery. For Pastel, require matte mixed-media collage with the approved low-saturation palette and no heavy/wet impasto. Record original/converted hashes, dimensions, bytes, transformation, rights, and source receipt.
+First assert every pinned Recipe/Pastel `1.0.0` hash still matches. Then require missing `1.0.1` sources. Create the versioned sources from their verified receipt identities and unchanged creative JSON semantics, adding only qualified successor preview paths/evidence and manifest version/changelog. Recipe must prove exact one-line `HIDDEN MOTIVES`, far-right three-quarter-profile medium-long subject, and material gallery diversity. Pastel must prove matte mixed-media collage with the approved low-saturation palette and no heavy/wet impasto. Add new provenance rows with original/converted hashes, dimensions, bytes, transform, rights, and receipt; do not rewrite `1.0.0` rows.
 
-- [ ] **Step 5: Rebuild each leaf twice and review independently**
+- [ ] **Step 5: Build each successor twice and review independently**
 
-Use keyless profile/minimum `1.0.843`, validate twice, compare bytes/SHA, then obtain fresh originality/provenance, prompt-equivalence, visual, and Recipe thumbnail reviews. A reviewer must inspect decoded pixels. Keep failed candidates under blocked quarantine and leave active archive identities null.
+Use keyless profile/minimum `1.0.843`, validate twice, compare bytes/SHA, then obtain fresh schema, originality/provenance, compatibility, prompt-equivalence, visual, safety/copy, and Recipe thumbnail reviews. A reviewer must inspect decoded pixels. Keep failed candidates under blocked quarantine, leave registry status `reserved`, leave active archive identities null, and reserve no Kit.
 
-- [ ] **Step 6: Commit only after clean leaf reviews**
+- [ ] **Step 6: Serialize authored transitions only after clean reviews**
 
-Commit source, provenance, and tests; never commit external receipts containing secrets. No receiver handoff is assembled yet.
+Transition Recipe first and Pastel second, each using the current revision returned by the preceding operation and the exact shared leaf-successor receipt. Re-run all three leaf receipt verifications and registry validation after each transition. If either transition/review fails, Kit reservation remains forbidden.
+
+- [ ] **Step 7: Commit immutable successor sources**
+
+Commit only versioned `1.0.1` source, appended provenance, tests, transitions, and review reports; never commit external receipts containing secrets. Assert Recipe/Pastel `1.0.0` hashes again. No Kit or receiver handoff is assembled yet.
+
+---
+
+### Task 7: Reserve, Author, and Build the Immutable Kit Successor
+
+**Files:**
+- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/reservation-requests/symbolic-psychology-studio-v1.0.1.json`
+- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/symbolic-psychology-studio-v1.0.1.json`
+- Create: `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1/pack.json`
+- Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/promotions/symbolic-psychology-studio-v1.0.1.json`
+- Modify: source/registry tests and `content-packs/authoring-registry.json`
+- Create: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/{build-evidence,blocked-candidates}/`
+
+**Interfaces:**
+- Consumes: authored/receipt-verified Formula, Recipe, and Pastel `1.0.1`; Topic, Impasto, Oil `1.0.0`; Task 2 support; Task 3 app version.
+- Produces: a separately receipt-bound exact Kit `1.0.1`, two equal keyless builds, and a blocked local candidate—not a stocking handoff.
+
+- [ ] **Step 1: Prove the closure is final before reservation**
+
+Validate the registry. Verify Formula, Recipe, and Pastel successor receipts again; require all three `status: authored`; require every source/review/candidate gate clean; require immutable Topic/Impasto/Oil records; and assert no Kit `1.0.1` record exists yet. The exact closure is:
+
+```json
+[
+  { "pack_id": "com.storystudio.pack.formula.human-behavior-explained", "version": "1.0.1" },
+  { "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics", "version": "1.0.0" },
+  { "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split", "version": "1.0.1" },
+  { "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage", "version": "1.0.1" },
+  { "pack_id": "com.storystudio.pack.style.impasto-psychological-animals", "version": "1.0.0" },
+  { "pack_id": "com.storystudio.pack.style.oil-painting-classical", "version": "1.0.0" }
+]
+```
+
+- [ ] **Step 2: Reserve Kit in one later CAS event and verify its receipt**
+
+Use coordinator `{ "task": "symbolic-psychology-studio-unblock-kit-successor", "branch": "codex/content-expansion-portfolio" }`, the current revision, and this exact proposed record (with the six dependencies copied from Step 1 in that order):
+
+```json
+{
+  "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+  "bundle_id": "com.storystudio.bundle.symbolic-psychology-studio",
+  "version": "1.0.1",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "channel-kit",
+  "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1",
+  "status": "reserved",
+  "dependencies": [
+    { "pack_id": "com.storystudio.pack.formula.human-behavior-explained", "version": "1.0.1" },
+    { "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split", "version": "1.0.1" },
+    { "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage", "version": "1.0.1" },
+    { "pack_id": "com.storystudio.pack.style.impasto-psychological-animals", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.style.oil-painting-classical", "version": "1.0.0" }
+  ],
+  "stocking_proposal": {
+    "family": { "id": "com.storystudio.family.kit.symbolic-psychology-studio", "status": "proposed" },
+    "sku": { "id": "com.storystudio.sku.kit.symbolic-psychology-studio", "status": "proposed" }
+  }
+}
+```
+
+Run one reserve call, copy the exact record minus receipt into expected identity, and verify it against this separate receipt. Do not reuse the leaf receipt.
+
+- [ ] **Step 3: Write RED successor/immutability tests**
+
+Pin existing Kit `1.0.0` SHA/closure. Require `1.0.1` root entries `['pack.json']`, exact ordered dependencies/components, Formula/Recipe/Pastel `1.0.1`, remaining nodes `1.0.0`, Pastel first among Styles, dependency/component pair equality, and no `component_summary` in source/registry.
+
+- [ ] **Step 4: Author from the exact Kit receipt and transition once**
+
+Create only `pack.json` with stable Kit lineage, version `1.0.1`, changelog `Uses qualified Formula, Recipe, and Pastel successors while preserving three ordered compatible visual styles.`, exact closure, and tokenized key/minimum fields. After tests pass, transition only Kit from reserved to authored using its own receipt/current revision; re-verify receipt and registry.
+
+- [ ] **Step 5: Build all four successors twice with truthful floors**
+
+Build Formula, Recipe, and Pastel `1.0.1` twice under keyless profile/minimum `1.0.843`. Build Kit `1.0.1` twice under keyless profile/minimum `1.4.32` (or the recomputed Task 3 release). Validate each build, assert pairwise byte/SHA equality, inspect entries/permissions, and prove absence of key/signature/executable/URL/credential/provider/model/price/wire fields.
+
+- [ ] **Step 6: Retain blocked local candidates and commit**
+
+Retain reviewed leaf candidates and one Kit candidate under the fresh external root. Kit remains blocked by application release not deployed and final independent closure review. Commit Kit reservation/source/transition, tests, and SDD reports; record external hashes but do not commit archives.
 
 ---
 
@@ -675,6 +749,28 @@ Formula successor:
 }
 ```
 
+Recipe successor:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "thumbnail-recipe",
+  "summary": "Sparse symbolic-psychology thumbnail composition with one concise AI-rendered title.",
+  "slots": { "thumbnail-recipe": 1 }
+}
+```
+
+Pastel successor:
+
+```json
+{
+  "schema_version": 1,
+  "kind": "visual-style",
+  "summary": "Matte mixed-media psychological collage with restrained, low-saturation figure-ground contrast.",
+  "slots": { "visual-style": 1 }
+}
+```
+
 Kit successor:
 
 ```json
@@ -697,9 +793,9 @@ Assert `component_summary` appears nowhere else.
 
 The local handoff may list Oil as candidate-ready and the successor Kit as technically validated only if every review passes. Overall status remains blocked until all of these are true:
 
-1. Recipe replacement qualified and reviewed;
-2. Pastel replacement qualified and reviewed;
-3. Formula `1.0.1` and Kit `1.0.1` receipts/source/candidates reviewed;
+1. Recipe `1.0.1` replacement qualified, receipt-verified, authored, and reviewed without changing Recipe `1.0.0` bytes;
+2. Pastel `1.0.1` replacement qualified, receipt-verified, authored, and reviewed without changing Pastel `1.0.0` bytes;
+3. Formula, Recipe, Pastel, and Kit `1.0.1` receipts, versioned sources, deterministic candidates, exact hashes, and independent reviews all agree;
 4. multi-Style application release is actually deployed to customers at the exact Kit minimum;
 5. clean evidence reconciliation rereview exists;
 6. owner separately authorizes the eventual receiver/stocking action.
@@ -718,13 +814,13 @@ Do not run `git push`, create a tag, deploy, upload an archive, or call any GenS
 
 ## Plan Self-Review
 
-**Spec coverage:** External review truth is reconciled first; Oil readiness is preserved without receiver delivery; publisher/application/install/recovery/checkout compatibility is TDD-covered; ordered Style default semantics use current structures; Formula and Kit successors are receipt-bound and immutable; `1.0.0` evidence remains unchanged; candidates are deterministic/keyless; Recipe/Pastel stay owner/Studio Hub gated; final handoff is local-only and stocking remains blocked.
+**Spec coverage:** External review truth is reconciled first; Oil readiness is preserved without receiver delivery; publisher/application/install/recovery/checkout compatibility is TDD-covered; ordered Style default semantics and project-pin-first alternative resolution use current structures; Formula, Recipe, Pastel, and Kit successors are receipt-bound and immutable; every corresponding `1.0.0` source/hash/closure remains unchanged; candidates are deterministic/keyless; Recipe/Pastel stay owner/Studio Hub gated until exact returned evidence passes review; final handoff is local-only and stocking remains blocked.
 
-**Identity consistency:** Stable pack/item/bundle/family/SKU lineages are reused only as proposed reservation inputs until a new receipt verifies. Formula and Kit successors use distinct versioned source paths and exact `1.0.1` records. Kit closure uses Formula `1.0.1` plus Topic, Recipe, Pastel, Impasto, Oil `1.0.0` in exact order.
+**Identity consistency:** Stable pack/item/bundle/family/SKU lineages are reused only as proposed reservation inputs until a new receipt verifies. Formula, Recipe, Pastel, and Kit successors use distinct versioned source paths and exact `1.0.1` records; Recipe/Pastel source authoring waits for returned evidence, and Kit reservation waits for all three leaf receipts plus final qualification. The Kit closure is exactly Formula `1.0.1`, Topic `1.0.0`, Recipe `1.0.1`, Pastel `1.0.1`, Impasto `1.0.0`, Oil `1.0.0`, in that order.
 
-**Type consistency:** Bundle application consumes `ProjectContentBundleApplicationRequest` and returns `ProjectContentBundleApplicationResult`; first Style is `default_style_id`, later Styles are `alternative_style_ids`; no manifest `default_style_id` or fifth creative kind exists.
+**Type consistency:** Bundle application consumes `ProjectContentBundleApplicationRequest` and returns `ProjectContentBundleApplicationResult`; first Style is `default_style_id`, later Styles are `alternative_style_ids`, and `style_refs` carries their exact installed owner/version/hash references for verification. Selection consults project item-owner/version pins before active discovery and fails closed on missing, recalled, corrupt, owner/version/hash-mismatched pins. The existing different-version conflict guard remains; no manifest `default_style_id` or fifth creative kind exists.
 
-**Minimum-version consistency:** Formula may use `1.0.843`; Kit uses the application release that introduces multi-Style acceptance, expected `1.4.32`. Older binaries receive a tested update-required refusal before activation. A local version bump is not treated as deployment evidence.
+**Minimum-version consistency:** Schema-compatible Formula, Recipe, and Pastel successors may use their truthful existing `1.0.843` floor; Kit uses the application release that introduces multi-Style acceptance, expected `1.4.32`. Older binaries receive a tested update-required refusal before activation. A local version bump is not treated as deployment evidence.
 
 **Placeholder scan:** Future receipt values and returned preview hashes are never guessed; steps consume exact CLI/Studio Hub outputs and stop if they are absent or inconsistent. No unresolved value is represented as an identity or pass.
 
@@ -732,4 +828,4 @@ Do not run `git push`, create a tag, deploy, upload an archive, or call any GenS
 
 ## Execution Handoff
 
-Plan saved to `docs/superpowers/plans/2026-08-23-symbolic-psychology-studio-unblock.md`. Execute with fresh task workers and two-stage reviews; stop at Task 7 if exact owner prompt/quote/job authority or returned bytes are absent.
+Plan saved to `docs/superpowers/plans/2026-08-23-symbolic-psychology-studio-unblock.md`. Execute with fresh task workers and two-stage reviews; stop in Task 6 with Recipe/Pastel still `reserved`, their successor source directories absent, and Kit unreserved if exact owner prompt/quote/job authority, returned bytes, or clean review evidence is absent.
