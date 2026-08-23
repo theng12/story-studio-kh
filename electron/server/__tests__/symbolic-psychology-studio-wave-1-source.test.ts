@@ -105,6 +105,7 @@ test('immutable v1.0.0 Recipe and Pastel source and provenance bytes retain exac
 })
 
 test('leaf successor reservation is one receipt-bound batch with non-discoverable Recipe and Pastel scaffolds', async () => {
+  const receiptRef = 'authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd'
   const request = await readJson(path.join(
     UNBLOCK_SDD_ROOT,
     'reservation-requests',
@@ -139,7 +140,7 @@ test('leaf successor reservation is one receipt-bound batch with non-discoverabl
   assert.equal(matchingBatches.length, 1)
   const batch = matchingBatches[0]!
   assert.equal(batch.revision, 17)
-  assert.match(batch.receipt_ref, /^authoring:[a-f0-9]{64}$/)
+  assert.equal(batch.receipt_ref, receiptRef)
   assert.deepEqual(batch.request, request)
 
   for (const record of request.records) {
@@ -152,38 +153,142 @@ test('leaf successor reservation is one receipt-bound batch with non-discoverabl
     assert.deepEqual(identity, record)
   }
 
-  for (const basename of [
-    'editorial-psychology-symbolic-split',
-    'pastel-surreal-psychological-collage',
-  ]) {
-    const scaffold = await readJson(path.join(UNBLOCK_SDD_ROOT, 'source-scaffolds', `${basename}-v1.0.1.json`)) as {
-      schema_version: number
+  const scaffoldContracts = [
+    {
+      basename: 'editorial-psychology-symbolic-split',
       reservation: {
-        pack_id: string
-        version: string
-        registry_revision: number
-        receipt_ref: string
-        expected_identity_path: string
-      }
-      future_source_path: string
-      predecessor: { version: string, files: unknown[], provenance_rows: unknown[] }
-      required_returned_evidence: string[]
-      preview_acceptance_contract: string[]
-      registry_transition_allowed: boolean
-    }
+        pack_id: 'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split',
+        version: '1.0.1',
+        registry_revision: 17,
+        receipt_ref: receiptRef,
+        expected_identity_path: '.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/editorial-psychology-symbolic-split-v1.0.1.json',
+        receipt_verified: true,
+      },
+      future_source_path: 'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1',
+      predecessor: {
+        version: '1.0.0',
+        source_path: 'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split',
+        files: [
+          { path: 'pack.json', sha256: '09800de2f8112da41eefb9dcdc76901d432643380382f4109ccd941c8323d2e5' },
+          { path: 'content/thumbnail-recipe.json', sha256: '74b3192de5c61d796d64f819bca3bb806a30728cdf9b49fddfd19240320a12f8' },
+          { path: 'assets/editorial-psychology-symbolic-split-1.webp', sha256: 'f82c5659ca989b27af5cf789c6270b4ef40aa24ec6060f1a91e015374a52f277' },
+          { path: 'assets/editorial-psychology-symbolic-split-2.webp', sha256: 'cf65e48ae0215b3ab8e4a331f91b0cc126ee8fc0dea63724836b6b0bd7a744fb' },
+          { path: 'assets/editorial-psychology-symbolic-split-3.webp', sha256: '7d419bf83d807f8ce287040f51e5d620617e595f6bd09dc5ca7ee332252b6290' },
+          { path: 'assets/editorial-psychology-symbolic-split-5.webp', sha256: 'b816e5ed7fb95eb16e16f95100e1e7b4840ee0f3f046e0d8eca4c766d820e492' },
+        ],
+        provenance_rows: [
+          { runtime_asset_path: 'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-1.webp', sha256: 'd59ef8ea529691d8b249b26d9604951e5e134fc871f3471b911645a1913855d9' },
+          { runtime_asset_path: 'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-2.webp', sha256: 'c2294ea7e93f02a261d53534304916a3c7693f52947490215c50cb1277d5ca9c' },
+          { runtime_asset_path: 'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-3.webp', sha256: '81008d3cde7640ffb67c2b86f554282dc317db0f41de0df383b2f1ad66efe478' },
+          { runtime_asset_path: 'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-5.webp', sha256: 'bbb3dd072cc4ddc1550b0628e4bdc1dd6021a4eb3716a02871335e607c39a515' },
+        ],
+      },
+      required_returned_evidence: [
+        'owner_approval_of_exact_prompt_batch',
+        'exact_quote_and_owner_quote_approval',
+        'job_submission_and_generation_authority',
+        'untouched_original_raster',
+        'job_or_request_id',
+        'exact_prompt_batch_and_sha256',
+        'full_submitted_prompt_and_sha256',
+        'published_receiver_provider_and_model',
+        'execution_timestamp',
+        'seed_if_published',
+        'cost_receipt',
+        'license_and_rights_basis',
+        'no_reference_or_compositing_declaration',
+        'original_raster_sha256',
+        'original_dimensions_file_type_and_byte_size',
+        'strict_decode_result',
+      ],
+      preview_acceptance_contract: [
+        'One completely original full-frame 16:9 raster suitable for deterministic whole-image conversion to 1672x941 WebP.',
+        'Exactly one fragmented porcelain mannequin head and shoulders is on the far right, in three-quarter profile at medium-long distance, facing inward.',
+        'The left two-thirds remain sparse and uncluttered as the dominant title band.',
+        'The complete exact headline HIDDEN MOTIVES is rendered in-image on one unbroken line with no other words, clipping, or malformed text.',
+        "The result materially expands the existing gallery's subject side, camera angle, distance, and one-line hierarchy diversity.",
+        'No reference or saved image, rejected preview bytes, copied composition, compositing, masking, title plate, post-render overlay, logo, watermark, or UI is permitted.',
+      ],
+    },
+    {
+      basename: 'pastel-surreal-psychological-collage',
+      reservation: {
+        pack_id: 'com.storystudio.pack.style.pastel-surreal-psychological-collage',
+        version: '1.0.1',
+        registry_revision: 17,
+        receipt_ref: receiptRef,
+        expected_identity_path: '.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/pastel-surreal-psychological-collage-v1.0.1.json',
+        receipt_verified: true,
+      },
+      future_source_path: 'content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1',
+      predecessor: {
+        version: '1.0.0',
+        source_path: 'content-packs/psychology-editorial/style/pastel-surreal-psychological-collage',
+        files: [
+          { path: 'pack.json', sha256: '2528f1c88b65a64b86177acffaaabd031a9f671fe0351e9e60000c71dc8131a0' },
+          { path: 'content/visual-style.json', sha256: 'd12274ba7f5541226a8a9cdbdefd961679fbc1e90f08c7bfa4a5a75733e5751d' },
+          { path: 'assets/pastel-surreal-psychological-collage.webp', sha256: '398cb595ce5c285570ce057cb81c86b73a739a5d220fc44a85faa7378b2e87ab' },
+        ],
+        provenance_rows: [
+          { runtime_asset_path: 'style/pastel-surreal-psychological-collage/assets/pastel-surreal-psychological-collage.webp', sha256: '5df384239d53293a76a5c92c4465347b693b1586ce2c2a4a3f7f0ededf9be723' },
+        ],
+      },
+      required_returned_evidence: [
+        'owner_approval_of_literal_prompt_batch_and_hash',
+        'exact_quote_and_owner_quote_approval',
+        'job_submission_and_generation_authority',
+        'untouched_original_raster',
+        'job_or_request_id',
+        'literal_prompt_batch_and_sha256',
+        'full_submitted_prompt_and_sha256',
+        'published_receiver_provider_and_model',
+        'execution_timestamp',
+        'seed_if_published',
+        'cost_receipt',
+        'license_and_rights_basis',
+        'no_reference_or_compositing_declaration',
+        'original_raster_sha256',
+        'original_dimensions_file_type_and_byte_size',
+        'strict_decode_result',
+      ],
+      preview_acceptance_contract: [
+        'One completely original text-free full-frame 16:9 raster suitable for deterministic whole-image conversion to 1672x941 WebP.',
+        'The medium is a matte mixed-media psychological collage with paper-like tactile grain, dry painterly and sculptural traces, subtle erosion, restrained blur, and clear low-saturation figure-ground separation.',
+        'The palette is limited to dusty peach, mauve, lavender, pale blue, cream, charcoal, and warm gray, with ember orange only as a restrained accent.',
+        'The composition contains one sparse fragmented or eroded portrait, mask, mannequin, silhouette, door, flame, sculptural human trace, or abstract emotional object.',
+        'Glossy CGI, wet or heavy impasto, photoreal stock imagery, neon color, crowded scenes, typography, copied trade dress, malformed anatomy or text, logos, and watermarks are rejected.',
+        'No reference or saved image, Capi source, image edit, compositing, masking, title plate, post-render overlay, logo, watermark, or UI is permitted.',
+      ],
+    },
+  ] as const
+
+  for (const contract of scaffoldContracts) {
+    const scaffold = await readJson(path.join(
+      UNBLOCK_SDD_ROOT,
+      'source-scaffolds',
+      `${contract.basename}-v1.0.1.json`,
+    ))
     assert.equal(scaffold.schema_version, 1)
-    assert.equal(scaffold.reservation.version, '1.0.1')
-    assert.equal(scaffold.reservation.registry_revision, batch.revision)
-    assert.equal(scaffold.reservation.receipt_ref, batch.receipt_ref)
-    assert.match(scaffold.reservation.expected_identity_path, new RegExp(`${basename}-v1\\.0\\.1\\.json$`))
-    assert.match(scaffold.future_source_path, new RegExp(`${basename}-v1\\.0\\.1$`))
-    assert.equal(scaffold.predecessor.version, '1.0.0')
-    assert.ok(scaffold.predecessor.files.length > 0)
-    assert.ok(scaffold.predecessor.provenance_rows.length > 0)
-    assert.ok(scaffold.required_returned_evidence.length > 0)
-    assert.ok(scaffold.preview_acceptance_contract.length > 0)
+    assert.deepEqual(scaffold.reservation, contract.reservation)
+    assert.equal(scaffold.future_source_path, contract.future_source_path)
+    assert.deepEqual(scaffold.predecessor, contract.predecessor)
+    assert.deepEqual(scaffold.required_returned_evidence, contract.required_returned_evidence)
+    assert.deepEqual(scaffold.preview_acceptance_contract, contract.preview_acceptance_contract)
     assert.equal(scaffold.registry_transition_allowed, false)
     assert.equal(JSON.stringify(scaffold).includes('component_summary'), false)
+  }
+
+  for (const successorPath of [
+    'content-packs/free-starters/formula/human-behavior-explained-v1.0.1',
+    'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1',
+    'content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1',
+    'content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1',
+  ]) {
+    await assert.rejects(
+      fs.access(path.join(ROOT, successorPath)),
+      { code: 'ENOENT' },
+      `${successorPath} must remain absent at the Task 4 reservation boundary`,
+    )
   }
 })
 
