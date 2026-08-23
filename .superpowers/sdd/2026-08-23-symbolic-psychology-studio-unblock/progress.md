@@ -75,9 +75,10 @@ Task 2 implementation started from
 - Bundle-only manifests now accept one-or-more ordered `visual-style`
   components while retaining the exact Formula, Topic, Recipe, uniqueness,
   external-reference, dependency, namespace, file, archive, and trust guards.
-  Their dependency list must have identical cardinality and the exact ordered
-  owner pack/version sequence as Formula, Topic(s), Recipe, then Style(s),
-  preserving one component per dependency.
+  Their dependency list must have identical cardinality and equal the bundle's
+  component owner pack/version sequence in that bundle's declared order,
+  preserving one component per dependency. The approved Symbolic Psychology
+  Kit order is Formula, Topic, Recipe, Pastel, Impasto, then Oil.
 - `resolveProjectPreferredSelection` resolves an existing owner/version pin
   first, verifies the exact retained archive hash, and fails closed without
   active discovery. With no owner pin it performs signed discovery and returns
