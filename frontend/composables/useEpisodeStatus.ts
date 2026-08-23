@@ -88,12 +88,12 @@ export function useEpisodeStatus(
    *
    * The `?invalidate=CODE` parameter drops just THIS episode's cache entry
    * server-side before recomputing — surgically forces a re-stat of the
-   * selected episode's watched folders. Without this, an iCloud-delivered
+   * selected episode's watched folders. Without this, an externally-written
    * script docx whose folder mtime didn't bump would leave status.script
    * stale at false until the user manually shift-clicked the global ↻
    * button (full project rescan, expensive). Per-episode invalidate is
    * cheap (one extra getConfig + a few fs.stat calls) and catches the
-   * iCloud / cross-machine sync case automatically.
+   * externally-written-file case automatically.
    */
   async function refetch(quiet = false) {
     if (!episodeIdRef.value) {
@@ -109,7 +109,7 @@ export function useEpisodeStatus(
       statusKnown.value = false
     }
 
-    // Bounded retry: an occasional blip (iCloud stat churn, a busy event loop)
+    // Bounded retry: an occasional blip (filesystem stat churn, a busy event loop)
     // shouldn't strand the gate in a state the user reads as "no script". Two
     // quick retries with backoff, then give up and surface the error
     // (non-quiet path only).

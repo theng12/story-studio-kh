@@ -23,7 +23,7 @@
         class="toggle-btn refresh-btn"
         :disabled="loading"
         @click="onRefreshClick"
-        :title="loading ? 'Loading…' : 'Refresh (shift-click to rescan from disk — slower, use after iCloud sync)'"
+        :title="loading ? 'Loading…' : 'Refresh (shift-click to rescan from disk — slower, use after files change outside the app)'"
       >
         {{ loading || isRevalidating ? '…' : '↻' }}
       </button>
@@ -575,7 +575,7 @@ async function onSelect(code: string) {
 //  - Auto-revalidate on `done` job transitions (any type, current slug)
 //  - Manual ↻ button calls refresh() which forces ?refresh=1
 //  - Shift+↻ calls rescan() which also wipes the on-disk cache (use
-//    after iCloud delivers files but the UI hasn't caught up).
+//    after files appear on disk but the UI hasn't caught up).
 async function loadEpisodes() {
   await refresh()
 }

@@ -43,7 +43,7 @@
 
     <!-- v1.0.78 — inline "Rescan from disk" affordance.
          Surfaces only when an episode is selected but scriptReady is false,
-         which happens after iCloud delivers the script docx without the
+         which happens after a script docx appears on disk without the
          parent folder's mtime bumping (cache stays stale). One click fires
          a full project rescan and re-fetches the episode's status. -->
     <WorkspaceNotice
@@ -51,7 +51,7 @@
       tone="warning"
       title="Script not detected"
     >
-      No script was found for {{ form.episode_id }}. If iCloud just delivered it, rescan the episode folders.
+      No script was found for {{ form.episode_id }}. If it was just written or copied in, rescan the episode folders.
       <template #actions>
         <button
           type="button"

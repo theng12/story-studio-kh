@@ -93,6 +93,8 @@
 </template>
 
 <script setup lang="ts">
+import { useDismissableDetails } from '../composables/useDismissableDetails.js'
+
 export interface Preset {
   id: string
   name: string
@@ -191,6 +193,9 @@ async function confirmDelete() {
   if (!ok) return
   emit('delete')
 }
+
+// A <details> menu does not close on an outside click by itself.
+useDismissableDetails()
 </script>
 
 <style scoped>

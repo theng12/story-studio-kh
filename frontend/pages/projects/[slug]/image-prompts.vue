@@ -38,7 +38,7 @@
     <div v-if="scriptGateApplies && form.episode_id && statusKnown && !scriptReady" class="rescan-hint mt-1">
       <span class="text-muted text-xs">
         No script detected for <strong>{{ form.episode_id }}</strong> —
-        if it's actually on disk (e.g. just generated, or delivered by iCloud), force a re-check:
+        if it's actually on disk (e.g. just generated, or copied in), force a re-check:
       </span>
       <button
         type="button"
@@ -1689,7 +1689,7 @@ const promptsJobActiveForEpisode = computed(() => isJobActiveFor(form.episode_id
 // v1.0.296 — inline rescan-from-disk affordance, parity with audio.vue. Hits
 // /episodes?rescan=1 (wipes the project status cache + re-stats every folder),
 // then re-pulls this episode's status so the Generate buttons enable without
-// a page refresh. Covers the genuine stale-cache / iCloud-mtime case where the
+// a page refresh. Covers the genuine stale-cache / changed-mtime case where the
 // script is on disk but the cached status says otherwise.
 const rescanning = ref(false)
 async function onRescan() {
@@ -2218,7 +2218,7 @@ async function saveStylePreset() {
 }
 
 // ── Reference path persistence (Gap C from audit pain-point #7) ──────────
-// Per-project localStorage key so iCloud-synced project switches stay
+// Per-project localStorage key so project switches stay
 // remembered across reloads. Cleared explicitly via clearReference.
 const REF_PATH_LS_KEY = computed(() => `story-studio:${slug.value}:image-prompts:reference-path`)
 

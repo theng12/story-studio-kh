@@ -290,7 +290,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
   /**
    * Heavier "Rescan from disk" — wipes the backend's on-disk cache file
    * for this project too, so the next pass is guaranteed to readdir
-   * every episode folder fresh. Use when an iCloud sync arrived but the
+   * every episode folder fresh. Use when files changed on disk but the
    * UI hasn't caught up.
    */
   async function rescan() {

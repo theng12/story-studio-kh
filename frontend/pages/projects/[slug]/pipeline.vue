@@ -215,7 +215,7 @@
           <span class="ep-actions-divider" aria-hidden="true" />
 
           <button class="btn btn-sm btn-secondary" @click="selectNone">Clear</button>
-          <button class="btn btn-sm btn-ghost" :disabled="epLoading || epRevalidating" @click="onRefreshClick" title="Refresh episode statuses. Shift-click for a deeper rescan that wipes the on-disk cache too — use after iCloud delivers files from another Mac.">
+          <button class="btn btn-sm btn-ghost" :disabled="epLoading || epRevalidating" @click="onRefreshClick" title="Refresh episode statuses. Shift-click for a deeper rescan that wipes the on-disk cache too — use after files change on disk outside the app.">
             {{ (epLoading || epRevalidating) ? '⟳ Refreshing…' : '↻ Refresh' }}
           </button>
         </div>

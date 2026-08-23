@@ -226,6 +226,8 @@
 </template>
 
 <script setup lang="ts">
+import { useDismissableDetails } from '../composables/useDismissableDetails.js'
+
 // Explicit imports so the SFC resolves reliably from inside other
 // components (auto-import of a local component from another local
 // component has been flaky on first load in this Nuxt setup).
@@ -508,6 +510,9 @@ function episodeStatusIcon(ep: any, key: string) {
 function episodeStatusClass(ep: any, key: string) {
   return episodeStatusDone(ep, key) ? 'ok' : 'pending'
 }
+
+// A <details> menu does not close on an outside click by itself.
+useDismissableDetails()
 </script>
 
 <style scoped>

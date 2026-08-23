@@ -4486,7 +4486,7 @@ const videoBundlePresets = usePresets({
 //
 // The bundle preset aggregates intro/timeline/effects/subtitles/export
 // data, half of which contains absolute file paths. When the user moves
-// between Macs via iCloud and applies a bundle saved on another machine,
+// to another Mac and applies a bundle saved on the first one,
 // those paths usually break. This banner surfaces the broken paths
 // post-apply and lets the user reselect each one inline.
 //
@@ -5729,7 +5729,7 @@ onMounted(async () => {
   await normalizeVideoAssemblyPathsInState()
   // v1.0.93+ — `videoBundlePresets.load()` auto-applies the last-active
   // bundle. Kick off the path check so any broken links surface on first
-  // paint after the device-switch case (iCloud-synced project, fresh Mac).
+  // paint after the device-switch case (same project folder, fresh Mac).
   void runBundlePathCheck()
   window.addEventListener('keydown', handleWizardShortcut)
 })

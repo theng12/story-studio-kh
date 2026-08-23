@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.47 — 2026-08-23
+
+- **The "More" menu now closes when you click away from it**, and on Escape. It was built from the browser's own collapsible element, which by design only closes when you click the same button again — so it read as stuck. Both places that use it are fixed together, and a test keeps it that way.
+- **The withdrawn iCloud sync is no longer described on screen.** "No script was found — if iCloud just delivered it" told you to wait for something that cannot happen: library linking and iCloud delivery were withdrawn, and one folder is chosen at first run. Six places said it; all now describe what actually happens, which is a file appearing on disk. The Settings page still mentions iCloud Drive where it means the folder you chose, which is true and useful.
+
+---
+
 ## v1.4.46 — 2026-08-23
 
 - **The update still would not install, and this is the actual reason.** 1.4.45 taught the app to accept your account-wide proof of ownership, and it got further — then failed with a generic "Failed to install". Underneath, the pack file was being quarantined as invalid: the final check still read your proof in the *purchase* shape, looking for a product block, a release block and a purchase-time component list. Your account-wide proof has none of those; it lists the current version of everything you own. So it verified the signature, found the wrong shape, and threw the file away.
