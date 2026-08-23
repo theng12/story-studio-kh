@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.50 — 2026-08-24
+
+- **The four music packs you asked for are in: Sleep, Eastern Calm, Meditation and Calm Adventure.** Forty new worlds, ten to a pack, each with its own look, four scene variations so no two videos share a background, and the music styles it suits. Ninety worlds in total now.
+- **Sleep** is the quiet end — a bedside lamp, a night train berth, embers in a snowbound cabin. **Eastern Calm** is mountain temples, ink-wash peaks, bamboo groves and tea houses, scored for guqin, guzheng and bamboo flute. **Meditation** is the spare one: salt flats, a raked sand garden, the centre of a frozen lake. **Calm Adventure** still moves — a coast road at sunrise, a ferry deck, a lighthouse path — without ever stopping being calm.
+- The check that used to insist on exactly fifty worlds now checks the thing that actually matters: whole packs of ten, every register accounted for, and every world complete enough to shoot and to score. A count goes stale the first time you add a pack; the shape does not.
+
+---
+
 ## v1.4.49 — 2026-08-24
 
 - **Thumbnails no longer hold up your fleet.** Thumbnails and Scene Review shared one budget, so three thumbnail episodes — which run on a cloud model — consumed the whole allowance while your local machines sat waiting for a slot they were never going to take. They are separate lanes now: neither can starve the other.

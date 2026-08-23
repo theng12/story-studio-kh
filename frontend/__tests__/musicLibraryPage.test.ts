@@ -91,10 +91,20 @@ describe('the Music Mix formula', () => {
     assert.ok(Array.isArray(formula.exampleTopics) && formula.exampleTopics.length > 0)
   })
 
-  test('the fifty worlds are DATA, so the owner can add one without a code change', () => {
+  test('the worlds are DATA, so the owner can add a pack without a code change', () => {
+    // v1.4.50 — this asserted a flat 50, which is a count that goes stale the
+    // first time he adds the packs he asked for. The invariant he actually
+    // cares about is the SHAPE: whole packs of ten, every one complete.
     const worlds = formula.musicFormat?.worlds
     assert.ok(Array.isArray(worlds))
-    assert.equal(worlds.length, 50)
+    const byRegister = new Map<string, number>()
+    for (const world of worlds) byRegister.set(world.register, (byRegister.get(world.register) || 0) + 1)
+    assert.equal(byRegister.size, Object.keys(formula.musicFormat.registers).length,
+      'every declared register must have worlds, and every world a declared register')
+    for (const [register, count] of byRegister) {
+      assert.equal(count, 10, `${register} has ${count} worlds; a pack is ten`)
+    }
+    assert.equal(worlds.length, byRegister.size * 10)
     for (const world of worlds) {
       assert.ok(world.id && world.name && world.sight, `${world.id} is incomplete`)
       assert.ok(Array.isArray(world.scenes) && world.scenes.length >= 2,
@@ -114,6 +124,32 @@ describe('the Music Mix formula', () => {
     for (const world of formula.musicFormat.worlds) {
       assert.ok(registers.includes(world.register),
         `${world.id} is in register "${world.register}", which is not declared`)
+    }
+  })
+
+  test('the packs he asked for are here, ten worlds each', () => {
+    // "i also want soft sleep music types, or chinese, daosim calm or
+    // meditation kinds too" — plus calm adventure. Four packs of ten.
+    const registers = formula.musicFormat.registers
+    for (const [id, label] of [
+      ['sleep', 'Sleep'],
+      ['eastern', 'Eastern Calm'],
+      ['meditation', 'Meditation'],
+      ['adventure', 'Calm Adventure'],
+    ]) {
+      assert.ok(registers[id], `${id} register missing`)
+      assert.equal(registers[id].label, label)
+      assert.equal(formula.musicFormat.worlds.filter((w: any) => w.register === id).length, 10)
+    }
+  })
+
+  test('every world is complete enough to shoot and to score', () => {
+    // A world with no scene variations gives every video the same background,
+    // which is the one thing this format exists to avoid.
+    for (const world of formula.musicFormat.worlds) {
+      assert.ok(world.sight && world.sight.length > 30, `${world.id} has no usable sight`)
+      assert.ok(Array.isArray(world.scenes) && world.scenes.length >= 2, `${world.id} needs scene variations`)
+      assert.ok(Array.isArray(world.music) && world.music.length >= 1, `${world.id} names no music`)
     }
   })
 
