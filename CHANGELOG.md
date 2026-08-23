@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.43 — 2026-08-23
+
+- **Repair no longer turns one broken episode into a search of the whole channel.** Every screen that offers Repair already knew exactly which episodes were broken — the failed-batch banner, the missing-assets report — and every one of them threw that list away and started a scan of all 302 episodes instead. They now hand the codes over, so Repair checks only what actually failed.
+- **The one button that really does sweep the whole project now says so.** It reads "Scan all for repair", not "Repair assets" sitting next to per-job Repair buttons that fix one thing. Choosing the sweep should be a choice.
+- **"Recover this episode" has stopped appearing where it could never work.** It was offered on Scene Plan, which produces text — Repair only recovers audio and picture files, so there was never anything for it to fetch. It was offered on Scene Review too, whose images Repair cannot even see. Both were exactly the rows you were looking at, and both sent you to a full-library scan that could not have helped either one.
+- **Retry on a Scene Review job was described as the expensive option. It is the cheap one.** It first pulls back every image the provider already made and charged you for, at no cost, using the record kept for each one, and only re-submits scenes with nothing to recover. The tooltip said the opposite — "re-runs the whole step, no repair path" — so the free fix looked like the costly one.
+- The repair list also stopped offering two job types that were deleted with the retired scene-image generator.
+
+---
+
 ## v1.4.42 — 2026-08-23
 
 - **Saving the throughput settings told you nothing.** It also threw away the server's reply, so a number the server adjusted to fit a limit still showed as what you typed — you'd have walked away believing a value that wasn't real. It now reports what is actually in effect.

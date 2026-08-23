@@ -11,7 +11,7 @@
       <p class="dialog-sub text-muted" style="margin-top: 6px;">
         Nothing has been regenerated. This is a read-only report — fix by
         opening the matching <strong>Repair</strong> button on each page,
-        or <NuxtLink :to="`/projects/${slug}/board?repair=1`" @click="emit('close')">Repair</NuxtLink> on the Production Board.
+        or <NuxtLink :to="repairLink" @click="emit('close')">Repair</NuxtLink> on the Production Board.
       </p>
     </div>
 
@@ -74,7 +74,10 @@
       <button class="btn btn-secondary" @click="emit('close')">Close</button>
       <NuxtLink
         class="btn btn-primary"
-        :to="`/projects/${slug}/board?repair=1`"
+        :to="repairLink"
+        :title="gapCodes.length
+          ? `Opens Repair for the ${gapCodes.length} episode(s) listed above — nothing else is scanned.`
+          : 'Opens Repair on the Production Board.'"
         @click="emit('close')"
       >Open Repair</NuxtLink>
     </div>
@@ -107,6 +110,15 @@ const episodesWithGaps = computed<EpisodeAudit[]>(() =>
     ep.stages.some(s => s.started && s.missing.length > 0),
   ),
 )
+
+// v1.4.43 — this dialog has always listed the exact episodes with gaps and
+// then sent the user to a scan of the whole project anyway. Hand the codes
+// over: it is the same Repair, confined to what this report just named.
+const gapCodes = computed(() => episodesWithGaps.value
+  .map(ep => ep.episode_code)
+  .filter((code): code is string => typeof code === 'string' && !!code))
+const repairLink = computed(() =>
+  `/projects/${props.slug}/board?repair=1${gapCodes.value.map(c => `&episode=${encodeURIComponent(c)}`).join('')}`)
 
 function startedStagesWithMissing(ep: EpisodeAudit): StageAudit[] {
   return ep.stages.filter(s => s.started && s.missing.length > 0)

@@ -287,7 +287,7 @@
       v-if="repairOpen"
       :visible="true"
       :slug="slug"
-      :episode-code="repairEpisode"
+      :episode-codes="repairEpisodes"
       @close="onRepairClosed"
     />
   </div>
@@ -332,7 +332,16 @@ const repairOpen = ref(route.query.repair === '1')
 // where the episode is already known and scanning the whole library is waste.
 // The board's own "↻ Repair…" button leaves this empty and still searches
 // everything, which is what it is for.
-const repairEpisode = ref(typeof route.query.episode === 'string' ? route.query.episode : undefined)
+//
+// v1.4.43 — `episode` is repeatable, so the batch-finished banner can hand
+// over every episode that actually failed instead of triggering a full scan
+// to reach episodes it could already name.
+const repairEpisodes = ref(queryEpisodes())
+function queryEpisodes(): string[] {
+  const raw = route.query.episode
+  const list = Array.isArray(raw) ? raw : [raw]
+  return list.filter((code): code is string => typeof code === 'string' && !!code.trim()).map(code => code.trim())
+}
 
 function openImport(ep: any) { importEp.value = ep }
 
@@ -340,7 +349,7 @@ function openImport(ep: any) { importEp.value = ep }
 // flip its step done on the board.
 function onRepairClosed() {
   repairOpen.value = false
-  repairEpisode.value = undefined
+  repairEpisodes.value = []
   void revalidate()
 }
 function onImported() {

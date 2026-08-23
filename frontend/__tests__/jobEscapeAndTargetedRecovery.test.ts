@@ -57,12 +57,32 @@ describe('force-abandon on the Jobs page', () => {
 })
 
 describe('per-episode targeted recovery', () => {
-  it('links to the episode-scoped repair, and only where the per-job Repair cannot help', () => {
-    assert.match(jobsPage, /function episodeRecoveryLink\(job: RJob\): string \| null/)
-    assert.match(jobsPage, /if \(jobCanBeRepaired\(job\)\) return null/)
+  it('is offered ONLY where recovering the episode can actually help', () => {
+    // v1.4.43 — this was the inverse rule ("anything the per-job Repair does
+    // not cover"), which put the button on Scene Plan (text — nothing to
+    // recover) and Scene Review (files the audit cannot see), the two the
+    // owner was actually looking at. An allow-list cannot drift that way.
+    assert.match(jobsPage, /const EPISODE_RECOVERY_TYPES = new Set\(\['audio_merge', 'video_assembly'\]\)/)
+    assert.match(jobsPage, /if \(!EPISODE_RECOVERY_TYPES\.has\(job\.type\)\) return null/)
     assert.match(jobsPage, /board\?repair=1&episode=\$\{encodeURIComponent\(job\.episode_id\)\}/)
     // App-level jobs have no episode to recover.
     assert.match(jobsPage, /project === '_app_' \|\| !job\.episode_id\) return null/)
+  })
+
+  it('never points at a job type that no longer exists', () => {
+    // `images` / `scene_images` went with the retired generator in 1.4.41.
+    const map = jobsPage.slice(jobsPage.indexOf('const REPAIR_ENDPOINTS'))
+    const decl = map.slice(0, map.indexOf('\nfunction jobCanBeRepaired'))
+    // Match the key at the start of its own line — `thumb_images:` ends with
+    // the string `images:`, and a substring check "passes" by finding the key
+    // that is supposed to still be there.
+    for (const dead of ['images', 'scene_images']) {
+      assert.doesNotMatch(decl, new RegExp(`^\\s{2}${dead}: \\{`, 'm'),
+        `${dead} is a retired job type and cannot be repaired`)
+    }
+    for (const live of ['audio', 'thumb_images']) {
+      assert.match(decl, new RegExp(`^\\s{2}${live}: \\{`, 'm'))
+    }
   })
 
   it('is offered in both the active and the history lists', () => {
@@ -70,21 +90,56 @@ describe('per-episode targeted recovery', () => {
     assert.equal(links.length, 2)
   })
 
-  it('the board passes the episode through and clears it on close', () => {
-    assert.match(board, /:episode-code="repairEpisode"/)
-    assert.match(board, /route\.query\.episode === 'string' \? route\.query\.episode : undefined/)
-    assert.match(board, /function onRepairClosed\(\)[\s\S]{0,200}repairEpisode\.value = undefined/)
+  it('Retry tells the truth about Scene Review, which recovers for free', () => {
+    // The generator replays its task manifest and pulls back every image the
+    // provider already produced before it re-submits anything. The tooltip
+    // used to say the opposite — "no partial/repair path" — which made the
+    // free option read as the expensive one.
+    assert.match(jobsPage, /jobType === 'continuity_render'/)
+    assert.match(jobsPage, /FREE WHERE POSSIBLE[^']*at no charge/)
+  })
+
+  it('the board accepts a LIST of episodes and clears it on close', () => {
+    assert.match(board, /:episode-codes="repairEpisodes"/)
+    assert.match(board, /const list = Array\.isArray\(raw\) \? raw : \[raw\]/)
+    assert.match(board, /function onRepairClosed\(\)[\s\S]{0,200}repairEpisodes\.value = \[\]/)
   })
 
   it('the dialog scopes the audit request instead of filtering a full scan', () => {
-    assert.match(repairDialog, /props\.episodeCode \? `\?episode=\$\{encodeURIComponent\(props\.episodeCode\)\}` : ''/)
-    assert.match(repairDialog, /assets\/repair-all`, props\.episodeCode \? \{ episode_codes: \[props\.episodeCode\] \} : \{\}\)/)
+    assert.match(repairDialog, /episode=\$\{encodeURIComponent\(code\)\}`\)\.join\('&'\)/)
+    assert.match(repairDialog, /assets\/repair-all`, isScoped\.value \? \{ episode_codes: scopedCodes\.value \} : \{\}\)/)
   })
 
   it('says which of the two it is doing, so a scoped run is never mistaken for a full one', () => {
-    assert.match(repairDialog, /Recover \$\{episodeCode\} — generated but not received/)
+    assert.match(repairDialog, /Recover \$\{scopeLabel\} — generated but not received/)
     assert.match(repairDialog, /Nothing else in the library is scanned or touched/)
     // The library-wide wording survives untouched for the unscoped case.
     assert.match(repairDialog, /Scans every accepted episode for gaps/)
+  })
+})
+
+describe('every entry point that already knows the episodes hands them over', () => {
+  // The owner's objection, verbatim: *"it didn't fix the one error but brings
+  // me here and run a channel wide hunt. waste of time. we just need what we
+  // need to get repaired. not a witch hunt."* Each of these screens had the
+  // failing episode codes on screen and threw them away on the way to Repair.
+  it('the batch-finished banner repairs the episodes that failed in that batch', () => {
+    assert.match(jobsPage, /const batchRepairLink = computed\(\(\) => \{/)
+    assert.match(jobsPage, /batchSummary\.value\?\.failed_episodes \|\| \[\]/)
+    assert.match(jobsPage, /:to="batchRepairLink"/)
+  })
+
+  it('the missing-assets report repairs the episodes it just listed', () => {
+    const dialog = read('frontend/components/MissingAssetsDialog.vue')
+    assert.match(dialog, /const gapCodes = computed\(\(\) => episodesWithGaps\.value/)
+    assert.match(dialog, /const repairLink = computed\(/)
+    assert.ok(!dialog.includes('`/projects/${slug}/board?repair=1`'),
+      'no path in this dialog may start an unscoped scan — it knows the codes')
+  })
+
+  it('the one remaining whole-project sweep says so on the button', () => {
+    // It is allowed to exist; it is not allowed to look like the per-job fix.
+    assert.match(jobsPage, /Scan all for repair/)
+    assert.match(jobsPage, /Scans EVERY accepted episode in this project/)
   })
 })

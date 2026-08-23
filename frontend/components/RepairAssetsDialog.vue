@@ -3,11 +3,12 @@
     <div class="dialog-head">
       <h2 id="repair-title" class="dialog-title">
         <span aria-hidden="true">&#8635;</span>
-        {{ episodeCode ? `Recover ${episodeCode} — generated but not received` : 'Repair — generated but not received' }}
+        {{ isScoped ? `Recover ${scopeLabel} — generated but not received` : 'Repair — generated but not received' }}
       </h2>
-      <p v-if="episodeCode" class="dialog-sub text-muted">
-        Checks <strong>{{ episodeCode }}</strong> only for gaps the provider might already have finished, then
-        re-downloads its audio and images from provider history. <strong>No credits consumed.</strong>
+      <p v-if="isScoped" class="dialog-sub text-muted">
+        Checks <strong>{{ scopeLabel }}</strong> only for gaps the provider might already have finished, then
+        re-downloads {{ scopedCodes.length === 1 ? 'its' : 'their' }} audio and images from provider history.
+        <strong>No credits consumed.</strong>
         Nothing else in the library is scanned or touched.
         Files without a stored task ID come back as "needs fresh generation" in the job log.
       </p>
@@ -35,15 +36,15 @@
           :disabled="repairing || repairableCounts.total === 0"
           :title="repairableCounts.total === 0
             ? 'No gaps detected — nothing to repair. Rescan after a generation attempt if you think something is missing.'
-            : episodeCode
-              ? `Recovers this episode's missing audio and images from provider history. No credits consumed.`
+            : isScoped
+              ? `Recovers only ${scopeLabel}'s missing audio and images from provider history. No credits consumed, nothing else is scanned.`
               : 'Queues repair jobs for every episode with missing audio or images. Reads provider history; no credits consumed.'"
           @click="repairAll"
         >
           <LoadingSpinner v-if="repairing" size="sm" />
           {{ repairing
             ? 'Queuing…'
-            : episodeCode ? `Recover ${episodeCode}` : `Repair all (${repairableCounts.total})` }}
+            : isScoped ? `Recover ${scopeLabel}` : `Repair all (${repairableCounts.total})` }}
         </button>
       </div>
     </div>
@@ -52,19 +53,19 @@
 
     <div v-if="loading && !rows.length" class="repair-empty">
       <LoadingSpinner size="sm" />
-      {{ episodeCode
-        ? `Checking ${episodeCode}…`
+      {{ isScoped
+        ? `Checking ${scopeLabel}…`
         : 'Scanning every episode — this may take a few seconds for large projects…' }}
     </div>
     <div v-else-if="!loading && !rows.length && !error" class="repair-empty">
-      {{ episodeCode
-        ? `${episodeCode} is not an accepted episode, so it has nothing to recover.`
+      {{ isScoped
+        ? `${scopeLabel} ${scopedCodes.length === 1 ? 'is not an accepted episode' : 'are not accepted episodes'}, so there is nothing to recover.`
         : 'No accepted ideas yet. Accept some in the Ideas Generator first.' }}
     </div>
     <div v-else-if="repairableCounts.total === 0" class="repair-empty">
       <span aria-hidden="true">&#9989;</span>
-      {{ episodeCode
-        ? `Everything ${episodeCode} generated is already on disk — nothing to recover.`
+      {{ isScoped
+        ? `Everything ${scopeLabel} generated is already on disk — nothing to recover.`
         : 'Everything generated is on disk — nothing to repair.' }}
     </div>
 
@@ -127,6 +128,16 @@
  * Still uses GET /assets-audit to compute what's missing (that endpoint feeds
  * the gap counts below); only the on-page audit *visualisation* was dropped.
  *
+ * v1.4.43 — the scope is a LIST, not a single code. Every entry point that
+ * arrives here already knows which episodes are broken: a failed job knows its
+ * own, and the batch-finished banner knows all of them. Sending one and
+ * discarding the rest meant the banner's Repair button re-scanned the whole
+ * library to reach episodes it could already name. The owner's words:
+ * *"we just need what we need to get repaired. not a witch hunt. if i want a
+ * witch hunt i will intentionally come here and do it myself."* The unscoped
+ * library-wide scan survives untouched — it is the board's own Repair button,
+ * which is the intentional way in.
+ *
  * v1.2.8 — `episodeCode` turns this same dialog into a targeted recovery.
  * Library-wide Repair is a SEARCH tool: it scans everything because the usual
  * question is "which episode is broken?". When the user already knows — he is
@@ -137,7 +148,7 @@
  * endpoints and the no-credits guarantee are identical, which is exactly why
  * this is a prop and not a second dialog.
  */
-const props = defineProps<{ visible: boolean; slug: string; episodeCode?: string }>()
+const props = defineProps<{ visible: boolean; slug: string; episodeCodes?: string[] }>()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
 const { get, post } = useApi()
@@ -154,6 +165,18 @@ interface AuditRow {
   merged_audio: { present: boolean }
   errors?: Record<string, string>
 }
+
+// The episodes this run is confined to. Empty = the deliberate library-wide
+// scan. Deduplicated and trimmed here so no caller has to remember to.
+const scopedCodes = computed(() => Array.from(new Set(
+  (props.episodeCodes || [])
+    .filter((code): code is string => typeof code === 'string' && !!code.trim())
+    .map(code => code.trim()),
+)))
+const isScoped = computed(() => scopedCodes.value.length > 0)
+const scopeLabel = computed(() => scopedCodes.value.length === 1
+  ? scopedCodes.value[0]!
+  : `${scopedCodes.value.length} episodes`)
 
 const rows = ref<AuditRow[]>([])
 const loading = ref(false)
@@ -180,7 +203,11 @@ async function runAudit() {
   loading.value = true
   error.value = ''
   try {
-    const scope = props.episodeCode ? `?episode=${encodeURIComponent(props.episodeCode)}` : ''
+    // `episode` is repeatable on the audit route, so a scoped scan never walks
+    // an episode folder it was not asked about.
+    const scope = isScoped.value
+      ? `?${scopedCodes.value.map(code => `episode=${encodeURIComponent(code)}`).join('&')}`
+      : ''
     const r = await get<{ episodes: AuditRow[] }>(`/projects/${props.slug}/assets-audit${scope}`)
     rows.value = r.episodes || []
     lastRunAt.value = new Date().toLocaleString()
@@ -231,7 +258,7 @@ async function repairAll() {
       total_repair_jobs: number
     // v1.2.8 — narrowing the request as well as the scan. The endpoint has
     // always accepted `episode_codes`; until now nothing sent them.
-    }>(`/projects/${props.slug}/assets/repair-all`, props.episodeCode ? { episode_codes: [props.episodeCode] } : {})
+    }>(`/projects/${props.slug}/assets/repair-all`, isScoped.value ? { episode_codes: scopedCodes.value } : {})
 
     // Kick off audio repairs one by one (they run inline server-side;
     // serializing avoids blasting the history API with parallel lookups for
@@ -262,6 +289,12 @@ async function repairAll() {
 // shown — never on board mount.
 watch(() => props.visible, (open) => {
   if (open && !loading.value) void runAudit()
+})
+
+// Re-scope without closing: arriving from a second failed job while the dialog
+// is already open must re-scan for THAT episode, not keep showing the first.
+watch(() => scopedCodes.value.join('|'), () => {
+  if (props.visible && !loading.value) void runAudit()
 })
 </script>
 

@@ -78,13 +78,17 @@
               @click="pauseQueue"
               title="Hold every queued Story job before submission. Running GenStudio jobs stop claiming new items after accepted work is saved."
             >Pause queue</button>
+            <!-- v1.4.43 — labelled for what it does. This one really is the
+                 whole-library sweep, and it used to be called plain "Repair
+                 assets" next to per-job Repair buttons that fix one thing.
+                 Choosing the sweep should be a choice. -->
             <NuxtLink
               v-if="!isUniversal"
               :to="`/projects/${slug}/board?repair=1`"
               class="btn btn-sm btn-secondary"
-              title="After a bulk pipeline run, open Repair (on the Production Board) to one-click recover any provider-completed output that didn't persist locally (no credits consumed)."
+              title="Scans EVERY accepted episode in this project for output the provider already produced but that never landed on disk, then re-downloads it (no credits consumed). To fix one failed job instead, use the buttons on that job's own row below."
             >
-              Repair assets
+              Scan all for repair
             </NuxtLink>
             <button
               v-if="finishedCount > 0"
@@ -220,9 +224,11 @@
           @click="reviewFailures"
         >Review failures →</button>
         <NuxtLink
-          :to="`/projects/${slug}/board?repair=1`"
+          :to="batchRepairLink"
           class="btn btn-sm btn-primary"
-          title="Open Repair (on the Production Board) — lists provider-completed outputs that didn't land on disk (e.g. network drop after upload). One-click repair does NOT consume credits; it only re-downloads what the provider already produced."
+          :title="batchSummary.failed_episodes.length
+            ? `Open Repair for the ${batchSummary.failed_episodes.length} episode(s) that failed in this batch — nothing else is scanned. Re-downloads output the provider already produced and was already paid for; no credits consumed.`
+            : 'Open Repair (on the Production Board) — lists provider-completed outputs that didn\'t land on disk (e.g. network drop after upload). One-click repair does NOT consume credits; it only re-downloads what the provider already produced.'"
           @click="bulkBannerDismissed = true"
         >Repair →</NuxtLink>
       </div>
@@ -1949,23 +1955,55 @@ function jobQueuePath(job: Pick<RJob, 'project_slug' | 'job_id'>): string {
 }
 
 /**
- * v1.2.8 — the targeted-recovery entry point, or null when it does not apply.
+ * The job types for which "Recover this episode" can actually recover
+ * something.
  *
- * Shown only where the per-job Repair above cannot help: that button covers
- * four job types, and the wedges the owner actually hit — a scene render, a
- * scene plan — are not among them. For those, the only recovery on offer used
- * to be the library-wide Repair on another page, which scans every episode.
- * His objection was exact: *"we know exactly which one, so we don't need to go
- * to the repair thing."* This is that same recovery, scoped to the episode
- * whose row he is already looking at.
+ * v1.4.43 — this used to be the inverse: offered on EVERY errored job the
+ * per-job Repair did not cover. That made it a button which, on most rows,
+ * could only ever navigate away and report "nothing to recover":
+ *
+ *   • Scene Plan produces TEXT. The repair machinery reads audio chunks and
+ *     image files. There has never been anything for it to pull back.
+ *   • Scene Review writes `<scene-id>.png` from the scene PLAN. The audit
+ *     reads `EPxxxx_SceneNN_v*.png` from the retired scene-prompts document,
+ *     so it cannot see a single file Scene Review has ever written.
+ *
+ * Both of those are the jobs the owner was looking at when he pressed it, and
+ * both sent him to a whole-library scan that could not have helped:
+ * *"it didn't fix the one error but brings me here and run a channel wide
+ * hunt. waste of time."*
+ *
+ * So it is now an allow-list of the assembly steps that fail BECAUSE an
+ * upstream media file is missing — the one case where pulling the episode's
+ * already-paid-for output back from provider history is the fix. Everything
+ * else keeps Retry, which for Scene Review is itself a free recovery (it
+ * replays the task manifest before it re-submits anything).
  */
+const EPISODE_RECOVERY_TYPES = new Set(['audio_merge', 'video_assembly'])
+
 function episodeRecoveryLink(job: RJob): string | null {
   if (job.status !== 'error' && job.status !== 'cancelled') return null
   if (jobCanBeRepaired(job)) return null
+  if (!EPISODE_RECOVERY_TYPES.has(job.type)) return null
   const project = jobProjectSlug(job)
   if (!project || project === '_app_' || !job.episode_id) return null
   return `/projects/${project}/board?repair=1&episode=${encodeURIComponent(job.episode_id)}`
 }
+
+/**
+ * The Repair link for the batch-finished banner: scoped to the episodes that
+ * actually failed, because the banner already knows every one of them.
+ * Falls back to the library-wide scan only when it somehow knows none.
+ */
+const batchRepairLink = computed(() => {
+  const codes = Array.from(new Set(
+    (batchSummary.value?.failed_episodes || [])
+      .map(fe => fe.episode_id)
+      .filter((code): code is string => typeof code === 'string' && !!code),
+  ))
+  const scope = codes.map(code => `&episode=${encodeURIComponent(code)}`).join('')
+  return `/projects/${slug.value}/board?repair=1${scope}`
+})
 
 function hasPendingCancellation(job: RJob): boolean {
   return Object.values(job.remote_cancellations || {}).some(record =>
@@ -1989,16 +2027,10 @@ const REPAIR_ENDPOINTS: Record<string, { url: (projectSlug: string) => string; b
     body: {},
     mode: 'sync',
   },
-  images: {
-    url: projectSlug => `/projects/${projectSlug}/generate/images-repair`,
-    body: { episode_id: '__EPISODE__' },
-    mode: 'queued',
-  },
-  scene_images: {
-    url: projectSlug => `/projects/${projectSlug}/generate/images-repair`,
-    body: { episode_id: '__EPISODE__' },
-    mode: 'queued',
-  },
+  // v1.4.43 — `images` and `scene_images` were removed when the scene-image
+  // generator was retired in 1.4.41. Keys for job types that can no longer
+  // exist made this map look like it covered the image pipeline; it covers
+  // narration and thumbnails.
   thumb_images: {
     url: projectSlug => `/projects/${projectSlug}/generate/images-repair`,
     body: { episode_id: '__EPISODE__' },
@@ -2034,6 +2066,14 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
   }
   if (jobCanBeRepaired(job)) {
     return 'CHARGES MAY APPLY — Deletes this failed job and re-submits a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'
+  }
+  if (jobType === 'continuity_render') {
+    // v1.4.43 — this said "re-runs the whole step, no repair path", which is
+    // the opposite of what the generator does: it replays the stored task
+    // manifest and pulls back every image the provider already produced for
+    // free before it submits anything. Reading the old wording, the free
+    // repair looked like the expensive option.
+    return 'FREE WHERE POSSIBLE — First pulls back every scene image the provider already produced, at no charge, using the task record saved for each one. Only scenes with no recoverable result are re-submitted, and any image already on disk is left alone.'
   }
   return 'CHARGES MAY APPLY — Deletes this failed job and re-submits it. Re-runs the whole step (this job type has no partial/repair path).'
 }
