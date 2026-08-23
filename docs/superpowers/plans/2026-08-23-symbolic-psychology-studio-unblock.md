@@ -4,7 +4,7 @@
 
 **Goal:** Safely unblock the reviewed multi-Style Symbolic Psychology Studio contract, issue immutable Formula, Recipe, Pastel, and Kit successors, qualify local deterministic candidates, and leave stocking blocked until external preview, independent-review, and deployed-app gates are all true.
 
-**Architecture:** Preserve every issued `1.0.0` identity, source, archive, and review artifact as historical evidence. Extend the existing bundle-only manifest validator from exactly one Style to one-or-more ordered Styles, then add one explicit bundle-application transaction: the first ordered Style becomes the project's active default and every remaining exact Style is retained as a project-pinned alternative. Selection uses a two-stage resolver: an existing owner pin resolves first by exact owner/version/hash and fails closed; without a pin, current signed-catalog discovery may resolve and create an exact pin; only a signed-catalog miss returns `null` to preserve the current legacy/local no-pin write. Reserve receipt-bound `1.0.1` Formula, Recipe, and Pastel successors first; author Formula immediately, but keep Recipe/Pastel reserved until exact returned preview evidence passes review. Only then reserve and author a `1.0.1` Kit whose final closure pins all three qualified successors, build keyless candidates locally, and assemble—but never send—a receiver handoff.
+**Architecture:** Preserve every issued `1.0.0` identity, source, archive, and review artifact as historical evidence. Extend the existing bundle-only manifest validator from exactly one Style to one-or-more ordered Styles, then add one explicit coordination-locked, crash-safe bundle apply operation: the first ordered Style becomes the project's active default and every remaining exact Style is retained as a project-pinned alternative. Selection uses a two-stage resolver: an existing owner pin resolves first by exact owner/version/hash and fails closed; without a pin, current signed-catalog discovery may resolve and create an exact pin; only a signed-catalog miss returns `null` to preserve the current legacy/local no-pin write. Reserve receipt-bound `1.0.1` Formula, Recipe, and Pastel successors first; author Formula immediately, but keep Recipe/Pastel reserved until exact returned preview evidence passes review. Only then reserve and author a `1.0.1` Kit whose final closure pins all three qualified successors, build keyless candidates locally, and assemble—but never send—a receiver handoff.
 
 **Tech Stack:** TypeScript, Zod, Node test runner, Content Pack archive/publisher tools, authoring-registry CAS/receipt CLI, SHA-256, sharp, GenStudio Store receipt-attested install fixtures.
 
@@ -24,6 +24,7 @@
 - Bundle-only Channel Kits require exactly one Formula, at least one Topic, one-or-more Styles, and exactly one Recipe. Preserve exact component/dependency equality, order, unique component references, unique item IDs, external-only components, exact dependency use, namespace, archive, and signature/delivery safeguards.
 - Ordered Style semantics are structural: the first `visual-style` component is the active project default; the remaining exact Style components are installed and project-pinned alternatives. Persist every alternative's item owner and version, resolve that immutable installed version to its verified archive hash, and search these project pins before active discovery. Do not add `default_style_id`, copy Style documents into the Kit, or introduce a fifth creative schema.
 - Pin-first is two-stage. An existing `content_pack_items` owner pin invokes exact pack/version/hash resolution; a missing, recalled, corrupt, owner-mismatched, version-mismatched, or hash-mismatched pinned archive is an error and never falls through. With no owner pin, retain current signed-catalog discovery: a qualified signed Formula, Topic, Style, or Recipe resolves to its active exact ref and the normal write creates that pin. Return `null` only when discovery finds no signed catalog entry, so legacy/local config/meta writes continue without a Content Pack pin. Preserve the existing conflict guard: changing a pinned pack version requires the explicit upgrade workflow.
+- Kit apply is crash-safe coordination, not impossible cross-file crash-level atomicity. Resolve the root/closure and reject every validation, lifecycle, kind, hash, duplicate, and version conflict before the first write. Under the coordination and project/config locks, write a transitional project record that safely over-pins old plus new exact bytes, then final config, then final project pins. Return success only after durable final config and project state exist. A caught write error attempts best-effort rollback and is phase-tested; a process interruption may retain only the safe over-pin transition, which existing recovery or the next coordinated write can reconcile. Never claim that interruption guarantees both files remain byte-identical to their originals.
 - Install/restore/checkout behavior remains exact-closure and fail-closed. A Kit apply is an explicit project action, never an install side effect, and it never silently upgrades an existing project pin.
 - Current application version is `1.4.31`. Multi-Style bundle-only archives must use the application release that first contains this support as their minimum version, expected `1.4.32`; a false `1.0.843` floor is forbidden because a `1.0.843` binary rejects this manifest. Formula `1.0.1`, whose schema is unchanged, may retain the truthful `1.0.843` floor.
 - Mandatory application release integrity: bump `package.json` and `package-lock.json` together, add the newest-first matching `CHANGELOG.md` entry, and pass `npm run check:changelog`. If the branch version is no longer `1.4.31` at execution time, stop and recompute the next patch and Kit minimum before building.
@@ -38,12 +39,12 @@
 The current architecture supports the required semantics with one small application API, not a new manifest field:
 
 1. `ContentPackBundleSchema.components` is ordered and already carries exact `pack_id`, `version`, `item_id`, and `kind` references.
-2. `content-store-delivery.ts` binds signed receipt positions to manifest dependency positions, recursively installs every exact dependency, verifies the whole immutable closure, and activates it atomically.
+2. `content-store-delivery.ts` binds signed receipt positions to manifest dependency positions, recursively installs every exact dependency, verifies the whole immutable closure, and activates it through the existing closure checkpoint.
 3. `ProjectMeta` and config already represent one active `visual-style`; `content_pack_items` records item owner/kind and `content_pack_versions` records the exact owner version. Because same-version archive replacement is forbidden, resolving that owner/version from verified installed state supplies the immutable archive hash.
 4. The registry already searches `options.pins` before active discovery, but the project selection writers currently call `resolveCatalogItem(..., undefined, options)` before loading an existing project pin. That gap would let a newer active Style win when selecting a Kit alternative. The existing unpinned call is still required: it discovers a newly selected signed catalog item and supplies the exact ref that the current write pins; a bare legacy ID returns no signed entry.
-5. No production code currently consumes `manifest.bundles`; only schema/tests/publisher tooling do. Therefore the smallest missing application surface is one explicit project bundle-apply transaction plus one nullable two-stage item resolver. Bundle apply exact-pins all creative components (including alternative Styles), selects the first Style, and reports the later ordered Styles as alternatives. Subsequent selection first verifies an existing project pin; with no pin it performs current signed discovery and creates a pin on success, or returns to the unchanged legacy/local write path only on a catalog miss.
+5. No production code currently consumes `manifest.bundles`; only schema/tests/publisher tooling do. Therefore the smallest missing application surface is one explicit coordination-locked bundle apply operation plus one nullable two-stage item resolver. Bundle apply validates the entire closure before writes, uses the existing transitional over-pin write sequence for crash safety, exact-pins all creative components (including alternative Styles), selects the first Style, and reports the later ordered Styles as alternatives only after final durable state. Subsequent selection first verifies an existing project pin; with no pin it performs current signed discovery and creates a pin on success, or returns to the unchanged legacy/local write path only on a catalog miss.
 
-Do not auto-apply during purchase/install: the Store install route has no project context, and coupling install to project mutation would violate the existing transaction and pin boundaries.
+Do not auto-apply during purchase/install: the Store install route has no project context, and coupling install to project mutation would violate the existing Store-delivery and project-pin boundaries.
 
 ## Execution and Review Structure
 
@@ -170,7 +171,7 @@ External JSON is not a repository commit; record its SHA-256 before/after in the
 
 **Interfaces:**
 - Consumes: ordered `ContentPackBundleSchema.components`, project item-owner/version pins, and exact verified installed `ContentPackVersionRef` values.
-- Produces: nullable two-stage `resolveProjectPreferredSelection(project, selection, options)`, `applyProjectContentBundle(slug, request, options)`, and a strict POST route that atomically pins Formula, Topics, every Style, and Recipe while activating only the first Style. Existing pins resolve exact; unpinned signed catalog selections still resolve and create pins; only a signed-catalog miss returns `null` for the caller's legacy/local write.
+- Produces: nullable two-stage `resolveProjectPreferredSelection(project, selection, options)`, coordination-locked/crash-safe `applyProjectContentBundle(slug, request, options)`, and a strict POST route. A successful response reflects durable final Formula, Topics, every Style, Recipe, and first-Style config state. Existing pins resolve exact; unpinned signed catalog selections still resolve and create pins; only a signed-catalog miss returns `null` for the caller's legacy/local write.
 
 - [ ] **Step 1: Write RED manifest/publisher tests**
 
@@ -218,8 +219,11 @@ Test a project with the six exact installed components. Require:
 - Pastel, the first Style, becomes `active_style_preset_id`.
 - Impasto and Oil are returned as ordered alternatives and remain exact installed closure members.
 - Recipe becomes `thumbnail_template_id`.
-- exact component pack versions/items, including every alternative Style, are pinned atomically;
-- a missing, recalled, disabled, hash-mismatched, wrong-kind, duplicate, or conflicting-version component makes the whole operation fail with no config/project mutation;
+- every root/closure validation and existing-pin conflict—including missing, recalled, disabled, hash-mismatched, wrong-kind, duplicate, and conflicting-version components—fails before either project or config write;
+- on success, the response is emitted only after the final config and project writes complete; immediate post-response reads show the final selections and exact component pack versions/items, including every alternative Style;
+- injected failures after the transitional-project write, after the config write, and before the final-project write expose only the documented safe over-pin phases: a newly usable signed selection is never present without its exact pin;
+- each caught injected phase error exercises best-effort rollback and verifies the original files when rollback succeeds, without turning that test into a claim that a process/power crash can roll back both files;
+- simulated interruption evidence accepts a transitional superset of old/new pins and proves existing recovery or the next coordination-locked write reconciles it to the selected final state;
 - an existing pin at a different version yields a clear 409 and is never silently upgraded;
 - bundle order, not name or current catalog default, determines the Style default.
 - after applying the Kit, installing/activating Style `1.0.2` does not change an alternative pinned at `1.0.1`: selection resolves the pinned owner/version to its original verified SHA and keeps `1.0.1`;
@@ -274,7 +278,7 @@ Resolution order is exact:
 
 Use this helper before the existing config, niche, and topic selection writes, including the shared config Style/Recipe path. Every non-null `SignedSelection` goes through current exact pack-pin behavior whether it came from the existing-pin branch or new signed discovery. A `null` result runs the current legacy/local branch unchanged: write the selected local ID/config metadata but add no pack owner/version pin. Do not use the nullable result to weaken bundle application: the explicit bundle path resolves exact manifest component refs from the verified installed closure and pins every component. Keep the existing different-version conflict check in `applyContentSelections` unchanged.
 
-- [ ] **Step 5: Implement exact bundle resolution and one atomic project write**
+- [ ] **Step 5: Implement exact bundle resolution and one crash-safe coordinated write**
 
 Inside the content-pack coordination lock:
 
@@ -283,10 +287,11 @@ Inside the content-pack coordination lock:
 3. call `verifyInstalledContentPackClosure` on the root;
 4. resolve every component's exact pack/version and confirm the item ID and kind exist;
 5. derive `styles = components.filter(kind === 'visual-style')`, `default = styles[0]`, alternatives `styles.slice(1)`;
-6. update config and project metadata consistently, persisting item-owner/version pins for every component including alternative Styles, but setting only the first Style active;
-7. return each Style's exact `ContentPackVersionRef` (including archive SHA) in the reviewed result or evidence so later selection can prove it did not drift.
+6. check all existing project pin conflicts and construct final config/project values before any write; no validation or conflict rejection may be deferred past this point;
+7. through `updateConfigAndProjectMetaConsistently`, write the transitional project with the union of old/new exact pins, then final config, then final project metadata with superseded pins removed;
+8. after final writes complete, return each Style's exact `ContentPackVersionRef` (including archive SHA) so the successful response proves final selection did not drift.
 
-Use existing `applyContentSelections`/consistent project mutation primitives. Add no persisted `default_style_id`, no auto-upgrade, and no install/purchase side effect.
+Use existing `applyContentSelections`/consistent project mutation primitives. Phase-test best-effort rollback for synchronous errors and the safe over-pin state visible at each interruption seam. Recovery or the next coordination-locked write must reconcile a surviving transitional superset; do not promise impossible cross-file rollback after process or power loss. Add no persisted `default_style_id`, no auto-upgrade, and no install/purchase side effect.
 
 - [ ] **Step 6: Add strict route validation**
 
@@ -377,7 +382,7 @@ Add this customer-visible entry above `v1.4.31`:
 ## v1.4.32 — 2026-08-23
 
 - **Channel Kits can include several exact Visual Styles.** The first listed Style is the default; the remaining exact project-pinned Styles stay available as alternatives even when newer versions are installed.
-- **Applying a Kit is explicit and atomic.** Formula, Topics, Recipe, Style, and exact Content Pack pins change together, or nothing changes.
+- **Applying a Kit is coordinated and interruption-safe.** Story Studio validates the whole Kit before writing, prevents partial usable selections, and keeps exact Content Pack pins safe across an interrupted apply.
 - **Older Story Studio builds refuse these Kits clearly.** They must update before installation; no partial closure is activated.
 ```
 
@@ -740,7 +745,7 @@ Also re-run the opt-in Wave 1 external evidence audit and validate every retaine
 
 - [ ] **Step 2: Independent whole-wave review**
 
-Require clean schema, identity/receipt, immutability, dependency/order, install/recovery/application, safety, originality/provenance, prompt-equivalence, visual/thumbnail, copy, component-summary, security, model-drift, and commercial-boundary results. Reviewers must confirm no historical `1.0.0` source/archive/closure was rewritten, the grandfathered Wave 1 `evidence-ledger.json` hash did not change, and no commerce code/mutation occurred.
+Require clean schema, identity/receipt, immutability, dependency/order, install/recovery/application, crash-safe write-phase, best-effort rollback, safety, originality/provenance, prompt-equivalence, visual/thumbnail, copy, component-summary, security, model-drift, and commercial-boundary results. Reviewers must confirm no historical `1.0.0` source/archive/closure was rewritten, the grandfathered Wave 1 `evidence-ledger.json` hash did not change, and no commerce code/mutation occurred.
 
 - [ ] **Step 3: Write fresh `component_summary` only in the new release handoff**
 
@@ -825,6 +830,8 @@ Do not run `git push`, create a tag, deploy, upload an archive, or call any GenS
 **Identity consistency:** Stable pack/item/bundle/family/SKU lineages are reused only as proposed reservation inputs until a new receipt verifies. Formula, Recipe, Pastel, and Kit successors use distinct versioned source paths and exact `1.0.1` records; Recipe/Pastel source authoring waits for returned evidence, and Kit reservation waits for all three leaf receipts plus final qualification. The Kit closure is exactly Formula `1.0.1`, Topic `1.0.0`, Recipe `1.0.1`, Pastel `1.0.1`, Impasto `1.0.0`, Oil `1.0.0`, in that order.
 
 **Type consistency:** Bundle application consumes `ProjectContentBundleApplicationRequest` and returns `ProjectContentBundleApplicationResult`; first Style is `default_style_id`, later Styles are `alternative_style_ids`, and `style_refs` carries their exact installed owner/version/hash references for verification. `resolveProjectPreferredSelection` returns `Promise<SignedSelection | null>`: an existing owner pin resolves exact and fails closed on missing, recalled, corrupt, owner/version/hash mismatch; without a pin it performs current signed discovery, returns `SignedSelection` for exact Formula/Topic/Style/Recipe pinning, and returns `null` only on catalog miss so the legacy/local config/meta write adds no pack metadata. The existing different-version conflict guard remains; no manifest `default_style_id` or fifth creative kind exists.
+
+**Write-consistency:** Kit apply holds the coordination/project/config locks, completes every validation and pin-conflict check before writes, and responds only after final config plus project pins are durable. Its ordered transitional-project → config → final-project sequence guarantees interruption safety through over-pinning, not cross-file crash-level atomicity. Phase tests distinguish best-effort rollback of caught errors from process/power interruption and prove recovery or the next coordinated write can reconcile the safe transitional superset.
 
 **Summary-scope consistency:** Newly authored Formula, Recipe, Pastel, and Kit source/registry/archive/build/review artifacts contain no `component_summary`; the four fresh summaries exist only in the new release handoff. The historical Wave 1 root is excluded from that fresh scan, and its already-audited `evidence-ledger.json` summaries are explicitly grandfathered and hash-preserved rather than deleted or backfilled.
 
