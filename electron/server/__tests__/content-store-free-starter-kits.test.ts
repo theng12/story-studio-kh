@@ -15,6 +15,7 @@ import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { readContentPackState } from '../content-packs/state.js'
 import { resolveCatalogItem } from '../content-packs/registry.js'
 import { resolveProjectContentPins, setProjectContentPin } from '../content-packs/project-pins.js'
+import { compareVersionStrings } from '../content-packs/version-order.js'
 import {
   getGenStudioContentReceipts,
   issueGenStudioContentDownload,
@@ -60,7 +61,7 @@ type SourcePack = {
 }
 
 async function starterSources(): Promise<SourcePack[]> {
-  const rows: SourcePack[] = []
+  const baselineByPackId = new Map<string, SourcePack>()
   const kinds = {
     formula: 'series_formula', topic: 'topic_pack', style: 'visual_style', thumbnail: 'thumbnail_recipe', kit: 'niche_bundle',
   } as const
@@ -69,10 +70,14 @@ async function starterSources(): Promise<SourcePack[]> {
       const source = path.join(STARTERS, folder, name)
       const packPath = path.join(source, 'pack.json')
       const pack = JSON.parse(await fs.readFile(packPath, 'utf8'))
-      rows.push({ source, pack, kind })
+      const candidate = { source, pack, kind }
+      const baseline = baselineByPackId.get(pack.pack_id)
+      if (!baseline || compareVersionStrings(pack.version, baseline.pack.version) < 0) {
+        baselineByPackId.set(pack.pack_id, candidate)
+      }
     }
   }
-  return rows
+  return [...baselineByPackId.values()]
 }
 
 function sourceProduct(source: SourcePack): Record<string, unknown> {
@@ -179,6 +184,7 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
 
   const sources = await starterSources()
   assert.equal(sources.length, 46)
+  assert.ok(sources.every(source => source.pack.version === '1.0.0'), 'launch fixture keeps exact 1.0.0 kit dependencies')
   const products = sources.map(sourceProduct)
   mock.contentProducts = products
   const productsByPackId = new Map(products.map(product => [String((product.current_release as Record<string, unknown>).pack_id), product]))
@@ -283,7 +289,8 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
   const deliveryRequestStart = mock.requests.length
   const calmRelease = String((productsByPackId.get('com.storystudio.pack.kit.calm-mind')!.current_release as Record<string, unknown>).release_id)
   const sleepRelease = String((productsByPackId.get('com.storystudio.pack.kit.sleep-journeys')!.current_release as Record<string, unknown>).release_id)
-  await request(local).post(`/api/content-store/releases/${calmRelease}/install`).send({}).expect(200)
+  const calmInstall = await request(local).post(`/api/content-store/releases/${calmRelease}/install`).send({})
+  assert.equal(calmInstall.status, 200, JSON.stringify(calmInstall.body))
   await request(local).post(`/api/content-store/releases/${sleepRelease}/install`).send({}).expect(200)
   const installAgain = await request(local).post(`/api/content-store/releases/${calmRelease}/install`).send({}).expect(200)
   assert.equal(installAgain.body.install.pack_id, 'com.storystudio.pack.kit.calm-mind')

@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "generator": "built-in image_gen",
+  "model": "not disclosed by the built-in image_gen tool response",
+  "generation_mode": "text-only original",
+  "source_images_used": false,
+  "assets": [
+    {
+      "asset_id": "centered-hero-headline-2",
+      "prompt": "Use case: ads-marketing\nAsset type: original 16:9 YouTube thumbnail preview\nPrimary request: In a rain-muted city tram stop at blue hour, show one thoughtful adult in a mustard coat standing alone holding a closed umbrella, viewed in wide three-quarter profile.\nScene/backdrop: atmospheric urban tram stop, subtle rain, blue-hour city depth.\nComposition/framing: one emotionally legible hero scene with generous negative space; a continuous full-canvas cinematic dim treatment around fifty percent strength, with no distinct edge or panel. The headline must feel embedded in the scene, supported by natural shadow and negative space.\nLighting/mood: introspective blue hour with restrained warm highlights.\nText (verbatim): \"THE WEIGHT OF WAITING\"\nTypography: directly in the visual center, exactly two large warm-yellow all-caps lines: THE WEIGHT / OF WAITING. Render the headline organically as part of the complete image.\nConstraints: exact spelling; only the required headline; polished, readable at thumbnail size; no image references.\nAvoid: pasted rectangle, box, card, banner, split-screen, hard-edged overlay, subtitle band, accent rule, post-render typography, extra text, logos, watermarks, brands, copied composition, malformed hands, malformed letters.",
+      "path": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/successor-formats/centered-hero-headline-2.png",
+      "media_type": "image/png",
+      "dimensions": { "width": 1672, "height": 941 },
+      "bytes": 1908419,
+      "sha256": "a52c75fd95898f7afb9fbc4726e3c14d8fb5c46682ef163b910afdcd1a32cb45",
+      "qa": {
+        "status": "accepted",
+        "exact_visible_text": "passed",
+        "integrated_headline_no_panel": "passed",
+        "composition": "passed: one hero at wide city tram stop, centered two-line headline",
+        "anatomy_and_lettering": "passed",
+        "duplicate_check": "passed: materially distinct from the forest variant"
+      }
+    },
+    {
+      "asset_id": "centered-hero-headline-3",
+      "prompt": "Use case: ads-marketing\nAsset type: original 16:9 YouTube thumbnail preview\nPrimary request: A single young climber in a plain windbreaker sits safely on a low sunlit boulder at the start of a forest trail, viewed from behind at close-medium distance, tying one bootlace before a calm walk.\nScene/backdrop: dawn forest trail with soft greens and warm yellow light; grounded preparation, no danger.\nComposition/framing: one hero, close-medium rear three-quarter view, with balanced natural negative space. Apply a continuous full-canvas cinematic dim treatment around fifty percent strength with no visible edge or panel. The headline must feel embedded in the scene through natural shadow and open scenery.\nText (verbatim): \"WHEN COURAGE RETURNS\"\nTypography: directly in the visual center, exactly three large warm-yellow all-caps lines: WHEN / COURAGE / RETURNS. Render it organically as part of the complete image.\nConstraints: exact spelling; only the required headline; polished, readable at thumbnail size; no image references.\nAvoid: pasted rectangle, box, card, banner, split-screen, hard-edged overlay, subtitle band, accent rule, post-render typography, extra text, logos, watermarks, brands, copied composition, peril, malformed anatomy, malformed letters.",
+      "path": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/successor-formats/centered-hero-headline-3.png",
+      "media_type": "image/png",
+      "dimensions": { "width": 1672, "height": 941 },
+      "bytes": 2126584,
+      "sha256": "d4bcdc2b6292def8022ae05106f9d686fc3ea36e28d46c36e237585efd7e1018",
+      "qa": {
+        "status": "accepted",
+        "exact_visible_text": "passed",
+        "integrated_headline_no_panel": "passed",
+        "composition": "passed: one grounded trail-preparation hero and centered three-line headline",
+        "anatomy_and_lettering": "passed",
+        "duplicate_check": "passed: different subject, location, distance, and line count"
+      }
+    },
+    {
+      "asset_id": "portrait-block-right-2",
+      "prompt": "Use case: historical-scene\nAsset type: original 16:9 cinematic documentary YouTube thumbnail preview\nPrimary request: On the left, show one late-medieval monastery cook in plain linen and wool, waist-up in profile beside a stone hearth, holding a wooden spoon over a simple iron pot. Historically plausible clay bowls, herbs, and warm firelight establish the setting.\nComposition/framing: one left-side portrait. On the right, create a natural cinematic dark-to-black gradient formed by shadow, smoke, and shallow-focus kitchen depth; it must remain part of the scene with no rectangular boundary or hard edge.\nText (verbatim): \"LIFE AS A MONASTERY COOK\"\nTypography: on the right within the natural gradient, exactly three bold all-caps lines: LIFE AS A / MONASTERY / COOK. Render the headline organically as part of the complete image.\nLighting/mood: warm hearth documentary realism, humane and historically grounded.\nConstraints: exact spelling; only required headline; polished and readable at thumbnail size; no image references.\nAvoid: pasted rectangle, box, card, banner, split-screen, hard-edged overlay, subtitle band, post-render typography, extra text, logos, watermarks, brands, copied composition, modern objects, glamorized violence or coercion, malformed hands, malformed letters.",
+      "path": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/successor-formats/portrait-block-right-2.png",
+      "media_type": "image/png",
+      "dimensions": { "width": 1672, "height": 941 },
+      "bytes": 2130613,
+      "sha256": "966a5a53e1002c7f06d5fa963c5745d7367a8f032e6e341495ec913213f4b3f5",
+      "qa": {
+        "status": "accepted",
+        "exact_visible_text": "passed",
+        "integrated_headline_no_panel": "passed: natural shadow/smoke gradient with no rectangular edge",
+        "composition": "passed: historically grounded left portrait and three-line right headline",
+        "anatomy_and_lettering": "passed",
+        "historical_plausibility": "passed: period clothing, stone hearth, iron pot, wooden utensil, clay vessels"
+      }
+    },
+    {
+      "asset_id": "portrait-block-right-3",
+      "prompt": "Use case: ads-marketing\nAsset type: original 16:9 cinematic prayer YouTube thumbnail preview\nPrimary request: On the left, show one contemporary older woman in modest everyday clothing seated in a quiet sunrise kitchen, hands gently folded near a mug, seen in an intimate three-quarter portrait. Soft window light makes the mood contemplative and ordinary.\nComposition/framing: one left-side portrait. On the right, create a natural cinematic dark-to-black gradient produced by shadow and shallow-focus kitchen depth; it must remain part of the scene with no rectangular boundary or hard edge.\nText (verbatim): \"A PRAYER AT DAWN\"\nTypography: on the right within the natural gradient, exactly two bold all-caps lines: A PRAYER / AT DAWN. Render the headline organically as part of the complete image.\nLighting/mood: warm sunrise window light, contemplative, humane, everyday.\nConstraints: exact spelling; only required headline; polished and readable at thumbnail size; no image references.\nAvoid: pasted rectangle, box, card, banner, split-screen, hard-edged overlay, subtitle band, post-render typography, extra text, logos, watermarks, brands, copied composition, glamorized distress, malformed hands, malformed letters.",
+      "path": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/successor-formats/portrait-block-right-3.png",
+      "media_type": "image/png",
+      "dimensions": { "width": 1672, "height": 941 },
+      "bytes": 1601395,
+      "sha256": "dae9b3f95823396130518a24575c2dffb9a48d6fb2f5b56f03afb693c839bc35",
+      "qa": {
+        "status": "accepted",
+        "exact_visible_text": "passed",
+        "integrated_headline_no_panel": "passed: natural kitchen shadow gradient with no rectangular edge",
+        "composition": "passed: humane left prayer portrait and two-line right headline",
+        "anatomy_and_lettering": "passed",
+        "duplicate_check": "passed: different subject, period, mood, and title line count"
+      }
+    },
+    {
+      "asset_id": "prehistoric-discovery-2",
+      "prompt": "Use case: historical-scene\nAsset type: original 16:9 prehistoric educational cartoon YouTube thumbnail preview\nPrimary request: A lone prehistoric person in humble hide clothing sits inside a rocky shelter, carefully examining a polished bone needle beside a visibly stitched hide garment and a small controlled hearth. The person, bone needle, clothing repair, shelter, and survival context must be visibly connected.\nStyle/medium: simple flat 2D educational cartoon, clean expressive black outlines, limited earthy colors, original unbranded character design.\nComposition/framing: the bone needle is the dominant material clue; readable subject hierarchy; headline integrated across natural open rock/ceiling space at the top, without any backing panel.\nText (verbatim): \"BONE NEEDLE CLUE\"\nTypography: at the top, exactly this bold factual three-word hook in all caps: BONE NEEDLE CLUE. Render it organically as part of the complete illustration.\nConstraints: exact spelling; only required headline; polished and readable at thumbnail size; truthful survival connection; no image references.\nAvoid: pasted rectangle, box, card, banner, split-screen, hard-edged overlay, subtitle band, post-render typography, extra labels, extra text, logos, watermarks, fake archaeology, fantasy armor, modern objects, violence, copied trade dress, malformed anatomy, malformed letters.",
+      "path": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/successor-formats/prehistoric-discovery-2.png",
+      "media_type": "image/png",
+      "dimensions": { "width": 1672, "height": 941 },
+      "bytes": 2139979,
+      "sha256": "600b94eb72c22c49aee19880e0d800fad02d943df7e2ec3b4d3e127afa4e28d7",
+      "qa": {
+        "status": "accepted",
+        "exact_visible_text": "passed",
+        "integrated_headline_no_panel": "passed",
+        "composition": "passed: bone needle, active stitching, hide garment, shelter, and hearth visibly connected",
+        "anatomy_and_lettering": "passed",
+        "historical_plausibility": "passed: generic educational reconstruction with no false textual claim beyond visible clue"
+      }
+    },
+    {
+      "asset_id": "prehistoric-discovery-3",
+      "prompt": "Use case: historical-scene\nAsset type: original 16:9 prehistoric educational cartoon YouTube thumbnail preview\nPrimary request: From a low ground-level angle, show one prehistoric person in humble hide clothing following fresh animal hoofprints across damp sand toward a small reed-lined waterhole in the distance, holding a plain walking stick. The person, tracks, terrain, reeds, and water must be materially connected as one truthful survival discovery.\nStyle/medium: simple flat 2D educational cartoon, clear expressive black outlines, limited ochre, muted blue, charcoal, and green colors, original unbranded character design.\nComposition/framing: low ground-level viewpoint makes hoofprints a strong leading line toward water; headline integrated across natural open sky at the top, without any backing panel.\nText (verbatim): \"TRACKS TO WATER\"\nTypography: at the top, exactly this bold factual three-word hook in all caps: TRACKS TO WATER. Render it organically as part of the complete illustration.\nConstraints: exact spelling; only required headline; polished and readable at thumbnail size; truthful survival connection; no image references.\nAvoid: pasted rectangle, box, card, banner, split-screen, hard-edged overlay, subtitle band, post-render typography, extra labels, extra text, logos, watermarks, fake archaeology, fantasy armor, modern objects, violence, copied trade dress, malformed anatomy, malformed letters.",
+      "path": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/successor-formats/prehistoric-discovery-3.png",
+      "media_type": "image/png",
+      "dimensions": { "width": 1672, "height": 941 },
+      "bytes": 2141141,
+      "sha256": "04ee7cbb7534d3b7abaa376e41616deec33ffead817355ea0e1560bf40ca1fae",
+      "qa": {
+        "status": "accepted",
+        "exact_visible_text": "passed",
+        "integrated_headline_no_panel": "passed",
+        "composition": "passed: low-angle hoofprint leading line connects person, terrain, reeds, and water",
+        "anatomy_and_lettering": "passed",
+        "duplicate_check": "passed: different environment, evidence trace, angle, action, and palette"
+      }
+    }
+  ]
+}

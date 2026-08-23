@@ -11,6 +11,13 @@ import { parseContentPackDocument } from '../content-packs/schemas.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
 const RESTORATION_ROOT = path.join(ROOT, 'content-packs', 'legacy-thumbnail-restoration')
+const GENERATION_RECEIPT_ROOT = path.join(
+  ROOT,
+  '.superpowers',
+  'sdd',
+  '2026-08-23-legacy-thumbnail-restoration',
+  'generated-original-previews',
+)
 const FORMULA_ID = 'com.storystudio.formula.natural-world-explained'
 const RECIPE_ROOT = path.join(RESTORATION_ROOT, 'thumbnail', 'animal-hardship-annotation')
 const STYLE_ROOT = path.join(RESTORATION_ROOT, 'style', 'hand-drawn-hardship-cartoon')
@@ -232,6 +239,13 @@ async function assertWebp(root: string, asset: string, ledger: string) {
   assert.match(ledger, new RegExp(sha256(bytes)))
 }
 
+function assertOriginalGeneratedPreview(ledger: string, asset: string) {
+  const row = ledger.split('\n').find(line => line.includes(`/${asset}\``) || line.includes(`/${asset}|`))
+  assert.ok(row, `${asset} provenance row is present`)
+  assert.match(row, /publisher-created(?:-tool-generated-| tool-generated )original|text-only generation/i)
+  assert.doesNotMatch(row, /saved-output|owner-supplied legacy project output/i)
+}
+
 async function assertFreeStarterWebp(root: string, asset: string, ownerId: string, recordId: string) {
   const bytes = await fs.readFile(path.join(root, 'assets', asset))
   const metadata = await sharp(bytes, { failOn: 'error' }).metadata()
@@ -250,7 +264,7 @@ async function assertFreeStarterWebp(root: string, asset: string, ownerId: strin
   assert.equal(record.sha256, sha256(bytes))
 }
 
-test('Animal Hardship Annotation has three ledgered, decodable owner-derived recipe previews', async () => {
+test('Animal Hardship Annotation has three ledgered, decodable original-generated recipe previews', async () => {
   await assertPack(
     RECIPE_ROOT,
     'com.storystudio.pack.thumbnail.animal-hardship-annotation',
@@ -272,6 +286,7 @@ test('Animal Hardship Annotation has three ledgered, decodable owner-derived rec
   assert.match(String(recipe.composition_guidance), /3[–-]6 word handwritten hardship annotation/i)
   assert.match(String(recipe.headline_guidance), /full.*episode title/i)
   for (const asset of RECIPE_ASSETS) await assertWebp(RECIPE_ROOT, asset, ledger)
+  for (const asset of RECIPE_ASSETS) assertOriginalGeneratedPreview(ledger, asset)
   assert.match(String(recipe.avoid_elements), /MineePod|multiple arrows|generic curiosity-only|watermarks|logos|malformed text|copied trade dress/i)
 })
 
@@ -302,6 +317,7 @@ test('Prehistoric Survival Title Card remains a full-title survival recipe disti
   assert.match(String(recipe.avoid_elements), /violence|watermarks|logos|copied/i)
   assert.match(String(recipe.headline_guidance), /one.*two.*three|three.*two.*one/i)
   for (const asset of PREHISTORIC_SURVIVAL_ASSETS) await assertWebp(PREHISTORIC_SURVIVAL_ROOT, asset, ledger)
+  for (const asset of PREHISTORIC_SURVIVAL_ASSETS) assertOriginalGeneratedPreview(ledger, asset)
 
   assert.equal(discovery.headline_mode, 'curiosity-hook')
   assert.notEqual(discovery.headline_mode, recipe.headline_mode)
@@ -431,6 +447,7 @@ test('Dreamlike Sleep Title Card stays distinct from the framed Dreamscape recip
   assert.match(String(recipe.avoid_elements), /violence|urgency|cliffhangers|alarming faces/i)
   assert.match(String(recipe.avoid_elements), /high-contrast spectacle|watermarks|logos|copied story titles|malformed text/i)
   for (const asset of DREAMLIKE_RECIPE_ASSETS) await assertWebp(DREAMLIKE_RECIPE_ROOT, asset, ledger)
+  for (const asset of DREAMLIKE_RECIPE_ASSETS) assertOriginalGeneratedPreview(ledger, asset)
 
   assert.match(String(dreamscape.composition_guidance), /window|doorway|frame/i)
   assert.notEqual(dreamscape.composition_guidance, recipe.composition_guidance)
@@ -511,6 +528,21 @@ test('Restoration runtime documents retain no owner paths or commercial/provider
     readJson(path.join(DREAMLIKE_STYLE_ROOT, 'content', 'visual-style.json')),
   ])
   assert.doesNotMatch(JSON.stringify(runtimeDocuments), forbiddenRuntimeMetadata)
+})
+
+test('Original-generation receipts remain portable and disclose unavailable model identity', async () => {
+  const receipts = await Promise.all(
+    ['nature-prehistoric', 'sleep-formats', 'successor-formats']
+      .map(batch => readJson(path.join(GENERATION_RECEIPT_ROOT, batch, 'receipt.json'))),
+  )
+
+  for (const receipt of receipts) {
+    assert.equal(receipt.model, 'not disclosed by the built-in image_gen tool response')
+    for (const value of stringValues(receipt)) {
+      assert.doesNotMatch(value, /^(?:\/|[A-Za-z]:[\\/])/, 'receipt paths must be repository-relative or logical identifiers')
+      assert.doesNotMatch(value, /\.worktrees[\\/]|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY/)
+    }
+  }
 })
 
 test('centered 94px headline custom remains outside signed source and authoring identities', async () => {

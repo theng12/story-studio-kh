@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-23",
+  "generator": "built-in remote image_gen",
+  "model": "not disclosed by the built-in image_gen tool response",
+  "input_mode": "text-only",
+  "reference_images": [],
+  "assets": [
+    {
+      "asset_id": "animal-hardship-annotation-1",
+      "prompt": "Original text-only 16:9 thumbnail artwork, hand-drawn natural-world editorial cartoon: an anatomically coherent juvenile sea turtle swims diagonally upward through clear teal shallows, viewed from slightly below and close enough for the eye and flippers to read. One translucent plastic bag drifts ahead like a jellyfish; exactly one uneven black hand-drawn arrow points from the bag to the turtle's mouth area. On an open cream-paper title card in the upper right, render exactly two balanced lines of bold editorial text: WHY SEA TURTLES / STRUGGLE. Next to the arrow, render exactly this 5-word handwritten annotation: PLASTIC LOOKS LIKE FOOD. Use uneven black ink contours, muted sea green, cream, faded gold, sparse paper texture, and one immediate reading path. Do not use any reference image. No other text, logos, watermarks, brands, copied composition, title plate added after rendering, violence, malformed anatomy, or malformed letters.\n\nCRITICAL COMPOSITION OVERRIDE: the exact headline “WHY SEA TURTLES STRUGGLE” and exact annotation “PLASTIC LOOKS LIKE FOOD” must be generated organically as part of one complete illustration, directly on naturally open water, light rays, or cream-paper texture within the scene. The phrase “title card” means a naturally quiet illustrated texture area, never a separate graphic object. No pasted rectangle, box, card, banner, split-screen, hard-edged overlay, flat opaque panel, post-render typography, or UI-like text container. Preserve uninterrupted environmental continuity behind and around the lettering. Render both required strings exactly once, verbatim, fully legible, with no other readable or pseudo-text.",
+      "generated_file": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/nature-prehistoric/animal-hardship-annotation-1.png",
+      "file_type": "PNG",
+      "width": 1672,
+      "height": 941,
+      "byte_size": 3059601,
+      "sha256": "e7053b3cd0df7a7aebf1419de7a651b90854242ea4583721e78273ea946b18bd",
+      "visual_qa": {
+        "status": "accepted",
+        "headline_exact": true,
+        "annotation_exact": true,
+        "no_extra_text": true,
+        "no_opaque_panel": true,
+        "integrated_annotation_arrow": true,
+        "mobile_readability": "passed",
+        "notes": "Continuous underwater paper-texture composition; exact two-line title and annotation are integrated into open water; one arrow connects plastic bag and turtle."
+      }
+    },
+    {
+      "asset_id": "animal-hardship-annotation-2",
+      "prompt": "Original text-only 16:9 thumbnail artwork, hand-drawn natural-world editorial cartoon: a lone anatomically coherent arctic fox in three-quarter side view pauses on a windswept white slope while its ears listen beneath drifting snow; a tiny covered vole trail is the concrete survival evidence. Use exactly one uneven black hand-drawn arrow from the snow crust toward the hidden trail. In a calm lower-left cream title card, render exactly three balanced lines of bold editorial text: THE HARD / LIFE OF / ARCTIC FOXES. Beside the arrow, render exactly this 5-word handwritten annotation: SNOW HIDES THE PREY. Use uneven black ink, flat cold blue-gray and cream fills, faint faded-gold accent, sparse paper texture, and no reference image. No other text, logos, watermarks, brands, copied composition, title plate added after rendering, violence, malformed anatomy, or malformed letters.\n\nCRITICAL COMPOSITION OVERRIDE: generate the exact headline “THE HARD LIFE OF ARCTIC FOXES” and exact annotation “SNOW HIDES THE PREY” organically inside one continuous illustrated winter scene. Interpret “cream title card” only as a naturally quiet cream-colored snow or paper-texture region within the environment, not a separate graphic object. No pasted rectangle, box, card, banner, split-screen, hard-edged overlay, opaque panel, post-render typography, or UI-like container. Preserve environmental continuity behind and around the lettering. Use exactly one illustrated arrow integrated into the drawing, pointing to the hidden trail. Render both strings exactly once, verbatim, fully legible, with no other readable or pseudo-text.",
+      "generated_file": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/nature-prehistoric/animal-hardship-annotation-2.png",
+      "file_type": "PNG",
+      "width": 1672,
+      "height": 941,
+      "byte_size": 2938833,
+      "sha256": "41c8cf62dccf0f9c1d6d7cbc9d261d35ebc4fd2cdb6b512a4f8837ebd7f890d5",
+      "visual_qa": {
+        "status": "accepted",
+        "headline_exact": true,
+        "annotation_exact": true,
+        "no_extra_text": true,
+        "no_opaque_panel": true,
+        "integrated_annotation_arrow": true,
+        "mobile_readability": "passed",
+        "notes": "Continuous windblown snow composition; the fox, buried trail, exact title, exact annotation, and one arrow form one coherent reading path."
+      }
+    },
+    {
+      "asset_id": "animal-hardship-annotation-3",
+      "prompt": "Original text-only 16:9 thumbnail artwork, hand-drawn natural-world editorial cartoon: a small anatomically coherent desert tortoise seen from above and slightly behind crosses cracked ochre ground toward one shaded burrow after a brief rain puddle has almost vanished. Use exactly one rough black hand-drawn arrow pointing from the drying puddle to the tortoise. In a wide uncluttered warm-cream card across the top, render exactly two balanced lines of bold editorial text: HOW DESERT / TORTOISES SURVIVE. Beside the arrow, render exactly this 3-word handwritten annotation: WATER COMES RARELY. Use uneven black ink contours, flat warm moss, ochre, charcoal, and cream fills with sparse paper texture. No reference image, no other text, logos, watermarks, brands, copied composition, post-render title plate, violence, malformed anatomy, or malformed letters.\n\nCRITICAL COMPOSITION OVERRIDE: generate the exact headline “HOW DESERT TORTOISES SURVIVE” and exact annotation “WATER COMES RARELY” organically inside one continuous desert illustration. Interpret “warm-cream card” only as naturally open sunlit terrain, dust, or paper-textured sky within the illustrated environment, not a separate graphic object. No pasted rectangle, box, card, banner, split-screen, hard-edged overlay, opaque panel, post-render typography, or UI-like container. Preserve uninterrupted terrain and atmosphere behind and around the lettering. Use exactly one rough illustrated arrow as part of the drawing. Render both strings exactly once, verbatim, fully legible, with no other readable or pseudo-text.",
+      "generated_file": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/nature-prehistoric/animal-hardship-annotation-3.png",
+      "file_type": "PNG",
+      "width": 1672,
+      "height": 941,
+      "byte_size": 3228847,
+      "sha256": "ff8b352245a9bf000f76e23b1ef0269e84440acfff76a2de0eee78db21bcf8fc",
+      "visual_qa": {
+        "status": "accepted",
+        "headline_exact": true,
+        "annotation_exact": true,
+        "no_extra_text": true,
+        "no_opaque_panel": true,
+        "integrated_annotation_arrow": true,
+        "mobile_readability": "passed",
+        "notes": "Continuous ochre desert illustration; title occupies the open sky, while the exact annotation and one arrow sit directly on cracked terrain."
+      }
+    },
+    {
+      "asset_id": "prehistoric-survival-title-card-1",
+      "prompt": "Original text-only 16:9 simple flat 2D prehistoric educational cartoon with clear black outlines and limited ash-gray, ember-orange, icy blue, and earth-brown colors. A single simple stick-limbed ancient human in humble hide clothing crouches beside a small protected ember fire under a rock overhang while pale volcanic ash falls beyond the shelter; a woven face covering and covered food bundle visibly connect the person to the challenge. In an uncluttered right-side title-safe band, render exactly these three balanced lines of bold high-contrast text: HOW DID ANCIENT / HUMANS SURVIVE / VOLCANIC ASH? Keep the human, survival evidence, and title readable on mobile. No reference image, no other text, signs, labels, logos, watermarks, fantasy armor, magic, modern objects, violence, post-render typography, copied composition, or malformed letters.\n\nCRITICAL COMPOSITION OVERRIDE: render the exact headline “HOW DID ANCIENT HUMANS SURVIVE VOLCANIC ASH?” organically inside the complete continuous cartoon, directly on naturally open ash-filled sky, pale rock texture, or mist in the right-side title-safe area. The title-safe band is environmental negative space, never a separate graphic element. No pasted rectangle, box, card, banner, split-screen, hard-edged overlay, opaque panel, post-render typography, or UI-like container. Preserve uninterrupted scene continuity behind and around the lettering. Render the headline exactly once, verbatim, fully legible, with no other readable or pseudo-text.",
+      "generated_file": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/nature-prehistoric/prehistoric-survival-title-card-1.png",
+      "file_type": "PNG",
+      "width": 1672,
+      "height": 941,
+      "byte_size": 2562108,
+      "sha256": "e072dad75bacd684c86e43a890f566fba9122c4affb1342d5a2c8aefaa6ed66b",
+      "visual_qa": {
+        "status": "accepted",
+        "headline_exact": true,
+        "no_extra_text": true,
+        "no_opaque_panel": true,
+        "mobile_readability": "passed",
+        "notes": "Exact three-line question is rendered directly into pale ash sky; the sheltered human, face covering, food bundle, ember fire, ash, and volcano remain visually connected."
+      }
+    },
+    {
+      "asset_id": "prehistoric-survival-title-card-2",
+      "prompt": "Original text-only 16:9 simple flat 2D prehistoric educational cartoon with clean black outlines and limited sun-baked ochre, muted green, charcoal, and dusty blue. From a high oblique view, one simple stick-limbed ancient human kneels at a shallow rock basin, using a hollowed gourd to collect the last water while a sparse acacia and dry streambed explain the long dry season. In an uncluttered upper title-safe band, render exactly two balanced lines of bold high-contrast text: SURVIVING A / LONG DRY SEASON. Keep one readable mobile silhouette, connected survival evidence, and calm nonviolent problem solving. No reference image, no other text, signs, labels, logos, watermarks, fantasy armor, magic, modern objects, post-render typography, copied composition, or malformed letters.\n\nCRITICAL COMPOSITION OVERRIDE: render the exact headline “SURVIVING A LONG DRY SEASON” organically inside the complete continuous cartoon, directly on naturally open sun-bleached sky, dust haze, or pale terrain in the upper title-safe area. The title-safe band is environmental negative space, never a separate graphic object. No pasted rectangle, box, card, banner, split-screen, hard-edged overlay, opaque panel, post-render typography, or UI-like container. Preserve uninterrupted environment behind and around the lettering. Render the headline exactly once, verbatim, fully legible, with no other readable or pseudo-text.",
+      "generated_file": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/nature-prehistoric/prehistoric-survival-title-card-2.png",
+      "file_type": "PNG",
+      "width": 1672,
+      "height": 941,
+      "byte_size": 2895750,
+      "sha256": "112b74a43cc212cecd8412761b8cc0c460c7c7b644bd3b62889de65a5b99b668",
+      "visual_qa": {
+        "status": "accepted",
+        "headline_exact": true,
+        "no_extra_text": true,
+        "no_opaque_panel": true,
+        "mobile_readability": "passed",
+        "notes": "Exact two-line title is integrated into the sun-bleached sky; high-oblique basin, gourd, person, acacia, and dry channel read as one survival problem."
+      }
+    },
+    {
+      "asset_id": "prehistoric-survival-title-card-3",
+      "prompt": "Original text-only 16:9 simple flat 2D prehistoric educational cartoon with black outlines, flat limited icy blue, charcoal, bark brown, and small warm-orange firelight. A single simple stick-limbed ancient human is seen in close side profile arranging dry branches beneath a stone windbreak at twilight; a fur wrap, sparks, and wind-blown snow visibly explain the need for warmth without showing conflict. In a spacious upper-left title-safe band, render exactly one bold high-contrast line: THE FIGHT FOR WARMTH. Keep the title, human, windbreak, and branches connected and mobile readable. No reference image, no other text, signs, labels, logos, watermarks, fantasy armor, magic, modern objects, violence, post-render typography, copied composition, or malformed letters.\n\nCRITICAL COMPOSITION OVERRIDE: render the exact headline “THE FIGHT FOR WARMTH” organically inside the complete continuous cartoon, directly on naturally open twilight sky, snowfall, mist, or pale stone texture in the upper-left title-safe area. The title-safe band is environmental negative space, never a separate graphic object. No pasted rectangle, box, card, banner, split-screen, hard-edged overlay, opaque panel, post-render typography, or UI-like container. Preserve uninterrupted scene continuity behind and around the lettering. Render the headline exactly once, verbatim, fully legible, with no other readable or pseudo-text.",
+      "generated_file": ".superpowers/sdd/2026-08-23-legacy-thumbnail-restoration/generated-original-previews/nature-prehistoric/prehistoric-survival-title-card-3.png",
+      "file_type": "PNG",
+      "width": 1672,
+      "height": 941,
+      "byte_size": 2246152,
+      "sha256": "d1ae971feccaa76930851e9befc607571765b5043fed35b1768adf7b90083ad7",
+      "visual_qa": {
+        "status": "accepted",
+        "headline_exact": true,
+        "no_extra_text": true,
+        "no_opaque_panel": true,
+        "mobile_readability": "passed",
+        "notes": "Exact one-line headline is rendered directly on the open twilight sky; the close side-profile figure, branches, windbreak, snow, and firelight form a coherent warmth scene."
+      }
+    }
+  ]
+}
