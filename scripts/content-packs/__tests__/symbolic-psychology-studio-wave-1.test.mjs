@@ -115,7 +115,7 @@ test('candidate summaries: each new candidate uses the minimal Story-owned v1 su
   }
 })
 
-test('candidate handoffs keep three leaves review-pending, the coordinator blocked, and the receiver non-mutating', async () => {
+test('candidate handoffs keep Recipe and Oil review-pending, Pastel and coordinator blocked, and the receiver non-mutating', async () => {
   const handoffs = await readJson(CANDIDATE_HANDOFFS)
   const receiver = await readJson(RECEIVER_HANDOFF)
   const requiredFields = [
@@ -131,16 +131,30 @@ test('candidate handoffs keep three leaves review-pending, the coordinator block
   assert.equal(handoffs.handoffs.length, 4)
   for (const handoff of handoffs.handoffs) {
     assert.deepEqual(Object.keys(handoff).sort(), [...requiredFields].sort())
-    assert.equal(handoff.status, handoff.component === 'coordinator' ? 'blocked' : 'candidate-built-review-pending')
+    const isPastel = handoff.identity.pack_id === CLOSURE[3][0]
+    assert.equal(handoff.status, handoff.component === 'coordinator' || isPastel ? 'blocked' : 'candidate-built-review-pending')
     assert.deepEqual(Object.keys(handoff.review_requests), reviewNames)
     for (const reviewName of reviewNames) {
-      const expected = reviewName === 'thumbnail' && handoff.component !== 'recipe' ? 'not_applicable' : 'requested'
+      const expected = reviewName === 'thumbnail' && handoff.component !== 'recipe'
+        ? 'not_applicable'
+        : isPastel && reviewName === 'visual'
+          ? 'blocked'
+          : handoff.component === 'coordinator' && reviewName === 'safety'
+            ? 'blocked'
+            : 'requested'
       assert.equal(handoff.review_requests[reviewName].status, expected, `${handoff.identity.pack_id}: ${reviewName}`)
       if (expected === 'not_applicable') assert.ok(handoff.review_requests[reviewName].reason)
     }
     assert.ok(handoff.blocked_by.some(blocker => blocker.status === 'review-pending'))
+    if (isPastel) {
+      assert.equal(handoff.source.candidate, null)
+      assert.ok(handoff.blocked_by.some(blocker => blocker.gate === 'visual-preview' && blocker.status === 'blocked'))
+    }
     if (handoff.component === 'coordinator') {
       assert.ok(handoff.blocked_by.some(blocker => blocker.gate === 'publisher-contract' && blocker.status === 'blocked'))
+      assert.ok(handoff.blocked_by.some(blocker => blocker.gate === 'safety-compatibility' && blocker.status === 'blocked'))
+      assert.match(handoff.intent, /commerce terms are undecided and not supplied/i)
+      assert.doesNotMatch(handoff.intent, /\bfree\b|\bpaid\b|\bprice\b/i)
     }
   }
 

@@ -21,7 +21,6 @@ const RECIPE = {
     'editorial-psychology-symbolic-split-1.webp',
     'editorial-psychology-symbolic-split-2.webp',
     'editorial-psychology-symbolic-split-3.webp',
-    'editorial-psychology-symbolic-split-4.webp',
     'editorial-psychology-symbolic-split-5.webp',
   ],
 } as const
@@ -44,12 +43,6 @@ const RECIPE_PREVIEW_DIVERSITY = [
     placement: 'center-left',
     sourceName: 'EP0022_Thumb01_v1.png',
     sha256: '7d419bf83d807f8ce287040f51e5d620617e595f6bd09dc5ca7ee332252b6290',
-  },
-  {
-    asset: 'editorial-psychology-symbolic-split-4.webp',
-    placement: 'right',
-    sourceName: 'EP0043_Thumb02_v1.png',
-    sha256: 'fb5be086761b7effc5ae325ac8d2458f7da071c710c3e4dcfb5155fb523b1166',
   },
   {
     asset: 'editorial-psychology-symbolic-split-5.webp',
@@ -137,9 +130,11 @@ test('Editorial Psychology Symbolic Split preserves the reusable direct-title re
   assert.ok(Array.isArray(recipe.headline_formats) && recipe.headline_formats.length >= 4)
 })
 
-test('Editorial Psychology Symbolic Split keeps its reviewed left, center-left, and right preview evidence', async () => {
+test('Editorial Psychology Symbolic Split keeps four independently conforming varied preview examples', async () => {
   assert.deepEqual(RECIPE.assets, RECIPE_PREVIEW_DIVERSITY.map(preview => preview.asset))
-  assert.deepEqual([...new Set(RECIPE_PREVIEW_DIVERSITY.map(preview => preview.placement))], ['left', 'center-left', 'right'])
+  assert.equal(RECIPE_PREVIEW_DIVERSITY.length, 4)
+  assert.deepEqual([...new Set(RECIPE_PREVIEW_DIVERSITY.map(preview => preview.placement))], ['left', 'center-left'])
+  assert.equal(new Set(RECIPE_PREVIEW_DIVERSITY.map(preview => preview.sourceName.slice(0, 6))).size, 4)
 
   const ledger = await fs.readFile(path.join(PSYCHOLOGY_EDITORIAL_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const preview of RECIPE_PREVIEW_DIVERSITY) {
@@ -151,21 +146,11 @@ test('Editorial Psychology Symbolic Split keeps its reviewed left, center-left, 
     assert.ok(evidenceLine?.includes(`Placement: \`${preview.placement}\``), `${preview.asset} must retain its reviewed placement`)
   }
 
-  const rightAsset = await sharp(path.join(RECIPE.root, 'assets', 'editorial-psychology-symbolic-split-4.webp'))
-    .resize(192, 108)
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true })
-  let leftDarkPixels = 0
-  let rightDarkPixels = 0
-  for (let index = 0; index < rightAsset.data.length; index += rightAsset.info.channels) {
-    const luminance = (rightAsset.data[index] + rightAsset.data[index + 1] + rightAsset.data[index + 2]) / 3
-    if (luminance >= 45) continue
-    const x = (index / rightAsset.info.channels) % rightAsset.info.width
-    if (x < rightAsset.info.width / 2) leftDarkPixels += 1
-    else rightDarkPixels += 1
-  }
-  assert.ok(rightDarkPixels > leftDarkPixels * 3, 'reviewed right-side preview must retain its right-weighted symbolic figure')
+  await assert.rejects(
+    fs.access(path.join(RECIPE.root, 'assets', 'editorial-psychology-symbolic-split-4.webp')),
+    { code: 'ENOENT' },
+  )
+  assert.doesNotMatch(ledger, /editorial-psychology-symbolic-split-4\.webp|EP0043_Thumb02_v1\.png/)
 })
 
 test('Pastel Surreal Psychological Collage preserves the reusable visual and safety contract', async () => {

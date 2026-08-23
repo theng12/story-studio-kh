@@ -16,7 +16,6 @@ const CAPI_ASSETS = [
   'editorial-psychology-symbolic-split-1.webp',
   'editorial-psychology-symbolic-split-2.webp',
   'editorial-psychology-symbolic-split-3.webp',
-  'editorial-psychology-symbolic-split-4.webp',
   'editorial-psychology-symbolic-split-5.webp',
   'pastel-surreal-psychological-collage.webp',
 ] as const
@@ -24,7 +23,6 @@ const CAPI_HASHES = [
   'f82c5659ca989b27af5cf789c6270b4ef40aa24ec6060f1a91e015374a52f277',
   'cf65e48ae0215b3ab8e4a331f91b0cc126ee8fc0dea63724836b6b0bd7a744fb',
   '7d419bf83d807f8ce287040f51e5d620617e595f6bd09dc5ca7ee332252b6290',
-  'fb5be086761b7effc5ae325ac8d2458f7da071c710c3e4dcfb5155fb523b1166',
   'b816e5ed7fb95eb16e16f95100e1e7b4840ee0f3f046e0d8eca4c766d820e492',
   '398cb595ce5c285570ce057cb81c86b73a739a5d220fc44a85faa7378b2e87ab',
 ] as const
@@ -63,11 +61,11 @@ test('source evidence: Capi preview bytes match the provenance ledger', async ()
 
   parseContentPackDocument('thumbnail-recipe', recipe)
   parseContentPackDocument('visual-style', pastel)
-  assert.deepEqual(recipe.preview_assets, CAPI_ASSETS.slice(0, 5).map(asset => `assets/${asset}`))
-  assert.deepEqual(pastel.preview_assets, [`assets/${CAPI_ASSETS[5]}`])
+  assert.deepEqual(recipe.preview_assets, CAPI_ASSETS.slice(0, 4).map(asset => `assets/${asset}`))
+  assert.deepEqual(pastel.preview_assets, [`assets/${CAPI_ASSETS[4]}`])
 
   for (const [index, asset] of CAPI_ASSETS.entries()) {
-    const root = index < 5 ? recipeRoot : pastelRoot
+    const root = index < 4 ? recipeRoot : pastelRoot
     const bytes = await fs.readFile(path.join(root, 'assets', asset))
     assert.equal(sha256(bytes), CAPI_HASHES[index], `${asset} must retain its reviewed source byte`)
     const ledgerEntry = ledger.split('\n').find(line => line.includes(asset))
