@@ -215,7 +215,7 @@ test('declared preview redirects cannot cross a Style or Recipe provenance ident
   )
 })
 
-test('free Starter Channel Kit source tree contains 46 stable pack lineages plus four 1.0.1 gallery successors', async () => {
+test('free Starter Channel Kit source tree contains 46 stable pack lineages, four gallery successors, and five kit successors', async () => {
   const sourceRoots = ['formula', 'topic', 'style', 'thumbnail', 'kit']
   const packSources = []
   for (const root of sourceRoots) {
@@ -227,7 +227,7 @@ test('free Starter Channel Kit source tree contains 46 stable pack lineages plus
       packSources.push({ relative, source })
     }
   }
-  assert.equal(packSources.length, 50)
+  assert.equal(packSources.length, 55)
   assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 46)
   for (const { relative, source } of packSources) {
     assert.ok(['1.0.0', '1.0.1'].includes(source.version), `${relative} must use a registered release version`)
@@ -235,6 +235,11 @@ test('free Starter Channel Kit source tree contains 46 stable pack lineages plus
   }
   const successors = packSources.filter(({ source }) => source.version === '1.0.1')
   assert.deepEqual(successors.map(({ relative }) => relative).sort(), [
+    'content-packs/free-starters/kit/a-life-as-v1.0.1/pack.json',
+    'content-packs/free-starters/kit/calm-mind-v1.0.1/pack.json',
+    'content-packs/free-starters/kit/first-humans-v1.0.1/pack.json',
+    'content-packs/free-starters/kit/human-behavior-v1.0.1/pack.json',
+    'content-packs/free-starters/kit/sleep-journeys-v1.0.1/pack.json',
     'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1/pack.json',
     'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1/pack.json',
     'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1/pack.json',

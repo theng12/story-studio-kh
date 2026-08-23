@@ -1,5 +1,5 @@
 {
-  "revision": 4,
+  "revision": 10,
   "batches": [
     {
       "revision": 2,
@@ -306,9 +306,304 @@
           }
         ]
       }
+    },
+    {
+      "revision": 5,
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "request": {
+        "expected_revision": 4,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "proposal_ref": "docs/superpowers/plans/2026-08-23-thumbnail-successor-store-archives.md#task-1",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.kit.calm-mind",
+            "bundle_id": "com.storystudio.bundle.calm-mind",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.everyday-calm",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.calm-mind",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.calm-mind",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.human-behavior",
+            "bundle_id": "com.storystudio.bundle.human-behavior",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.minimal-stick-figure-explainer",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.human-behavior",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.human-behavior",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.a-life-as",
+            "bundle_id": "com.storystudio.bundle.a-life-as",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.a-life-as",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.a-life-as",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+            "bundle_id": "com.storystudio.bundle.sleep-journeys",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.sleep-story",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.night-journeys",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.sleep-journeys",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.sleep-journeys",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.first-humans",
+            "bundle_id": "com.storystudio.bundle.first-humans",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/first-humans-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.ancient-humans",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.first-humans",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.first-humans",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
-  "transitions": [],
+  "transitions": [
+    {
+      "revision": 6,
+      "transition_ref": "lifecycle:bf1305d8fe717c2928b3a9b45f6b8ab16ffc09008554f4f578d16c3a00f19729",
+      "request": {
+        "expected_revision": 5,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.calm-mind",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 7,
+      "transition_ref": "lifecycle:60beac8d78ea751fef98eaaf545f705814021aef1dd95ba17c81a60828c7a281",
+      "request": {
+        "expected_revision": 6,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.human-behavior",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 8,
+      "transition_ref": "lifecycle:ee38146dd47c4c3f9f04d9b63230a4b1e9304d93a6dbda47b4618198e798e6fb",
+      "request": {
+        "expected_revision": 7,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.a-life-as",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 9,
+      "transition_ref": "lifecycle:93150c2db7152214c1c85cec87e5c9087dd6536b7f2d06afd7e152b78a0be7fe",
+      "request": {
+        "expected_revision": 8,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 10,
+      "transition_ref": "lifecycle:11b253db614d8c1980a0d3ac394abff71eb0d8967038b67788c34da16353addb",
+      "request": {
+        "expected_revision": 9,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.first-humans",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    }
+  ],
   "records": [
     {
       "receipt_ref": "baseline:com.storystudio.pack.formula.ancient-humans@1.0.0",
@@ -2050,6 +2345,206 @@
         },
         "sku": {
           "id": "com.storystudio.sku.thumbnail.prehistoric-discovery",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.calm-mind",
+      "bundle_id": "com.storystudio.bundle.calm-mind",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.everyday-calm",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.calm-mind",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.calm-mind",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.human-behavior",
+      "bundle_id": "com.storystudio.bundle.human-behavior",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.minimal-stick-figure-explainer",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.human-behavior",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.human-behavior",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.a-life-as",
+      "bundle_id": "com.storystudio.bundle.a-life-as",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.a-life-as",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.a-life-as",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+      "bundle_id": "com.storystudio.bundle.sleep-journeys",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.sleep-story",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.night-journeys",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.sleep-journeys",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.sleep-journeys",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.first-humans",
+      "bundle_id": "com.storystudio.bundle.first-humans",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/first-humans-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.ancient-humans",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.first-humans",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.first-humans",
           "status": "proposed"
         }
       }

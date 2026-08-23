@@ -24,18 +24,19 @@ async function registrySnapshot(path) {
     revision: registry.revision,
     recordCount: registry.records.length,
     batchCount: registry.batches.length,
+    transitionCount: registry.transitions.length,
   }
 }
 
-test('reconciles the strict 55-pack authored registry against source manifests', async () => {
+test('reconciles the strict 60-pack authored registry against source manifests', async () => {
   const { validateAuthoringRegistry } = await import(registryModule)
   const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
 
   const authored = result.records.filter((record) => record.status === 'authored')
   assert.equal(result.revision, JSON.parse(await readFile(registryPath, 'utf8')).revision)
-  assert.equal(authored.length, 55)
+  assert.equal(authored.length, 60)
   assert.equal(authored.filter((record) => record.item_id).length, 44)
-  assert.equal(authored.filter((record) => record.bundle_id).length, 11)
+  assert.equal(authored.filter((record) => record.bundle_id).length, 16)
 })
 
 test('rejects unknown, duplicate, and GenStudio-owned registry fields before source reconciliation', async (t) => {
@@ -473,7 +474,8 @@ test('rejects tampered reserved identity fields while retaining the receipt', as
   const root = await temporaryRepository()
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
-  const request = reservationRequest((await registrySnapshot(copy)).revision)
+  const initial = await registrySnapshot(copy)
+  const request = reservationRequest(initial.revision)
   await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
   const acceptedBytes = await readFile(copy)
   const accepted = JSON.parse(acceptedBytes)
@@ -686,7 +688,8 @@ test('promotes an exact reserved source to authored and keeps its immutable rece
   const root = await temporaryRepository()
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
-  const request = reservationRequest((await registrySnapshot(copy)).revision)
+  const initial = await registrySnapshot(copy)
+  const request = reservationRequest(initial.revision)
   const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
   await materializeReservedStyle(root, request.records[0])
 
@@ -698,7 +701,7 @@ test('promotes an exact reserved source to authored and keeps its immutable rece
   assert.equal(transitioned.revision, reserved.revision + 1)
   assert.match(transitioned.transition_ref, /^lifecycle:[a-f0-9]{64}$/)
   const registry = JSON.parse(await readFile(copy, 'utf8'))
-  assert.equal(registry.transitions.length, 1)
+  assert.equal(registry.transitions.length, initial.transitionCount + 1)
   assert.equal(registry.records.at(-1).status, 'authored')
   assert.equal((await verifyAuthoringReceipt({
     registryPath: copy,
