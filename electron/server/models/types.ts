@@ -1991,6 +1991,14 @@ export interface ProjectConfig {
    *  on every read so renames/deletes via Finder don't leak orphaned
    *  metadata. */
   music_pool_tracks?: MusicPoolTrack[]
+  /**
+   * v1.4.37 — the channel's MUSIC LIBRARY, kept separate from the
+   * narration-bed pool above. See `MusicLibraryTrack` for why they are not one
+   * thing. Pruned on every read the same way, so a Finder delete cannot leak
+   * orphaned metadata.
+   */
+  music_library_tracks?: MusicLibraryTrack[]
+  music_library_usage_log?: MusicLibraryUsageEntry[]
 }
 
 /** v1.0.107+ — per-track metadata in the background-music pool. */
@@ -2025,6 +2033,56 @@ export interface MusicPoolTrack {
 
 /** v1.0.107+ — one entry in the music-pool usage log. */
 export interface MusicPoolUsageEntry {
+  filename: string
+  episode_code: string
+  used_at: string
+}
+
+/**
+ * v1.4.37 — one track in a channel's MUSIC LIBRARY.
+ *
+ * NOT the same thing as `MusicPoolTrack`, and deliberately not merged with it.
+ * `MusicPoolTrack` describes the background bed that ducks under narration
+ * ({projectDir}/music/, one track chosen per episode). This describes a
+ * channel's record collection ({projectDir}/music-library/), which a music-mix
+ * video is BUILT FROM — many tracks per video, chosen to fill a runtime.
+ *
+ * The owner ruled both stay, with their own pages, because they are different
+ * jobs. Overloading one folder would put a narration bed into a mix.
+ */
+export interface MusicLibraryTrack {
+  /** Filename relative to {projectDir}/music-library/. Disk is the truth. */
+  filename: string
+  /** Human title shown in the tracklist. Written by the planner alongside the
+   *  prompt, so distinct titles cost nothing extra. Falls back to filename. */
+  title: string
+  /** Eligible for automatic mix selection. A disabled track stays on disk. */
+  enabled: boolean
+  /** Seconds, measured from the file — the mix builder fills a runtime with it. */
+  duration_sec?: number
+  /**
+   * Tracks that came back from ONE GenStudio request share this id.
+   *
+   * Suno returns two complete songs per charge, and because both come from the
+   * same instruction they sound like cousins — same mood, same instruments,
+   * similar tempo. Played back to back a listener hears one song repeating, so
+   * the mix builder keeps siblings apart. This id is the only way it can know.
+   */
+  sibling_group?: string
+  /** Which take of its request this was (1-based), for naming and ordering. */
+  sibling_index?: number
+  /** The brief that produced it, so a library can be filtered by top-up run. */
+  brief_id?: string
+  /** Free-form mood tags for filtering and for the mix builder's arc. */
+  tags?: string[]
+  /** GenStudio job id, when generated. Absent for a file dropped in via Finder. */
+  genstudio_job_id?: string
+  /** ISO timestamp this row was created. */
+  added_at?: string
+}
+
+/** One recorded use of a library track in a rendered mix. */
+export interface MusicLibraryUsageEntry {
   filename: string
   episode_code: string
   used_at: string
@@ -2098,6 +2156,15 @@ export interface UpdateConfigRequest {
   active_style_preset_id?: string
   formula_applied_style_id?: string
   thumbnail_template_id?: string
+  /**
+   * v1.4.37 — declared rather than cast. `applyConfigRequest` is a pass-through
+   * with an exclude list, not an allowlist, so these were always written
+   * correctly; the older music-pool writes reach it via `as any` only because
+   * this interface was never widened. Declaring them means the music library's
+   * writes are type-checked instead of trusted.
+   */
+  music_library_tracks?: MusicLibraryTrack[]
+  music_library_usage_log?: MusicLibraryUsageEntry[]
 }
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
