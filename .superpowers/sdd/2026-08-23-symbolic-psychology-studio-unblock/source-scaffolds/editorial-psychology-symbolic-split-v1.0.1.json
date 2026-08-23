@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "reservation": {
+    "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+    "version": "1.0.1",
+    "registry_revision": 17,
+    "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+    "expected_identity_path": ".superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/editorial-psychology-symbolic-split-v1.0.1.json",
+    "receipt_verified": true
+  },
+  "future_source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1",
+  "predecessor": {
+    "version": "1.0.0",
+    "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split",
+    "files": [
+      {
+        "path": "pack.json",
+        "sha256": "09800de2f8112da41eefb9dcdc76901d432643380382f4109ccd941c8323d2e5"
+      },
+      {
+        "path": "content/thumbnail-recipe.json",
+        "sha256": "74b3192de5c61d796d64f819bca3bb806a30728cdf9b49fddfd19240320a12f8"
+      },
+      {
+        "path": "assets/editorial-psychology-symbolic-split-1.webp",
+        "sha256": "f82c5659ca989b27af5cf789c6270b4ef40aa24ec6060f1a91e015374a52f277"
+      },
+      {
+        "path": "assets/editorial-psychology-symbolic-split-2.webp",
+        "sha256": "cf65e48ae0215b3ab8e4a331f91b0cc126ee8fc0dea63724836b6b0bd7a744fb"
+      },
+      {
+        "path": "assets/editorial-psychology-symbolic-split-3.webp",
+        "sha256": "7d419bf83d807f8ce287040f51e5d620617e595f6bd09dc5ca7ee332252b6290"
+      },
+      {
+        "path": "assets/editorial-psychology-symbolic-split-5.webp",
+        "sha256": "b816e5ed7fb95eb16e16f95100e1e7b4840ee0f3f046e0d8eca4c766d820e492"
+      }
+    ],
+    "provenance_rows": [
+      {
+        "runtime_asset_path": "thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-1.webp",
+        "sha256": "d59ef8ea529691d8b249b26d9604951e5e134fc871f3471b911645a1913855d9"
+      },
+      {
+        "runtime_asset_path": "thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-2.webp",
+        "sha256": "c2294ea7e93f02a261d53534304916a3c7693f52947490215c50cb1277d5ca9c"
+      },
+      {
+        "runtime_asset_path": "thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-3.webp",
+        "sha256": "81008d3cde7640ffb67c2b86f554282dc317db0f41de0df383b2f1ad66efe478"
+      },
+      {
+        "runtime_asset_path": "thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-5.webp",
+        "sha256": "bbb3dd072cc4ddc1550b0628e4bdc1dd6021a4eb3716a02871335e607c39a515"
+      }
+    ]
+  },
+  "required_returned_evidence": [
+    "owner_approval_of_exact_prompt_batch",
+    "exact_quote_and_owner_quote_approval",
+    "job_submission_and_generation_authority",
+    "untouched_original_raster",
+    "job_or_request_id",
+    "exact_prompt_batch_and_sha256",
+    "full_submitted_prompt_and_sha256",
+    "published_receiver_provider_and_model",
+    "execution_timestamp",
+    "seed_if_published",
+    "cost_receipt",
+    "license_and_rights_basis",
+    "no_reference_or_compositing_declaration",
+    "original_raster_sha256",
+    "original_dimensions_file_type_and_byte_size",
+    "strict_decode_result"
+  ],
+  "preview_acceptance_contract": [
+    "One completely original full-frame 16:9 raster suitable for deterministic whole-image conversion to 1672x941 WebP.",
+    "Exactly one fragmented porcelain mannequin head and shoulders is on the far right, in three-quarter profile at medium-long distance, facing inward.",
+    "The left two-thirds remain sparse and uncluttered as the dominant title band.",
+    "The complete exact headline HIDDEN MOTIVES is rendered in-image on one unbroken line with no other words, clipping, or malformed text.",
+    "The result materially expands the existing gallery's subject side, camera angle, distance, and one-line hierarchy diversity.",
+    "No reference or saved image, rejected preview bytes, copied composition, compositing, masking, title plate, post-render overlay, logo, watermark, or UI is permitted."
+  ],
+  "registry_transition_allowed": false
+}

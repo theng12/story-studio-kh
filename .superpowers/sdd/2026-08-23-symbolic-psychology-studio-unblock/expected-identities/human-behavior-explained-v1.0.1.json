@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+  "item_id": "com.storystudio.formula.human-behavior-explained",
+  "version": "1.0.1",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "series-formula",
+  "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.1",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.formula.human-behavior-explained",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.formula.human-behavior-explained",
+      "status": "proposed"
+    }
+  }
+}

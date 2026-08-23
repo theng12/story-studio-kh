@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "reservation": {
+    "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+    "version": "1.0.1",
+    "registry_revision": 17,
+    "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+    "expected_identity_path": ".superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/expected-identities/pastel-surreal-psychological-collage-v1.0.1.json",
+    "receipt_verified": true
+  },
+  "future_source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1",
+  "predecessor": {
+    "version": "1.0.0",
+    "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage",
+    "files": [
+      {
+        "path": "pack.json",
+        "sha256": "2528f1c88b65a64b86177acffaaabd031a9f671fe0351e9e60000c71dc8131a0"
+      },
+      {
+        "path": "content/visual-style.json",
+        "sha256": "d12274ba7f5541226a8a9cdbdefd961679fbc1e90f08c7bfa4a5a75733e5751d"
+      },
+      {
+        "path": "assets/pastel-surreal-psychological-collage.webp",
+        "sha256": "398cb595ce5c285570ce057cb81c86b73a739a5d220fc44a85faa7378b2e87ab"
+      }
+    ],
+    "provenance_rows": [
+      {
+        "runtime_asset_path": "style/pastel-surreal-psychological-collage/assets/pastel-surreal-psychological-collage.webp",
+        "sha256": "5df384239d53293a76a5c92c4465347b693b1586ce2c2a4a3f7f0ededf9be723"
+      }
+    ]
+  },
+  "required_returned_evidence": [
+    "owner_approval_of_literal_prompt_batch_and_hash",
+    "exact_quote_and_owner_quote_approval",
+    "job_submission_and_generation_authority",
+    "untouched_original_raster",
+    "job_or_request_id",
+    "literal_prompt_batch_and_sha256",
+    "full_submitted_prompt_and_sha256",
+    "published_receiver_provider_and_model",
+    "execution_timestamp",
+    "seed_if_published",
+    "cost_receipt",
+    "license_and_rights_basis",
+    "no_reference_or_compositing_declaration",
+    "original_raster_sha256",
+    "original_dimensions_file_type_and_byte_size",
+    "strict_decode_result"
+  ],
+  "preview_acceptance_contract": [
+    "One completely original text-free full-frame 16:9 raster suitable for deterministic whole-image conversion to 1672x941 WebP.",
+    "The medium is a matte mixed-media psychological collage with paper-like tactile grain, dry painterly and sculptural traces, subtle erosion, restrained blur, and clear low-saturation figure-ground separation.",
+    "The palette is limited to dusty peach, mauve, lavender, pale blue, cream, charcoal, and warm gray, with ember orange only as a restrained accent.",
+    "The composition contains one sparse fragmented or eroded portrait, mask, mannequin, silhouette, door, flame, sculptural human trace, or abstract emotional object.",
+    "Glossy CGI, wet or heavy impasto, photoreal stock imagery, neon color, crowded scenes, typography, copied trade dress, malformed anatomy or text, logos, and watermarks are rejected.",
+    "No reference or saved image, Capi source, image edit, compositing, masking, title plate, post-render overlay, logo, watermark, or UI is permitted."
+  ],
+  "registry_transition_allowed": false
+}

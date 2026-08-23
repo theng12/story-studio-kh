@@ -1,0 +1,76 @@
+{
+  "expected_revision": 16,
+  "coordinator": {
+    "task": "symbolic-psychology-studio-unblock-leaf-successors",
+    "branch": "codex/content-expansion-portfolio"
+  },
+  "proposal_ref": "docs/superpowers/plans/2026-08-23-symbolic-psychology-studio-unblock.md#task-4-atomically-reserve-formula-recipe-and-pastel-successors",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+      "item_id": "com.storystudio.formula.human-behavior-explained",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.human-behavior-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.human-behavior-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+      "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1",
+      "kind": "thumbnail-recipe",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+      "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1",
+      "kind": "visual-style",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        }
+      }
+    }
+  ]
+}

@@ -238,7 +238,70 @@ mutation occurred.
 `1.4.32` version/changelog update is release preparation only and is not
 deployment evidence.
 
+## Task 4 atomic leaf-successor reservation
+
+Task 4 started from `2a532353fd0f26081ce9f7f160e328cdcb39d883` on the
+required `codex/content-expansion-portfolio` branch with a clean worktree.
+Registry validation reported revision `16` with `74` records before mutation.
+
+### Immutable predecessor evidence
+
+- Recipe `1.0.0` now has exact SHA-256 assertions for its `pack.json`, content
+  document, four preview assets, and four complete provenance rows.
+- Pastel `1.0.0` now has exact SHA-256 assertions for its `pack.json`, content
+  document, preview asset, and complete provenance row.
+- The immutable test passed before reservation. The reservation/scaffold test
+  then failed RED only because its request file did not yet exist, and passed
+  after the exact receipt-bound evidence was present.
+
+### Serialized reservation evidence
+
+- One and only one reserve call used coordinator task
+  `symbolic-psychology-studio-unblock-leaf-successors`, branch
+  `codex/content-expansion-portfolio`, and expected revision `16`.
+- The call returned revision `17` and receipt
+  `authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd`.
+  The registry now has `77` records.
+- Formula, Recipe, and Pastel `1.0.1` are each bound to that exact receipt and
+  remain `reserved`. Each exact expected identity, copied without
+  `receipt_ref`, passed an independent `verify-receipt` call at revision `17`.
+- Every leaf uses `{{MIN_APP_VERSION}}` with status `release-bound`; the
+  schema-compatible leaf build floor remains the truthful `1.0.843`. No Kit
+  minimum was reused or invented.
+
+### Preserved gates and scope
+
+- Recipe and Pastel have receipt-derived, non-discoverable SDD checklists for
+  immutable predecessor hashes, required returned evidence, and exact visual
+  acceptance. Both explicitly set `registry_transition_allowed: false`.
+- Formula, Recipe, and Pastel `1.0.1` Content Pack source directories are
+  absent. No successor manifest, content document, asset, future asset hash,
+  returned prompt/quote value, creative byte, lifecycle transition, archive,
+  or promotion was created.
+- The Symbolic Psychology Studio Kit `1.0.1` source and registry record are
+  absent. No Kit reservation, external generation, Studio Hub handoff,
+  commerce mutation, deploy, tag, or push occurred.
+- Fresh Task 4 JSON contains no `component_summary`.
+
+### Verification
+
+- `npm run content-pack:registry -- validate` — revision `17`, `77` records.
+- `node --test scripts/content-packs/__tests__/authoring-registry.test.mjs` —
+  32 passed, 0 failed.
+- `npx tsx --test electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts`
+  — 6 passed, 0 failed.
+- `npm test` — 3,241 passed and 2 failed only because this linked worktree had
+  not installed `frontend/node_modules` and therefore could not resolve `vue`.
+  After `npm --prefix frontend install` reported 0 vulnerabilities, the exact
+  failed `content-pack-migration-golden.test.ts` suite passed 7/7. No product or
+  lockfile bytes changed during dependency setup.
+- Three exact `verify-receipt` CLI calls — Formula, Recipe, and Pastel passed
+  at revision `17` against the shared receipt.
+- `git diff --check` — clean.
+
 ## Next task
 
-Task 4 remains the separately authorized leaf-successor reservation task. Task
-3 did not reserve or mutate any registry identity.
+Task 5 may author and transition Formula only. Recipe and Pastel remain blocked
+in `reserved` state until Task 6's exact owner authority, returned bytes,
+provenance, and independent review gates are satisfied. Kit reservation remains
+forbidden.
