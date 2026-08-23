@@ -439,9 +439,12 @@ test('persists receipt metadata and verifies a leaf exact identity', async (t) =
   }
 })
 
-test('persists the exact Wave 2 reusable-primitives batch without cross-lineage identity collisions', async () => {
-  const { verifyAuthoringReceipt } = await import(registryModule)
-  const registry = JSON.parse(await readFile(registryPath, 'utf8'))
+async function assertWave2ReusablePrimitivesReservation({
+  registry,
+  candidateRegistryPath,
+  candidateRepositoryRoot,
+  verifyAuthoringReceipt,
+}) {
   const revision = 19
   const receiptRef = 'authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728'
   const coordinator = {
@@ -532,7 +535,6 @@ test('persists the exact Wave 2 reusable-primitives batch without cross-lineage 
     },
   ]
 
-  assert.equal(registry.revision, revision)
   const batch = registry.batches.find((candidate) => candidate.receipt_ref === receiptRef)
   assert.deepEqual(batch, {
     revision,
@@ -570,13 +572,49 @@ test('persists the exact Wave 2 reusable-primitives batch without cross-lineage 
     }
 
     assert.deepEqual(await verifyAuthoringReceipt({
-      registryPath,
-      repositoryRoot,
+      registryPath: candidateRegistryPath,
+      repositoryRoot: candidateRepositoryRoot,
       revision,
       receiptRef,
       expectedIdentity,
     }), { revision, receipt_ref: receiptRef, identity: expectedIdentity })
   }
+}
+
+test('persists the exact Wave 2 reusable-primitives batch without cross-lineage identity collisions', async () => {
+  const { verifyAuthoringReceipt } = await import(registryModule)
+  const registry = JSON.parse(await readFile(registryPath, 'utf8'))
+  await assertWave2ReusablePrimitivesReservation({
+    registry,
+    candidateRegistryPath: registryPath,
+    candidateRepositoryRoot: repositoryRoot,
+    verifyAuthoringReceipt,
+  })
+})
+
+test('keeps Wave 2 reservation evidence valid after an unrelated later registry revision', async (t) => {
+  const { reserveAuthoringBatch, validateAuthoringRegistry, verifyAuthoringReceipt } = await import(registryModule)
+  const root = await temporaryRepository()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const copy = join(root, 'content-packs', 'authoring-registry.json')
+  const initial = await registrySnapshot(copy)
+  assert.equal(initial.revision, 19)
+
+  const unrelated = await reserveAuthoringBatch({
+    registryPath: copy,
+    repositoryRoot: root,
+    request: reservationRequest(initial.revision),
+  })
+  assert.equal(unrelated.revision, 20)
+
+  const validated = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+  assert.equal(validated.revision, 20)
+  await assertWave2ReusablePrimitivesReservation({
+    registry: JSON.parse(await readFile(copy, 'utf8')),
+    candidateRegistryPath: copy,
+    candidateRepositoryRoot: root,
+    verifyAuthoringReceipt,
+  })
 })
 
 test('offers a leaf-facing verify-receipt CLI with revision, receipt, and expected identity', async (t) => {
