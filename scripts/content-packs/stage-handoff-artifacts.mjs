@@ -12,6 +12,45 @@ const MAX_ARCHIVE_BYTES = 52_428_800
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const SHA256 = /^[a-f0-9]{64}$/
 const RECEIPT = /^authoring:[a-f0-9]{64}$/
+const WAVE_RECEIPT = 'authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728'
+const WAVE_BINDINGS = {
+  'question-ladder': {
+    pack_id: 'com.storystudio.pack.formula.question-ladder',
+    item_id: 'com.storystudio.formula.question-ladder',
+    version: '1.0.0',
+    kind: 'series-formula',
+    source_path: 'content-packs/reusable-primitives/formula/question-ladder',
+  },
+  'audience-question-seeder': {
+    pack_id: 'com.storystudio.pack.topic.audience-question-seeder',
+    item_id: 'com.storystudio.topic.audience-question-seeder',
+    version: '1.0.0',
+    kind: 'topic-pack',
+    source_path: 'content-packs/reusable-primitives/topic/audience-question-seeder',
+  },
+  'before-after-timeline': {
+    pack_id: 'com.storystudio.pack.formula.before-after-timeline',
+    item_id: 'com.storystudio.formula.before-after-timeline',
+    version: '1.0.0',
+    kind: 'series-formula',
+    source_path: 'content-packs/reusable-primitives/formula/before-after-timeline',
+  },
+  'object-hero-question': {
+    pack_id: 'com.storystudio.pack.thumbnail.object-hero-question',
+    item_id: 'com.storystudio.thumbnail.object-hero-question',
+    version: '1.0.0',
+    kind: 'thumbnail-recipe',
+    source_path: 'content-packs/reusable-primitives/thumbnail/object-hero-question',
+  },
+  'route-map-one-promise': {
+    pack_id: 'com.storystudio.pack.thumbnail.route-map-one-promise',
+    item_id: 'com.storystudio.thumbnail.route-map-one-promise',
+    version: '1.0.0',
+    kind: 'thumbnail-recipe',
+    source_path: 'content-packs/reusable-primitives/thumbnail/route-map-one-promise',
+  },
+}
+const FIXED_WAVE_SLUGS = Object.keys(WAVE_BINDINGS)
 const REQUIRED_REVIEWS = [
   'schema',
   'originality-provenance',
@@ -103,7 +142,9 @@ function validateReviews(reviews, kind, label) {
 
 function validateCollections({ allowedSlugs, eligibleSlugs, entries, blockedEntries }) {
   const allowed = uniqueSlugs(allowedSlugs, 'allowedSlugs')
-  if (allowed.size === 0) fail('allowedSlugs must not be empty')
+  if (JSON.stringify(allowedSlugs) !== JSON.stringify(FIXED_WAVE_SLUGS)) {
+    fail('allowedSlugs must equal the exact fixed Wave 2 slug order')
+  }
   const eligible = uniqueSlugs(eligibleSlugs, 'eligibleSlugs')
   for (const slug of eligible) if (!allowed.has(slug)) fail(`eligible slug ${slug} is outside allowedSlugs`)
   if (!Array.isArray(entries) || !Array.isArray(blockedEntries)) fail('entries and blockedEntries must be arrays')
@@ -157,6 +198,42 @@ async function mustBeAbsent(path, label) {
     if (error?.message?.startsWith('Handoff staging:')) throw error
     if (error?.code !== 'ENOENT') throw error
   }
+}
+
+async function snapshotDirectory(path, label) {
+  await assertNoSymlinkAncestry(path, label)
+  const [info, physical] = await Promise.all([
+    lstat(path, { bigint: true }),
+    realpath(path),
+  ])
+  if (!info.isDirectory() || info.isSymbolicLink()) fail(`${label} must be a real directory`)
+  return { path, label, physical, dev: info.dev, ino: info.ino }
+}
+
+async function assertDirectoryUnchanged(expected) {
+  await assertNoSymlinkAncestry(expected.path, expected.label)
+  const [current, physical] = await Promise.all([
+    lstat(expected.path, { bigint: true }).catch(() => undefined),
+    realpath(expected.path).catch(() => undefined),
+  ])
+  if (!current || !current.isDirectory() || current.isSymbolicLink()
+    || current.dev !== expected.dev || current.ino !== expected.ino || physical !== expected.physical) {
+    fail(`${expected.label} was replaced or its ancestry changed`)
+  }
+}
+
+function ownedPath(path, parent, info) {
+  return { path, parent, dev: info.dev, ino: info.ino }
+}
+
+async function unlinkOwned(owned) {
+  await assertDirectoryUnchanged(owned.parent)
+  const current = await lstat(owned.path, { bigint: true }).catch(() => undefined)
+  if (!current || !current.isFile() || current.isSymbolicLink()
+    || current.dev !== owned.dev || current.ino !== owned.ino) {
+    fail(`owned path ${owned.path} was replaced before cleanup`)
+  }
+  await unlink(owned.path)
 }
 
 function sameSnapshot(left, right) {
@@ -217,11 +294,13 @@ async function verifyStableEvidence(path, declared, candidatePhysical) {
   }
 }
 
-async function copyStable(sourcePath, destinationPath, declared) {
+async function copyStable(sourcePath, destinationPath, declared, onDestinationCreated, afterSourceOpened) {
   const source = await openStableRegular(sourcePath, `${declared.slug} source`)
   let destination
   try {
+    await afterSourceOpened?.({ path: sourcePath, destination: destinationPath })
     destination = await open(destinationPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600)
+    await onDestinationCreated?.(destinationPath, await destination.stat({ bigint: true }))
     const hash = createHash('sha256')
     const buffer = Buffer.allocUnsafe(64 * 1024)
     let bytes = 0
@@ -249,9 +328,10 @@ async function copyStable(sourcePath, destinationPath, declared) {
   }
 }
 
-async function writeExclusive(path, bytes, mode = 0o600) {
+async function writeExclusive(path, bytes, mode = 0o600, onCreated) {
   const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode)
   try {
+    await onCreated?.(path, await handle.stat({ bigint: true }))
     const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)
     let offset = 0
     while (offset < buffer.length) {
@@ -265,9 +345,9 @@ async function writeExclusive(path, bytes, mode = 0o600) {
   }
 }
 
-async function writeJsonExclusive(path, value) {
+async function writeJsonExclusive(path, value, onCreated) {
   assertNoSummary(path.endsWith('ledger.json') ? value : null, 'ledger')
-  await writeExclusive(path, `${JSON.stringify(value, null, 2)}\n`)
+  await writeExclusive(path, `${JSON.stringify(value, null, 2)}\n`, 0o600, onCreated)
 }
 
 async function readJsonStable(path, label) {
@@ -287,17 +367,20 @@ async function pathInventory(root) {
   return names.sort().map(name => join(root, name))
 }
 
-async function cleanupCreated(paths, stagingRoot) {
+async function cleanupCreated(paths, stagingRoot, stagingGuard) {
   const failures = []
-  for (const path of [...paths].reverse()) {
+  for (const owned of [...paths].reverse()) {
     try {
-      await unlink(path)
+      await unlinkOwned(owned)
     } catch (error) {
-      if (error?.code !== 'ENOENT') failures.push({ path, error: error instanceof Error ? error.message : String(error) })
+      if (error?.code !== 'ENOENT') failures.push({ path: owned.path, error: error instanceof Error ? error.message : String(error) })
     }
   }
   try {
-    await rm(stagingRoot, { recursive: true, force: true })
+    if (stagingGuard) {
+      await assertDirectoryUnchanged(stagingGuard)
+      await rm(stagingRoot, { recursive: true, force: true })
+    }
   } catch (error) {
     failures.push({ path: stagingRoot, error: error instanceof Error ? error.message : String(error) })
   }
@@ -306,19 +389,51 @@ async function cleanupCreated(paths, stagingRoot) {
 
 function validateEntry(entry) {
   assertPlainObject(entry, `entry ${entry?.slug ?? ''}`)
+  const binding = WAVE_BINDINGS[entry.slug]
+  if (!binding) fail(`${entry.slug} is not a fixed Wave 2 slug`)
+  for (const field of ['pack_id', 'item_id', 'version', 'source_path']) {
+    if (entry[field] !== binding[field]) fail(`${entry.slug} ${field} does not match its fixed Wave 2 binding`)
+  }
   if (typeof entry.candidate_path !== 'string' || !isAbsolute(entry.candidate_path)) fail(`${entry.slug} candidate_path must be absolute`)
   if (!Number.isSafeInteger(entry.bytes) || entry.bytes <= 0 || entry.bytes > MAX_ARCHIVE_BYTES) fail(`${entry.slug} has an invalid byte count`)
   if (typeof entry.sha256 !== 'string' || !SHA256.test(entry.sha256)) fail(`${entry.slug} has an invalid SHA-256 digest`)
   if (entry.min_app_version !== MIN_APP_VERSION) fail(`${entry.slug} min_app_version must be ${MIN_APP_VERSION}`)
   if (entry.delivery_profile !== DELIVERY_PROFILE) fail(`${entry.slug} delivery profile must be ${DELIVERY_PROFILE}`)
-  if (typeof entry.receipt_ref !== 'string' || !RECEIPT.test(entry.receipt_ref)) fail(`${entry.slug} receipt_ref is invalid`)
+  if (typeof entry.receipt_ref !== 'string' || !RECEIPT.test(entry.receipt_ref) || entry.receipt_ref !== WAVE_RECEIPT) {
+    fail(`${entry.slug} receipt_ref does not match the exact Wave 2 reservation`)
+  }
   validateSummary(entry.component_summary, `${entry.slug} component_summary`)
+  if (entry.component_summary.kind !== binding.kind) fail(`${entry.slug} summary kind does not match its fixed Wave 2 binding`)
   validateReviews(entry.reviews, entry.component_summary.kind, entry.slug)
+}
+
+async function validateBoundArchive(entry, archivePath) {
+  const binding = WAVE_BINDINGS[entry.slug]
+  const verified = await validateContentPack({
+    archivePath,
+    deliveryProfile: DELIVERY_PROFILE,
+    includeManifest: true,
+  })
+  const manifest = verified.manifest
+  if (verified.packId !== binding.pack_id || verified.version !== binding.version || verified.sha256 !== entry.sha256
+    || manifest.pack_id !== binding.pack_id || manifest.version !== binding.version
+    || manifest.publisher_id !== 'com.storystudio' || manifest.min_app_version !== MIN_APP_VERSION
+    || manifest.delivery_profile !== DELIVERY_PROFILE
+    || JSON.stringify(manifest.dependencies ?? []) !== '[]'
+    || manifest.items.length !== 1 || manifest.items[0].id !== binding.item_id
+    || manifest.items[0].kind !== binding.kind) {
+    fail(`${entry.slug} archive identity or manifest contract does not match its fixed Wave 2 binding`)
+  }
+  return verified
 }
 
 /**
  * Copy explicitly qualified candidate archives to fresh, external handoff destinations.
  * The helper is intentionally fail-closed and never infers eligibility from filesystem state.
+ * Directory identities are revalidated around controlled boundaries, but this is not a
+ * filesystem-wide atomic transaction: Node does not expose dirfd-relative openat/renameat
+ * primitives here, so a hostile swap in the final check-to-open instruction window remains
+ * a residual platform limitation and restart still fails closed on existing destinations.
  */
 export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
   assertPlainObject(input, 'input')
@@ -341,6 +456,9 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
 
   let rootCreated = false
   let stagingRoot
+  let artifactRootGuard
+  let stagingGuard
+  let receiverParentGuard
   const createdPaths = []
   try {
     await assertNoSymlinkAncestry(repositoryRoot, 'repository root')
@@ -363,21 +481,46 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     if (isContained(artifactPhysical, receiverPhysical) || isContained(receiverPhysical, artifactPhysical)) {
       fail('artifact and receiver destinations must not contain one another')
     }
+    const artifactParentGuard = await snapshotDirectory(dirname(artifactRoot), 'artifact parent')
+    receiverParentGuard = await snapshotDirectory(dirname(receiverHandoffPath), 'receiver parent')
     for (const entry of entries) {
       await verifyStableEvidence(entry.candidate_path, entry, candidatePhysical)
-      await validateContentPack({ archivePath: entry.candidate_path, deliveryProfile: DELIVERY_PROFILE })
+      await validateBoundArchive(entry, entry.candidate_path)
     }
 
+    await Promise.all([
+      assertDirectoryUnchanged(artifactParentGuard),
+      assertDirectoryUnchanged(receiverParentGuard),
+    ])
     await mkdir(artifactRoot, { mode: 0o700 })
     rootCreated = true
+    await assertDirectoryUnchanged(artifactParentGuard)
+    artifactRootGuard = await snapshotDirectory(artifactRoot, 'artifact root')
+    if (artifactRootGuard.physical !== artifactPhysical) fail('artifact root was created outside its preflight physical parent')
     stagingRoot = join(artifactRoot, '.staging')
+    await assertDirectoryUnchanged(artifactRootGuard)
     await mkdir(stagingRoot, { mode: 0o700 })
+    await assertDirectoryUnchanged(artifactRootGuard)
+    stagingGuard = await snapshotDirectory(stagingRoot, 'staging root')
     const stagedPaths = new Map()
+    const stagedOwned = new Map()
     for (const entry of entries) {
+      await Promise.all([
+        assertDirectoryUnchanged(artifactParentGuard),
+        assertDirectoryUnchanged(artifactRootGuard),
+        assertDirectoryUnchanged(stagingGuard),
+      ])
       const stagedPath = join(stagingRoot, `${entry.slug}.sspack`)
-      createdPaths.push(stagedPath)
-      await copyStable(entry.candidate_path, stagedPath, entry)
-      await validateContentPack({ archivePath: stagedPath, deliveryProfile: DELIVERY_PROFILE })
+      await copyStable(entry.candidate_path, stagedPath, entry, (path, info) => {
+        const owned = ownedPath(path, stagingGuard, info)
+        createdPaths.push(owned)
+        stagedOwned.set(entry.slug, owned)
+      }, detail => afterPhase?.('source-opened', detail))
+      await validateBoundArchive(entry, stagedPath)
+      await Promise.all([
+        assertDirectoryUnchanged(artifactRootGuard),
+        assertDirectoryUnchanged(stagingGuard),
+      ])
       stagedPaths.set(entry.slug, stagedPath)
     }
     await afterPhase?.('staged-and-validated')
@@ -385,12 +528,23 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     const ledgerEntries = []
     const archivePaths = []
     for (const entry of entries) {
+      await Promise.all([
+        assertDirectoryUnchanged(artifactParentGuard),
+        assertDirectoryUnchanged(artifactRootGuard),
+        assertDirectoryUnchanged(stagingGuard),
+      ])
       const archivePath = join(artifactRoot, `${entry.slug}.sspack`)
-      createdPaths.push(archivePath)
-      await copyStable(stagedPaths.get(entry.slug), archivePath, entry)
-      await validateContentPack({ archivePath, deliveryProfile: DELIVERY_PROFILE })
-      await unlink(stagedPaths.get(entry.slug))
-      createdPaths.splice(createdPaths.indexOf(stagedPaths.get(entry.slug)), 1)
+      await copyStable(stagedPaths.get(entry.slug), archivePath, entry, (path, info) => {
+        createdPaths.push(ownedPath(path, artifactRootGuard, info))
+      }, detail => afterPhase?.('source-opened', detail))
+      await validateBoundArchive(entry, archivePath)
+      await Promise.all([
+        assertDirectoryUnchanged(artifactRootGuard),
+        assertDirectoryUnchanged(stagingGuard),
+      ])
+      const stagedOwnership = stagedOwned.get(entry.slug)
+      await unlinkOwned(stagedOwnership)
+      createdPaths.splice(createdPaths.indexOf(stagedOwnership), 1)
       archivePaths.push(archivePath)
       ledgerEntries.push({
         absolute_path: archivePath,
@@ -404,7 +558,14 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
       })
       await afterPhase?.('archive-finalized', { path: archivePath })
     }
+    await Promise.all([
+      assertDirectoryUnchanged(artifactParentGuard),
+      assertDirectoryUnchanged(artifactRootGuard),
+      assertDirectoryUnchanged(stagingGuard),
+      assertDirectoryUnchanged(receiverParentGuard),
+    ])
     await rmdir(stagingRoot)
+    stagingGuard = undefined
 
     const ledger = { schema_version: 1, entries: ledgerEntries }
     const successfulEntries = ledgerEntries.map((entry, index) => ({
@@ -423,14 +584,26 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     const ledgerPath = join(artifactRoot, 'ledger.json')
     const releaseHandoffPath = join(artifactRoot, 'release-handoff.json')
     for (const [path, value] of [[ledgerPath, ledger], [releaseHandoffPath, releaseHandoff], [receiverHandoffPath, receiver]]) {
-      createdPaths.push(path)
-      await writeJsonExclusive(path, value)
+      await Promise.all([
+        assertDirectoryUnchanged(artifactParentGuard),
+        assertDirectoryUnchanged(artifactRootGuard),
+        ...(path === receiverHandoffPath ? [assertDirectoryUnchanged(receiverParentGuard)] : []),
+      ])
+      const parentGuard = path === receiverHandoffPath ? receiverParentGuard : artifactRootGuard
+      await writeJsonExclusive(path, value, (createdPath, info) => createdPaths.push(ownedPath(createdPath, parentGuard, info)))
+      await assertDirectoryUnchanged(parentGuard)
+      await afterPhase?.('handoff-finalized', { path })
     }
 
-    const artifactRootPhysical = await realpath(artifactRoot)
+    await Promise.all([
+      assertDirectoryUnchanged(artifactParentGuard),
+      assertDirectoryUnchanged(artifactRootGuard),
+      assertDirectoryUnchanged(receiverParentGuard),
+    ])
+    const artifactRootPhysical = artifactRootGuard.physical
     for (const [index, archivePath] of archivePaths.entries()) {
       await verifyStableEvidence(archivePath, entries[index], artifactRootPhysical)
-      await validateContentPack({ archivePath, deliveryProfile: DELIVERY_PROFILE })
+      await validateBoundArchive(entries[index], archivePath)
     }
     const [persistedLedger, persistedRelease, persistedReceiver] = await Promise.all([
       readJsonStable(ledgerPath, 'ledger'),
@@ -441,15 +614,27 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     if (JSON.stringify(persistedLedger) !== JSON.stringify(ledger)
       || JSON.stringify(persistedRelease) !== JSON.stringify(releaseHandoff)
       || JSON.stringify(persistedReceiver) !== JSON.stringify(receiver)) fail('persisted handoff JSON differs from verified input')
+    await Promise.all([
+      assertDirectoryUnchanged(artifactParentGuard),
+      assertDirectoryUnchanged(artifactRootGuard),
+      assertDirectoryUnchanged(receiverParentGuard),
+    ])
     return { phase: 'complete', archivePaths, ledgerPath, releaseHandoffPath, receiverHandoffPath }
   } catch (error) {
     if (!rootCreated) {
       error.phase = 'preflight-failed'
       throw error
     }
-    const cleanupFailures = await cleanupCreated(createdPaths, stagingRoot)
+    const cleanupFailures = await cleanupCreated(createdPaths, stagingRoot, stagingGuard)
     const failurePath = join(artifactRoot, 'failure.json')
-    const remainingBeforeFailure = await pathInventory(artifactRoot)
+    let rootStillOwned = false
+    try {
+      await assertDirectoryUnchanged(artifactRootGuard)
+      rootStillOwned = true
+    } catch (identityError) {
+      cleanupFailures.push({ path: artifactRoot, error: identityError instanceof Error ? identityError.message : String(identityError) })
+    }
+    const remainingBeforeFailure = rootStillOwned ? await pathInventory(artifactRoot) : createdPaths.map(owned => owned.path)
     const failure = {
       schema_version: 1,
       phase: 'failed-after-root',
@@ -457,13 +642,17 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
       cleanup_failures: cleanupFailures,
       remaining_paths: [...remainingBeforeFailure, failurePath].sort(),
     }
-    try {
-      await writeJsonExclusive(failurePath, failure)
-    } catch (failureError) {
-      error.failure_write_error = failureError instanceof Error ? failureError.message : String(failureError)
+    if (rootStillOwned) {
+      try {
+        await writeJsonExclusive(failurePath, failure)
+        error.failurePath = failurePath
+      } catch (failureError) {
+        error.failure_write_error = failureError instanceof Error ? failureError.message : String(failureError)
+      }
+    } else {
+      error.failure_write_error = 'artifact root identity changed; refusing to redirect failure evidence'
     }
     error.phase = 'failed-after-root'
-    error.failurePath = failurePath
     throw error
   }
 }

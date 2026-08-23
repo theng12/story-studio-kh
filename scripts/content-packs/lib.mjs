@@ -434,7 +434,7 @@ export async function buildContentPack({ sourceDirectory, privateKeyPath, output
   }
 }
 
-export async function validateContentPack({ archivePath, keyId, publisherId, publicKeyPath, deliveryProfile }) {
+export async function validateContentPack({ archivePath, keyId, publisherId, publicKeyPath, deliveryProfile, includeManifest = false }) {
   if (!archivePath) fail('archive path is required')
   if (deliveryProfile && (keyId || publisherId || publicKeyPath)) fail('delivery-attested validation must not receive publisher key options')
   if (!deliveryProfile && (!keyId || !publisherId || !publicKeyPath)) fail('local publisher validation requires key ID, publisher ID, and public key path')
@@ -443,7 +443,12 @@ export async function validateContentPack({ archivePath, keyId, publisherId, pub
   if (deliveryProfile) {
     const archiveBytes = await readFile(archive)
     const verified = await verifyDeliveryAttestedContentPackArchive(archiveBytes)
-    return { packId: verified.manifest.pack_id, version: verified.manifest.version, sha256: sha256(archiveBytes) }
+    return {
+      packId: verified.manifest.pack_id,
+      version: verified.manifest.version,
+      sha256: sha256(archiveBytes),
+      ...(includeManifest ? { manifest: verified.manifest } : {}),
+    }
   }
   const publicKey = resolve(publicKeyPath)
   if (archive === publicKey || await pathsResolveToSameFile(archive, publicKey)) fail('archive path must not be the public key path')
@@ -456,6 +461,7 @@ export async function validateContentPack({ archivePath, keyId, publisherId, pub
     packId: verified.manifest.pack_id,
     version: verified.manifest.version,
     sha256: sha256(archiveBytes),
+    ...(includeManifest ? { manifest: verified.manifest } : {}),
   }
 }
 

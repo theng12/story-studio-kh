@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { access, appendFile, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { access, appendFile, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { test } from 'node:test'
@@ -31,6 +31,13 @@ const summaries = {
   'before-after-timeline': { schema_version: 1, kind: 'series-formula', summary: 'A reusable baseline-to-result timeline that keeps confounders and causal limits visible.', slots: { 'series-formula': 1 } },
   'object-hero-question': { schema_version: 1, kind: 'thumbnail-recipe', summary: 'A single-object thumbnail grammar with an exact AI-rendered episode-title question.', slots: { 'thumbnail-recipe': 1 } },
   'route-map-one-promise': { schema_version: 1, kind: 'thumbnail-recipe', summary: 'A symbolic route-and-promise thumbnail grammar with an exact AI-rendered episode title.', slots: { 'thumbnail-recipe': 1 } },
+}
+const waveBindings = {
+  'question-ladder': { pack_id: 'com.storystudio.pack.formula.question-ladder', item_id: 'com.storystudio.formula.question-ladder', version: '1.0.0', source_path: 'content-packs/reusable-primitives/formula/question-ladder' },
+  'audience-question-seeder': { pack_id: 'com.storystudio.pack.topic.audience-question-seeder', item_id: 'com.storystudio.topic.audience-question-seeder', version: '1.0.0', source_path: 'content-packs/reusable-primitives/topic/audience-question-seeder' },
+  'before-after-timeline': { pack_id: 'com.storystudio.pack.formula.before-after-timeline', item_id: 'com.storystudio.formula.before-after-timeline', version: '1.0.0', source_path: 'content-packs/reusable-primitives/formula/before-after-timeline' },
+  'object-hero-question': { pack_id: 'com.storystudio.pack.thumbnail.object-hero-question', item_id: 'com.storystudio.thumbnail.object-hero-question', version: '1.0.0', source_path: 'content-packs/reusable-primitives/thumbnail/object-hero-question' },
+  'route-map-one-promise': { pack_id: 'com.storystudio.pack.thumbnail.route-map-one-promise', item_id: 'com.storystudio.thumbnail.route-map-one-promise', version: '1.0.0', source_path: 'content-packs/reusable-primitives/thumbnail/route-map-one-promise' },
 }
 const completeReviews = [
   'schema',
@@ -98,6 +105,7 @@ async function stageFixture(t, eligibleSlugs = textSlugs.slice(0, 2)) {
   }
   const entries = built.map(candidate => ({
     ...candidate,
+    ...waveBindings[candidate.slug],
     delivery_profile: deliveryProfile,
     min_app_version: minAppVersion,
     receipt_ref: receiptRef,
@@ -209,6 +217,47 @@ test('rejects malformed slug partitions before writing either destination', asyn
   }
 })
 
+test('rejects a self-consistent allowed set that omits a fixed Wave 2 slug', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  const fixture = await stageFixture(t)
+  const inventedAllowed = [
+    'question-ladder',
+    'audience-question-seeder',
+    'object-hero-question',
+    'route-map-one-promise',
+    'invented-leaf',
+  ]
+  await assert.rejects(stageHandoffArtifacts({
+    ...fixture,
+    allowedSlugs: inventedAllowed,
+    blockedEntries: inventedAllowed
+      .filter(slug => !fixture.eligibleSlugs.includes(slug))
+      .map(slug => ({ slug, blocker: `BLOCKED: ${slug}` })),
+  }), /fixed.*wave|allowed.*exact|unknown.*slug/i)
+})
+
+test('rejects a syntactically valid receipt that is not the Wave 2 reservation', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  const fixture = await stageFixture(t)
+  await assert.rejects(stageHandoffArtifacts({
+    ...fixture,
+    entries: fixture.entries.map(entry => ({ ...entry, receipt_ref: `authoring:${'0'.repeat(64)}` })),
+  }), /receipt.*wave|receipt.*exact|reservation/i)
+})
+
+test('rejects valid archives mislabeled as another fixed Wave 2 slug', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  const fixture = await stageFixture(t)
+  const [question, audience] = fixture.entries
+  await assert.rejects(stageHandoffArtifacts({
+    ...fixture,
+    entries: [
+      { ...question, candidate_path: audience.candidate_path, sha256: audience.sha256, bytes: audience.bytes },
+      { ...audience, candidate_path: question.candidate_path, sha256: question.sha256, bytes: question.bytes },
+    ],
+  }), /archive.*identity|pack_id|mislabeled|slug.*archive/i)
+})
+
 test('fails closed on destination, containment, evidence, and review violations', async (t) => {
   const { stageHandoffArtifacts } = await import(stagingModule)
   const malformed = [
@@ -261,19 +310,22 @@ test('fails closed on destination, containment, evidence, and review violations'
   await assert.rejects(stageHandoffArtifacts(escapingSource), /symlink|candidate.?root|regular file|escapes/i)
 })
 
-test('detects candidate bytes changed while the no-follow source is being copied', async (t) => {
+test('detects a candidate mutation after evidence preflight and source open during staged copy', async (t) => {
   const { stageHandoffArtifacts } = await import(stagingModule)
   const fixture = await stageFixture(t, ['question-ladder'])
   const source = fixture.entries[0].candidate_path
-  const original = await readFile(source)
-  const padding = Buffer.alloc(20 * 1024 * 1024)
-  await appendFile(source, padding)
-  fixture.entries[0].bytes += padding.byteLength
-  fixture.entries[0].sha256 = digest(Buffer.concat([original, padding]))
-  const staging = assert.rejects(stageHandoffArtifacts(fixture), /changed|size|bytes|byte count|digest|evidence/i)
-  await appendFile(source, Buffer.from([1]))
-  await staging
+  let mutatedAfterOpen = false
+  await assert.rejects(stageHandoffArtifacts(fixture, {
+    async afterPhase(name, detail) {
+      if (name !== 'source-opened' || detail.path !== source || !detail.destination.includes('.staging') || mutatedAfterOpen) return
+      mutatedAfterOpen = true
+      await appendFile(source, Buffer.from([1]))
+    },
+  }), error => error?.phase === 'failed-after-root' && /source changed while being copied/i.test(error.message))
+  assert.equal(mutatedAfterOpen, true)
   assert.equal(await absent(fixture.receiverHandoffPath), true)
+  const failure = JSON.parse(await readFile(join(fixture.artifactRoot, 'failure.json'), 'utf8'))
+  assert.match(failure.error, /source changed while being copied/i)
 })
 
 test('records truthful failed-after-root cleanup before and after archive finalization', async (t) => {
@@ -300,6 +352,57 @@ test('records truthful failed-after-root cleanup before and after archive finali
     const names = (await import('node:fs/promises')).readdir(fixture.artifactRoot)
     assert.deepEqual(await names, ['failure.json'])
   }
+})
+
+test('never removes a competing final archive that wins the exclusive-create race', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  const fixture = await stageFixture(t, ['question-ladder'])
+  const sentinelPath = join(fixture.artifactRoot, 'question-ladder.sspack')
+  const sentinel = Buffer.from('competing-owner-sentinel')
+  await assert.rejects(stageHandoffArtifacts(fixture, {
+    async afterPhase(name) {
+      if (name === 'staged-and-validated') await writeFile(sentinelPath, sentinel, { flag: 'wx' })
+    },
+  }), error => error?.phase === 'failed-after-root' && /exist/i.test(error.message))
+  assert.deepEqual(await readFile(sentinelPath), sentinel)
+})
+
+test('rejects a receiver-parent symlink swap after archive finalization without redirecting success', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  const fixture = await stageFixture(t, ['question-ladder'])
+  const receiverParent = dirname(fixture.receiverHandoffPath)
+  const originalParent = `${receiverParent}-original`
+  const attackerParent = `${receiverParent}-attacker`
+  let swapped = false
+  await mkdir(attackerParent)
+  await assert.rejects(stageHandoffArtifacts(fixture, {
+    async afterPhase(name) {
+      if (name !== 'archive-finalized' || swapped) return
+      swapped = true
+      await rename(receiverParent, originalParent)
+      await symlink(attackerParent, receiverParent, 'dir')
+    },
+  }), error => error?.phase === 'failed-after-root' && /parent|ancestry|replaced|symlink/i.test(error.message))
+  assert.equal(await absent(join(attackerParent, 'receiver.json')), true)
+})
+
+test('rejects an artifact-root symlink swap after ledger finalization without redirected handoffs', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  const fixture = await stageFixture(t, ['question-ladder'])
+  const originalRoot = `${fixture.artifactRoot}-original`
+  const attackerRoot = `${fixture.artifactRoot}-attacker`
+  let swapped = false
+  await mkdir(attackerRoot)
+  await assert.rejects(stageHandoffArtifacts(fixture, {
+    async afterPhase(name, detail) {
+      if (name !== 'handoff-finalized' || !detail.path.endsWith('ledger.json') || swapped) return
+      swapped = true
+      await rename(fixture.artifactRoot, originalRoot)
+      await symlink(attackerRoot, fixture.artifactRoot, 'dir')
+    },
+  }), error => error?.phase === 'failed-after-root' && /artifact root|ancestry|replaced|symlink/i.test(error.message))
+  assert.equal(await absent(join(attackerRoot, 'release-handoff.json')), true)
+  assert.equal(await absent(join(attackerRoot, 'failure.json')), true)
 })
 
 test('enforces truthful candidate partial-status semantics', () => {
