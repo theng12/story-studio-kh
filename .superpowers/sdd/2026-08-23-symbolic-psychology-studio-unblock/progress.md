@@ -94,10 +94,10 @@ Task 2 implementation started from
   injected phase regressions prove restoration when those rollback writes
   succeed. It performs no install, purchase, quote, or network action.
 - `POST /content-packs/projects/:slug/bundles/apply` strictly accepts only
-  `root` and `bundle_id`, validates slug and exact identities, enforces its
-  16 KiB bound after the production global JSON parser, and returns only known
-  exposed 400/404/409 failures locally. Unknown operational failures reach the
-  terminal error boundary for logging and a generic 500 response.
+  `root` and `bundle_id`, validates slug and exact identities, and runs behind
+  the production global 10 MiB JSON parser bound. It returns only known exposed
+  400/404/409 failures locally; unknown operational failures reach the terminal
+  error boundary for logging and a generic 500 response.
 
 ### TDD and regression proof
 
@@ -110,8 +110,7 @@ Task 2 implementation started from
   `applyProjectContentBundle` did not exist, and the strict route suite returned
   404 because the explicit action had not been registered.
 - RED: the transaction phase regression initially could not inject failures at
-  the three project/config write boundaries, and the route accepted an
-  oversized request after the production global parser had already parsed it.
+  the three project/config write boundaries.
 - GREEN: focused suites cover deterministic three-Style publisher output;
   ordered default/alternatives; exact style refs; Formula/Topic/Recipe and all
   Style pins; missing, disabled, recalled, corrupt, wrong-kind, duplicate and

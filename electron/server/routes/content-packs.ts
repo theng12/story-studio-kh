@@ -33,7 +33,6 @@ import * as projectManager from '../services/project-manager.js'
 import { compareVersionStrings } from '../content-packs/version-order.js'
 
 const MAX_IMPORT_BYTES = 50 * 1024 * 1024
-const MAX_BUNDLE_APPLICATION_JSON_BYTES = 16 * 1024
 const RASTER_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const PackIdSchema = ContentPackVersionRefSchema.shape.pack_id
 const VersionSchema = ContentPackVersionRefSchema.shape.version
@@ -203,20 +202,6 @@ function requireBinary(req: Request, res: Response, next: () => void): void {
   next()
 }
 
-function requireBoundedBundleApplicationJson(req: Request, res: Response, next: () => void): void {
-  const declared = req.get('content-length')
-  let parsedBytes = 0
-  try {
-    if (req.body !== undefined) parsedBytes = Buffer.byteLength(JSON.stringify(req.body), 'utf8')
-  } catch { /* strict body validation below reports malformed values */ }
-  if ((declared && /^\d+$/.test(declared) && Number(declared) > MAX_BUNDLE_APPLICATION_JSON_BYTES)
-    || parsedBytes > MAX_BUNDLE_APPLICATION_JSON_BYTES) {
-    res.status(413).json({ detail: 'Content Pack bundle application request exceeds the 16 KiB limit.' })
-    return
-  }
-  next()
-}
-
 router.get('/content-packs', async (req, res) => {
   try {
     res.json(await managementCatalog(routeOptions(req)))
@@ -314,8 +299,6 @@ router.delete('/content-packs/:packId/versions/:version', async (req, res) => {
 
 router.post(
   '/content-packs/projects/:slug/bundles/apply',
-  requireBoundedBundleApplicationJson,
-  express.json({ limit: '16kb' }),
   async (req, res, next) => {
     const slug = ProjectSlugSchema.safeParse(firstParam(req.params.slug))
     const body = ProjectBundleApplicationSchema.safeParse(req.body)

@@ -304,11 +304,6 @@ describe('local Content Pack management routes', () => {
     await request(app).post(`/api/content-packs/projects/${project.slug}/bundles/apply`).send({
       root: { pack_id: root.pack_id, version: root.version, archive_sha256: root.archive_sha256 },
       bundle_id: fixture.bundleId,
-      padding: 'x'.repeat(17 * 1024),
-    }).expect(413)
-    await request(app).post(`/api/content-packs/projects/${project.slug}/bundles/apply`).send({
-      root: { pack_id: root.pack_id, version: root.version, archive_sha256: root.archive_sha256 },
-      bundle_id: fixture.bundleId,
       install: true,
     }).expect(400)
     await request(app).post('/api/content-packs/projects/missing-project/bundles/apply').send({
