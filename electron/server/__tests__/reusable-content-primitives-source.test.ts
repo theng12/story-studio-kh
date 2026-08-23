@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +12,64 @@ const REGISTRY_PATH = path.join(ROOT, 'content-packs', 'authoring-registry.json'
 const QUESTION_LADDER_SOURCE = 'content-packs/reusable-primitives/formula/question-ladder'
 const AUDIENCE_QUESTION_SEEDER_SOURCE = 'content-packs/reusable-primitives/topic/audience-question-seeder'
 const OBJECT_HERO_QUESTION_SOURCE = 'content-packs/reusable-primitives/thumbnail/object-hero-question'
+
+const AUDIENCE_QUESTION_AXES = {
+  'audience-context': [
+    'first-time learner',
+    'busy caregiver',
+    'budget-conscious household',
+    'small-team operator',
+    'hobby beginner',
+    'returning learner',
+  ],
+  'question-intent': [
+    'understand a mechanism',
+    'compare options',
+    'plan a bounded next step',
+    'identify a trade-off',
+    'check an exception',
+    'evaluate an observation',
+  ],
+  constraint: [
+    'time',
+    'budget',
+    'access',
+    'safety',
+    'uncertainty',
+    'competing priorities',
+  ],
+  'evidence-type': [
+    'primary source',
+    'measurement log',
+    'official guidance',
+    'controlled comparison',
+    'expert explanation',
+    'lived observation labelled as anecdotal',
+  ],
+  actionability: [
+    'observe',
+    'ask a professional',
+    'compare criteria',
+    'run a reversible low-risk experiment',
+    'defer pending evidence',
+    'choose among stated options',
+  ],
+} as const
+
+const AUDIENCE_QUESTION_EXCLUSIONS = [
+  'Reject questions that ask for a diagnosis, medical treatment, or a legal conclusion.',
+  'Do not claim individualized medical, legal, financial, or other professional guidance.',
+  'Reject causal or universal conclusions that exceed the stated evidence.',
+  'Do not turn this Topic Pack into a UI seeding feature, live directory, local listing, or answer-structure system.',
+] as const
+
+const AUDIENCE_QUESTION_COMPATIBILITY_RULES = [
+  'Reject a candidate when its normalized question duplicates an existing episode or an in-batch candidate; store the rejection reason with the candidate fingerprint.',
+  'Reject a candidate when its subject, audience-context, question-intent, and constraint tuple repeats; store the rejection reason with the candidate fingerprint.',
+  'Reject a candidate when the question asks for a diagnosis, legal conclusion, or medical treatment.',
+  'Reject a candidate when lived observation labelled as anecdotal is paired with a causal or universal conclusion.',
+  'For a retry, reuse the same seed and persisted fingerprint rejection reasons so accepted order and rejection outcomes remain deterministic.',
+] as const
 
 type RegistryRecord = {
   receipt_ref: string
@@ -28,6 +87,79 @@ type RegistryRecord = {
     family: { id: string, status: string }
     sku: { id: string, status: string }
   }
+}
+
+type QuestionCandidate = {
+  question: string
+  subject: string
+  audienceContext: string
+  questionIntent: string
+  constraint: string
+  evidenceType: string
+  actionability: string
+  conclusion: 'bounded' | 'causal' | 'universal'
+}
+
+type PlannedQuestions = {
+  orderedFingerprints: string[]
+  rejections: Array<{ fingerprint: string, reason: string }>
+}
+
+function normalizedQuestion(value: string): string {
+  return value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+}
+
+function questionFingerprint(candidate: QuestionCandidate): string {
+  return [
+    normalizedQuestion(candidate.question),
+    candidate.subject,
+    candidate.audienceContext,
+    candidate.questionIntent,
+    candidate.constraint,
+    candidate.evidenceType,
+    candidate.actionability,
+    candidate.conclusion,
+  ].join('|')
+}
+
+function planQuestionCandidates(
+  seed: string,
+  candidates: QuestionCandidate[],
+  existingQuestions: string[] = [],
+): PlannedQuestions {
+  const ranked = candidates.map(candidate => {
+    const fingerprint = questionFingerprint(candidate)
+    const rank = createHash('sha256').update(`${seed}\0${fingerprint}`).digest('hex')
+    return { candidate, fingerprint, rank }
+  }).sort((left, right) => left.rank.localeCompare(right.rank) || left.fingerprint.localeCompare(right.fingerprint))
+  const seenQuestions = new Set(existingQuestions.map(normalizedQuestion))
+  const seenTuples = new Set<string>()
+  const orderedFingerprints: string[] = []
+  const rejections: PlannedQuestions['rejections'] = []
+
+  for (const { candidate, fingerprint } of ranked) {
+    const normalized = normalizedQuestion(candidate.question)
+    const tuple = [candidate.subject, candidate.audienceContext, candidate.questionIntent, candidate.constraint].join('|')
+    let reason: string | undefined
+    if (seenQuestions.has(normalized)) {
+      reason = 'normalized question duplicates an existing or in-batch candidate'
+    } else if (seenTuples.has(tuple)) {
+      reason = 'subject, audience-context, question-intent, and constraint tuple repeats'
+    } else if (/\bdiagnos(?:e|is)|\bmedical treatment\b|\blegal conclusion\b/i.test(candidate.question)) {
+      reason = 'question asks for diagnosis, medical treatment, or legal conclusion'
+    } else if (candidate.evidenceType === 'lived observation labelled as anecdotal'
+      && (candidate.conclusion === 'causal' || candidate.conclusion === 'universal')) {
+      reason = 'anecdotal observation cannot support a causal or universal conclusion'
+    }
+    if (reason) {
+      rejections.push({ fingerprint, reason })
+      continue
+    }
+    seenQuestions.add(normalized)
+    seenTuples.add(tuple)
+    orderedFingerprints.push(fingerprint)
+  }
+  return { orderedFingerprints, rejections }
 }
 
 const QUESTION_LADDER_SAFETY_CONTRACT = {
@@ -158,4 +290,113 @@ test('Question Ladder Formula is receipt-bound and preserves its evidence-safe e
   assert.deepEqual(formula.recommended_thumbnail_recipe_ids, [recipeRecord.item_id])
   assert.equal(Object.hasOwn(formula, 'default_thumbnail_recipe_id'), false)
   assert.deepEqual(formula.recommended_visual_style_ids, [])
+})
+
+test('Audience Question Seeder is receipt-bound and deterministically rejects duplicate question assignments', async () => {
+  const topicRecord = await registryRecord(AUDIENCE_QUESTION_SEEDER_SOURCE)
+  const formulaRecord = await registryRecord(QUESTION_LADDER_SOURCE)
+  assert.equal(topicRecord.receipt_ref, formulaRecord.receipt_ref)
+
+  const sourceRoot = path.join(ROOT, topicRecord.source_path)
+  const manifest = await readJson(path.join(sourceRoot, 'pack.json'))
+  const topic = await readJson(path.join(sourceRoot, 'content', 'topic-pack.json'))
+  parseContentPackDocument('topic-pack', topic)
+
+  assert.deepEqual(manifest, {
+    pack_format: 1,
+    pack_id: topicRecord.pack_id,
+    publisher_id: topicRecord.publisher_id,
+    key_id: '{{KEY_ID}}',
+    version: topicRecord.version,
+    min_app_version: topicRecord.min_app_version,
+    lifecycle: 'active',
+    entitlement: {
+      sku: topicRecord.stocking_proposal.sku.id,
+      family: topicRecord.stocking_proposal.family.id,
+    },
+  })
+  assert.equal(topic.id, topicRecord.item_id)
+  assert.equal(topic.kind, topicRecord.kind)
+  assert.equal(topic.schema_version, 1)
+
+  const ideaAxes = topic.idea_axes as Array<{ id: string, values: string[] }>
+  assert.deepEqual(ideaAxes.map(axis => axis.id), [
+    'audience-context',
+    'question-intent',
+    'constraint',
+    'evidence-type',
+    'actionability',
+  ])
+  assert.deepEqual(Object.fromEntries(ideaAxes.map(axis => [axis.id, axis.values])), AUDIENCE_QUESTION_AXES)
+  assert.equal(topic.max_siblings_per_subject, 1)
+
+  const sourceLists = [
+    topic.subjects,
+    topic.episode_objects,
+    topic.time_place_scopes,
+    topic.mechanisms,
+    topic.evidence_lenses,
+  ] as string[][]
+  for (const list of sourceLists) {
+    assert.ok(list.length >= 6)
+    assert.equal(new Set(list.map(value => value.toLowerCase())).size, list.length)
+  }
+  assert.deepEqual(topic.subjects, AUDIENCE_QUESTION_AXES['question-intent'])
+  assert.deepEqual(topic.episode_objects, AUDIENCE_QUESTION_AXES['audience-context'])
+  assert.deepEqual(topic.time_place_scopes, AUDIENCE_QUESTION_AXES.constraint)
+  assert.deepEqual(topic.evidence_lenses, AUDIENCE_QUESTION_AXES['evidence-type'])
+  assert.deepEqual(topic.mechanisms, AUDIENCE_QUESTION_AXES.actionability)
+  assert.deepEqual(topic.compatible_formula_ids, [formulaRecord.item_id])
+  assert.deepEqual(topic.exclusions, AUDIENCE_QUESTION_EXCLUSIONS)
+  assert.deepEqual(topic.compatibility_rules, AUDIENCE_QUESTION_COMPATIBILITY_RULES)
+  assert.equal(
+    topic.prompt_context,
+    'Generate one bounded audience question from the selected axes. This Topic Pack supplies question domains only; it does not decide answer structure, act as a UI seeding feature or live directory, or provide individualized medical or legal guidance.',
+  )
+
+  const candidates: QuestionCandidate[] = [
+    {
+      question: 'Why does a simple timer affect task switching?',
+      subject: 'task switching',
+      audienceContext: 'small-team operator',
+      questionIntent: 'understand a mechanism',
+      constraint: 'time',
+      evidenceType: 'measurement log',
+      actionability: 'observe',
+      conclusion: 'bounded',
+    },
+    {
+      question: 'Which note-taking method fits a returning learner?',
+      subject: 'note-taking',
+      audienceContext: 'returning learner',
+      questionIntent: 'compare options',
+      constraint: 'access',
+      evidenceType: 'controlled comparison',
+      actionability: 'compare criteria',
+      conclusion: 'bounded',
+    },
+    {
+      question: 'Could another note-taking method fit this learner?',
+      subject: 'note-taking',
+      audienceContext: 'returning learner',
+      questionIntent: 'compare options',
+      constraint: 'access',
+      evidenceType: 'expert explanation',
+      actionability: 'choose among stated options',
+      conclusion: 'bounded',
+    },
+  ]
+  const firstPlan = planQuestionCandidates('wave-2-seed', candidates)
+  const repeatedPlan = planQuestionCandidates('wave-2-seed', [...candidates].reverse())
+  assert.deepEqual(repeatedPlan, firstPlan)
+  assert.deepEqual(firstPlan, {
+    orderedFingerprints: [
+      'could another note taking method fit this learner|note-taking|returning learner|compare options|access|expert explanation|choose among stated options|bounded',
+      'why does a simple timer affect task switching|task switching|small-team operator|understand a mechanism|time|measurement log|observe|bounded',
+    ],
+    rejections: [{
+      fingerprint: 'which note taking method fits a returning learner|note-taking|returning learner|compare options|access|controlled comparison|compare criteria|bounded',
+      reason: 'subject, audience-context, question-intent, and constraint tuple repeats',
+    }],
+  })
 })
