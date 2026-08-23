@@ -124,12 +124,26 @@ async function run() {
     ], {
       cwd: ELECTRON_ROOT,
       env: childEnv,
-      stdio: 'inherit',
+      // v1.4.44 — piped rather than inherited so the summary can be READ.
+      // See `assertSummaryAgrees` below for why the exit code alone is not
+      // enough to know whether the suite passed.
+      stdio: ['inherit', 'pipe', 'pipe'],
     })
+    let transcript = ''
+    for (const [stream, sink] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+      stream.setEncoding('utf8')
+      stream.on('data', chunk => { transcript += chunk; sink.write(chunk) })
+    }
     let exitCode = await new Promise((resolve, reject) => {
       child.once('error', reject)
-      child.once('exit', code => resolve(code ?? 1))
+      child.once('close', code => resolve(code ?? 1))
     })
+
+    const summary = assertSummaryAgrees(transcript, exitCode)
+    if (summary) {
+      console.error(`[test-harness] ${summary}`)
+      exitCode = 1
+    }
 
     const after = await snapshotTree(configuredProjectsRoot)
     const unchanged = before === after
@@ -142,6 +156,57 @@ async function run() {
   } finally {
     if (sandbox) await fs.rm(sandbox, { recursive: true, force: true })
   }
+}
+
+/**
+ * v1.4.44 — believe the summary, not the exit code.
+ *
+ * On 2026-08-23 this harness printed a full `AssertionError` for a failing
+ * backend test and then exited 0. Two releases went out on top of that green
+ * result. The exit code is a single number produced after `--test-force-exit`
+ * has already begun tearing the runner down, and it is exactly the thing that
+ * cannot be trusted when a run ends abnormally — which is also the case where
+ * the owner has seen the totals move between runs (3410 / 3424 / 3379).
+ *
+ * So the run is now judged on what the reporter actually said:
+ *
+ *   • a summary must exist at all — no summary means the run did not finish,
+ *     and an unfinished run is a failure however it exited
+ *   • `fail` must be zero
+ *   • a non-zero exit with a clean summary is still a failure — something
+ *     outside the tests went wrong and must not be swallowed either
+ *
+ * Returns a message when the run must be failed, or `null` when it is sound.
+ */
+function assertSummaryAgrees(transcript, exitCode) {
+  // The TAP reporter writes `# fail 2`; the spec reporter writes `ℹ fail 2`.
+  // Match either, and take the LAST occurrence — nested suites print their own.
+  const readCount = (label) => {
+    const matches = [...transcript.matchAll(new RegExp(`^[#\\u2139]\\s+${label}\\s+(\\d+)\\s*$`, 'gm'))]
+    return matches.length ? Number(matches[matches.length - 1][1]) : null
+  }
+  const tests = readCount('tests')
+  const failed = readCount('fail')
+  const passed = readCount('pass')
+  if (tests === null || failed === null) {
+    return 'the test run produced no summary, so it did not finish. Treating it as a failure '
+      + `(reported exit code ${exitCode}).`
+  }
+  if (failed > 0) {
+    return `${failed} of ${tests} backend test(s) failed (reported exit code ${exitCode}).`
+  }
+  // Skipped and todo are legitimate outcomes and are counted separately, so
+  // they belong in the total. Anything left over means tests were started and
+  // never resolved — the shape of an interrupted run.
+  const accounted = (passed ?? 0) + failed + (readCount('skipped') ?? 0) + (readCount('todo') ?? 0)
+  if (passed !== null && tests !== accounted) {
+    return `the summary does not add up: ${tests} tests reported, ${accounted} accounted for `
+      + `(${passed} passed, ${failed} failed). An incomplete run is a failure.`
+  }
+  if (exitCode !== 0) {
+    return `every test passed but the runner exited ${exitCode}, so something outside the tests failed.`
+  }
+  return null
 }
 
 await run()

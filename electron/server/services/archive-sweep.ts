@@ -202,8 +202,27 @@ async function buildUploadedIndex(): Promise<UploadedIndex> {
   return { proven, aliases }
 }
 
-function codeFrom(filename: string, dir: string): string {
-  return (filename.match(EPISODE_CODE)?.[1] || dir.match(EPISODE_CODE)?.[1] || '').toUpperCase()
+/**
+ * The episode code for one file: its own name first, then the folders it sits
+ * in BELOW the scanned root.
+ *
+ * v1.4.44 — the folder search used to run over the whole absolute path, which
+ * means every folder between the disk root and the scan — a volume name, a
+ * user folder, a sync client's cache — could donate a code to a file that has
+ * none. It surfaced as an intermittent test failure (a system temp folder
+ * named `…-JW5269` made a holiday clip claim to be episode JW5269), but the
+ * same thing happens to a real person whose Videos folder sits under any path
+ * with two-to-six letters and three-to-five digits in it.
+ *
+ * Nothing unsafe followed from it — the channel check downstream refuses a
+ * file it cannot place, so the invented code produced a confusing skip reason
+ * rather than a wrong move. It was still a code attributed to a file from
+ * somewhere the user never pointed at.
+ */
+function codeFrom(filename: string, dir: string, sourceRoot: string): string {
+  const withinScan = path.relative(sourceRoot, dir)
+  const searchable = withinScan.startsWith('..') || path.isAbsolute(withinScan) ? '' : withinScan
+  return (filename.match(EPISODE_CODE)?.[1] || searchable.match(EPISODE_CODE)?.[1] || '').toUpperCase()
 }
 
 /**
@@ -274,7 +293,7 @@ export async function previewArchiveSweep(
       const stat = await fs.stat(full).catch(() => null)
       if (!stat?.isFile()) continue
 
-      const code = codeFrom(entry.name, dir)
+      const code = codeFrom(entry.name, dir, sourceRoot)
       const base: ArchiveCandidate = {
         source_path: full, filename: entry.name, bytes: stat.size, code,
         status: 'skipped',

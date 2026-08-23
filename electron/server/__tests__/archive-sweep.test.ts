@@ -121,6 +121,37 @@ describe('deciding what may be moved', () => {
     assert.match(stray.reason!, /no episode code/)
   })
 
+  test('a code-shaped folder ABOVE the scan cannot lend its code to a file inside', async () => {
+    // v1.4.44 — the folder search ran over the whole absolute path, so any
+    // ancestor between the disk root and the scan could donate a code. It
+    // showed up here as an intermittent failure: a system temp folder named
+    // `…-JW5269` made an unrelated holiday clip claim to be episode JW5269.
+    // The same happens to anyone whose Videos folder sits under a path with
+    // two-to-six letters and three-to-five digits in it.
+    const above = path.join(tmp.dir, 'JW5269')
+    const src = path.join(above, 'exports')
+    await fs.mkdir(src, { recursive: true })
+    await fs.writeFile(path.join(src, 'holiday-clip.mp4'), 'not an episode')
+
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+
+    const stray = preview.candidates.find(c => c.filename === 'holiday-clip.mp4')!
+    assert.equal(stray.code, '', 'a file outside any episode folder has no code to report')
+    assert.match(stray.reason!, /no episode code/)
+  })
+
+  test('a code-shaped folder INSIDE the scan still names the episode', async () => {
+    // The fix must not cost the real behaviour: the scanned tree is exactly
+    // where a code legitimately comes from.
+    const src = path.join(tmp.dir, 'exports-inside')
+    await fs.mkdir(path.join(src, 'TN0001 - Uploaded One'), { recursive: true })
+    await fs.writeFile(path.join(src, 'TN0001 - Uploaded One', 'final.mp4'), 'video')
+
+    const preview = await sweep.previewArchiveSweep({ sourceRoot: src })
+
+    assert.equal(preview.candidates.find(c => c.filename === 'final.mp4')!.code, 'TN0001')
+  })
+
   test('the preview is a preview — it moves nothing', async () => {
     const src = path.join(tmp.dir, 'exports')
     await seedEpisode('TN0001', 'Uploaded One', true)

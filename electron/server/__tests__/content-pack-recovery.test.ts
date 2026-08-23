@@ -225,3 +225,95 @@ describe('Content Pack recovery catalog', () => {
     ])
   })
 })
+
+/**
+ * v1.4.44 — an installed pack with no active version is inert, and silent.
+ *
+ * MEASURED on the owner's Mac, 2026-08-23. All 55 Content Store packs he
+ * installed on 2026-08-16 had no `active_version` in state.json. That single
+ * absent field meant:
+ *
+ *   • every catalog lookup skipped them, so a week's worth of owned formulas,
+ *     styles and thumbnail templates did nothing at all
+ *   • the Content Store reported packs verified on disk as "not installed",
+ *     so the nine packs with a newer release published that day offered no
+ *     update — the store simply said everything was owned and current
+ *
+ * Nothing repaired it, because the boot recovery pass began by skipping
+ * exactly this case (`if (!pack.active_version) continue`).
+ */
+describe('an installed pack with no active version is adopted at boot', () => {
+  test('the newest verified version becomes active, and is reported', async () => {
+    const { paths, recoveryRoot } = await isolated()
+    for (const version of ['1.0.0', '1.0.1']) {
+      await installContentPack(request(await buildArchive(version)), { paths, policy })
+    }
+    // Reproduce the owner's state exactly: versions retained, none active.
+    const before = await readContentPackState(paths)
+    delete before.packs['com.storystudio.recovery-test'].active_version
+    await fs.writeFile(paths.statePath, JSON.stringify(before), 'utf8')
+
+    const reports: string[] = []
+    const summary = await verifyContentPackRuntimeAtBoot({ paths, recoveryRoot, policy, report: m => reports.push(m) })
+
+    assert.deepEqual(summary.adopted, [{ pack_id: 'com.storystudio.recovery-test', version: '1.0.1' }],
+      'the newest retained version that verifies is the one adopted')
+    const after = await readContentPackState(paths)
+    assert.equal(after.packs['com.storystudio.recovery-test'].active_version, '1.0.1')
+    assert.ok(reports.includes('active version adopted: com.storystudio.recovery-test@1.0.1'))
+  })
+
+  test('a pack that already has an active version is left exactly as it is', async () => {
+    const { paths, recoveryRoot } = await isolated()
+    for (const version of ['1.0.0', '1.0.1']) {
+      await installContentPack(request(await buildArchive(version)), { paths, policy })
+    }
+    const pinned = await readContentPackState(paths)
+    pinned.packs['com.storystudio.recovery-test'].active_version = '1.0.0'
+    await fs.writeFile(paths.statePath, JSON.stringify(pinned), 'utf8')
+
+    const summary = await verifyContentPackRuntimeAtBoot({ paths, recoveryRoot, policy })
+
+    assert.deepEqual(summary.adopted, [], 'adoption must never override a deliberate choice of version')
+    assert.equal((await readContentPackState(paths)).packs['com.storystudio.recovery-test'].active_version, '1.0.0')
+  })
+
+  test('a version withdrawn from use is never adopted, however new it is', async () => {
+    // The reason the active version is cleared on recall or on a pending
+    // removal is that those bytes must stop being usable. Adoption must not
+    // quietly undo that on the next boot — it skips both and falls back.
+    const { paths, recoveryRoot } = await isolated()
+    for (const version of ['1.0.0', '1.0.1']) {
+      await installContentPack(request(await buildArchive(version)), { paths, policy })
+    }
+    const state = await readContentPackState(paths)
+    const pack = state.packs['com.storystudio.recovery-test']
+    delete pack.active_version
+    pack.versions['1.0.1'].pending_removal = {
+      operation_id: '11111111-2222-4333-8444-555555555555',
+      started_at: new Date().toISOString(),
+    }
+    await fs.writeFile(paths.statePath, JSON.stringify(state), 'utf8')
+
+    const summary = await verifyContentPackRuntimeAtBoot({ paths, recoveryRoot, policy })
+
+    assert.deepEqual(summary.adopted, [{ pack_id: 'com.storystudio.recovery-test', version: '1.0.0' }],
+      'it falls back to the older usable version rather than taking the withdrawn one')
+    assert.equal((await readContentPackState(paths)).packs['com.storystudio.recovery-test'].active_version, '1.0.0')
+  })
+
+  test('when no retained version verifies, the pack stays inactive rather than being forced live', async () => {
+    const { paths, recoveryRoot } = await isolated()
+    await installContentPack(request(await buildArchive('1.0.0')), { paths, policy })
+    const state = await readContentPackState(paths)
+    const pack = state.packs['com.storystudio.recovery-test']
+    delete pack.active_version
+    pack.versions['1.0.0'].archive_sha256 = 'f'.repeat(64) // no longer matches the bytes on disk
+    await fs.writeFile(paths.statePath, JSON.stringify(state), 'utf8')
+
+    const summary = await verifyContentPackRuntimeAtBoot({ paths, recoveryRoot, policy })
+
+    assert.deepEqual(summary.adopted, [])
+    assert.equal((await readContentPackState(paths)).packs['com.storystudio.recovery-test'].active_version, undefined)
+  })
+})

@@ -4,6 +4,19 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.44 — 2026-08-23
+
+- **Every Content Store pack you own has been switched off since you installed them.** All 55 of them, since 16 August. They downloaded, they verified, they show as installed — but each one was missing the single marker that tells the app which version to actually use, and without it every formula, style and thumbnail template inside them was skipped. You have been running on the built-in ones the whole time and nothing said otherwise.
+- **That is also why today's new packs looked like nothing had happened.** With no version marked as in use, the store reads a pack sitting verified on your disk as "not installed" — so the nine packs that got a new release today had nothing to compare against, and the Updates tab stayed at zero while telling you everything was current.
+- **Nothing was ever going to fix it on its own.** The startup repair that exists for exactly this kind of damage began by skipping any pack with no version in use — the one case it needed to catch.
+- **On first launch, the app now adopts the newest version of each affected pack** and reports what it adopted. It only adopts a version that fully passes the same verification a rollback uses, and it never touches a pack you have deliberately pinned, recalled, or removed. If nothing verifies, the pack stays switched off rather than being forced on.
+
+- **The test suite was passing while a test was failing.** It printed the failure in full and then reported success, and two releases went out on top of that. It is now judged on what the run actually reported — no summary means an unfinished run, and an unfinished run is a failure — rather than on a number produced while the runner is already shutting down. Turning it on immediately found two more real problems, both below.
+- **A folder anywhere above the one you scan could lend its name to your videos.** Archive Sweep looked for an episode code across the whole path, so a disk, user folder or sync cache whose name happens to contain letters-then-digits could attach that code to an unrelated video. It only ever caused a confusing "skipped" message — the channel check still refused to move anything it could not place — but the code was invented from somewhere you never pointed at. It now reads only the folders inside the one you chose.
+- Two settings checks were still looking for the old spelling of the Settings panel after last night's rewrite. The settings themselves were fine; the checks were reading a stale copy.
+
+---
+
 ## v1.4.43 — 2026-08-23
 
 - **Repair no longer turns one broken episode into a search of the whole channel.** Every screen that offers Repair already knew exactly which episodes were broken — the failed-batch banner, the missing-assets report — and every one of them threw that list away and started a scan of all 302 episodes instead. They now hand the codes over, so Repair checks only what actually failed.

@@ -153,7 +153,12 @@ describe('the number is the owner\'s, not the code\'s', () => {
   test('it has a screen — the last two settings did not, and that was the bug', async () => {
     const panel = await readFile(
       path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
-    assert.match(panel, /Episodes making images at once/)
-    assert.match(panel, /image_episode_concurrency: Number\(imageEpisodes\.value\)/)
+    assert.match(panel, /Episodes making images at once/, 'the owner must be able to see the setting')
+    // v1.4.44 — assert the LABEL and the request field, not the internal ref
+    // name. The 1.4.42 panel rewrite moved these to one reactive object and
+    // this assertion started matching a variable that no longer existed. The
+    // setting still worked; only the copy of the source in the test was stale.
+    assert.match(panel, /image_episode_concurrency: Number\(models\.imageEpisodes\)/,
+      'and the screen must actually send it')
   })
 })

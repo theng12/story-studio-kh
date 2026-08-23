@@ -27,6 +27,11 @@ export interface ContentPackBootVerificationSummary {
   recovery_verified: number
   installed_verified: number
   rolled_back: Array<{ pack_id: string; from: string; to: string }>
+  /**
+   * Installed packs that had NO active version and were given one here.
+   * See the adoption pass in `verifyInstalledAndRecover`.
+   */
+  adopted: Array<{ pack_id: string; version: string }>
   /** Invalid local archive/version count; recovery resources are never modified. */
   quarantined: number
 }
@@ -173,10 +178,11 @@ async function verifyInstalledAndRecover(
   paths: ContentPackRuntimePaths,
   policy: ContentPackVerificationPolicy,
   options: ContentPackRecoveryOptions,
-): Promise<Pick<ContentPackBootVerificationSummary, 'installed_verified' | 'rolled_back' | 'quarantined'>> {
+): Promise<Pick<ContentPackBootVerificationSummary, 'installed_verified' | 'rolled_back' | 'adopted' | 'quarantined'>> {
   let installedVerified = 0
   let invalid = 0
   const rolledBack: ContentPackBootVerificationSummary['rolled_back'] = []
+  const adopted: ContentPackBootVerificationSummary['adopted'] = []
   for (const [packId, pack] of Object.entries(state.packs).sort(([left], [right]) => left.localeCompare(right))) {
     for (const [version, installed] of Object.entries(pack.versions).sort(([left], [right]) => compareSemverDescending(left, right))) {
       if (installed.pending_removal) continue
@@ -189,7 +195,45 @@ async function verifyInstalledAndRecover(
         report(options, `installed archive invalid: ${packId}@${version}`)
       }
     }
-    if (!pack.active_version) continue
+    if (!pack.active_version) {
+      /**
+       * v1.4.44 — a pack installed with NO active version is inert, and says
+       * nothing about it.
+       *
+       * `active_version` is what every catalog lookup keys on: the formula,
+       * style and thumbnail registries all `continue` past a pack without one.
+       * The Content Store keys on it too — with no active version it reports a
+       * pack sitting verified on disk as "not installed", which also means a
+       * newer published release can never surface as an update.
+       *
+       * MEASURED on the owner's own Mac, 2026-08-23: all 55 packs he installed
+       * on 2026-08-16 had no active version. Every one had been unusable for a
+       * week, and nine packs with a newer release published that day showed
+       * nothing to update. Nothing self-healed it, because the recovery pass
+       * below started by skipping exactly this case.
+       *
+       * Adoption is deliberately narrow: the newest retained version that is
+       * neither recalled nor pending removal AND whose closure verifies under
+       * the same policy the rollback path uses. A version that fails
+       * verification is still never made discoverable, which is the guarantee
+       * the `delete pack.active_version` below exists to keep.
+       */
+      for (const candidate of Object.keys(pack.versions).sort(compareSemverDescending)) {
+        const retained = pack.versions[candidate]
+        if (retained.pending_removal || retained.recalled) continue
+        try {
+          await assertSafeInstalledClosurePaths(state, packId, candidate, paths)
+          await verifyInstalledContentPackClosure(state, packId, candidate, policy, options.appVersion)
+        } catch {
+          continue
+        }
+        pack.active_version = candidate
+        adopted.push({ pack_id: packId, version: candidate })
+        report(options, `active version adopted: ${packId}@${candidate}`)
+        break
+      }
+      continue
+    }
     const from = pack.active_version
     if (pack.versions[from]?.recalled) {
       delete pack.active_version
@@ -226,7 +270,7 @@ async function verifyInstalledAndRecover(
       report(options, `active version disabled: ${packId}@${from}`)
     }
   }
-  return { installed_verified: installedVerified, rolled_back: rolledBack, quarantined: invalid }
+  return { installed_verified: installedVerified, rolled_back: rolledBack, adopted, quarantined: invalid }
 }
 
 /**
@@ -247,6 +291,7 @@ export async function verifyContentPackRuntimeAtBoot(
       recovery_verified: recovery.packs.length,
       installed_verified: summary.installed_verified,
       rolled_back: summary.rolled_back,
+      adopted: summary.adopted,
       quarantined: recovery.invalid + summary.quarantined,
     }
   })
