@@ -10,7 +10,7 @@ import { installContentPack } from '../content-packs/installer.js'
 import { createContentPackKeyring, getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths, resolveContentPackRecoveryRoot } from '../content-packs/runtime-paths.js'
 import { listVerifiedRecoveryPacks, verifyContentPackRuntimeAtBoot } from '../content-packs/recovery.js'
-import { readContentPackState } from '../content-packs/state.js'
+import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
 import { useTempDataDir } from './_helpers.js'
 
 const PUBLISHER_ID = 'com.storystudio'
@@ -22,6 +22,15 @@ const policy = createContentPackKeyring([{
   publisherId: PUBLISHER_ID,
   publicKeyPem: keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString(),
 }])
+const MULTI_STYLE_COMPONENTS = [
+  { pack_id: 'com.storystudio.pack.formula.human-behavior-explained', version: '1.0.1', item_id: 'com.storystudio.formula.human-behavior-explained', kind: 'series-formula' },
+  { pack_id: 'com.storystudio.pack.topic.human-behavior-social-dynamics', version: '1.0.0', item_id: 'com.storystudio.topic.human-behavior-social-dynamics', kind: 'topic-pack' },
+  { pack_id: 'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split', version: '1.0.1', item_id: 'com.storystudio.thumbnail.editorial-psychology-symbolic-split', kind: 'thumbnail-recipe' },
+  { pack_id: 'com.storystudio.pack.style.pastel-surreal-psychological-collage', version: '1.0.1', item_id: 'com.storystudio.style.pastel-surreal-psychological-collage', kind: 'visual-style' },
+  { pack_id: 'com.storystudio.pack.style.impasto-psychological-animals', version: '1.0.0', item_id: 'com.storystudio.style.impasto-psychological-animals', kind: 'visual-style' },
+  { pack_id: 'com.storystudio.pack.style.oil-painting-classical', version: '1.0.0', item_id: 'com.storystudio.style.oil-painting-classical', kind: 'visual-style' },
+] as const
+const MULTI_STYLE_ROOT_ID = 'com.storystudio.pack.kit.symbolic-psychology-studio'
 
 let cleanup: (() => Promise<void>) | undefined
 
@@ -35,7 +44,10 @@ function sha256(bytes: Uint8Array): string {
 }
 
 async function buildArchive(version: string): Promise<Uint8Array> {
-  const packId = 'com.storystudio.recovery-test'
+  return buildLeafArchive('com.storystudio.recovery-test', version)
+}
+
+async function buildLeafArchive(packId: string, version: string): Promise<Uint8Array> {
   const document = Buffer.from(JSON.stringify({
     kind: 'visual-style', schema_version: 1, id: `${packId}.style`, name: 'Recovery Test',
     description: 'A local recovery test style.', category: 'Test', tags: ['test'],
@@ -57,6 +69,35 @@ async function buildArchive(version: string): Promise<Uint8Array> {
   zip.file('signature.ed25519', sign(null, manifest, keyPair.privateKey), { createFolders: false })
   zip.file('content/visual-style.json', document, { createFolders: false })
   zip.file('assets/preview.png', PNG_1PX, { createFolders: false })
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
+}
+
+async function buildMultiStyleRootArchive(): Promise<Uint8Array> {
+  const manifest = Buffer.from(JSON.stringify({
+    pack_format: 1,
+    pack_id: MULTI_STYLE_ROOT_ID,
+    publisher_id: PUBLISHER_ID,
+    key_id: KEY_ID,
+    version: '1.0.1',
+    min_app_version: '1.4.32',
+    lifecycle: 'active',
+    entitlement: {
+      sku: 'com.storystudio.sku.kit.symbolic-psychology-studio',
+      family: 'com.storystudio.family.kit.symbolic-psychology-studio',
+    },
+    dependencies: MULTI_STYLE_COMPONENTS.map(({ pack_id, version }) => ({ pack_id, version })),
+    bundles: [{
+      id: 'com.storystudio.bundle.symbolic-psychology-studio',
+      kind: 'channel-kit',
+      name: 'Symbolic Psychology Studio',
+      components: MULTI_STYLE_COMPONENTS,
+    }],
+    items: [],
+    files: [],
+  }), 'utf8')
+  const zip = new JSZip()
+  zip.file('manifest.json', manifest, { createFolders: false })
+  zip.file('signature.ed25519', sign(null, manifest, keyPair.privateKey), { createFolders: false })
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
@@ -151,6 +192,31 @@ describe('Content Pack recovery catalog', () => {
 
     assert.deepEqual(summary.rolled_back, [{ pack_id: 'com.storystudio.recovery-test', from: '1.0.1', to: '1.0.0' }])
     assert.equal((await readContentPackState(paths)).packs['com.storystudio.recovery-test'].active_version, '1.0.0')
+  })
+
+  test('keeps the exact six-member multi-Style root active only while its retained closure verifies', async () => {
+    const { paths, recoveryRoot } = await isolated()
+    for (const component of MULTI_STYLE_COMPONENTS) {
+      const archiveBytes = await buildLeafArchive(component.pack_id, component.version)
+      await installContentPack(request(archiveBytes), { paths, policy, appVersion: '1.4.32' })
+    }
+    const rootArchive = await buildMultiStyleRootArchive()
+    await installContentPack(request(rootArchive), { paths, policy, appVersion: '1.4.32' })
+
+    const healthy = await verifyContentPackRuntimeAtBoot({ paths, recoveryRoot, policy, appVersion: '1.4.32' })
+    const healthyState = await readContentPackState(paths)
+    assert.equal(healthy.installed_verified, 7)
+    assert.equal(healthyState.packs[MULTI_STYLE_ROOT_ID]?.active_version, '1.0.1')
+    assert.deepEqual(
+      healthyState.packs[MULTI_STYLE_ROOT_ID]!.versions['1.0.1']!.manifest.dependencies,
+      MULTI_STYLE_COMPONENTS.map(({ pack_id, version }) => ({ pack_id, version })),
+    )
+
+    const thirdStyle = MULTI_STYLE_COMPONENTS[5]
+    await mutateContentPackState(state => { delete state.packs[thirdStyle.pack_id] }, paths)
+    await verifyContentPackRuntimeAtBoot({ paths, recoveryRoot, policy, appVersion: '1.4.32', report: () => {} })
+
+    assert.equal((await readContentPackState(paths)).packs[MULTI_STYLE_ROOT_ID]?.active_version, undefined)
   })
 
   test('removes only stale UUID staging directories during local boot verification', async () => {

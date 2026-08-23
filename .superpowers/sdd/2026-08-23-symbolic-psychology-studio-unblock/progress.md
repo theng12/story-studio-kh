@@ -148,8 +148,70 @@ publication, deploy, tag, push, purchase, or other external mutation occurred.
 - `npm run check:security` — production security check passes.
 - `git diff --check` — clean.
 
+## Task 3 archive/install/recovery/checkout/release compatibility
+
+Task 3 started from `e4b2db8ad673e40206b6a13c2ff9fd1990ffcdff` on
+`codex/content-expansion-portfolio`, with a clean worktree and application
+version `1.4.31` on all three package/lock surfaces.
+
+### Compatibility evidence
+
+- Archive verification accepts the exact six-member bundle-only root in the
+  approved Formula `1.0.1` → Topic `1.0.0` → Recipe `1.0.1` → Pastel `1.0.1`
+  → Impasto `1.0.0` → Oil `1.0.0` order and still rejects coordinator content
+  or asset entries plus the existing unsafe archive variants.
+- Receipt-attested delivery binds those six positions to the signed root,
+  stages dependencies inactive, and activates the root plus whole closure only
+  after every exact member verifies. Missing, recalled, or receipt-hash-
+  mismatched third-Style evidence leaves the root inactive and preserves
+  existing project pins. Existing interrupted-final-activation recovery still
+  reactivates the complete closure in one state checkpoint.
+- Boot recovery keeps the multi-Style root active while all six exact versions
+  are retained and disables root discovery when the third Style is absent.
+- Checkout carries the same six ordered positions, versions, entitlement
+  families, and configured quote price without a purchase POST, debit, grant,
+  receipt creation, or commerce implementation change.
+- The Kit floor is exactly `1.4.32`. An explicit `1.4.31` install attempt names
+  required `1.4.32` and current `1.4.31`, changes neither runtime state nor
+  project metadata, and Store delivery returns
+  `CONTENT_PACK_REQUIRES_NEWER_APP` before archive download.
+
+### TDD and release evidence
+
+- Baseline focused matrix: 67 passed, 0 failed before Task 3 edits.
+- RED before release bookkeeping: the new release-floor assertion observed
+  package `1.4.31` instead of required `1.4.32`; successful delivery of a root
+  truthfully declaring minimum `1.4.32` was refused before download. Fixture
+  profile/syntax errors found in the first run were corrected before accepting
+  that RED evidence.
+- `npm version 1.4.32 --no-git-tag-version` ran exactly once after confirming
+  `package.json`, lockfile top level, and lockfile root package all equalled
+  `1.4.31`; all three now equal `1.4.32`.
+- `CHANGELOG.md` has the newest-first `v1.4.32` entry. Its apply wording is
+  coordinated and interruption-safe: it does not claim impossible strict
+  cross-file crash-level all-or-nothing semantics.
+- Focused compatibility matrix: 73 passed, 0 failed.
+- `npm run check:changelog` — package, lockfile, and newest What's New entry
+  agree on `v1.4.32`.
+- `npm run typecheck:electron` — passed.
+- `npm run check:security` — passed.
+- `npm run check:model-drift` — passed; 602 source files checked, 32 annotated
+  exceptions.
+- `git diff --check` — clean.
+
+### Scope and blocker
+
+Only compatibility fixtures changed in `content-store-paid-bundle.test.ts`;
+checkout, quote, purchase, receipt, pricing, ownership, and delivery production
+sources are unchanged. No identity was reserved, no Content Pack successor was
+authored, and no external evidence or handoff was touched. No DMG, deploy, tag,
+push, publish, upload, purchase, grant, or other external mutation occurred.
+
+`app-release-not-deployed` remains an explicit Kit stocking blocker. The local
+`1.4.32` version/changelog update is release preparation only and is not
+deployment evidence.
+
 ## Next task
 
-Task 3 remains release/compatibility work and is deliberately not started here.
-It owns installer/recovery/checkout fixtures plus the application version and
-changelog update.
+Task 4 remains the separately authorized leaf-successor reservation task. Task
+3 did not reserve or mutate any registry identity.

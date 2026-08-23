@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.32 — 2026-08-23
+
+- **Channel Kits can include several exact Visual Styles.** The first listed Style is the default; the remaining exact project-pinned Styles stay available as alternatives even when newer versions are installed.
+- **Applying a Kit is coordinated and interruption-safe.** Story Studio validates the whole Kit before writing, prevents partial usable selections, and keeps exact Content Pack pins safe across an interrupted apply.
+- **Older Story Studio builds refuse these Kits clearly.** They must update before installation; no partial closure is activated.
+
+---
+
 ## v1.4.31 — 2026-08-23
 
 - **Motion Review now waits when your machines are busy** instead of throwing the clip away. Six of eight generators protected.
