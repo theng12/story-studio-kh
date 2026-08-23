@@ -8,6 +8,8 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const REGISTRY_PATH = join(ROOT, 'content-packs', 'authoring-registry.json')
 const KIT_ROOT = join(ROOT, 'content-packs', 'symbolic-psychology-studio', 'kit', 'symbolic-psychology-studio')
 const CANDIDATE_LEDGER = '/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/evidence-ledger.json'
+const CANDIDATE_HANDOFFS = '/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/candidate-handoffs.json'
+const RECEIVER_HANDOFF = '/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/receiver-handoff.json'
 
 const RECIPE_RECEIPT = 'authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa'
 const IMPASTO_RECEIPT = 'authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5'
@@ -111,4 +113,43 @@ test('candidate summaries: each new candidate uses the minimal Story-owned v1 su
     if (expectedSummary.summary) assert.equal(summary.summary, expectedSummary.summary)
     for (const forbidden of ['pack_id', 'version', 'sha256', 'closure']) assert.equal(forbidden in summary, false)
   }
+})
+
+test('candidate handoffs keep three leaves review-pending, the coordinator blocked, and the receiver non-mutating', async () => {
+  const handoffs = await readJson(CANDIDATE_HANDOFFS)
+  const receiver = await readJson(RECEIVER_HANDOFF)
+  const requiredFields = [
+    'status', 'component', 'reservation', 'identity', 'stocking_proposal', 'source', 'intent',
+    'compatibility', 'dependencies', 'originality_provenance', 'evidence', 'review_requests', 'blocked_by',
+  ]
+  const reviewNames = [
+    'schema', 'originality/provenance', 'compatibility', 'prompt-equivalence', 'visual', 'thumbnail',
+    'safety', 'copy', 'commercial-boundary',
+  ]
+
+  assert.equal(handoffs.status, 'candidate-built-review-pending')
+  assert.equal(handoffs.handoffs.length, 4)
+  for (const handoff of handoffs.handoffs) {
+    assert.deepEqual(Object.keys(handoff).sort(), [...requiredFields].sort())
+    assert.equal(handoff.status, handoff.component === 'coordinator' ? 'blocked' : 'candidate-built-review-pending')
+    assert.deepEqual(Object.keys(handoff.review_requests), reviewNames)
+    for (const reviewName of reviewNames) {
+      const expected = reviewName === 'thumbnail' && handoff.component !== 'recipe' ? 'not_applicable' : 'requested'
+      assert.equal(handoff.review_requests[reviewName].status, expected, `${handoff.identity.pack_id}: ${reviewName}`)
+      if (expected === 'not_applicable') assert.ok(handoff.review_requests[reviewName].reason)
+    }
+    assert.ok(handoff.blocked_by.some(blocker => blocker.status === 'review-pending'))
+    if (handoff.component === 'coordinator') {
+      assert.ok(handoff.blocked_by.some(blocker => blocker.gate === 'publisher-contract' && blocker.status === 'blocked'))
+    }
+  }
+
+  assert.equal(receiver.status, 'candidate-built-review-pending')
+  assert.notEqual(receiver.status, 'ready-for-owner-stocking')
+  for (const excluded of [
+    'upload', 'product draft creation', 'release draft creation', 'price decision', 'discount decision',
+    'purchase', 'grant', 'production signing', 'publication', 'GenStudio mutation',
+  ]) assert.ok(receiver.explicitly_not_done.includes(excluded), `receiver handoff must exclude ${excluded}`)
+  assert.ok(receiver.blocked_by.some(blocker => blocker.status === 'review-pending'))
+  assert.ok(receiver.blocked_by.some(blocker => blocker.status === 'blocked-and-excluded' && blocker.component === 'Gothic Charcoal Animal Editorial'))
 })
