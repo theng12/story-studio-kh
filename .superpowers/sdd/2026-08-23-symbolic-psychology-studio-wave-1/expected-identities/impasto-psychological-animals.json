@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+  "item_id": "com.storystudio.style.impasto-psychological-animals",
+  "version": "1.0.0",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "visual-style",
+  "source_path": "content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.style.impasto-psychological-animals",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.style.impasto-psychological-animals",
+      "status": "proposed"
+    }
+  }
+}

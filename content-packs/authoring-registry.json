@@ -1,5 +1,5 @@
 {
-  "revision": 10,
+  "revision": 13,
   "batches": [
     {
       "revision": 2,
@@ -598,6 +598,57 @@
         "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
         "pack_id": "com.storystudio.pack.kit.first-humans",
         "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 11,
+      "transition_ref": "lifecycle:6a9674ddc1f3155d30dee19d82e9cb7d260fe9e4a248b7a781067949306924fb",
+      "request": {
+        "expected_revision": 10,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+        "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 12,
+      "transition_ref": "lifecycle:2c583fbf8ecc29a750b3bd20c4ee6f281c1d8a1e8808a1364585b55d34aebf84",
+      "request": {
+        "expected_revision": 11,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+        "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 13,
+      "transition_ref": "lifecycle:d42917ecb3e5ba3a8d885161328327e689e249514920594ac6aa85aafcde6516",
+      "request": {
+        "expected_revision": 12,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+        "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+        "version": "1.0.0",
         "changes": {
           "status": "authored"
         }
@@ -2083,7 +2134,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -2106,7 +2157,7 @@
       "min_app_version_status": "release-bound",
       "kind": "visual-style",
       "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -2221,7 +2272,7 @@
       "min_app_version_status": "release-bound",
       "kind": "visual-style",
       "source_path": "content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {

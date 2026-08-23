@@ -1,0 +1,13 @@
+{
+  "expected_revision": 11,
+  "coordinator": {
+    "task": "symbolic-psychology-studio-wave-1",
+    "branch": "codex/content-expansion-portfolio"
+  },
+  "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+  "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+  "version": "1.0.0",
+  "changes": {
+    "status": "authored"
+  }
+}

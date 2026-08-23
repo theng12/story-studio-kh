@@ -1,0 +1,13 @@
+{
+  "expected_revision": 12,
+  "coordinator": {
+    "task": "symbolic-psychology-studio-wave-1",
+    "branch": "codex/content-expansion-portfolio"
+  },
+  "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+  "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+  "version": "1.0.0",
+  "changes": {
+    "status": "authored"
+  }
+}
