@@ -56,12 +56,92 @@ export interface EpisodePaths {
   metadata_json: string
 }
 
-export async function resolveEpisodePaths(slug: string, code: string, title: string): Promise<EpisodePaths> {
-  const { readFile } = await import('fs/promises')
+/**
+ * One read of the project's unchanging facts, shared across a single request.
+ *
+ * MEASURED on the owner's Capi project, 2026-08-23: 302 accepted episodes,
+ * `/episodes` taking 7.4 s cold. The list resolves paths PER EPISODE, and each
+ * resolution re-read the same two files:
+ *
+ *   resolveEpisodePathsByCodeWithSidecar
+ *     -> resolveEpisodePathsByCode -> getIdeas()        (ideas.json, 227 KB)
+ *                                  -> resolveEpisodePaths (project.json)
+ *     -> resolveSubfolderNames                           (project.json again)
+ *
+ * and `computeEpisodeStatus` resolves again on its own. At 302 episodes that
+ * is hundreds of reads and re-parses of two files that cannot change during
+ * one response — roughly 68 MB of JSON parsed to answer one request.
+ *
+ * This holds the PROMISES, not the values, so concurrent rows share one read
+ * rather than racing to start their own. It caches only the raw file contents;
+ * every per-episode substitution and every folder decision still happens per
+ * episode, exactly as before.
+ *
+ * REQUEST-SCOPED BY CONSTRUCTION. Callers create one and drop it. There is no
+ * TTL to tune and no staleness window: a cache that outlives the response it
+ * was made for is the bug this is careful not to be. The slug is recorded so a
+ * cache accidentally reused for another project is ignored rather than wrong.
+ */
+export interface ProjectFactsCache {
+  slug?: string
+  meta?: Promise<Record<string, unknown>>
+  ideas?: Promise<Array<Record<string, unknown>>>
+}
 
+export function createProjectFactsCache(slug?: string): ProjectFactsCache {
+  return slug ? { slug } : {}
+}
+
+function usableFor(cache: ProjectFactsCache | undefined, slug: string): ProjectFactsCache | undefined {
+  if (!cache) return undefined
+  if (cache.slug === undefined) { cache.slug = slug; return cache }
+  return cache.slug === slug ? cache : undefined
+}
+
+/** The parsed `project.json`, read at most once per cache. */
+async function projectMeta(slug: string, cache?: ProjectFactsCache): Promise<any> {
+  const scoped = usableFor(cache, slug)
+  const read = async (): Promise<Record<string, unknown>> => {
+    const { readFile } = await import('fs/promises')
+    return JSON.parse(await readFile(path.join(projectDirFor(slug), 'project.json'), 'utf-8'))
+  }
+  if (!scoped) return read()
+  scoped.meta ??= read()
+  try {
+    return await scoped.meta
+  } catch (error) {
+    // A failed read must not be remembered as the answer for the rest of the
+    // request: drop it so the next caller genuinely retries.
+    scoped.meta = undefined
+    throw error
+  }
+}
+
+/** Every idea for the project, read and parsed at most once per cache. */
+async function projectIdeas(slug: string, cache?: ProjectFactsCache): Promise<any[]> {
+  const scoped = usableFor(cache, slug)
+  const read = async (): Promise<Array<Record<string, unknown>>> => {
+    const im = await import('./idea-manager.js')
+    return await im.getIdeas(slug) as unknown as Array<Record<string, unknown>>
+  }
+  if (!scoped) return read()
+  scoped.ideas ??= read()
+  try {
+    return await scoped.ideas
+  } catch (error) {
+    scoped.ideas = undefined
+    throw error
+  }
+}
+
+export async function resolveEpisodePaths(
+  slug: string,
+  code: string,
+  title: string,
+  cache?: ProjectFactsCache,
+): Promise<EpisodePaths> {
   const projectDir = projectDirFor(slug)
-  const metaRaw = await readFile(path.join(projectDir, 'project.json'), 'utf-8')
-  const meta = JSON.parse(metaRaw)
+  const meta = await projectMeta(slug, cache)
 
   const prefix = meta.episode_prefix || 'EP'
   const seasonSize = meta.season_size || 20
@@ -171,14 +251,17 @@ export async function resolveEpisodePaths(slug: string, code: string, title: str
  * (idea-manager imports this module), matching resolveEpisodePaths's own
  * dynamic-import style.
  */
-export async function resolveEpisodePathsByCode(slug: string, code: string): Promise<EpisodePaths> {
+export async function resolveEpisodePathsByCode(
+  slug: string,
+  code: string,
+  cache?: ProjectFactsCache,
+): Promise<EpisodePaths> {
   let title = ''
   try {
-    const im = await import('./idea-manager.js')
-    const ideas = await im.getIdeas(slug)
-    title = ideas.find(i => i.episode_code === code)?.title || ''
+    const ideas = await projectIdeas(slug, cache)
+    title = String(ideas.find(i => i.episode_code === code)?.title || '')
   } catch { /* fall back to '' — better than throwing from a path resolver */ }
-  return resolveEpisodePaths(slug, code, title)
+  return resolveEpisodePaths(slug, code, title, cache)
 }
 
 function rebaseEpisodePaths(paths: EpisodePaths, episodeDir: string): EpisodePaths {
@@ -229,8 +312,9 @@ export async function resolveEpisodePathsByCodeWithSidecar(
   slug: string,
   code: string,
   sidecarFilename: string,
+  cache?: ProjectFactsCache,
 ): Promise<EpisodePaths> {
-  const paths = await resolveEpisodePathsByCode(slug, code)
+  const paths = await resolveEpisodePathsByCode(slug, code, cache)
 
   // v1.0.467 — scene_plan.json moved INTO the "03 Scene Prompts" subfolder.
   // The sidecar may sit at the episode root (legacy episodes) OR inside that
@@ -238,7 +322,7 @@ export async function resolveEpisodePathsByCodeWithSidecar(
   // same-code sibling folder actually owns the episode's data. Checking the
   // scene_prompts subfolder for any sidecar is harmless — only scene_plan.json
   // is ever passed here, and other sidecars simply won't be found there.
-  const names = await resolveSubfolderNames(slug, code)
+  const names = await resolveSubfolderNames(slug, code, cache)
   const { findSubfolder } = await import('../lib/folder-resolver.js')
   const hasSidecar = async (dir: string): Promise<boolean> => {
     if (existsSync(path.join(dir, sidecarFilename))) return true
@@ -292,8 +376,13 @@ export async function resolveEpisodePathsByCodeWithSidecar(
  */
 export const SCENE_PLAN_SIDECAR = 'scene_plan.json'
 
-export async function resolveScenePlanPath(slug: string, code: string, episodeDir: string): Promise<string> {
-  const names = await resolveSubfolderNames(slug, code)
+export async function resolveScenePlanPath(
+  slug: string,
+  code: string,
+  episodeDir: string,
+  cache?: ProjectFactsCache,
+): Promise<string> {
+  const names = await resolveSubfolderNames(slug, code, cache)
   const { findSubfolder } = await import('../lib/folder-resolver.js')
   const scenePromptsDir =
     (await findSubfolder(episodeDir, names.scene_prompts)) || path.join(episodeDir, names.scene_prompts)
@@ -325,14 +414,16 @@ export interface ResolvedSubfolderNames {
  * Reads from project config; falls back to defaults.
  * Returns names with {code} already replaced.
  */
-export async function resolveSubfolderNames(slug: string, code: string): Promise<ResolvedSubfolderNames> {
-  const { readFile } = await import('fs/promises')
+export async function resolveSubfolderNames(
+  slug: string,
+  code: string,
+  cache?: ProjectFactsCache,
+): Promise<ResolvedSubfolderNames> {
   const { DEFAULT_SUBFOLDER_NAMES } = await import('../models/types.js')
 
   let subfolder: Record<string, string> = {}
   try {
-    const metaRaw = await readFile(path.join(projectDirFor(slug), 'project.json'), 'utf-8')
-    const meta = JSON.parse(metaRaw)
+    const meta = await projectMeta(slug, cache)
     subfolder = meta.subfolder_names || {}
   } catch { /* use defaults */ }
 

@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.48 — 2026-08-24
+
+- **Opening a large channel re-read the same two files hundreds of times.** Listing Capi's 302 episodes went back to disk for `ideas.json` (275 KB) and `project.json` once *per episode*, several times over — roughly 68 MB of the same JSON parsed to answer one request, for two files that cannot change while that request is being answered. That is where the seven-second first load went.
+- **They are now read once per request and shared.** Measured on a 302-episode project the same size as Capi: the folder-resolving pass drops from **465 ms to 162 ms — 65% faster** — and that is only one of the several passes per episode that now share the same read. The saving on a genuinely cold load is larger.
+- **Nothing about what the app concludes has changed.** Only the raw file contents are shared; every episode still finds its own title, its own folders, its own renamed-folder match. Tests prove a snapshot resolves byte-identical paths to a fresh read, that it never outlives the request that made it, that one made for a different project is ignored rather than believed, and that a failed read is retried instead of remembered.
+
+---
+
 ## v1.4.47 — 2026-08-23
 
 - **The "More" menu now closes when you click away from it**, and on Escape. It was built from the browser's own collapsible element, which by design only closes when you click the same button again — so it read as stuck. Both places that use it are fixed together, and a test keeps it that way.

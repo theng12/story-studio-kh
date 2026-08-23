@@ -21,6 +21,7 @@ import {
   resolveEpisodePaths,
   resolveEpisodePathsByCodeWithSidecar,
   resolveSubfolderNames,
+  type ProjectFactsCache,
   resolveScenePlanPath,
 } from './utils.js'
 import type { EpisodePaths } from './utils.js'
@@ -880,6 +881,10 @@ export async function computeEpisodeStatus(
   slug: string,
   code: string,
   ideas?: Awaited<ReturnType<typeof im.getIdeas>>,
+  // v1.4.48 — the caller's request-scoped snapshot of the project's unchanging
+  // facts, so a 302-episode list reads project.json and ideas.json once rather
+  // than once per episode. Omitted, every read happens exactly as before.
+  cache?: ProjectFactsCache,
 ): Promise<EpisodeStatus> {
   const { getProjectOutputRoot } = await import('./project-manager.js')
   const outputRoot = await getProjectOutputRoot(slug)
@@ -917,7 +922,7 @@ export async function computeEpisodeStatus(
     const CODE = code.toUpperCase()
     const idea = ideasList.find(i => (i.episode_code || '').toUpperCase() === CODE)
     const title = idea?.title || ''
-    const paths = await resolveEpisodePaths(slug, code, title)
+    const paths = await resolveEpisodePaths(slug, code, title, cache)
     authoritativePaths = paths
 
     // v1.0.78: use the rich `safeReaddirRich` variant so we can tell apart
@@ -954,7 +959,7 @@ export async function computeEpisodeStatus(
     // assembly manifest so partial transcription remains in Pending. Resolve
     // by code to survive title/folder renames.
     try {
-      const subtitlePaths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
+      const subtitlePaths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json', cache)
       const completion = await inspectSubtitleCompletion(
         subtitlePaths.episode_dir,
         subtitlePaths.subtitles_dir,
@@ -1003,7 +1008,7 @@ export async function computeEpisodeStatus(
     // apostrophe/colon, empty title) resolved to a phantom dir → scene_plan.json
     // never found → episode wrongly read as pending. By-code is rename-proof.
     try {
-      const byCode = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'scene_plan.json')
+      const byCode = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'scene_plan.json', cache)
       // v1.0.361 — character sheet "done" = the episode's continuity config has
       // been saved (continuity.json at the episode_dir root). Same by-code
       // resolution as scene_plan so a renamed-folder episode still resolves.
@@ -1191,7 +1196,7 @@ export async function computeEpisodeStatus(
     const CODE = code.toUpperCase()
     const idea = ideasList.find(i => (i.episode_code || '').toUpperCase() === CODE)
     const title = idea?.title || ''
-    const paths = await resolveEpisodePaths(slug, code, title)
+    const paths = await resolveEpisodePaths(slug, code, title, cache)
 
     // Track the absolute path of whichever final-video candidate matched
     // first. Used at the end to stat the file and surface its size on the

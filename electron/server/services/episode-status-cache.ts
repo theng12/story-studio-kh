@@ -29,7 +29,7 @@ import fs from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { computeEpisodeStatus, type EpisodeStatus } from './asset-status.js'
-import { resolveEpisodePathsByCodeWithSidecar } from './utils.js'
+import { resolveEpisodePathsByCodeWithSidecar, type ProjectFactsCache } from './utils.js'
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
@@ -115,14 +115,19 @@ function cacheKey(slug: string, code: string): string {
  * Resolve by code plus the audio manifest so title changes cannot leave the
  * cache watching a non-existent folder.
  */
-async function resolveWatchedFolders(slug: string, code: string, ideas?: Awaited<ReturnType<typeof im.getIdeas>>): Promise<string[]> {
+async function resolveWatchedFolders(
+  slug: string,
+  code: string,
+  ideas?: Awaited<ReturnType<typeof im.getIdeas>>,
+  cache?: ProjectFactsCache,
+): Promise<string[]> {
   // `ideas` is retained in the signature for caller compatibility. The
   // by-code resolver performs its own canonical lookup and can also locate a
   // renamed sibling by the audio manifest.
   void ideas
   let paths: Awaited<ReturnType<typeof resolveEpisodePathsByCodeWithSidecar>>
   try {
-    paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json')
+    paths = await resolveEpisodePathsByCodeWithSidecar(slug, code, 'audio_chapters.json', cache)
   } catch {
     return []
   }
@@ -230,7 +235,15 @@ class EpisodeStatusCache {
    * batch — saves a per-episode ideas.json read inside computeEpisodeStatus
    * AND inside resolveWatchedFolders.
    */
-  async get(slug: string, code: string, ideas?: Awaited<ReturnType<typeof im.getIdeas>>): Promise<EpisodeStatus> {
+  async get(
+    slug: string,
+    code: string,
+    ideas?: Awaited<ReturnType<typeof im.getIdeas>>,
+    // v1.4.48 — the caller's request-scoped snapshot of the project's
+    // unchanging facts. A full list shares ONE; a single-episode read passes
+    // nothing and behaves exactly as before. See `ProjectFactsCache`.
+    cache?: ProjectFactsCache,
+  ): Promise<EpisodeStatus> {
     const k = cacheKey(slug, code)
 
     // Lazy hydrate from disk on first access for a project. Cheap miss
@@ -262,10 +275,15 @@ class EpisodeStatusCache {
       this.stats.misses++
     }
 
-    return this.computeAndStore(slug, code, ideas)
+    return this.computeAndStore(slug, code, ideas, cache)
   }
 
-  private computeAndStore(slug: string, code: string, ideas?: Awaited<ReturnType<typeof im.getIdeas>>): Promise<EpisodeStatus> {
+  private computeAndStore(
+    slug: string,
+    code: string,
+    ideas?: Awaited<ReturnType<typeof im.getIdeas>>,
+    cache?: ProjectFactsCache,
+  ): Promise<EpisodeStatus> {
     const k = cacheKey(slug, code)
 
     // Snapshot the dedup promise so concurrent callers don't both compute.
@@ -275,10 +293,10 @@ class EpisodeStatusCache {
       // snapshot after, a write that lands during compute would be missed
       // until the NEXT read; better to snapshot first and accept that a
       // write during compute means the next read will see STALE — correct.)
-      const folders = await resolveWatchedFolders(slug, code, ideas)
+      const folders = await resolveWatchedFolders(slug, code, ideas, cache)
       const watchedMtimes = await snapshotMtimes(folders)
 
-      const status = await computeEpisodeStatus(slug, code, ideas)
+      const status = await computeEpisodeStatus(slug, code, ideas, cache)
 
       const entry: EpisodeStatusCacheEntry = {
         slug,
