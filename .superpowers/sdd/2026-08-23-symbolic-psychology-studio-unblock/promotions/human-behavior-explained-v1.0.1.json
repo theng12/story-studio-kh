@@ -1,0 +1,13 @@
+{
+  "expected_revision": 17,
+  "coordinator": {
+    "task": "symbolic-psychology-studio-unblock-leaf-successors",
+    "branch": "codex/content-expansion-portfolio"
+  },
+  "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+  "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+  "version": "1.0.1",
+  "changes": {
+    "status": "authored"
+  }
+}

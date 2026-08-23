@@ -299,9 +299,79 @@ Registry validation reported revision `16` with `74` records before mutation.
   at revision `17` against the shared receipt.
 - `git diff --check` — clean.
 
+## Task 5 immutable Human Behavior Formula successor
+
+Task 5 started from `e5c924e69ead970f7db526333042864c9333df0d` on the
+required `codex/content-expansion-portfolio` branch with a clean worktree.
+Registry validation reported revision `17` with `77` records before mutation,
+and the Formula expected identity independently verified against the shared
+leaf receipt before source authoring.
+
+### Receipt-exact source and TDD proof
+
+- RED: the source suite failed only because
+  `human-behavior-explained-v1.0.1/pack.json` was absent; the registry suite
+  failed only because the Formula promotion request was absent.
+- The immutable Formula `1.0.0` hashes are pinned as
+  `9a4dde3a8e889b537b19b45f006b9b981ed9e0982dc5852af705924ae7caa7be`
+  for `pack.json` and
+  `bc008e06a736dda9e266c39ad4efd9af5df59103d7ac01ce0fb00d09a4961712`
+  for `content/series-formula.json`.
+- Formula `1.0.1` was copied from that exact predecessor. Its manifest changes
+  are only version `1.0.0` → `1.0.1` and changelog
+  `Replaces diagnostic tone vocabulary with explicitly non-diagnostic,
+  evidence-aware language.` Its document changes only mood entry
+  `diagnostic-but-warm` → `non-diagnostic-and-warm`.
+- Sorting and normalizing the successor manifest back to version `1.0.0` while
+  removing its changelog produces an empty diff against the predecessor.
+  Normalizing the successor mood token back produces an empty whole-document
+  diff. The direct sorted JSON diff reports exactly the two manifest edits and
+  one document edit above.
+- The authored successor hashes are
+  `31528ed261a5ee51d3f75bf9cf9588d6642289db87cb29fec918bd294d7de90c`
+  for `pack.json` and
+  `fa40dae5aa700871c5b975da572ed060f918f0edd3f8d41b43199d6369e0882c`
+  for `content/series-formula.json`.
+- Explicit assertions retain the item, family, SKU, empty dependency closure,
+  mood cardinality, every other JSON value, and all existing non-diagnosis,
+  non-sensational, evidence-aware safeguards.
+
+### Serialized lifecycle evidence
+
+- One and only one transition request used expected revision `17`, coordinator
+  task `symbolic-psychology-studio-unblock-leaf-successors`, branch
+  `codex/content-expansion-portfolio`, and receipt
+  `authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd`.
+  Its only change is `{ "status": "authored" }` for the exact Formula
+  `1.0.1` pack/version.
+- The transition returned revision `18` and transition reference
+  `lifecycle:b434f131242b4e28d7860dcb82acd91f51144646620b9318071f145e7efa773c`.
+  The registry remains at `77` records, now with `11` lifecycle transitions.
+- Formula `1.0.0` remains authored on its baseline receipt and Formula `1.0.1`
+  is authored on the shared leaf receipt. Recipe and Pastel `1.0.1` remain
+  reserved on that receipt; Kit `1.0.1` remains absent.
+- Formula, Recipe, and Pastel each independently passed `verify-receipt` at the
+  original batch revision `17` after the Formula transition.
+
+### Verification and preserved scope
+
+- `npx tsx --test electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts`
+  — 7 passed, 0 failed.
+- `node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs`
+  — 3 passed, 0 failed, 2 intentional external-evidence skips.
+- `node --test scripts/content-packs/__tests__/authoring-registry.test.mjs` —
+  32 passed, 0 failed after its authored-source inventory advanced from 65 to
+  66 (49 item packs and 17 bundle packs).
+- `npm run content-pack:registry -- validate` — revision `18`, `77` records.
+- Three exact `verify-receipt` CLI calls — Formula, Recipe, and Pastel passed
+  at revision `17` against the shared leaf receipt.
+- Recipe/Pastel successor sources and previews remain absent and untouched.
+  No archive was built; no generation, handoff, commerce, upload, publication,
+  deploy, tag, or push occurred. The independent Task 5 review remains the
+  coordinator's post-commit acceptance gate.
+
 ## Next task
 
-Task 5 may author and transition Formula only. Recipe and Pastel remain blocked
-in `reserved` state until Task 6's exact owner authority, returned bytes,
-provenance, and independent review gates are satisfied. Kit reservation remains
-forbidden.
+Task 6 remains blocked on exact Recipe/Pastel owner authority, returned bytes,
+provenance, and independent review gates. Recipe and Pastel stay `reserved`;
+Kit `1.0.1` stays absent and unreserved.

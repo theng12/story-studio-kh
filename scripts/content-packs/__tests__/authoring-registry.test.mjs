@@ -28,14 +28,14 @@ async function registrySnapshot(path) {
   }
 }
 
-test('reconciles the strict 65-pack authored registry against source manifests', async () => {
+test('reconciles the strict 66-pack authored registry against source manifests', async () => {
   const { validateAuthoringRegistry } = await import(registryModule)
   const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
 
   const authored = result.records.filter((record) => record.status === 'authored')
   assert.equal(result.revision, JSON.parse(await readFile(registryPath, 'utf8')).revision)
-  assert.equal(authored.length, 65)
-  assert.equal(authored.filter((record) => record.item_id).length, 48)
+  assert.equal(authored.length, 66)
+  assert.equal(authored.filter((record) => record.item_id).length, 49)
   assert.equal(authored.filter((record) => record.bundle_id).length, 17)
 })
 

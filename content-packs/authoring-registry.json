@@ -1,5 +1,5 @@
 {
-  "revision": 17,
+  "revision": 18,
   "batches": [
     {
       "revision": 2,
@@ -846,6 +846,23 @@
         "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
         "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
         "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 18,
+      "transition_ref": "lifecycle:b434f131242b4e28d7860dcb82acd91f51144646620b9318071f145e7efa773c",
+      "request": {
+        "expected_revision": 17,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-unblock-leaf-successors",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+        "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+        "version": "1.0.1",
         "changes": {
           "status": "authored"
         }
@@ -2878,7 +2895,7 @@
       "min_app_version_status": "release-bound",
       "kind": "series-formula",
       "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {

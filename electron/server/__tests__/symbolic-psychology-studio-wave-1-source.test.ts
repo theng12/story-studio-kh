@@ -10,6 +10,7 @@ import sharp from 'sharp'
 import { parseContentPackDocument } from '../content-packs/schemas.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+const FORMULA_ROOT = path.join(ROOT, 'content-packs', 'free-starters', 'formula')
 const PSYCHOLOGY_ROOT = path.join(ROOT, 'content-packs', 'psychology-editorial')
 const STUDIO_ROOT = path.join(ROOT, 'content-packs', 'symbolic-psychology-studio')
 const UNBLOCK_SDD_ROOT = path.join(ROOT, '.superpowers', 'sdd', '2026-08-23-symbolic-psychology-studio-unblock')
@@ -39,6 +40,10 @@ const PASTEL_V1_SOURCE_HASHES = {
   'pack.json': '2528f1c88b65a64b86177acffaaabd031a9f671fe0351e9e60000c71dc8131a0',
   'content/visual-style.json': 'd12274ba7f5541226a8a9cdbdefd961679fbc1e90f08c7bfa4a5a75733e5751d',
   'assets/pastel-surreal-psychological-collage.webp': CAPI_HASHES[4],
+} as const
+const HUMAN_BEHAVIOR_V1_SOURCE_HASHES = {
+  'pack.json': '9a4dde3a8e889b537b19b45f006b9b981ed9e0982dc5852af705924ae7caa7be',
+  'content/series-formula.json': 'bc008e06a736dda9e266c39ad4efd9af5df59103d7ac01ce0fb00d09a4961712',
 } as const
 const CAPI_PROVENANCE_ROW_HASHES = {
   'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-1.webp':
@@ -101,6 +106,69 @@ test('immutable v1.0.0 Recipe and Pastel source and provenance bytes retain exac
     const matchingRows = ledger.split('\n').filter(line => line.includes(`\`${runtimePath}\``))
     assert.equal(matchingRows.length, 1, `${runtimePath} must have exactly one immutable provenance row`)
     assert.equal(sha256(Buffer.from(matchingRows[0]!)), expectedHash, `${runtimePath} provenance row must remain byte-identical`)
+  }
+})
+
+test('Human Behavior Formula v1.0.1 changes only the receipt-authorized non-diagnostic token', async () => {
+  const v100Root = path.join(FORMULA_ROOT, 'human-behavior-explained')
+  const v101Root = path.join(FORMULA_ROOT, 'human-behavior-explained-v1.0.1')
+
+  for (const [relativePath, expectedHash] of Object.entries(HUMAN_BEHAVIOR_V1_SOURCE_HASHES)) {
+    assert.equal(
+      sha256(await fs.readFile(path.join(v100Root, relativePath))),
+      expectedHash,
+      `Formula v1.0.0 ${relativePath} must remain byte-identical`,
+    )
+  }
+
+  const v100Manifest = await readJson(path.join(v100Root, 'pack.json'))
+  const v101Manifest = await readJson(path.join(v101Root, 'pack.json'))
+  const v100 = await readJson(path.join(v100Root, 'content', 'series-formula.json'))
+  const v101 = await readJson(path.join(v101Root, 'content', 'series-formula.json'))
+  const v100Mood = (v100.vocabulary as { mood: string[] }).mood
+  const v101Mood = (v101.vocabulary as { mood: string[] }).mood
+
+  parseContentPackDocument('series-formula', v101)
+  assert.equal(v101Manifest.version, '1.0.1')
+  assert.equal(
+    v101Manifest.changelog,
+    'Replaces diagnostic tone vocabulary with explicitly non-diagnostic, evidence-aware language.',
+  )
+  assert.equal(v101Manifest.pack_id, v100Manifest.pack_id)
+  assert.equal(v101Manifest.entitlement && (v101Manifest.entitlement as Record<string, unknown>).family,
+    'com.storystudio.family.formula.human-behavior-explained')
+  assert.equal(v101Manifest.entitlement && (v101Manifest.entitlement as Record<string, unknown>).sku,
+    'com.storystudio.sku.formula.human-behavior-explained')
+  assert.deepEqual(v101Manifest.dependencies, v100Manifest.dependencies)
+  assert.equal(v101.id, v100.id)
+  assert.equal(v100Mood.includes('diagnostic-but-warm'), true)
+  assert.equal(v101Mood.includes('diagnostic-but-warm'), false)
+  assert.equal(v101Mood.includes('non-diagnostic-and-warm'), true)
+  assert.equal(v101Mood.length, v100Mood.length)
+
+  const normalizedManifest = structuredClone(v101Manifest)
+  normalizedManifest.version = '1.0.0'
+  delete normalizedManifest.changelog
+  assert.deepEqual(normalizedManifest, v100Manifest)
+
+  const normalizedDocument = structuredClone(v101)
+  const normalizedMood = (normalizedDocument.vocabulary as { mood: string[] }).mood
+  normalizedMood[normalizedMood.indexOf('non-diagnostic-and-warm')] = 'diagnostic-but-warm'
+  assert.deepEqual(normalizedDocument, v100)
+
+  const nonDiagnosisSafeguards = [
+    'Open with a recognizable behavior or tension, not a diagnosis or bait question.',
+    'pseudo-clinical certainty',
+    'Use examples without diagnosing the viewer.',
+    'Avoid clinical jargon and sensational claims.',
+    'never clinical jargon or diagnostic clickbait',
+    'Lead with the observable behavior, not the diagnosis.',
+    'never sensational, never diagnosing the viewer.',
+    "diagnostic claims ('Are You a Narcissist?')",
+  ]
+  const serialized = JSON.stringify(v101)
+  for (const safeguard of nonDiagnosisSafeguards) {
+    assert.equal(serialized.includes(safeguard), true, `Formula v1.0.1 must retain safeguard: ${safeguard}`)
   }
 })
 
@@ -279,7 +347,6 @@ test('leaf successor reservation is one receipt-bound batch with non-discoverabl
   }
 
   for (const successorPath of [
-    'content-packs/free-starters/formula/human-behavior-explained-v1.0.1',
     'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1',
     'content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1',
     'content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1',
@@ -287,7 +354,7 @@ test('leaf successor reservation is one receipt-bound batch with non-discoverabl
     await assert.rejects(
       fs.access(path.join(ROOT, successorPath)),
       { code: 'ENOENT' },
-      `${successorPath} must remain absent at the Task 4 reservation boundary`,
+      `${successorPath} must remain absent until its later evidence gate is satisfied`,
     )
   }
 })

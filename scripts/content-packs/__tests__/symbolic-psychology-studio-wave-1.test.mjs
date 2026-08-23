@@ -6,6 +6,14 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 const REGISTRY_PATH = join(ROOT, 'content-packs', 'authoring-registry.json')
+const FORMULA_PROMOTION = join(
+  ROOT,
+  '.superpowers',
+  'sdd',
+  '2026-08-23-symbolic-psychology-studio-unblock',
+  'promotions',
+  'human-behavior-explained-v1.0.1.json',
+)
 const KIT_ROOT = join(ROOT, 'content-packs', 'symbolic-psychology-studio', 'kit', 'symbolic-psychology-studio')
 const EVIDENCE_ROOT = process.env.STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT
 if (EVIDENCE_ROOT && !isAbsolute(EVIDENCE_ROOT)) {
@@ -21,6 +29,7 @@ const EVIDENCE_TEST = EVIDENCE_ROOT
 
 const RECIPE_RECEIPT = 'authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa'
 const IMPASTO_RECEIPT = 'authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5'
+const LEAF_SUCCESSOR_RECEIPT = 'authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd'
 const CLOSURE = [
   ['com.storystudio.pack.formula.human-behavior-explained', '1.0.0', 'com.storystudio.formula.human-behavior-explained', 'series-formula'],
   ['com.storystudio.pack.topic.human-behavior-social-dynamics', '1.0.0', 'com.storystudio.topic.human-behavior-social-dynamics', 'topic-pack'],
@@ -37,6 +46,12 @@ async function readJson(file) {
 function recordFor(registry, packId) {
   const record = registry.records.find(candidate => candidate.pack_id === packId && candidate.version === '1.0.0')
   assert.ok(record, `registry must contain ${packId}@1.0.0`)
+  return record
+}
+
+function recordVersionFor(registry, packId, version) {
+  const record = registry.records.find(candidate => candidate.pack_id === packId && candidate.version === version)
+  assert.ok(record, `registry must contain ${packId}@${version}`)
   return record
 }
 
@@ -67,6 +82,58 @@ test('promotion receipts: the original Capi and Impasto reservations are the onl
     assert.equal(current.receipt_ref, receipt)
     assert.equal(current.status, 'authored', `${packId} must be promoted before Wave 1 composition`)
   }
+})
+
+test('Formula v1.0.1 promotion is one receipt-bound reserved-to-authored transition', async () => {
+  const registry = await readJson(REGISTRY_PATH)
+  const promotion = await readJson(FORMULA_PROMOTION)
+  const packId = 'com.storystudio.pack.formula.human-behavior-explained'
+  const predecessor = recordVersionFor(registry, packId, '1.0.0')
+  const successor = recordVersionFor(registry, packId, '1.0.1')
+  const reservation = registry.batches
+    .find(batch => batch.receipt_ref === LEAF_SUCCESSOR_RECEIPT)
+    ?.request.records.find(record => record.pack_id === packId && record.version === '1.0.1')
+  const transitions = registry.transitions.filter(transition => (
+    transition.request.receipt_ref === LEAF_SUCCESSOR_RECEIPT
+    && transition.request.pack_id === packId
+    && transition.request.version === '1.0.1'
+  ))
+
+  assert.equal(predecessor.receipt_ref, `baseline:${packId}@1.0.0`)
+  assert.equal(predecessor.status, 'authored')
+  assert.ok(reservation, 'the shared leaf receipt must retain the Formula v1.0.1 reservation')
+  assert.equal(reservation.status, 'reserved')
+  assert.equal(successor.receipt_ref, LEAF_SUCCESSOR_RECEIPT)
+  assert.equal(successor.status, 'authored')
+  assert.deepEqual(promotion, {
+    expected_revision: 17,
+    coordinator: {
+      task: 'symbolic-psychology-studio-unblock-leaf-successors',
+      branch: 'codex/content-expansion-portfolio',
+    },
+    receipt_ref: LEAF_SUCCESSOR_RECEIPT,
+    pack_id: packId,
+    version: '1.0.1',
+    changes: { status: 'authored' },
+  })
+  assert.equal(transitions.length, 1)
+  assert.equal(transitions[0].revision, 18)
+  assert.deepEqual(transitions[0].request, promotion)
+
+  for (const reservedPackId of [
+    'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split',
+    'com.storystudio.pack.style.pastel-surreal-psychological-collage',
+  ]) {
+    const record = recordVersionFor(registry, reservedPackId, '1.0.1')
+    assert.equal(record.receipt_ref, LEAF_SUCCESSOR_RECEIPT)
+    assert.equal(record.status, 'reserved')
+  }
+  assert.equal(
+    registry.records.some(record => (
+      record.pack_id === 'com.storystudio.pack.kit.symbolic-psychology-studio' && record.version === '1.0.1'
+    )),
+    false,
+  )
 })
 
 test('kit closure: the coordinator is a pack-only exact six-node closure', async () => {
