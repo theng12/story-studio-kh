@@ -48,3 +48,24 @@ Observed results:
 - The coordinator test preserves order and checks that manifest dependencies and bundle components agree exactly.
 - `component_summary` remains candidate-ledger metadata only; no assertion asks for it in strict source manifests/documents.
 - No registry mutation, reservation, lifecycle transition, authoring source, generated asset, image request, archive, or external handoff was performed.
+
+## Fix Round 1
+
+Bound every Capi SHA-256 to the ledger line that names its exact asset, rather than accepting independent hash presence anywhere in the ledger. Added the approved Impasto preview SHA-256 `27050a92b2b71afd9a238ccd8ac9e72497ba2dda576bd4ad05fd01e465178e07`, with both asset-byte and provenance-line assertions.
+
+Executed:
+
+```bash
+npx tsx --test electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts
+node --check scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs
+node --test --test-name-pattern='promotion receipts' scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs
+npm run content-pack:registry -- validate
+git diff --check
+```
+
+Observed output:
+
+- Source suite: Capi and Impasto evidence subtests pass; Oil and Gothic remain intentionally RED because their Wave 1 source/ledger artifacts are absent.
+- Promotion-only gate remains intentionally RED: the Recipe record is still `reserved`, expected `authored`.
+- Registry validation passed: `authoring registry revision 10: 72 records`.
+- JavaScript syntax and whitespace checks passed.

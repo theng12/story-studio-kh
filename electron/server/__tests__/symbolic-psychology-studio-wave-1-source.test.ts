@@ -29,6 +29,7 @@ const CAPI_HASHES = [
   '398cb595ce5c285570ce057cb81c86b73a739a5d220fc44a85faa7378b2e87ab',
 ] as const
 const HUMAN_BEHAVIOR = 'com.storystudio.formula.human-behavior-explained'
+const IMPASTO_SHA256 = '27050a92b2b71afd9a238ccd8ac9e72497ba2dda576bd4ad05fd01e465178e07'
 const OIL_ASSET = 'oil-painting-classical.webp'
 const OIL_SHA256 = '721e0b45be473e1a9c868874c0e6662914f5b1ad4829748607268c520258615a'
 
@@ -69,7 +70,9 @@ test('source evidence: Capi preview bytes match the provenance ledger', async ()
     const root = index < 5 ? recipeRoot : pastelRoot
     const bytes = await fs.readFile(path.join(root, 'assets', asset))
     assert.equal(sha256(bytes), CAPI_HASHES[index], `${asset} must retain its reviewed source byte`)
-    assert.match(ledger, new RegExp(CAPI_HASHES[index]), `${asset} must remain in the Capi provenance ledger`)
+    const ledgerEntry = ledger.split('\n').find(line => line.includes(asset))
+    assert.ok(ledgerEntry, `${asset} must remain in the Capi provenance ledger`)
+    assert.match(ledgerEntry, new RegExp(CAPI_HASHES[index]), `${asset} must retain its paired provenance hash`)
   }
 })
 
@@ -77,9 +80,14 @@ test('source evidence: Impasto is a Human Behavior-only decodable WebP', async (
   const root = path.join(ROOT, 'content-packs', 'legacy-thumbnail-restoration', 'style', 'impasto-psychological-animals')
   const document = await readJson(path.join(root, 'content', 'visual-style.json'))
   const asset = path.join(root, 'assets', 'impasto-psychological-animals.webp')
+  const ledger = await fs.readFile(path.join(ROOT, 'content-packs', 'legacy-thumbnail-restoration', 'PREVIEW-PROVENANCE.md'), 'utf8')
 
   parseContentPackDocument('visual-style', document)
   assert.deepEqual(document.compatible_formula_ids, [HUMAN_BEHAVIOR])
+  assert.equal(sha256(await fs.readFile(asset)), IMPASTO_SHA256)
+  const ledgerEntry = ledger.split('\n').find(line => line.includes('impasto-psychological-animals.webp'))
+  assert.ok(ledgerEntry, 'Impasto must remain in its preview provenance ledger')
+  assert.match(ledgerEntry, new RegExp(IMPASTO_SHA256), 'Impasto provenance must retain its exact preview hash')
   const metadata = await webpMetadata(asset)
   assert.deepEqual(
     { format: metadata.format, width: metadata.width, height: metadata.height },
