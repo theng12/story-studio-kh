@@ -45,7 +45,7 @@
 | `content-packs/reusable-primitives/formula/before-after-timeline/{pack.json,content/series-formula.json}` | Receipt-bound Before/After Timeline Formula source. |
 | `content-packs/reusable-primitives/thumbnail/object-hero-question/{pack.json,content/thumbnail-recipe.json,assets/*.webp}` | Receipt-bound Object Hero + Question Recipe and only its declared returned preview bytes. |
 | `content-packs/reusable-primitives/thumbnail/route-map-one-promise/{pack.json,content/thumbnail-recipe.json,assets/*.webp}` | Receipt-bound Route Map + One Promise Recipe and only its declared returned preview bytes. |
-| `content-packs/reusable-primitives/PREVIEW-PROVENANCE.md` | Immutable preview ledger: original-byte provenance/rights, returned source, WebP decode data, byte size, SHA-256, and rejected candidates. |
+| `content-packs/reusable-primitives/PREVIEW-PROVENANCE.md` | Immutable ledger for qualifying returned preview bytes only: provenance/rights, returned source, WebP decode data, byte size, and SHA-256. Blocked/no-byte evidence stays only in the ignored leaf handoff and never creates or changes this file. |
 | `scripts/content-packs/stage-handoff-artifacts.mjs` | Dependency-free external-staging helper with no-follow reads, physical containment checks, exclusive writes, staged-copy validation, explicit cleanup, and truthful phase outcomes. |
 | `electron/server/__tests__/reusable-content-primitives-source.test.ts` | Source schemas, Formula/Topic/Recipe compatibility, diversity, safety, exact-title, provenance, and no-runtime-secret regression tests. |
 | `scripts/content-packs/__tests__/reusable-content-primitives-pack.test.mjs` | Deterministic keyless candidate archive, size, closure, and delivery-profile tests. |
@@ -434,7 +434,7 @@ Write `preview-batch.json` with the six exact rows above, one literal prompt per
 
 Studio Hub receives this only as a control-plane brief. Before any execution it must return an exact quote and the owner must give explicit authority for that quote and job; only then may Studio Hub assign the batch to a named worker and record that worker in the return. Do not name/select a provider/model or claim Studio Hub itself rendered bytes. The alternative is owner-supplied original bytes. Either return must include original bytes, exact prompt and batch hash, source/provenance, rights/license basis, SHA-256, decoded `1672x941` dimensions, byte size, exact-title transcription, and line-count/variation inventory. This Mac sends no production/paid request.
 
-If bytes are missing, malformed, not original, have no rights basis, fail decode, omit the AI-rendered complete headline, are clipped/misspelled/UI-contaminated/copied/near-duplicate, or do not meet the diversity matrix, write this exact blocker to the recipe handoff and `PREVIEW-PROVENANCE.md`, omit the recipe source and candidate archive, and stop this recipe task:
+If bytes are missing, malformed, not original, have no rights basis, fail decode, omit the AI-rendered complete headline, are clipped/misspelled/UI-contaminated/copied/near-duplicate, or do not meet the diversity matrix, write this exact blocker only to the ignored recipe handoff, omit the recipe source/candidate archive, do not create or modify `PREVIEW-PROVENANCE.md`, and stop this recipe task:
 
 ```text
 BLOCKED: Returned Object Hero + Question previews are missing qualified original WebP evidence. Needed: all three exact 1672x941 WebPs with the exact sample titles and 1/2/3-line arrangements, named-worker quote/owner authority or owner-supplied origin, provenance/rights basis, byte size, SHA-256, and six-axis diversity coverage. No production or paid generation request is authorized on this control Mac.
@@ -535,7 +535,7 @@ git commit -m "feat(content-packs): add route map promise recipe"
 
 **Interfaces:**
 - Consumes: the fixed five registry records, only source roots that actually exist, ignored authoring/review evidence, `buildContentPack({ sourceDirectory, outputPath, deliveryProfile, minAppVersion })`, and `validateContentPack({ archivePath, deliveryProfile })` from `scripts/content-packs/lib.mjs`.
-- Produces: `eligibleLeaves: WaveLeaf[]`, where a leaf is included only after all of its applicable gates pass; serialized coordinator transitions for that set; and `stageHandoffArtifacts({ repositoryRoot, candidateRoot, artifactRoot, receiverHandoffPath, entries, blockedEntries }, { afterPhase? } = {}) -> Promise<{ phase: 'complete'; archivePaths: string[]; ledgerPath: string; releaseHandoffPath: string; receiverHandoffPath: string }>` for successfully transitioned leaves. `entries` carry the final summary only so the helper can write the allowed final release/receiver surfaces; `blockedEntries` are exact `{ slug, blocker }` records with no archive metadata. The optional phase hook is a test-only failure-injection seam and the real coordinator never supplies it.
+- Produces: `eligibleLeaves: WaveLeaf[]`, where a leaf is included only after all of its applicable gates pass; serialized coordinator transitions for that set; and `stageHandoffArtifacts({ repositoryRoot, candidateRoot, artifactRoot, receiverHandoffPath, allowedSlugs, eligibleSlugs, entries, blockedEntries }, { afterPhase? } = {}) -> Promise<{ phase: 'complete'; archivePaths: string[]; ledgerPath: string; releaseHandoffPath: string; receiverHandoffPath: string }>` for successfully transitioned leaves. `allowedSlugs` is the exact unique fixed five-slug wave set; `eligibleSlugs` is the exact unique authored∩eligible set. `entries` carry the final summary only so the helper can write the allowed final release/receiver surfaces; `blockedEntries` are exact `{ slug, blocker }` records with no archive metadata. The optional phase hook is a test-only failure-injection seam and the real coordinator never supplies it.
 
 - [ ] **Step 1: Write local RED tests for independent qualification, secure staging, and summary placement.**
 
@@ -553,7 +553,25 @@ const waveLeaves = [
 
 Require all three text source roots to exist. For each existing source, build twice in a test-owned `mkdtemp(join(tmpdir(), 'story-wave-two-pack-test-'))`, compare exact bytes and SHA-256, enforce `<= 52_428_800`, and call `validateContentPack` on **both** archives with `deliveryProfile: 'genstudio-store-receipt-v1'`. Inspect archive JSON and assert `min_app_version: '1.0.843'`, `dependencies: []`, no `key_id`, no `signature.ed25519`, and no recursive JSON key named `component_summary`. Only either Recipe root may be absent; in that case require its matching committed registry record to remain `reserved`. Thus a preview blocker is an allowed leaf-local outcome but cannot hide a missing text deliverable.
 
-Write staging tests with a **different** `mkdtemp(join(tmpdir(), 'story-wave-two-stage-test-'))`. Its `candidateRoot` contains a verified fixture candidate; its `artifactRoot` is a non-existent child; and its `receiverHandoffPath` is a different non-existent child. Never point tests at `/build/Developer/_handoffs/`. Assert preflight rejects either destination if it already exists, any relative destination, either destination inside the repository, symlinked candidate/destination ancestry, a source whose physical `realpath` escapes `candidateRoot`, changed source bytes, wrong digest/size/floor/profile, incomplete reviews, or an entry outside the supplied eligible set.
+Evolve the Task 1 durable test in `scripts/content-packs/__tests__/authoring-registry.test.mjs`; do not leave its initial current-record `all reserved` assertion in place after transitions. Select the one persisted Wave 2 batch by its exact coordinator and receipt. Deep-compare `batch.request.records` to the five original proposal rows and prove those historical request records remain byte-for-field `status: 'reserved'`, `dependencies: []`, exact identities/version/publisher/token/source, and proposed family/SKU. Assert the batch receipt remains the immutable `receipt_ref` on all five current records and `verifyAuthoringReceipt` still verifies every original request identity.
+
+Then derive the exact Wave 2 transition set from persisted transition events with this coordinator. Require transition targets to be unique. For each of the five current records:
+
+- current `status: 'authored'` iff exactly one Wave 2 transition targets its original receipt/`pack_id`/version;
+- that one transition satisfies `transition.revision === transition.request.expected_revision + 1`, has the exact coordinator and original receipt/identity, and has `changes` deep-equal to `{ status: 'authored' }` with no stocking-proposal or other mutation;
+- every authored target has an exact registered source that passes source reconciliation and focused qualification tests;
+- a current `reserved` record has no Wave 2 status transition; in particular, every preview-blocked Recipe with no source remains `reserved`.
+
+Finally assert the current authored source-path set equals the exact unique transitioned source-qualified set and the current reserved set equals its fixed-wave complement. This preserves the original reservation proposal/receipt as history while proving current lifecycle state solely from one exact `reserved` → `authored` event per transitioned leaf. The durable test reads no ignored review/handoff file.
+
+Write staging tests with a **different** `mkdtemp(join(tmpdir(), 'story-wave-two-stage-test-'))`. Its `candidateRoot` contains verified fixture candidates; its `artifactRoot` is a non-existent child; and its `receiverHandoffPath` is a different non-existent child. Never point tests at `/build/Developer/_handoffs/`. Use explicit `allowedSlugs` equal to the fixed five-slug wave set and `eligibleSlugs` equal to a two-slug authored∩eligible subset. Require all four slug collections to be unique and enforce these exact equations before any filesystem write:
+
+```js
+assert.deepEqual(new Set(entries.map(entry => entry.slug)), new Set(eligibleSlugs))
+assert.deepEqual(new Set(blockedEntries.map(entry => entry.slug)), new Set(allowedSlugs.filter(slug => !eligibleSlugs.includes(slug))))
+```
+
+The helper must independently reject duplicate `allowedSlugs`, duplicate `eligibleSlugs`, duplicate entry slugs, duplicate blocked slugs, an eligible slug outside `allowedSlugs`, an entry outside or omitted from `eligibleSlugs`, a blocked slug outside `allowedSlugs`, any eligible/blocked overlap, and any fixed-wave slug omitted from both entry and blocked sets. Also reject either destination if it already exists, any relative destination, either destination inside the repository, symlinked candidate/destination ancestry, a source whose physical `realpath` escapes `candidateRoot`, changed source bytes, wrong digest/size/floor/profile, or incomplete reviews.
 
 Assert the successful fixture copy is byte-identical and revalidated by `validateContentPack`; ledger keys are exactly `absolute_path`, `bytes`, `delivery_profile`, `min_app_version`, `receipt_ref`, `reviews`, `sha256`, and `slug`; `release-handoff.json` and the receiver handoff contain the exact summary; and ledger/source/archive JSON do not. The three generated top-level shapes are exact:
 
@@ -568,7 +586,7 @@ assert.equal(releaseHandoff.schema_version, 1)
 assert.equal(receiver.schema_version, 1)
 ```
 
-Each release/receiver successful entry contains the exact ledger facts plus `component_summary`; each blocked entry is exactly `{ slug, blocker }`. A semantic recursive key walker over parsed JSON—not raw grep—allows `component_summary` only under each delivered entry in `release-handoff.json`, receiver handoff, and stocking-handoff fixtures. It rejects the key in registry, source, authoring handoff, candidate handoff, preview data, ledger, build evidence, or archive JSON.
+Each release/receiver successful entry contains the exact ledger facts plus `component_summary`; each blocked entry is exactly `{ slug, blocker }`. Assert the successful-entry slugs equal `eligibleSlugs` and blocked-entry slugs equal the exact unique `allowedSlugs \ eligibleSlugs` complement, with no unknown, overlap, duplicate, or omission. A semantic recursive key walker over parsed JSON—not raw grep—allows `component_summary` only under each delivered entry in `release-handoff.json`, receiver handoff, and stocking-handoff fixtures. It rejects the key in registry, source, authoring handoff, candidate handoff, preview data, ledger, build evidence, or archive JSON.
 
 - [ ] **Step 2: Run RED and prove it is caused only by the missing helper/new qualification implementation.**
 
@@ -581,7 +599,7 @@ Expected: the source suite remains GREEN for every committed leaf; the new pack 
 
 - [ ] **Step 3: Implement the minimum secure helper and return the test suite to GREEN.**
 
-Use only Node standard-library file/path/crypto APIs plus the existing `validateContentPack`. Preflight both absent destinations before any write. Resolve the physical repository, `candidateRoot`, artifact parent, and receiver parent; walk relevant existing ancestors with `lstat`; reject symlinks/non-directories and require both destination parents to resolve outside the repository. For every source, require a regular non-symlink file physically contained by `candidateRoot`; open it with `constants.O_RDONLY | constants.O_NOFOLLOW`, compare pre/post `fstat` identity/size/timestamps, and reject replacement or mutation.
+Use only Node standard-library file/path/crypto APIs plus the existing `validateContentPack`. Before any filesystem write, validate the four slug collections: unique `allowedSlugs`; unique `eligibleSlugs` and `eligibleSlugs ⊆ allowedSlugs`; unique `entries[].slug` exactly equal to `eligibleSlugs`; unique `blockedEntries[].slug` exactly equal to `allowedSlugs \ eligibleSlugs`; and no unknown, overlap, duplicate, or omission. Then preflight both absent destinations. Resolve the physical repository, `candidateRoot`, artifact parent, and receiver parent; walk relevant existing ancestors with `lstat`; reject symlinks/non-directories and require both destination parents to resolve outside the repository. For every source, require a regular non-symlink file physically contained by `candidateRoot`; open it with `constants.O_RDONLY | constants.O_NOFOLLOW`, compare pre/post `fstat` identity/size/timestamps, and reject replacement or mutation.
 
 Create `artifactRoot` and `.staging` non-recursively. Open every staged archive, final archive, and JSON/handoff output with exclusive `wx` (mode `0o600` for JSON/handoffs); never use an overwriting write or overwriting rename. Copy from the no-follow source handle into staging, hash/count the copied bytes, compare declared evidence, then call `validateContentPack({ archivePath: stagedPath, deliveryProfile: 'genstudio-store-receipt-v1' })`. Validate **all** staged copies before finalizing any archive. For each final archive, open the absent final path with `wx`, copy the already verified staged bytes through stable handles, hash/count/revalidate the final file, then unlink only its staged copy. After every final archive verifies, write `ledger.json`, `release-handoff.json`, and finally the external receiver handoff. Re-open and revalidate final archives and parse all three handoff files before returning `phase: 'complete'`.
 
@@ -638,7 +656,7 @@ const summaries = {
 }
 ```
 
-Before the call, make `blockedEntries` the exact fixed-wave complement of `authoredLeaves`, using the existing qualification/transition blocker for each. After `phase: 'complete'`, set `deliveredLeaves` from the helper's verified archive paths, update the ignored candidate handoff, and create one `-stocking.json` only for each delivered leaf. Each stocking handoff contains Story identity/version/publisher, proposed family/SKU state, `dependencies: []`, floor/digest/size/absolute archive/profile/receipt/reviews, its exact `component_summary`, and `explicitly_not_done: [upload, product-or-release-draft-creation, price-or-discount-decision, purchase, grant, publication, production-signing, deploy, push]`. The receiver includes successful entries with summaries plus `blockedEntries` without archive/digest/size fields. A caught staging failure adds every undelivered authored leaf to `blocked_leaves` with its exact phase; no helper failure/crash produces a stocking handoff.
+Before the call, set `allowedSlugs` to the exact fixed five-slug wave order and `eligibleSlugs` to the unique `authoredLeaves` (the authored∩eligible set). Build `entries` with exactly one row per `eligibleSlugs` value and `blockedEntries` as the exact unique `allowedSlugs \ eligibleSlugs` complement, using the existing qualification/transition blocker for each. Pass all four collections explicitly; never let the helper infer eligibility from source/archive presence. After `phase: 'complete'`, set `deliveredLeaves` from the helper's verified archive paths, assert they equal `eligibleSlugs`, update the ignored candidate handoff, and create one `-stocking.json` only for each delivered leaf. Each stocking handoff contains Story identity/version/publisher, proposed family/SKU state, `dependencies: []`, floor/digest/size/absolute archive/profile/receipt/reviews, its exact `component_summary`, and `explicitly_not_done: [upload, product-or-release-draft-creation, price-or-discount-decision, purchase, grant, publication, production-signing, deploy, push]`. The receiver includes successful entries with summaries plus `blockedEntries` without archive/digest/size fields. A caught staging failure adds every undelivered authored leaf to `blocked_leaves` with its exact phase; no helper failure/crash produces a stocking handoff.
 
 In a `finally` block, delete the real `candidateRoot` only after `phase: 'complete'` has been reverified or after a caught pre-commit failure has recorded its evidence. Never delete the external artifact root or receiver path automatically. No source, archive, key, or signature is left in the repository.
 
@@ -670,8 +688,28 @@ const working = '.superpowers/sdd/2026-08-23-reusable-content-primitives-wave-2/
 const artifactRoot = '/build/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23'
 const receiverPath = '/build/Developer/_handoffs/2026-08-23_to-genstudio_from-storystudio_reusable-primitives-wave-2.json'
 const candidate = JSON.parse(await readFile(join(working, 'wave-2-candidate.json'), 'utf8'))
+const allowed = [
+  'question-ladder', 'audience-question-seeder', 'before-after-timeline',
+  'object-hero-question', 'route-map-one-promise',
+]
 const delivered = [...candidate.delivered_leaves].sort()
+const stagingFailed = candidate.evidence.staging?.status === 'failed-after-root'
+const expectedDelivered = stagingFailed ? [] : candidate.eligible_leaves
+  .filter(slug => candidate.authored_leaves.includes(slug))
+  .sort()
+const blocked = candidate.blocked_leaves.map(entry => entry.slug).sort()
+const unique = values => new Set(values).size === values.length
 const absent = async path => access(path).then(() => false, () => true)
+assert.equal(unique(allowed), true)
+assert.equal(unique(candidate.eligible_leaves), true)
+assert.equal(unique(candidate.authored_leaves), true)
+assert.equal(unique(delivered), true)
+assert.equal(unique(blocked), true)
+assert.ok(candidate.eligible_leaves.every(slug => allowed.includes(slug)))
+assert.ok(candidate.authored_leaves.every(slug => candidate.eligible_leaves.includes(slug)))
+assert.deepEqual(delivered, expectedDelivered)
+assert.deepEqual(blocked, allowed.filter(slug => !delivered.includes(slug)).sort())
+assert.equal(delivered.some(slug => blocked.includes(slug)), false)
 
 if (!delivered.length) {
   if (candidate.evidence.staging?.status === 'failed-after-root') {
@@ -689,7 +727,7 @@ if (!delivered.length) {
   assert.deepEqual(ledger.entries.map(entry => entry.slug).sort(), delivered)
   assert.deepEqual(release.entries.map(entry => entry.slug).sort(), delivered)
   assert.deepEqual(receiver.successful_entries.map(entry => entry.slug).sort(), delivered)
-  assert.deepEqual(receiver.blocked_entries.map(entry => entry.slug).sort(), candidate.blocked_leaves.map(entry => entry.slug).sort())
+  assert.deepEqual(receiver.blocked_entries.map(entry => entry.slug).sort(), blocked)
   for (const entry of ledger.entries) {
     const archivePath = join(artifactRoot, `${entry.slug}.sspack`)
     const bytes = await readFile(archivePath)
@@ -727,13 +765,13 @@ Commit only after Step 6 passes; no RED test crosses a commit boundary. External
 
 **Spec coverage:** Tasks 1–7 cover exactly the five approved reusable leaves, the four existing creative schemas, explicit Formula/Topic boundaries, exact-title Recipes, the exact six `1672x941` sample-title previews, independent review, deterministic keyless validation at `1.0.843`, partial success, and non-mutating final handoffs. They create no kit fork, Style, fifth schema, runtime catalog entry, price, GenStudio record, checkout change, upload, publication, deployment, or push.
 
-**Registry and commit discipline:** Task 1 contains only passing reservation coverage. Every leaf adds its RED test locally and commits only after that leaf is GREEN. The exact five proposal rows are explicit but become authoritative only through the successful receipt. All registry operations across this and the Symbolic plan use one serialized lane, current revalidation/revision, existing lock/CAS, fail-fast stale handling, and post-mutation validation; source work may be parallel but registry/shared-test commits may not.
+**Registry and commit discipline:** Task 1 contains only passing reservation coverage. Every leaf adds its RED test locally and commits only after that leaf is GREEN. The exact five proposal rows are explicit but become authoritative only through the successful receipt. Task 7 evolves the durable registry test so the persisted batch request/receipt keeps all five original reserved proposals byte-for-field, while current records are authored exactly for the unique transitioned source-qualified subset and reserved for its complement; each authored state has one exact status-only `reserved` → `authored` event. All registry operations across this and the Symbolic plan use one serialized lane, current revalidation/revision, existing lock/CAS, fail-fast stale handling, and post-mutation validation; source work may be parallel but registry/shared-test commits may not.
 
 **Partial qualification:** `eligibleLeaves`, `authoredLeaves`, and `deliveredLeaves` are distinct exact sets. Missing Recipe previews leave those records reserved and source/archive/stocking-free while the three text leaves continue. A partially successful wave is globally `blocked` but preserves precise successful-leaf evidence; it is never mislabeled five-of-five complete.
 
-**Preview/Studio Hub safety:** Studio Hub is control plane only. Named-worker bytes require an exact quote plus explicit owner job authority; owner-supplied originals are the alternative. Each of six previews must already be an original exact `1672x941` WebP with its exact sample title/line arrangement and complete provenance. No local generation, paid request, transform, upload, production key, model/provider choice, or fabricated evidence occurs.
+**Preview/Studio Hub safety:** Studio Hub is control plane only. Named-worker bytes require an exact quote plus explicit owner job authority; owner-supplied originals are the alternative. Each of six previews must already be an original exact `1672x941` WebP with its exact sample title/line arrangement and complete provenance. `PREVIEW-PROVENANCE.md` is created/changed only for qualifying returned bytes; blocked/no-byte evidence exists only in the ignored leaf handoff. No local generation, paid request, transform, upload, production key, model/provider choice, or fabricated evidence occurs.
 
-**External staging truthfulness:** Automated staging tests use isolated temp destinations; real candidates and real handoff destinations are separate. Both real destinations must be absent. No-follow/stable reads, physical containment, exclusive writes, staged `validateContentPack`, explicit caught-failure cleanup, post-write revalidation, and crash-phase inventory prevent overwrite and traversal. The plan does not promise cross-filesystem or crash atomicity; partial crash residue blocks retry and stocking until an owner-directed decision.
+**External staging truthfulness:** Automated staging tests use isolated temp destinations; real candidates and real handoff destinations are separate. Both real destinations must be absent. The helper receives explicit unique `allowedSlugs` and `eligibleSlugs`; entries equal the authored∩eligible set, blocked rows equal the exact fixed-wave complement, and tests reject every unknown, overlap, duplicate, or omission. No-follow/stable reads, physical containment, exclusive writes, staged `validateContentPack`, explicit caught-failure cleanup, post-write revalidation, and crash-phase inventory prevent overwrite and traversal. The plan does not promise cross-filesystem or crash atomicity; partial crash residue blocks retry and stocking until an owner-directed decision.
 
 **Summary and schema placement:** `component_summary` exists only in final release, receiver, and delivered-leaf stocking handoffs. A semantic parsed-JSON scan—not raw grep—proves it is absent from strict source, registry, preview, candidate/build evidence, machine ledger, and archive JSON. Source schemas remain unchanged; every dependency list is `[]`; Route Map invents no future Formula identity.
 
