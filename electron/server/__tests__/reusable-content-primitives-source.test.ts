@@ -14,6 +14,7 @@ const QUESTION_LADDER_SOURCE = 'content-packs/reusable-primitives/formula/questi
 const AUDIENCE_QUESTION_SEEDER_SOURCE = 'content-packs/reusable-primitives/topic/audience-question-seeder'
 const BEFORE_AFTER_TIMELINE_SOURCE = 'content-packs/reusable-primitives/formula/before-after-timeline'
 const OBJECT_HERO_QUESTION_SOURCE = 'content-packs/reusable-primitives/thumbnail/object-hero-question'
+const ROUTE_MAP_ONE_PROMISE_SOURCE = 'content-packs/reusable-primitives/thumbnail/route-map-one-promise'
 
 const BEFORE_AFTER_TIMELINE_PACING = [
   'Starting baseline.',
@@ -265,6 +266,38 @@ async function registryRecord(sourcePath: string): Promise<RegistryRecord> {
   assert.equal(matches.length, 1, `${sourcePath} must have one exact registry record`)
   return matches[0]!
 }
+
+function hasRecursiveKey(value: unknown, key: string): boolean {
+  if (!value || typeof value !== 'object') return false
+  if (!Array.isArray(value) && Object.hasOwn(value, key)) return true
+  return Object.values(value).some(child => hasRecursiveKey(child, key))
+}
+
+test('Wave 2 source qualification is exactly three authored text leaves with no structured release summary', async () => {
+  const expected = new Map([
+    [QUESTION_LADDER_SOURCE, 'authored'],
+    [AUDIENCE_QUESTION_SEEDER_SOURCE, 'authored'],
+    [BEFORE_AFTER_TIMELINE_SOURCE, 'authored'],
+    [OBJECT_HERO_QUESTION_SOURCE, 'reserved'],
+    [ROUTE_MAP_ONE_PROMISE_SOURCE, 'reserved'],
+  ])
+  for (const [sourcePath, status] of expected) {
+    const record = await registryRecord(sourcePath)
+    assert.equal(record.status, status)
+    const sourceRoot = path.join(ROOT, sourcePath)
+    if (status === 'reserved') {
+      await assert.rejects(fs.access(sourceRoot))
+      continue
+    }
+    const manifest = await readJson(path.join(sourceRoot, 'pack.json'))
+    const contentDirectory = path.join(sourceRoot, 'content')
+    const contentNames = await fs.readdir(contentDirectory)
+    const documents = await Promise.all(contentNames.filter(name => name.endsWith('.json'))
+      .map(name => readJson(path.join(contentDirectory, name))))
+    assert.equal(hasRecursiveKey(manifest, 'component_summary'), false)
+    assert.equal(documents.some(document => hasRecursiveKey(document, 'component_summary')), false)
+  }
+})
 
 test('Question Ladder Formula is receipt-bound and preserves its evidence-safe explanatory ladder', async () => {
   const formulaRecord = await registryRecord(QUESTION_LADDER_SOURCE)

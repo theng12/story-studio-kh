@@ -1,5 +1,5 @@
 {
-  "revision": 19,
+  "revision": 22,
   "batches": [
     {
       "revision": 2,
@@ -987,6 +987,57 @@
         "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
         "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
         "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 20,
+      "transition_ref": "lifecycle:9bce2c983ab1e5fe9ee116662a3bf9d407848a9de6cb0453fc799b27164b63ae",
+      "request": {
+        "expected_revision": 19,
+        "coordinator": {
+          "task": "reusable-content-primitives-wave-2",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+        "pack_id": "com.storystudio.pack.formula.question-ladder",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 21,
+      "transition_ref": "lifecycle:e10b6432682bfeb420d9ac9e065ef3042fe713af94b307f9ae3fc43d1abf7c6f",
+      "request": {
+        "expected_revision": 20,
+        "coordinator": {
+          "task": "reusable-content-primitives-wave-2",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+        "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 22,
+      "transition_ref": "lifecycle:feb0ec21c41d980655ee0ce00843a9e88098249306ab962a8b980a5f0f7368ec",
+      "request": {
+        "expected_revision": 21,
+        "coordinator": {
+          "task": "reusable-content-primitives-wave-2",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+        "pack_id": "com.storystudio.pack.formula.before-after-timeline",
+        "version": "1.0.0",
         "changes": {
           "status": "authored"
         }
@@ -3088,7 +3139,7 @@
       "min_app_version_status": "release-bound",
       "kind": "series-formula",
       "source_path": "content-packs/reusable-primitives/formula/question-ladder",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3111,7 +3162,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/reusable-primitives/topic/audience-question-seeder",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3134,7 +3185,7 @@
       "min_app_version_status": "release-bound",
       "kind": "series-formula",
       "source_path": "content-packs/reusable-primitives/formula/before-after-timeline",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {

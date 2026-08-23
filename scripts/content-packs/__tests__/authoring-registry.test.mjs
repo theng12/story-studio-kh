@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { appendFile, cp, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, appendFile, cp, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -28,14 +28,14 @@ async function registrySnapshot(path) {
   }
 }
 
-test('reconciles the strict 66-pack authored registry against source manifests', async () => {
+test('reconciles the strict 69-pack authored registry against source manifests', async () => {
   const { validateAuthoringRegistry } = await import(registryModule)
   const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
 
   const authored = result.records.filter((record) => record.status === 'authored')
   assert.equal(result.revision, JSON.parse(await readFile(registryPath, 'utf8')).revision)
-  assert.equal(authored.length, 66)
-  assert.equal(authored.filter((record) => record.item_id).length, 49)
+  assert.equal(authored.length, 69)
+  assert.equal(authored.filter((record) => record.item_id).length, 52)
   assert.equal(authored.filter((record) => record.bundle_id).length, 17)
 })
 
@@ -443,6 +443,7 @@ async function assertWave2ReusablePrimitivesReservation({
   registry,
   candidateRegistryPath,
   candidateRepositoryRoot,
+  validateAuthoringRegistry,
   verifyAuthoringReceipt,
 }) {
   const revision = 19
@@ -547,8 +548,18 @@ async function assertWave2ReusablePrimitivesReservation({
     },
   })
 
+  const transitions = registry.transitions.filter(transition => (
+    transition.request.receipt_ref === receiptRef
+    && transition.request.coordinator.task === coordinator.task
+    && transition.request.coordinator.branch === coordinator.branch
+  ))
+  assert.equal(new Set(transitions.map(transition => transition.request.pack_id)).size, transitions.length)
+  const transitionedPackIds = new Set(transitions.map(transition => transition.request.pack_id))
+  assert.deepEqual(transitionedPackIds, new Set(expectedRecords.slice(0, 3).map(record => record.pack_id)))
+  const expectedTransitionedSources = new Set(expectedRecords
+    .filter(record => transitionedPackIds.has(record.pack_id))
+    .map(record => record.source_path))
   const currentRecords = registry.records.filter((record) => record.receipt_ref === receiptRef)
-  assert.deepEqual(currentRecords, expectedRecords.map((record) => ({ receipt_ref: receiptRef, ...record })))
   assert.equal(currentRecords.length, 5)
 
   for (const expectedIdentity of expectedRecords) {
@@ -556,6 +567,29 @@ async function assertWave2ReusablePrimitivesReservation({
     assert.deepEqual(expectedIdentity.dependencies, [])
     assert.equal(expectedIdentity.stocking_proposal.family.status, 'proposed')
     assert.equal(expectedIdentity.stocking_proposal.sku.status, 'proposed')
+    const current = currentRecords.find(record => (
+      record.pack_id === expectedIdentity.pack_id && record.version === expectedIdentity.version
+    ))
+    const matchingTransitions = transitions.filter(transition => (
+      transition.request.pack_id === expectedIdentity.pack_id
+      && transition.request.version === expectedIdentity.version
+    ))
+    assert.equal(matchingTransitions.length, transitionedPackIds.has(expectedIdentity.pack_id) ? 1 : 0)
+    assert.deepEqual(current, {
+      receipt_ref: receiptRef,
+      ...expectedIdentity,
+      status: matchingTransitions.length === 1 ? 'authored' : 'reserved',
+    })
+    if (matchingTransitions.length === 1) {
+      const [transition] = matchingTransitions
+      assert.equal(transition.revision, transition.request.expected_revision + 1)
+      assert.deepEqual(transition.request.coordinator, coordinator)
+      assert.equal(transition.request.receipt_ref, receiptRef)
+      assert.equal(transition.request.pack_id, expectedIdentity.pack_id)
+      assert.equal(transition.request.version, expectedIdentity.version)
+      assert.deepEqual(transition.request.changes, { status: 'authored' })
+      await access(join(candidateRepositoryRoot, expectedIdentity.source_path, 'pack.json'))
+    }
 
     assert.equal(registry.records.filter((record) => (
       record.pack_id === expectedIdentity.pack_id && record.version === expectedIdentity.version
@@ -579,15 +613,31 @@ async function assertWave2ReusablePrimitivesReservation({
       expectedIdentity,
     }), { revision, receipt_ref: receiptRef, identity: expectedIdentity })
   }
+
+  const validated = await validateAuthoringRegistry({
+    registryPath: candidateRegistryPath,
+    repositoryRoot: candidateRepositoryRoot,
+  })
+  const authoredSources = new Set(validated.records
+    .filter(record => record.receipt_ref === receiptRef && record.status === 'authored')
+    .map(record => record.source_path))
+  const reservedSources = new Set(validated.records
+    .filter(record => record.receipt_ref === receiptRef && record.status === 'reserved')
+    .map(record => record.source_path))
+  assert.deepEqual(authoredSources, expectedTransitionedSources)
+  assert.deepEqual(reservedSources, new Set(expectedRecords
+    .filter(record => !transitionedPackIds.has(record.pack_id))
+    .map(record => record.source_path)))
 }
 
 test('persists the exact Wave 2 reusable-primitives batch without cross-lineage identity collisions', async () => {
-  const { verifyAuthoringReceipt } = await import(registryModule)
+  const { validateAuthoringRegistry, verifyAuthoringReceipt } = await import(registryModule)
   const registry = JSON.parse(await readFile(registryPath, 'utf8'))
   await assertWave2ReusablePrimitivesReservation({
     registry,
     candidateRegistryPath: registryPath,
     candidateRepositoryRoot: repositoryRoot,
+    validateAuthoringRegistry,
     verifyAuthoringReceipt,
   })
 })
@@ -598,21 +648,22 @@ test('keeps Wave 2 reservation evidence valid after an unrelated later registry 
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
   const initial = await registrySnapshot(copy)
-  assert.equal(initial.revision, 19)
+  assert.equal(initial.revision, 22)
 
   const unrelated = await reserveAuthoringBatch({
     registryPath: copy,
     repositoryRoot: root,
     request: reservationRequest(initial.revision),
   })
-  assert.equal(unrelated.revision, 20)
+  assert.equal(unrelated.revision, 23)
 
   const validated = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
-  assert.equal(validated.revision, 20)
+  assert.equal(validated.revision, 23)
   await assertWave2ReusablePrimitivesReservation({
     registry: JSON.parse(await readFile(copy, 'utf8')),
     candidateRegistryPath: copy,
     candidateRepositoryRoot: root,
+    validateAuthoringRegistry,
     verifyAuthoringReceipt,
   })
 })
