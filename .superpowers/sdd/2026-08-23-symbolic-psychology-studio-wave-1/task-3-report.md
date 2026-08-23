@@ -30,3 +30,11 @@ Completed the evidence and reservation scope only. No component source, Gothic i
 ## Concern
 
 `node --test scripts/content-packs/__tests__/authoring-registry.test.mjs` has one stale global-count failure: `reconciles the strict 60-pack authored registry against source manifests` expects 60 authored records but observes 63 after Task 2 promoted the three specified reserved records. The remaining 31 tests pass; this task did not alter authored source count or that suite.
+
+## Fix Round 1
+
+- Updated the durable reconciliation counts in `scripts/content-packs/__tests__/authoring-registry.test.mjs` for the three reviewed Task 2 promotions only: 63 authored records, 47 item records, and 16 bundle records.
+- `node --test scripts/content-packs/__tests__/authoring-registry.test.mjs` — passed (32/32).
+- `npm run content-pack:registry -- validate` — passed at revision 14 with 74 records.
+- `npx tsx --test --test-name-pattern='Gothic evidence' electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts` — passed (1/1).
+- `git diff --check` — passed.
