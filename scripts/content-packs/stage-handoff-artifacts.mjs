@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, open, readdir, realpath, rm, rmdir, unlink } from 'node:fs/promises'
+import { lstat, mkdir, open, readdir, realpath, rmdir, unlink } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -363,8 +363,18 @@ async function readJsonStable(path, label) {
 }
 
 async function pathInventory(root) {
-  const names = await readdir(root).catch(() => [])
-  return names.sort().map(name => join(root, name))
+  const paths = []
+  async function visit(directory) {
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
+    entries.sort((left, right) => left.name.localeCompare(right.name))
+    for (const entry of entries) {
+      const path = join(directory, entry.name)
+      paths.push(path)
+      if (entry.isDirectory()) await visit(path)
+    }
+  }
+  await visit(root)
+  return paths.sort()
 }
 
 async function cleanupCreated(paths, stagingRoot, stagingGuard) {
@@ -379,7 +389,7 @@ async function cleanupCreated(paths, stagingRoot, stagingGuard) {
   try {
     if (stagingGuard) {
       await assertDirectoryUnchanged(stagingGuard)
-      await rm(stagingRoot, { recursive: true, force: true })
+      await rmdir(stagingRoot)
     }
   } catch (error) {
     failures.push({ path: stagingRoot, error: error instanceof Error ? error.message : String(error) })

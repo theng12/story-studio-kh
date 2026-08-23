@@ -367,6 +367,25 @@ test('never removes a competing final archive that wins the exclusive-create rac
   assert.deepEqual(await readFile(sentinelPath), sentinel)
 })
 
+test('never removes a competing staged file that wins the exclusive-create race', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  const fixture = await stageFixture(t, ['question-ladder'])
+  const sentinel = Buffer.from('competing-staged-owner')
+  let sentinelPath
+  await assert.rejects(stageHandoffArtifacts(fixture, {
+    async afterPhase(name, detail) {
+      if (name !== 'source-opened' || !detail.destination.includes('.staging') || sentinelPath) return
+      sentinelPath = detail.destination
+      await writeFile(sentinelPath, sentinel, { flag: 'wx' })
+    },
+  }), error => error?.phase === 'failed-after-root' && /exist/i.test(error.message))
+  assert.ok(sentinelPath)
+  assert.deepEqual(await readFile(sentinelPath), sentinel)
+  const failure = JSON.parse(await readFile(join(fixture.artifactRoot, 'failure.json'), 'utf8'))
+  assert.ok(failure.cleanup_failures.some(entry => entry.path === dirname(sentinelPath) && /ENOTEMPTY|not empty/i.test(entry.error)))
+  assert.ok(failure.remaining_paths.includes(sentinelPath))
+})
+
 test('rejects a receiver-parent symlink swap after archive finalization without redirecting success', async (t) => {
   const { stageHandoffArtifacts } = await import(stagingModule)
   const fixture = await stageFixture(t, ['question-ladder'])
