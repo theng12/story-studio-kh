@@ -573,6 +573,8 @@ assert.deepEqual(new Set(blockedEntries.map(entry => entry.slug)), new Set(allow
 
 The helper must independently reject duplicate `allowedSlugs`, duplicate `eligibleSlugs`, duplicate entry slugs, duplicate blocked slugs, an eligible slug outside `allowedSlugs`, an entry outside or omitted from `eligibleSlugs`, a blocked slug outside `allowedSlugs`, any eligible/blocked overlap, and any fixed-wave slug omitted from both entry and blocked sets. Also reject either destination if it already exists, any relative destination, either destination inside the repository, symlinked candidate/destination ancestry, a source whose physical `realpath` escapes `candidateRoot`, changed source bytes, wrong digest/size/floor/profile, or incomplete reviews.
 
+Also evolve the candidate-handoff fixture assertions so `candidate.evidence.staging.status` is exactly one of `complete | preflight-failed | failed-after-root | skipped-empty`. Only `complete` may have non-empty `delivered_leaves`; every other status requires `delivered_leaves: []`. `failed-after-root` alone permits/requires an artifact root plus `failure.json`; `preflight-failed` and `skipped-empty` require both external destinations to remain absent. No non-`complete` status may default to the eligible/authored set.
+
 Assert the successful fixture copy is byte-identical and revalidated by `validateContentPack`; ledger keys are exactly `absolute_path`, `bytes`, `delivery_profile`, `min_app_version`, `receipt_ref`, `reviews`, `sha256`, and `slug`; `release-handoff.json` and the receiver handoff contain the exact summary; and ledger/source/archive JSON do not. The three generated top-level shapes are exact:
 
 ```js
@@ -631,7 +633,7 @@ AND schema/originality-provenance/compatibility/prompt-equivalence/safety/copy/c
 AND, for recipes only, exact 1672x941 preview decode/title/diversity plus visual and thumbnail reviews pass
 ```
 
-Write ignored `wave-2-candidate.json` with exact keys `status`, `eligible_leaves`, `authored_leaves`, `delivered_leaves`, `blocked_leaves`, and `evidence`; it contains no `component_summary`. Use `status: "candidate-validated"` only when all five are eligible; otherwise use `status: "blocked"` while retaining the exact successful subset and one concrete blocker per omitted leaf. Missing recipe previews do not block the three text leaves.
+Write ignored `wave-2-candidate.json` with exact keys `status`, `eligible_leaves`, `authored_leaves`, `delivered_leaves`, `blocked_leaves`, and `evidence`; it contains no `component_summary`. Use top-level `status: "candidate-validated"` only when all five are eligible; otherwise use top-level `status: "blocked"` while retaining the exact successful subset and one concrete blocker per omitted leaf. Independently, `evidence.staging.status` has the closed enum `complete | preflight-failed | failed-after-root | skipped-empty`: initialize it to `skipped-empty` only when there are no authored eligible leaves, record `preflight-failed` only when staging stops before creating the artifact root, record `failed-after-root` only when the root exists and `failure.json` inventories the failure, and record `complete` only after the helper's complete result and post-write verification. Missing recipe previews do not block the three text leaves.
 
 Enter the single cross-wave registry lane. For each `eligibleLeaves` entry, in fixed order, re-run registry validation, verify the immutable original receipt, read the current revision, create one request with exact coordinator `{ "task": "reusable-content-primitives-wave-2", "branch": "codex/content-expansion-portfolio" }` and only `changes: { "status": "authored" }`, then invoke one transition. Validate the returned next revision before processing another leaf. A lock/stale-CAS/changed-registry failure stops immediately; do not replay stale JSON. Previously successful transitions remain truthfully `authored`; add the failed/unattempted eligible leaves to `blocked_leaves` with their exact transition blocker while they remain `reserved`, and record the exact `authored_leaves` split. Release the lane before external staging. This serialization lets the plan execute safely before or after the Symbolic plan's currently blocked Task 6 without assuming revision `18` remains current.
 
@@ -656,7 +658,7 @@ const summaries = {
 }
 ```
 
-Before the call, set `allowedSlugs` to the exact fixed five-slug wave order and `eligibleSlugs` to the unique `authoredLeaves` (the authored∩eligible set). Build `entries` with exactly one row per `eligibleSlugs` value and `blockedEntries` as the exact unique `allowedSlugs \ eligibleSlugs` complement, using the existing qualification/transition blocker for each. Pass all four collections explicitly; never let the helper infer eligibility from source/archive presence. After `phase: 'complete'`, set `deliveredLeaves` from the helper's verified archive paths, assert they equal `eligibleSlugs`, update the ignored candidate handoff, and create one `-stocking.json` only for each delivered leaf. Each stocking handoff contains Story identity/version/publisher, proposed family/SKU state, `dependencies: []`, floor/digest/size/absolute archive/profile/receipt/reviews, its exact `component_summary`, and `explicitly_not_done: [upload, product-or-release-draft-creation, price-or-discount-decision, purchase, grant, publication, production-signing, deploy, push]`. The receiver includes successful entries with summaries plus `blockedEntries` without archive/digest/size fields. A caught staging failure adds every undelivered authored leaf to `blocked_leaves` with its exact phase; no helper failure/crash produces a stocking handoff.
+Before the call, set `allowedSlugs` to the exact fixed five-slug wave order and `eligibleSlugs` to the unique `authoredLeaves` (the authored∩eligible set). Build `entries` with exactly one row per `eligibleSlugs` value and `blockedEntries` as the exact unique `allowedSlugs \ eligibleSlugs` complement, using the existing qualification/transition blocker for each. Pass all four collections explicitly; never let the helper infer eligibility from source/archive presence. If `authoredLeaves` is empty, make no helper call, record `evidence.staging.status: 'skipped-empty'`, keep `deliveredLeaves: []`, and require both real destinations absent. A preflight rejection before root creation records `preflight-failed`, keeps `deliveredLeaves: []`, and requires both destinations absent. A caught failure after root creation records `failed-after-root`, keeps `deliveredLeaves: []`, requires the receiver absent, and leaves only the truthful root/`failure.json` inventory. Only after `phase: 'complete'` and post-write verification record `complete`, set `deliveredLeaves` from the helper's verified archive paths, assert they equal `eligibleSlugs`, update the ignored candidate handoff, and create one `-stocking.json` only for each delivered leaf. Each stocking handoff contains Story identity/version/publisher, proposed family/SKU state, `dependencies: []`, floor/digest/size/absolute archive/profile/receipt/reviews, its exact `component_summary`, and `explicitly_not_done: [upload, product-or-release-draft-creation, price-or-discount-decision, purchase, grant, publication, production-signing, deploy, push]`. The receiver includes successful entries with summaries plus `blockedEntries` without archive/digest/size fields. A caught staging failure adds every undelivered authored leaf to `blocked_leaves` with its exact phase; no helper failure/crash produces a stocking handoff.
 
 In a `finally` block, delete the real `candidateRoot` only after `phase: 'complete'` has been reverified or after a caught pre-commit failure has recorded its evidence. Never delete the external artifact root or receiver path automatically. No source, archive, key, or signature is left in the repository.
 
@@ -693,10 +695,10 @@ const allowed = [
   'object-hero-question', 'route-map-one-promise',
 ]
 const delivered = [...candidate.delivered_leaves].sort()
-const stagingFailed = candidate.evidence.staging?.status === 'failed-after-root'
-const expectedDelivered = stagingFailed ? [] : candidate.eligible_leaves
-  .filter(slug => candidate.authored_leaves.includes(slug))
-  .sort()
+const stagingStatus = candidate.evidence.staging?.status
+const expectedDelivered = stagingStatus === 'complete'
+  ? candidate.eligible_leaves.filter(slug => candidate.authored_leaves.includes(slug)).sort()
+  : []
 const blocked = candidate.blocked_leaves.map(entry => entry.slug).sort()
 const unique = values => new Set(values).size === values.length
 const absent = async path => access(path).then(() => false, () => true)
@@ -711,16 +713,8 @@ assert.deepEqual(delivered, expectedDelivered)
 assert.deepEqual(blocked, allowed.filter(slug => !delivered.includes(slug)).sort())
 assert.equal(delivered.some(slug => blocked.includes(slug)), false)
 
-if (!delivered.length) {
-  if (candidate.evidence.staging?.status === 'failed-after-root') {
-    assert.equal(await absent(join(artifactRoot, 'failure.json')), false)
-    assert.equal(await absent(receiverPath), true)
-    assert.deepEqual((await readdir(working)).filter(name => name.endsWith('-stocking.json')), [])
-  } else {
-    assert.equal(await absent(artifactRoot), true)
-    assert.equal(await absent(receiverPath), true)
-  }
-} else {
+if (stagingStatus === 'complete') {
+  assert.ok(delivered.length > 0)
   const ledger = JSON.parse(await readFile(join(artifactRoot, 'ledger.json'), 'utf8'))
   const release = JSON.parse(await readFile(join(artifactRoot, 'release-handoff.json'), 'utf8'))
   const receiver = JSON.parse(await readFile(receiverPath, 'utf8'))
@@ -744,11 +738,23 @@ if (!delivered.length) {
     assert.equal(await absent(join(artifactRoot, `${slug}.sspack`)), true)
     assert.equal(await absent(join(working, `${slug}-stocking.json`)), true)
   }
+} else {
+  assert.deepEqual(delivered, [])
+  assert.equal(await absent(receiverPath), true)
+  assert.deepEqual((await readdir(working)).filter(name => name.endsWith('-stocking.json')), [])
+  if (stagingStatus === 'failed-after-root') {
+    assert.equal(await absent(artifactRoot), false)
+    assert.equal(await absent(join(artifactRoot, 'failure.json')), false)
+  } else {
+    // Defined and unexpected no-root outcomes get no delivery credit; unexpected values then fail the enum.
+    assert.equal(await absent(artifactRoot), true)
+    assert.ok(['preflight-failed', 'skipped-empty'].includes(stagingStatus))
+  }
 }
 NODE
 ```
 
-If staging failed after creating its root, the audit requires the truthful failure diagnostic, no receiver, no stocking handoffs, and no claim of delivery; it never treats a diagnostic/partial root as success.
+The audit derives expected delivery only for `complete`. `failed-after-root` is the sole root-present failure branch and requires the truthful diagnostic, no receiver, no stocking handoffs, and no claim of delivery. `preflight-failed`, `skipped-empty`, and any other no-root outcome require both destinations absent and no stocking handoffs; no non-complete outcome falls through to the authored/eligible delivery set.
 
 Finally run the semantic recursive JSON-key scan across all fresh repository source/registry/test fixtures, ignored Wave 2 authoring/candidate evidence, archive JSON, external ledger/build evidence, release handoff, receiver, and stocking handoffs. Require `component_summary` only in delivered entries of `release-handoff.json`, receiver, and matching stocking handoffs, with exact summaries above. Markdown prose may mention the term but is not counted as structured data.
 
@@ -771,7 +777,7 @@ Commit only after Step 6 passes; no RED test crosses a commit boundary. External
 
 **Preview/Studio Hub safety:** Studio Hub is control plane only. Named-worker bytes require an exact quote plus explicit owner job authority; owner-supplied originals are the alternative. Each of six previews must already be an original exact `1672x941` WebP with its exact sample title/line arrangement and complete provenance. `PREVIEW-PROVENANCE.md` is created/changed only for qualifying returned bytes; blocked/no-byte evidence exists only in the ignored leaf handoff. No local generation, paid request, transform, upload, production key, model/provider choice, or fabricated evidence occurs.
 
-**External staging truthfulness:** Automated staging tests use isolated temp destinations; real candidates and real handoff destinations are separate. Both real destinations must be absent. The helper receives explicit unique `allowedSlugs` and `eligibleSlugs`; entries equal the authored∩eligible set, blocked rows equal the exact fixed-wave complement, and tests reject every unknown, overlap, duplicate, or omission. No-follow/stable reads, physical containment, exclusive writes, staged `validateContentPack`, explicit caught-failure cleanup, post-write revalidation, and crash-phase inventory prevent overwrite and traversal. The plan does not promise cross-filesystem or crash atomicity; partial crash residue blocks retry and stocking until an owner-directed decision.
+**External staging truthfulness:** Automated staging tests use isolated temp destinations; real candidates and real handoff destinations are separate. Both real destinations must be absent. The helper receives explicit unique `allowedSlugs` and `eligibleSlugs`; entries equal the authored∩eligible set, blocked rows equal the exact fixed-wave complement, and tests reject every unknown, overlap, duplicate, or omission. Candidate staging records exactly `complete | preflight-failed | failed-after-root | skipped-empty`; delivery is derived only from `complete`, only `failed-after-root` permits a root/`failure.json`, and every no-root outcome requires both destinations absent. No-follow/stable reads, physical containment, exclusive writes, staged `validateContentPack`, explicit caught-failure cleanup, post-write revalidation, and crash-phase inventory prevent overwrite and traversal. The plan does not promise cross-filesystem or crash atomicity; partial crash residue blocks retry and stocking until an owner-directed decision.
 
 **Summary and schema placement:** `component_summary` exists only in final release, receiver, and delivered-leaf stocking handoffs. A semantic parsed-JSON scan—not raw grep—proves it is absent from strict source, registry, preview, candidate/build evidence, machine ledger, and archive JSON. Source schemas remain unchanged; every dependency list is `[]`; Route Map invents no future Formula identity.
 
