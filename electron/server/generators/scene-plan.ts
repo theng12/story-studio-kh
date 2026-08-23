@@ -300,7 +300,44 @@ export async function getScenePlanGenStudioModel(selectedModel: string): Promise
       + 'Scene planning did not call any fallback route.',
     )
   }
+  assertModelCanHoldAJsonContract(model)
   return model
+}
+
+/**
+ * v1.4.37 — refuse a model that cannot be HELD to a JSON contract, before a
+ * single request is paid for.
+ *
+ * WHAT THIS COST BEFORE IT EXISTED. On 2026-08-23 four Scene Plan batches ran
+ * on a product publishing `structured_output_mode: none`.
+ * GenStudio cannot force such a model to return JSON — it can only ask in the
+ * prompt and reject what comes back — so the model complied for two packs of
+ * forty scenes and wrote prose for the third. Two episodes failed at exactly
+ * 80/111 and 80/113: not a size limit, just where the luck ran out. Each run
+ * burned 13 to 30 minutes before saying so, and the automatic repair then asked
+ * the SAME model the SAME question twice more, which for a model that cannot do
+ * it was never going to work.
+ *
+ * GenStudio had already diagnosed it precisely — its rejection note reads
+ * "another model may answer this contract more reliably" — and Story Studio
+ * threw that away, because its own catalogue parser collapsed `'none'` into
+ * `'json_object'` and it genuinely could not see the difference.
+ *
+ * REFUSING RATHER THAN WARNING is deliberate. A model like this works
+ * *sometimes*, which is worse than never: it produces half-complete episodes
+ * that look like flaky infrastructure rather than a wrong choice. 459 of the
+ * 496 products in the catalogue publish `none`, so this is the common case, not
+ * an edge one.
+ */
+export function assertModelCanHoldAJsonContract(model: GenStudioChatModel): void {
+  if (model.structured_output_mode !== 'none') return
+  throw new Error(
+    `"${model.display_name || model.id}" cannot be held to a JSON contract — it publishes no `
+    + 'structured-output support, so it answers with prose whenever it feels like it and a long '
+    + 'scene plan fails part-way through. Choose a model that GenStudio KH publishes structured-output '
+    + 'support for — several do, including one with almost this same name — and run Scene Plan again. '
+    + 'Nothing was charged.',
+  )
 }
 
 export function parseDirectPackResults(

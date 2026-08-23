@@ -1195,7 +1195,18 @@ export interface GenStudioChatModel extends GenStudioCatalogLock {
   max_image_dimension: number
   supported_detail_levels: Array<'low' | 'high' | 'auto'>
   supports_structured_output: boolean
-  structured_output_mode: 'json_object' | 'request_json_schema'
+  /**
+   * v1.4.37 — `'none'` is now representable, and that is the whole point.
+   *
+   * This union used to be `'json_object' | 'request_json_schema'`, and the
+   * parser collapsed everything that was not `request_json_schema` into
+   * `json_object`. A product publishing `structured_output_mode: 'none'` —
+   * 459 of the 496 in the catalogue — therefore read to Story Studio as
+   * "can return JSON objects". It cannot. GenStudio can only ask it in the
+   * prompt and reject what comes back, which is why a Scene Plan on such a
+   * model returns valid JSON for two packs of 40 and prose for the third.
+   */
+  structured_output_mode: 'none' | 'json_object' | 'request_json_schema'
   // ── Live web-search capability (published per product) ────────────────
   // Story Studio selects a web-research product by CAPABILITY ONLY. Never
   // infer any of this from a provider or model name.
@@ -3820,10 +3831,17 @@ export async function listChatModelsSnapshot(
     // GenStudio language products return JSON Object output unless the
     // catalogue explicitly advertises that a strict JSON schema can be
     // requested. Never assume strict-schema support from a missing field.
+    // An EXPLICIT 'none' is preserved; anything absent or unrecognised still
+    // reads as 'json_object'. A missing field means an older GenStudio that
+    // never published the property, and defaulting that to 'none' would refuse
+    // every contract-bound stage on an otherwise healthy catalogue. Absent and
+    // none are different claims and are no longer flattened together.
     structured_output_mode: (
       value?.structured_output_mode === 'request_json_schema'
         ? 'request_json_schema'
-        : 'json_object'
+        : value?.structured_output_mode === 'none'
+          ? 'none'
+          : 'json_object'
     ) as GenStudioChatModel['structured_output_mode'],
     // Web-search capability. Every flag defaults to the SAFE value (false /
     // null) when the catalogue omits it: an older GenStudio release that has

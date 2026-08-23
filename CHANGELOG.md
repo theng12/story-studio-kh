@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.37 — 2026-08-23
+
+- **Scene Plan now refuses a model that cannot return structured data, before it spends anything.** Four batches failed today on a DeepSeek model that publishes no structured-output support. Your system can only *ask* such a model for JSON and reject what comes back — so it answered properly for two chunks of forty scenes and wrote prose for the third. Two episodes stopped at exactly 80 of 111 and 80 of 113. That was never a size limit; it was where the luck ran out.
+- **The app genuinely could not see the problem.** Its catalogue reader had only two settings for "can this model return structured data", and "no" wasn't one of them — anything that wasn't the strictest setting was filed as "yes". So a model that cannot was recorded as one that can, and GenStudio's own correct diagnosis had nowhere to go.
+- **The refusal names which model you picked** — there are two with nearly the same name and only one of them works — tells you what to switch to, and says plainly that nothing was charged.
+- It refuses rather than warns on purpose. A model that works *some* of the time is worse than one that never does: you get half-finished episodes that look like a glitch instead of a wrong setting.
+
+---
+
 ## v1.4.36 — 2026-08-23
 
 - **An outline that comes back LONGER than asked for is now kept, not thrown away.** EP0056 asked for 10 chapters, the model wrote 11, and the whole thing was binned — after GenStudio had already done the work and charged for it, with no automatic retry. You paid for an outline that contained everything you wanted plus a bonus chapter, and got nothing.
