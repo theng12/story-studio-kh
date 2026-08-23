@@ -439,6 +439,146 @@ test('persists receipt metadata and verifies a leaf exact identity', async (t) =
   }
 })
 
+test('persists the exact Wave 2 reusable-primitives batch without cross-lineage identity collisions', async () => {
+  const { verifyAuthoringReceipt } = await import(registryModule)
+  const registry = JSON.parse(await readFile(registryPath, 'utf8'))
+  const revision = 19
+  const receiptRef = 'authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728'
+  const coordinator = {
+    task: 'reusable-content-primitives-wave-2',
+    branch: 'codex/content-expansion-portfolio',
+  }
+  const proposalRef = 'docs/superpowers/specs/2026-08-23-modular-content-expansion-portfolio-design.md'
+  const expectedRecords = [
+    {
+      pack_id: 'com.storystudio.pack.formula.question-ladder',
+      item_id: 'com.storystudio.formula.question-ladder',
+      version: '1.0.0',
+      publisher_id: 'com.storystudio',
+      min_app_version: '{{MIN_APP_VERSION}}',
+      min_app_version_status: 'release-bound',
+      kind: 'series-formula',
+      source_path: 'content-packs/reusable-primitives/formula/question-ladder',
+      status: 'reserved',
+      dependencies: [],
+      stocking_proposal: {
+        family: { id: 'com.storystudio.family.formula.question-ladder', status: 'proposed' },
+        sku: { id: 'com.storystudio.sku.formula.question-ladder', status: 'proposed' },
+      },
+    },
+    {
+      pack_id: 'com.storystudio.pack.topic.audience-question-seeder',
+      item_id: 'com.storystudio.topic.audience-question-seeder',
+      version: '1.0.0',
+      publisher_id: 'com.storystudio',
+      min_app_version: '{{MIN_APP_VERSION}}',
+      min_app_version_status: 'release-bound',
+      kind: 'topic-pack',
+      source_path: 'content-packs/reusable-primitives/topic/audience-question-seeder',
+      status: 'reserved',
+      dependencies: [],
+      stocking_proposal: {
+        family: { id: 'com.storystudio.family.topic.audience-question-seeder', status: 'proposed' },
+        sku: { id: 'com.storystudio.sku.topic.audience-question-seeder', status: 'proposed' },
+      },
+    },
+    {
+      pack_id: 'com.storystudio.pack.formula.before-after-timeline',
+      item_id: 'com.storystudio.formula.before-after-timeline',
+      version: '1.0.0',
+      publisher_id: 'com.storystudio',
+      min_app_version: '{{MIN_APP_VERSION}}',
+      min_app_version_status: 'release-bound',
+      kind: 'series-formula',
+      source_path: 'content-packs/reusable-primitives/formula/before-after-timeline',
+      status: 'reserved',
+      dependencies: [],
+      stocking_proposal: {
+        family: { id: 'com.storystudio.family.formula.before-after-timeline', status: 'proposed' },
+        sku: { id: 'com.storystudio.sku.formula.before-after-timeline', status: 'proposed' },
+      },
+    },
+    {
+      pack_id: 'com.storystudio.pack.thumbnail.object-hero-question',
+      item_id: 'com.storystudio.thumbnail.object-hero-question',
+      version: '1.0.0',
+      publisher_id: 'com.storystudio',
+      min_app_version: '{{MIN_APP_VERSION}}',
+      min_app_version_status: 'release-bound',
+      kind: 'thumbnail-recipe',
+      source_path: 'content-packs/reusable-primitives/thumbnail/object-hero-question',
+      status: 'reserved',
+      dependencies: [],
+      stocking_proposal: {
+        family: { id: 'com.storystudio.family.thumbnail.object-hero-question', status: 'proposed' },
+        sku: { id: 'com.storystudio.sku.thumbnail.object-hero-question', status: 'proposed' },
+      },
+    },
+    {
+      pack_id: 'com.storystudio.pack.thumbnail.route-map-one-promise',
+      item_id: 'com.storystudio.thumbnail.route-map-one-promise',
+      version: '1.0.0',
+      publisher_id: 'com.storystudio',
+      min_app_version: '{{MIN_APP_VERSION}}',
+      min_app_version_status: 'release-bound',
+      kind: 'thumbnail-recipe',
+      source_path: 'content-packs/reusable-primitives/thumbnail/route-map-one-promise',
+      status: 'reserved',
+      dependencies: [],
+      stocking_proposal: {
+        family: { id: 'com.storystudio.family.thumbnail.route-map-one-promise', status: 'proposed' },
+        sku: { id: 'com.storystudio.sku.thumbnail.route-map-one-promise', status: 'proposed' },
+      },
+    },
+  ]
+
+  assert.equal(registry.revision, revision)
+  const batch = registry.batches.find((candidate) => candidate.receipt_ref === receiptRef)
+  assert.deepEqual(batch, {
+    revision,
+    receipt_ref: receiptRef,
+    request: {
+      expected_revision: revision - 1,
+      coordinator,
+      proposal_ref: proposalRef,
+      records: expectedRecords,
+    },
+  })
+
+  const currentRecords = registry.records.filter((record) => record.receipt_ref === receiptRef)
+  assert.deepEqual(currentRecords, expectedRecords.map((record) => ({ receipt_ref: receiptRef, ...record })))
+  assert.equal(currentRecords.length, 5)
+
+  for (const expectedIdentity of expectedRecords) {
+    assert.equal(expectedIdentity.status, 'reserved')
+    assert.deepEqual(expectedIdentity.dependencies, [])
+    assert.equal(expectedIdentity.stocking_proposal.family.status, 'proposed')
+    assert.equal(expectedIdentity.stocking_proposal.sku.status, 'proposed')
+
+    assert.equal(registry.records.filter((record) => (
+      record.pack_id === expectedIdentity.pack_id && record.version === expectedIdentity.version
+    )).length, 1)
+    assert.equal(registry.records.filter((record) => record.source_path === expectedIdentity.source_path).length, 1)
+    for (const record of registry.records.filter((candidate) => candidate.item_id === expectedIdentity.item_id)) {
+      assert.equal(record.pack_id, expectedIdentity.pack_id)
+    }
+    for (const record of registry.records.filter((candidate) => (
+      candidate.stocking_proposal.family.id === expectedIdentity.stocking_proposal.family.id
+      || candidate.stocking_proposal.sku.id === expectedIdentity.stocking_proposal.sku.id
+    ))) {
+      assert.equal(record.pack_id, expectedIdentity.pack_id)
+    }
+
+    assert.deepEqual(await verifyAuthoringReceipt({
+      registryPath,
+      repositoryRoot,
+      revision,
+      receiptRef,
+      expectedIdentity,
+    }), { revision, receipt_ref: receiptRef, identity: expectedIdentity })
+  }
+})
+
 test('offers a leaf-facing verify-receipt CLI with revision, receipt, and expected identity', async (t) => {
   const { reserveAuthoringBatch } = await import(registryModule)
   const root = await temporaryRepository()
