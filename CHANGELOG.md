@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.51 — 2026-08-24
+
+- **Opening a library was taking nine seconds, and it was about to get worse.** The Thumbnail Recipe Library showed a spinner for nine seconds to display twelve recipes — measured, three times, with no caching in between. The cost was never in the recipes. Every time the app listed anything from your content packs, it re-read and re-hashed all sixty-four installed pack versions — forty-four megabytes, the archive once and every unpacked file twice — and then did it again for the next list, and the next. At two hundred packs the same twelve recipes would have taken half a minute.
+- **A pack version's contents cannot change without the app noticing, so it is now checked once and remembered.** The memory is keyed to the actual state of the files on disk — every path, its size, its timestamp and its permissions — so any edit, replacement or truncation misses the memory entirely and pays the full check, exactly as before. Nothing is written to disk and nothing survives a restart; startup still verifies everything from scratch. Since startup does that check anyway, the memory is already warm by the time you open anything.
+- Three tests hold the line: the second check of untouched files does no work, a file edited after a successful check is still caught, and a file swapped for different content of exactly the same size is still caught.
+
+---
+
 ## v1.4.50 — 2026-08-24
 
 - **The four music packs you asked for are in: Sleep, Eastern Calm, Meditation and Calm Adventure.** Forty new worlds, ten to a pack, each with its own look, four scene variations so no two videos share a background, and the music styles it suits. Ninety worlds in total now.

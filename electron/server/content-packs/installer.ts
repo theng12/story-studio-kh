@@ -216,6 +216,63 @@ function nodeKey(packId: string, version: string): string {
   return `${packId}@${version}`
 }
 
+/**
+ * Verification is over IMMUTABLE bytes, so the same bytes cannot verify
+ * differently twice — and re-reading them is not free.
+ *
+ * MEASURED 2026-08-24 on the owner's own install: 64 retained pack versions,
+ * 44 MB. Every catalogue listing re-read and re-hashed all of it — the archive
+ * once, then every materialised file twice (disk and archive) — and every
+ * listing of every KIND paid it again. Opening the Thumbnail Recipe Library
+ * took NINE SECONDS to show twelve recipes, and the cost was in the packs, not
+ * the recipes: at two hundred packs the same twelve recipes would take half a
+ * minute. His question was "we just have a few, what happens when we have
+ * hundreds of options?" and this was the answer.
+ *
+ * WHAT KEEPS THIS HONEST. The memo key is the state of the version directory
+ * on disk — every path under it, with its size, mtime and mode. A cache hit
+ * therefore means nothing there has changed since the bytes were hashed; any
+ * edit, replacement, truncation or permission change misses the memo and pays
+ * the full verification. It is per-process and never persisted, so a restart
+ * re-verifies from scratch, as does boot recovery.
+ */
+const verifiedVersionMemo = new Map<string, { fingerprint: string; verified: VerifiedContentPack }>()
+
+/** Every path under a version root with its size, mtime and mode, hashed. */
+async function installedTreeFingerprint(installPath: string): Promise<string> {
+  const parts: string[] = []
+  const walk = async (dir: string): Promise<void> => {
+    const entries = await fs.readdir(dir, { withFileTypes: true })
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      const full = path.join(dir, entry.name)
+      const info = await fs.lstat(full)
+      parts.push(`${full}\u0000${info.size}\u0000${info.mtimeMs}\u0000${info.mode}`)
+      if (info.isDirectory()) await walk(full)
+    }
+  }
+  await walk(installPath)
+  return sha256(Buffer.from(parts.join('\n'), 'utf8'))
+}
+
+/**
+ * The policy and the signing-key resolver are part of the answer, so they are
+ * part of the key. A different keyring may legitimately reach a different
+ * verdict about the same archive.
+ */
+function verificationIdentity(
+  policy: ContentPackVerificationPolicy,
+  resolveSigningKey?: ContentPackInstallOptions['resolveGenStudioSigningKey'],
+): string {
+  const publishers = [...policy.publisherKeys.entries()]
+    .map(([id, key]) => `${id}\u0000${key.publisherId}\u0000${key.publicKeyPem}`)
+    .sort()
+    .join('\n')
+  const limits = JSON.stringify(policy.limits ?? {})
+  // A resolver is a closure whose behaviour we cannot inspect, so its presence
+  // disables the memo rather than being assumed stable.
+  return resolveSigningKey ? 'resolver' : sha256(Buffer.from(`${publishers}\n${limits}`, 'utf8'))
+}
+
 export async function verifyInstalledContentPackVersion(
   installed: Pick<ContentPackInstalledVersion, 'install_path' | 'archive_sha256' | 'source' | 'delivery_attestation' | 'recalled'>,
   policy: ContentPackVerificationPolicy,
@@ -223,6 +280,14 @@ export async function verifyInstalledContentPackVersion(
 ): Promise<VerifiedContentPack> {
   if (installed.recalled) throw new Error('GenStudio recalled this installed Content Pack version')
   if (!await existingSafeDirectory(installed.install_path)) throw new Error(`Content Pack immutable version is missing on disk: ${installed.install_path}`)
+  const identity = verificationIdentity(policy, resolveSigningKey)
+  const fingerprint = identity === 'resolver'
+    ? null
+    : `${installed.archive_sha256}\u0000${identity}\u0000${await installedTreeFingerprint(installed.install_path)}`
+  if (fingerprint !== null) {
+    const remembered = verifiedVersionMemo.get(installed.install_path)
+    if (remembered && remembered.fingerprint === fingerprint) return remembered.verified
+  }
   const archivePath = resolveVerifiedPackFile(installed.install_path, 'content/archive.sspack')
   const archiveBytes = await fs.readFile(archivePath)
   if (sha256(archiveBytes) !== installed.archive_sha256) throw new Error(`Content Pack immutable archive hash does not match state: ${installed.install_path}`)
@@ -237,7 +302,13 @@ export async function verifyInstalledContentPackVersion(
       throw new Error(`Content Pack immutable materialised file differs from verified archive: ${target}`)
     }
   }
+  if (fingerprint !== null) verifiedVersionMemo.set(installed.install_path, { fingerprint, verified })
   return verified
+}
+
+/** Drop every remembered verification. Tests and uninstall paths use this. */
+export function forgetVerifiedContentPackVersions(): void {
+  verifiedVersionMemo.clear()
 }
 
 /**

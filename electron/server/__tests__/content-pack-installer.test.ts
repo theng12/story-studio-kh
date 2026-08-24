@@ -8,7 +8,13 @@ import { fileURLToPath } from 'node:url'
 
 import JSZip from 'jszip'
 
-import { installContentPack, quarantineContentPackBytes, resolveContentPackAppVersion } from '../content-packs/installer.js'
+import {
+  forgetVerifiedContentPackVersions,
+  installContentPack,
+  quarantineContentPackBytes,
+  resolveContentPackAppVersion,
+  verifyInstalledContentPackVersion,
+} from '../content-packs/installer.js'
 import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
@@ -337,5 +343,87 @@ describe('Content Pack local installer', () => {
       packaged: false,
       moduleDirectory: simulatedCompiledModuleDir,
     }), '9.8.7')
+  })
+})
+
+
+// ── Remembering a verification, and forgetting it the moment disk changes ──
+//
+// MEASURED 2026-08-24: 64 retained pack versions, 44 MB, re-read and re-hashed
+// on EVERY catalogue listing of EVERY kind. Opening the Thumbnail Recipe
+// Library took nine seconds to show twelve recipes. The owner asked the right
+// question about it -- "we just have a few, what happens when we have hundreds
+// of options?" -- and the answer was that it scales with packs installed, not
+// with options shown.
+//
+// A memo is only safe if it cannot outlive the bytes it describes, so that is
+// what these two tests are: the first proves the work is skipped, the second
+// proves it is NOT skipped the instant anything on disk differs.
+
+describe('Content Pack verification memo', () => {
+  test('a second verification of untouched bytes does no disk work', async () => {
+    const paths = await isolated()
+    const archiveBytes = await buildArchive()
+    const result = await installContentPack(request(archiveBytes), { paths, policy })
+    const state = await readContentPackState(paths)
+    const installed = state.packs[result.pack_id].versions[result.version]
+
+    forgetVerifiedContentPackVersions()
+    const first = await verifyInstalledContentPackVersion(installed, policy)
+    const second = await verifyInstalledContentPackVersion(installed, policy)
+
+    // Identity is the proof, and it needs no timing and no filesystem trickery:
+    // re-verification BUILDS a result, so the same object back means the work
+    // did not run. (Deleting the archive to prove it would not work, and
+    // should not -- removing a file changes the directory the fingerprint is
+    // taken from, so it correctly misses the memo.)
+    assert.equal(second, first)
+
+    forgetVerifiedContentPackVersions()
+    const third = await verifyInstalledContentPackVersion(installed, policy)
+    assert.notEqual(third, first, 'a forgotten memo must re-verify rather than resurrect')
+    assert.equal(third.archiveSha256, first.archiveSha256)
+  })
+
+  test('any change on disk misses the memo and is caught', async () => {
+    const paths = await isolated()
+    const archiveBytes = await buildArchive()
+    const result = await installContentPack(request(archiveBytes), { paths, policy })
+    const state = await readContentPackState(paths)
+    const installed = state.packs[result.pack_id].versions[result.version]
+
+    forgetVerifiedContentPackVersions()
+    await verifyInstalledContentPackVersion(installed, policy)
+
+    // Edited AFTER a successful verification, in the same process. This is the
+    // exact case a naive cache would wave through.
+    const target = path.join(installed.install_path, 'content/visual-style.json')
+    await fs.writeFile(target, '{"tampered":true}')
+    await assert.rejects(
+      verifyInstalledContentPackVersion(installed, policy),
+      /differs from verified archive/i,
+    )
+  })
+
+  test('a file restored to its exact former size still misses the memo', async () => {
+    // Size alone would collide; mtime is what makes the fingerprint honest.
+    const paths = await isolated()
+    const archiveBytes = await buildArchive()
+    const result = await installContentPack(request(archiveBytes), { paths, policy })
+    const state = await readContentPackState(paths)
+    const installed = state.packs[result.pack_id].versions[result.version]
+    const target = path.join(installed.install_path, 'content/visual-style.json')
+    const original = await fs.readFile(target)
+
+    forgetVerifiedContentPackVersions()
+    await verifyInstalledContentPackVersion(installed, policy)
+
+    const swapped = Buffer.alloc(original.length, 0x20)
+    await fs.writeFile(target, swapped)
+    await assert.rejects(
+      verifyInstalledContentPackVersion(installed, policy),
+      /differs from verified archive/i,
+    )
+    await fs.writeFile(target, original)
   })
 })
