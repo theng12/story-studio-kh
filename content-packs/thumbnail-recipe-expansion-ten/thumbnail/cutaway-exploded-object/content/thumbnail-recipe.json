@@ -1,0 +1,16 @@
+{
+  "kind": "thumbnail-recipe", "schema_version": 1,
+  "id": "com.storystudio.thumbnail.cutaway-exploded-object", "name": "Cutaway Exploded Object",
+  "description": "One object opened along an ordered inside-to-outside axis with a few readable layers.", "layout": "hero", "category": "Explainer",
+  "tags": ["cutaway", "exploded view", "object", "in-image title"], "aspect_ratio": "16:9", "title_mode": "ai",
+  "composition_guidance": "Show one central object physically opened or separated along an ordered inside-to-outside axis, exposing only a small meaningful set of readable layers or components. Reserve upper-left title space for the complete intended episode title rendered directly by the selected image model. The active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": ["Use one central object only.", "Order a few readable internal layers by physical depth.", "Preserve the object's spatial relationship while opening or separating layers.", "Reserve one clean upper-left title band."],
+  "required_elements": ["One central object", "A small ordered set of readable internal layers or components", "One upper-left title band with the model-rendered complete episode title"],
+  "avoid_elements": ["A surrounding callout cloud or dense label board", "Invented safety-critical internals or construction guarantees", "Copied trade dress, logos, watermarks, or post-render typography compositing"],
+  "headline_mode": "episode-title", "headline_guidance": "Render the complete intended episode title directly in the upper-left title band. Use one, two, or three balanced lines according to title length without obscuring the ordered layers.",
+  "default_text_style": "high contrast", "default_font_style": "bold editorial", "default_text_position": "top",
+  "headline_formats": ["INSIDE A {OBJECT}", "HOW A {OBJECT} {MECHANISM}", "THE LAYERS THAT MAKE A {OBJECT} WORK"],
+  "visual_style_guidance": "The recipe controls one object, ordered depth, a few readable layers, and the upper-left title band. The active Visual Style remains authoritative for all rendering choices.",
+  "preview_assets": ["assets/cutaway-exploded-object-1.webp", "assets/cutaway-exploded-object-2.webp", "assets/cutaway-exploded-object-3.webp"],
+  "compatible_formula_ids": ["com.storystudio.formula.question-ladder", "com.storystudio.formula.deep-time-documentary", "com.storystudio.formula.economics-of"]
+}

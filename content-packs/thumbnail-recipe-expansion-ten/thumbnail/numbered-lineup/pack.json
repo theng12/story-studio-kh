@@ -1,0 +1,4 @@
+{
+  "pack_format": 1, "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup", "publisher_id": "com.storystudio", "key_id": "{{KEY_ID}}", "version": "1.0.0", "min_app_version": "{{MIN_APP_VERSION}}", "lifecycle": "active",
+  "entitlement": { "sku": "com.storystudio.sku.thumbnail.numbered-lineup", "family": "com.storystudio.family.thumbnail.numbered-lineup" }, "dependencies": []
+}

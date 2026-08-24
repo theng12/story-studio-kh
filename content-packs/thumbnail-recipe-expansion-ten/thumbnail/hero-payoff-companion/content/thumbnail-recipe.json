@@ -1,0 +1,14 @@
+{
+  "kind": "thumbnail-recipe", "schema_version": 1, "id": "com.storystudio.thumbnail.hero-payoff-companion", "name": "Hero Payoff Companion",
+  "description": "A generic or rights-cleared host visibly connected to one separate tangible result object.", "layout": "hero", "category": "Explainer", "tags": ["hero", "payoff", "result", "in-image title"], "aspect_ratio": "16:9", "title_mode": "ai",
+  "composition_guidance": "Place one generic or rights-cleared host on one side and one separate tangible result object on the other. Use contact, gaze, or posture to make their relationship clear. Reserve one upper title band for the complete intended episode title rendered directly by the selected image model. The active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": ["Use one generic or rights-cleared host and one separate tangible result object.", "Connect host and object through contact, gaze, or posture.", "Give both the host and payoff object a clear role in the reading order.", "Reserve one clean upper title band."],
+  "required_elements": ["One generic or rights-cleared host", "One separate tangible result object", "A visible contact, gaze, or posture connection", "One upper title band with the model-rendered complete episode title"],
+  "avoid_elements": ["A lone object without a host", "Branded products, creator likenesses, or exaggerated outcomes", "Copied trade dress, logos, watermarks, or post-render typography compositing"],
+  "headline_mode": "episode-title", "headline_guidance": "Render the complete intended episode title directly in the upper title band. Use one, two, or three balanced lines according to title length while preserving the host-object relationship.",
+  "default_text_style": "high contrast", "default_font_style": "bold editorial", "default_text_position": "top",
+  "headline_formats": ["THE FIRST {RESULT}", "A BETTER WAY TO {ACTION}", "THE PLAN FINALLY BECOMES REAL"],
+  "visual_style_guidance": "The recipe controls the generic host, separate tangible payoff object, their connection, and the title band. The active Visual Style remains authoritative for all rendering choices.",
+  "preview_assets": ["assets/hero-payoff-companion-1.webp", "assets/hero-payoff-companion-2.webp", "assets/hero-payoff-companion-3.webp"],
+  "compatible_formula_ids": ["com.storystudio.formula.before-after-timeline", "com.storystudio.formula.practical-motivation"]
+}

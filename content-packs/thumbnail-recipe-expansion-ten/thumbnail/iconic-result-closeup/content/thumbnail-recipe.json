@@ -1,0 +1,14 @@
+{
+  "kind": "thumbnail-recipe", "schema_version": 1, "id": "com.storystudio.thumbnail.iconic-result-closeup", "name": "Iconic Result Close-Up",
+  "description": "One truthful finished outcome dominates the frame at a detail-revealing angle.", "layout": "hero", "category": "Explainer", "tags": ["result", "close-up", "outcome", "in-image title"], "aspect_ratio": "16:9", "title_mode": "ai",
+  "composition_guidance": "Let one truthful finished outcome fill most of the frame at a detail-revealing angle, with minimal subordinate context and no required host. Reserve one clean upper corner for the complete intended episode title rendered directly by the selected image model. The active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": ["Use one finished outcome as the dominant subject.", "Keep context minimal and subordinate to result detail.", "Do not require a host or reaction subject.", "Reserve one clean upper-corner title band."],
+  "required_elements": ["One truthful finished outcome dominating the frame", "Minimal subordinate context", "One upper-corner title band with the model-rendered complete episode title"],
+  "avoid_elements": ["A generic single-subject documentary fallback", "A fabricated unavailable result or required reaction host", "Copied trade dress, logos, watermarks, or post-render typography compositing"],
+  "headline_mode": "episode-title", "headline_guidance": "Render the complete intended episode title directly in the upper-corner title band. Use one, two, or three balanced lines according to title length without obscuring outcome detail.",
+  "default_text_style": "high contrast", "default_font_style": "bold editorial", "default_text_position": "top",
+  "headline_formats": ["{RESULT} COMPLETE", "THE FINISHED {OUTCOME}", "SMALL SPACE BIG {RESULT}"],
+  "visual_style_guidance": "The recipe controls a dominant truthful finished outcome, minimal context, and the upper-corner title band. The active Visual Style remains authoritative for all rendering choices.",
+  "preview_assets": ["assets/iconic-result-closeup-1.webp", "assets/iconic-result-closeup-2.webp", "assets/iconic-result-closeup-3.webp"],
+  "compatible_formula_ids": ["com.storystudio.formula.practical-motivation", "com.storystudio.formula.natural-world-explained", "com.storystudio.formula.economics-of"]
+}
