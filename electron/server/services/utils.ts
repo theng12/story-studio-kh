@@ -251,6 +251,27 @@ export async function resolveEpisodePaths(
  * (idea-manager imports this module), matching resolveEpisodePaths's own
  * dynamic-import style.
  */
+/**
+ * The episode's own title, from the same idea record that named its folder.
+ *
+ * Exists because a caller with no title must not fall back to the episode code:
+ * thumbnail prompts render the resolved title as display text inside the image,
+ * so the fallback printed "EP0344" across five thumbnails. Returns '' when the
+ * idea genuinely has no title, so the caller can refuse rather than invent one.
+ */
+export async function resolveEpisodeTitleByCode(
+  slug: string,
+  code: string,
+  cache?: ProjectFactsCache,
+): Promise<string> {
+  try {
+    const ideas = await projectIdeas(slug, cache)
+    return String(ideas.find(idea => idea.episode_code === code)?.title || '').trim()
+  } catch {
+    return ''
+  }
+}
+
 export async function resolveEpisodePathsByCode(
   slug: string,
   code: string,

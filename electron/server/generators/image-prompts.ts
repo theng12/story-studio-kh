@@ -12,7 +12,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { callAi, parseStructuredJson } from '../lib/ai-client.js'
-import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
+import { resolveEpisodePaths, resolveEpisodeTitleByCode, resolveSubfolderNames } from '../services/utils.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
@@ -344,7 +344,32 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   const config = await pm.getConfig(projectSlug)
   if (!config) throw new Error('Project config not found')
 
-  const title = req.title || episodeId
+  /**
+   * AN EPISODE CODE IS NOT A HEADLINE.
+   *
+   * This read `req.title || episodeId`, and the resolved title is rendered as
+   * the display text INSIDE the thumbnail. With no title on the request, every
+   * one of five prompts came back reading
+   *
+   *   Large bold sans-serif text 'EP0344' is placed on the right
+   *
+   * — five images with a filing code printed across them, and credits spent to
+   * produce them. Measured on the owner's Abiding Faith channel, 2026-08-24.
+   *
+   * The episode already knows its own title: the folder was created from the
+   * idea's title and `resolveEpisodeTitleByCode` reads it back the same way.
+   * If there is genuinely no title anywhere, this refuses rather than printing
+   * a code — a thumbnail with no words is a fixable mistake, five thumbnails
+   * with "EP0344" on them are wasted money.
+   */
+  const requestedTitle = String(req.title || '').trim()
+  const title = requestedTitle || await resolveEpisodeTitleByCode(projectSlug, episodeId)
+  if (!title || title === episodeId) {
+    throw new Error(
+      `This episode has no title yet, and an episode code is not thumbnail text. ` +
+      `Give ${episodeId} a title in Ideas or Metadata, then generate its thumbnail prompts.`,
+    )
+  }
   // A missing model is resolved against GenStudio's live catalog rather than
   // a hardcoded external product id — GenStudio owns the catalog and a
   // retired/renamed literal must never be submitted blind (see

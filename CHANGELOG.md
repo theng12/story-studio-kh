@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.54 — 2026-08-24
+
+- **Thumbnail prompts were printing the episode code as the headline.** Every prompt for EP0344 came back reading `Large bold sans-serif text 'EP0344' is placed on the right` — five images with a filing code across them, and credits spent making them. One line was responsible: with no title on the request the generator fell back to the episode id, and the resolved title is exactly what gets drawn inside the image.
+- **An episode's own title is now looked up when the request omits one**, from the same idea record that named its folder. If there is genuinely no title anywhere, the run refuses and says where to add one. Refusing is the cheap failure; five paid thumbnails reading "EP0344" is the expensive one.
+
+---
+
 ## v1.4.53 — 2026-08-24
 
 - **Idea campaigns were throwing away good ideas and then failing.** A thirteen-idea run on the Animals pack lost six of its first ten slots to "output drifted from assigned subject", kept refilling, and ended `12/13 required item(s) verified`. Nothing was wrong with the ideas. The check asked whether the subject's own words appeared in the title, and a Topic Pack subject is a category — "mammals", "big cats", "corvids" — while a good title names the animal. "Why the Naked Mole-Rat Never Gets Cancer" shares no word with "mammals", so it was discarded every time.
