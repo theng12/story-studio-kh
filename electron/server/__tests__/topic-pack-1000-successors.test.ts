@@ -85,6 +85,20 @@ const TOPIC_SUCCESSORS = [
 
 const REVIEWED_ROWS: ReviewedRow[] = [
   {
+    slug: 'night-journeys',
+    class: 'profile',
+    predecessorRoot: 'content-packs/free-starters/topic/night-journeys',
+    successorRoot: 'content-packs/free-starters/topic/night-journeys-v1.0.1',
+    document: 'content/topic-pack.json',
+    packId: 'com.storystudio.pack.topic.night-journeys',
+    itemId: 'com.storystudio.topic.night-journeys',
+    formulaRoot: 'content-packs/free-starters/formula/sleep-story',
+    subjects: 50,
+    siblings: 20,
+    tupleAdditions: 970,
+    reviewPath: '.superpowers/sdd/2026-08-25-topic-pack-1000-repair/reviews/night-journeys-semantic-review.md',
+  },
+  {
     slug: 'human-behavior-social-dynamics',
     class: 'profile',
     predecessorRoot: 'content-packs/free-starters/topic/human-behavior-social-dynamics',
