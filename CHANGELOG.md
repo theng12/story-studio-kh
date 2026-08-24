@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.53 — 2026-08-24
+
+- **Idea campaigns were throwing away good ideas and then failing.** A thirteen-idea run on the Animals pack lost six of its first ten slots to "output drifted from assigned subject", kept refilling, and ended `12/13 required item(s) verified`. Nothing was wrong with the ideas. The check asked whether the subject's own words appeared in the title, and a Topic Pack subject is a category — "mammals", "big cats", "corvids" — while a good title names the animal. "Why the Naked Mole-Rat Never Gets Cancer" shares no word with "mammals", so it was discarded every time.
+- **An idea now counts as on-brief if it matches either the subject or the specific thing it was told to be about.** Every assignment names an episode object — "a leopard hauling a kill up a tree" — and an idea that mentions the leopard has done exactly what was asked. Genuine drift is still caught: an idea sharing nothing but grammar with its assignment is still refused, because ordinary words are dropped before anything is compared.
+- **Topic Packs now say where they came from and what they can actually do.** A pack bought from the Content Store and a built-in of the same name were two identical rows, so installing a fifty-subject Animals pack and then seeing "10 subjects" in Channel Identity was a mystery with no clue in it. Each pack is now badged Owned pack, Built-in or Custom, and the summary reads "50 subjects · 1,000 episode ideas" instead of "1 coverage axes", which told nobody anything.
+
+---
+
 ## v1.4.52 — 2026-08-24
 
 - **The Content Store had grown to sixty-five packs and read as one long pile.** Owned and Updates now group what you have by what it actually is — Series Formula, then Topic Pack, Visual Style, Thumbnail Recipe, and Channel Kits last. The order is fixed rather than alphabetical, so a section never moves about as your library grows, and a kind this build does not recognise still appears under "Other" rather than vanishing from a library you paid for.

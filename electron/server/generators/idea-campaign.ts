@@ -153,11 +153,34 @@ function fallbackNiche(format: Format, request: IdeaCampaignParams): Niche {
   }
 }
 
+/**
+ * Did this idea answer the assignment it was given, or wander off?
+ *
+ * IT USED TO ASK ONLY WHETHER THE SUBJECT'S OWN WORDS APPEARED, and that is
+ * wrong whenever a subject is a CATEGORY rather than a thing. A Topic Pack's
+ * subject is "mammals" or "big cats"; a good episode title is "Why the Naked
+ * Mole-Rat Never Gets Cancer" or "The Leopard That Drags Dinner Up a Tree".
+ * Neither contains a token of its subject, so both were thrown away as drift
+ * and their slots refilled — until the campaign ran out of slots and failed.
+ *
+ * MEASURED on the owner's own run, 2026-08-24: a thirteen-idea campaign on the
+ * Animals pack lost six of its first ten to "drifted from assigned subject",
+ * kept refilling, and ended `12/13 required item(s) verified`. Nothing was
+ * wrong with the ideas.
+ *
+ * The assignment also names an EPISODE OBJECT -- the concrete thing the idea
+ * was told to be about, like "a leopard hauling a kill up a tree". An output
+ * that mentions the leopard has done exactly what was asked, so matching the
+ * object is a truer test of obedience than matching a category noun. Either
+ * match counts; a model that mentions neither has genuinely gone elsewhere.
+ */
 function mentionsSubject(item: any, assignment: IdeaAssignment): boolean {
-  const subjectTokens = new Set(tokenize(assignment.dimensions.subject || ''))
-  if (!subjectTokens.size) return true
+  const anchors = [assignment.dimensions.subject, assignment.dimensions['episode-object']]
+  const anchorTokens = new Set(anchors.flatMap(value => tokenize(value || '')))
+  // No anchor to check against is not evidence of drift.
+  if (!anchorTokens.size) return true
   const outputTokens = new Set(tokenize(`${item?.title || ''} ${item?.logline || ''}`))
-  return [...subjectTokens].some(token => outputTokens.has(token))
+  return [...anchorTokens].some(token => outputTokens.has(token))
 }
 
 function normalizeIdea(
@@ -391,3 +414,10 @@ export async function generateIdeaCampaign(job: Job): Promise<void> {
   job.progress = 100
   job.output_lines.push(`✓ Idea Campaign complete — ${completed}/${wanted} unique ideas verified.`)
 }
+
+/**
+ * Exposed so the drift rule can be tested against the real function rather
+ * than a copy of it in a test file, which is how a rule and its test quietly
+ * stop agreeing.
+ */
+export const __ideaCampaignInternals = { mentionsSubject }

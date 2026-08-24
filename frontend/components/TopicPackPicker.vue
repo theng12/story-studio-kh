@@ -26,10 +26,12 @@
         <span class="pack-copy">
           <span class="pack-title">
             <strong>{{ pack.name }}</strong>
-            <span v-if="!pack.builtin" class="custom-badge">custom</span>
+            <span v-if="isOwnedPack(pack)" class="pack-badge owned">Owned pack</span>
+            <span v-else-if="pack.builtin" class="pack-badge builtin">Built-in</span>
+            <span v-else class="pack-badge custom">Custom</span>
           </span>
           <span class="pack-description">{{ pack.description }}</span>
-          <span class="pack-stats">{{ pack.subjects.length }} subjects<span v-if="pack.ideaAxes?.length"> · {{ pack.ideaAxes.length }} coverage axes</span></span>
+          <span class="pack-stats">{{ pack.subjects.length }} subjects · <strong>{{ formatCapacity(pack) }}</strong></span>
         </span>
       </label>
     </div>
@@ -44,6 +46,35 @@
 </template>
 
 <script setup lang="ts">
+/**
+ * A Topic Pack bought from the Content Store and a built-in of the same name
+ * are two different packs, and until this badge existed they were two
+ * identical rows. The owner installed a 50-subject Animals pack, opened
+ * Channel Identity, and saw "10 subjects" -- his project was on the built-in
+ * and nothing in the list said so.
+ *
+ * Store packs are the only ones whose id sits in the publisher namespace, so
+ * that is the test rather than a flag the built-ins would have to carry.
+ */
+function isOwnedPack(pack: { id: string }): boolean {
+  return pack.id.startsWith('com.storystudio.')
+}
+
+/**
+ * How many distinct episodes this pack can actually plan, which is the number
+ * a person choosing between two packs wants. "1 coverage axes" told nobody
+ * anything. Capacity is subjects x whichever is smaller: the per-subject
+ * episode limit, or the recipes written for each subject.
+ */
+function formatCapacity(pack: { subjects: string[]; maxSiblingsPerSubject?: number; coverageProfiles?: Array<{ tuples: unknown[] }> }): string {
+  const perSubject = pack.coverageProfiles?.length
+    ? Math.min(...pack.coverageProfiles.map(profile => profile.tuples.length))
+    : undefined
+  const limit = pack.maxSiblingsPerSubject
+  if (perSubject === undefined || limit === undefined) return 'coverage not declared'
+  return `${(pack.subjects.length * Math.min(perSubject, limit)).toLocaleString()} episode ideas`
+}
+
 import { computed, watch } from 'vue'
 
 const props = defineProps<{
@@ -98,7 +129,10 @@ function formatErr(cause: any): string {
 .pack-title { align-items: center; gap: 6px; color: var(--text-primary); font-size: 13px; }
 .pack-description { color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.4; }
 .pack-stats { color: var(--text-muted); font-size: var(--font-xs); }
-.custom-badge { font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--accent); }
+.pack-badge { padding: 2px 7px; border-radius: 999px; font-size: var(--font-xs); font-weight: 750; }
+.pack-badge.owned { background: var(--accent-dim); color: var(--accent); }
+.pack-badge.builtin { background: var(--bg-tertiary); color: var(--text-muted); }
+.pack-badge.custom { font-size: var(--font-xs); text-transform: uppercase; letter-spacing: .05em; color: var(--accent); }
 .empty-note, .error-note { margin: 0; padding: 8px 10px; border-radius: 4px; background: var(--bg-secondary); color: var(--text-muted); font-size: var(--font-xs); }
 .error-note { color: var(--error, #e25c5c); }
 </style>
