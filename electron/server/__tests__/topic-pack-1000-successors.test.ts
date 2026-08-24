@@ -85,6 +85,20 @@ const TOPIC_SUCCESSORS = [
 
 const REVIEWED_ROWS: ReviewedRow[] = [
   {
+    slug: 'human-behavior-social-dynamics',
+    class: 'profile',
+    predecessorRoot: 'content-packs/free-starters/topic/human-behavior-social-dynamics',
+    successorRoot: 'content-packs/free-starters/topic/human-behavior-social-dynamics-v1.0.1',
+    document: 'content/topic-pack.json',
+    packId: 'com.storystudio.pack.topic.human-behavior-social-dynamics',
+    itemId: 'com.storystudio.topic.human-behavior-social-dynamics',
+    formulaRoot: 'content-packs/free-starters/formula/human-behavior-explained',
+    subjects: 50,
+    siblings: 20,
+    tupleAdditions: 980,
+    reviewPath: '.superpowers/sdd/2026-08-25-topic-pack-1000-repair/reviews/human-behavior-social-dynamics-semantic-review.md',
+  },
+  {
     slug: 'natural-world-animals',
     class: 'profile',
     predecessorRoot: 'content-packs/free-starters/topic/natural-world-animals',
