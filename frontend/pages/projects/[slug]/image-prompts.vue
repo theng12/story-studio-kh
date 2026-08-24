@@ -468,6 +468,24 @@
               language bill for writing them down. Nothing is ever shortened for you — over-length prompts are flagged, not cut.
             </p>
           </div>
+          <!-- What the words SAY, chosen here rather than left to the model.
+               The recipe still supplies a default; it no longer overrules a
+               deliberate choice. -->
+          <div class="form-group headline-mode-group">
+            <label>Thumbnail text</label>
+            <div class="headline-modes" role="radiogroup" aria-label="What the thumbnail text should say">
+              <button
+                v-for="mode in headlineModes" :key="mode.id" type="button" role="radio"
+                :aria-checked="form.thumbnail.thumb_headline_mode === mode.id"
+                :class="['headline-mode', { selected: form.thumbnail.thumb_headline_mode === mode.id }]"
+                @click="form.thumbnail.thumb_headline_mode = mode.id"
+              >
+                <strong>{{ mode.label }}</strong>
+                <span>{{ mode.summary }}</span>
+              </button>
+            </div>
+          </div>
+
           <div class="form-group">
             <label>Text Style</label>
             <select v-model="form.thumbnail.thumb_text_style" class="select">
@@ -557,9 +575,9 @@
         </div>
 
         <div class="form-group mt-2">
-          <label>{{ thumbnailHeadlineMode === 'curiosity-hook' ? 'Thumbnail hook' : 'Title text' }}</label>
+          <label>{{ thumbnailHeadlineInvents ? 'Thumbnail hook' : 'Title text' }}</label>
           <p class="text-muted text-xs hint-line">
-            <template v-if="thumbnailHeadlineMode === 'curiosity-hook'">
+            <template v-if="thumbnailHeadlineInvents">
               This recipe generates a short, truthful curiosity hook for each variation. Review and edit the hook with its prompt before rendering; your full YouTube title stays unchanged.
             </template>
             <template v-else>
@@ -677,7 +695,7 @@
           @select="applyThumbnailRecipe"
         />
       </div>
-      <div v-if="thumbnailHeadlineMode === 'curiosity-hook'" class="thumbnail-hook-policy mt-1">
+      <div v-if="thumbnailHeadlineInvents" class="thumbnail-hook-policy mt-1">
         <div>
           <span>CURIOUS COPY</span>
           <strong>Short thumbnail hook</strong>
@@ -1345,7 +1363,7 @@ type ThumbnailForm = SharedFormFields & {
   thumb_font_style: string
   thumb_font_style_custom: string
   thumb_title_mode: 'ai'
-  thumb_headline_mode: 'episode-title' | 'curiosity-hook'
+  thumb_headline_mode: string
   thumb_art_direction: string
   thumb_reference_style: string
   thumb_reference_asset: ThumbnailReferenceAsset | null
@@ -1382,7 +1400,9 @@ const form = reactive({
     thumb_font_style: 'auto',
     thumb_font_style_custom: '',
     thumb_title_mode: 'ai',
-    thumb_headline_mode: 'episode-title' as 'episode-title' | 'curiosity-hook',
+    // Starts on the short option for new work; a recipe or an explicit
+    // choice still wins. See PREFERRED_NEW_HEADLINE_MODE.
+    thumb_headline_mode: 'short-hook' as string,
     thumb_art_direction: '',
     thumb_reference_style: '',
     thumb_reference_asset: null,
@@ -1521,7 +1541,7 @@ async function applyThumbnailRecipe(template: SelectedThumbnailRecipe): Promise<
   form.thumbnail.thumbnail_template_id = template.id
   const recipe = template.recipe
   form.thumbnail.thumb_title_mode = 'ai'
-  form.thumbnail.thumb_headline_mode = recipe?.headlineMode === 'curiosity-hook' ? 'curiosity-hook' : 'episode-title'
+  if (recipe?.headlineMode) form.thumbnail.thumb_headline_mode = recipe.headlineMode
   if (recipe?.defaultTextStyle) form.thumbnail.thumb_text_style = recipe.defaultTextStyle
   if (recipe?.defaultFontStyle) form.thumbnail.thumb_font_style = recipe.defaultFontStyle
   if (recipe?.defaultTextPosition) form.thumbnail.thumb_text_position = recipe.defaultTextPosition
@@ -1577,8 +1597,12 @@ function applyThumbnailTreatment(): void {
 useRememberedForm('image-prompts', slug, form, { include: ['thumbnail', 'scene'] })
 form.thumbnail.force = false
 form.thumbnail.thumb_title_mode = 'ai'
-const thumbnailHeadlineMode = computed<'episode-title' | 'curiosity-hook'>(() =>
-  form.thumbnail.thumb_headline_mode === 'curiosity-hook' ? 'curiosity-hook' : 'episode-title',
+const thumbnailHeadlineMode = computed<string>(() => form.thumbnail.thumb_headline_mode)
+/** True for every mode where the model chooses the words, which is all of them
+ *  except the exact episode title and rendering nothing at all. */
+const thumbnailHeadlineInvents = computed<boolean>(() =>
+  headlineModes.value.find(mode => mode.id === thumbnailHeadlineMode.value)?.invents
+    ?? thumbnailHeadlineMode.value !== 'episode-title',
 )
 form.scene.force = false
 
@@ -1617,6 +1641,15 @@ const aspectRatioLabels: Record<string, string> = {
 const selectedGenStudioImageModel = computed(() =>
   genStudioImageModels.value.find(model => model.id === activeForm.value.model),
 )
+interface HeadlineModeOption { id: string; label: string; summary: string; invents: boolean }
+const headlineModes = ref<HeadlineModeOption[]>([])
+onMounted(async () => {
+  try {
+    const result = await get<{ modes: HeadlineModeOption[] }>('/thumbnail-headline-modes')
+    headlineModes.value = result.modes || []
+  } catch { /* the select below still works; only the descriptions are missing */ }
+})
+
 const aspectRatios = computed(() => {
   const ratios = selectedGenStudioImageModel.value?.aspect_ratios
   if (!ratios?.length) {
@@ -2478,6 +2511,16 @@ async function saveToFile() {
 </script>
 
 <style scoped>
+.headline-mode-group { grid-column: 1 / -1; }
+.headline-modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 186px), 1fr)); gap: 7px; }
+.headline-mode { display: grid; gap: 3px; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-primary); cursor: pointer; text-align: left; }
+.headline-mode:hover { border-color: var(--border-light); }
+.headline-mode.selected { border-color: var(--accent); background: var(--accent-dim); }
+.headline-mode:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.headline-mode strong { color: var(--text-primary); font-size: var(--font-sm); }
+.headline-mode.selected strong { color: var(--accent); }
+.headline-mode span { color: var(--text-muted); font-size: var(--font-xs); line-height: 1.4; }
+@media (max-width: 560px) { .headline-mode { min-height: 44px; } }
 .thumbnail-hook-policy {
   display:flex;
   align-items:center;

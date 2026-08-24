@@ -21,6 +21,7 @@ import { imagePromptGuidanceBlock } from '../lib/image-content-guidance.js'
 import { resolveProjectArtStyle } from '../services/art-style-resolver.js'
 import type { Job, ThumbnailRecipeProfile } from '../models/types.js'
 import { resolveTextStyle, resolveFontStyle } from '../models/thumbnail-styles.js'
+import { DEFAULT_HEADLINE_MODE, HEADLINE_MODE_IDS, headlineInstruction, headlineMode as resolveHeadlineMode } from '../models/thumbnail-headlines.js'
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
@@ -45,7 +46,7 @@ interface ThumbnailPromptsParams {
   thumb_text_position?: string
   thumb_font_style?: string
   /** Recipe-owned thumbnail copy strategy. The resolved recipe remains authoritative. */
-  thumb_headline_mode?: 'episode-title' | 'curiosity-hook'
+  thumb_headline_mode?: string
   thumb_reference_style?: string
   thumb_creative_direction?: string
   /** A browsable Thumbnail Recipe Catalog id used to shape the generated prompt. */
@@ -74,8 +75,10 @@ interface ThumbnailFmt {
   avoid?: string[]
   requiredElements?: string[]
   visualStyleGuidance?: string
-  headlineMode?: 'episode-title' | 'curiosity-hook'
+  headlineMode?: string
   headlineGuidance?: string
+  /** The mode the customer chose on this run. Beats the recipe's default. */
+  headlineModeId?: string
 }
 
 const GENERIC_THUMBNAIL_CONCEPT =
@@ -164,6 +167,8 @@ export function buildThumbnailDirective(opts: {
   referenceStyle?: string
   fmt?: ThumbnailFmt | null
   creativeDirection?: string
+  /** The headline mode the customer chose on this run. Beats the recipe's. */
+  headlineModeId?: string
 }): string {
   if (opts.thumbs <= 0) return ''
   const annotatedCollage = opts.fmt?.layout === 'annotated-collage'
@@ -171,16 +176,18 @@ export function buildThumbnailDirective(opts: {
     ? 'Use one large central anchor subject plus a disciplined ring of small supporting object callouts. Keep every callout visually subordinate, separated by white space, and readable at mobile size. This is an annotated explainer cover.'
     : 'Use one dominant focal subject, an immediate emotional hook, strong subject/background separation, and an uncluttered composition that keeps the title easy to read at mobile size.'
   const universalAvoid = annotatedCollage ? ANNOTATED_COLLAGE_AVOID : GENERIC_THUMBNAIL_AVOID
-  const headlineMode = opts.fmt?.headlineMode || 'episode-title'
-  const headlineInstruction = headlineMode === 'curiosity-hook'
-    ? `HEADLINE: invent one truthful, curiosity-driving thumbnail hook for each variation and return it in that variation's \"title\" field. Use 1–4 plain words, optionally ending with a question mark. It must sharpen the episode's real question without overstating, hiding, or changing the facts. Render that exact short hook inside the image as large, bold, highly legible display text. Do not render the full episode title, placeholder text, gibberish, a watermark, or a logo instead.`
-    : `TITLE: render this exact episode title inside the image as large, bold, highly legible display text: \"${opts.title}\". Integrate it into the composition; do not use placeholder, gibberish, watermark, or a logo instead.`
+  // The mode the CUSTOMER chose wins over the recipe's own default. The recipe
+  // still supplies one when nothing has been chosen, which is what it is for --
+  // but it must not overrule a deliberate choice, which is exactly the
+  // "there's no proper control" this replaces.
+  const selectedHeadlineMode = opts.headlineModeId || opts.fmt?.headlineMode || DEFAULT_HEADLINE_MODE
+  const headlineInstructionText = headlineInstruction(selectedHeadlineMode, opts.title)
   const lines = [
     `THUMBNAIL GOAL: create a distinct, professional YouTube cover. It must communicate the episode's emotional promise at a glance on mobile.`,
     `CONCEPT: ${(opts.fmt?.conceptGuidance || '').trim() || GENERIC_THUMBNAIL_CONCEPT}`,
     `LAYOUT: ${layoutGuidance}`,
     `Avoid: ${[...(opts.fmt?.avoid || []), ...universalAvoid].join('; ')}.`,
-    headlineInstruction,
+    headlineInstructionText,
   ]
   const fontStyle = !opts.fontStyle || opts.fontStyle === 'auto'
     ? opts.fmt?.defaultFontStyle
@@ -214,7 +221,7 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   textStyle?: string
   fontStyle?: string
   textPosition?: string
-  headlineMode?: 'episode-title' | 'curiosity-hook'
+  headlineMode?: string
 }): string {
   const out = (prompt || '').trim()
   if (!out) return out
@@ -252,7 +259,7 @@ export function buildThumbnailPrompt(args: {
   aspectRatio: string
   thumbnailDirective: string
   targetNumbers: number[]
-  headlineMode?: 'episode-title' | 'curiosity-hook'
+  headlineMode?: string
   /** Published image-model ceiling, or absent for "no limit in force". */
   promptCharCap?: number
 }): string {
@@ -406,9 +413,11 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   }
 
   let thumbnails = [...existingByNumber.values()]
-  let headlineMode: 'episode-title' | 'curiosity-hook' = req.thumb_headline_mode === 'curiosity-hook'
-    ? 'curiosity-hook'
-    : 'episode-title'
+  // An explicit choice on the request is authoritative; otherwise the recipe
+  // supplies one below; otherwise the catalogue's default.
+  let headlineMode: string = HEADLINE_MODE_IDS.includes(String(req.thumb_headline_mode))
+    ? String(req.thumb_headline_mode)
+    : DEFAULT_HEADLINE_MODE
   if (targetNumbers.length > 0) {
     const storyContext = await readStoryContext(projectSlug, episodeId, title)
     const characters = Array.isArray(req.character_ids) && req.character_ids.length
@@ -466,7 +475,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
         headlineMode: recipe.headlineMode,
         headlineGuidance: recipe.headlineGuidance,
       }
-      headlineMode = recipe?.headlineMode === 'curiosity-hook' ? 'curiosity-hook' : 'episode-title'
+      // The recipe supplies a DEFAULT. It no longer overrules the customer,
+      // who may not have chosen at all — in which case this is the choice.
+      if (!req.thumb_headline_mode && recipe?.headlineMode) headlineMode = recipe.headlineMode
     }
     const thumbnailDirective = buildThumbnailDirective({
       thumbs: targetNumbers.length,
@@ -477,10 +488,11 @@ export async function generateImagePrompts(job: Job): Promise<void> {
       referenceStyle: req.thumb_reference_style,
       fmt: thumbnailFormat,
       creativeDirection: req.thumb_creative_direction,
+      headlineModeId: headlineMode,
     })
     job.output_lines.push(
       `Thumbnail art direction: ${recipeName ? `recipe “${recipeName}”` : thumbnailFormat ? 'format-specific' : 'generic high-CTR'}, ` +
-      `ready-to-use in-image ${headlineMode === 'curiosity-hook' ? 'hook' : 'title'}` +
+      `headline: ${resolveHeadlineMode(headlineMode).label.toLowerCase()}` +
       (req.thumb_reference_style ? ', reference style applied' : '') +
       (req.thumb_creative_direction ? ', user idea applied' : ''),
     )

@@ -32,8 +32,22 @@ import {
 } from '../services/style-preview-cache.js'
 import { getApiKey } from '../services/app-secrets-store.js'
 import { generateImageWithGenStudio, listImageModels } from '../lib/genstudio-client.js'
+import { DEFAULT_HEADLINE_MODE, HEADLINE_MODES } from '../models/thumbnail-headlines.js'
 
 export const router = Router()
+
+/**
+ * The headline modes the picker offers. A catalogue read, never a generation,
+ * so the page can render the choice before anything is spent.
+ */
+router.get('/thumbnail-headline-modes', (_req, res) => {
+  res.json({
+    default: DEFAULT_HEADLINE_MODE,
+    modes: HEADLINE_MODES.map(mode => ({
+      id: mode.id, label: mode.label, summary: mode.summary, invents: mode.invents,
+    })),
+  })
+})
 
 const PreviewSchema = z.object({
   kind: z.enum(['font', 'text']),

@@ -196,7 +196,12 @@ test('curiosity-hook recipes keep a short truthful hook separate from the full e
     headlineMode: 'curiosity-hook',
   })
 
-  assert.match(directive, /truthful, curiosity-driving thumbnail hook/i)
+  // Wording moved into the shared headline-mode catalogue in 1.4.56, where
+  // every invented mode carries an explicit word budget. The two guarantees
+  // this test exists for are unchanged: the hook is truthful and curiosity-
+  // driving, and it never falls back to the full episode title.
+  assert.match(directive, /truthful, curiosity-driving question/i)
+  assert.match(directive, /at most 5 words/i)
   assert.match(directive, /Do not render the full episode title/i)
   assert.match(fixed, /exact thumbnail hook "POISON OR CURE\?"/i)
   assert.match(prompt, /Invent a truthful 1–4 word curiosity hook/i)

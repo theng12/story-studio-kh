@@ -88,8 +88,8 @@
         <li class="prp-section">Thumbnails</li>
         <li v-for="row in thumbnails" :key="`t-${row.number}`" class="prp-row">
           <PromptRow
-            :row="row" :prefix="thumbnailHeadlineMode === 'curiosity-hook' ? 'Hook' : 'Thumbnail'"
-            :title-label="thumbnailHeadlineMode === 'curiosity-hook' ? 'Thumbnail hook' : 'Title'"
+            :row="row" :prefix="thumbnailHeadlineMode && thumbnailHeadlineMode !== 'episode-title' ? 'Hook' : 'Thumbnail'"
+            :title-label="thumbnailHeadlineMode && thumbnailHeadlineMode !== 'episode-title' ? 'Thumbnail hook' : 'Title'"
             :busy="busy.has(`thumbnail-${row.number}`)"
             :saving="saving.has(`thumbnail-${row.number}`)"
             :error="errors[`thumbnail-${row.number}`] || null"
@@ -142,7 +142,7 @@ const props = defineProps<{
    *  regenerates its own pool. Defaults to 'all' (both) for any other use. */
   pool?: 'scenes' | 'thumbnails' | 'all'
   /** Recipe-owned copy strategy for thumbnail rows. */
-  thumbnailHeadlineMode?: 'episode-title' | 'curiosity-hook'
+  thumbnailHeadlineMode?: string
 }>()
 
 const { get, post, put } = useApi()

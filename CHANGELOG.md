@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.56 — 2026-08-25
+
+- **You choose what the thumbnail says, in nine options instead of two.** Full episode title · two or three words · a curious question · one-line summary · this versus that · the cost or the warning · a number · a line from the episode · no text at all. Each says plainly what you get, and each carries an exact word budget — "curiosity hook" with no length was an invitation to write a sentence, which is how a whole title ended up in gold serif across a symbolic-split cover.
+- **The recipe supplies a default; it no longer overrules you.** Before, the recipe decided and there was no way to say otherwise. Now an explicit choice wins, a recipe fills in when you have not chosen, and only when neither has said anything does the old behaviour apply — deliberately unchanged, because a recipe that never asked for a hook has not consented to one and every existing channel would otherwise have been silently rewritten. New work on the Thumbnail Prompts page starts on "two or three words".
+- **Every invented headline comes back for review.** The words the model picked are returned in the title field, so you can read them before rendering rather than discovering them inside the picture. An invented headline may never fall back to the full episode title — that is the exact failure the mode exists to prevent, and it is stated in the instruction.
+
+---
+
 ## v1.4.55 — 2026-08-25
 
 - **You can now see what a font or a text style looks like, instead of reading its name.** "Neon", "blackletter gothic calligraphy", "retro 1970s chrome lettering" are only meaningful if you already know what they look like — which is the opposite of what a picker is for. Both the Text Style and Font Style choosers now show a grid of swatches: the same word, rendered once in every style, picked by eye.
