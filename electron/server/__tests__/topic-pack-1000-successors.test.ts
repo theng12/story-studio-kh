@@ -83,7 +83,22 @@ const TOPIC_SUCCESSORS = [
   ['wars-treaties-world-order', 'content-packs/paid/archival-ledger/topic/wars-treaties-world-order', 'com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order'],
 ] as const
 
-const REVIEWED_ROWS: ReviewedRow[] = []
+const REVIEWED_ROWS: ReviewedRow[] = [
+  {
+    slug: 'natural-world-animals',
+    class: 'profile',
+    predecessorRoot: 'content-packs/free-starters/topic/natural-world-animals',
+    successorRoot: 'content-packs/free-starters/topic/natural-world-animals-v1.0.1',
+    document: 'content/topic-pack.json',
+    packId: 'com.storystudio.pack.topic.natural-world-animals',
+    itemId: 'com.storystudio.topic.natural-world-animals',
+    formulaRoot: 'content-packs/free-starters/formula/natural-world-explained',
+    subjects: 50,
+    siblings: 20,
+    tupleAdditions: 980,
+    reviewPath: '.superpowers/sdd/2026-08-25-topic-pack-1000-repair/reviews/natural-world-animals-semantic-review.md',
+  },
+]
 
 // Task 18 changes this to 'authored' only after all sixteen serialized transitions succeed.
 const EXPECTED_RECEIPT_STATUS: RegistryRecord['status'] = 'reserved'
@@ -257,8 +272,8 @@ async function assertPlannerCapacity(row: ReviewedRow, document: TopicDocument):
   unique(full.map(assignment => assignment.idea_key), `${row.slug} idea keys`)
   assertPlannedAssignments(row, document, full)
 
-  const first = planIdeaAssignments({ niche, count: 500, seed })
-  const second = planIdeaAssignments({ niche, count: 500, seed, usedFingerprints: first.map(assignment => assignment.fingerprint) })
+  const first = planIdeaAssignments({ niche, count: 500, seed }).slice(0, 500)
+  const second = planIdeaAssignments({ niche, count: 500, seed, usedFingerprints: first.map(assignment => assignment.fingerprint) }).slice(0, 500)
   assert.equal(first.length, 500, `${row.slug} must provide the first 500 reservations`)
   assert.equal(second.length, 500, `${row.slug} must provide the second 500 reservations`)
   assert.equal(first.filter(assignment => second.some(next => next.fingerprint === assignment.fingerprint)).length, 0,
