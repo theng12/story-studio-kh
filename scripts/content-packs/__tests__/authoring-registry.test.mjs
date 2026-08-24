@@ -39,6 +39,54 @@ test('reconciles the strict 69-pack authored registry against source manifests',
   assert.equal(authored.filter((record) => record.bundle_id).length, 17)
 })
 
+test('reserves the exact ten thumbnail recipe expansion identities as one proposed batch', async () => {
+  const registry = JSON.parse(await readFile(registryPath, 'utf8'))
+  const expected = [
+    ['before-after-proof-panel', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel'],
+    ['two-option-criteria-split', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split'],
+    ['reaction-evidence-inset', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset'],
+    ['cutaway-exploded-object', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object'],
+    ['hero-payoff-companion', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion'],
+    ['iconic-result-closeup', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup'],
+    ['scale-journey', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey'],
+    ['numbered-lineup', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup'],
+    ['macro-mystery-detail', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail'],
+    ['hands-on-pov-moment', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment'],
+  ]
+  const sourcePaths = new Set(expected.map(([, sourcePath]) => sourcePath))
+  const records = registry.records.filter((record) => sourcePaths.has(record.source_path))
+  const batches = registry.batches.filter((batch) => batch.request.coordinator.task === 'thumbnail-recipe-expansion-ten')
+
+  assert.equal(records.length, 10)
+  assert.equal(batches.length, 1)
+  assert.equal(batches[0].revision, 23)
+  assert.equal(new Set(records.map((record) => record.receipt_ref)).size, 1)
+  assert.equal(records[0].receipt_ref, batches[0].receipt_ref)
+  assert.deepEqual(
+    new Set(registry.records.filter((record) => record.receipt_ref === batches[0].receipt_ref).map((record) => record.source_path)),
+    sourcePaths,
+  )
+  for (const [slug, source_path] of expected) {
+    assert.deepEqual(records.find((record) => record.source_path === source_path), {
+      receipt_ref: records[0].receipt_ref,
+      pack_id: `com.storystudio.pack.thumbnail.${slug}`,
+      item_id: `com.storystudio.thumbnail.${slug}`,
+      version: '1.0.0',
+      publisher_id: 'com.storystudio',
+      min_app_version: '{{MIN_APP_VERSION}}',
+      min_app_version_status: 'release-bound',
+      kind: 'thumbnail-recipe',
+      source_path,
+      status: 'reserved',
+      dependencies: [],
+      stocking_proposal: {
+        family: { id: `com.storystudio.family.thumbnail.${slug}`, status: 'proposed' },
+        sku: { id: `com.storystudio.sku.thumbnail.${slug}`, status: 'proposed' },
+      },
+    })
+  }
+})
+
 test('rejects unknown, duplicate, and GenStudio-owned registry fields before source reconciliation', async (t) => {
   const { validateAuthoringRegistry } = await import(registryModule)
   const root = await temporaryRepository()
@@ -648,17 +696,16 @@ test('keeps Wave 2 reservation evidence valid after an unrelated later registry 
   t.after(() => rm(root, { recursive: true, force: true }))
   const copy = join(root, 'content-packs', 'authoring-registry.json')
   const initial = await registrySnapshot(copy)
-  assert.equal(initial.revision, 22)
 
   const unrelated = await reserveAuthoringBatch({
     registryPath: copy,
     repositoryRoot: root,
     request: reservationRequest(initial.revision),
   })
-  assert.equal(unrelated.revision, 23)
+  assert.equal(unrelated.revision, initial.revision + 1)
 
   const validated = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
-  assert.equal(validated.revision, 23)
+  assert.equal(validated.revision, unrelated.revision)
   await assertWave2ReusablePrimitivesReservation({
     registry: JSON.parse(await readFile(copy, 'utf8')),
     candidateRegistryPath: copy,
