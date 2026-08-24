@@ -201,6 +201,9 @@ const CONSUMERS: Record<ContentPackItemKind, readonly JobType[]> = {
   'subtitle-style': ['video_assembly'],
   'scene-effect': ['video_assembly'],
   overlay: ['video_assembly'],
+  // A lettering style is read when thumbnail prompts are written — that is the
+  // job whose output carries the phrase into the image model.
+  'lettering-style': ['image_prompts'],
 }
 
 function pathsFor(options: ContentPackProjectPinOptions): ContentPackRuntimePaths {

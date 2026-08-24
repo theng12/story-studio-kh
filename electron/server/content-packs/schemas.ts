@@ -18,6 +18,7 @@ import {
   BUILT_IN_SCENE_MOTIONS,
 } from '../contracts/scene-effect-presets.js'
 import type { ContentPackDocument, ContentPackItemKind, ContentPackManifest } from './types.js'
+import { FONT_STYLES, TEXT_STYLES } from '../models/thumbnail-styles.js'
 
 export const CONTENT_PACK_FORMAT = 1 as const
 
@@ -157,6 +158,13 @@ export const ContentPackItemKindSchema = z.enum([
   'subtitle-style',
   'scene-effect',
   'overlay',
+  // v1.4.57 — thumbnail lettering, on exactly the principle the three above
+  // established: a look is a DESCRIPTION the engine interprets. The thumbnail
+  // prompt builder already turns a lettering phrase into an instruction for
+  // the image model, so a pack ships phrases and their rendered swatches and
+  // nothing else. No font files: the image model draws the letters, by the
+  // owner's ruling.
+  'lettering-style',
 ])
 
 const baseDocument = {
@@ -309,6 +317,28 @@ const ThumbnailRecipeDocumentSchema = z.object({
 
 const engineBody = z.record(z.unknown())
 
+const LetteringStyleDocumentPackSchema = z.object({
+  kind: z.literal('lettering-style'),
+  ...baseDocument,
+  /**
+   * Which picker this style joins. `font` is the shape of the letters;
+   * `text` is the treatment applied to them. A pack cannot invent a third —
+   * the prompt builder has exactly these two slots.
+   */
+  axis: z.enum(['font', 'text']),
+  /**
+   * The phrase injected into the image prompt, verbatim. This IS the product:
+   * everything else on the document exists to help somebody choose it.
+   */
+  phrase: safeText(600),
+  /**
+   * At least one rendered swatch. A lettering style without a picture is a
+   * name, and a name is precisely what the owner cannot buy from:
+   * "all just words i don't know ... i prefer visual."
+   */
+  preview_assets: z.array(rasterAssetPath).min(1).max(4),
+}).strict()
+
 const SubtitleStyleDocumentPackSchema = z.object({
   kind: z.literal('subtitle-style'),
   ...baseDocument,
@@ -338,10 +368,14 @@ const OverlayDocumentPackSchema = z.object({
 }).strict()
 
 /** Built-in ids a pack must never claim, per kind. */
-const BUILT_IN_IDS: Readonly<Record<'subtitle-style' | 'scene-effect' | 'overlay', ReadonlySet<string>>> = {
+const BUILT_IN_IDS: Readonly<Record<'subtitle-style' | 'scene-effect' | 'overlay' | 'lettering-style', ReadonlySet<string>>> = {
   'subtitle-style': new Set(BUILT_IN_SUBTITLE_PRESETS.map(preset => preset.id)),
   'scene-effect': new Set([...BUILT_IN_SCENE_MOTIONS, ...BUILT_IN_FOOTAGE_MOTIONS].map(entry => entry.id)),
   overlay: new Set(BUILT_IN_OVERLAYS.map(entry => entry.id)),
+  // The app's own font and treatment ids. A pack may not claim one: the buyer
+  // would pay for a style that silently loses to a built-in, or worse, changes
+  // what every existing thumbnail prompt means.
+  'lettering-style': new Set([...Object.keys(FONT_STYLES), ...Object.keys(TEXT_STYLES)]),
 }
 
 /**
@@ -429,8 +463,10 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
   SubtitleStyleDocumentPackSchema,
   SceneEffectDocumentPackSchema,
   OverlayDocumentPackSchema,
+  LetteringStyleDocumentPackSchema,
 ]).superRefine((document, ctx) => {
-  if (document.kind === 'subtitle-style' || document.kind === 'scene-effect' || document.kind === 'overlay') {
+  if (document.kind === 'subtitle-style' || document.kind === 'scene-effect'
+    || document.kind === 'overlay' || document.kind === 'lettering-style') {
     // A pack ADDS to the library. It never replaces a built-in, and it never
     // shadows one silently: the free starter sets keep working with any pack
     // installed, and a pack claiming a built-in id is refused here rather than
@@ -442,6 +478,10 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
         message: `id collides with the built-in ${document.kind} "${document.id}" — a Content Pack adds to the library and may never replace or shadow a built-in`,
       })
     }
+    // A lettering style carries no engine body — its phrase IS the payload,
+    // already bounded by the schema above. The id guard it shares with the
+    // three engine kinds is the only rule that applies to it.
+    if (document.kind === 'lettering-style') return
     if (document.kind === 'subtitle-style') {
       refineEngineDocument(ctx, {
         at: 'style',

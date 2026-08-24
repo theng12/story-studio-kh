@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.57 — 2026-08-25
+
+- **A Content Pack can now ship thumbnail lettering styles, so a font pack is something you can sell.** Until now the font and treatment lists were hardcoded in the app, which meant a pack could not add a lettering style at all — there was nothing to put in a font pack whatever else was built around it. `lettering-style` joins the seven existing pack item kinds on exactly the principle the last three were added on: a look is a description the engine interprets, and the thumbnail prompt builder already turns a lettering phrase into an instruction for the image model.
+- **A pack style must ship at least one rendered swatch.** A lettering style without a picture is a name, and a name is what a buyer cannot judge. The phrase itself is the product; everything else on the document exists to help somebody choose it.
+- **A pack can never take an id a built-in already owns** — refused when the pack is built, and refused again when it is read, so a pack authored against an older build cannot shadow a style added since. Otherwise a buyer pays for a style that silently loses a lookup, or worse, changes what every existing thumbnail prompt means.
+- No font files and no local typesetting: the image model draws the letters.
+
+---
+
 ## v1.4.56 — 2026-08-25
 
 - **You choose what the thumbnail says, in nine options instead of two.** Full episode title · two or three words · a curious question · one-line summary · this versus that · the cost or the warning · a number · a line from the episode · no text at all. Each says plainly what you get, and each carries an exact word budget — "curiosity hook" with no length was an invitation to write a sentence, which is how a whole title ended up in gold serif across a symbolic-split cover.
