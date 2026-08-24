@@ -11,6 +11,19 @@ const repositoryRoot = fileURLToPath(new URL('../../..', import.meta.url))
 const registryPath = join(repositoryRoot, 'content-packs', 'authoring-registry.json')
 const registryModule = new URL('../authoring-registry.mjs', import.meta.url)
 const execFileAsync = promisify(execFile)
+const expectedAuthoredSlugs = [
+  'before-after-proof-panel',
+  'two-option-criteria-split',
+  'reaction-evidence-inset',
+  'cutaway-exploded-object',
+  'hero-payoff-companion',
+  'iconic-result-closeup',
+  'scale-journey',
+  'numbered-lineup',
+  'macro-mystery-detail',
+  'hands-on-pov-moment',
+]
+const expectedReservedSlugs = []
 
 async function temporaryRepository() {
   const root = await mkdtemp(join(tmpdir(), 'story-authoring-registry-'))
@@ -28,18 +41,19 @@ async function registrySnapshot(path) {
   }
 }
 
-test('reconciles the strict 69-pack authored registry against source manifests', async () => {
+test('reconciles the strict authored registry against source manifests', async () => {
   const { validateAuthoringRegistry } = await import(registryModule)
   const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
 
   const authored = result.records.filter((record) => record.status === 'authored')
   assert.equal(result.revision, JSON.parse(await readFile(registryPath, 'utf8')).revision)
-  assert.equal(authored.length, 69)
-  assert.equal(authored.filter((record) => record.item_id).length, 52)
+  assert.equal(authored.length, 69 + expectedAuthoredSlugs.length)
+  assert.equal(authored.filter((record) => record.item_id).length, 52 + expectedAuthoredSlugs.length)
   assert.equal(authored.filter((record) => record.bundle_id).length, 17)
 })
 
-test('reserves the exact ten thumbnail recipe expansion identities as one proposed batch', async () => {
+test('qualifies the exact review-clean thumbnail expansion identities through serialized lifecycle transitions', async () => {
+  const { validateAuthoringRegistry, verifyAuthoringReceipt } = await import(registryModule)
   const registry = JSON.parse(await readFile(registryPath, 'utf8'))
   const expected = [
     ['before-after-proof-panel', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel'],
@@ -53,6 +67,15 @@ test('reserves the exact ten thumbnail recipe expansion identities as one propos
     ['macro-mystery-detail', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail'],
     ['hands-on-pov-moment', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment'],
   ]
+  const proposalSlugs = expected.map(([slug]) => slug)
+  const expectedOutcomeSlugs = new Set([...expectedAuthoredSlugs, ...expectedReservedSlugs])
+  assert.equal(new Set(expectedAuthoredSlugs).size, expectedAuthoredSlugs.length)
+  assert.equal(new Set(expectedReservedSlugs).size, expectedReservedSlugs.length)
+  assert.equal(expectedAuthoredSlugs.some((slug) => expectedReservedSlugs.includes(slug)), false)
+  assert.deepEqual(expectedOutcomeSlugs, new Set(proposalSlugs))
+  assert.deepEqual(expectedAuthoredSlugs, proposalSlugs.filter((slug) => expectedAuthoredSlugs.includes(slug)))
+  assert.deepEqual(expectedReservedSlugs, proposalSlugs.filter((slug) => expectedReservedSlugs.includes(slug)))
+
   const sourcePaths = new Set(expected.map(([, sourcePath]) => sourcePath))
   const expectedRecord = (slug, source_path) => ({
     pack_id: `com.storystudio.pack.thumbnail.${slug}`,
@@ -70,31 +93,115 @@ test('reserves the exact ten thumbnail recipe expansion identities as one propos
       sku: { id: `com.storystudio.sku.thumbnail.${slug}`, status: 'proposed' },
     },
   })
+  const receiptRef = 'authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378'
+  const coordinator = { task: 'thumbnail-recipe-expansion-ten', branch: 'codex/content-expansion-portfolio' }
   const expectedRequest = {
     expected_revision: 22,
-    coordinator: { task: 'thumbnail-recipe-expansion-ten', branch: 'codex/content-expansion-portfolio' },
+    coordinator,
     proposal_ref: 'docs/superpowers/specs/2026-08-24-thumbnail-recipe-expansion-ten-design.md',
     records: expected.map(([slug, source_path]) => expectedRecord(slug, source_path)),
   }
   const records = registry.records.filter((record) => sourcePaths.has(record.source_path))
-  const batches = registry.batches.filter((batch) => batch.request.coordinator.task === 'thumbnail-recipe-expansion-ten')
+  const batches = registry.batches.filter((batch) => batch.request.coordinator.task === coordinator.task)
 
   assert.equal(records.length, 10)
   assert.equal(batches.length, 1)
   assert.equal(batches[0].revision, 23)
+  assert.equal(batches[0].receipt_ref, receiptRef)
   assert.deepEqual(batches[0].request, expectedRequest)
   assert.equal(new Set(records.map((record) => record.receipt_ref)).size, 1)
-  assert.equal(records[0].receipt_ref, batches[0].receipt_ref)
+  assert.equal(records[0].receipt_ref, receiptRef)
   assert.deepEqual(
-    new Set(registry.records.filter((record) => record.receipt_ref === batches[0].receipt_ref).map((record) => record.source_path)),
+    new Set(registry.records.filter((record) => record.receipt_ref === receiptRef).map((record) => record.source_path)),
     sourcePaths,
   )
+
+  const transitions = registry.transitions.filter((transition) => (
+    transition.request.receipt_ref === receiptRef
+    && transition.request.coordinator.task === coordinator.task
+    && transition.request.coordinator.branch === coordinator.branch
+  ))
+  assert.equal(new Set(transitions.map((transition) => transition.request.pack_id)).size, transitions.length)
+  assert.equal(new Set(transitions.map((transition) => transition.revision)).size, transitions.length)
+  assert.deepEqual(
+    new Set(transitions.map((transition) => transition.request.pack_id)),
+    new Set(expectedAuthoredSlugs.map((slug) => `com.storystudio.pack.thumbnail.${slug}`)),
+  )
+
+  const orderedTransitions = []
   for (const [slug, source_path] of expected) {
+    const expectedIdentity = expectedRecord(slug, source_path)
+    const matchingTransitions = transitions.filter((transition) => (
+      transition.request.pack_id === expectedIdentity.pack_id
+      && transition.request.version === expectedIdentity.version
+    ))
+    const shouldBeAuthored = expectedAuthoredSlugs.includes(slug)
+    assert.equal(matchingTransitions.length, shouldBeAuthored ? 1 : 0)
     assert.deepEqual(records.find((record) => record.source_path === source_path), {
-      receipt_ref: records[0].receipt_ref,
-      ...expectedRecord(slug, source_path),
+      receipt_ref: receiptRef,
+      ...expectedIdentity,
+      status: shouldBeAuthored ? 'authored' : 'reserved',
     })
+    assert.deepEqual(expectedIdentity.dependencies, [])
+    assert.equal(expectedIdentity.stocking_proposal.family.status, 'proposed')
+    assert.equal(expectedIdentity.stocking_proposal.sku.status, 'proposed')
+    assert.deepEqual(await verifyAuthoringReceipt({
+      registryPath,
+      repositoryRoot,
+      revision: 23,
+      receiptRef,
+      expectedIdentity,
+    }), { revision: 23, receipt_ref: receiptRef, identity: expectedIdentity })
+    if (shouldBeAuthored) {
+      const [transition] = matchingTransitions
+      orderedTransitions.push(transition)
+      assert.equal(transition.revision, transition.request.expected_revision + 1)
+      assert.deepEqual(transition.request.coordinator, coordinator)
+      assert.equal(transition.request.receipt_ref, receiptRef)
+      assert.equal(transition.request.pack_id, expectedIdentity.pack_id)
+      assert.equal(transition.request.version, expectedIdentity.version)
+      assert.deepEqual(transition.request.changes, { status: 'authored' })
+      await access(join(repositoryRoot, source_path, 'pack.json'))
+    }
+
+    assert.equal(registry.records.filter((record) => (
+      record.pack_id === expectedIdentity.pack_id && record.version === expectedIdentity.version
+    )).length, 1)
+    assert.equal(registry.records.filter((record) => record.source_path === source_path).length, 1)
+    for (const record of registry.records.filter((candidate) => candidate.item_id === expectedIdentity.item_id)) {
+      assert.equal(record.pack_id, expectedIdentity.pack_id)
+    }
+    for (const record of registry.records.filter((candidate) => (
+      candidate.stocking_proposal.family.id === expectedIdentity.stocking_proposal.family.id
+      || candidate.stocking_proposal.sku.id === expectedIdentity.stocking_proposal.sku.id
+    ))) {
+      assert.equal(record.pack_id, expectedIdentity.pack_id)
+    }
   }
+  for (let index = 0; index < orderedTransitions.length; index += 1) {
+    assert.equal(orderedTransitions[index].revision, 24 + index)
+    if (index > 0) {
+      assert.equal(orderedTransitions[index].revision, orderedTransitions[index - 1].revision + 1)
+    }
+  }
+
+  const validated = await validateAuthoringRegistry({ registryPath, repositoryRoot })
+  assert.deepEqual(
+    new Set(validated.records
+      .filter((record) => record.receipt_ref === receiptRef && record.status === 'authored')
+      .map((record) => record.source_path)),
+    new Set(expected
+      .filter(([slug]) => expectedAuthoredSlugs.includes(slug))
+      .map(([, sourcePath]) => sourcePath)),
+  )
+  assert.deepEqual(
+    new Set(validated.records
+      .filter((record) => record.receipt_ref === receiptRef && record.status === 'reserved')
+      .map((record) => record.source_path)),
+    new Set(expected
+      .filter(([slug]) => expectedReservedSlugs.includes(slug))
+      .map(([, sourcePath]) => sourcePath)),
+  )
 })
 
 test('rejects unknown, duplicate, and GenStudio-owned registry fields before source reconciliation', async (t) => {

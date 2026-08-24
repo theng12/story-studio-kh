@@ -1,5 +1,5 @@
 {
-  "revision": 23,
+  "revision": 33,
   "batches": [
     {
       "revision": 2,
@@ -1271,6 +1271,176 @@
         },
         "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
         "pack_id": "com.storystudio.pack.formula.before-after-timeline",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 24,
+      "transition_ref": "lifecycle:8a21d77aa406bcc9b376ac5a93f004d99206a176c72fd5abb0f693151db8b989",
+      "request": {
+        "expected_revision": 23,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 25,
+      "transition_ref": "lifecycle:5e31d2d624ec8b47e97c5d08398b8381132598a0cd6d57dc04843c2e69b46654",
+      "request": {
+        "expected_revision": 24,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 26,
+      "transition_ref": "lifecycle:5ef402c11ea171a08006d869f54b66dffda3a61c7c4b4b95f19074e89e37a72c",
+      "request": {
+        "expected_revision": 25,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 27,
+      "transition_ref": "lifecycle:0fca73d3d1ea33a737aaa7126a380ffd9866e21b0a8e0a58060d69d4eea7e5bb",
+      "request": {
+        "expected_revision": 26,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 28,
+      "transition_ref": "lifecycle:afd1eb17dbb474b2580d6296d461f8e6d50b6013d39f526f2177d1ec9f98ab14",
+      "request": {
+        "expected_revision": 27,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 29,
+      "transition_ref": "lifecycle:862760388b7341d7cc5d350aec208a016d4b0065c4239ef212cea470420a5760",
+      "request": {
+        "expected_revision": 28,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 30,
+      "transition_ref": "lifecycle:f3f40985059c2469da4f390e672337212306c941324eac34d67ca2cd596af5d4",
+      "request": {
+        "expected_revision": 29,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 31,
+      "transition_ref": "lifecycle:c8bb5f11a4df5e0d3e603416a30f26aa1c78fd0f6c707d6771a6e76a1a5f57a7",
+      "request": {
+        "expected_revision": 30,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 32,
+      "transition_ref": "lifecycle:3c71328496b2e102e91a2b556a3e5556d2daea2d15addb40394558fa94c8eb47",
+      "request": {
+        "expected_revision": 31,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 33,
+      "transition_ref": "lifecycle:e3ded206b79d31f5ed862c9955e3d8df3851a482fb8a25c6a2fd89a6672b7b75",
+      "request": {
+        "expected_revision": 32,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -3488,7 +3658,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3511,7 +3681,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3534,7 +3704,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3557,7 +3727,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3580,7 +3750,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3603,7 +3773,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3626,7 +3796,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3649,7 +3819,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3672,7 +3842,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -3695,7 +3865,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
