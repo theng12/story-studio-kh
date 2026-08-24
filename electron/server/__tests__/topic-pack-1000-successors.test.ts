@@ -147,6 +147,10 @@ async function assertIdentity(row: ReviewedRow, source: TopicSource): Promise<vo
   assert.equal(source.manifest.publisher_id, record.publisher_id)
   assert.equal(source.manifest.version, record.version)
   assert.equal(source.manifest.min_app_version, record.min_app_version)
+  assert.deepEqual(source.manifest.entitlement, {
+    family: record.stocking_proposal.family.id,
+    sku: record.stocking_proposal.sku.id,
+  }, `${row.slug} manifest entitlement must retain its receipt-issued family and SKU`)
   assert.equal(source.document.id, record.item_id)
 }
 
@@ -202,6 +206,38 @@ function assertIndependentShape(row: ReviewedRow, document: TopicDocument): void
   }
 }
 
+function assertPlannedAssignments(row: ReviewedRow, document: TopicDocument, assignments: ReturnType<typeof planIdeaAssignments>): void {
+  const profiles = new Map((document.coverage_profiles || []).map(profile => [profile.subject, profile]))
+  const declared = {
+    subject: new Set(document.subjects),
+    'episode-object': new Set(document.episode_objects),
+    'time-place-scope': new Set(document.time_place_scopes),
+    mechanism: new Set(document.mechanisms),
+    'evidence-lens': new Set(document.evidence_lenses),
+  }
+  for (const assignment of assignments) {
+    const dimensions = assignment.dimensions
+    for (const dimension of ['subject', 'episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'] as const) {
+      assert.ok(dimensions[dimension], `${row.slug} assignments must include ${dimension}`)
+    }
+    assert.ok(declared.subject.has(dimensions.subject!), `${row.slug} assignments must use declared subjects`)
+    if (row.class === 'independent') {
+      for (const dimension of ['episode-object', 'time-place-scope', 'mechanism', 'evidence-lens'] as const) {
+        assert.ok(declared[dimension].has(dimensions[dimension]!), `${row.slug} assignments must use declared ${dimension} values`)
+      }
+      continue
+    }
+    const profile = profiles.get(dimensions.subject!)
+    assert.ok(profile, `${row.slug} assignments must use a profiled subject`)
+    assert.ok(profile.tuples.some(tuple => (
+      tuple.episode_object === dimensions['episode-object']
+      && tuple.time_place_scope === dimensions['time-place-scope']
+      && tuple.mechanism === dimensions.mechanism
+      && tuple.evidence_lens === dimensions['evidence-lens']
+    )), `${row.slug} assignments must select an authored whole tuple, not independently zipped axis values`)
+  }
+}
+
 async function assertPlannerCapacity(row: ReviewedRow, document: TopicDocument): Promise<void> {
   const formulaPath = path.join(ROOT, row.formulaRoot, 'content', 'series-formula.json')
   const formula = parseContentPackDocument('series-formula', await readJson<unknown>(formulaPath))
@@ -216,6 +252,7 @@ async function assertPlannerCapacity(row: ReviewedRow, document: TopicDocument):
   assert.deepEqual(replay, full, `${row.slug} must replay deterministically with the same seed`)
   unique(full.map(assignment => assignment.fingerprint), `${row.slug} fingerprints`)
   unique(full.map(assignment => assignment.idea_key), `${row.slug} idea keys`)
+  assertPlannedAssignments(row, document, full)
 
   const first = planIdeaAssignments({ niche, count: 500, seed })
   const second = planIdeaAssignments({ niche, count: 500, seed, usedFingerprints: first.map(assignment => assignment.fingerprint) })
@@ -223,16 +260,31 @@ async function assertPlannerCapacity(row: ReviewedRow, document: TopicDocument):
   assert.equal(second.length, 500, `${row.slug} must provide the second 500 reservations`)
   assert.equal(first.filter(assignment => second.some(next => next.fingerprint === assignment.fingerprint)).length, 0,
     `${row.slug} 500 + 500 reservations must not overlap`)
+  const reserved = [...first, ...second]
+  unique(reserved.map(assignment => assignment.fingerprint), `${row.slug} combined reservations`)
+  assert.equal(reserved.length, 1_000, `${row.slug} must fill all 1,000 lifetime reservations`)
+  assertPlannedAssignments(row, document, reserved)
+
+  if (row.class === 'profile') {
+    assert.throws(() => planIdeaAssignments({ niche, count: 1, seed, usedFingerprints: reserved.map(assignment => assignment.fingerprint) }),
+      /cannot plan the requested campaign without repeating an episode object or mechanism/,
+      `${row.slug} must fail closed after its 1,000 structural assignments are reserved`)
+  } else {
+    assert.deepEqual(
+      planIdeaAssignments({ niche, count: 1, seed, usedFingerprints: reserved.map(assignment => assignment.fingerprint) }),
+      [],
+      `${row.slug} must return no assignment after its 1,000 structural assignments are reserved`,
+    )
+  }
 
   const structures = new Map<string, { episodeObjects: string[], mechanisms: string[] }>()
   for (const assignment of full) {
     const subject = assignment.dimensions.subject
     const episodeObject = assignment.dimensions['episode-object']
     const mechanism = assignment.dimensions.mechanism
-    if (!subject || !episodeObject || !mechanism) continue
     const values = structures.get(subject) || { episodeObjects: [], mechanisms: [] }
-    values.episodeObjects.push(episodeObject)
-    values.mechanisms.push(mechanism)
+    values.episodeObjects.push(episodeObject!)
+    values.mechanisms.push(mechanism!)
     structures.set(subject, values)
   }
   for (const [subject, values] of structures) {
@@ -276,24 +328,34 @@ async function assertRowCapacity(row: ReviewedRow): Promise<void> {
 }
 
 test('all sixteen Topic Pack 1.0.1 successor identities share one atomic receipt', async () => {
-  const [registry, result] = await Promise.all([
+  const [registry, result, expectedIdentities] = await Promise.all([
     readJson<{ revision: number, records: RegistryRecord[] }>(REGISTRY_PATH),
     readJson<ReservationResult>(path.join(ROOT, '.superpowers', 'sdd', '2026-08-25-topic-pack-1000-repair', 'reservation-result.json')),
+    Promise.all(TOPIC_SUCCESSORS.map(([slug]) => readJson<ExpectedIdentity>(
+      path.join(ROOT, '.superpowers', 'sdd', '2026-08-25-topic-pack-1000-repair', 'expected-identities', `${slug}.json`),
+    ))),
   ])
   assert.equal(registry.revision, result.revision, 'registry revision must match the reservation result')
   const received = registry.records.filter(record => record.receipt_ref === result.receipt_ref)
   assert.equal(received.length, 16, 'the coordinator receipt must bind exactly sixteen records')
   assert.deepEqual(
-    received.map(record => ({ pack_id: record.pack_id, version: record.version, source_path: record.source_path })).sort((left, right) => left.pack_id.localeCompare(right.pack_id)),
+    expectedIdentities.map(({ pack_id, version, source_path }) => ({ pack_id, version, source_path })).sort((left, right) => left.pack_id.localeCompare(right.pack_id)),
     TOPIC_SUCCESSORS.map(([, predecessorRoot, packId]) => ({
       pack_id: packId,
       version: '1.0.1',
       source_path: `${predecessorRoot}-v1.0.1`,
     })).sort((left, right) => left.pack_id.localeCompare(right.pack_id)),
-    'the coordinator receipt must bind all and only the mapped successor identities',
+    'expected identities must cover all and only the mapped successor identities',
   )
-  assert.ok(received.every(record => record.status === 'reserved' || record.status === 'authored'),
-    'receipt-bound successors must remain in the reservation lifecycle')
+  assert.deepEqual(
+    received.map(({ receipt_ref: _receiptRef, status: _status, ...identity }) => identity).sort((left, right) => left.pack_id.localeCompare(right.pack_id)),
+    expectedIdentities.map(({ status: _status, ...identity }) => identity).sort((left, right) => left.pack_id.localeCompare(right.pack_id)),
+    'the coordinator receipt must retain every issued identity field except mutable lifecycle status',
+  )
+  const statuses = new Set(received.map(record => record.status))
+  assert.equal(statuses.size, 1, 'receipt-bound successors must transition together, never partially')
+  assert.ok(statuses.has('reserved') || statuses.has('authored'),
+    'receipt-bound successors must all be reserved now or all authored after the final transition')
 })
 
 for (const row of REVIEWED_ROWS) {
