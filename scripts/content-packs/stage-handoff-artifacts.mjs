@@ -12,8 +12,8 @@ const MAX_ARCHIVE_BYTES = 52_428_800
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const SHA256 = /^[a-f0-9]{64}$/
 const RECEIPT = /^authoring:[a-f0-9]{64}$/
-const WAVE_RECEIPT = 'authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728'
-const WAVE_BINDINGS = {
+const DEFAULT_WAVE_ID = 'reusable-content-primitives-wave-two'
+const WAVE_TWO_BINDINGS = {
   'question-ladder': {
     pack_id: 'com.storystudio.pack.formula.question-ladder',
     item_id: 'com.storystudio.formula.question-ladder',
@@ -50,7 +50,45 @@ const WAVE_BINDINGS = {
     source_path: 'content-packs/reusable-primitives/thumbnail/route-map-one-promise',
   },
 }
-const FIXED_WAVE_SLUGS = Object.keys(WAVE_BINDINGS)
+const THUMBNAIL_EXPANSION_SUMMARIES = {
+  'before-after-proof-panel': 'Matched before-and-after states show one subject changing across a truthful temporal seam.',
+  'two-option-criteria-split': 'Two present-time alternatives receive equal visual weight for an honest criteria-based comparison.',
+  'reaction-evidence-inset': 'A reaction subject directs attention to one original in-scene evidence detail.',
+  'cutaway-exploded-object': 'One object opens into an ordered, readable view of its meaningful internal layers.',
+  'hero-payoff-companion': 'A generic hero visibly interacts with a separate, tangible result object.',
+  'iconic-result-closeup': 'One truthful finished outcome dominates the frame at a detail-revealing angle.',
+  'scale-journey': 'Three related forms progress through continuous depth to communicate scale or magnitude.',
+  'numbered-lineup': 'Three to five equal-status entries form a precise lineup with matching native numerals.',
+  'macro-mystery-detail': 'An extreme close detail creates bounded curiosity while a small honest clue preserves context.',
+  'hands-on-pov-moment': 'First-person or over-shoulder hands perform one clear, safe action in task context.',
+}
+const THUMBNAIL_EXPANSION_BINDINGS = Object.fromEntries(Object.keys(THUMBNAIL_EXPANSION_SUMMARIES).map(slug => [slug, {
+  pack_id: `com.storystudio.pack.thumbnail.${slug}`,
+  item_id: `com.storystudio.thumbnail.${slug}`,
+  version: '1.0.0',
+  publisher_id: 'com.storystudio',
+  kind: 'thumbnail-recipe',
+  source_path: `content-packs/thumbnail-recipe-expansion-ten/thumbnail/${slug}`,
+  dependencies: [],
+}]))
+const WAVE_CONTRACTS = {
+  [DEFAULT_WAVE_ID]: {
+    label: 'fixed Wave 2',
+    receipt: 'authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728',
+    bindings: WAVE_TWO_BINDINGS,
+    includeStoryIdentity: false,
+    includeReceiverStatus: false,
+  },
+  'thumbnail-recipe-expansion-ten': {
+    label: 'fixed thumbnail-recipe-expansion-ten wave',
+    receipt: 'authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378',
+    bindings: THUMBNAIL_EXPANSION_BINDINGS,
+    summaries: THUMBNAIL_EXPANSION_SUMMARIES,
+    includeStoryIdentity: true,
+    includeReceiverStatus: true,
+    strictEntry: true,
+  },
+}
 const REQUIRED_REVIEWS = [
   'schema',
   'originality-provenance',
@@ -140,10 +178,39 @@ function validateReviews(reviews, kind, label) {
   }
 }
 
-function validateCollections({ allowedSlugs, eligibleSlugs, entries, blockedEntries }) {
+function expectedExpansionReviewEvidence(slug, review) {
+  const base = `.superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/reviews/${slug}`
+  if (review === 'commercial-boundary') return `${base}.spec.md and ${base}.quality.md`
+  return `${base}.${['originality-provenance', 'visual', 'thumbnail', 'safety', 'copy'].includes(review) ? 'quality' : 'spec'}.md`
+}
+
+function validateStrictExpansionReviews(reviews, slug) {
+  const expectedNames = [
+    'schema', 'originality-provenance', 'compatibility', 'prompt-equivalence', 'visual',
+    'thumbnail', 'safety', 'copy', 'commercial-boundary',
+  ]
+  if (JSON.stringify(reviews.map(entry => entry?.review)) !== JSON.stringify(expectedNames)) {
+    fail(`${slug} reviews must use the exact thumbnail expansion review order`)
+  }
+  for (const review of reviews) {
+    if (Object.keys(review).sort().join(',') !== 'evidence,review,status') fail(`${slug} review ${review.review} has invalid fields`)
+    if (review.evidence !== expectedExpansionReviewEvidence(slug, review.review)) {
+      fail(`${slug} review ${review.review} has invalid evidence`)
+    }
+  }
+}
+
+function resolveWaveContract(waveId) {
+  if (waveId === undefined) return WAVE_CONTRACTS[DEFAULT_WAVE_ID]
+  if (typeof waveId !== 'string' || !Object.hasOwn(WAVE_CONTRACTS, waveId)) fail('waveId is not a supported immutable wave contract')
+  return WAVE_CONTRACTS[waveId]
+}
+
+function validateCollections({ allowedSlugs, eligibleSlugs, entries, blockedEntries }, contract) {
   const allowed = uniqueSlugs(allowedSlugs, 'allowedSlugs')
-  if (JSON.stringify(allowedSlugs) !== JSON.stringify(FIXED_WAVE_SLUGS)) {
-    fail('allowedSlugs must equal the exact fixed Wave 2 slug order')
+  const fixedSlugs = Object.keys(contract.bindings)
+  if (JSON.stringify(allowedSlugs) !== JSON.stringify(fixedSlugs)) {
+    fail(`allowedSlugs must equal the exact ${contract.label} slug order`)
   }
   const eligible = uniqueSlugs(eligibleSlugs, 'eligibleSlugs')
   for (const slug of eligible) if (!allowed.has(slug)) fail(`eligible slug ${slug} is outside allowedSlugs`)
@@ -397,28 +464,48 @@ async function cleanupCreated(paths, stagingRoot, stagingGuard) {
   return failures
 }
 
-function validateEntry(entry) {
+function validateEntry(entry, contract) {
   assertPlainObject(entry, `entry ${entry?.slug ?? ''}`)
-  const binding = WAVE_BINDINGS[entry.slug]
-  if (!binding) fail(`${entry.slug} is not a fixed Wave 2 slug`)
+  if (contract.strictEntry) {
+    const expectedFields = [
+      'bytes', 'candidate_path', 'component_summary', 'delivery_profile', 'dependencies', 'item_id',
+      'kind', 'min_app_version', 'pack_id', 'publisher_id', 'receipt_ref', 'reviews', 'sha256',
+      'slug', 'source_path', 'version',
+    ].sort()
+    if (JSON.stringify(Object.keys(entry).sort()) !== JSON.stringify(expectedFields)) fail(`${entry.slug} entry has invalid fields`)
+  }
+  const binding = contract.bindings[entry.slug]
+  if (!binding) fail(`${entry.slug} is not a ${contract.label} slug`)
   for (const field of ['pack_id', 'item_id', 'version', 'source_path']) {
-    if (entry[field] !== binding[field]) fail(`${entry.slug} ${field} does not match its fixed Wave 2 binding`)
+    if (entry[field] !== binding[field]) fail(`${entry.slug} ${field} does not match its ${contract.label} binding`)
+  }
+  if (contract.includeStoryIdentity) {
+    for (const field of ['publisher_id', 'kind', 'dependencies']) {
+      if (JSON.stringify(entry[field]) !== JSON.stringify(binding[field])) fail(`${entry.slug} ${field} does not match its ${contract.label} binding`)
+    }
   }
   if (typeof entry.candidate_path !== 'string' || !isAbsolute(entry.candidate_path)) fail(`${entry.slug} candidate_path must be absolute`)
   if (!Number.isSafeInteger(entry.bytes) || entry.bytes <= 0 || entry.bytes > MAX_ARCHIVE_BYTES) fail(`${entry.slug} has an invalid byte count`)
   if (typeof entry.sha256 !== 'string' || !SHA256.test(entry.sha256)) fail(`${entry.slug} has an invalid SHA-256 digest`)
   if (entry.min_app_version !== MIN_APP_VERSION) fail(`${entry.slug} min_app_version must be ${MIN_APP_VERSION}`)
   if (entry.delivery_profile !== DELIVERY_PROFILE) fail(`${entry.slug} delivery profile must be ${DELIVERY_PROFILE}`)
-  if (typeof entry.receipt_ref !== 'string' || !RECEIPT.test(entry.receipt_ref) || entry.receipt_ref !== WAVE_RECEIPT) {
-    fail(`${entry.slug} receipt_ref does not match the exact Wave 2 reservation`)
+  if (typeof entry.receipt_ref !== 'string' || !RECEIPT.test(entry.receipt_ref) || entry.receipt_ref !== contract.receipt) {
+    fail(`${entry.slug} receipt_ref does not match the exact ${contract.label} reservation`)
   }
   validateSummary(entry.component_summary, `${entry.slug} component_summary`)
-  if (entry.component_summary.kind !== binding.kind) fail(`${entry.slug} summary kind does not match its fixed Wave 2 binding`)
+  if (entry.component_summary.kind !== binding.kind) fail(`${entry.slug} summary kind does not match its ${contract.label} binding`)
+  if (contract.summaries && entry.component_summary.summary !== contract.summaries[entry.slug]) {
+    fail(`${entry.slug} component_summary does not match its exact ${contract.label} summary`)
+  }
+  if (contract.summaries && JSON.stringify(entry.component_summary.slots) !== JSON.stringify({ 'thumbnail-recipe': 1 })) {
+    fail(`${entry.slug} component_summary slots do not match the exact ${contract.label} summary`)
+  }
   validateReviews(entry.reviews, entry.component_summary.kind, entry.slug)
+  if (contract.strictEntry) validateStrictExpansionReviews(entry.reviews, entry.slug)
 }
 
-async function validateBoundArchive(entry, archivePath) {
-  const binding = WAVE_BINDINGS[entry.slug]
+async function validateBoundArchive(entry, archivePath, contract) {
+  const binding = contract.bindings[entry.slug]
   const verified = await validateContentPack({
     archivePath,
     deliveryProfile: DELIVERY_PROFILE,
@@ -432,7 +519,7 @@ async function validateBoundArchive(entry, archivePath) {
     || JSON.stringify(manifest.dependencies ?? []) !== '[]'
     || manifest.items.length !== 1 || manifest.items[0].id !== binding.item_id
     || manifest.items[0].kind !== binding.kind) {
-    fail(`${entry.slug} archive identity or manifest contract does not match its fixed Wave 2 binding`)
+    fail(`${entry.slug} archive identity or manifest contract does not match its ${contract.label} binding`)
   }
   return verified
 }
@@ -448,6 +535,7 @@ async function validateBoundArchive(entry, archivePath) {
 export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
   assertPlainObject(input, 'input')
   const {
+    waveId,
     repositoryRoot,
     candidateRoot,
     artifactRoot,
@@ -457,8 +545,9 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     entries,
     blockedEntries,
   } = input
-  validateCollections({ allowedSlugs, eligibleSlugs, entries, blockedEntries })
-  for (const entry of entries) validateEntry(entry)
+  const contract = resolveWaveContract(waveId)
+  validateCollections({ allowedSlugs, eligibleSlugs, entries, blockedEntries }, contract)
+  for (const entry of entries) validateEntry(entry, contract)
   for (const path of [repositoryRoot, candidateRoot, artifactRoot, receiverHandoffPath]) {
     if (typeof path !== 'string' || !isAbsolute(path)) fail('repository, candidate, and destination paths must be absolute')
   }
@@ -495,7 +584,7 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     receiverParentGuard = await snapshotDirectory(dirname(receiverHandoffPath), 'receiver parent')
     for (const entry of entries) {
       await verifyStableEvidence(entry.candidate_path, entry, candidatePhysical)
-      await validateBoundArchive(entry, entry.candidate_path)
+      await validateBoundArchive(entry, entry.candidate_path, contract)
     }
 
     await Promise.all([
@@ -526,7 +615,7 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
         createdPaths.push(owned)
         stagedOwned.set(entry.slug, owned)
       }, detail => afterPhase?.('source-opened', detail))
-      await validateBoundArchive(entry, stagedPath)
+      await validateBoundArchive(entry, stagedPath, contract)
       await Promise.all([
         assertDirectoryUnchanged(artifactRootGuard),
         assertDirectoryUnchanged(stagingGuard),
@@ -547,7 +636,7 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
       await copyStable(stagedPaths.get(entry.slug), archivePath, entry, (path, info) => {
         createdPaths.push(ownedPath(path, artifactRootGuard, info))
       }, detail => afterPhase?.('source-opened', detail))
-      await validateBoundArchive(entry, archivePath)
+      await validateBoundArchive(entry, archivePath, contract)
       await Promise.all([
         assertDirectoryUnchanged(artifactRootGuard),
         assertDirectoryUnchanged(stagingGuard),
@@ -579,12 +668,29 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
 
     const ledger = { schema_version: 1, entries: ledgerEntries }
     const successfulEntries = ledgerEntries.map((entry, index) => ({
+      ...(contract.includeStoryIdentity ? {
+        slug: entries[index].slug,
+        pack_id: entries[index].pack_id,
+        item_id: entries[index].item_id,
+        version: entries[index].version,
+        publisher_id: entries[index].publisher_id,
+        kind: entries[index].kind,
+        source_path: entries[index].source_path,
+        dependencies: entries[index].dependencies,
+      } : {}),
       ...entry,
       component_summary: entries[index].component_summary,
     }))
     const releaseHandoff = { schema_version: 1, entries: successfulEntries }
     const receiver = {
       schema_version: 1,
+      ...(contract.includeReceiverStatus ? {
+        status: successfulEntries.length === Object.keys(contract.bindings).length
+          && blockedEntries.length === 0
+          && JSON.stringify(successfulEntries.map(entry => entry.slug)) === JSON.stringify(Object.keys(contract.bindings))
+          ? 'ready-for-owner-stocking'
+          : 'partial-ready-blocked',
+      } : {}),
       artifact_root: artifactRoot,
       ledger_path: join(artifactRoot, 'ledger.json'),
       successful_entries: successfulEntries,
@@ -613,7 +719,7 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     const artifactRootPhysical = artifactRootGuard.physical
     for (const [index, archivePath] of archivePaths.entries()) {
       await verifyStableEvidence(archivePath, entries[index], artifactRootPhysical)
-      await validateBoundArchive(entries[index], archivePath)
+      await validateBoundArchive(entries[index], archivePath, contract)
     }
     const [persistedLedger, persistedRelease, persistedReceiver] = await Promise.all([
       readJsonStable(ledgerPath, 'ledger'),
