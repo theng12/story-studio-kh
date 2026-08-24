@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.55 — 2026-08-25
+
+- **You can now see what a font or a text style looks like, instead of reading its name.** "Neon", "blackletter gothic calligraphy", "retro 1970s chrome lettering" are only meaningful if you already know what they look like — which is the opposite of what a picker is for. Both the Text Style and Font Style choosers now show a grid of swatches: the same word, rendered once in every style, picked by eye.
+- **One variable per swatch.** A font swatch changes the letterform and keeps the treatment plain; a text swatch changes the treatment and keeps the letterform plain. A swatch that changed both would show you a combination and teach you nothing about either. The word is the same in all of them for the same reason.
+- **Rendered once, kept for ever.** Each swatch is one image, cached by content, and a style added later costs exactly one more — nothing already rendered is discarded or re-made. Every swatch uses the exact phrase the prompt builder really injects for that style, so it shows what will actually be asked for rather than a paraphrase.
+- A "Show me" button renders whatever is still missing, one at a time, and if one fails the ones already rendered are kept. Styles that have no swatch yet say "not rendered yet" rather than showing an empty tile.
+- Worth knowing: `script` and `handwritten` exist in **both** catalogues, so the two kinds are cached separately — otherwise the font swatch and the text swatch of the same name would share an entry and one would silently show the other.
+
+---
+
 ## v1.4.54 — 2026-08-24
 
 - **Thumbnail prompts were printing the episode code as the headline.** Every prompt for EP0344 came back reading `Large bold sans-serif text 'EP0344' is placed on the right` — five images with a filing code across them, and credits spent making them. One line was responsible: with no title on the request the generator fell back to the episode id, and the resolved title is exactly what gets drawn inside the image.

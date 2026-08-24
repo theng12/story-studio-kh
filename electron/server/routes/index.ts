@@ -39,6 +39,7 @@ import { router as libraryRouter } from './library.js'
 import { router as softDeletedProjectsRouter } from './soft-deleted-projects.js'
 import { router as imagePreviewRouter } from './image-preview.js'
 import { router as stylePreviewRouter } from './style-preview.js'
+import { router as letteringPreviewsRouter } from './lettering-previews.js'
 import { router as imagePromptsEditRouter } from './image-prompts-edit.js'
 import { router as imageReferencesRouter } from './image-references.js'
 import { router as changelogRouter } from './changelog.js'
@@ -94,6 +95,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', softDeletedProjectsRouter)
   app.use('/api', imagePreviewRouter)
   app.use('/api', stylePreviewRouter)
+  app.use('/api', letteringPreviewsRouter)
   app.use('/api', imagePromptsEditRouter)
   app.use('/api', imageReferencesRouter)
   app.use('/api', changelogRouter)

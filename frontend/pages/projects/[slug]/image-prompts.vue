@@ -473,6 +473,18 @@
             <select v-model="form.thumbnail.thumb_text_style" class="select">
               <option v-for="p in TEXT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
             </select>
+            <!-- The names are only readable if you already know what they mean.
+                 The swatches are the actual answer; the select stays for
+                 keyboard use and for 'auto' and 'custom', which have nothing
+                 to render. -->
+            <LetteringSwatchPicker
+              v-model="form.thumbnail.thumb_text_style"
+              kind="text"
+              :model="form.thumbnail.model"
+              :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
+              caption="Pick by eye — each swatch is the same word in that treatment"
+              class="mt-1"
+            />
             <input
               v-if="form.thumbnail.thumb_text_style === 'custom'"
               v-model="form.thumbnail.thumb_text_style_custom"
@@ -526,6 +538,14 @@
             <select v-model="form.thumbnail.thumb_font_style" class="select">
               <option v-for="p in FONT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
             </select>
+            <LetteringSwatchPicker
+              v-model="form.thumbnail.thumb_font_style"
+              kind="font"
+              :model="form.thumbnail.model"
+              :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
+              caption="Pick by eye — each swatch is the same word in that letterform"
+              class="mt-1"
+            />
             <input
               v-if="form.thumbnail.thumb_font_style === 'custom'"
               v-model="form.thumbnail.thumb_font_style_custom"
