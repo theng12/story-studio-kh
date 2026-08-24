@@ -2,7 +2,7 @@
   <section class="content-store-shelf" :aria-labelledby="`shelf-${shelf.id}`">
     <header><h2 :id="`shelf-${shelf.id}`">{{ shelf.title }}</h2><span>{{ products.length }} {{ products.length === 1 ? 'product' : 'products' }}</span></header>
     <div class="shelf-grid">
-      <ContentProductCard v-for="product in products" :key="product.productId" :product="product" :ownership="ownershipFor(product.entitlementFamily)" :busy="busyProductId === product.productId || busyReleaseId === product.currentRelease?.releaseId" :network-unavailable="networkUnavailable" :ownership-resolved="ownershipResolved" @quote="$emit('quote', $event)" @install="$emit('install', $event)" />
+      <ContentProductCard v-for="product in products" :key="product.productId" :product="product" :ownership="ownershipFor(product.entitlementFamily)" :busy="busyProductId === product.productId || busyReleaseId === product.currentRelease?.releaseId" :network-unavailable="networkUnavailable" :ownership-resolved="ownershipResolved" :selectable="selectable" :selected="selectedProductIds.includes(product.productId)" @quote="$emit('quote', $event)" @install="$emit('install', $event)" @toggle-select="$emit('toggle-select', $event)" />
     </div>
   </section>
 </template>
@@ -12,10 +12,10 @@ import ContentProductCard from './ContentProductCard.vue'
 import type { ContentStoreAccount, ContentStoreProduct, ContentStoreShelf } from '~/composables/useContentStore'
 
 const props = withDefaults(
-  defineProps<{ shelf: ContentStoreShelf; products: readonly ContentStoreProduct[]; account: ContentStoreAccount | null; busyProductId: string; busyReleaseId: string; networkUnavailable?: boolean; ownershipResolved?: boolean }>(),
-  { ownershipResolved: true },
+  defineProps<{ shelf: ContentStoreShelf; products: readonly ContentStoreProduct[]; account: ContentStoreAccount | null; busyProductId: string; busyReleaseId: string; networkUnavailable?: boolean; ownershipResolved?: boolean; selectable?: boolean; selectedProductIds?: readonly string[] }>(),
+  { ownershipResolved: true, selectable: false, selectedProductIds: () => [] },
 )
-defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
+defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string]; 'toggle-select': [product: ContentStoreProduct] }>()
 function ownershipFor(entitlementFamily: string) { return props.account?.owned.find(item => item.entitlementFamily === entitlementFamily) || null }
 </script>
 

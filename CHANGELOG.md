@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.52 — 2026-08-24
+
+- **The Content Store had grown to sixty-five packs and read as one long pile.** Owned and Updates now group what you have by what it actually is — Series Formula, then Topic Pack, Visual Style, Thumbnail Recipe, and Channel Kits last. The order is fixed rather than alphabetical, so a section never moves about as your library grows, and a kind this build does not recognise still appears under "Other" rather than vanishing from a library you paid for.
+- **"Install all missing" installs everything that is owned but not on this Mac**, in one click. A pack whose installed copy is an older version counts as missing, because the files on this Mac are not the release the account owns. Anything incompatible with this Story Studio is never queued — that would be queuing a guaranteed failure.
+- **Installs are queued instead of refused.** Clicking Install used to disable every other Install button until that one returned; with sixty-five packs that is sixty-five deliberate waits. Clicks now go into a queue that works through them one at a time, each button saying whether it is Queued or Installing, and one failure no longer strands the rest of the batch. Installing still happens one at a time under the same coordination lock as before — what changed is that you no longer wait for it.
+- **Filter by whether a pack is on this Mac** — All, Not installed, Installed — with a live count on each.
+- **Buy several at once.** Tick the packs you want in Discover and the store walks you through their quotes in turn. GenStudio still quotes and charges one pack at a time and still asks you to confirm each one; what is gone is returning to the grid between every purchase. Anything that became owned between choosing and quoting is skipped rather than quoted twice.
+- **A completed purchase no longer throws you onto another tab.** It used to jump to Owned every time, which made buying six packs six separate journeys.
+
+---
+
 ## v1.4.51 — 2026-08-24
 
 - **Opening a library was taking nine seconds, and it was about to get worse.** The Thumbnail Recipe Library showed a spinner for nine seconds to display twelve recipes — measured, three times, with no caching in between. The cost was never in the recipes. Every time the app listed anything from your content packs, it re-read and re-hashed all sixty-four installed pack versions — forty-four megabytes, the archive once and every unpacked file twice — and then did it again for the next list, and the next. At two hundred packs the same twelve recipes would have taken half a minute.

@@ -41,6 +41,19 @@ async function loadStorePage(): Promise<Component> {
     const filterCatalogProducts = (items, query) => query ? items.filter(item => String(item.title || '').toLowerCase().includes(String(query).toLowerCase())) : items
     const orderShelfProducts = (items) => items
     const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
+    // The real queue lives in ~/composables/useInstallQueue and is covered by
+    // its own tests; here it only has to exist and install straight away.
+    const useInstallQueue = (install) => ({
+      enqueue: (id) => { void install(id) },
+      enqueueAll: (ids) => { for (const id of ids) void install(id) },
+      statusOf: () => 'idle',
+      isBusy: () => false,
+      activeReleaseId: computed(() => ''),
+      pendingCount: computed(() => 0),
+      failedCount: computed(() => 0),
+      running: computed(() => false),
+      clearFinished: () => undefined,
+    })
     const useContentStore = () => globalThis.__contentStorePageStore
     const useAppSettingsModal = () => ({ open: () => undefined })
     const useRoute = () => ({ params: {} })
@@ -150,7 +163,16 @@ describe('Content Store proof route contract', () => {
     rendered.unmount()
   })
 
-  test('moves successful purchase completion to an extant Owned tab, not the removed quote trigger', async () => {
+  /**
+   * REVERSED ON PURPOSE, 2026-08-24. This used to assert that a completed
+   * purchase moved the customer to the Owned tab. The owner, buying several
+   * packs in a row from a sixty-five pack catalogue, asked for the opposite:
+   * "when i purchased it, don't let it take me to the install page." Being
+   * thrown out of the grid after every purchase is what made buying six packs
+   * six separate journeys. What a purchase must still do is leave the dialog
+   * closed and the tab the customer chose still selected.
+   */
+  test('a completed purchase leaves the customer exactly where they were', async () => {
     const Page = await loadStorePage()
     const attempt = {
       quote_id: 'quote_1', status: 'quoted', product_id: 'formula', credits_charged: 400,
@@ -172,7 +194,10 @@ describe('Content Store proof route contract', () => {
     await nextTick(); await nextTick()
     rendered.host.querySelector<HTMLButtonElement>('[data-test="purchase-done"]')!.click()
     await nextTick(); await nextTick()
-    assert.equal(document.activeElement?.id, 'content-store-tab-owned')
+    assert.equal(rendered.host.querySelector('[role="dialog"]'), null, 'the dialog closes on completion')
+    const discoverTab = rendered.host.querySelector<HTMLButtonElement>('#content-store-tab-discover')!
+    assert.equal(discoverTab.getAttribute('aria-selected'), 'true', 'the Discover tab the customer was on stays selected')
+    assert.notEqual(document.activeElement?.id, 'content-store-tab-owned', 'nothing steals focus to another tab')
     rendered.unmount()
   })
 

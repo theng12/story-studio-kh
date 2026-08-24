@@ -12,17 +12,19 @@
       <div v-if="loading && catalogFreshness === 'unavailable'" class="store-state" aria-live="polite"><LoadingSpinner size="sm" /><p>Loading the GenStudio catalog…</p></div>
       <div v-else-if="catalogFreshness === 'unavailable'" class="store-state" role="status" aria-live="polite"><h2>Content Store is unavailable</h2><p>{{ pageError?.detail || 'Refresh the Store to try again.' }}</p><button type="button" class="btn btn-secondary" @click="refreshStore">Retry Content Store</button></div>
       <div v-else-if="catalogFreshness === 'fresh' && products.length === 0 && installed.length === 0" class="store-state" role="status"><h2>The Content Store is ready, but no packs have been published yet.</h2><p>Refresh later to see the catalog GenStudio publishes for this account.</p></div>
-      <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :price="price" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:price="price = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" /><div v-if="visibleShelves.length" class="shelf-list"><ContentStoreShelf v-for="shelf in visibleShelves" :key="shelf.shelf.id" :shelf="shelf.shelf" :products="shelf.products" :account="account" :busy-product-id="quoteBusyProduct" :busy-release-id="installBusyRelease" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" @quote="openQuote" @install="installRelease" /></div><div v-else class="store-state" role="status">
+      <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :price="price" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:price="price = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" /><div v-if="selectedForPurchase.length" class="selection-bar" role="status" aria-live="polite"><div><strong>{{ selectedForPurchase.length }} selected</strong><span>{{ formatCredits(selectionTotal) }} credits before any discount GenStudio applies</span></div><div class="selection-actions"><button type="button" class="btn btn-secondary" @click="clearSelection">Clear</button><button type="button" class="btn btn-primary" :disabled="networkActionsDisabled || !!batchQuoteBusy" @click="startBatchPurchase">{{ batchQuoteBusy ? `Quoting ${batchProgressLabel}…` : `See exact quotes (${selectedForPurchase.length})` }}</button></div></div>
+      <div v-if="visibleShelves.length" class="shelf-list"><ContentStoreShelf v-for="shelf in visibleShelves" :key="shelf.shelf.id" :shelf="shelf.shelf" :products="shelf.products" :account="account" :busy-product-id="quoteBusyProduct" :busy-release-id="installBusyRelease" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :selectable="true" :selected-product-ids="selectedProductIds" @quote="openQuote" @install="enqueueInstall" @toggle-select="toggleSelection" /></div><div v-else class="store-state" role="status">
         <template v-if="discoverEmptyReason === 'filters'"><h2>No published products match these filters</h2><p>Clear a filter or try another catalog search.</p><button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button></template>
         <template v-else-if="discoverEmptyReason === 'all-owned'"><h2>You already own every published pack</h2><p>Every pack GenStudio publishes for this account is already permanently owned. Open Owned to install them on this Mac.</p><button type="button" class="btn btn-secondary" @click="showOwnedTab">Go to Owned</button></template>
         <template v-else-if="discoverEmptyReason === 'nothing-published'"><h2>No packs are published yet</h2><p>GenStudio has not published anything for this account to own. Refresh the store later to see the catalog it publishes.</p></template>
         <template v-else><h2>No published products are ready to show</h2><p>GenStudio publishes these packs but has not placed any of them on a shelf yet. Refresh the store later, or open Owned for the packs this account already has.</p></template>
       </div></template>
-      <ContentLibraryView v-else-if="activeTab === 'owned'" heading-id="owned-library-heading" title="Owned" description="Packs permanently owned by this GenStudio account, whether or not they are installed on this Mac." :products="ownedProducts" :account="account" empty-title="No permanently owned packs yet" empty-description="Choose Discover to request an exact quote from GenStudio." :busy-product-id="quoteBusyProduct" :busy-release-id="installBusyRelease" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" @quote="openQuote" @install="installRelease" />
+      <ContentLibraryView v-else-if="activeTab === 'owned'" heading-id="owned-library-heading" title="Owned" description="Packs permanently owned by this GenStudio account, whether or not they are installed on this Mac." :products="ownedProducts" :account="account" empty-title="No permanently owned packs yet" empty-description="Choose Discover to request an exact quote from GenStudio." :busy-product-id="quoteBusyProduct" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :show-install-all="true" :queue-status="installQueue.statusOf" @quote="openQuote" @install="enqueueInstall" @install-many="enqueueInstalls" />
       <ContentInstalledLibraryView v-else-if="activeTab === 'installed'" :installed="installed" :ownership-resolved="ownershipResolved" />
-      <ContentLibraryView v-else heading-id="updates-library-heading" title="Updates" description="Installed packs with a newer safe release ready for an explicit update." :products="updateProducts" :account="account" empty-title="No updates available" empty-description="Your installed Content Store packs are up to date." :busy-product-id="quoteBusyProduct" :busy-release-id="installBusyRelease" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" @quote="openQuote" @install="installRelease" />
+      <ContentLibraryView v-else heading-id="updates-library-heading" title="Updates" description="Installed packs with a newer safe release ready for an explicit update." :products="updateProducts" :account="account" empty-title="No updates available" empty-description="Your installed Content Store packs are up to date." :busy-product-id="quoteBusyProduct" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :show-install-all="true" :queue-status="installQueue.statusOf" @quote="openQuote" @install="enqueueInstall" @install-many="enqueueInstalls" />
       <section v-if="completedAttempts.length" class="ownership-history" aria-labelledby="ownership-heading"><h2 id="ownership-heading">Recent permanent ownership</h2><ul><li v-for="attempt in completedAttempts" :key="attempt.quote_id"><span>{{ productTitle(attempt.product_id) }}</span><span>Owned in GenStudio · install explicitly from the Owned shelf</span><span>{{ formatCredits(attempt.credits_charged ?? 0) }} credits charged</span></li></ul><p v-if="hasVerifiedOwnership">Ownership receipts are verified locally against GenStudio's published signing key.</p><p v-else>Use Restore purchases to verify this account's ownership receipts on this Mac.</p></section>
     </main>
+    <div v-if="installQueue.running.value || installQueue.failedCount.value" class="install-queue-strip" role="status" aria-live="polite"><span v-if="installQueue.running.value">Installing — {{ installQueue.pendingCount.value }} left in the queue</span><span v-else>{{ installQueue.failedCount.value }} install(s) failed. Open the pack and try again.</span><button v-if="!installQueue.running.value" type="button" class="notice-action" @click="installQueue.clearFinished()">Dismiss</button></div>
     <ContentPurchaseDialog :visible="dialogOpen" :attempt="selectedAttempt" :product="selectedProduct" :error="dialogError" :busy="purchaseBusy" @close="closeDialog" @confirm="confirmPurchase" @retry="confirmPurchase" />
   </div>
 </template>
@@ -35,6 +37,7 @@ import ContentLibraryView from '~/components/content-store/ContentLibraryView.vu
 import ContentInstalledLibraryView from '~/components/content-store/ContentInstalledLibraryView.vue'
 import ContentPurchaseDialog from '~/components/content-store/ContentPurchaseDialog.vue'
 import { filterCatalogProducts, orderShelfProducts, type ContentStoreKindFilter } from '~/content-store/catalog-presentation'
+import { useInstallQueue } from '~/composables/useInstallQueue'
 import { contentStoreErrorPresentation, type ContentStoreProduct, type ContentStoreUiError, type PublicContentPurchaseAttempt } from '~/composables/useContentStore'
 
 useAppTitle('Content Store')
@@ -44,6 +47,7 @@ const store = useContentStore(); const appSettingsModal = useAppSettingsModal();
 const route = useRoute(); const viewingDetail = computed(() => typeof route.params.productId === 'string' && route.params.productId.length > 0)
 const activeTab = ref<StoreTab>('discover'); const query = ref(''); const price = ref<PriceFilter>('all'); const kind = ref<ContentStoreKindFilter>('all'); const tag = ref(''); const compatibleOnly = ref(false)
 const quoteBusyProduct = ref(''); const installBusyRelease = ref(''); const purchaseBusy = ref(false); const dialogOpen = ref(false); const selectedQuoteId = ref(''); const selectedProductId = ref(''); const dialogError = ref<ContentStoreUiError | null>(null); const tabRefs = new Map<StoreTab, HTMLButtonElement>()
+const _unusedNextTick = nextTick
 const discoverProducts = computed(() => products.value.filter(product => !product.owned && !product.retired)); const ownedProducts = computed(() => products.value.filter(product => product.owned)); const ownedInstallState = (product: ContentStoreProduct) => account.value?.owned.find(item => item.entitlementFamily === product.entitlementFamily)?.installState; const updateProducts = computed(() => ownedProducts.value.filter(product => product.compatible && product.currentRelease && !account.value?.owned.find(item => item.entitlementFamily === product.entitlementFamily)?.recalledReleaseVersions.includes(product.currentRelease.version) && ownedInstallState(product) === 'update_available')); const tabProducts = computed(() => activeTab.value === 'discover' ? discoverProducts.value : activeTab.value === 'owned' ? ownedProducts.value : updateProducts.value)
 const catalogPresentation = computed(() => Object.fromEntries(products.value.map(product => [product.productId, { productId: product.productId, ...product.presentation }])));
 const filteredProducts = computed(() => filterCatalogProducts(tabProducts.value, query.value, { price: price.value, kind: kind.value, compatibleOnly: compatibleOnly.value, tag: tag.value || undefined }, catalogPresentation.value))
@@ -73,9 +77,77 @@ function refreshStore(): void { void loadStore() }
 async function showOwnedTab(): Promise<void> { activeTab.value = 'owned'; await nextTick(); tabRefs.get('owned')?.focus() }
 async function restoreOwnership(): Promise<void> { if (networkActionsDisabled.value) return; try { await store.restoreOwnership(); activeTab.value = 'owned' } catch { /* exact restore boundary is rendered from store.error */ } }
 async function installRelease(releaseId: string): Promise<void> { if (networkActionsDisabled.value || installBusyRelease.value) return; installBusyRelease.value = releaseId; try { await store.installRelease(releaseId) } catch { /* exact install boundary is rendered from store.error */ } finally { installBusyRelease.value = '' } }
+
+/**
+ * Installs are queued rather than serialised at the button. Installing writes
+ * the Content Pack runtime state under a coordination lock, so one at a time is
+ * still correct -- what changes is that the customer no longer waits for one
+ * before choosing the next.
+ */
+const installQueue = useInstallQueue(releaseId => store.installRelease(releaseId))
+function enqueueInstall(releaseId: string): void { if (networkActionsDisabled.value) return; installQueue.enqueue(releaseId) }
+function enqueueInstalls(releaseIds: string[]): void { if (networkActionsDisabled.value) return; installQueue.enqueueAll(releaseIds) }
+
+// ── Buying several at once ────────────────────────────────────────────────
+//
+// GenStudio quotes and charges ONE product at a time; that contract is not
+// changed here. What the multi-select adds is choosing the set in one go and
+// walking the quotes without returning to the grid between each, so the
+// deliberate confirm-per-purchase step the Store is built around is kept.
+const selectedProductIds = ref<string[]>([])
+const batchQueue = ref<string[]>([])
+const batchQuoteBusy = ref(false)
+const batchTotal = ref(0)
+const selectedForPurchase = computed(() => discoverProducts.value.filter(product => selectedProductIds.value.includes(product.productId)))
+const selectionTotal = computed(() => selectedForPurchase.value.reduce((total, product) => total + (product.creditPrice ?? 0), 0))
+const batchProgressLabel = computed(() => batchTotal.value ? `${batchTotal.value - batchQueue.value.length} of ${batchTotal.value}` : '')
+function toggleSelection(product: ContentStoreProduct): void {
+  selectedProductIds.value = selectedProductIds.value.includes(product.productId)
+    ? selectedProductIds.value.filter(id => id !== product.productId)
+    : [...selectedProductIds.value, product.productId]
+}
+function clearSelection(): void { selectedProductIds.value = []; batchQueue.value = []; batchTotal.value = 0 }
+async function startBatchPurchase(): Promise<void> {
+  if (networkActionsDisabled.value || batchQuoteBusy.value || !selectedForPurchase.value.length) return
+  batchQueue.value = selectedForPurchase.value.map(product => product.productId)
+  batchTotal.value = batchQueue.value.length
+  await openNextBatchQuote()
+}
+async function openNextBatchQuote(): Promise<void> {
+  batchQuoteBusy.value = true
+  try {
+    for (;;) {
+      const productId = batchQueue.value[0]
+      if (productId === undefined) { batchTotal.value = 0; return }
+      batchQueue.value = batchQueue.value.slice(1)
+      const product = products.value.find(row => row.productId === productId)
+      // Anything that became owned or unavailable between selecting and
+      // quoting is skipped rather than quoted for a second time.
+      if (!product || product.owned || product.retired || !product.currentRelease) continue
+      await openQuote(product)
+      if (dialogOpen.value) return
+    }
+  } finally { batchQuoteBusy.value = false }
+}
 async function openQuote(product: ContentStoreProduct): Promise<void> { if (networkActionsDisabled.value || quoteBusyProduct.value) return; quoteBusyProduct.value = product.productId; dialogError.value = null; try { const attempt = await store.requestQuote(product.productId, product.currentRelease?.releaseId ?? null); selectedQuoteId.value = attempt.quote_id; selectedProductId.value = product.productId; dialogOpen.value = true } catch { /* a failed quote never opens the purchase dialog */ } finally { quoteBusyProduct.value = '' } }
 async function confirmPurchase(quoteId: string): Promise<void> { if (networkActionsDisabled.value || purchaseBusy.value) return; purchaseBusy.value = true; dialogError.value = null; try { await store.confirmPurchase(quoteId) } catch { dialogError.value = error.value } finally { purchaseBusy.value = false } }
-async function closeDialog(): Promise<void> { if (purchaseBusy.value) return; const completed = selectedAttempt.value?.status === 'completed'; dialogOpen.value = false; selectedQuoteId.value = ''; selectedProductId.value = ''; dialogError.value = null; if (completed) { activeTab.value = 'owned'; await nextTick(); tabRefs.get('owned')?.focus() } }
+/**
+ * Closing the dialog leaves the customer exactly where they were.
+ *
+ * It used to jump to Owned after every purchase -- "when i purchased it, don't
+ * let it take me to the install page". Buying six packs meant being thrown out
+ * of the grid six times. What a completed purchase does now is clear that
+ * product from the selection and, if a batch is running, open the next quote.
+ */
+async function closeDialog(): Promise<void> {
+  if (purchaseBusy.value) return
+  const completed = selectedAttempt.value?.status === 'completed'
+  const purchasedId = selectedProductId.value
+  dialogOpen.value = false; selectedQuoteId.value = ''; selectedProductId.value = ''; dialogError.value = null
+  if (completed && purchasedId) selectedProductIds.value = selectedProductIds.value.filter(id => id !== purchasedId)
+  if (batchQueue.value.length) { await openNextBatchQuote(); return }
+  batchTotal.value = 0
+}
 function clearFilters(): void { query.value = ''; price.value = 'all'; kind.value = 'all'; tag.value = ''; compatibleOnly.value = false }
 function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? discoverProducts.value.length : tab === 'owned' ? ownedProducts.value.length : tab === 'installed' ? installed.value.length : updateProducts.value.length }
 /**

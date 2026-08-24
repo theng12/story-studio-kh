@@ -1,5 +1,6 @@
 <template>
-  <article class="content-product-card" :data-owned="ownershipResolved ? product.owned : undefined" :data-compatible="product.compatible">
+  <article class="content-product-card" :data-owned="ownershipResolved ? product.owned : undefined" :data-compatible="product.compatible" :data-selected="selected || undefined">
+    <label v-if="selectable" class="select-row"><input type="checkbox" :checked="selected" @change="$emit('toggle-select', product)" /><span>{{ selected ? 'Selected' : 'Select' }}</span></label>
     <NuxtLink :to="`/content-store/${product.productId}`" class="product-proof-link" :aria-label="`View proof for ${product.title}`">
       <ContentProductCover :product="product" />
       <div class="product-copy">
@@ -20,7 +21,8 @@
     <div class="product-action">
       <NuxtLink :to="`/content-store/${product.productId}`" class="proof-action">View proof</NuxtLink>
       <button v-if="ownershipResolved && !product.owned && !product.retired && product.compatible && product.currentRelease" type="button" class="btn btn-primary" :disabled="networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('quote', product)">{{ busy ? 'Requesting quote…' : product.free ? 'Get free' : 'See exact quote' }}</button>
-      <button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="!!busy || networkUnavailable" :aria-busy="busy ? 'true' : undefined" @click="$emit('install', product.currentRelease!.releaseId)">{{ busy ? 'Installing…' : ownership!.installState === 'update_available' ? 'Install update' : 'Install on this Mac' }}</button>
+      <button v-else-if="canInstall" type="button" class="btn btn-primary" :disabled="installDisabled" :aria-busy="installBusy ? 'true' : undefined" @click="$emit('install', product.currentRelease!.releaseId)">{{ installLabel }}</button>
+      <span v-else-if="queueStatus === 'installed'" class="queue-note">Installed just now</span>
     </div>
   </article>
 </template>
@@ -29,6 +31,7 @@
 import { computed } from 'vue'
 import ContentProductCover from './ContentProductCover.vue'
 import type { ContentStoreAccount, ContentStoreProduct } from '~/composables/useContentStore'
+import type { InstallQueueStatus } from '~/composables/useInstallQueue'
 
 type OwnedContent = ContentStoreAccount['owned'][number]
 /**
@@ -39,10 +42,25 @@ type OwnedContent = ContentStoreAccount['owned'][number]
  * every other caller renders a verified overview.
  */
 const props = withDefaults(
-  defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; networkUnavailable?: boolean; ownershipResolved?: boolean }>(),
-  { ownershipResolved: true },
+  defineProps<{ product: ContentStoreProduct; ownership?: OwnedContent | null; busy?: boolean; networkUnavailable?: boolean; ownershipResolved?: boolean; queueStatus?: InstallQueueStatus; selectable?: boolean; selected?: boolean }>(),
+  { ownershipResolved: true, queueStatus: 'idle', selectable: false, selected: false },
 )
-defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string] }>()
+defineEmits<{ quote: [product: ContentStoreProduct]; install: [releaseId: string]; 'toggle-select': [product: ContentStoreProduct] }>()
+
+/**
+ * A queued install is ACCEPTED, not refused. Before the queue existed a second
+ * Install click was simply disabled until the first returned, which with
+ * sixty-five packs meant sixty-five deliberate waits. The button now says where
+ * in the queue this one is.
+ */
+const installBusy = computed(() => props.busy || props.queueStatus === 'installing' || props.queueStatus === 'queued')
+const installDisabled = computed(() => installBusy.value || props.networkUnavailable === true)
+const installLabel = computed(() => {
+  if (props.queueStatus === 'queued') return 'Queued'
+  if (props.queueStatus === 'installing' || props.busy) return 'Installing…'
+  if (props.queueStatus === 'failed') return 'Install failed — try again'
+  return props.ownership?.installState === 'update_available' ? 'Install update' : 'Install on this Mac'
+})
 
 const status = computed(() => {
   if (props.product.retired) return 'Retired'
@@ -77,6 +95,10 @@ const canInstall = computed(() => {
 <style scoped>
 .content-product-card { display: grid; min-width: 0; gap: 13px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
 .content-product-card[data-owned='true'] { border-color: color-mix(in srgb, var(--success) 44%, var(--border)); }
+.content-product-card[data-selected] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.select-row { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; color: var(--text-secondary); cursor: pointer; font-size: var(--font-sm); font-weight: 650; }
+.select-row input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
+.queue-note { margin-left: auto; color: var(--success); font-size: var(--font-sm); font-weight: 650; }
 .product-proof-link { display: grid; min-width: 0; gap: 12px; color: inherit; text-decoration: none; }
 .product-proof-link:hover h3 { color: var(--accent); }
 .product-copy { display: grid; min-width: 0; gap: 6px; }
