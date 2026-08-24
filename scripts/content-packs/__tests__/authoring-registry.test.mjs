@@ -54,12 +54,35 @@ test('reserves the exact ten thumbnail recipe expansion identities as one propos
     ['hands-on-pov-moment', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment'],
   ]
   const sourcePaths = new Set(expected.map(([, sourcePath]) => sourcePath))
+  const expectedRecord = (slug, source_path) => ({
+    pack_id: `com.storystudio.pack.thumbnail.${slug}`,
+    item_id: `com.storystudio.thumbnail.${slug}`,
+    version: '1.0.0',
+    publisher_id: 'com.storystudio',
+    min_app_version: '{{MIN_APP_VERSION}}',
+    min_app_version_status: 'release-bound',
+    kind: 'thumbnail-recipe',
+    source_path,
+    status: 'reserved',
+    dependencies: [],
+    stocking_proposal: {
+      family: { id: `com.storystudio.family.thumbnail.${slug}`, status: 'proposed' },
+      sku: { id: `com.storystudio.sku.thumbnail.${slug}`, status: 'proposed' },
+    },
+  })
+  const expectedRequest = {
+    expected_revision: 22,
+    coordinator: { task: 'thumbnail-recipe-expansion-ten', branch: 'codex/content-expansion-portfolio' },
+    proposal_ref: 'docs/superpowers/specs/2026-08-24-thumbnail-recipe-expansion-ten-design.md',
+    records: expected.map(([slug, source_path]) => expectedRecord(slug, source_path)),
+  }
   const records = registry.records.filter((record) => sourcePaths.has(record.source_path))
   const batches = registry.batches.filter((batch) => batch.request.coordinator.task === 'thumbnail-recipe-expansion-ten')
 
   assert.equal(records.length, 10)
   assert.equal(batches.length, 1)
   assert.equal(batches[0].revision, 23)
+  assert.deepEqual(batches[0].request, expectedRequest)
   assert.equal(new Set(records.map((record) => record.receipt_ref)).size, 1)
   assert.equal(records[0].receipt_ref, batches[0].receipt_ref)
   assert.deepEqual(
@@ -69,20 +92,7 @@ test('reserves the exact ten thumbnail recipe expansion identities as one propos
   for (const [slug, source_path] of expected) {
     assert.deepEqual(records.find((record) => record.source_path === source_path), {
       receipt_ref: records[0].receipt_ref,
-      pack_id: `com.storystudio.pack.thumbnail.${slug}`,
-      item_id: `com.storystudio.thumbnail.${slug}`,
-      version: '1.0.0',
-      publisher_id: 'com.storystudio',
-      min_app_version: '{{MIN_APP_VERSION}}',
-      min_app_version_status: 'release-bound',
-      kind: 'thumbnail-recipe',
-      source_path,
-      status: 'reserved',
-      dependencies: [],
-      stocking_proposal: {
-        family: { id: `com.storystudio.family.thumbnail.${slug}`, status: 'proposed' },
-        sku: { id: `com.storystudio.sku.thumbnail.${slug}`, status: 'proposed' },
-      },
+      ...expectedRecord(slug, source_path),
     })
   }
 })
