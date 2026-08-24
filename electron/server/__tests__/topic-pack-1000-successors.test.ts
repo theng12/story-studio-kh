@@ -85,6 +85,9 @@ const TOPIC_SUCCESSORS = [
 
 const REVIEWED_ROWS: ReviewedRow[] = []
 
+// Task 18 changes this to 'authored' only after all sixteen serialized transitions succeed.
+const EXPECTED_RECEIPT_STATUS: RegistryRecord['status'] = 'reserved'
+
 function sha256(value: Uint8Array): string {
   return createHash('sha256').update(value).digest('hex')
 }
@@ -134,7 +137,7 @@ async function assertIdentity(row: ReviewedRow, source: TopicSource): Promise<vo
     readJson<ReservationResult>(path.join(ROOT, '.superpowers', 'sdd', '2026-08-25-topic-pack-1000-repair', 'reservation-result.json')),
     readJson<ExpectedIdentity>(path.join(ROOT, '.superpowers', 'sdd', '2026-08-25-topic-pack-1000-repair', 'expected-identities', `${row.slug}.json`)),
   ])
-  assert.equal(registry.revision, result.revision, 'registry revision must match the reservation result')
+  assert.ok(registry.revision >= result.revision, 'registry revision must not predate the reservation result')
   const matches = registry.records.filter(record => record.pack_id === row.packId && record.version === '1.0.1')
   assert.equal(matches.length, 1, `${row.packId}@1.0.1 must have one receipt-bound registry record`)
   const record = matches[0]!
@@ -142,7 +145,7 @@ async function assertIdentity(row: ReviewedRow, source: TopicSource): Promise<vo
   const { status: _expectedStatus, ...expectedIssuedIdentity } = expected
   assert.equal(receiptRef, result.receipt_ref, `${row.slug} must retain the coordinator receipt`)
   assert.deepEqual(issuedIdentity, expectedIssuedIdentity, `${row.slug} must retain its receipt-issued identity`)
-  assert.ok(status === 'reserved' || status === 'authored', `${row.slug} must remain in the reservation lifecycle`)
+  assert.equal(status, EXPECTED_RECEIPT_STATUS, `${row.slug} must match the receipt batch lifecycle state`)
   assert.equal(source.manifest.pack_id, record.pack_id)
   assert.equal(source.manifest.publisher_id, record.publisher_id)
   assert.equal(source.manifest.version, record.version)
@@ -335,7 +338,7 @@ test('all sixteen Topic Pack 1.0.1 successor identities share one atomic receipt
       path.join(ROOT, '.superpowers', 'sdd', '2026-08-25-topic-pack-1000-repair', 'expected-identities', `${slug}.json`),
     ))),
   ])
-  assert.equal(registry.revision, result.revision, 'registry revision must match the reservation result')
+  assert.ok(registry.revision >= result.revision, 'registry revision must not predate the reservation result')
   const received = registry.records.filter(record => record.receipt_ref === result.receipt_ref)
   assert.equal(received.length, 16, 'the coordinator receipt must bind exactly sixteen records')
   assert.deepEqual(
@@ -352,10 +355,8 @@ test('all sixteen Topic Pack 1.0.1 successor identities share one atomic receipt
     expectedIdentities.map(({ status: _status, ...identity }) => identity).sort((left, right) => left.pack_id.localeCompare(right.pack_id)),
     'the coordinator receipt must retain every issued identity field except mutable lifecycle status',
   )
-  const statuses = new Set(received.map(record => record.status))
-  assert.equal(statuses.size, 1, 'receipt-bound successors must transition together, never partially')
-  assert.ok(statuses.has('reserved') || statuses.has('authored'),
-    'receipt-bound successors must all be reserved now or all authored after the final transition')
+  assert.ok(received.every(record => record.status === EXPECTED_RECEIPT_STATUS),
+    `receipt-bound successors must all be ${EXPECTED_RECEIPT_STATUS}; partial lifecycle transitions are forbidden`)
 })
 
 for (const row of REVIEWED_ROWS) {

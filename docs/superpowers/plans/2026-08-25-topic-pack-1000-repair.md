@@ -362,6 +362,7 @@ node --test scripts/content-packs/__tests__/archival-ledger-components.test.mjs
 
 **Files:**
 - Modify: `content-packs/authoring-registry.json` (coordinator only)
+- Modify: `electron/server/__tests__/topic-pack-1000-successors.test.ts`
 - Modify: `scripts/content-packs/__tests__/free-starter-inventory.test.mjs`
 - Create and retain through Task 19: `.superpowers/sdd/2026-08-25-topic-pack-1000-repair/transitions/`
 
@@ -392,7 +393,7 @@ npm run content-pack:registry -- transition --request .superpowers/sdd/2026-08-2
 npm run content-pack:registry -- validate
 ```
 
-- [ ] Assert all and only the 16 `$TOPIC1000_RECEIPT` records are authored, retain the transition, expected-identity, request, and receipt-result evidence through Task 19, and re-run the shared capacity and final inventory tests green.
+- [ ] After all sixteen serialized transitions succeed, change `EXPECTED_RECEIPT_STATUS` in `electron/server/__tests__/topic-pack-1000-successors.test.ts` from `'reserved'` to `'authored'`; do not change it during a partial batch. Assert all and only the 16 `$TOPIC1000_RECEIPT` records are authored, retain the transition, expected-identity, request, and receipt-result evidence through Task 19, and re-run the shared capacity and final inventory tests green.
 
 ## Task 19: Deterministic candidates, all-or-nothing staging, complete handoff, and broad verification
 
