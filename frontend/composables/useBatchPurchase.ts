@@ -72,6 +72,30 @@ export function batchSkipReason(product: ContentStoreProduct | undefined): strin
   return null
 }
 
+/**
+ * Add up a figure GenStudio published, or admit the total is not known.
+ *
+ * A missing figure must never become zero. Treating one absent
+ * `quoted_credits` in an eighteen-pack batch as 0 does not make the batch
+ * cheaper -- it makes the dialog state a confident total that is too low, and
+ * he would confirm a spend against a number the server never published. That
+ * is the exact defect this whole job existed to remove, so an incomplete set
+ * yields `null`: UNKNOWN, not smaller. Callers must render that as unknown and
+ * refuse to spend against it.
+ *
+ * `Number.isFinite` rather than a null check on purpose -- NaN and Infinity
+ * would each poison a running sum into a number nobody can act on.
+ */
+export function sumPublished<T>(rows: readonly T[], read: (row: T) => number | undefined): number | null {
+  let total = 0
+  for (const row of rows) {
+    const value = read(row)
+    if (typeof value !== 'number' || !Number.isFinite(value)) return null
+    total += value
+  }
+  return total
+}
+
 export function useBatchPurchase(deps: BatchPurchaseDeps) {
   const items = ref<BatchQuoteItem[]>([])
   const phase = ref<BatchPhase>('idle')
@@ -85,7 +109,8 @@ export function useBatchPurchase(deps: BatchPurchaseDeps) {
    * it again and counting its price a second time in the ceiling he confirms.
    */
   const quoted = computed(() => items.value.filter(item => item.attempt && !item.reason && item.outcome !== 'owned'))
-  const quotedTotal = computed(() => quoted.value.reduce((sum, item) => sum + (item.attempt?.quoted_credits ?? 0), 0))
+  /** `null` means at least one quote carried no price, so no total can be stated. */
+  const quotedTotal = computed(() => sumPublished(quoted.value, item => item.attempt?.quoted_credits))
 
   function patch(productId: string, change: Partial<BatchQuoteItem>): void {
     items.value = items.value.map(item => item.productId === productId ? { ...item, ...change } : item)
@@ -148,7 +173,10 @@ export function useBatchPurchase(deps: BatchPurchaseDeps) {
         try {
           const settled = await deps.confirm(item.attempt!.quote_id)
           patch(item.productId, {
-            outcome: 'owned', charged: settled.credits_charged ?? 0, reason: undefined, retryable: false,
+            // Left undefined when GenStudio did not state what it charged, so
+            // the receipt can say "not stated" rather than the free-of-charge
+            // "0 credits" that a fallback would have invented.
+            outcome: 'owned', charged: settled.credits_charged, reason: undefined, retryable: false,
           })
           bought.push(item.productId)
         } catch {

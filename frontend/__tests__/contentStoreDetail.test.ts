@@ -66,6 +66,18 @@ async function loadStorePage(): Promise<Component> {
       retryFailed: async () => undefined, close: () => undefined,
     })
     const ContentBatchPurchaseDialog = { props: ['visible'], render: () => null }
+    // The real one lives beside useBatchPurchase and is covered there. It has to
+    // behave correctly here too: the page's selection total depends on it, and a
+    // stub that summed blindly would hide the very defect it exists to prevent.
+    const sumPublished = (rows, read) => {
+      let total = 0
+      for (const row of rows) {
+        const value = read(row)
+        if (typeof value !== 'number' || !Number.isFinite(value)) return null
+        total += value
+      }
+      return total
+    }
     const useContentStore = () => globalThis.__contentStorePageStore
     const useAppSettingsModal = () => ({ open: () => undefined })
     const useRoute = () => ({ params: {} })

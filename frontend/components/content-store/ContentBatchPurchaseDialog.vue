@@ -37,8 +37,8 @@
 
           <dl class="quote-grid">
             <div><dt>Base price</dt><dd>{{ formatCredits(totals.base) }} credits</dd></div>
-            <div v-if="totals.componentDiscount > 0"><dt>Owned-content discount</dt><dd>−{{ formatCredits(totals.componentDiscount) }} credits</dd></div>
-            <div v-if="totals.operatorDiscount > 0"><dt>Operator discount</dt><dd>−{{ formatCredits(totals.operatorDiscount) }} credits</dd></div>
+            <div v-if="totals.componentDiscount !== null && totals.componentDiscount > 0"><dt>Owned-content discount</dt><dd>−{{ formatCredits(totals.componentDiscount) }} credits</dd></div>
+            <div v-if="totals.operatorDiscount !== null && totals.operatorDiscount > 0"><dt>Operator discount</dt><dd>−{{ formatCredits(totals.operatorDiscount) }} credits</dd></div>
             <div class="quote-total"><dt>Maximum deduction for {{ quoted.length }} {{ quoted.length === 1 ? 'pack' : 'packs' }}</dt><dd>{{ formatCredits(totals.quoted) }} credits</dd></div>
             <div><dt>Content-spendable balance</dt><dd>{{ formatCredits(balanceBefore) }} credits</dd></div>
             <div><dt>After buying all</dt><dd>{{ formatCredits(balanceAfter) }} credits</dd></div>
@@ -53,8 +53,8 @@
           <!-- Why the dialog total may differ from the selection bar -->
           <p v-if="skipped.length" class="skip-note" role="status">
             {{ skipped.length }} of the {{ selectedCount }} selected
-            {{ skipped.length === 1 ? 'pack is' : 'packs are' }} not being bought, so this total is lower than the
-            {{ formatCredits(selectionTotal) }} credits the selection bar showed.
+            {{ skipped.length === 1 ? 'pack is' : 'packs are' }} not being bought<template v-if="selectionTotal !== null">, so this total is lower than the
+            {{ formatCredits(selectionTotal) }} credits the selection bar showed</template>.
           </p>
 
           <details class="batch-breakdown" open>
@@ -77,9 +77,24 @@
             </ul>
           </details>
 
-          <div v-if="!affordable" class="outcome warning" role="status">
+          <!--
+            Three different reasons this batch cannot be confirmed, and they must
+            not be collapsed into one. "You need more credits" is a claim about
+            his balance, and stating it when the real problem is that GenStudio
+            published no price would be a lie about his money.
+          -->
+          <div v-if="spendBlocker" class="outcome warning" role="status">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 8v5M12 17h.01M12 3l9 17H3z" /></svg>
-            <div>
+            <div v-if="spendBlocker === 'unpriced'">
+              <strong>GenStudio did not publish a price for {{ unpricedCount }} of these {{ quoted.length }} packs</strong>
+              <p>The total for this selection is unknown, so it cannot be bought as one batch. Refresh the Store, or clear the unpriced packs and buy the rest.</p>
+            </div>
+            <div v-else-if="spendBlocker === 'balance-unknown'">
+              <strong>Your content-spendable balance is not known right now</strong>
+              <p>This is not a statement that you are short of credits — GenStudio has not published the balance, so buying stays off until it does.</p>
+              <NuxtLink to="/usage">View credits</NuxtLink>
+            </div>
+            <div v-else>
               <strong>{{ formatCredits(shortfall) }} more credits are needed to buy all {{ quoted.length }}</strong>
               <p>Clear some of the selection or top up, so nothing is bought halfway through.</p>
               <NuxtLink to="/usage">View credits</NuxtLink>
@@ -101,7 +116,7 @@
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path :d="failed.length ? 'M12 8v5M12 17h.01M12 3l9 17H3z' : 'm5 12.5 4 4L19 7'" /></svg>
             <div>
               <strong>{{ resultHeadline }}</strong>
-              <p>{{ formatCredits(totals.charged) }} credits charged in total · install them from the Owned shelf.</p>
+              <p>{{ totals.charged === null ? 'GenStudio did not state the total charged' : `${formatCredits(totals.charged)} credits charged in total` }} · install them from the Owned shelf.</p>
             </div>
           </div>
 
@@ -127,7 +142,7 @@
             <ul>
               <li v-for="item in succeeded" :key="item.productId">
                 <span class="item-title">{{ item.title }}</span>
-                <span class="item-price">{{ formatCredits(item.charged ?? 0) }} credits</span>
+                <span class="item-price">{{ formatCredits(item.charged) }} credits</span>
               </li>
             </ul>
           </details>
@@ -142,9 +157,9 @@
           v-if="phase === 'review'"
           type="button"
           class="btn btn-primary"
-          :disabled="busy || !affordable || !quoted.length"
+          :disabled="busy || !!spendBlocker || !quoted.length"
           @click="$emit('confirm')"
-        >Buy all {{ quoted.length }} · up to {{ formatCredits(totals.quoted) }} credits</button>
+        >{{ totals.quoted === null ? `Buy all ${quoted.length}` : `Buy all ${quoted.length} · up to ${formatCredits(totals.quoted)} credits` }}</button>
         <button
           v-else-if="phase === 'result' && failed.some(item => item.retryable)"
           type="button"
@@ -184,16 +199,24 @@
 import { computed, nextTick, ref, watch } from 'vue'
 
 import type { BatchPhase, BatchQuoteItem } from '~/composables/useBatchPurchase'
+import { sumPublished } from '~/composables/useBatchPurchase'
 
 const props = defineProps<{
   visible: boolean
   phase: BatchPhase
   items: BatchQuoteItem[]
   progress: { done: number; total: number }
-  /** The content-spendable balance, as the account strip and the bar report it. */
-  balance: number
-  /** What the selection bar said, so a different dialog total can explain itself. */
-  selectionTotal: number
+  /**
+   * The content-spendable balance, as the account strip reports it, or `null`
+   * when GenStudio has not published one. Nullable on purpose: an unknown
+   * balance must not arrive here disguised as zero.
+   */
+  balance: number | null
+  /**
+   * What the selection bar said, so a different dialog total can explain
+   * itself. `null` when the bar could not state one either.
+   */
+  selectionTotal: number | null
   selectedCount: number
   busy?: boolean
 }>()
@@ -209,25 +232,65 @@ const skipped = computed(() => props.items.filter(item => item.reason && !item.o
 const succeeded = computed(() => props.items.filter(item => item.outcome === 'owned'))
 const failed = computed(() => props.items.filter(item => item.outcome === 'failed'))
 
+/**
+ * Every total is a published figure or `null`. Never a fallback.
+ *
+ * A quote that arrives without `quoted_credits` does not cost nothing; its
+ * price is UNKNOWN. Summing it as 0 would put a confident, too-low ceiling in
+ * front of him and let him authorise a spend against a number GenStudio never
+ * published -- the same class of defect as a screen stating a total it cannot
+ * honour. So one missing figure makes the whole total unknown, and everything
+ * downstream (the affordability test, the confirm button) treats unknown as
+ * "cannot proceed" rather than as a small number.
+ */
 const totals = computed(() => ({
-  base: quoted.value.reduce((sum, item) => sum + (item.attempt?.base_credit_price ?? 0), 0),
-  componentDiscount: quoted.value.reduce((sum, item) => sum + (item.attempt?.discount_credits ?? 0), 0),
-  operatorDiscount: quoted.value.reduce((sum, item) => sum + (item.attempt?.operator_discount_credits ?? 0), 0),
-  quoted: quoted.value.reduce((sum, item) => sum + (item.attempt?.quoted_credits ?? 0), 0),
-  charged: succeeded.value.reduce((sum, item) => sum + (item.charged ?? 0), 0),
+  base: sumPublished(quoted.value, item => item.attempt?.base_credit_price),
+  componentDiscount: sumPublished(quoted.value, item => item.attempt?.discount_credits),
+  operatorDiscount: sumPublished(quoted.value, item => item.attempt?.operator_discount_credits),
+  quoted: sumPublished(quoted.value, item => item.attempt?.quoted_credits),
+  charged: sumPublished(succeeded.value, item => item.charged),
 }))
+
+/** How many quotes carry no price, so the dialog can name the cause. */
+const unpricedCount = computed(() => quoted.value.filter(item => typeof item.attempt?.quoted_credits !== 'number').length)
 
 /**
  * The balance the ACCOUNT reports, not the sum of per-quote balances. Every
  * quote was issued against the same starting balance, so adding their
  * `balance_after` values together would subtract the same starting figure once
  * per pack and produce nonsense.
+ *
+ * `null` when GenStudio has not published it. An unknown balance is NOT a zero
+ * balance: zero would tell him he cannot afford this, when the truth is that
+ * the app does not know what he has.
  */
 const balanceBefore = computed(() => props.balance)
-const balanceAfter = computed(() => balanceBefore.value - totals.value.quoted)
-const affordable = computed(() => totals.value.quoted <= balanceBefore.value)
-const shortfall = computed(() => Math.max(0, totals.value.quoted - balanceBefore.value))
-const finalBalance = computed(() => balanceBefore.value - totals.value.charged)
+const balanceAfter = computed(() => balanceBefore.value === null || totals.value.quoted === null
+  ? null
+  : balanceBefore.value - totals.value.quoted)
+const finalBalance = computed(() => balanceBefore.value === null || totals.value.charged === null
+  ? null
+  : balanceBefore.value - totals.value.charged)
+
+/**
+ * Only ever true on two known numbers. Unknown is not affordable and not
+ * unaffordable -- it is unanswered, and `affordable` being false is what
+ * disables the confirm button while `spendBlocker` explains which it is.
+ */
+const affordable = computed(() => balanceBefore.value !== null
+  && totals.value.quoted !== null
+  && totals.value.quoted <= balanceBefore.value)
+const shortfall = computed(() => balanceBefore.value === null || totals.value.quoted === null
+  ? null
+  : Math.max(0, totals.value.quoted - balanceBefore.value))
+
+/** Why this batch cannot be confirmed, distinguishing "too dear" from "unknown". */
+const spendBlocker = computed<'unpriced' | 'balance-unknown' | 'insufficient' | null>(() => {
+  if (!quoted.value.length) return null
+  if (totals.value.quoted === null) return 'unpriced'
+  if (balanceBefore.value === null) return 'balance-unknown'
+  return affordable.value ? null : 'insufficient'
+})
 
 const earliestExpiry = computed(() => quoted.value
   .map(item => item.attempt?.expires_at ?? '')
@@ -246,7 +309,16 @@ const resultHeadline = computed(() => failed.value.length
   : `${succeeded.value.length} ${succeeded.value.length === 1 ? 'pack' : 'packs'} permanently owned`)
 
 function requestClose(): void { if (!props.busy) emit('close') }
-function formatCredits(value: number): string { return value.toLocaleString() }
+/**
+ * Renders a published figure, or an em dash when there is none.
+ *
+ * The dash is the whole point: a credits field the server did not publish has
+ * to LOOK unpublished. Printing 0 for it would be indistinguishable from a real
+ * zero, which is precisely the substitution this screen must never make.
+ */
+function formatCredits(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '—'
+}
 function formatExpiry(value: string): string {
   if (!value) return '—'
   const date = new Date(value)

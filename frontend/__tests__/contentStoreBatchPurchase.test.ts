@@ -11,6 +11,7 @@ import { describe, test } from 'node:test'
 
 import {
   batchSkipReason,
+  sumPublished,
   useBatchPurchase,
   type BatchPurchaseDeps,
 } from '../composables/useBatchPurchase.js'
@@ -239,5 +240,75 @@ describe('buying a multi-pack selection', () => {
 
     await batch.confirmAll()
     assert.deepEqual(confirmed, ['a', 'c'])
+  })
+})
+
+describe('a figure GenStudio did not publish never becomes zero', () => {
+  test('one unpriced quote makes the batch total unknown, not smaller', async () => {
+    const catalog = ['a', 'b', 'c'].map(id => product({ productId: id, creditPrice: 30 }))
+    const { deps } = harness({ catalog })
+    const batch = useBatchPurchase({
+      ...deps,
+      quote: async productId => {
+        const quote = attempt(productId, 30)
+        // GenStudio published no price for this one.
+        if (productId === 'b') return { ...quote, quoted_credits: undefined as unknown as number }
+        return quote
+      },
+    })
+
+    await batch.start(catalog)
+
+    // 60 would be the confident, too-low total he could have confirmed against.
+    assert.equal(batch.quotedTotal.value, null)
+  })
+
+  test('a complete set still totals normally', async () => {
+    const catalog = ['a', 'b'].map(id => product({ productId: id }))
+    const { deps } = harness({ catalog })
+    const batch = useBatchPurchase(deps)
+
+    await batch.start(catalog)
+
+    assert.equal(batch.quotedTotal.value, 60)
+  })
+
+  test('sumPublished refuses NaN and Infinity rather than poisoning the sum', () => {
+    assert.equal(sumPublished([{ n: 1 }, { n: 2 }], row => row.n), 3)
+    assert.equal(sumPublished([{ n: 1 }, { n: undefined }], row => row.n), null)
+    assert.equal(sumPublished([{ n: 1 }, { n: Number.NaN }], row => row.n), null)
+    assert.equal(sumPublished([{ n: 1 }, { n: Number.POSITIVE_INFINITY }], row => row.n), null)
+    assert.equal(sumPublished([], () => undefined), 0, 'an empty batch genuinely costs nothing')
+  })
+
+  test('a settled purchase that states no charge is recorded as unstated, not free', async () => {
+    const catalog = [product({ productId: 'a' })]
+    const { deps } = harness({ catalog })
+    const batch = useBatchPurchase({
+      ...deps,
+      confirm: async quoteId => ({
+        ...attempt(quoteId.replace(/^cq_/, ''), 30),
+        status: 'completed',
+        credits_charged: undefined as unknown as number,
+      }),
+    })
+
+    await batch.start(catalog)
+    await batch.confirmAll()
+
+    const settled = batch.items.value[0]
+    assert.equal(settled?.outcome, 'owned')
+    // `0` here would render as "0 credits charged" -- a receipt saying it was free.
+    assert.equal(settled?.charged, undefined)
+  })
+
+  test('the selection-bar total is unknown when a pack carries no published price', () => {
+    // Same helper backs the bar, so an unpriced pack cannot silently understate
+    // the figure the batch dialog reconciles itself against.
+    const priced = [product({ productId: 'a', creditPrice: 30 }), product({ productId: 'b', creditPrice: 45 })]
+    assert.equal(sumPublished(priced, row => row.creditPrice), 75)
+
+    const unpriced = [...priced, product({ productId: 'c', creditPrice: undefined as unknown as number })]
+    assert.equal(sumPublished(unpriced, row => row.creditPrice), null)
   })
 })

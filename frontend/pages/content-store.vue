@@ -12,7 +12,7 @@
       <div v-if="loading && catalogFreshness === 'unavailable'" class="store-state" aria-live="polite"><LoadingSpinner size="sm" /><p>Loading the GenStudio catalog…</p></div>
       <div v-else-if="catalogFreshness === 'unavailable'" class="store-state" role="status" aria-live="polite"><h2>Content Store is unavailable</h2><p>{{ pageError?.detail || 'Refresh the Store to try again.' }}</p><button type="button" class="btn btn-secondary" @click="refreshStore">Retry Content Store</button></div>
       <div v-else-if="catalogFreshness === 'fresh' && products.length === 0 && installed.length === 0" class="store-state" role="status"><h2>The Content Store is ready, but no packs have been published yet.</h2><p>Refresh later to see the catalog GenStudio publishes for this account.</p></div>
-      <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :price="price" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:price="price = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" /><div v-if="selectedForPurchase.length" class="selection-bar" role="status" aria-live="polite"><div class="selection-summary"><strong>{{ selectedForPurchase.length }} {{ selectedForPurchase.length === 1 ? 'pack' : 'packs' }} selected</strong><span>{{ formatCredits(selectionTotal) }} credits before discount</span></div><div class="selection-actions"><button type="button" class="btn btn-secondary" @click="clearSelection">Clear</button><button type="button" class="btn btn-primary" :disabled="networkActionsDisabled || !!batchQuoteBusy" @click="startBatchPurchase">{{ batchQuoteBusy ? `Quoting ${batchProgressLabel}…` : `See exact quotes (${selectedForPurchase.length})` }}</button></div></div>
+      <template v-else-if="activeTab === 'discover'"><ContentStoreFilters :products="tabProducts" :query="query" :price="price" :kind="kind" :tag="tag" :compatible-only="compatibleOnly" @update:query="query = $event" @update:price="price = $event" @update:kind="kind = $event" @update:tag="tag = $event" @update:compatible-only="compatibleOnly = $event" /><div v-if="selectedForPurchase.length" class="selection-bar" role="status" aria-live="polite"><div class="selection-summary"><strong>{{ selectedForPurchase.length }} {{ selectedForPurchase.length === 1 ? 'pack' : 'packs' }} selected</strong><span>{{ selectionTotal === null ? 'Price not published for every pack' : `${formatCredits(selectionTotal)} credits before discount` }}</span></div><div class="selection-actions"><button type="button" class="btn btn-secondary" @click="clearSelection">Clear</button><button type="button" class="btn btn-primary" :disabled="networkActionsDisabled || !!batchQuoteBusy" @click="startBatchPurchase">{{ batchQuoteBusy ? `Quoting ${batchProgressLabel}…` : `See exact quotes (${selectedForPurchase.length})` }}</button></div></div>
       <div v-if="visibleShelves.length" class="shelf-list"><ContentStoreShelf v-for="shelf in visibleShelves" :key="shelf.shelf.id" :shelf="shelf.shelf" :products="shelf.products" :account="account" :busy-product-id="quoteBusyProduct" :busy-release-id="installBusyRelease" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :selectable="true" :selected-product-ids="selectedProductIds" @quote="openQuote" @install="enqueueInstall" @toggle-select="toggleSelection" /></div><div v-else class="store-state" role="status">
         <template v-if="discoverEmptyReason === 'filters'"><h2>No published products match these filters</h2><p>Clear a filter or try another catalog search.</p><button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button></template>
         <template v-else-if="discoverEmptyReason === 'all-owned'"><h2>You already own every published pack</h2><p>Every pack GenStudio publishes for this account is already permanently owned. Open Owned to install them on this Mac.</p><button type="button" class="btn btn-secondary" @click="showOwnedTab">Go to Owned</button></template>
@@ -22,7 +22,7 @@
       <ContentLibraryView v-else-if="activeTab === 'owned'" heading-id="owned-library-heading" title="Owned" description="Packs permanently owned by this GenStudio account, whether or not they are installed on this Mac." :products="ownedProducts" :account="account" empty-title="No permanently owned packs yet" empty-description="Choose Discover to request an exact quote from GenStudio." :busy-product-id="quoteBusyProduct" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :show-install-all="true" :queue-status="installQueue.statusOf" @quote="openQuote" @install="enqueueInstall" @install-many="enqueueInstalls" />
       <ContentInstalledLibraryView v-else-if="activeTab === 'installed'" :installed="installed" :ownership-resolved="ownershipResolved" />
       <ContentLibraryView v-else heading-id="updates-library-heading" title="Updates" description="Installed packs with a newer safe release ready for an explicit update." :products="updateProducts" :account="account" empty-title="No updates available" empty-description="Your installed Content Store packs are up to date." :busy-product-id="quoteBusyProduct" :busy-release-id="''" :network-unavailable="networkActionsDisabled" :ownership-resolved="ownershipResolved" :show-install-all="true" :queue-status="installQueue.statusOf" @quote="openQuote" @install="enqueueInstall" @install-many="enqueueInstalls" />
-      <section v-if="completedAttempts.length" class="ownership-history" aria-labelledby="ownership-heading"><h2 id="ownership-heading">Recent permanent ownership</h2><ul><li v-for="attempt in completedAttempts" :key="attempt.quote_id"><span>{{ productTitle(attempt.product_id) }}</span><span>Owned in GenStudio · install explicitly from the Owned shelf</span><span>{{ formatCredits(attempt.credits_charged ?? 0) }} credits charged</span></li></ul><p v-if="hasVerifiedOwnership">Ownership receipts are verified locally against GenStudio's published signing key.</p><p v-else>Use Restore purchases to verify this account's ownership receipts on this Mac.</p></section>
+      <section v-if="completedAttempts.length" class="ownership-history" aria-labelledby="ownership-heading"><h2 id="ownership-heading">Recent permanent ownership</h2><ul><li v-for="attempt in completedAttempts" :key="attempt.quote_id"><span>{{ productTitle(attempt.product_id) }}</span><span>Owned in GenStudio · install explicitly from the Owned shelf</span><span>{{ attempt.credits_charged === undefined ? 'Charge not stated by GenStudio' : `${formatCredits(attempt.credits_charged)} credits charged` }}</span></li></ul><p v-if="hasVerifiedOwnership">Ownership receipts are verified locally against GenStudio's published signing key.</p><p v-else>Use Restore purchases to verify this account's ownership receipts on this Mac.</p></section>
     </main>
     <div v-if="installQueue.running.value || installQueue.failedCount.value" class="install-queue-strip" role="status" aria-live="polite"><span v-if="installQueue.running.value">Installing — {{ installQueue.pendingCount.value }} left in the queue</span><span v-else>{{ installQueue.failedCount.value }} install(s) failed. Open the pack and try again.</span><button v-if="!installQueue.running.value" type="button" class="notice-action" @click="installQueue.clearFinished()">Dismiss</button></div>
     <ContentPurchaseDialog :visible="dialogOpen" :attempt="selectedAttempt" :product="selectedProduct" :error="dialogError" :busy="purchaseBusy" @close="closeDialog" @confirm="confirmPurchase" @retry="confirmPurchase" />
@@ -38,7 +38,7 @@ import ContentLibraryView from '~/components/content-store/ContentLibraryView.vu
 import ContentInstalledLibraryView from '~/components/content-store/ContentInstalledLibraryView.vue'
 import ContentPurchaseDialog from '~/components/content-store/ContentPurchaseDialog.vue'
 import ContentBatchPurchaseDialog from '~/components/content-store/ContentBatchPurchaseDialog.vue'
-import { useBatchPurchase } from '~/composables/useBatchPurchase'
+import { sumPublished, useBatchPurchase } from '~/composables/useBatchPurchase'
 import { filterCatalogProducts, orderShelfProducts, type ContentStoreKindFilter } from '~/content-store/catalog-presentation'
 import { useInstallQueue } from '~/composables/useInstallQueue'
 import { contentStoreErrorPresentation, type ContentStoreProduct, type ContentStoreUiError, type PublicContentPurchaseAttempt } from '~/composables/useContentStore'
@@ -99,8 +99,20 @@ function enqueueInstalls(releaseIds: string[]): void { if (networkActionsDisable
 // tested. The page keeps only the selection and the wiring.
 const selectedProductIds = ref<string[]>([])
 const selectedForPurchase = computed(() => discoverProducts.value.filter(product => selectedProductIds.value.includes(product.productId)))
-const selectionTotal = computed(() => selectedForPurchase.value.reduce((total, product) => total + (product.creditPrice ?? 0), 0))
-const contentSpendable = computed(() => account.value?.contentSpendableCredits ?? 0)
+/**
+ * The bar's "before discount" figure, and the number the batch dialog explains
+ * itself against. `null` when any selected pack carries no published price:
+ * counting it as 0 would understate the bar AND make the dialog's reconciliation
+ * compare against a total that was never real.
+ */
+const selectionTotal = computed(() => sumPublished(selectedForPurchase.value, product => product.creditPrice))
+/**
+ * The published content-spendable balance, or `null` while GenStudio has not
+ * stated one. NOT `?? 0`: a zero here would tell him he cannot afford a batch
+ * when the truth is that the app does not yet know what he has, and the batch
+ * dialog says exactly that instead of refusing him on an invented figure.
+ */
+const contentSpendable = computed<number | null>(() => account.value?.contentSpendableCredits ?? null)
 const batch = useBatchPurchase({
   quote: (productId, releaseId) => store.requestQuote(productId, releaseId),
   confirm: quoteId => store.confirmPurchase(quoteId),
@@ -164,7 +176,14 @@ function tabCountLabel(tab: StoreTab): string { return !ownershipResolved.value 
 function setTabRef(id: StoreTab, element: Element | ComponentPublicInstance | null): void { if (element instanceof HTMLButtonElement) tabRefs.set(id, element); else tabRefs.delete(id) }
 function moveTab(event: KeyboardEvent): void { if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return; event.preventDefault(); const current = tabs.findIndex(tab => tab.id === activeTab.value); const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (current + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length; const target = tabs[next]; if (!target) return; activeTab.value = target.id; tabRefs.get(target.id)?.focus() }
 function productTitle(productId: string): string { return products.value.find(product => product.productId === productId)?.title || productId }
-function formatCredits(value: number): string { return value.toLocaleString() }
+/**
+ * A published credits figure, or an em dash. Never a substituted 0, which a
+ * customer cannot tell apart from a real zero -- on a receipt it reads as
+ * "this was free", and in a total it reads as a smaller bill.
+ */
+function formatCredits(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '—'
+}
 function formatVerifiedAt(value: string | null): string { if (!value) return 'before this session'; const date = new Date(value); return Number.isNaN(date.getTime()) ? value : date.toLocaleString() }
 // Stale-while-revalidate: a verified catalog already in memory renders at once
 // and the revalidation runs unseen. `refresh` decides whether staying quiet is
