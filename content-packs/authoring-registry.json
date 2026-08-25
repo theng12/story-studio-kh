@@ -1524,10 +1524,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.formula.archival-ledger@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.formula.archival-ledger@1.0.1",
       "pack_id": "com.storystudio.pack.formula.archival-ledger",
       "item_id": "com.storystudio.formula.archival-ledger",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -1547,10 +1547,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.kit.archival-ledger@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.kit.archival-ledger@1.0.2",
       "pack_id": "com.storystudio.pack.kit.archival-ledger",
       "bundle_id": "com.storystudio.bundle.archival-ledger",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -1560,7 +1560,7 @@
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.archival-ledger",
-          "version": "1.0.0"
+          "version": "1.0.1"
         },
         {
           "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
