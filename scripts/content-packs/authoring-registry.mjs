@@ -37,11 +37,8 @@ const KIND_NAMESPACES = {
   'visual-style': { pack: `${PUBLISHER_ID}.pack.style.`, item: `${PUBLISHER_ID}.style.`, proposal: 'style' },
   'thumbnail-recipe': { pack: `${PUBLISHER_ID}.pack.thumbnail.`, item: `${PUBLISHER_ID}.thumbnail.`, proposal: 'thumbnail' },
   'channel-kit': { pack: `${PUBLISHER_ID}.pack.kit.`, bundle: `${PUBLISHER_ID}.bundle.`, proposal: 'kit' },
-  // A lettering pack is the first source shape that carries SEVERAL creative
-  // documents in one pack: the owner sells thumbnail lettering in packs of six
-  // ("50 per font so packs of 6 for 300 credit"), and six styles in six packs
-  // would be six products. Its identity is therefore a SET of item ids, which
-  // is the only thing this ledger has to learn to keep covering every source.
+  // Lettering is sold in packs of several creative documents, so its stable
+  // identity is an exact set of item ids rather than one item or one bundle.
   'lettering-style': { pack: `${PUBLISHER_ID}.pack.lettering.`, item: `${PUBLISHER_ID}.lettering.`, proposal: 'lettering' },
 }
 /** Kinds whose pack holds many creative documents rather than exactly one. */
@@ -187,7 +184,11 @@ async function readBoundedJson(path, maximumBytes, label) {
   }
 }
 
-function canonicalDependencies(value, label, selfPackId) {
+function packVersion(record) {
+  return `${record.pack_id}@${record.version}`
+}
+
+function canonicalDependencies(value, label, self) {
   if (!Array.isArray(value)) fail(`${label} dependencies must be an array`)
   if (value.length > MAX_DEPENDENCIES) fail(`${label} dependencies must not exceed ${MAX_DEPENDENCIES} records`)
   const seen = new Set()
@@ -195,9 +196,10 @@ function canonicalDependencies(value, label, selfPackId) {
     exactFields(dependency, new Set(['pack_id', 'version']), `${label} dependency ${index}`)
     const packId = qualifiedId(dependency.pack_id, `${label} dependency ${index} pack_id`, `${PUBLISHER_ID}.pack.`)
     const version = exactSemver(dependency.version, `${label} dependency ${index} version`)
-    if (packId === selfPackId) fail(`${label} must not depend on itself`)
-    if (seen.has(packId)) fail(`duplicate dependency ${packId} in ${label}`)
-    seen.add(packId)
+    const identity = packVersion({ pack_id: packId, version })
+    if (packId === self.pack_id) fail(`${label} must not depend on itself`)
+    if (seen.has(identity)) fail(`duplicate dependency ${identity} in ${label}`)
+    seen.add(identity)
     return { pack_id: packId, version }
   })
 }
@@ -232,10 +234,9 @@ function validateRecord(record, index, { request = false } = {}) {
   const hasItem = typeof record.item_id === 'string'
   const hasItems = Array.isArray(record.item_ids)
   const hasBundle = typeof record.bundle_id === 'string'
-  const multi = MULTI_ITEM_KINDS.has(record.kind)
   const expected = record.kind === 'channel-kit'
     ? (!hasItem && !hasItems && hasBundle)
-    : multi
+    : MULTI_ITEM_KINDS.has(record.kind)
       ? (!hasItem && hasItems && !hasBundle)
       : (hasItem && !hasItems && !hasBundle)
   if (!expected) fail(`${label} has an invalid coordinator/leaf identity shape`)
@@ -250,7 +251,7 @@ function validateRecord(record, index, { request = false } = {}) {
       seen.add(id)
     }
     // Stored sorted so one pack has exactly one canonical identity, and a
-    // reordered request cannot mint a second receipt for the same six styles.
+    // reordered request cannot mint a second receipt for the same item set.
     if (!same(record.item_ids, [...record.item_ids].sort())) fail(`${label} item_ids must be sorted`)
   }
   if (hasBundle) qualifiedId(record.bundle_id, `${label} bundle_id`, namespaces.bundle)
@@ -268,7 +269,7 @@ function validateRecord(record, index, { request = false } = {}) {
     kind: record.kind,
     source_path: sourcePath,
     status: record.status,
-    dependencies: canonicalDependencies(record.dependencies, label, packId),
+    dependencies: canonicalDependencies(record.dependencies, label, { pack_id: packId, version }),
     stocking_proposal: {
       family: proposal(record.stocking_proposal.family, `${label} family`, `${PUBLISHER_ID}.family.${proposalNamespace}.`),
       sku: proposal(record.stocking_proposal.sku, `${label} sku`, `${PUBLISHER_ID}.sku.${proposalNamespace}.`),
@@ -281,12 +282,49 @@ function validateRecord(record, index, { request = false } = {}) {
   return validated
 }
 
-function unique(records, field) {
+function unique(records, label, field) {
   const seen = new Set()
   for (const record of records) {
     const value = field(record)
-    if (seen.has(value)) fail(`duplicate ${field.name || 'identity'} ${value}`)
+    if (seen.has(value)) fail(`duplicate ${label} ${value}`)
     seen.add(value)
+  }
+}
+
+function validateLineages(records) {
+  const lineages = new Map()
+  const owners = new Map()
+  for (const record of records) {
+    const lineage = {
+      publisher_id: record.publisher_id,
+      kind: record.kind,
+      ...(record.item_id
+        ? { item_id: record.item_id }
+        : record.item_ids
+          ? { item_ids: record.item_ids }
+          : { bundle_id: record.bundle_id }),
+      family: record.stocking_proposal.family.id,
+      sku: record.stocking_proposal.sku.id,
+    }
+    const current = lineages.get(record.pack_id)
+    if (current && !same(current, lineage)) {
+      const field = ['publisher_id', 'kind', 'item_id', 'item_ids', 'bundle_id', 'family', 'sku']
+        .find((candidate) => !same(current[candidate], lineage[candidate]))
+      fail(`stable pack_id ${field} lineage differs for ${record.pack_id}`)
+    }
+    lineages.set(record.pack_id, lineage)
+    const identities = [
+      ...(record.item_ids ?? (record.item_id ? [record.item_id] : []))
+        .map((itemId) => ['item_id', itemId]),
+      ...(record.bundle_id ? [['bundle_id', record.bundle_id]] : []),
+      ['family', record.stocking_proposal.family.id],
+      ['sku', record.stocking_proposal.sku.id],
+    ]
+    for (const [label, identity] of identities) {
+      const owner = owners.get(`${label}:${identity}`)
+      if (owner && owner !== record.pack_id) fail(`duplicate ${label} ${identity}; already owned by different pack ${owner}`)
+      owners.set(`${label}:${identity}`, record.pack_id)
+    }
   }
 }
 
@@ -549,25 +587,27 @@ async function reconcileSources(records, repositoryRoot) {
 }
 
 function validateDependencyGraph(records) {
-  const byIdentity = new Map(records.map((record) => [`${record.pack_id}@${record.version}`, record]))
-  const outgoing = new Map(records.map((record) => [record.pack_id, []]))
-  const indegree = new Map(records.map((record) => [record.pack_id, 0]))
+  const byIdentity = new Map(records.map((record) => [packVersion(record), record]))
+  const outgoing = new Map(records.map((record) => [packVersion(record), []]))
+  const indegree = new Map(records.map((record) => [packVersion(record), 0]))
   for (const record of records) {
+    const node = packVersion(record)
     for (const dependency of record.dependencies) {
-      const target = byIdentity.get(`${dependency.pack_id}@${dependency.version}`)
-      if (!target) fail(`unknown dependency ${dependency.pack_id}@${dependency.version}`)
+      const dependencyNode = packVersion(dependency)
+      const target = byIdentity.get(dependencyNode)
+      if (!target) fail(`unknown dependency ${dependencyNode}`)
       if (record.kind === 'channel-kit' && target.kind === 'channel-kit') fail(`coordinator ${record.pack_id} must depend only on creative components, not coordinator ${target.pack_id}`)
       if (record.kind !== 'channel-kit' && target.kind === 'channel-kit') fail(`creative pack ${record.pack_id} must not depend on coordinator ${target.pack_id}`)
-      outgoing.get(dependency.pack_id).push(record.pack_id)
-      indegree.set(record.pack_id, indegree.get(record.pack_id) + 1)
+      outgoing.get(dependencyNode).push(node)
+      indegree.set(node, indegree.get(node) + 1)
     }
   }
-  const queue = [...indegree].filter(([, degree]) => degree === 0).map(([packId]) => packId)
+  const queue = [...indegree].filter(([, degree]) => degree === 0).map(([node]) => node)
   let visited = 0
   while (queue.length) {
-    const packId = queue.shift()
+    const node = queue.shift()
     visited += 1
-    for (const dependent of outgoing.get(packId)) {
+    for (const dependent of outgoing.get(node)) {
       const degree = indegree.get(dependent) - 1
       indegree.set(dependent, degree)
       if (degree === 0) queue.push(dependent)
@@ -583,7 +623,11 @@ function validateDependencyGraph(records) {
 function immutableIdentity(record) {
   return {
     pack_id: record.pack_id,
-    ...(record.item_id ? { item_id: record.item_id } : { bundle_id: record.bundle_id }),
+    ...(record.item_id
+      ? { item_id: record.item_id }
+      : record.item_ids
+        ? { item_ids: record.item_ids }
+        : { bundle_id: record.bundle_id }),
     version: record.version,
     publisher_id: record.publisher_id,
     min_app_version: record.min_app_version,
@@ -653,13 +697,13 @@ async function validateRegistryDocument(registry, repositoryRoot) {
   const batches = validateBatches(registry.batches)
   const transitions = validateTransitions(registry.transitions)
   validateRevisionEvents(registry.revision, batches, transitions)
-  unique(records, function pack_id(record) { return record.pack_id })
-  unique(records.flatMap((record) => (record.item_ids ?? (record.item_id ? [record.item_id] : [])).map((id) => ({ id }))),
-    function item_id(record) { return record.id })
-  unique(records.filter((record) => record.bundle_id), function bundle_id(record) { return record.bundle_id })
-  unique(records, function source_path(record) { return record.source_path })
-  unique(records, function family(record) { return record.stocking_proposal.family.id })
-  unique(records, function sku(record) { return record.stocking_proposal.sku.id })
+  unique(records, 'pack_id@version', packVersion)
+  unique(records.flatMap((record) => (record.item_ids ?? (record.item_id ? [record.item_id] : []))
+    .map((itemId) => ({ item_id: itemId, version: record.version }))),
+    'item_id@version', (record) => `${record.item_id}@${record.version}`)
+  unique(records.filter((record) => record.bundle_id), 'bundle_id@version', (record) => `${record.bundle_id}@${record.version}`)
+  unique(records, 'source_path', (record) => record.source_path)
+  validateLineages(records)
   bindReceipts(records, batches, transitions)
   validateDependencyGraph(records)
   const resolvedRoot = resolve(repositoryRoot)
