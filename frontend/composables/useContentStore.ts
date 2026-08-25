@@ -327,6 +327,11 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_STORE_REQUEST_INVALID':
     case 'CONTENT_STORE_REQUEST_TOO_LARGE': return failure('This Content Store request is invalid', 'Refresh the Store and try the action again.')
     case 'CONTENT_STORE_UPSTREAM_REFUSED': return failure('GenStudio could not complete this request', 'Refresh the Store before trying again.')
+    // The limit lives in the installed build, so refreshing cannot clear it --
+    // only a version with a larger bound can. On 2026-08-25 this fell to the
+    // default below and told the owner his whole Store was "unavailable" while
+    // every count sat at zero, which is a day of guessing instead of a sentence.
+    case 'CONTENT_STORE_PAYLOAD_TOO_LARGE': return failure('The Content Store sent more than this version can read', 'Update Story Studio; refreshing will not clear this.')
     default: return failure('The Content Store is unavailable', 'Refresh the Store before trying again.')
   }
 }

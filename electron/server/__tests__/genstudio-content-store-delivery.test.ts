@@ -285,6 +285,121 @@ describe('GenStudio Content Store 1.6 delivery trust boundary', () => {
     }, new Date('2026-08-14T10:10:00Z')), /current|retired|verify-only/i)
   })
 
+  // Sized from the real account on 2026-08-25, the day the store went dark:
+  // 82 owned packs and 38 purchase receipts, which canonicalises to 5,644 JSON
+  // nodes. The node cap was 4,096, so `GET /v1/content/receipts` threw inside
+  // canonicalJson and every surface -- Discover, Owned, Installed, Updates --
+  // reported zero. This test is that payload, and it fails against any cap
+  // below the real library's size.
+  const OWNED_PACKS = 82
+  const PURCHASES = 38
+
+  function fullLibraryReceipts() {
+    const family = (index: number) => `com.storystudio.pack.${String(index).padStart(3, '0')}`
+    const owned = Array.from({ length: OWNED_PACKS }, (_unused, index) => ({
+      entitlement_family: family(index),
+      product_id: `cprod_${String(index).padStart(3, '0')}`,
+      title: `Owned Pack ${index}`,
+      kind: 'topic_pack',
+      granted_at: '2026-08-25T09:12:44Z',
+      purchase_id: index < PURCHASES ? `cpur_${String(index).padStart(3, '0')}` : null,
+    }))
+    const releases = owned.map((row, index) => ({
+      entitlement_family: row.entitlement_family,
+      release_id: `crel_${String(index).padStart(3, '0')}`,
+      pack_id: row.entitlement_family,
+      version: '1.0.0',
+      archive_sha256: HASH,
+      archive_bytes: 18,
+      min_story_version: '1.0.839',
+    }))
+    const restore = restorePayload({
+      entitlement_families: owned.map(row => row.entitlement_family),
+      entitlements: owned,
+      releases,
+    })
+    return {
+      account_id: 'acct_a',
+      content_account_id: 'acct_a',
+      restore_receipt: { receipt: restore, receipt_signature: signature(restore), key_id: KEY_ID },
+      purchase_receipts: owned.slice(0, PURCHASES).map((row, index) => {
+        const payload = purchasePayload({
+          receipt_id: `crc_${String(index).padStart(3, '0')}`,
+          purchase_id: row.purchase_id,
+          quote_id: `cq_${String(index).padStart(3, '0')}`,
+          entitlement_families: [row.entitlement_family],
+          granted_families: [row.entitlement_family],
+          product: {
+            product_id: row.product_id, entitlement_family: row.entitlement_family, kind: 'topic_pack',
+            title: row.title, summary: 'An owned pack.', credit_price: 250, publisher_id: 'com.storystudio',
+          },
+          // Real receipts for kits pin their components; an all-empty closure
+          // would make the fixture smaller than the payload it stands in for.
+          bundle_closure: Array.from({ length: 2 }, (_pin, position) => ({
+            position,
+            product_id: `cprod_component_${index}_${position}`,
+            entitlement_family: `${row.entitlement_family}.component.${position}`,
+            release_id: `crel_component_${index}_${position}`,
+            version: '1.0.0',
+            archive_sha256: HASH,
+          })),
+          release: release({
+            release_id: releases[index].release_id,
+            pack_id: releases[index].pack_id,
+          }),
+        })
+        return {
+          purchase_id: row.purchase_id, receipt: payload, receipt_signature: signature(payload),
+          key_id: KEY_ID, credits_charged: 250, created_at: '2026-08-25T09:12:44Z',
+        }
+      }),
+      entitlements: owned.map((row, index) => ({
+        entitlement_id: `cent_${String(index).padStart(3, '0')}`,
+        entitlement_family: row.entitlement_family,
+        product_id: row.product_id,
+        title: row.title,
+        kind: row.kind,
+        publisher_id: 'com.storystudio',
+        granted_at: row.granted_at,
+        purchase_id: row.purchase_id,
+        retired: false,
+        current_release: release({
+          release_id: releases[index].release_id,
+          pack_id: releases[index].pack_id,
+          archive_available: true,
+        }),
+        download_available: true,
+        recalled_release_versions: [],
+        showcase_videos: [],
+      })),
+    }
+  }
+
+  function jsonNodes(value: unknown): number {
+    if (Array.isArray(value)) return value.reduce<number>((total, entry) => total + jsonNodes(entry), 1)
+    if (value !== null && typeof value === 'object') {
+      return Object.values(value as Record<string, unknown>).reduce<number>((total, entry) => total + jsonNodes(entry), 1)
+    }
+    return 1
+  }
+
+  test('parses and verifies a whole owned library, not just a payload that fits an old cap', () => {
+    const response = fullLibraryReceipts()
+    // Guard the fixture itself: if it ever shrinks below the cap that broke the
+    // store, the test stops testing anything.
+    const nodes = jsonNodes(response)
+    assert.ok(nodes > 4_096, `restore fixture must exceed the old 4,096-node cap, measured ${nodes}`)
+    assert.ok(nodes >= 5_000 && nodes <= 7_000, `restore fixture must stay near the measured 5,644 nodes, got ${nodes}`)
+
+    const parsed = parseContentStoreReceipts(response)
+    assert.equal(parsed.entitlements.length, OWNED_PACKS)
+    assert.equal(parsed.purchaseReceipts.length, PURCHASES)
+    // The signed evidence still has to verify at this size -- raising a parsing
+    // bound must not buy the library back by loosening what proves it is owned.
+    verifyContentStoreRestore(parseContentStorePublicKey(publicKey()), parsed, 'acct_a')
+    assert.throws(() => verifyContentStoreRestore(parseContentStorePublicKey(publicKey()), parsed, 'acct_other'), /account/i)
+  })
+
   test('verifies restore and original purchase receipts against the owning account', () => {
     const key = parseContentStorePublicKey(publicKey())
     const parsed = parseContentStoreReceipts(receipts())
@@ -464,6 +579,22 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
   afterEach(async () => {
     globalThis.fetch = originalFetch
     await restoreDataDir?.()
+  })
+
+  test('names the payload that was too big instead of failing anonymously', async () => {
+    const oversized = { values: Array.from({ length: 70_000 }, () => 0) }
+    globalThis.fetch = (async () => new Response(JSON.stringify(oversized), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })) as typeof globalThis.fetch
+    await assert.rejects(
+      () => getGenStudioContentReceipts('gsk_test'),
+      (error: Error) => {
+        assert.equal((error as { code?: string }).code, 'CONTENT_STORE_PAYLOAD_TOO_LARGE')
+        assert.match(error.message, /JSON nodes/)
+        assert.match(error.message, /\/v1\/content\/receipts/)
+        return true
+      },
+    )
   })
 
   test('uses the exact authenticated read paths and one download-grant POST', async () => {

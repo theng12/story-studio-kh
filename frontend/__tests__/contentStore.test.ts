@@ -247,6 +247,17 @@ describe('useContentStore explicit commerce state machine', () => {
     })
   }
 
+  test('names a payload the installed build cannot read instead of calling the Store unavailable', () => {
+    const presentation = contentStoreErrorPresentation({
+      status: 502,
+      code: 'CONTENT_STORE_PAYLOAD_TOO_LARGE',
+      detail: 'Content Store JSON is too large to read: it holds more than 65536 JSON nodes. (GenStudio /v1/content/receipts)',
+    })
+    assert.notEqual(presentation.title, 'The Content Store is unavailable')
+    assert.match(presentation.detail, /\/v1\/content\/receipts/)
+    assert.match(presentation.recovery, /Update Story Studio/)
+  })
+
   test('uses one generic recovery boundary for an unrecognized public code', () => {
     const presentation = contentStoreErrorPresentation({ status: 502, code: 'CONTENT_STORE_FUTURE_REFUSAL', detail: 'Safe exact detail.' })
     assert.equal(presentation.title, 'The Content Store is unavailable')

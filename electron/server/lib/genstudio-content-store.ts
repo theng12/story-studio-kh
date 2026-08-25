@@ -4,7 +4,32 @@ import { getGenStudioUrl } from '../services/app-settings.js'
 export { resolveStoryStudioVersion } from './app-version.js'
 
 const MAX_DEPTH = 32
-const MAX_NODES = 4_096
+// A denial-of-service bound on canonicalising UNTRUSTED bytes, not a statement
+// about how big the shop may get. Two byte bounds already sit under it: the
+// transport refuses a response over MAX_CANONICAL_BYTES before anything is
+// parsed, and canonicalizeContentStoreObject refuses canonical output over the
+// same. Inside 1 MiB the densest possible JSON (`[0,0,0,...]`, two bytes a
+// node) tops out near 524_288 nodes, so this cap still rejects a maximally
+// dense hostile body by roughly eight times over -- it is a bound that bites,
+// not decoration.
+//
+// 4_096 was the value until 2026-08-25, when it took the Content Store down
+// for a day. Measured that morning against the real account: /v1/content/
+// receipts was 5_644 nodes and /v1/content/products was 3_873. Eighteen pack
+// purchases that day carried receipts from 3_908 to 5_644 and the store went
+// dark; the catalogue was sitting at 94.6% of the same cap and was days behind
+// it. Neither was anywhere near the 1 MiB the bytes actually allow.
+//
+// 65_536 is 11.6x the largest measured payload while staying far below what the
+// byte cap permits. At the measured 68.8 nodes an owned pack, it is not reached
+// until about 952 owned packs -- and MAX_CANONICAL_BYTES below bites first, at
+// about 386 (receipts grow 2.7 KB a pack) or about 477 catalogue products (2.2
+// KB each). So the NEXT wall the shop meets is the byte cap, not this one, and
+// it is the number to re-measure when the library passes roughly 300 packs.
+//
+// Raise this only against a fresh measurement, and never by so much that
+// nothing can hit it.
+const MAX_NODES = 65_536
 const MAX_STRING_BYTES = 256 * 1024
 const MAX_CANONICAL_BYTES = 1024 * 1024
 const MAX_LOCAL_ARCHIVE_BYTES = 50 * 1024 * 1024
@@ -339,6 +364,25 @@ export class GenStudioContentStoreApiError extends Error {
   }
 }
 
+/**
+ * A Content Store payload refused for its SIZE, not its content.
+ *
+ * This exists so the size refusals can be told apart from every other parse
+ * failure on the way to the user. On 2026-08-25 the node cap fired on
+ * /v1/content/receipts and the renderer was told only "Failed to load the
+ * Content Store"; the store showed "unavailable" with every count at zero, and
+ * finding the one-line real cause took a day of reading logs. A limit that can
+ * be reached must say so out loud, and name the payload that reached it.
+ */
+export class GenStudioContentStoreLimitError extends Error {
+  readonly code = 'CONTENT_STORE_PAYLOAD_TOO_LARGE'
+
+  constructor(detail: string) {
+    super(detail)
+    this.name = 'GenStudioContentStoreLimitError'
+  }
+}
+
 export class GenStudioContentStoreTransportError extends Error {
   readonly outcome: 'not-sent' | 'uncertain'
 
@@ -372,11 +416,21 @@ function parseJsonPreservingNumberSources(source: string): unknown {
 
 function canonicalJson(value: unknown, state: { nodes: number }, depth: number, numericSource?: string): string {
   state.nodes += 1
-  if (state.nodes > MAX_NODES) throw new Error(`Content Store JSON exceeds ${MAX_NODES} nodes`)
-  if (depth > MAX_DEPTH) throw new Error(`Content Store JSON exceeds depth ${MAX_DEPTH}`)
+  if (state.nodes > MAX_NODES) {
+    throw new GenStudioContentStoreLimitError(
+      `Content Store JSON is too large to read: it holds more than ${MAX_NODES} JSON nodes.`,
+    )
+  }
+  if (depth > MAX_DEPTH) {
+    throw new GenStudioContentStoreLimitError(`Content Store JSON exceeds the ${MAX_DEPTH}-level depth limit.`)
+  }
   if (value === null || typeof value === 'boolean') return JSON.stringify(value)
   if (typeof value === 'string') {
-    if (Buffer.byteLength(value, 'utf8') > MAX_STRING_BYTES) throw new Error('Content Store JSON string is too large')
+    if (Buffer.byteLength(value, 'utf8') > MAX_STRING_BYTES) {
+      throw new GenStudioContentStoreLimitError(
+        `Content Store JSON holds a single string larger than ${MAX_STRING_BYTES} bytes.`,
+      )
+    }
     return JSON.stringify(value)
   }
   if (typeof value === 'number') {
@@ -411,7 +465,9 @@ export function canonicalizeContentStoreObject(value: unknown): CanonicalJsonObj
   plainObject(value, 'Content Store JSON root')
   const canonical = canonicalJson(value, { nodes: 0 }, 0)
   const bytes = Buffer.from(canonical, 'utf8')
-  if (bytes.byteLength > MAX_CANONICAL_BYTES) throw new Error('Content Store canonical JSON payload exceeds 1 MiB')
+  if (bytes.byteLength > MAX_CANONICAL_BYTES) {
+    throw new GenStudioContentStoreLimitError('Content Store canonical JSON payload exceeds 1 MiB.')
+  }
   return {
     value: value as Record<string, unknown>,
     canonicalJson: canonical,
@@ -1293,7 +1349,9 @@ interface RequestOptions<T> {
 }
 
 function errorBody(textBody: string): Record<string, unknown> {
-  if (Buffer.byteLength(textBody, 'utf8') > MAX_CANONICAL_BYTES) throw new Error('GenStudio Content Store error response exceeds 1 MiB')
+  if (Buffer.byteLength(textBody, 'utf8') > MAX_CANONICAL_BYTES) {
+    throw new GenStudioContentStoreLimitError('GenStudio Content Store error response exceeds 1 MiB.')
+  }
   try {
     const parsed = parseJsonPreservingNumberSources(textBody)
     return canonicalizeContentStoreObject(parsed).value
@@ -1302,9 +1360,9 @@ function errorBody(textBody: string): Record<string, unknown> {
   }
 }
 
-class ContentStoreResponseTooLargeError extends Error {
+class ContentStoreResponseTooLargeError extends GenStudioContentStoreLimitError {
   constructor() {
-    super('GenStudio Content Store response exceeds 1 MiB')
+    super('GenStudio Content Store response exceeds 1 MiB.')
   }
 }
 
@@ -1413,6 +1471,12 @@ async function requestOnce<T>(options: RequestOptions<T>): Promise<T> {
   try {
     return options.parse(parsed)
   } catch (error) {
+    // Name the endpoint on a size refusal. Without it the message says only
+    // that SOMETHING from GenStudio was too big, which is what made the
+    // 2026-08-25 outage a day of log-reading rather than a minute of it.
+    if (error instanceof GenStudioContentStoreLimitError) {
+      error.message = `${error.message} (GenStudio ${options.path.split('?')[0]})`
+    }
     if (options.purchase) {
       throw new GenStudioContentStoreTransportError(
         'uncertain',

@@ -443,11 +443,44 @@ describe('GenStudio Content Store 0.21 canonical parser', () => {
     let deep: Record<string, unknown> = {}
     for (let index = 0; index < 34; index += 1) deep = { child: deep }
     assert.throws(() => canonicalizeContentStoreObject(deep), /depth/i)
-    assert.throws(() => canonicalizeContentStoreObject({ values: Array.from({ length: 4097 }, () => null) }), /nodes/i)
+    assert.throws(() => canonicalizeContentStoreObject({ values: Array.from({ length: 65_536 }, () => null) }), /nodes/i)
     assert.throws(() => canonicalizeContentStoreObject({ value: 'x'.repeat(1024 * 1024) }), /payload|string/i)
     assert.throws(() => parseContentStoreCatalog({ products: [product({ credit_price: -1 })] }), /credit_price/i)
     assert.throws(() => parseContentStoreCatalog({ products: [product({ credit_price: 1.5 })] }), /credit_price/i)
     assert.throws(() => parseContentStoreCatalog({ products: 'not-an-array' }), /products/i)
+  })
+
+  // Measured against the live catalogue on 2026-08-25: 82 products, every one
+  // carrying a 390-931 character description, canonicalising to 3,873 JSON
+  // nodes in 180 KB. That was 94.6% of the 4,096-node cap in force that day --
+  // the shop was five products from going dark on its own, and the receipts
+  // payload got there first. A catalogue this size must simply parse.
+  test('parses the whole 82-product catalogue with real descriptions', () => {
+    const products = Array.from({ length: 82 }, (_unused, index) => product({
+      product_id: `cprod_${String(index).padStart(3, '0')}`,
+      entitlement_family: `com.storystudio.pack.${String(index).padStart(3, '0')}`,
+      title: `Catalogue Product ${index}`,
+      summary: 'A one-line summary of the pack.',
+      // The real descriptions run 390-931 characters; take the middle of that.
+      description: `Product ${index}. `.padEnd(660, 'Descriptive prose about what this pack contains and who it is for. '),
+      current_release: release({ release_id: `crel_${String(index).padStart(3, '0')}` }),
+      cover: { url: `https://catalog.example.test/media/pack-${index}-cover.webp`, alt: `Cover art for pack ${index}` },
+      hero: { url: `https://catalog.example.test/media/pack-${index}-hero.webp`, alt: `Hero art for pack ${index}` },
+      tags: ['documentary', 'archive'],
+      license: {
+        label: 'Story Studio Content Pack License',
+        text: 'Use this pack in Story Studio projects.\nDo not redistribute the archive.',
+      },
+    }))
+    const catalog = parseContentStoreCatalog({ products })
+    assert.equal(catalog.products.length, 82)
+    assert.ok(catalog.products.every(row => row.description.length >= 390 && row.description.length <= 931))
+    // Descriptions are worth bytes, not nodes -- `description` is a required
+    // key that was already there when it was empty, which is why filling 82 of
+    // them in could not have been what tripped a NODE cap. The byte bound is
+    // the one they move, and this states how much room is left under it.
+    const bytes = canonicalizeContentStoreObject({ products }).canonicalBytes.byteLength
+    assert.ok(bytes > 150_000 && bytes < 1024 * 1024, `catalogue canonical bytes drifted: ${bytes}`)
   })
 
 })

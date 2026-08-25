@@ -12,7 +12,7 @@ import {
   installOwnedContentStoreRelease,
   restoreContentStoreOwnership,
 } from '../services/content-store-delivery.js'
-import { GenStudioContentStoreApiError } from '../lib/genstudio-content-store.js'
+import { GenStudioContentStoreApiError, GenStudioContentStoreLimitError } from '../lib/genstudio-content-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { redactSecrets } from '../lib/redact-secrets.js'
 import { logLine } from '../services/logger.js'
@@ -136,6 +136,19 @@ function handleFailure(
   }
   if (error instanceof z.ZodError) {
     res.status(400).json({ code: 'CONTENT_STORE_REQUEST_INVALID', detail: 'Content Store request fields are invalid.' })
+    return
+  }
+  // A size refusal is the one unexpected failure whose cause is fully safe to
+  // repeat: it names a limit and an endpoint, and nothing else. It used to fall
+  // through to the generic fallback below, which is why the 2026-08-25 outage
+  // presented as "Content Store is unavailable" with every count at zero and no
+  // hint anywhere the user could see.
+  if (error instanceof GenStudioContentStoreLimitError) {
+    logLine('error', 'Content Store payload exceeded a Story Studio parsing limit', {
+      fallback,
+      raw: redactSecrets(error.message),
+    })
+    res.status(502).json({ code: error.code, detail: error.message })
     return
   }
   // The commerce journal and client carry paths and signed evidence internally,
