@@ -1,18 +1,21 @@
 /**
- * Text chunking for TTS — splits at paragraph then sentence boundaries.
- * Port of generate_audio.py chunk_text() function.
+ * Text chunking for TTS — splits at paragraph, then sentence, then word
+ * boundaries, never exceeding the caller's boundary.
  *
- * v1.0.155+ — `MAX_CHARS = 4800` is the ElevenLabs-tuned default. Local
- * MLX TTS engines have much tighter soft caps (VoxCPM2 ~600, F5-TTS
- * ~400, Bark/Orpheus hard-capped <200). Callers should pass the
- * model-specific cap when dispatching to those providers instead of
- * relying on the default — see `AudioModelConfig.tts_soft_max_chars`
- * and the lookup in generators/audio.ts.
+ * `maxChars` is REQUIRED and has no default, deliberately. This module holds no
+ * length of its own: a length belongs either to the model that publishes it or
+ * to the engine that enforces it, and neither is Story Studio. The one caller
+ * derives it from the selected model's published `maximum_input_characters`
+ * (see `services/tts-request-plan.ts`).
+ *
+ * It used to default to 4,800 — a figure tuned for ElevenLabs, a route Story
+ * Studio no longer takes — and callers that omitted the argument silently
+ * inherited it. That is how a 5,456-character chapter came to be shown as a
+ * two-part split while the selected model published a 25,000-character
+ * boundary. A required parameter makes that class of mistake unexpressible.
  */
 
-const MAX_CHARS = 4800
-
-export function chunkText(text: string, maxChars = MAX_CHARS): string[] {
+export function chunkText(text: string, maxChars: number): string[] {
   if (text.length <= maxChars) return [text]
 
   const paragraphs = text.split('\n\n')
@@ -37,15 +40,12 @@ export function chunkText(text: string, maxChars = MAX_CHARS): string[] {
             sub = candidate2
           } else {
             if (sub) chunks.push(sub)
-            // v1.0.155+ — word-level fallback for sentences that
-            // individually exceed the cap. Rare in narration prose
-            // but possible with verbose technical / academic content,
-            // and especially relevant for local-TTS callers at 500-
-            // char targets (VoxCPM2). Without this, a 700-char run-on
-            // sentence at a 500-char cap would emit one oversized
-            // chunk that hallucinates on the modal side. With it,
-            // we greedy-pack words up to the cap and start a fresh
-            // chunk on the word boundary that would have crossed it.
+            // Word-level fallback for a single sentence that exceeds
+            // the boundary on its own. Rare in narration prose, but
+            // possible with verbose technical or academic content, and
+            // the only remaining way a part could come back larger than
+            // the caller allowed. Greedy-pack words up to the boundary
+            // and start a fresh chunk on the word that would cross it.
             if (sent.length > maxChars) {
               const words = sent.split(/\s+/)
               let wordSub = ''

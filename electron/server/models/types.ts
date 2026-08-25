@@ -1771,13 +1771,6 @@ export interface AudioModelConfig {
    * (`genaipro-*` → genaipro, `eleven_*` → elevenlabs, else fal).
    */
   provider?: 'fal' | 'genaipro' | 'elevenlabs' | 'voicestudio' | 'genstudio' | 'macos' | 'fishaudio' | 'kie'
-  /**
-   * Soft outer provider-request boundary. Story Studio splits only when a
-   * provider's public API limit requires it. GenStudio and clone-capable
-   * VoiceStudio models accept chapter-scale outer requests; VoiceStudio owns
-   * their smaller model-sized chunks, joins, and final speed processing.
-   */
-  tts_soft_max_chars?: number
 }
 
 export interface VideoModelConfig {

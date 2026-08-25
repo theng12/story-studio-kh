@@ -35,10 +35,7 @@
 import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
-import {
-  parseNarrationDocx, parseImagePromptsDocx,
-} from '../lib/docx-parser.js'
-import { chunkText } from '../lib/text-chunker.js'
+import { parseImagePromptsDocx } from '../lib/docx-parser.js'
 import { findNarrationFile, resolveAudioDir } from '../generators/audio.js'
 import {
   findScenePromptsFile, findThumbPromptsFile, resolveImageDirs,
@@ -150,26 +147,25 @@ async function auditAudio(slug: string, code: string): Promise<StageAudit> {
   try { audioDir = await resolveAudioDir(slug, narration, code) }
   catch { return notStarted('audio') }
 
-  const sections = await parseNarrationDocx(narration).catch(() => [])
-  if (!sections.length) return notStarted('audio', audioDir)
-
+  // Ask the reconciler what SHOULD exist rather than predicting it again here.
+  // This used to re-derive the filenames itself, calling the character chunker
+  // with no normalization and no boundary at all, so it silently inherited the
+  // retired 4,800-character default and reported a `_part1`/`_part2` split for
+  // any section the generator submits whole. There is one planner now, driven
+  // by the selected model's published boundary, and this audit reads its
+  // answer instead of holding a second opinion.
   const CODE = code.toUpperCase()
-  const expected: string[] = []
-  for (const section of sections) {
-    const base = `${CODE}_${section.slug}.mp3`
-    const chunks = chunkText(section.text)
-    for (let i = 0; i < chunks.length; i++) {
-      expected.push(chunks.length > 1
-        ? base.replace('.mp3', `_part${i + 1}.mp3`)
-        : base)
-    }
-  }
-
-  const present: string[] = []
-  for (const name of expected) {
-    if (await fileNonEmpty(path.join(audioDir, name))) present.push(name)
-  }
-  const missing = expected.filter(n => !present.includes(n))
+  let expected: string[]
+  let present: string[]
+  let missing: string[]
+  try {
+    const { getAudioStatus } = await import('./audio-reconciler.js')
+    const status = await getAudioStatus(slug, code)
+    expected = status.expected.map(e => e.filename)
+    present = status.present
+    missing = status.missing
+  } catch { return notStarted('audio', audioDir) }
+  if (!expected.length) return notStarted('audio', audioDir)
 
   const taskManifest = await readTaskManifest(audioDir)
   const manifestEmpty = Object.keys(taskManifest.tasks).length === 0

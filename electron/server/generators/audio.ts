@@ -7,7 +7,6 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
-import { chunkText } from '../lib/text-chunker.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { resolveTtsControlValues } from '../lib/tts-controls.js'
 import {
@@ -42,8 +41,6 @@ import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } 
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { getEffectiveFormat } from '../services/format-loader.js'
-import { runFfmpeg, formatConcatFileLine } from '../lib/ffmpeg-utils.js'
-import { planRoutedSegments, type RoutingPlan } from '../lib/audio-route-segments.js'
 import { resolveGenStudioTtsFanout } from '../lib/genstudio-runtime.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import type {
@@ -238,8 +235,10 @@ export async function generateAudio(job: Job): Promise<void> {
   req.model = resolvedVoiceModel
 
   // Persisted audio_models is historical evidence only and cannot influence
-  // new execution. resolveAudioProvider intentionally always returns GenStudio.
-  const providerId = resolveAudioProvider(req.model, config.audio_models)
+  // new execution: `resolveAudioProvider` returns GenStudio unconditionally,
+  // whatever a stale config claims. Nothing branches on it any more — the
+  // per-provider paths it used to select are gone — so it is no longer read
+  // here; `audio-genstudio-only.test.ts` pins the invariant instead.
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac.')
 
@@ -370,7 +369,7 @@ export async function generateAudio(job: Job): Promise<void> {
 
   // v1.0.215+ — TTS-friendly normalization (the deterministic safeguard).
   // LLM narration often carries em dashes, smart quotes, ellipses, semicolons
-  // and stray markdown that local engines (Kokoro/Bark) read unnaturally —
+  // and stray markdown that speech engines read unnaturally —
   // an em dash becomes a garbled run-on or an odd pause, which is what makes
   // the audio sound fake. Rewrite to simple spoken punctuation on every
   // section BEFORE lexicon + chunking, so delivery is natural no matter what
@@ -428,25 +427,8 @@ export async function generateAudio(job: Job): Promise<void> {
     sectionSlug: string
     chunkText: string
     outputPath: string
-    /**
-     * Phase 6 multi-character routing: per-task voice override. When set,
-     * the TTS call uses this voice instead of req.voice. Used by routed
-     * sections where each segment renders with its character's voice.
-     */
-    voiceIdOverride?: string
-    /**
-     * When set, this task is one piece of a routed section. After the
-     * concurrency pool finishes, all tasks sharing the same concatGroup
-     * key are concatenated (in order) into the section's final mp3 file,
-     * and the intermediates are deleted.
-     */
-    concatGroup?: string
-    /** Order within the concat group (segment-index * 1000 + chunk-index). */
-    concatOrder?: number
   }
   const tasks: ChunkTask[] = []
-  /** finalPath → list of intermediate paths (in concatOrder) to merge into it. */
-  const concatPlans = new Map<string, Array<{ order: number; path: string }>>()
 
   // ── Phase 6: load characters once for this project so routing detection
   // can match speaker tags against the cast. The auto-detect approach
@@ -456,27 +438,6 @@ export async function generateAudio(job: Job): Promise<void> {
   if (projectCharacters.length) {
     const withVoices = projectCharacters.filter(c => c.speech?.voiceId).length
     job.output_lines.push(`Cast: ${projectCharacters.length} character(s), ${withVoices} with voice IDs`)
-  }
-
-  // [per-model chunk-size cap] — cloud providers keep their audited
-  // request limits. Voice Studio engines that own stable internal chunking
-  // can receive a chapter-scale outer request. Read the cap off
-  // AudioModelConfig.tts_soft_max_chars when set; the chunker falls
-  // back to 4800 when the field is undefined (every cloud model today).
-  // Story Studio's chunker still splits at sentence boundaries within this
-  // outer cap. Voice Studio then owns the smaller engine-specific sections
-  // and returns one verified WAV for each dispatch.
-  const modelEntry = config.audio_models?.[req.model] as any
-  const modelDefaultCap: number | undefined =
-    typeof modelEntry?.tts_soft_max_chars === 'number' && modelEntry.tts_soft_max_chars > 0
-      ? modelEntry.tts_soft_max_chars
-      : undefined
-  const ttsChunkCap: number | undefined = modelDefaultCap
-  if (ttsChunkCap) {
-    job.output_lines.push(
-      `Chunk cap for ${req.model}: ${ttsChunkCap} chars per submit ` +
-      `(model-specific; see AudioModelConfig.tts_soft_max_chars).`,
-    )
   }
 
   // The submitted units, decided once, by the shared planner. The quote route
@@ -490,58 +451,9 @@ export async function generateAudio(job: Job): Promise<void> {
     const filename = `${code}_${section.slug}.mp3`
     const savePath = path.join(audioDir, filename)
 
-    // Decide whether this section needs per-speaker routing. Returns null
-    // when no characters have voice IDs OR the section has no speaker tags
-    // — both fall through to the existing single-voice path unchanged.
-    // A GenStudio request has one customer-selected voice. Do not reinterpret
-    // speaker tags into model-level subrequests on this opt-in route.
-    const plan = providerId === 'genstudio'
-      ? null
-      : planRoutedSegments(section.text, projectCharacters, req.voice)
-
-    if (plan && plan.multiVoice) {
-      // ── Routed path: each segment becomes its own task with the segment's
-      // voice. After the pool, intermediates are concatenated into the
-      // section's final mp3 file. Intermediates are named with seg/part
-      // indices so the concat order is deterministic.
-      job.output_lines.push(
-        `${section.label} (routed: ${plan.segments.length} speaker segment(s))`,
-      )
-
-      // iCloud-evicted: file is recoverable for free, don't re-bill.
-      if (!req.force && await isCloudEvictedPlaceholder(savePath)) {
-        job.output_lines.push(
-          `  ⚠ ${path.basename(savePath)} is iCloud-evicted (download in Finder). Skipped to avoid re-billing.`,
-        )
-        continue
-      }
-      // Skip semantics for routed sections — only skip if the FINAL
-      // section file already exists with content. Per-segment intermediates
-      // are always regenerated (cheap to redo if a prior run was partial).
-      if (await fileExistsWithContent(savePath)) {
-        if (req.no_overwrite) {
-          // Caller wants versioned outputs; the routed final file gets a v{N}
-          // suffix instead of overwriting.
-          let v = 2
-          while (existsSync(savePath.replace('.mp3', `_v${v}.mp3`))) v++
-          // Concatenate into the versioned name instead.
-          const versioned = savePath.replace('.mp3', `_v${v}.mp3`)
-          enqueueRoutedSegments(section.label, plan, audioDir, code, section.slug, versioned)
-        } else if (!req.force) {
-          job.output_lines.push(`  Skipping ${path.basename(savePath)} (exists)`)
-          continue
-        } else {
-          enqueueRoutedSegments(section.label, plan, audioDir, code, section.slug, savePath)
-        }
-      } else {
-        enqueueRoutedSegments(section.label, plan, audioDir, code, section.slug, savePath)
-      }
-      continue
-    }
-
-    const chunks = providerId === 'genstudio'
-      ? genStudioRequestPlan[sectionIndex]!.parts
-      : chunkText(section.text, ttsChunkCap)
+    // One GenStudio request per planned part. `resolveAudioProvider` returns
+    // GenStudio unconditionally, so there is no other boundary to honour.
+    const chunks = genStudioRequestPlan[sectionIndex]!.parts
     job.output_lines.push(
       `${section.label} (${section.text.length.toLocaleString()} chars${chunks.length > 1 ? `, ${chunks.length} parts` : ''})`,
     )
@@ -578,44 +490,10 @@ export async function generateAudio(job: Job): Promise<void> {
     }
   }
 
-  /** Helper used inside the section loop above. Closes over `tasks` + `concatPlans`. */
-  function enqueueRoutedSegments(
-    sectionLabel: string, plan: RoutingPlan, dir: string,
-    code: string, sectionSlug: string, finalPath: string,
-  ) {
-    const intermediates: Array<{ order: number; path: string }> = []
-    plan.segments.forEach((seg, segIdx) => {
-      // v1.0.155+ — routed-segment chunking honours the same per-model
-      // cap as the main-section chunker above, so character-routed
-      // dialogue lines respect VoxCPM2's 500-char limit too.
-      const segChunks = chunkText(seg.text, ttsChunkCap)
-      segChunks.forEach((chunkBody, chunkIdx) => {
-        const speakerSlug = (seg.speaker || 'narrator').replace(/[^a-zA-Z0-9]/g, '_')
-        const basename = `${code}_${sectionSlug}_seg${String(segIdx + 1).padStart(2, '0')}_${speakerSlug}_part${String(chunkIdx + 1).padStart(2, '0')}.mp3`
-        const intermediatePath = path.join(dir, '.routed', basename)
-        intermediates.push({ order: segIdx * 1000 + chunkIdx, path: intermediatePath })
-        tasks.push({
-          sectionLabel,
-          sectionSlug,
-          chunkText: chunkBody!,
-          outputPath: intermediatePath,
-          voiceIdOverride: seg.voiceId,
-          concatGroup: finalPath,
-          concatOrder: segIdx * 1000 + chunkIdx,
-        })
-      })
-    })
-    concatPlans.set(finalPath, intermediates)
-  }
-
   // The selected model's live hint is advisory. GenStudio admission remains
   // authoritative; no provider identity is inferred as a dispatch limit.
   const concurrency = resolveGenStudioTtsFanout(tasks.length, ttsModel.provider_submit_concurrency)
 
-  // v1.0.155 — `ttsChunkCap` is computed earlier (just before the
-  // section loop) so the chunkText() calls in the loop can reference it
-  // without a forward-reference error. See the block annotated
-  // "[per-model chunk-size cap]" above.
   if (tasks.length > 1) {
     job.output_lines.push(
       `Staging ${tasks.length} TTS request(s), ${concurrency === 1 ? 'one at a time' : `${concurrency} at a time`}`
@@ -809,7 +687,7 @@ export async function generateAudio(job: Job): Promise<void> {
     if (isCancelled()) return
     // Phase 6: per-task voice override for routed sections. Falls back to
     // the request's project-default voice when not set.
-    const effectiveVoice = task.voiceIdOverride || req.voice || undefined
+    const effectiveVoice = req.voice || undefined
     const chunkFilename = path.basename(task.outputPath)
     // Ensure intermediate dir exists (routed-section files live in .routed/).
     await fs.mkdir(path.dirname(task.outputPath), { recursive: true }).catch(() => {})
@@ -1003,46 +881,6 @@ export async function generateAudio(job: Job): Promise<void> {
   }
   if (creditFailure) throw creditFailure
   jq.throwIfPauseRequested(job.job_id)
-
-  // Phase 6: post-pool concat for routed sections. Each concatPlans entry
-  // pairs a final section path with its ordered intermediate segment files.
-  // We FFmpeg-concat them, then delete the intermediates so the audio dir
-  // stays clean (audio-merge downstream picks up the final per-section
-  // files unchanged, just like the existing single-voice path produces).
-  if (concatPlans.size > 0 && !isCancelled()) {
-    job.output_lines.push(`Concatenating ${concatPlans.size} routed section(s)…`)
-    for (const [finalPath, parts] of concatPlans) {
-      // Only run if every intermediate exists — partial failures earlier
-      // in the pool would skip the concat for that section so the user
-      // sees a clear error rather than a half-merged file.
-      const ordered = parts.slice().sort((a, b) => a.order - b.order)
-      const allPresent = await Promise.all(ordered.map(p => fileExistsWithContent(p.path)))
-      if (!allPresent.every(Boolean)) {
-        const missing = ordered.filter((_, i) => !allPresent[i]).map(p => path.basename(p.path))
-        errors.push(`routed section ${path.basename(finalPath)}: missing segments ${missing.join(', ')}`)
-        continue
-      }
-
-      // Write concat list, run ffmpeg, clean up.
-      const listFile = path.join(path.dirname(ordered[0].path), `_concat_${path.basename(finalPath, '.mp3')}.txt`)
-      const listText = ordered.map(p => formatConcatFileLine(p.path)).join('\n') + '\n'
-      try {
-        await fs.writeFile(listFile, listText)
-        // -c copy is safe because all intermediates use the same encoder
-        // settings (same TTS provider/model).
-        await runFfmpeg(['-y', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', finalPath])
-        // Cleanup intermediates + list file. Best-effort; failures here
-        // don't fail the job (the final file is what matters).
-        await fs.unlink(listFile).catch(() => {})
-        for (const p of ordered) await fs.unlink(p.path).catch(() => {})
-        // Try to remove the empty .routed/ dir (only succeeds if empty).
-        await fs.rmdir(path.join(path.dirname(ordered[0].path))).catch(() => {})
-        job.output_lines.push(`  ✓ ${path.basename(finalPath)} (${ordered.length} segments)`)
-      } catch (e: any) {
-        errors.push(`routed section ${path.basename(finalPath)}: concat failed — ${e.message}`)
-      }
-    }
-  }
 
   // Partial-failure semantics: throw so the queue stamps status='error'
   // instead of 'done'. But never throw on a cancel — the queue's own cancel

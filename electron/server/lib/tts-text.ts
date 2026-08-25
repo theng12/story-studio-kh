@@ -3,10 +3,11 @@
  * it's sent to ANY TTS engine (v1.0.215+; spoken numbers v1.0.827+).
  *
  * LLM-written narration loves em dashes, smart quotes, ellipses, semicolons,
- * and the odd stray markdown mark. Robust cloud voices (ElevenLabs) mostly
- * cope, but local engines (Kokoro, Bark, …) read an em dash as a garbled
- * run-on ("eyes—a" → "eyesa") or an unnatural pause — which is what makes the
- * audio sound fake. This is the deterministic SAFEGUARD: it runs on every
+ * and the odd stray markdown mark. Engines differ in how well they cope: the
+ * weaker ones read an em dash as a garbled run-on ("eyes—a" → "eyesa") or an
+ * unnatural pause — which is what makes the audio sound fake. Which engine
+ * behaves how is the fleet's business and is deliberately not catalogued here;
+ * the rewrite is unconditional. This is the deterministic SAFEGUARD: it runs on every
  * section of every generation, so the audio reads naturally regardless of
  * what the script carried (and regardless of whether the LLM obeyed the
  * TTS-friendly writing instruction in the script prompt).

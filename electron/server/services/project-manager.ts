@@ -1055,43 +1055,6 @@ export function mergeCatalog<T extends Record<string, any>>(
   return out
 }
 
-// model-drift-allow: retired ids paired with the exact caps Story Studio once
-// shipped for them. The pair is historical evidence a migration matches on; it
-// must stay frozen or the migration stops recognising the values it heals.
-const RETIRED_AUDIO_CHAR_CAPS: Readonly<Record<string, ReadonlySet<number>>> = {
-  // GenStudio retired its qualification-only ~30-second/375-character cap.
-  // Heal existing projects to the public 15,000-character API boundary.
-  'genstudio-qwen3-standard': new Set([375]),
-  // CustomVoice does not use Voice Studio's clone-specific splitter. Only
-  // migrate its former built-in 2,000 value to the current 3,000 default.
-  'voicestudio-qwen3-tts': new Set([2000]),
-  // Voice Studio now owns stable internal splitting for these clone engines.
-  // Heal every value that Story Studio previously shipped as a built-in while
-  // preserving any other deliberately customized cap.
-  'voicestudio-qwen3-tts-base-0.6b': new Set([2000, 3000, 5000]),
-  'voicestudio-qwen3-tts-base-1.7b': new Set([2000, 3000, 5000]),
-  'voicestudio-chatterbox-mlx': new Set([500, 1000]),
-  'voicestudio-voxcpm-mlx': new Set([500, 800, 1000]),
-}
-
-/** Heal former built-in local TTS caps without replacing deliberate limits. */
-export function migrateRetiredAudioDefaults<T extends Record<string, any>>(
-  merged: Record<string, T>,
-  saved: Record<string, T> | null | undefined,
-): Record<string, T> {
-  for (const [modelId, retiredCaps] of Object.entries(RETIRED_AUDIO_CHAR_CAPS)) {
-    const savedCap = saved?.[modelId]?.tts_soft_max_chars
-    const currentDefault = DEFAULT_AUDIO_MODELS[modelId]?.tts_soft_max_chars
-    if (typeof savedCap === 'number' && retiredCaps.has(savedCap) && currentDefault) {
-      merged[modelId] = {
-        ...merged[modelId],
-        tts_soft_max_chars: currentDefault,
-      }
-    }
-  }
-  return merged
-}
-
 /**
  * Remove the retired per-job TTS chunk override from every saved Audio
  * Generator preset shape. Older releases stored it under `data.form`, while

@@ -2,7 +2,6 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   mergeCatalog,
-  migrateRetiredAudioDefaults,
   sanitizeAudioGeneratorPresets,
 } from '../services/project-manager.js'
 
@@ -36,31 +35,6 @@ describe('model catalog ownership', () => {
     assert.equal(merged.built_in.label, 'Renamed by stale config')
     assert.deepEqual(merged.built_in.provider_params, { model: 'provider/current-model' })
     assert.equal('is_custom' in merged.built_in, false)
-  })
-
-  test('preserves historical audio limits without reviving a retired provider catalog', () => {
-    const defaults: Record<string, Record<string, any>> = {
-      'voicestudio-qwen3-tts': { tts_soft_max_chars: 2000 },
-      'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 15000 },
-      'voicestudio-qwen3-tts-base-1.7b': { tts_soft_max_chars: 15000 },
-      'voicestudio-chatterbox-mlx': { tts_soft_max_chars: 15000 },
-      'voicestudio-voxcpm-mlx': { tts_soft_max_chars: 15000 },
-    }
-    const saved: Record<string, Record<string, any>> = {
-      'voicestudio-qwen3-tts': { tts_soft_max_chars: 3000 },
-      'voicestudio-qwen3-tts-base-0.6b': { tts_soft_max_chars: 5000 },
-      'voicestudio-qwen3-tts-base-1.7b': { tts_soft_max_chars: 2400 },
-      'voicestudio-chatterbox-mlx': { tts_soft_max_chars: 1000 },
-      'voicestudio-voxcpm-mlx': { tts_soft_max_chars: 500 },
-    }
-
-    const merged = migrateRetiredAudioDefaults(mergeCatalog(defaults, saved), saved)
-
-    assert.equal(merged['voicestudio-qwen3-tts'].tts_soft_max_chars, 3000)
-    assert.equal(merged['voicestudio-qwen3-tts-base-0.6b'].tts_soft_max_chars, 5000)
-    assert.equal(merged['voicestudio-qwen3-tts-base-1.7b'].tts_soft_max_chars, 2400)
-    assert.equal(merged['voicestudio-chatterbox-mlx'].tts_soft_max_chars, 1000)
-    assert.equal(merged['voicestudio-voxcpm-mlx'].tts_soft_max_chars, 500)
   })
 
   test('removes legacy TTS chunk overrides from every saved preset shape', () => {

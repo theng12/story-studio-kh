@@ -31,8 +31,12 @@ test('Story Studio keeps no local TTS product catalogue', () => {
     'genstudio-standard-v1': {
       label: 'Tampered canonical model',
       provider: 'fal',
+      // A per-engine chunk size a former release persisted. `AudioModelConfig`
+      // no longer declares the field — Story Studio holds no engine chunk
+      // sizes at all — but a stale config.json on disk can still carry one,
+      // and it must be discarded with everything else.
       tts_soft_max_chars: 25,
-    },
+    } as any,
     'fishaudio-s2.1-pro': {
       label: 'Historical Fish model',
       provider: 'fishaudio',
