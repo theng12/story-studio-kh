@@ -11,7 +11,7 @@ import {
   type CatalogPackVersion,
   type ContentPackRegistryOptions,
 } from './registry.js'
-import { ContentPackMissingError, type ContentPackMissingRequirement } from './missing-error.js'
+import { ContentPackMissingError, isContentPackUnusable, type ContentPackMissingRequirement } from './missing-error.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
 import type { ContentPackProvenance, ContentPackVersionRef } from './runtime-types.js'
 import { isBundleOnlyCoordinationManifest } from './schemas.js'
@@ -504,8 +504,30 @@ async function assertResolvableSelections(
     })
   }
   const signedOfKind = async (id: string, kind: ContentPackItemKind) => {
-    const entry = await resolveCatalogItem(id, undefined, options)
-    return Boolean(entry) && entry!.value.kind === kind
+    // v1.4.68 — this call was the one unguarded route out of catalogue
+    // resolution, and installer verification failures escaped through it raw.
+    //
+    // The two outcomes are not the same and must not be flattened. "We never
+    // found this id" means try the legacy routes below. "We found the version
+    // and verification REFUSED it" means the customer asked for something
+    // real that cannot be served, and they are owed that answer — the same
+    // answer whether it is uninstalled, recalled, or has bytes that no longer
+    // verify. Anything else, the resolver could not answer and the legacy
+    // fallbacks decide.
+    try {
+      const entry = await resolveCatalogItem(id, undefined, options)
+      return Boolean(entry) && entry!.value.kind === kind
+    } catch (error) {
+      if (isContentPackUnusable(error)) {
+        throw new ContentPackMissingError([{
+          pack_id: error.ref.pack_id ?? 'unknown',
+          version: error.ref.version ?? 'unknown',
+          item_ids: [id],
+          item_kinds: [kind],
+        }])
+      }
+      return false
+    }
   }
 
   const styleId = typeof request.active_style_preset_id === 'string'

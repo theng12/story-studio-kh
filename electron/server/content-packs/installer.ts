@@ -11,7 +11,7 @@ import {
 } from './archive.js'
 import { verifyGenStudioDeliveryAttestation } from './delivery-attestation.js'
 import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
-import { ContentPackMissingError } from './missing-error.js'
+import { ContentPackUnusableError } from './missing-error.js'
 import { installedVersionPath, resolveVerifiedPackFile, type ContentPackRuntimePaths } from './runtime-paths.js'
 import {
   ContentPackDeliveryAttestationSchema,
@@ -276,29 +276,26 @@ function verificationIdentity(
 }
 
 /**
- * Every reason this version cannot be used is the SAME event to the caller, and
- * none of them may name a path. `unusableVersion` is how that is kept true: the
- * detail goes to the log line, the customer-facing message names the pack and
- * version and nothing else.
+ * One place where verification says no, so no message can drift back into
+ * carrying a path.
  *
- * Before v1.4.68 the three checks below threw raw `Error`s carrying
- * `install_path`. That escaped unconverted through catalogue resolution, so an
- * absolute filesystem path — machine, account, often the drive name — reached a
- * user-facing string, and an uninstalled directory failed differently from a
- * recalled or corrupted one for no reason a customer could act on.
+ * Before v1.4.68 these threw raw `Error`s with `install_path` in the message,
+ * and they escape as far as user-facing strings — an absolute path names the
+ * machine, the account, and often the drive. The REASON stays in the message,
+ * because tamper-detection is only useful if it says what it caught; the path
+ * moves to the log line, where it is a diagnostic rather than a leak.
  */
 function unusableVersion(
   reason: string,
+  summary: string,
   detail: string,
   identity: { pack_id?: string; version?: string },
-): ContentPackMissingError {
-  logLine('warn', 'Content Pack immutable version is unusable', { reason, detail, pack_id: identity.pack_id, version: identity.version })
-  return new ContentPackMissingError([{
-    pack_id: identity.pack_id ?? 'unknown',
-    version: identity.version ?? 'unknown',
-    item_ids: [],
-    item_kinds: [],
-  }])
+): ContentPackUnusableError {
+  const named = `${identity.pack_id ?? 'unknown'}@${identity.version ?? 'unknown'}`
+  logLine('warn', 'Content Pack immutable version failed verification', {
+    reason, detail, pack_id: identity.pack_id, version: identity.version,
+  })
+  return new ContentPackUnusableError(`${summary}: ${named}`, reason, identity)
 }
 
 export async function verifyInstalledContentPackVersion(
@@ -311,10 +308,11 @@ export async function verifyInstalledContentPackVersion(
 ): Promise<VerifiedContentPack> {
   const identity = { pack_id: installed.manifest?.pack_id, version: installed.manifest?.version }
   if (installed.recalled) {
-    throw unusableVersion('recalled', 'GenStudio recalled this installed Content Pack version', identity)
+    throw unusableVersion('recalled', 'GenStudio recalled this installed Content Pack version', 'recalled by Store reconciliation', identity)
   }
   if (!await existingSafeDirectory(installed.install_path)) {
-    throw unusableVersion('missing-on-disk', `immutable version directory is absent: ${installed.install_path}`, identity)
+    throw unusableVersion('missing-on-disk', 'Content Pack immutable version is missing on disk',
+      `version directory is absent: ${installed.install_path}`, identity)
   }
   const verificationKey = verificationIdentity(policy, resolveSigningKey)
   const fingerprint = verificationKey === 'resolver'
@@ -327,7 +325,8 @@ export async function verifyInstalledContentPackVersion(
   const archivePath = resolveVerifiedPackFile(installed.install_path, 'content/archive.sspack')
   const archiveBytes = await fs.readFile(archivePath)
   if (sha256(archiveBytes) !== installed.archive_sha256) {
-    throw unusableVersion('archive-hash-mismatch', `immutable archive hash does not match state: ${installed.install_path}`, identity)
+    throw unusableVersion('archive-hash-mismatch', 'Content Pack immutable archive hash does not match state',
+      `at ${installed.install_path}`, identity)
   }
   const verified = await verifyArchiveForRequest(archiveBytes, {
     source: installed.source,
@@ -337,7 +336,8 @@ export async function verifyInstalledContentPackVersion(
     const target = resolveVerifiedPackFile(installed.install_path, relativePath)
     const info = await fs.lstat(target)
     if (!info.isFile() || info.isSymbolicLink() || sha256(await fs.readFile(target)) !== sha256(bytes)) {
-      throw unusableVersion('materialised-file-differs', `materialised file differs from verified archive: ${target}`, identity)
+      throw unusableVersion('materialised-file-differs', 'Content Pack immutable materialised file differs from verified archive',
+        `at ${target}`, identity)
     }
   }
   if (fingerprint !== null) verifiedVersionMemo.set(installed.install_path, { fingerprint, verified })
@@ -374,11 +374,11 @@ export async function verifyInstalledContentPackClosure(
     // Not installed, on its way out, or recalled are one event to the caller —
     // this exact version cannot be used — so they answer alike and name only
     // the pack and version. See `unusableVersion` above.
-    if (!installed) throw unusableVersion('not-installed', `dependency is not installed exactly: ${key}`, dependency)
-    if (installed.pending_removal) throw unusableVersion('pending-removal', `dependency is pending removal: ${key}`, dependency)
+    if (!installed) throw unusableVersion('not-installed', 'Content Pack dependency is not installed exactly', key, dependency)
+    if (installed.pending_removal) throw unusableVersion('pending-removal', 'Content Pack dependency is pending removal', key, dependency)
     visiting.add(key)
     try {
-      if (installed.recalled) throw unusableVersion('recalled', `GenStudio recalled this version: ${key}`, dependency)
+      if (installed.recalled) throw unusableVersion('recalled', 'GenStudio recalled Content Pack version', key, dependency)
       const verified = await verifyInstalledContentPackVersion(installed, policy, resolveSigningKey)
       if (verified.manifest.pack_id !== requiredPackId || verified.manifest.version !== requiredVersion) {
         throw new Error(`Content Pack immutable archive identity does not match state: ${key}`)
