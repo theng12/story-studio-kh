@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.61 — 2026-08-25
+
+- **"Reference-guided thumbnail" is collapsed by default.** It is an occasional tool and it sat wide open between the art style and the lettering, breaking the run you actually make every episode: style, then recipe, then what the words say and how they look. It is now a single line — "Use an existing thumbnail as a guide" — that opens when you want it.
+- The closed line still says whether a reference is applied, so one set weeks ago cannot quietly shape every thumbnail with nothing on screen to show for it.
+
+---
+
 ## v1.4.60 — 2026-08-25
 
 - **"Thumbnail text" — the nine options for what the words actually say — was in a block you could not see.** Twice. It shipped in 1.4.56 near the top of the Thumbnail Prompts tab, in a group that does not render on the layout you use, so from your seat the feature did not exist. It now sits at the top of the Thumbnail lettering card, above the font, as the first of four decisions — because what the words say changes the picture more than how they look.

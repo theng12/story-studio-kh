@@ -674,87 +674,97 @@
         />
       </div>
 
-      <section class="thumbnail-reference-card mt-2" aria-labelledby="thumbnail-reference-heading">
-        <div class="thumbnail-reference-card__heading">
-          <div>
-            <p class="thumbnail-reference-card__eyebrow">OPTIONAL · PRIVATE INPUT</p>
-            <h3 id="thumbnail-reference-heading">Reference-guided thumbnail</h3>
-            <p class="text-muted text-xs">
-              Import one existing thumbnail, analyse its composition, then use it privately as an original re-framing guide for this channel.
-            </p>
+      <!-- Rare on purpose: importing a reference is something he does now and
+           again, and it was sitting between the art style and the lettering,
+           interrupting the run he actually makes every episode — style, then
+           recipe, then what the words say and look like. -->
+      <details class="advanced-reference mt-2">
+        <summary>
+          <span>Use an existing thumbnail as a guide</span>
+          <span class="advanced-reference__note">{{ thumbnailReferenceSummary }}</span>
+        </summary>
+        <section class="thumbnail-reference-card" aria-labelledby="thumbnail-reference-heading">
+          <div class="thumbnail-reference-card__heading">
+            <div>
+              <p class="thumbnail-reference-card__eyebrow">OPTIONAL · PRIVATE INPUT</p>
+              <h3 id="thumbnail-reference-heading">Reference-guided thumbnail</h3>
+              <p class="text-muted text-xs">
+                Import one existing thumbnail, analyse its composition, then use it privately as an original re-framing guide for this channel.
+              </p>
+            </div>
+            <span class="thumbnail-reference-card__status" :class="{ active: form.thumbnail.thumb_reference_asset }">
+              {{ form.thumbnail.thumb_reference_asset ? 'Reference ready' : 'No reference' }}
+            </span>
           </div>
-          <span class="thumbnail-reference-card__status" :class="{ active: form.thumbnail.thumb_reference_asset }">
-            {{ form.thumbnail.thumb_reference_asset ? 'Reference ready' : 'No reference' }}
-          </span>
-        </div>
 
-        <div class="flex gap-2 items-center flex-wrap mt-1">
-          <button
-            type="button"
-            class="btn btn-secondary"
-            :disabled="extractingThumbRef || !thumbnailVisionModels.length"
-            @click="extractThumbReferenceStyle"
-          >
-            <LoadingSpinner v-if="extractingThumbRef" size="sm" />
-            <span v-else aria-hidden="true">📷</span>
-            {{ form.thumbnail.thumb_reference_asset ? 'Replace & analyse reference…' : 'Import & analyse reference…' }}
-          </button>
-          <button
-            v-if="form.thumbnail.thumb_reference_asset"
-            type="button"
-            class="btn btn-ghost"
-            @click="clearThumbnailReference"
-          >
-            Remove reference
-          </button>
-          <button
-            v-if="thumbnailVisionLoadError || !thumbnailVisionModels.length"
-            type="button"
-            class="btn btn-ghost"
-            :disabled="thumbnailVisionLoading"
-            @click="loadThumbnailVisionModels"
-          >
-            {{ thumbnailVisionLoading ? 'Checking vision models…' : 'Retry vision models' }}
-          </button>
-        </div>
+          <div class="flex gap-2 items-center flex-wrap mt-1">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              :disabled="extractingThumbRef || !thumbnailVisionModels.length"
+              @click="extractThumbReferenceStyle"
+            >
+              <LoadingSpinner v-if="extractingThumbRef" size="sm" />
+              <span v-else aria-hidden="true">📷</span>
+              {{ form.thumbnail.thumb_reference_asset ? 'Replace & analyse reference…' : 'Import & analyse reference…' }}
+            </button>
+            <button
+              v-if="form.thumbnail.thumb_reference_asset"
+              type="button"
+              class="btn btn-ghost"
+              @click="clearThumbnailReference"
+            >
+              Remove reference
+            </button>
+            <button
+              v-if="thumbnailVisionLoadError || !thumbnailVisionModels.length"
+              type="button"
+              class="btn btn-ghost"
+              :disabled="thumbnailVisionLoading"
+              @click="loadThumbnailVisionModels"
+            >
+              {{ thumbnailVisionLoading ? 'Checking vision models…' : 'Retry vision models' }}
+            </button>
+          </div>
 
-        <template v-if="thumbnailVisionModels.length">
-          <p class="text-muted text-xs hint-line">
-            The image is uploaded privately to GenStudio for analysis and generation—never as a local path, browser URL, or public URL.
+          <template v-if="thumbnailVisionModels.length">
+            <p class="text-muted text-xs hint-line">
+              The image is uploaded privately to GenStudio for analysis and generation—never as a local path, browser URL, or public URL.
+            </p>
+            <div class="form-group mt-1">
+              <label>Composition analysis model</label>
+              <ModelMenu
+                v-model="thumbnailVisionModel"
+                class="vision-model-select"
+                :options="thumbnailVisionModelMenuOptions"
+                media-type="llm"
+                title="Thumbnail reference analysis model"
+                search-placeholder="Search vision models…"
+                :disabled="extractingThumbRef"
+              />
+              <p v-if="selectedThumbnailVisionModel" class="text-muted text-xs hint-line">
+                {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.supported_detail_levels.join(', ') }} detail · {{ selectedThumbnailVisionModel.accepted_image_mime_types.join(', ') }} · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB / {{ selectedThumbnailVisionModel.max_image_dimension }}px
+              </p>
+            </div>
+          </template>
+          <p v-else class="thumbnail-reference-card__warning">
+            {{ thumbnailVisionLoadError || 'No currently available GenStudio model is qualified to analyse a thumbnail reference. Check the GenStudio connection, then retry.' }}
           </p>
-          <div class="form-group mt-1">
-            <label>Composition analysis model</label>
-            <ModelMenu
-              v-model="thumbnailVisionModel"
-              class="vision-model-select"
-              :options="thumbnailVisionModelMenuOptions"
-              media-type="llm"
-              title="Thumbnail reference analysis model"
-              search-placeholder="Search vision models…"
-              :disabled="extractingThumbRef"
+
+          <template v-if="form.thumbnail.thumb_reference_asset">
+            <textarea
+              v-model="form.thumbnail.thumb_reference_style"
+              class="textarea mt-1"
+              rows="3"
+              aria-label="Reference composition brief"
+              placeholder="Analysed composition brief…"
             />
-            <p v-if="selectedThumbnailVisionModel" class="text-muted text-xs hint-line">
-              {{ selectedThumbnailVisionModel.max_input_images }} image · {{ selectedThumbnailVisionModel.supported_detail_levels.join(', ') }} detail · {{ selectedThumbnailVisionModel.accepted_image_mime_types.join(', ') }} · up to {{ Math.round(selectedThumbnailVisionModel.max_image_bytes / 1024 / 1024) }} MB / {{ selectedThumbnailVisionModel.max_image_dimension }}px
+            <p class="text-muted text-xs hint-line">
+              <strong>{{ form.thumbnail.thumb_reference_asset.filename }}</strong> · analysed by {{ form.thumbnail.thumb_reference_asset.analysis_model_name }} · saved with this preset, project, and Pipeline runs.
             </p>
-          </div>
-        </template>
-        <p v-else class="thumbnail-reference-card__warning">
-          {{ thumbnailVisionLoadError || 'No currently available GenStudio model is qualified to analyse a thumbnail reference. Check the GenStudio connection, then retry.' }}
-        </p>
-
-        <template v-if="form.thumbnail.thumb_reference_asset">
-          <textarea
-            v-model="form.thumbnail.thumb_reference_style"
-            class="textarea mt-1"
-            rows="3"
-            aria-label="Reference composition brief"
-            placeholder="Analysed composition brief…"
-          />
-          <p class="text-muted text-xs hint-line">
-            <strong>{{ form.thumbnail.thumb_reference_asset.filename }}</strong> · analysed by {{ form.thumbnail.thumb_reference_asset.analysis_model_name }} · saved with this preset, project, and Pipeline runs.
-          </p>
-        </template>
-      </section>
+          </template>
+        </section>
+      </details>
 
       <!-- One card for the whole lettering decision, the way Channel art style
            is one card: the letterform, the treatment and where it sits. They
@@ -1634,6 +1644,9 @@ const selectedGenStudioImageModel = computed(() =>
 )
 interface HeadlineModeOption { id: string; label: string; summary: string; invents: boolean }
 const headlineModes = ref<HeadlineModeOption[]>([])
+const thumbnailReferenceSummary = computed(() =>
+  form.thumbnail.thumb_reference_style?.trim() ? 'A reference is applied' : 'Not used')
+
 const titleLocations = [
   { id: 'auto', label: 'Let the model decide' },
   { id: 'top', label: 'Top' },
@@ -2509,6 +2522,16 @@ async function saveToFile() {
 </script>
 
 <style scoped>
+.advanced-reference { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
+.advanced-reference > summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 11px 15px; color: var(--text-secondary); cursor: pointer; font-size: var(--font-sm); font-weight: 650; list-style: none; }
+.advanced-reference > summary::-webkit-details-marker { display: none; }
+.advanced-reference > summary::after { content: '▾'; color: var(--text-muted); transition: transform .16s ease; }
+.advanced-reference[open] > summary::after { transform: rotate(180deg); }
+.advanced-reference > summary:hover { color: var(--text-primary); }
+.advanced-reference > summary:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; border-radius: var(--radius-lg); }
+.advanced-reference__note { color: var(--text-muted); font-size: var(--font-xs); font-weight: 500; }
+.advanced-reference .thumbnail-reference-card { border: 0; border-top: 1px solid var(--border); border-radius: 0; }
+@media (prefers-reduced-motion: reduce) { .advanced-reference > summary::after { transition: none; } }
 .lettering-card { display: grid; gap: 16px; padding: 15px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
 .lettering-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .lettering-eyebrow { display: block; color: var(--accent); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
