@@ -178,7 +178,13 @@ test('free Starter Kits claim, restore, install, and remain usable without a cre
   await setApiKey('genstudio', KEY)
 
   const sources = await starterSources()
-  assert.equal(sources.length, 46)
+  // An exact count on purpose: every source here ships FREE, so a source
+  // appearing without anyone noticing is a pricing change nobody made. 55c675dd
+  // restored the Animal Hardship Annotation source and took this to 47; its
+  // message said the assertion had been updated, but the commit never touched
+  // this file, so the suite has been red since 2026-08-25. Move this number
+  // deliberately, together with the source that moved it.
+  assert.equal(sources.length, 47)
   const products = sources.map(sourceProduct)
   mock.contentProducts = products
   const productsByPackId = new Map(products.map(product => [String((product.current_release as Record<string, unknown>).pack_id), product]))
