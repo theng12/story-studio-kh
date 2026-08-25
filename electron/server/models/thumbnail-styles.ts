@@ -18,12 +18,19 @@ import { truncateChars } from '../lib/well-formed-text.js'
 /** User-facing id → rich phrase the LLM sees. */
 export const TEXT_STYLES: Record<string, string> = {
   // Existing presets — descriptive phrases kept identical to pre-refactor
-  // so generations remain stable for users with saved projects.
+  // so generations remain stable for users with saved projects. The one
+  // exception is `script`, corrected below: it was filed on the wrong axis
+  // and described a letterform, which no phrase in this map may do.
+  //
+  // EVERY phrase here is a TREATMENT — the finish applied to the letters.
+  // The SHAPE of the letters is `FONT_STYLES`, and the two are combined
+  // independently. A phrase that names a shape here silently overrides the
+  // font the user picked on the other axis.
   gold:     'radiant golden glow, warm magical light',
   white:    'clean crisp white, subtle shadow',
   neon:     'neon glow, vibrant electric light',
   metallic: '3D metallic, dramatically lit, rich glow',
-  script:   'flowing elegant cursive, golden shimmer',
+  script:   'delicate golden shimmer, fine sparkling highlights along the edges',
 
   // New presets — cover the common channel aesthetics people ask for.
   chrome:          'chrome silver metallic, mirror reflections, hard specular highlights',
@@ -37,7 +44,7 @@ export const TEXT_STYLES: Record<string, string> = {
   shadow:          'deep drop shadow, clean solid fill, strong contrast',
   glitch:          'digital glitch effect, RGB split, scan-line texture',
   embossed:        'embossed metallic 3D bevel, subtle gold highlights',
-  handwritten:     'handwritten inked look, slightly uneven strokes, organic feel',
+  handwritten:     'inked finish, slightly uneven edges, soft ink bleed, organic feel',
   vintage:         'vintage sepia print, lightly weathered, muted warm tones',
   pastel:          'soft pastel palette, gentle airbrushed glow, dreamlike',
 }
@@ -84,7 +91,7 @@ export const TEXT_STYLE_PRESETS: ThumbnailStylePreset[] = [
   { id: 'neon',             label: 'Neon Glow' },
   { id: 'metallic',         label: '3D Metallic' },
   { id: 'chrome',           label: 'Chrome / Silver' },
-  { id: 'script',           label: 'Elegant Script (gold)' },
+  { id: 'script',           label: 'Golden Shimmer' },
   { id: 'fire',             label: 'Fiery Orange/Red' },
   { id: 'ice',              label: 'Icy Blue' },
   { id: 'gradient-sunset',  label: 'Sunset Gradient' },
@@ -95,7 +102,7 @@ export const TEXT_STYLE_PRESETS: ThumbnailStylePreset[] = [
   { id: 'shadow',           label: 'Deep Drop Shadow' },
   { id: 'glitch',           label: 'Digital Glitch' },
   { id: 'embossed',         label: 'Embossed 3D Bevel' },
-  { id: 'handwritten',      label: 'Handwritten Inked' },
+  { id: 'handwritten',      label: 'Inked Finish' },
   { id: 'vintage',          label: 'Vintage Sepia' },
   { id: 'pastel',           label: 'Soft Pastel' },
   { id: 'custom',           label: 'Custom (describe it…)' },
