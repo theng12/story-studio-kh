@@ -23,6 +23,7 @@ import * as tpl from '../services/topic-pack-loader.js'
 import * as pm from '../services/project-manager.js'
 import { writeJsonAtomic } from '../lib/atomic-store.js'
 import { respondWithError } from '../lib/humanize-backend-error.js'
+import { logLine } from '../services/logger.js'
 import { EpisodeShapePatchSchema, NicheSchema, SetProjectNicheSchema, TopicPackSchema } from '../contracts/index.js'
 import type { Niche, TopicPack } from '../models/types.js'
 import { listVisualStyles } from '../services/visual-style-loader.js'
@@ -81,7 +82,19 @@ router.get('/visual-styles', async (req, res) => {
   try {
     res.json({ visual_styles: await listVisualStyles(packOptionsFor(req)) })
   } catch (e: any) {
-    respondWithError(res, e, 'Failed to list visual styles')
+    // v1.4.68 — this is a LIBRARY LISTING, and it answers for itself.
+    //
+    // One unusable installed pack — uninstalled, recalled, or with tampered
+    // bytes — now raises `ContentPackMissingError`, a customer-facing 409 that
+    // names that pack. Correct where a customer asked for that exact version;
+    // wrong here, where they asked for the library and one member of it
+    // happens to be broken. Surfacing its 409 would tell them to go install a
+    // pack when what actually happened is that a local install is damaged.
+    //
+    // So the route reports its own failure, and the body carries no pack,
+    // path, or trust detail at all. The diagnosis is in the log line.
+    logLine('warn', 'visual style listing failed', { error: e?.message ? String(e.message) : String(e) })
+    res.status(500).json({ detail: 'Failed to list visual styles' })
   }
 })
 

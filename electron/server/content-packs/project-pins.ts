@@ -11,6 +11,7 @@ import {
   type CatalogPackVersion,
   type ContentPackRegistryOptions,
 } from './registry.js'
+import { ContentPackMissingError, type ContentPackMissingRequirement } from './missing-error.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
 import type { ContentPackProvenance, ContentPackVersionRef } from './runtime-types.js'
 import { isBundleOnlyCoordinationManifest } from './schemas.js'
@@ -18,24 +19,8 @@ import { readContentPackState, withContentPackCoordinationLock } from './state.j
 import type { ContentPackItemKind } from './types.js'
 import { currentJobContentPackProvenance } from './job-provenance-context.js'
 
-export interface ContentPackMissingRequirement {
-  pack_id: string
-  version: string
-  item_ids: string[]
-  item_kinds: ContentPackItemKind[]
-}
-
-export class ContentPackMissingError extends Error {
-  readonly code = 'content-pack-missing' as const
-  readonly statusCode = 409
-  readonly expose = true
-  constructor(readonly requirements: ContentPackMissingRequirement[]) {
-    super(`Required Content Pack version is unavailable: ${requirements
-      .map(requirement => `${requirement.pack_id}@${requirement.version}`)
-      .join(', ')}`)
-    this.name = 'ContentPackMissingError'
-  }
-}
+export { ContentPackMissingError } from './missing-error.js'
+export type { ContentPackMissingRequirement } from './missing-error.js'
 
 export interface ContentPackUpgradePlan {
   pack_id: string
