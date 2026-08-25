@@ -208,7 +208,13 @@ test('the standalone Formula promises formula behavior; the Channel Kit carries 
   const kit = await readJson(new URL('kit/archival-ledger/pack.json', PAID_SOURCE), 'Channel Kit')
   assert.doesNotMatch(formula.channel_promise, /500\+|topic|visual|thumbnail|kit/i)
   assert.equal(formula.production_kit, undefined)
-  for (const term of ['500+', 'Topic', 'Style', 'Thumbnail']) assert.match(kit.changelog, new RegExp(term, 'i'))
+  // The Kit names every kind it coordinates; the Formula names none of them.
+  // The old assertion also required "500+", which was the promise of an
+  // EIGHT-piece Kit carrying five Topic Packs. Owner ruling 2026-08-25 fixed a
+  // Kit at four pieces, one of each, so that number is no longer true of this
+  // product and asserting it would hold the copy to a claim it cannot meet.
+  for (const term of ['Formula', 'Topic', 'Style', 'Thumbnail']) assert.match(kit.changelog, new RegExp(term, 'i'))
+  assert.doesNotMatch(kit.changelog, /500\+/, 'a four-piece Kit must not carry the eight-piece episode-count promise')
 })
 
 test('legacy preview bytes have recorded provenance without an invented license claim', async () => {

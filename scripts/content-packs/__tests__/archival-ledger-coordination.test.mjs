@@ -16,15 +16,15 @@ const FAMILY = 'com.storystudio.family.kit.archival-ledger'
 const COMPONENTS = [
   { pack_id: 'com.storystudio.pack.formula.archival-ledger', version: '1.0.1', item_id: 'com.storystudio.formula.archival-ledger', kind: 'series-formula' },
   { pack_id: 'com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse', version: '1.0.0', item_id: 'com.storystudio.topic.archival-ledger.states-revolutions-collapse', kind: 'topic-pack' },
-  { pack_id: 'com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions', version: '1.0.0', item_id: 'com.storystudio.topic.archival-ledger.money-debt-financial-institutions', kind: 'topic-pack' },
-  { pack_id: 'com.storystudio.pack.topic.archival-ledger.empires-trade-extraction', version: '1.0.0', item_id: 'com.storystudio.topic.archival-ledger.empires-trade-extraction', kind: 'topic-pack' },
-  { pack_id: 'com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order', version: '1.0.0', item_id: 'com.storystudio.topic.archival-ledger.wars-treaties-world-order', kind: 'topic-pack' },
-  { pack_id: 'com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power', version: '1.0.0', item_id: 'com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power', kind: 'topic-pack' },
   { pack_id: 'com.storystudio.pack.style.archival-documentary-reconstruction', version: '1.0.0', item_id: 'com.storystudio.style.archival-documentary-reconstruction', kind: 'visual-style' },
   { pack_id: 'com.storystudio.pack.thumbnail.archival-map-investigation', version: '1.0.0', item_id: 'com.storystudio.thumbnail.archival-map-investigation', kind: 'thumbnail-recipe' },
 ]
 
-test('Archival Ledger coordinates all eight independently stockable components without creative payloads', async () => {
+// Owner ruling 2026-08-25: "kits must only have 4 piece. one of each. any thing
+// extra is just content sold separately and at 300 credit's a pcs." The four
+// surplus Topic Packs are stocked individually and are no longer coordinated
+// here — which is also the shape already PUBLISHED as Kit 1.0.1.
+test('Archival Ledger coordinates exactly four independently stockable components without creative payloads', async () => {
   const coordination = JSON.parse(await readFile(new URL('pack.json', SOURCE_DIRECTORY), 'utf8'))
 
   assert.equal(coordination.pack_id, PACK_ID)
@@ -33,7 +33,12 @@ test('Archival Ledger coordinates all eight independently stockable components w
   assert.equal(coordination.entitlement.family, FAMILY)
   assert.equal(Object.hasOwn(coordination, 'items'), false)
   assert.equal(Object.hasOwn(coordination, 'files'), false)
-  assert.equal(coordination.dependencies.length, 8)
+  assert.equal(coordination.dependencies.length, 4)
+  assert.deepEqual(
+    COMPONENTS.map(component => component.kind).sort(),
+    ['series-formula', 'thumbnail-recipe', 'topic-pack', 'visual-style'],
+    'a Channel Kit is exactly one of each kind',
+  )
   assert.deepEqual(coordination.dependencies, COMPONENTS.map(({ pack_id, version }) => ({ pack_id, version })))
   assert.equal(coordination.bundles.length, 1)
   assert.equal(coordination.bundles[0].id, BUNDLE_ID)

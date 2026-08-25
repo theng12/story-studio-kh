@@ -1567,22 +1567,6 @@
           "version": "1.0.0"
         },
         {
-          "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions",
-          "version": "1.0.0"
-        },
-        {
-          "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction",
-          "version": "1.0.0"
-        },
-        {
-          "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
-          "version": "1.0.0"
-        },
-        {
-          "pack_id": "com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power",
-          "version": "1.0.0"
-        },
-        {
           "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
           "version": "1.0.0"
         },
