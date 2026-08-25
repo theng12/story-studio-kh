@@ -28,6 +28,17 @@ describe('Script Generator workspace', () => {
     assert.match(scripts, /Episode direction/)
   })
 
+  test('names the model that will write the opening instead of leaving its absence unexplained', () => {
+    // The opening deliberately has no picker of its own — it shares the
+    // script's. Saying which model that is turns "I cannot pick a model
+    // anywhere" into an answer, without adding a second control.
+    assert.match(scripts, /class="opening-model-note"/)
+    assert.match(scripts, /selectedChatModel\?\.display_name \|\| form\.model/)
+    assert.match(scripts, /the same language model as the chapters/)
+    // Exactly one language-model picker on this page.
+    assert.equal(scripts.match(/<ModelSelector/g)?.length, 1)
+  })
+
   test('has one review-first creation action instead of a competing one-click script chain', () => {
     assert.match(scripts, /generate-label="Create outline"/)
     assert.doesNotMatch(scripts, /⚡ Generate script/)

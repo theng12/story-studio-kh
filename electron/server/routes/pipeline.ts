@@ -201,6 +201,15 @@ interface BatchPreflight {
   effectiveFormat: Format | null
   estimatedBytes: number
   freeBytes: number
+  /**
+   * The language model the SCRIPT is written with, read from the active
+   * `script` preset. The channel opening has no model control of its own —
+   * on the Script Generator it is written with whatever model the chapters
+   * use (scripts.vue `submitIntroduction` sends `form.model`) — so this is
+   * the operator's actual selection for `introduction-only`. Null when no
+   * script preset carries one; the batch then says so instead of guessing.
+   */
+  scriptSideChatModel: string | null
 }
 
 const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
@@ -384,7 +393,39 @@ async function preflightBatch(
   }
 
   if (force) warnings.push('Force re-run is enabled; completed outputs may be replaced and provider costs may repeat.')
-  return { ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode, effectiveFormat, estimatedBytes, freeBytes }
+
+  const scriptSideChatModel = steps.includes('introduction-only')
+    ? resolveScriptSideChatModel(config)
+    : null
+
+  return {
+    ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode,
+    effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel,
+  }
+}
+
+/**
+ * The language model a batched channel opening must be written with.
+ *
+ * The opening has NO model control of its own, by design — there is one
+ * language-model picker on the Script Generator and the opening shares it
+ * (scripts.vue's `submitIntroduction` sends `form.model`). The typed
+ * `introduction` preset therefore stores only the opening's own settings
+ * (host name, word target, opening line, beats) and has never carried a
+ * model. Read the operator's real selection from the active `script`
+ * preset instead, so a batched opening is written by the same product as
+ * its chapters rather than by a catalogue default he never chose.
+ *
+ * Returns null when no script preset carries a model. The caller must then
+ * SAY SO rather than substitute one: an invented model is indistinguishable
+ * from a chosen one once the job is running, and it spends his credits.
+ */
+export function resolveScriptSideChatModel(config: Record<string, unknown>): string | null {
+  const preset = findActivePreset(config, 'script-only').preset
+  // Typed script presets nest the form; legacy untyped ones are flat.
+  const data = (preset?.data ?? preset) as { model?: unknown; form?: { model?: unknown } } | null
+  const candidate = data?.form?.model ?? data?.model
+  return typeof candidate === 'string' && candidate.trim() ? candidate.trim() : null
 }
 
 /**
@@ -1323,16 +1364,22 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   const ideaByCode = preflight.ideaByCode
   const effectiveFormat = preflight.effectiveFormat
 
-  // `introduction-only` and `metadata` presets can omit a saved model
-  // (legacy presets, or ones that never set one). resolveStepParams is a
-  // pure/sync mapper with no catalog access, so it leaves `model` empty in
-  // that case instead of inventing a literal id. Resolve the live-catalog
-  // default ONCE per batch run here (this handler is async and already
-  // holds the GenStudio key) so every episode that needs it gets the same
-  // current product. A catalog failure never falls back to a hardcoded id —
-  // affected steps are individually skipped below with a clear reason.
+  // The `metadata` preset can omit a saved model (legacy presets, or ones
+  // that never set one). resolveStepParams is a pure/sync mapper with no
+  // catalog access, so it leaves `model` empty in that case instead of
+  // inventing a literal id. Resolve the live-catalog default ONCE per batch
+  // run here (this handler is async and already holds the GenStudio key) so
+  // every episode that needs it gets the same current product. A catalog
+  // failure never falls back to a hardcoded id — affected steps are
+  // individually skipped below with a clear reason.
+  //
+  // `introduction-only` is deliberately NOT in this list. The opening has no
+  // model control of its own, so a catalogue default here is not a fallback
+  // for a missing preference — it silently overrides the model the operator
+  // chose for the script, which is the model the opening is written with
+  // everywhere else. It reads `preflight.scriptSideChatModel` instead.
   let batchDefaultChatModel: string | null = null
-  if (steps.includes('introduction-only') || steps.includes('metadata')) {
+  if (steps.includes('metadata')) {
     const apiKey = await getApiKey('genstudio').catch(() => '')
     if (apiKey) {
       batchDefaultChatModel = await resolveDefaultChatModel(apiKey).then(r => r.modelId).catch(() => null)
@@ -1475,7 +1522,23 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       if (step === 'motion_review' && pipelineMotionParams) {
         Object.assign(params, pipelineMotionParams)
       }
-      if ((step === 'introduction-only' || step === 'metadata') && !params.model) {
+      if (step === 'introduction-only' && !params.model) {
+        // The opening is written with the script's model. Never substitute a
+        // catalogue default here: the operator cannot tell an invented model
+        // from one he picked, and this step would quietly run on a different
+        // product from every other step in the same batch.
+        if (!preflight.scriptSideChatModel) {
+          skipped.push({
+            episode_id: episodeId,
+            reason: 'introduction-only: the channel opening is written with the Script Generator\'s language model, ' +
+              'and no active script preset carries one. Open Script Generator, choose a model under Main settings, ' +
+              'save the script preset, then run this step again. No model was substituted.',
+          })
+          continue
+        }
+        params.model = preflight.scriptSideChatModel
+      }
+      if (step === 'metadata' && !params.model) {
         if (!batchDefaultChatModel) {
           skipped.push({
             episode_id: episodeId,

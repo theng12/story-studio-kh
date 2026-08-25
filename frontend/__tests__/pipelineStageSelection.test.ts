@@ -59,6 +59,14 @@ describe('Pipeline stage selection', () => {
     assert.doesNotMatch(pipeline, /<option value="missing-(?:script|audio|metadata|video)/)
   })
 
+  test('shows why a batch skipped an episode instead of pointing at an empty Jobs tab', () => {
+    // A skipped step enqueues no job, so the Jobs tab has nothing to show.
+    // The backend already returns a reason per episode — surface it.
+    assert.doesNotMatch(pipeline, /episode\(s\) skipped — see Jobs tab/)
+    assert.match(pipeline, /new Set\(skipped\.map\(\(s: any\) => String\(s\?\.reason \|\| ''\)\)/)
+    assert.match(pipeline, /showInfo\(`Skipped — \$\{reason\}`\)/)
+  })
+
   test('keeps optional Research in the narrated-scenes Pipeline chain', () => {
     const narratedChain = pipeline.match(/const CHAIN_NARRATED_SCENES: ChainSpec = \[([\s\S]*?)\n\]/)?.[1] || ''
     assert.match(narratedChain, /'research'/)

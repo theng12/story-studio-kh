@@ -539,7 +539,7 @@ useAppTitle('Pipeline')
 const route = useRoute()
 const slug = computed(() => route.params.slug as string)
 const { get, post, patch: patchApi } = useApi()
-const { success, error: showError } = useToast()
+const { success, error: showError, info: showInfo } = useToast()
 const { ask } = useConfirm()
 const { config, refreshConfig } = useProject()
 
@@ -1641,8 +1641,18 @@ async function submit() {
     // surface it separately so the count isn't silently missing from the toast.
     if (character_sheets_applied > 0) parts.push(`${character_sheets_applied} character sheet(s) applied`)
     if (skipDoneCount > 0) parts.push(`${skipDoneCount} step(s) skipped as already complete`)
-    if (skipped?.length) parts.push(`${skipped.length} episode(s) skipped — see Jobs tab`)
+    if (skipped?.length) parts.push(`${skipped.length} episode(s) skipped`)
     success(parts.join(' · '))
+    // A skipped step queues NO job, so "see Jobs tab" sent the user to a
+    // screen that could not explain the skip. The backend already returns a
+    // reason per episode — show it. Distinct reasons only: a batch skips the
+    // same way for every episode, and twenty copies of one sentence is not
+    // more information.
+    if (skipped?.length) {
+      const reasons = [...new Set(skipped.map((s: any) => String(s?.reason || '')).filter(Boolean))]
+      for (const reason of reasons.slice(0, 3)) showInfo(`Skipped — ${reason}`)
+      if (reasons.length > 3) showInfo(`…and ${reasons.length - 3} more skip reason(s).`)
+    }
     // Let the user watch it unfold without manual navigation:
     navigateTo(`/projects/${slug.value}/jobs`)
   } catch (e: any) {

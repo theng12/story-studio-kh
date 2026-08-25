@@ -150,6 +150,16 @@
           {{ openingProfile.description }} It is generated after chapters are complete, so it can
           introduce the actual episode rather than a generic promise.
         </p>
+        <!-- The opening has no model of its own — it is written by the model
+             chosen for the chapters, here and in Pipeline alike. Say which one
+             that is, so the absence of a picker reads as an answer rather than
+             a missing control. -->
+        <p v-if="intro.enabled" class="opening-model-note">
+          Written by
+          <strong>{{ selectedChatModel?.display_name || form.model || 'no model selected yet' }}</strong>
+          — the same language model as the chapters. Change it under
+          <em>Main settings</em> below.
+        </p>
         <div v-if="intro.enabled && openingConfigOpen" class="intro-body">
           <!-- Intro-specific preset picker (separate pool from script presets) -->
           <PresetPicker
@@ -2732,6 +2742,17 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
   border-radius: var(--radius-md);
   padding: 16px;
 }
+
+/* Names the language model the opening will be written with. The opening
+ * deliberately has no picker of its own — this line is the answer to
+ * "where do I choose the model for this?", not a second control. */
+.opening-model-note {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.4;
+}
+.opening-model-note strong { color: var(--text-primary); }
 
 .intro-header {
   display: flex;
