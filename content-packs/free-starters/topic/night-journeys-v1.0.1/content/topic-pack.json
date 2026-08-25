@@ -593,7 +593,7 @@
     "a linen desk cover",
     "a final-row seat card",
     "an aisle curtain tie",
-    "a lobby door key",
+    "an aisle-glow test card",
     "a sheet of blue stamps",
     "a wooden stamp tray",
     "a brass canceling die",
@@ -988,7 +988,7 @@
     "a cloud-chart ribbon",
     "a wooden instrument key",
     "a cork weather-log weight",
-    "a small station clock",
+    "a station-clock date wheel",
     "a glass rain-measure card",
     "a tide-line divider",
     "a coastal canvas message pouch",
@@ -1628,7 +1628,7 @@
     "folding the linen cover corners beneath the closed ticket tray",
     "sliding it beneath the checked-row clip",
     "releasing the curtain across the exit alcove",
-    "locking the empty hall after the seats are settled",
+    "laying its printed ring around the final floor-level glow point",
     "aligning it beneath a glassine leaf",
     "sorting loose stamps by printed value",
     "returning it to its felt-lined box",
@@ -2037,7 +2037,7 @@
     "wiping one straight cloth pass across the salt line at the sill",
     "counting the blank forms into bundles of ten beside the paperweight",
     "centering it over the closed log ties without covering the final entry",
-    "winding it after the final entry",
+    "advancing the date wheel one notch until tomorrow’s numeral sits centered in its window",
     "noting the settled mark in pencil",
     "setting its two points against the chart’s high- and low-water marks",
     "placing the copied observation forms inside before closing the pouch",
@@ -2630,7 +2630,7 @@
     "Watch the linen desk cover change shape in one unbroken side view during folding the linen cover corners beneath the closed ticket tray. Preserve the cover’s linen detail, the subdued contact sound, and the final detail (beneath the closed ticket tray); hold until the linen desk cover’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Frame the final-row seat card and checked-row clip in one overhead view. Slide the card fully beneath the clip with a faint paper sound, leave the row number readable, and hold when the clip retains it after release.",
     "Follow the aisle curtain tie from its starting position through releasing the curtain across the exit alcove in a single steady view. Keep the tie’s visible edge and the final detail (across the exit alcove) visible; hold when the curtain is fully free of the tie and remains motionless at its named endpoint.",
-    "Keep the lobby door key, working hand, and closure point together throughout locking the empty hall after the seats are settled. Let the key’s visible edge, the subdued closure sound, and the closure detail (after the seats are settled) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves. Keep the lobby key at its final lock position while every empty seat remains still beyond it.",
+    "Keep the aisle-glow test card, its printed ring, and the final floor-level glow point in one overhead view while laying its printed ring around the final floor-level glow point. Let the card make one soft contact; finish when the glow point is centered inside the ring, the card lies flat, and the hand withdraws without shifting either mark.",
     "Use a steady overhead view for aligning it beneath a glassine leaf, with the sheet of blue stamps never leaving frame. Let the stamps’ visible edge, each quiet contact, and the ordered detail (beneath a glassine leaf) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
     "Use a steady overhead view for sorting loose stamps by printed value, with the wooden stamp tray never leaving frame. Let the tray’s wood detail, each quiet contact, and the ordered detail (by printed value) establish the result; finish when the named categories are visibly separate and every item remains in its correct group. Keep each printed stamp value visible in its own wood-tray compartment.",
     "Frame the brass canceling die with its destination before returning it to its felt-lined box. Stay uncut through the muted transfer, keeping the die’s brass detail and the final detail (to its felt-lined box) visible until the final placement of the brass canceling die is fully at its felt-lined box and remains stable after release.",
@@ -3039,7 +3039,7 @@
     "Follow the cotton window cloth through wiping one straight cloth pass across the salt line at the sill in one continuous close pass. Keep the cloth’s cotton detail, the tool’s soft contact and the worked patch changing together, and the final detail (across the salt line at the sill) readable; stop when the worked patch is visibly clear and the tool lifts away. Follow the salt line disappearing under one straight pass while the cloth remains flat.",
     "Place the stack of blank forms and its comparison mark in the same quiet frame for counting the blank forms into bundles of ten beside the paperweight. Keep the forms’ visible edge, the hands’ pause, and the reference detail (into bundles of ten beside the paperweight) visible; end when the visible groups match the completed count and the counting hand withdraws. Show each ten-form bundle clearly separated beside the paperweight after counting.",
     "Hold the cork weather-log weight above the tied, closed log while the final entry remains visible. Let the light cork settle with one muted touch at the center of the log ties, confirm that the weight does not cover the final entry, and hold after the hand releases it.",
-    "Keep the small station clock, the working hand, and every indispensable changed point in one continuous quiet frame throughout winding it after the final entry. Show one deliberate winding turn complete, the key stopped, and the station clock resting unchanged, then hold after the hands withdraw.",
+    "Hold the station-clock date wheel and its numeral window in one quiet close view while advancing the date wheel one notch until tomorrow’s numeral sits centered in its window. Keep the muted detent click and the moving numeral visible; finish when tomorrow’s complete numeral is centered, the wheel holds its notch, and the hand withdraws.",
     "Keep the glass rain-measure card, the working hand, and every indispensable changed point in one continuous quiet frame throughout noting the settled mark in pencil. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw.",
     "Keep the tide-line divider and both marked chart lines in the same overhead frame. Place one point on the high-water mark and the other on the low-water mark, let the hinge settle without scraping, and hold when both points remain exactly on their marks after release.",
     "Frame the coastal canvas message pouch with its destination before placing the copied observation forms inside before closing the pouch. Stay uncut through the muted transfer, keeping the pouch’s canvas detail and the final detail (inside before closing the pouch) visible until the final placement of the copied observation forms is fully inside before closing the pouch and remains stable after release.",
@@ -6492,10 +6492,10 @@
           "evidence_lens": "Follow the aisle curtain tie from its starting position through releasing the curtain across the exit alcove in a single steady view. Keep the tie’s visible edge and the final detail (across the exit alcove) visible; hold when the curtain is fully free of the tie and remains motionless at its named endpoint."
         },
         {
-          "episode_object": "a lobby door key",
+          "episode_object": "an aisle-glow test card",
           "time_place_scope": "the same empty planetarium beneath a dim star ceiling",
-          "mechanism": "locking the empty hall after the seats are settled",
-          "evidence_lens": "Keep the lobby door key, working hand, and closure point together throughout locking the empty hall after the seats are settled. Let the key’s visible edge, the subdued closure sound, and the closure detail (after the seats are settled) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves. Keep the lobby key at its final lock position while every empty seat remains still beyond it."
+          "mechanism": "laying its printed ring around the final floor-level glow point",
+          "evidence_lens": "Keep the aisle-glow test card, its printed ring, and the final floor-level glow point in one overhead view while laying its printed ring around the final floor-level glow point. Let the card make one soft contact; finish when the glow point is centered inside the ring, the card lies flat, and the hand withdraws without shifting either mark."
         }
       ]
     },
@@ -9051,10 +9051,10 @@
           "evidence_lens": "Hold the cork weather-log weight above the tied, closed log while the final entry remains visible. Let the light cork settle with one muted touch at the center of the log ties, confirm that the weight does not cover the final entry, and hold after the hand releases it."
         },
         {
-          "episode_object": "a small station clock",
+          "episode_object": "a station-clock date wheel",
           "time_place_scope": "the same sheltered coastal station office on a mild night",
-          "mechanism": "winding it after the final entry",
-          "evidence_lens": "Keep the small station clock, the working hand, and every indispensable changed point in one continuous quiet frame throughout winding it after the final entry. Show one deliberate winding turn complete, the key stopped, and the station clock resting unchanged, then hold after the hands withdraw."
+          "mechanism": "advancing the date wheel one notch until tomorrow’s numeral sits centered in its window",
+          "evidence_lens": "Hold the station-clock date wheel and its numeral window in one quiet close view while advancing the date wheel one notch until tomorrow’s numeral sits centered in its window. Keep the muted detent click and the moving numeral visible; finish when tomorrow’s complete numeral is centered, the wheel holds its notch, and the hand withdraws."
         },
         {
           "episode_object": "a glass rain-measure card",
