@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.63 — 2026-08-25
+
+- **The Content Store came back.** Adding font packs this morning broke it in two places at once, and this is the half that lives in the app. The app's screens were taught what a font pack is; the part that checks what the shop sends back was not. One unrecognised item does not get skipped — it collapses the whole list, so all 82 products disappeared, not just the six new ones. Your credits, your purchases and the 64 packs you own were never at risk; the store was simply frozen until both halves were fixed.
+- The other half was on the server and needed no code: that process had been running since Sunday and had never heard of font packs either.
+
+---
+
 ## v1.4.62 — 2026-08-25
 
 - **Six font packs are on the shelf.** True Crime & Investigation, Horror & Dread, Documentary & Archive, Bold Explainer, Calm & Sleep, Retro & Arcade — six lettering styles each, three letterforms and three treatments per pack so any two can be combined. 300 credits a pack, 90% off until the end of the year. No font files are installed: each style carries the phrase the image model draws from, so the letters are part of the picture instead of a layer stuck on top.
