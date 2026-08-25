@@ -149,6 +149,7 @@
         :project-slug="slug"
         :episode-id="form.episode_id"
         v-model:selected="form.sections"
+        :model="form.model"
         :allow-duplicates="form.generation_mode !== 'skip'"
         :refresh-key="audioStatus.total"
         :inline-generate-disabled="inlineGenerateDisabled"

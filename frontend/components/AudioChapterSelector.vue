@@ -169,11 +169,19 @@ const props = withDefaults(defineProps<{
   allowDuplicates?: boolean
   /** Bump to force a refetch (e.g. after a generation finishes). */
   refreshKey?: number
+  /**
+   * The voice model currently selected in the form. The chunk counts below are
+   * predicted against ITS published request boundary, so switching model
+   * re-predicts. Without it the backend falls back to whatever this episode
+   * last generated with, which can be a different ceiling entirely.
+   */
+  model?: string
   /** Parent-level gate for voice, script, confirmation, or queue readiness. */
   inlineGenerateDisabled?: boolean
   /** Explains a disabled inline action without duplicating parent validation. */
   inlineGenerateDisabledReason?: string
 }>(), {
+  model: '',
   allowDuplicates: false,
   inlineGenerateDisabled: false,
   inlineGenerateDisabledReason: '',
@@ -407,6 +415,7 @@ async function refresh() {
   try {
     const r = await get<{ sections: SectionRow[] }>(
       `/projects/${props.projectSlug}/episodes/${props.episodeId}/audio-sections`
+      + (props.model ? `?model=${encodeURIComponent(props.model)}` : '')
     )
     sections.value = r.sections || []
     // Sensible default: when the user lands on the page (or switches episode),
@@ -427,7 +436,9 @@ async function refresh() {
   }
 }
 
-watch(() => [props.episodeId, props.refreshKey], refresh, { immediate: true })
+// A model change moves the request boundary, so the predicted split has to be
+// recomputed — not just the episode or an explicit refresh.
+watch(() => [props.episodeId, props.refreshKey, props.model], refresh, { immediate: true })
 </script>
 
 <style scoped>

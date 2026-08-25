@@ -432,7 +432,13 @@ router.get('/projects/:slug/episodes/:code/audio-status', async (req, res) => {
 router.get('/projects/:slug/episodes/:code/audio-sections', async (req, res) => {
   try {
     if (!await pm.getProject(req.params.slug)) return res.status(404).json({ detail: 'Project not found' })
-    const status = await getAudioStatus(req.params.slug, req.params.code)
+    // `?model=` is the voice model the customer has SELECTED in the form, not
+    // the one this episode last used. The chunk counts shown must follow the
+    // choice being made now: two models publish different request boundaries,
+    // so the same chapter is one request under one and several under another.
+    // Omitted (any other caller), planning falls back to job history.
+    const selectedModel = typeof req.query.model === 'string' ? req.query.model : undefined
+    const status = await getAudioStatus(req.params.slug, req.params.code, selectedModel)
 
     const bySlug = new Map<string, {
       label: string

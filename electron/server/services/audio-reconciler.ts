@@ -85,7 +85,21 @@ export function narrationTextStats(text: string): { wordCount: number; character
  *   - Single chunk per section → `{code}_{slug}.mp3`
  *   - Multiple chunks          → `{code}_{slug}_part{N}.mp3`
  */
-export async function getAudioStatus(slug: string, episodeId: string): Promise<AudioStatus> {
+export async function getAudioStatus(
+  slug: string,
+  episodeId: string,
+  /**
+   * The model the caller is about to generate WITH, when it knows one.
+   *
+   * The Audio Generator does: the customer has picked a voice model in the
+   * form, and the split it is shown must follow that choice. Without it this
+   * falls back to the model the episode (or the project) last generated with,
+   * which answers a different question — "how was it made" rather than "how
+   * will it be made" — and predicts against the wrong ceiling the moment the
+   * customer switches to a model with a different published boundary.
+   */
+  selectedModelId?: string,
+): Promise<AudioStatus> {
   const narrationPath = await findNarrationFile(slug, episodeId)
   const audioDir = await resolveAudioDir(slug, narrationPath, episodeId)
   const sections = await parseNarrationDocx(narrationPath)
@@ -117,28 +131,37 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
   // job-queue's executor graph).
   let requestBudget: number | undefined
   let provider = ''
-  try {
-    const { getJobs } = await import('./job-queue.js')
-    const jobs = await getJobs(slug)
-    const audioJobs = jobs
-      .filter(j => j.type === 'audio')
-      .sort((a, b) => String(b.finished_at || b.created_at || '').localeCompare(String(a.finished_at || a.created_at || '')))
-    // This episode's own job names the model it was generated with. Terminal
-    // job history is pruned, so an episode whose job has aged out falls back to
-    // the project's most recent audio job — the same model in practice, and a
-    // far better answer than a constant.
-    const lastAudio = audioJobs.find(j => (j.episode_id || '').toUpperCase() === code) || audioJobs[0]
-    const model = (lastAudio?.params as any)?.model
-    if (model) {
-      provider = 'genstudio'
+  // The caller's current selection wins outright, and is resolved WITHOUT
+  // reading job history — a caller that knows the model must not lose it
+  // because the job store happened to be unreadable.
+  let model: string = selectedModelId?.trim() || ''
+  if (!model) {
+    try {
+      const { getJobs } = await import('./job-queue.js')
+      const jobs = await getJobs(slug)
+      const audioJobs = jobs
+        .filter(j => j.type === 'audio')
+        .sort((a, b) => String(b.finished_at || b.created_at || '').localeCompare(String(a.finished_at || a.created_at || '')))
+      // This episode's own job names the model it was generated with. Terminal
+      // job history is pruned, so an episode whose job has aged out falls back
+      // to the project's most recent audio job — the same model in practice,
+      // and a far better answer than a constant.
+      const lastAudio = audioJobs.find(j => (j.episode_id || '').toUpperCase() === code) || audioJobs[0]
+      const remembered = (lastAudio?.params as any)?.model
+      if (typeof remembered === 'string') model = remembered.trim()
+    } catch { /* no history — handled below */ }
+  }
+  if (model) {
+    provider = 'genstudio'
+    try {
       const apiKey = await getApiKey('genstudio').catch(() => '')
       if (apiKey) {
         const ttsModel = (await listGenStudioTtsModels(apiKey).catch(() => []))
           .find(candidate => candidate.id === model)
         if (ttsModel) requestBudget = resolveTtsRequestBudget(ttsModel).effective
       }
-    }
-  } catch { /* boundary unresolved — handled per section below */ }
+    } catch { /* boundary unresolved — handled per section below */ }
+  }
 
   const expected: ExpectedChunk[] = []
   for (const section of sections) {
