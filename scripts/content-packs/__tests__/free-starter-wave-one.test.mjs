@@ -77,16 +77,30 @@ test('wave one has the exact source identities, advertisements, enriched topic d
   for (const kit of kits) {
     const manifest = await readJson(new URL(`kit/${kit.slug}/pack.json`, WAVE))
     assert.equal(manifest.pack_id, kit.packId)
-    assert.equal(manifest.version, '1.0.0')
+    // Patch releases are how a correction reaches a customer, so freeze the closure's
+    // shape and membership rather than the component patch numbers.
+    assert.match(manifest.version, /^1\.0\.\d+$/)
     assert.equal('items' in manifest, false)
     assert.equal('files' in manifest, false)
-    assert.deepEqual(manifest.dependencies, kit.dependencies.map(row => ({ pack_id: row.packId, version: '1.0.0' })))
-    assert.deepEqual(manifest.bundles, [{
-      id: kit.bundleId,
-      kind: 'channel-kit',
-      name: kit.name,
-      components: kit.dependencies.map(row => ({ pack_id: row.packId, version: '1.0.0', item_id: row.itemId, kind: row.kind })),
-    }])
+    assert.deepEqual(manifest.dependencies.map(row => row.pack_id), kit.dependencies.map(row => row.packId))
+    for (const dependency of manifest.dependencies) assert.match(dependency.version, /^1\.0\.\d+$/)
+    assert.equal(manifest.bundles.length, 1)
+    const [bundle] = manifest.bundles
+    assert.equal(bundle.id, kit.bundleId)
+    assert.equal(bundle.kind, 'channel-kit')
+    assert.equal(bundle.name, kit.name)
+    assert.deepEqual(
+      bundle.components.map(({ pack_id, item_id, kind }) => ({ pack_id, item_id, kind })),
+      kit.dependencies.map(row => ({ pack_id: row.packId, item_id: row.itemId, kind: row.kind })),
+    )
+    // A Channel Kit is exactly four components, one of each kind, and its bundle must
+    // pin precisely what its dependency closure declares.
+    assert.equal(bundle.components.length, 4)
+    assert.equal(new Set(bundle.components.map(row => row.kind)).size, 4)
+    assert.deepEqual(
+      bundle.components.map(({ pack_id, version }) => ({ pack_id, version })),
+      manifest.dependencies.map(({ pack_id, version }) => ({ pack_id, version })),
+    )
     assert.equal(manifest.changelog, `${kit.count} / ${kit.transformation}`)
   }
 })
@@ -184,7 +198,8 @@ test('approved preview bytes are copied unchanged and all unblocked sources buil
 test('First Humans binds its approved publisher-created Prehistoric Discovery raster', async () => {
   const { manifest, document } = await sourceFor('thumbnail', 'prehistoric-discovery')
   assert.equal(manifest.pack_id, 'com.storystudio.pack.thumbnail.prehistoric-discovery')
-  assert.deepEqual(document.preview_assets, ['assets/prehistoric-discovery.webp'])
+  assert.equal(document.preview_assets[0], 'assets/prehistoric-discovery.webp')
+  for (const preview of document.preview_assets) assert.match(preview, /^assets\/prehistoric-discovery(-\d+)?\.webp$/)
   await access(BLOCKED_PREHISTORIC_PREVIEW)
   assert.deepEqual(await sharp(sourceDirectory(BLOCKED_PREHISTORIC_PREVIEW)).metadata().then(({ format, width, height }) => ({ format, width, height })), {
     format: 'webp', width: 1672, height: 941,

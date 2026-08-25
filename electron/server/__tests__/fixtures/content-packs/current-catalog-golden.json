@@ -347,7 +347,7 @@
           "natural-world-animals"
         ],
         "effective_prompt_fields_sha256": "42b35421dd6cfef7728f38d6f37d669eeaf5a09afdef8c340e9e45eb97d22606",
-        "ideation_profile_sha256": "0c48b77d7c22f03ec136632b334ab6a0c791f2300eab7b2ab1880a4714bf0d1c",
+        "ideation_profile_sha256": "b80b942bab91972503d0d281c606c2d428a05c0c5e68b1b7ac7201795a4511ad",
         "script_shape": {
           "default_chapter_count": 8,
           "chapter_count_range": [

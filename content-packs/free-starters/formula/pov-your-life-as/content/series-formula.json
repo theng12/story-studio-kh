@@ -70,8 +70,6 @@
     "com.storystudio.topic.pov-historical-occupations"
   ],
   "default_topic_pack_ids": [
-    "com.storystudio.topic.pov-law-enforcement",
-    "com.storystudio.topic.pov-criminal-hierarchies",
     "com.storystudio.topic.pov-historical-occupations"
   ],
   "recommended_visual_style_ids": [

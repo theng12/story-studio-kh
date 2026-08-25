@@ -15,6 +15,13 @@
   "aspect_ratio": "16:9",
   "title_mode": "ai",
   "composition_guidance": "Place one historically grounded subject portrait on the left and an uncluttered right-anchored title block over a strong dim gradient.",
+  "composition_rules": [
+    "Fill the left side of the canvas with one historically grounded portrait, cropped so the face and shoulders stay readable at phone size.",
+    "Darken the right side with a strong black gradient and anchor the exact episode title there in large bold uppercase lettering, ranged right inside safe margins.",
+    "Close the bottom with one thin horizontal accent rule and a narrow centred subtitle band beneath it; keep the band a short kicker line, never a second copy of the title.",
+    "Leave the top-left corner clear for the channel logo slot.",
+    "Keep the portrait and the title block clearly separated — no overlap, no third focal subject, no collage."
+  ],
   "required_elements": [
     "one historically grounded portrait on the left",
     "large uppercase episode headline on the right",
@@ -23,7 +30,7 @@
   "avoid_elements": [
     "modern costume errors",
     "glamorized violence or coercion",
-    "subtitle banner",
+    "a second headline, or the episode title repeated inside the bottom subtitle band",
     "illegible text",
     "logos or watermarks"
   ],
@@ -37,7 +44,9 @@
   ],
   "visual_style_guidance": "Use a left-side historical portrait and right-side black gradient; preserve clear mobile-readable separation between figure and headline.",
   "preview_assets": [
-    "assets/portrait-block-right.webp"
+    "assets/portrait-block-right.webp",
+    "assets/portrait-block-right-2.webp",
+    "assets/portrait-block-right-3.webp"
   ],
   "compatible_formula_ids": [
     "com.storystudio.formula.prayer",

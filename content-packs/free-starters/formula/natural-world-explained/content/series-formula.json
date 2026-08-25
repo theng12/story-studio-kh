@@ -3,7 +3,7 @@
   "schema_version": 1,
   "id": "com.storystudio.formula.natural-world-explained",
   "name": "Natural World, Explained",
-  "description": "Vertebrate and invertebrate animal subjects — mammals, birds, reptiles, amphibians, fish, cephalopods, crustaceans. Covers anything in Kingdom Animalia except Insects (separate niche, since insect content has its own visual + narrative conventions). The default niche for Bound-style 'Why It Sucks To Be Born As X' explainers since the reference channel is animal-heavy.",
+  "description": "Wildlife subjects from across the whole animal kingdom, vertebrates and invertebrates alike — mammals, birds, reptiles, amphibians, fish, insects, spiders and other arachnids, cephalopods, crustaceans, molluscs, worms, corals and jellyfish. Insects and the other invertebrates are fully in scope, not a separate subject area. Built for explainers that profile one creature at a time and the specific biological pressure it lives under.",
   "channel_promise": "Instinct → Ecosystem",
   "audience": "Viewers who enjoy wildlife biology, nature documentaries, and specific animal adaptations.",
   "youtube_tags_hint": [
@@ -357,6 +357,10 @@
     "Pistol Shrimp",
     "Mantis Shrimp",
     "Tarsier",
-    "Honey Badger"
+    "Honey Badger",
+    "Bombardier Beetle",
+    "Tarantula Hawk Wasp",
+    "Antlion",
+    "Portia Spider"
   ]
 }

@@ -1,7 +1,7 @@
 {
   "id": "plants",
   "name": "Plants",
-  "description": "Botanical subjects — flowering plants, trees, carnivorous plants, parasites, weird-evolution edge cases. Excludes fungi (separate niche) and algae. Best paired with explainer-style formats (bound-explainer, listicle) but works for any subject domain where the cast is rooted, photosynthetic, or evolved from green ancestors.",
+  "description": "Botanical subjects — flowering plants, trees, carnivorous plants, parasites, weird-evolution edge cases. Excludes fungi (separate niche) and algae. Best paired with single-subject explainer and countdown formulas, but works for any subject domain where the cast is rooted, photosynthetic, or evolved from green ancestors.",
   "tagline": "Rooted in place. Surprisingly brutal.",
   "builtin": true,
   "schemaVersion": 1,

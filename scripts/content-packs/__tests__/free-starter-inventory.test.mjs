@@ -230,7 +230,9 @@ test('free Starter Channel Kit source tree contains the exact 46 independently v
   assert.equal(packSources.length, 46)
   assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 46)
   for (const { relative, source } of packSources) {
-    assert.equal(source.version, '1.0.0', `${relative} must retain its launch version`)
+    // A pack's content only reaches a customer through a NEW release, so patch bumps are
+    // the normal way a correction ships. Freeze the identity line, not the patch number.
+    assert.match(source.version, /^1\.0\.\d+$/, `${relative} must stay on the 1.0.x release line`)
     assert.match(source.entitlement.family, /^com\.storystudio\.family\./)
   }
 })

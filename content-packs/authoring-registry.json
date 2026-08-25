@@ -296,10 +296,10 @@
   ],
   "records": [
     {
-      "receipt_ref": "baseline:com.storystudio.pack.formula.ancient-humans@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.formula.ancient-humans@1.0.1",
       "pack_id": "com.storystudio.pack.formula.ancient-humans",
       "item_id": "com.storystudio.formula.ancient-humans",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -319,10 +319,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.formula.deep-time-documentary@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.formula.deep-time-documentary@1.0.1",
       "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
       "item_id": "com.storystudio.formula.deep-time-documentary",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -434,10 +434,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.formula.natural-world-explained@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.formula.natural-world-explained@1.0.1",
       "pack_id": "com.storystudio.pack.formula.natural-world-explained",
       "item_id": "com.storystudio.formula.natural-world-explained",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -457,10 +457,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.formula.pov-your-life-as@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.formula.pov-your-life-as@1.0.1",
       "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
       "item_id": "com.storystudio.formula.pov-your-life-as",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -526,10 +526,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.kit.a-life-as@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.kit.a-life-as@1.0.3",
       "pack_id": "com.storystudio.pack.kit.a-life-as",
       "bundle_id": "com.storystudio.bundle.a-life-as",
-      "version": "1.0.0",
+      "version": "1.0.3",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -539,7 +539,7 @@
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
-          "version": "1.0.0"
+          "version": "1.0.1"
         },
         {
           "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
@@ -551,7 +551,7 @@
         },
         {
           "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
-          "version": "1.0.0"
+          "version": "1.0.2"
         }
       ],
       "stocking_proposal": {
@@ -686,10 +686,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.kit.deep-time@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.kit.deep-time@1.0.2",
       "pack_id": "com.storystudio.pack.kit.deep-time",
       "bundle_id": "com.storystudio.bundle.deep-time",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -699,7 +699,7 @@
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
-          "version": "1.0.0"
+          "version": "1.0.1"
         },
         {
           "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
@@ -726,10 +726,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.kit.first-humans@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.kit.first-humans@1.0.3",
       "pack_id": "com.storystudio.pack.kit.first-humans",
       "bundle_id": "com.storystudio.bundle.first-humans",
-      "version": "1.0.0",
+      "version": "1.0.3",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -739,7 +739,7 @@
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.ancient-humans",
-          "version": "1.0.0"
+          "version": "1.0.1"
         },
         {
           "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
@@ -751,7 +751,7 @@
         },
         {
           "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
-          "version": "1.0.0"
+          "version": "1.0.1"
         }
       ],
       "stocking_proposal": {
@@ -886,10 +886,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.kit.wild-worlds@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.kit.wild-worlds@1.0.2",
       "pack_id": "com.storystudio.pack.kit.wild-worlds",
       "bundle_id": "com.storystudio.bundle.wild-worlds",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -899,7 +899,7 @@
       "dependencies": [
         {
           "pack_id": "com.storystudio.pack.formula.natural-world-explained",
-          "version": "1.0.0"
+          "version": "1.0.1"
         },
         {
           "pack_id": "com.storystudio.pack.topic.natural-world-animals",
@@ -1248,10 +1248,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.thumbnail.portrait-block-right@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.thumbnail.portrait-block-right@1.0.2",
       "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
       "item_id": "com.storystudio.thumbnail.portrait-block-right",
-      "version": "1.0.0",
+      "version": "1.0.2",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -1271,10 +1271,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.thumbnail.prehistoric-discovery@1.0.0",
+      "receipt_ref": "baseline:com.storystudio.pack.thumbnail.prehistoric-discovery@1.0.1",
       "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
       "item_id": "com.storystudio.thumbnail.prehistoric-discovery",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",

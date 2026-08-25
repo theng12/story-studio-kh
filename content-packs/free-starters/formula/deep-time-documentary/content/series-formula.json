@@ -144,11 +144,7 @@
     "com.storystudio.topic.deep-time-speculative-earth"
   ],
   "default_topic_pack_ids": [
-    "com.storystudio.topic.deep-time-earth-systems",
-    "com.storystudio.topic.deep-time-prehistoric-life",
-    "com.storystudio.topic.deep-time-deep-ocean",
-    "com.storystudio.topic.deep-time-human-origins",
-    "com.storystudio.topic.deep-time-speculative-earth"
+    "com.storystudio.topic.deep-time-earth-systems"
   ],
   "recommended_visual_style_ids": [
     "com.storystudio.style.paleo-documentary-tableau"

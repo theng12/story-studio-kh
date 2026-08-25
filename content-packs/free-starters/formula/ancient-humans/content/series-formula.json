@@ -91,10 +91,7 @@
     "com.storystudio.topic.ancient-humans-technology"
   ],
   "default_topic_pack_ids": [
-    "com.storystudio.topic.ancient-humans-survival",
-    "com.storystudio.topic.ancient-humans-environments",
-    "com.storystudio.topic.ancient-humans-social-life",
-    "com.storystudio.topic.ancient-humans-technology"
+    "com.storystudio.topic.ancient-humans-survival"
   ],
   "recommended_visual_style_ids": [
     "com.storystudio.style.prehistoric-stick-cartoon"

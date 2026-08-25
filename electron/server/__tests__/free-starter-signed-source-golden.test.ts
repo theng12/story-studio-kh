@@ -196,6 +196,20 @@ test('signed Formula source documents preserve every legacy prompt field represe
       assert.match(rationale, /economics-of/)
       legacyFacts.description = signedFacts.description
     }
+    // A built-in Formula may default to Topic Packs that ship inside the app; a Store
+    // pack may only default to Topic Packs the customer can actually obtain as products.
+    // The two lists are legitimately different, so compare membership rather than equality:
+    // every default the pack declares must still be one the built-in endorses.
+    if (signedFacts.defaultTopicPackIds && legacyFacts.defaultTopicPackIds) {
+      for (const id of signedFacts.defaultTopicPackIds) {
+        assert.ok(
+          legacyFacts.defaultTopicPackIds.includes(id),
+          `${pair.source} default Topic Pack ${id} is not endorsed by the built-in Formula`,
+        )
+      }
+      assert.ok(signedFacts.defaultTopicPackIds.length > 0, `${pair.source} must default to at least one Topic Pack`)
+      legacyFacts.defaultTopicPackIds = signedFacts.defaultTopicPackIds
+    }
     for (const [field, expected] of Object.entries(legacyFacts)) {
       if (field === 'scriptStructure' && expected !== undefined) assertSubset(signedFacts.scriptStructure, expected, `${pair.source} must preserve ${field}`)
       else if (expected !== undefined) assert.deepEqual(signedFacts[field as keyof typeof signedFacts], expected, `${pair.source} must preserve ${field}`)

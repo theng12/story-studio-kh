@@ -3,7 +3,7 @@
   "pack_id": "com.storystudio.pack.formula.natural-world-explained",
   "publisher_id": "com.storystudio",
   "key_id": "{{KEY_ID}}",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "min_app_version": "{{MIN_APP_VERSION}}",
   "lifecycle": "active",
   "entitlement": { "sku": "com.storystudio.sku.formula.natural-world-explained", "family": "com.storystudio.family.formula.natural-world-explained" }

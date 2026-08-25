@@ -523,7 +523,11 @@ test('rejects self, cyclic, and coordinator dependencies in creative closure wit
   cycle.records[0].dependencies = [{ pack_id: cycle.records[1].pack_id, version: '1.0.0' }]
   cycle.records[1].dependencies = [{ pack_id: cycle.records[0].pack_id, version: '1.0.0' }]
   const coordinator = reservationRequest()
-  coordinator.records[0].dependencies = [{ pack_id: 'com.storystudio.pack.kit.deep-time', version: '1.0.0' }]
+  // Read the coordinator's live version rather than pinning a literal, so a legitimate
+  // Channel Kit version bump cannot turn this negative fixture into a different error.
+  const registry = JSON.parse(await readFile(copy, 'utf8'))
+  const deepTimeKit = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.kit.deep-time')
+  coordinator.records[0].dependencies = [{ pack_id: deepTimeKit.pack_id, version: deepTimeKit.version }]
   for (const [request, error] of [[self, /depend on itself/i], [cycle, /cyclic dependency/i], [coordinator, /creative.*coordinator/i]]) {
     await assert.rejects(reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request }), error)
     assert.deepEqual(await readFile(copy), original)
@@ -750,6 +754,7 @@ test('rejects a Channel Kit dependency on another coordinator even with complete
   const copy = join(root, 'content-packs', 'authoring-registry.json')
   const registry = JSON.parse(await readFile(copy, 'utf8'))
   const deepTime = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.kit.deep-time')
+  const aLifeAs = registry.records.find((record) => record.pack_id === 'com.storystudio.pack.kit.a-life-as')
   const request = reservationRequest()
   request.records[0] = {
     ...request.records[0],
@@ -757,7 +762,7 @@ test('rejects a Channel Kit dependency on another coordinator even with complete
     bundle_id: 'com.storystudio.bundle.reserved-style',
     kind: 'channel-kit',
     source_path: 'content-packs/reserved/kit/reserved-style',
-    dependencies: [...deepTime.dependencies, { pack_id: 'com.storystudio.pack.kit.a-life-as', version: '1.0.0' }],
+    dependencies: [...deepTime.dependencies, { pack_id: aLifeAs.pack_id, version: aLifeAs.version }],
     stocking_proposal: {
       family: { id: 'com.storystudio.family.kit.reserved-style', status: 'reserved' },
       sku: { id: 'com.storystudio.sku.kit.reserved-style', status: 'reserved' },
