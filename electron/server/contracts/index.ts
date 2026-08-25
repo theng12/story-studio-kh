@@ -151,7 +151,6 @@ const FormulaProductionKitSchema = z.object({
   id: z.string().min(1).max(80).regex(/^[a-z0-9][a-z0-9_-]*$/),
   label: z.string().min(1).max(120),
   description: z.string().min(1).max(1000),
-  recommendedVisualStyleId: z.string().min(1).max(120).optional(),
   episodeProfiles: z.array(FormulaEpisodeProfileSchema).max(20).optional(),
 }).strict()
 
@@ -236,6 +235,8 @@ export const NicheSchema = z.object({
   thumbnailStyleSheet: z.string().max(3000).optional(),
   thumbnailProfile: NicheThumbnailProfileSchema.optional(),
   defaultStyleKeywords: z.array(z.string().min(1).max(120)).max(40).optional(),
+  /** Suggestions only — never applied to a project without an explicit click. */
+  recommendedVisualStyleIds: z.array(z.string().min(1).max(200)).max(20).optional(),
   referenceImages: z.array(NicheReferenceImageSchema).max(50).optional(),
   youtubeTagsHint: z.array(z.string().min(1).max(60)).max(40).optional(),
   audienceHint: z.string().max(400).optional(),
@@ -355,7 +356,6 @@ export const UpdateConfigSchema = z.object({
   voice_presets: z.array(z.any()).optional(),
   style_presets: z.array(z.any()).optional(),
   active_style_preset_id: z.string().max(200).optional(),
-  formula_applied_style_id: z.string().max(200).optional(),
   video_models: z.record(z.string(), z.any()).optional(),
   confirmation_preferences: z.record(z.string(), z.any()).optional(),
 }).passthrough().transform((value) => {

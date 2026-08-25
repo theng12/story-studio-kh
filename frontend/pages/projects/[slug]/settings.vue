@@ -571,19 +571,43 @@
               <h4>{{ selectedProductionKit.label }}</h4>
               <p>{{ selectedProductionKit.description }}</p>
             </div>
-            <span class="production-kit-status">Applies with Formula</span>
+            <span class="production-kit-status">Suggestions</span>
           </div>
 
           <div class="production-kit-grid">
             <div class="production-kit-item">
-              <span>Visual style</span>
-              <strong>{{ selectedProductionKitStyleName }}</strong>
-              <small>Applied automatically unless you already chose a different project style.</small>
+              <span>Suggested visual style</span>
+              <template v-if="productionKitStyleSuggestion">
+                <strong>{{ productionKitStyleSuggestion.name }}</strong>
+                <small v-if="productionKitStyleSuggestion.inUse">
+                  In use on this channel. Art style is always your choice — change it any time in
+                  Settings → Art Style.
+                </small>
+                <template v-else-if="productionKitStyleSuggestion.installed">
+                  <small>Installed, but not selected. Your current art style stays until you apply this.</small>
+                  <button
+                    class="btn btn-sm btn-secondary mt-1"
+                    type="button"
+                    :disabled="artStyleSaveMessage === 'Saving…'"
+                    @click="useSuggestedProductionKitStyle"
+                  >
+                    Use this style
+                  </button>
+                </template>
+                <small v-else>
+                  Not installed. Get it from the
+                  <NuxtLink to="/content-store">Content Store</NuxtLink>, or keep the style you already use.
+                </small>
+              </template>
+              <template v-else>
+                <strong>Your choice</strong>
+                <small>This Formula suggests no particular look. Pick one in Settings → Art Style.</small>
+              </template>
             </div>
             <div class="production-kit-item">
               <span>Thumbnail recipe</span>
               <strong>{{ selectedProductionKitThumbnailName }}</strong>
-              <small>Selected automatically as the Formula default; still overridable in Thumbnail Prompts.</small>
+              <small>The Formula's default when you have not chosen one; overridable in Thumbnail Prompts.</small>
             </div>
             <div class="production-kit-item">
               <span>Motion</span>
@@ -2000,11 +2024,17 @@
             <optgroup v-if="savedStylePresets.length" label="Saved styles">
               <option v-for="s in savedStylePresets" :key="s.id" :value="s.id">{{ s.name }}</option>
             </optgroup>
-            <optgroup label="Built-in styles">
+            <optgroup label="Style library">
               <option v-for="s in visualStyles" :key="s.id" :value="`builtin:${s.id}`">{{ s.name }}</option>
             </optgroup>
           </select>
         </div>
+        <p v-if="unresolvedArtStyleId" class="text-warning text-sm mt-1">
+          This channel is saved against the art style <code>{{ humanizeCatalogId(unresolvedArtStyleId) }}</code>,
+          but nothing installed provides it — images are being generated without it. Pick a style
+          above, or install the pack that provides it from the
+          <NuxtLink to="/content-store">Content Store</NuxtLink>.
+        </p>
         <span v-if="artStyleSaveMessage" class="text-muted" style="font-size: var(--font-xs)">{{ artStyleSaveMessage }}</span>
       </div>
 
@@ -2350,15 +2380,45 @@ const nicheLibraryCount = computed(() => nicheLibList.value?.length || 0)
 const selectedNicheProfile = computed(() => findNicheProfile(nicheId.value))
 const selectedProductionKit = computed(() => selectedNicheProfile.value?.productionKit || null)
 const humanizeCatalogId = (value?: string) => (value || 'Not specified')
+  .replace(/^com\.storystudio\.(?:style|thumbnail|formula|topic)\./, '')
   .replace(/^builtin-/, '')
   .split(/[-_]/g)
   .filter(Boolean)
   .map(part => part.charAt(0).toUpperCase() + part.slice(1))
   .join(' ')
-const selectedProductionKitStyleName = computed(() => {
-  const id = selectedProductionKit.value?.recommendedVisualStyleId
-  return visualStyles.value.find(style => style.id === id)?.name || humanizeCatalogId(id)
+/**
+ * A Formula SUGGESTS a visual style; it never writes one. The suggestion has
+ * three honest states, and the card says which one you are in:
+ *   - in use            → you already picked it, nothing to do
+ *   - installed         → one click applies it
+ *   - not installed     → we name it and point at the Content Store
+ * Before v1.4.64 there was no state at all: saving the Formula silently wrote
+ * a style into the project, so the look was decided for you and the picker
+ * showed a value you never chose.
+ */
+const productionKitStyleSuggestionIds = computed<string[]>(() => {
+  const ids = selectedNicheProfile.value?.recommendedVisualStyleIds
+  return Array.isArray(ids) ? ids.filter(id => typeof id === 'string' && id.trim()) : []
 })
+const productionKitStyleSuggestion = computed(() => {
+  const id = productionKitStyleSuggestionIds.value[0]
+  if (!id) return null
+  const installed = visualStyles.value.find(style => style.id === id) || null
+  const active = String((config.value as any)?.active_style_preset_id || '').trim()
+  return {
+    id,
+    name: installed?.name || humanizeCatalogId(id),
+    installed: Boolean(installed),
+    inUse: active === id,
+  }
+})
+/** One click, and only ever from this button. Routes through the same picker
+ *  the customer uses, so the choice is recorded exactly as a manual one. */
+function useSuggestedProductionKitStyle(): void {
+  const suggestion = productionKitStyleSuggestion.value
+  if (!suggestion || !suggestion.installed || suggestion.inUse) return
+  artStyleSelection.value = `builtin:${suggestion.id}`
+}
 const selectedProductionKitThumbnailName = computed(() =>
   humanizeCatalogId(selectedNicheProfile.value?.defaultThumbnailTemplateId))
 const selectedProductionKitMotionName = computed(() =>
@@ -2583,14 +2643,13 @@ async function saveNicheSettings() {
   nicheSaving.value = true
   nicheSaveError.value = ''
   try {
+    // A Formula saves a Formula. It does not touch the project's art style —
+    // that stays the customer's own selection, changed only from the picker.
     await setProjectNiche(slug.value, nicheId.value || null, topicPackIds.value)
-    const formulaStyleChanged = await applyFormulaVisualDefault(findNicheProfile(nicheId.value))
     nicheIdBaseline.value = nicheId.value
     topicPackIdsBaseline.value = [...topicPackIds.value]
     stampSaved('niche')
-    success(nicheId.value
-      ? `Series Formula and Topic Packs saved${formulaStyleChanged ? ' · production-kit style updated' : ''}`
-      : 'Series Formula cleared')
+    success(nicheId.value ? 'Series Formula and Topic Packs saved' : 'Series Formula cleared')
     await loadProject(slug.value)
   } catch (e: any) {
     nicheSaveError.value = e?.data?.detail || e?.message || 'Failed to save niche settings'
@@ -4293,9 +4352,24 @@ const projectForm = reactive<{
 const artStyleSelection = ref('')
 const artStyleSaveMessage = ref('')
 let artStyleSelectionInitialized = false
-let suppressArtStyleSelectionSave = false
 const savedStylePresets = computed(() =>
   Array.isArray((config.value as any)?.style_presets) ? (config.value as any).style_presets : [])
+
+/**
+ * A saved style id that resolves to nothing renders nothing — the generator
+ * quietly falls back and the picker still shows a name, so the project looks
+ * configured while every prompt goes out without the style. Saving one is
+ * refused now, but a project can still carry an id from an older build or
+ * from a pack that has since been uninstalled. Say so, here, in the UI.
+ */
+const unresolvedArtStyleId = computed(() => {
+  const active = String((config.value as any)?.active_style_preset_id || '').trim()
+  if (!active) return ''
+  if (visualStyles.value.some(style => style.id === active)) return ''
+  if (savedStylePresets.value.some((preset: any) =>
+    preset?.id === active && String(preset?.description || '').trim())) return ''
+  return active
+})
 
 watch(config, (c) => {
   if (!c) return
@@ -4307,7 +4381,6 @@ watch(config, (c) => {
 
 watch(artStyleSelection, async (next, prev) => {
   if (!artStyleSelectionInitialized) return
-  if (suppressArtStyleSelectionSave) return
   if (next === prev) return
   artStyleSaveMessage.value = 'Saving…'
   try {
@@ -4318,26 +4391,27 @@ watch(artStyleSelection, async (next, prev) => {
       const bs = visualStyles.value.find(b => b.id === builtinId)
       if (!bs) throw new Error('Unknown built-in style')
       activeId = bs.id
-      // Materialise the built-in into style_presets if it isn't there yet
-      // (idempotent — re-selecting the same built-in won't duplicate it).
-      const existing = Array.isArray((config.value as any)?.style_presets)
-        ? [...(config.value as any).style_presets]
-        : []
-      if (!existing.some((p: any) => p && p.id === bs.id)) {
-        existing.push({
-          id: bs.id,
-          name: bs.name,
-          description: bs.data.style_bible,
-          created_at: new Date().toISOString(),
-        })
-        payload.style_presets = existing
+      // A SIGNED style already resolves through the project's content pin, so
+      // copying its prose into the project config would fork it: the pack
+      // could be updated or revoked and this project would keep rendering a
+      // stale private copy nobody could see or edit. Only an unqualified id
+      // has nowhere else to live and needs its text materialised here.
+      if (!activeId.startsWith('com.storystudio.')) {
+        const existing = Array.isArray((config.value as any)?.style_presets)
+          ? [...(config.value as any).style_presets]
+          : []
+        if (!existing.some((p: any) => p && p.id === bs.id)) {
+          existing.push({
+            id: bs.id,
+            name: bs.name,
+            description: bs.data.style_bible,
+            created_at: new Date().toISOString(),
+          })
+          payload.style_presets = existing
+        }
       }
     }
     payload.active_style_preset_id = activeId
-    // An explicit picker change becomes the user's choice. Future Formula
-    // changes must not replace it automatically, even when it happens to be
-    // the same style the prior Formula recommended.
-    payload.formula_applied_style_id = ''
     await put(`/projects/${slug.value}/settings/config`, payload)
     await refreshConfig(slug.value)
     artStyleSaveMessage.value = activeId ? 'Art style applied to this project' : 'Art style cleared'
@@ -4349,55 +4423,6 @@ watch(artStyleSelection, async (next, prev) => {
   }
 })
 
-/** Apply a Formula's recommended visual style only when the project has no
- * explicit style, or when its current style was applied by the previous
- * Formula production kit. This gives new channels one coherent setup while
- * preserving user-owned art direction on established projects. */
-async function applyFormulaVisualDefault(niche: any): Promise<boolean> {
-  const styleId = String(niche?.productionKit?.recommendedVisualStyleId || '').trim()
-  const current = String((config.value as any)?.active_style_preset_id || '').trim()
-  const previousFormulaStyle = String((config.value as any)?.formula_applied_style_id || '').trim()
-  if (current && current !== previousFormulaStyle) return false
-  if (!styleId) {
-    if (!previousFormulaStyle) return false
-    await put(`/projects/${slug.value}/settings/config`, {
-      active_style_preset_id: '',
-      formula_applied_style_id: '',
-    })
-    await refreshConfig(slug.value)
-    suppressArtStyleSelectionSave = true
-    artStyleSelection.value = ''
-    await nextTick()
-    suppressArtStyleSelectionSave = false
-    return true
-  }
-
-  const builtin = visualStyles.value.find(style => style.id === styleId)
-  if (!builtin) return false
-  const presets = Array.isArray((config.value as any)?.style_presets)
-    ? [...(config.value as any).style_presets]
-    : []
-  if (!presets.some((preset: any) => preset?.id === builtin.id)) {
-    presets.push({
-      id: builtin.id,
-      name: builtin.name,
-      description: builtin.data.style_bible,
-      created_at: new Date().toISOString(),
-    })
-  }
-
-  await put(`/projects/${slug.value}/settings/config`, {
-    style_presets: presets,
-    active_style_preset_id: builtin.id,
-    formula_applied_style_id: builtin.id,
-  })
-  await refreshConfig(slug.value)
-  suppressArtStyleSelectionSave = true
-  artStyleSelection.value = builtin.id
-  await nextTick()
-  suppressArtStyleSelectionSave = false
-  return current !== builtin.id
-}
 // (Removed: per-project enable/disable cloud-sync handlers + portable
 // form field. Cloud sync is now app-wide via Settings → Storage; the
 // per-project mode toggle is dead.)

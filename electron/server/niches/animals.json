@@ -215,12 +215,6 @@
       "ovoviviparous"
     ]
   },
-  "visualStyleSheet": "All subjects are animals rendered as expressive cartoons with accurate species anatomy — correct skeletal proportions, accurate pelage / feathers / scales, species-typical posture. One expressive face per subject (real eye placement, real mouth structure — do NOT default to human-cartoon mascot eyes for non-vertebrate subjects). Thick uneven black ink outline, flat solid color fills with minimal cel-shading. Background is a simple solid color, gradient, or single-element environmental cue (savanna grass, ice floe, branch, ocean blue).",
-  "defaultStyleKeywords": [
-    "anatomically accurate animal",
-    "expressive cartoon animal",
-    "species-typical posture"
-  ],
   "referenceImages": [],
   "youtubeTagsHint": [
     "animals",

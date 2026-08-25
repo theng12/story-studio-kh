@@ -318,15 +318,6 @@
   ],
   "structuralVariety": "vary-all",
   "visualStyleHint": "soft, dreamlike, warm and luminous — gentle illustration that lulls rather than dazzles",
-  "visualStyleSheet": "Soft, dreamlike illustration. Warm, luminous, low-contrast colour palette — amber, moonlit blue, candle-gold. Gentle, slightly hazy focus. Calm, uncluttered compositions with a single quiet subject. Nothing harsh, saturated, or busy.",
-  "defaultStyleKeywords": [
-    "soft",
-    "dreamlike",
-    "warm",
-    "luminous",
-    "low-contrast",
-    "gentle"
-  ],
   "metadataTitleStyleHint": "calm and literary — a quiet, evocative noun phrase that signals a relaxing bedtime story, never clickbait",
   "metadataTitleHookRules": [
     "Signal the calm up front — words like 'sleep story', 'bedtime', 'relaxing', or the gentle subject itself.",

@@ -65,7 +65,8 @@ test('deep-time documentary recipe is browseable, AI-rendered, and profile-aware
 
   const formula = JSON.parse(source('../../electron/server/niches/deep-time-documentary.json'))
   assert.equal(formula.defaultThumbnailTemplateId, recipe.id)
-  assert.equal(formula.productionKit.recommendedVisualStyleId, 'builtin-paleo-documentary-tableau')
+  // A Formula binds its recipe, never a visual style — the look is chosen.
+  assert.equal(formula.productionKit.recommendedVisualStyleId, undefined)
 })
 
 test('archival map investigation is discoverable as an original history recipe', () => {

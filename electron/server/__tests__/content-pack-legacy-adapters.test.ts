@@ -131,6 +131,24 @@ describe('Content Pack legacy adapters', () => {
     assert.equal('model' in niche, false)
   })
 
+  test('a pack\u2019s recommended styles are carried through as SUGGESTIONS, not written anywhere', () => {
+    const niche = contentPackDocumentToNiche(formulaDocument())
+    // The pack has always declared this list; the app used to discard it and
+    // read a hardcoded id out of the production kit instead. Now the list is
+    // the only channel a Formula has for saying "this look suits me".
+    assert.deepEqual(niche.recommendedVisualStyleIds, [STYLE_ID])
+    // And the kit no longer carries a style id at all, so nothing downstream
+    // can mistake a suggestion for an instruction.
+    assert.equal((niche.productionKit as any)?.recommendedVisualStyleId, undefined)
+  })
+
+  test('a pack that recommends no style yields no suggestion rather than an empty one', () => {
+    const document = formulaDocument()
+    ;(document as any).recommended_visual_style_ids = []
+    const niche = contentPackDocumentToNiche(document)
+    assert.equal(niche.recommendedVisualStyleIds, undefined)
+  })
+
   test('maps Topic Pack planning fields into the runtime planner contract', () => {
     const topic = contentPackDocumentToTopicPack(topicDocument())
     assert.deepEqual(topic.compatibleFormulaIds, [FORMULA_ID])

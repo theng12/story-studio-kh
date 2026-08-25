@@ -7,6 +7,10 @@
  *     generation — only preview renders),
  *   - format `defaultStyleTag` + niche `visualStyleSheet` (merged tag).
  *
+ * v1.4.64 removed the niche half of that fallback entirely. A channel type no
+ * longer dictates a look; it suggests one, and only a selection reaches a
+ * prompt. The remaining fallback is the format's own neutral style tag.
+ *
  * The consolidation: a project now carries ONE persisted art style
  * (`config.active_style_preset_id`, pointing at a `style_presets` entry).
  * When set it is authoritative — it replaces the format+niche style tag in
@@ -119,6 +123,19 @@ export async function resolveProjectArtStyle(
     }
   }
 
-  // No project art style → caller uses the format+niche tag.
+  // A saved id that resolves to nothing used to disappear in silence: the
+  // caller fell back to the format tag and the customer's chosen style was
+  // simply absent from every prompt, with nothing anywhere saying so. Saving
+  // one is refused at the route now (project-pins.ts), but a project can still
+  // arrive here carrying an id written by an older build or by an uninstalled
+  // pack — so say it out loud. Settings shows the same condition as a warning.
+  if (activeId) {
+    console.warn(
+      `[art-style-resolver] project '${slug}' has active_style_preset_id '${activeId}' ` +
+      'but it matches no installed style and no saved preset. Generation falls back to ' +
+      'the format style tag until a style is selected.',
+    )
+  }
+  // No project art style → caller uses the format tag.
   return null
 }

@@ -732,7 +732,6 @@ export interface FormulaProductionKit {
   id: string
   label: string
   description: string
-  recommendedVisualStyleId?: string
   episodeProfiles?: FormulaEpisodeProfile[]
 }
 
@@ -858,19 +857,20 @@ export interface Niche {
    *  randomizer draws from the union. */
   vocabulary?: NicheVocabulary
 
-  /** v1.0.332 — art direction for THUMBNAIL images, separate from the scene
-   *  `visualStyleSheet`. Appended to the format's thumbnail conceptGuidance so
-   *  a niche can render thumbnails in a different art style than its scenes
-   *  (e.g. sketchy-ink covers over thick-paint scenes). */
+  /** v1.0.332 — art direction for THUMBNAIL images. Appended to the format's
+   *  thumbnail conceptGuidance. Kept for third-party/user niches, but no
+   *  built-in niche sets it any more: art direction is the customer's choice
+   *  (`config.active_style_preset_id` / `config.thumbnail_template_id`), not
+   *  something a channel type may dictate silently. */
   thumbnailStyleSheet?: string
   /** Niche-owned thumbnail layout and composition. This is separate from
    *  visual style: Business Economics can ask for an annotated central-subject
    *  diagram while still using any selected project art style. */
   thumbnailProfile?: NicheThumbnailProfile
   /** Long-form style sheet appended after the format's `visualStyleHint`
-   *  in image-prompt assembly. Use this to lock the rendering convention
-   *  for every scene in this niche (e.g. "all plants drawn with soft
-   *  watercolor wash over thick line art"). */
+   *  in image-prompt assembly. Kept for third-party/user niches, but no
+   *  built-in niche sets it any more — a channel type suggests a style, it
+   *  never dictates one. See `recommendedVisualStyleIds`. */
   visualStyleSheet?: string
 
   /** Short keyword tags auto-added to every scene prompt and every
@@ -931,9 +931,15 @@ export interface Niche {
   /** Metadata tag hook rules (replaces format.metadata.tagsHookRules). */
   metadataTagsHookRules?: string[]
   /** Human-facing one-line visual style hint shown in the picker / override
-   *  editor (replaces format.imagePrompts.visualStyleHint). The longer
-   *  `visualStyleSheet` continues to feed the baked-in defaultStyleTag. */
+   *  editor (replaces format.imagePrompts.visualStyleHint). Descriptive only:
+   *  it is never folded into a generated prompt. */
   visualStyleHint?: string
+  /** Visual styles this channel type SUGGESTS, best first. Carried through
+   *  from a signed pack's `recommended_visual_style_ids`. A suggestion is
+   *  surfaced in Settings with a one-click "Use this style" — it is never
+   *  written to the project automatically, and it never reaches a prompt
+   *  unless the customer selects it. */
+  recommendedVisualStyleIds?: string[]
   /** Narrator-voice picker for this niche. When set (non-empty), REPLACES the
    *  format shell's narrator styles so the Script page's "Narrator style"
    *  picker offers the niche's own personas (sleep: 10 literary voices;
@@ -1899,9 +1905,6 @@ export interface ProjectConfig {
    * services/art-style-resolver.ts.
    */
   active_style_preset_id?: string
-  /** Tracks styles applied by a Formula production kit. A later Formula may
-   * replace this value, while a user's explicit style choice clears it. */
-  formula_applied_style_id?: string
   audio_models: Record<string, AudioModelConfig>
   audio_pricing_last_updated: string
   video_models?: Record<string, VideoModelConfig>
@@ -2154,7 +2157,6 @@ export interface UpdateConfigRequest {
   video_models?: Record<string, VideoModelConfig>
   confirmation_preferences?: ConfirmationPreferences
   active_style_preset_id?: string
-  formula_applied_style_id?: string
   thumbnail_template_id?: string
   /**
    * v1.4.37 — declared rather than cast. `applyConfigRequest` is a pass-through

@@ -264,7 +264,6 @@
     "Each tag should be 1-4 words and must not start with '#'."
   ],
   "visualStyleHint": "Representative business locations, people, equipment, inventory, money flows, and operating actions rendered as clear explainer scenes; the selected project art style controls the finish.",
-  "thumbnailStyleSheet": "Clean hand-drawn 2D explainer illustration on a white or warm off-white ground, with crisp black ink outlines, lightly textured muted color, and recognizable business assets. Keep the central location or object substantially larger and more detailed than the supporting callouts. Use black headline lettering with one restrained red underline accent. Avoid cinematic lighting, dark backgrounds, glossy 3D rendering, and photorealism.",
   "thumbnailProfile": {
     "layout": "annotated-collage",
     "conceptGuidance": "An annotated ownership-economics cover. Place one large, instantly recognizable business location, vehicle, facility, product, or operator in the center. Surround it with six to eight small, evenly spaced illustrated callouts representing the episode's actual economic drivers, such as startup capital, rent, staffing, inventory, equipment, customer volume, financing, supply chain, operating risk, and profit margin. Connect selected callouts with thin hand-drawn arrows. Reserve the top quarter for a compact two-line uppercase episode title and a short red underline.",

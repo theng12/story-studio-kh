@@ -81,13 +81,37 @@ describe('Settings workspace navigation', () => {
 
   test('Formula production kits expose coherent defaults without adding episode pickers', () => {
     assert.match(settingsSource, /Formula production kit/)
-    assert.match(settingsSource, /selectedProductionKitStyleName/)
     assert.match(settingsSource, /selectedProductionKitThumbnailName/)
+    // No `selectedProductionKitStyleName`: the kit's style line is a
+    // three-state suggestion now, not a name the card simply prints.
+    assert.doesNotMatch(settingsSource, /selectedProductionKitStyleName/)
     assert.match(settingsSource, /selectedProductionKitMotionName/)
     assert.match(settingsSource, /Automatic episode profiles/)
     assert.match(settingsSource, /there is no per-run profile picker/)
-    assert.match(settingsSource, /applyFormulaVisualDefault/)
-    assert.match(settingsSource, /formula_applied_style_id/)
+  })
+
+  test('a Formula suggests a visual style in three honest states and never writes one', () => {
+    // The owner's ruling: *"art style is a selection, a preference for the
+    // user. they can't be dictated this way."* Saving a Formula used to write
+    // a style id straight into the project config; the only way to see it had
+    // happened was to notice the picker had changed by itself.
+    assert.doesNotMatch(settingsSource, /applyFormulaVisualDefault/)
+    assert.doesNotMatch(settingsSource, /formula_applied_style_id/)
+    assert.match(settingsSource, /Suggested visual style/)
+    assert.match(settingsSource, /productionKitStyleSuggestion/)
+    assert.match(settingsSource, /Use this style/)
+    assert.match(settingsSource, /Not installed\. Get it from the/)
+    assert.match(settingsSource, /In use on this channel/)
+    // The one place a style is written is the picker's own watcher.
+    assert.equal(settingsSource.match(/payload\.active_style_preset_id = activeId/g)?.length, 1)
+    assert.equal(settingsSource.match(/active_style_preset_id:/g), null)
+  })
+
+  test('an art style that resolves to nothing is visible in the UI, not just in a log', () => {
+    assert.match(settingsSource, /unresolvedArtStyleId/)
+    assert.match(settingsSource, /images are being generated without it/)
+    assert.match(settingsSource, /Style library/)
+    assert.doesNotMatch(settingsSource, /label="Built-in styles"/)
   })
 
   test('GenStudio catalogs are account-scoped under App & Connections', () => {

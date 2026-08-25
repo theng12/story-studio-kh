@@ -92,7 +92,6 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
       id: document.production_kit.id,
       label: document.production_kit.label,
       description: document.production_kit.description,
-      recommendedVisualStyleId: document.production_kit.recommended_visual_style_id,
       episodeProfiles: document.production_kit.episode_profiles?.map(profile => ({
         id: profile.id,
         label: profile.label,
@@ -107,6 +106,13 @@ export function contentPackDocumentToNiche(document: FormulaDocument): Niche {
       })),
     } : undefined,
     tagline: document.tagline,
+    // The pack has always declared which visual styles it recommends; until
+    // now the app threw the list away and a hardcoded `builtin-` id inside the
+    // production kit stood in for it. Carried through as a SUGGESTION the
+    // customer can accept in Settings — nothing here writes to a project.
+    recommendedVisualStyleIds: document.recommended_visual_style_ids?.length
+      ? [...document.recommended_visual_style_ids]
+      : undefined,
     exampleTopics: [...(document.example_topics ?? [])],
     defaultTopicPackIds: document.default_topic_pack_ids ? [...document.default_topic_pack_ids] : undefined,
     compatibleTopicPackIds: [...document.compatible_topic_pack_ids],

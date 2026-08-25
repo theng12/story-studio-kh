@@ -368,6 +368,97 @@ describe('exact project Content Pack pins', () => {
     assert.equal(pinnedStyle?.description, 'Style bible creative')
   })
 
+  test('an art style that resolves to nothing is refused with 422, on the way in', async () => {
+    const { options } = await isolated()
+    await installCreative('1.0.0', 'creative', options)
+    const project = await projectManager.createProject({ name: 'Unresolvable Style' })
+    const app = express()
+    app.locals.contentPackOptions = options
+    app.use(express.json())
+    app.use('/api', settingsRouter)
+    app.use(errorBoundary)
+
+    // The failure this prevents is a quiet one: the id saves, the picker shows
+    // a name, and every prompt goes out with no style in it.
+    const response = await request(app)
+      .put(`/api/projects/${project.slug}/settings/config`)
+      .send({ active_style_preset_id: 'com.storystudio.style.never-installed' })
+      .expect(422)
+    assert.match(String(response.body.detail), /could not be resolved/i)
+
+    const saved = await projectManager.getConfig(project.slug)
+    assert.equal((saved as any)?.active_style_preset_id, undefined, 'a refused write must not land')
+  })
+
+  test('a thumbnail recipe that resolves to nothing is refused with 422 too', async () => {
+    const { options } = await isolated()
+    await installCreative('1.0.0', 'creative', options)
+    const project = await projectManager.createProject({ name: 'Unresolvable Recipe' })
+    const app = express()
+    app.locals.contentPackOptions = options
+    app.use(express.json())
+    app.use('/api', settingsRouter)
+    app.use(errorBoundary)
+
+    await request(app)
+      .put(`/api/projects/${project.slug}/settings/config`)
+      .send({ thumbnail_template_id: 'com.storystudio.thumbnail.never-installed' })
+      .expect(422)
+    assert.equal((await projectManager.getConfig(project.slug) as any)?.thumbnail_template_id, undefined)
+  })
+
+  test('a project-local saved preset is a real style, and clearing a selection is always allowed', async () => {
+    const { options } = await isolated()
+    const project = await projectManager.createProject({ name: 'Local Preset Style' })
+    const app = express()
+    app.locals.contentPackOptions = options
+    app.use(express.json())
+    app.use('/api', settingsRouter)
+    app.use(errorBoundary)
+
+    // Saved in the SAME payload — that is what the picker does.
+    await request(app)
+      .put(`/api/projects/${project.slug}/settings/config`)
+      .send({
+        style_presets: [{ id: 'my-look', name: 'My look', description: 'Soft gouache, warm light.', created_at: '2026-08-25T00:00:00Z' }],
+        active_style_preset_id: 'my-look',
+      })
+      .expect(200)
+    assert.equal((await projectManager.getConfig(project.slug) as any)?.active_style_preset_id, 'my-look')
+
+    // A preset that carries no prose is not a style, it is an empty row.
+    await request(app)
+      .put(`/api/projects/${project.slug}/settings/config`)
+      .send({ style_presets: [{ id: 'blank', name: 'Blank', description: '   ', created_at: '2026-08-25T00:00:00Z' }], active_style_preset_id: 'blank' })
+      .expect(422)
+
+    await request(app)
+      .put(`/api/projects/${project.slug}/settings/config`)
+      .send({ active_style_preset_id: '' })
+      .expect(200)
+    assert.equal((await projectManager.getConfig(project.slug) as any)?.active_style_preset_id, '')
+    assert.equal((await projectManager.getProject(project.slug) as any)?.active_style_preset_id, undefined)
+  })
+
+  test('a bare legacy recipe id still saves — the guard refuses the broken, not the old', async () => {
+    const { options } = await isolated()
+    const project = await projectManager.createProject({ name: 'Legacy Recipe Id' })
+    const app = express()
+    app.locals.contentPackOptions = options
+    app.use(express.json())
+    app.use('/api', settingsRouter)
+    app.use(errorBoundary)
+
+    // `boundful` carries exactly this: an unqualified built-in template id from
+    // before Content Packs. It resolves through the legacy loader, so refusing
+    // it would break a working channel to satisfy a rule about tidiness.
+    await request(app)
+      .put(`/api/projects/${project.slug}/settings/config`)
+      .send({ thumbnail_template_id: 'archival-map-investigation' })
+      .expect(200)
+    assert.equal((await projectManager.getConfig(project.slug) as any)?.thumbnail_template_id, 'archival-map-investigation')
+  })
+
   test('reports a selected item missing from an available exact archive only to its consumers', async () => {
     const { temp, options } = await isolated()
     const installed = await install('1.0.0', 'v1', options)

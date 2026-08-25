@@ -185,15 +185,6 @@
     ]
   },
   "visualStyleHint": "hand-drawn MS Paint storybook frames with prehistoric humans, readable expressions, bold silhouettes, and simple survival-focused compositions",
-  "visualStyleSheet": "Render every scene as a deliberately simple MS Paint-style cartoon: thick black outlines, flat color fills, lightly uneven hand-drawn shapes, expressive faces, and clear readable poses. Ancient humans should look handmade and humble rather than heroic fantasy characters: rough hide clothing, basic spears, stone tools, messy hair, dirt, smoke, caves, campfires, scrubland, snow, and open plains. Favor one strong idea per frame: fear in the dark, tending a wound, gathering roots, sharing food, following tracks, surviving winter, guarding a fire, watching predators, carrying children. Keep backgrounds simple but specific. Avoid glossy digital painting, cinematic photorealism, luxury-looking environments, futuristic props, polished armor, or fantasy magic.",
-  "defaultStyleKeywords": [
-    "ms paint style",
-    "hand-drawn cartoon",
-    "thick black outlines",
-    "flat colors",
-    "prehistoric survival scene",
-    "ancient humans"
-  ],
   "youtubeTagsHint": [
     "ancient humans",
     "prehistoric life",

@@ -105,12 +105,6 @@ const HIDDEN_MECHANICS_MIGRATION_TARGETS = {
       pack_id: 'com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power',
     },
   },
-  style: {
-    from: 'builtin-archival-documentary-reconstruction',
-    to: 'com.storystudio.style.archival-documentary-reconstruction',
-    pack_id: 'com.storystudio.pack.style.archival-documentary-reconstruction',
-    kind: 'visual-style',
-  },
   recipe: {
     from: 'archival-map-investigation',
     to: 'com.storystudio.thumbnail.archival-map-investigation',
@@ -414,6 +408,69 @@ export async function updateProjectContentSelections(
 }
 
 /**
+ * A selection the app cannot resolve is a defect, not a preference. Before
+ * v1.4.64 an unresolvable id was accepted and then silently produced nothing:
+ * the art-style resolver returned null and generation fell back to whatever
+ * the channel type happened to dictate, so the customer's saved choice was
+ * invisible in the UI and absent from the prompt at the same time. Both axes
+ * now refuse the write.
+ *
+ * Resolvable is deliberately generous, because a working selection must never
+ * be refused: a signed catalog item of the right kind; OR, for a style, a
+ * project-local `style_presets` entry that actually carries prose; OR, for a
+ * recipe, any id the template loader can load, legacy built-ins included.
+ * (`boundful` carries the bare legacy id `archival-map-investigation`, which
+ * resolves that way and must keep saving.) An empty string on either axis
+ * clears the selection and is always allowed.
+ */
+async function assertResolvableSelections(
+  slug: string,
+  request: UpdateConfigRequest,
+  options: ContentPackProjectPinOptions,
+): Promise<void> {
+  const reject = (field: string, id: string, hint: string) => {
+    throw Object.assign(new Error(`${field} '${id}' could not be resolved. ${hint}`), {
+      statusCode: 422,
+      expose: true,
+      code: 'unresolvable-content-selection',
+    })
+  }
+  const signedOfKind = async (id: string, kind: ContentPackItemKind) => {
+    const entry = await resolveCatalogItem(id, undefined, options)
+    return Boolean(entry) && entry!.value.kind === kind
+  }
+
+  const styleId = typeof request.active_style_preset_id === 'string'
+    ? request.active_style_preset_id.trim()
+    : ''
+  if (styleId) {
+    let resolvable = await signedOfKind(styleId, 'visual-style')
+    if (!resolvable) {
+      // The picker writes the preset into `style_presets` in the same payload,
+      // so read the incoming list first and only then what is already on disk.
+      const incoming = Array.isArray((request as any).style_presets)
+        ? (request as any).style_presets
+        : (await projectManager.getConfig(slug))?.style_presets
+      resolvable = Array.isArray(incoming) && incoming.some((preset: any) =>
+        preset && preset.id === styleId && typeof preset.description === 'string' && preset.description.trim())
+    }
+    if (!resolvable) {
+      reject('Art style', styleId, 'Pick a style from the library, or install the pack that provides it.')
+    }
+  }
+
+  const recipeId = typeof request.thumbnail_template_id === 'string'
+    ? request.thumbnail_template_id.trim()
+    : ''
+  if (recipeId && !(await signedOfKind(recipeId, 'thumbnail-recipe'))) {
+    const { loadTemplate } = await import('../services/thumbnail-template-loader.js')
+    if (!(await loadTemplate(recipeId, options))) {
+      reject('Thumbnail recipe', recipeId, 'Pick a recipe from the library, or install the pack that provides it.')
+    }
+  }
+}
+
+/**
  * Route boundary for config-backed signed selections. Legacy/local ids still
  * update config and project metadata but do not invent a Content Pack pin.
  */
@@ -424,6 +481,10 @@ export async function updateProjectContentConfigSelections(
 ): Promise<ProjectMeta> {
   const hasStyle = Object.prototype.hasOwnProperty.call(request, 'active_style_preset_id')
   const hasRecipe = Object.prototype.hasOwnProperty.call(request, 'thumbnail_template_id')
+  // Validate BEFORE taking the coordination lock. The resolvers this uses take
+  // that same lock themselves and it is not reentrant, so checking inside would
+  // deadlock — and a rejected write has no reason to hold a write barrier.
+  await assertResolvableSelections(slug, request, options)
   return withContentPackCoordinationLock(pathsFor(options), async () => {
     const selections = [
       ...(hasStyle && typeof request.active_style_preset_id === 'string' && request.active_style_preset_id
@@ -524,20 +585,8 @@ function legacyHiddenMechanicsTargetsFor(project: ProjectMeta): LegacyHiddenMech
     }
     targets.push({ from_id: legacyTopicId, to_id: target.to, pack_id: target.pack_id, kind: 'topic-pack' })
   }
-  if (project.active_style_preset_id) {
-    if (project.active_style_preset_id !== HIDDEN_MECHANICS_MIGRATION_TARGETS.style.from) {
-      throw Object.assign(new Error(`Project selects a Style outside the legacy Hidden Mechanics migration: ${project.active_style_preset_id}`), {
-        statusCode: 409,
-        expose: true,
-      })
-    }
-    targets.push({
-      from_id: project.active_style_preset_id,
-      to_id: HIDDEN_MECHANICS_MIGRATION_TARGETS.style.to,
-      pack_id: HIDDEN_MECHANICS_MIGRATION_TARGETS.style.pack_id,
-      kind: HIDDEN_MECHANICS_MIGRATION_TARGETS.style.kind,
-    })
-  }
+  // No style leg: a Formula never applied a style id to a project, so there is
+  // no legacy style selection for this migration to carry across.
   if (project.thumbnail_template_id) {
     if (project.thumbnail_template_id !== HIDDEN_MECHANICS_MIGRATION_TARGETS.recipe.from) {
       throw Object.assign(new Error(`Project selects a Recipe outside the legacy Hidden Mechanics migration: ${project.thumbnail_template_id}`), {
@@ -622,11 +671,9 @@ export async function applyLegacyHiddenMechanicsMigration(
     const topicIds = plan.selections
       .filter(selection => selection.kind === 'topic-pack')
       .map(selection => selection.to_id)
-    const style = plan.selections.find(selection => selection.kind === 'visual-style')
     const recipe = plan.selections.find(selection => selection.kind === 'thumbnail-recipe')
     await options.hooks?.beforeProjectWrite?.()
     const updated = await projectManager.updateConfigAndProjectMetaConsistently(slug, {
-      ...(style ? { active_style_preset_id: style.to_id } : {}),
       ...(recipe ? { thumbnail_template_id: recipe.to_id } : {}),
     }, project => {
       // This callback holds the project metadata/config locks. Re-read the
@@ -645,7 +692,6 @@ export async function applyLegacyHiddenMechanicsMigration(
       }
       project.niche_id = formula.to_id
       project.topic_pack_ids = topicIds
-      if (style) project.active_style_preset_id = style.to_id
       if (recipe) project.thumbnail_template_id = recipe.to_id
       const supersededIds = new Set(plan.selections.flatMap(selection => [selection.from_id, selection.to_id]))
       const items = Object.fromEntries(Object.entries(project.content_pack_items ?? {})

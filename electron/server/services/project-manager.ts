@@ -1273,9 +1273,6 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     active_style_preset_id: typeof (config as any).active_style_preset_id === 'string'
       ? (config as any).active_style_preset_id
       : undefined,
-    formula_applied_style_id: typeof (config as any).formula_applied_style_id === 'string'
-      ? (config as any).formula_applied_style_id
-      : undefined,
     // v1.4.1 — per-EPISODE overlay windows, echoed for the same reason
     // `active_style_preset_id` above is. `updateConfig` persists this through
     // the schema's passthrough, but this response is an ALLOW-LIST: without an

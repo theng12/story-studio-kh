@@ -150,7 +150,9 @@ test('claim and install do not rewrite an HMH project, while explicit migration 
   assert.deepEqual(plan.selections.map(selection => [selection.kind, selection.from_id, selection.to_id]), [
     ['series-formula', LEGACY.formula, COMPONENTS[0][2]],
     ...LEGACY.topics.map((id, index) => ['topic-pack', id, COMPONENTS[index + 1][2]]),
-    ['visual-style', LEGACY.style, COMPONENTS[6][2]],
+    // No visual-style leg. A Formula never wrote a style into a project, so a
+    // grandfathered project has no Formula-applied style for the migration to
+    // carry across; whatever look it uses is a selection it keeps.
     ['thumbnail-recipe', LEGACY.recipe, COMPONENTS[7][2]],
   ])
   assert.equal(plan.selections.every(selection => (
@@ -162,15 +164,16 @@ test('claim and install do not rewrite an HMH project, while explicit migration 
   const migrated = await projectManager.readProjectMetaConsistently(project.slug)
   assert.equal(migrated?.niche_id, COMPONENTS[0][2])
   assert.deepEqual(migrated?.topic_pack_ids, COMPONENTS.slice(1, 6).map(component => component[2]))
-  assert.equal(migrated?.active_style_preset_id, COMPONENTS[6][2])
+  assert.equal(migrated?.active_style_preset_id, LEGACY.style, 'the project keeps the style it already had')
   assert.equal(migrated?.thumbnail_template_id, COMPONENTS[7][2])
+  const migratedComponents = COMPONENTS.filter((_, index) => index !== 6)
   assert.deepEqual(Object.keys(migrated?.content_pack_versions ?? {}).sort(), [
     'com.storystudio.pack.unrelated-current',
-    ...COMPONENTS.map(component => component[1]),
+    ...migratedComponents.map(component => component[1]),
   ].sort())
   assert.deepEqual(Object.keys(migrated?.content_pack_items ?? {}).sort(), [
     'com.storystudio.unrelated-current.recipe',
-    ...COMPONENTS.map(component => component[2]),
+    ...migratedComponents.map(component => component[2]),
   ].sort())
 })
 

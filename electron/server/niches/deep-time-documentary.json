@@ -12,7 +12,6 @@
     "id": "deep-time-documentary-kit",
     "label": "Deep-Time Documentary Production Kit",
     "description": "One reusable channel system binding the deep-time Formula to its Topic Packs, Paleo Documentary Tableau art direction, Ambient Documentary Motion, documentary-label thumbnail grammar, and two automatically assigned episode lanes.",
-    "recommendedVisualStyleId": "builtin-paleo-documentary-tableau",
     "episodeProfiles": [
       {
         "id": "deep-rest",
@@ -134,7 +133,6 @@
   "themeCountRange": [2, 4],
   "structuralVariety": "vary-all",
   "visualStyleHint": "Cohesive natural-history documentary tableaux: readable ancient landscapes, organisms, specimens, maps, and processes; calm compositions with room for subtle ambient motion.",
-  "visualStyleSheet": "Painterly natural-history documentary tableau with a scientifically grounded-looking reconstruction and softly hand-painted editorial finish. Use calm wide compositions with clear foreground, midground, and distant layers; readable representative animals, plants, fossils, coastlines, landforms, maps, specimens, and Earth processes at natural proportions. Build soft atmospheric depth with mist, sun shafts, suspended water particles, haze, and distant silhouettes. Favor serene teal underwater passages, mossy greens, warm dawn amber, and volcanic ochre. Keep controlled texture, spacious visual rest, and an approachable premium science-documentary mood. Avoid glossy CGI plastic, generic sci-fi spectacle, frantic action, dense collage, copied branding, player UI, captions, or watermarks.",
   "defaultThumbnailTemplateId": "documentary-label-tableau",
   "thumbnailProfile": {
     "layout": "hero",

@@ -92,4 +92,34 @@ describe('art-style-resolver', () => {
     assert.equal(await resolver.resolveProjectArtStyle(proj.slug), null)
   })
 
+  test('an unresolvable saved style is warned about, never dropped in silence', async () => {
+    const proj = await pm.createProject({ name: 'ArtUnresolvableWarns' })
+    await pm.updateConfig(proj.slug, { active_style_preset_id: 'com.storystudio.style.uninstalled' } as any)
+    const warnings: string[] = []
+    const original = console.warn
+    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')) }
+    try {
+      assert.equal(await resolver.resolveProjectArtStyle(proj.slug), null)
+    } finally {
+      console.warn = original
+    }
+    assert.equal(warnings.length, 1, 'exactly one warning for one unresolvable style')
+    assert.match(warnings[0]!, /art-style-resolver/)
+    assert.match(warnings[0]!, /com\.storystudio\.style\.uninstalled/)
+    assert.match(warnings[0]!, new RegExp(proj.slug))
+  })
+
+  test('a project with no style at all stays quiet — nothing is wrong with it', async () => {
+    const proj = await pm.createProject({ name: 'ArtNoneQuiet' })
+    const warnings: string[] = []
+    const original = console.warn
+    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(' ')) }
+    try {
+      assert.equal(await resolver.resolveProjectArtStyle(proj.slug), null)
+    } finally {
+      console.warn = original
+    }
+    assert.deepEqual(warnings, [])
+  })
+
 })

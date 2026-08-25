@@ -59,7 +59,6 @@ export interface FormulaProductionKit {
   id: string
   label: string
   description: string
-  recommendedVisualStyleId?: string
   episodeProfiles?: FormulaEpisodeProfile[]
 }
 
@@ -105,6 +104,9 @@ export interface Niche {
   vocabulary?: NicheVocabulary
   visualStyleSheet?: string
   thumbnailStyleSheet?: string
+  /** Styles this channel type suggests, best first. A suggestion only — the
+   *  customer applies it, or does not. */
+  recommendedVisualStyleIds?: string[]
   thumbnailProfile?: NicheThumbnailProfile
   defaultStyleKeywords?: string[]
   referenceImages?: NicheReferenceImage[]

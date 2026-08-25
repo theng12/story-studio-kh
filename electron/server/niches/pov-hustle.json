@@ -161,13 +161,6 @@
   ],
   "structuralVariety": "vary-subject-only",
   "visualStyleHint": "consistent on-screen creator across every scene — authentic, grounded, slightly cinematic",
-  "visualStyleSheet": "Keep the SAME creator, wardrobe, and setting consistent across every scene — the continuity chain depends on it. Authentic, grounded, slightly cinematic. Describe what the creator is doing in this beat; the look is carried by the reference images.",
-  "defaultStyleKeywords": [
-    "consistent character",
-    "authentic",
-    "grounded",
-    "cinematic"
-  ],
   "metadataTitleStyleHint": "first-person premise with a concrete payoff — 'If I had X, here's how I'd Y'",
   "metadataTitleHookRules": [
     "Lead with the first-person premise the video pays off.",

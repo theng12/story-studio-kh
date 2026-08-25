@@ -182,7 +182,7 @@ function formulaFacts(formula: Niche): Record<string, unknown> {
     production_kit: formula.productionKit ? {
       id: formula.productionKit.id,
       label: formula.productionKit.label,
-      recommended_visual_style_id: formula.productionKit.recommendedVisualStyleId || null,
+      recommended_visual_style_ids: formula.recommendedVisualStyleIds || null,
       episode_profile_ids: (formula.productionKit.episodeProfiles || []).map(profile => profile.id),
       policies_sha256: sha256(canonicalJson(formula.productionKit)),
     } : null,
@@ -278,24 +278,17 @@ test('current catalog retains stable prompt facts and selected defaults through 
   const golden = await readGolden()
   const hiddenMechanics = await nicheLoader.getEffectiveNicheFor(projectFor('hidden-mechanics-history'))
   const deepTime = await nicheLoader.getEffectiveNicheFor(projectFor('deep-time-documentary'))
-  const builtInStyles = await loadBuiltInStyles()
   assert.ok(hiddenMechanics, 'Hidden Mechanics Formula must remain available')
   assert.ok(deepTime, 'Deep Time Formula must remain available')
 
-  const archivalStyle = builtInStyles.find(style => style.id === hiddenMechanics.productionKit?.recommendedVisualStyleId)
   const archivalThumbnail = await thumbnailTemplateLoader.loadTemplate(hiddenMechanics.defaultThumbnailTemplateId || '')
-  assert.ok(archivalStyle, 'Hidden Mechanics archival style must remain available')
   assert.ok(archivalThumbnail, 'Hidden Mechanics thumbnail recipe must remain available')
-
+  // No `recommended_visual_style` block: a Formula does not select a look, so
+  // there is no style fact for the catalog to freeze here. The style library
+  // is frozen on its own in the Starter Kit test below.
   const observedHiddenMechanics = {
     formula: formulaFacts(hiddenMechanics),
     default_topic_packs: (hiddenMechanics.activeTopicPacks || []).map(topicPackFacts),
-    recommended_visual_style: {
-      id: archivalStyle.id,
-      name: archivalStyle.name,
-      style_bible_sha256: sha256(archivalStyle.data.style_bible),
-      negative_prompt_sha256: sha256(archivalStyle.data.negative_prompt),
-    },
     default_thumbnail_recipe: {
       id: archivalThumbnail.id,
       name: archivalThumbnail.name,

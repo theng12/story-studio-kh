@@ -55,9 +55,9 @@
       "production_kit": {
         "id": "hidden-mechanics-history-kit",
         "label": "Hidden Mechanics History Production Kit",
-        "recommended_visual_style_id": "builtin-archival-documentary-reconstruction",
+        "recommended_visual_style_ids": null,
         "episode_profile_ids": [],
-        "policies_sha256": "c07b68c6c9d0be51db7c759cf538b522920eeece316f30383c79afb3d88bdb5e"
+        "policies_sha256": "c3f09799699f6cd59c90331f74b18074eafae965aa9f0554aec548f2a69ec4f2"
       },
       "visual_profile_sha256": "0ebab10adf8dea117fc9017a1e46edd05edebe88f74b6ca75ad6cc2409c31297",
       "default_thumbnail_template_id": "archival-map-investigation"
@@ -149,12 +149,6 @@
         "prompt_context_sha256": "32fbcbdcec1e65441e26fb0627c1375d87a22fa080d71d2f78c75e524105f1ad"
       }
     ],
-    "recommended_visual_style": {
-      "id": "builtin-archival-documentary-reconstruction",
-      "name": "Archival Documentary Reconstruction",
-      "style_bible_sha256": "31d2bebcb9a5ee84dc346b78a2821350f344f2d6ecbbfaf0c5ff63395a6926f7",
-      "negative_prompt_sha256": "4ab8450f72c000fe724cef12574fc4e328db8587c350155bd0f5de0346ec5123"
-    },
     "default_thumbnail_recipe": {
       "id": "archival-map-investigation",
       "name": "Archival Map Investigation",
@@ -216,14 +210,14 @@
       "production_kit": {
         "id": "deep-time-documentary-kit",
         "label": "Deep-Time Documentary Production Kit",
-        "recommended_visual_style_id": "builtin-paleo-documentary-tableau",
+        "recommended_visual_style_ids": null,
         "episode_profile_ids": [
           "deep-rest",
           "immersive"
         ],
-        "policies_sha256": "ae5f96f94151ffb47ece2628e0e221b564fbfaf4619370ced9eea9d80f0f103d"
+        "policies_sha256": "e904313c6fbe74ff1eaa79930309217434f64701237813ede3bc6435bbe6d750"
       },
-      "visual_profile_sha256": "322a5d25928c38a5f8cf0f0c291325ebf7c2e6ad805991b0ffaee6b0217dedef",
+      "visual_profile_sha256": "e91840ac3ae599f14b78dca2660aa2489b4d16e7cee7ec03f90b93f487e0544f",
       "default_thumbnail_template_id": "documentary-label-tableau"
     },
     "default_topic_packs": [
@@ -376,7 +370,7 @@
         "default_narrator_style_id": "A",
         "metadata_profile_sha256": "7f521e6d63e6e13535ec9d064d770883c4058449809c501ae6d25b76a20e7745",
         "production_kit": null,
-        "visual_profile_sha256": "4f4161d371e6d9483825c8b7ece460724f0ae4fb2076af6dd33c32700157e223",
+        "visual_profile_sha256": "0ebab10adf8dea117fc9017a1e46edd05edebe88f74b6ca75ad6cc2409c31297",
         "default_thumbnail_template_id": "curiosity-question-cartoon"
       },
       {
@@ -425,7 +419,7 @@
         "default_narrator_style_id": "B",
         "metadata_profile_sha256": "7f425c63c925ae5db8b7ddf7c63eca2ded49dcaa4d3907df77504805d80c4cb1",
         "production_kit": null,
-        "visual_profile_sha256": "6f0d11989a520dc552d6f81f69d5f2c9046abf03c54196d2c7ec3d5eb51bb13b",
+        "visual_profile_sha256": "9f714faef62a5a99e4c2e115cbae7b9008aa0d18890b158fdf3c21eecd9d43fa",
         "default_thumbnail_template_id": null
       },
       {
@@ -480,14 +474,14 @@
         "production_kit": {
           "id": "deep-time-documentary-kit",
           "label": "Deep-Time Documentary Production Kit",
-          "recommended_visual_style_id": "builtin-paleo-documentary-tableau",
+          "recommended_visual_style_ids": null,
           "episode_profile_ids": [
             "deep-rest",
             "immersive"
           ],
-          "policies_sha256": "ae5f96f94151ffb47ece2628e0e221b564fbfaf4619370ced9eea9d80f0f103d"
+          "policies_sha256": "e904313c6fbe74ff1eaa79930309217434f64701237813ede3bc6435bbe6d750"
         },
-        "visual_profile_sha256": "322a5d25928c38a5f8cf0f0c291325ebf7c2e6ad805991b0ffaee6b0217dedef",
+        "visual_profile_sha256": "e91840ac3ae599f14b78dca2660aa2489b4d16e7cee7ec03f90b93f487e0544f",
         "default_thumbnail_template_id": "documentary-label-tableau"
       },
       {
@@ -528,7 +522,7 @@
         "default_narrator_style_id": "A",
         "metadata_profile_sha256": "25fe4144633367bd0e95b547e0bb75e2197a046ea3f5716eb77699f4c3defaca",
         "production_kit": null,
-        "visual_profile_sha256": "373252a70cadbf9cba22c36683d4eef8a72a2b5bc8b4390aa394ee998c25ad99",
+        "visual_profile_sha256": "a49e7494b113b0dbd310fd8e1a7d0dc20d97672baaf879c2c27d03c57b201599",
         "default_thumbnail_template_id": "annotated-business-board"
       },
       {
@@ -750,7 +744,7 @@
         "default_narrator_style_id": "A",
         "metadata_profile_sha256": "510fcf9c1f958578a664cc8620bffce5b42c9a85d7887464e02d3ebd6b4289f3",
         "production_kit": null,
-        "visual_profile_sha256": "a838d95feae2b85898946fdc3f81378d190fac879019ffd8fdaea4cfaa33ecd5",
+        "visual_profile_sha256": "8ad57f24626d94eb668478c30dcac5481ce513225b695d4393e2dc8ec598f6bb",
         "default_thumbnail_template_id": null
       }
     ],

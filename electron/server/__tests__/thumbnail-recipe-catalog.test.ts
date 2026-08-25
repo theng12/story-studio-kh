@@ -53,7 +53,9 @@ test('documentary label tableau ships a mixed-profile AI-label recipe and three 
 test('Deep Time binds its reusable production kit to the documentary recipe', () => {
   const niche = JSON.parse(readFileSync(deepTimeNichePath, 'utf8'))
   assert.equal(niche.defaultThumbnailTemplateId, 'documentary-label-tableau')
-  assert.equal(niche.productionKit.recommendedVisualStyleId, 'builtin-paleo-documentary-tableau')
+  // A kit binds a recipe and episode lanes. It does not bind a visual style —
+  // the look is a selection the customer owns.
+  assert.equal(niche.productionKit.recommendedVisualStyleId, undefined)
   assert.deepEqual(
     niche.productionKit.episodeProfiles.map((profile: any) => profile.ideaAxisValue),
     ['deep rest documentary', 'immersive documentary'],
@@ -80,8 +82,8 @@ test('archival map investigation is an original, evidence-led AI-title recipe', 
   }
 })
 
-test('Hidden Mechanics of History binds its visual style and thumbnail recipe as one production kit', () => {
+test('Hidden Mechanics of History binds its thumbnail recipe as a production kit and dictates no style', () => {
   const niche = JSON.parse(readFileSync(hiddenMechanicsNichePath, 'utf8'))
   assert.equal(niche.defaultThumbnailTemplateId, 'archival-map-investigation')
-  assert.equal(niche.productionKit.recommendedVisualStyleId, 'builtin-archival-documentary-reconstruction')
+  assert.equal(niche.productionKit.recommendedVisualStyleId, undefined)
 })

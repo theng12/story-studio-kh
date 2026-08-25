@@ -450,7 +450,8 @@ describe('format-loader', () => {
     assert.ok(merged.script.additionalRules.some(rule => /Never treat correlation/i.test(rule)))
     assert.ok((merged.idea.titleShapeRules || []).some(rule => /Hidden Mechanics/i.test(rule)))
     assert.equal(niche!.defaultThumbnailTemplateId, 'archival-map-investigation')
-    assert.equal(niche!.productionKit?.recommendedVisualStyleId, 'builtin-archival-documentary-reconstruction')
+    // The kit no longer names a style: art direction is the customer's choice.
+    assert.equal((niche!.productionKit as any)?.recommendedVisualStyleId, undefined)
   })
 
   test('Deep Time Documentary owns feature-length duration, calm evidence rules, and two-phase visual pacing', async () => {
@@ -483,7 +484,7 @@ describe('format-loader', () => {
     assert.ok(merged.script.additionalRules.some(rule => /evidence checkpoints/i.test(rule)))
     assert.equal(merged.imagePrompts.thumbnail?.layout, 'hero')
     assert.equal(niche!.defaultThumbnailTemplateId, 'documentary-label-tableau')
-    assert.equal(niche!.productionKit?.recommendedVisualStyleId, 'builtin-paleo-documentary-tableau')
+    assert.equal((niche!.productionKit as any)?.recommendedVisualStyleId, undefined)
     assert.equal(niche!.productionKit?.episodeProfiles?.length, 2)
   })
 

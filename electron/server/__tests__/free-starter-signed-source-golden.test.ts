@@ -107,9 +107,10 @@ function recipePromptFacts(recipe: NonNullable<Awaited<ReturnType<typeof loadTem
 
 function productionKitFacts(value: ReturnType<typeof contentPackDocumentToNiche>['productionKit']) {
   if (!value) return undefined
+  // No style id to normalise any more: a production kit binds recipes and
+  // episode lanes, and the look is the customer's selection.
   return {
     ...value,
-    recommendedVisualStyleId: value.recommendedVisualStyleId?.replace(/^(?:com\.storystudio\.style\.|builtin-)/, ''),
     episodeProfiles: value.episodeProfiles?.map(profile => Object.fromEntries(
       Object.entries(profile).filter(([, field]) => field !== undefined),
     )),

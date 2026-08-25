@@ -161,22 +161,6 @@
   ],
   "structuralVariety": "vary-all",
   "visualStyleHint": "thick impasto oil painting, expressive brushstrokes, non-realistic — different animals doing very human things",
-  "visualStyleSheet": "Every scene is a THICK IMPASTO OIL PAINTING — heavy, visible brushstrokes and palette-knife texture, expressive and gestural. Explicitly NOT photorealistic, NOT a photograph, NOT clean digital art, NOT cartoon or anime. Muted, moody, slightly desaturated palette with a single warm accent and soft, low, painterly light. The recurring motif: a DIFFERENT ANIMAL in each scene portrayed doing a distinctly HUMAN activity that mirrors the narration's current idea — a fox reading a letter by lamplight, a crow in a suit alone at a desk, a hare on a park bench at dusk, a stag staring into a cracked mirror. Anthropomorphic but painterly and quietly surreal — dignified, melancholic, never cute or cartoonish. Keep the MEDIUM, brushwork, texture, and muted palette IDENTICAL across every scene so the whole video reads as one continuous series of paintings; only the animal, its human activity, and the setting change to match the moment.",
-  "defaultStyleKeywords": [
-    "thick impasto oil painting",
-    "heavy visible brushstrokes",
-    "palette-knife texture",
-    "expressive painterly",
-    "non-photorealistic",
-    "muted moody desaturated palette",
-    "soft low painterly light",
-    "anthropomorphic animal",
-    "doing a human activity",
-    "quietly surreal",
-    "melancholic",
-    "dignified"
-  ],
-  "thumbnailStyleSheet": "A dark, sketchy CHARCOAL-AND-INK illustration in the manner of Tim Burton / Ralph Steadman — scratchy graphite linework, wild frantic strokes, smudged shading, off-kilter and unsettling. ONE haunted subject (often an anthropomorphic figure with huge stark white eyes and a hollow stare) on a plain warm cream / off-white paper background. High contrast: near-black subject against the pale ground, single muted accent colour at most (a dull red). Hand-drawn, raw, expressive — NOT painted, NOT photorealistic, NOT clean or digital. Leave clear negative space (typically one side) for a bold condensed black title. Emotive and a little eerie — it should make the viewer feel the psychological weight at a glance.",
   "metadataTitleStyleHint": "profound, contemplative, a little dark — 'The Psychology of X' / 'The Dark Side of Y', never clickbait",
   "metadataTitleHookRules": [
     "Lead with the recognisable human pattern or person-type the essay unpacks.",
