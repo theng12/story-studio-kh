@@ -32,6 +32,12 @@ _trash/
 .env
 .env.*
 !.env.example
+# Dev-tool session artifacts. `.last-token` held a live bearer token for a
+# local brainstorm server; nothing in this repo reads these back, and a
+# session's token has no business in version control.
+.last-token
+.last-port
+*.last-token
 *.db
 *.db-*
 *.sqlite
