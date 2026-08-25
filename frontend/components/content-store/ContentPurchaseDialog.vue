@@ -35,7 +35,7 @@
             <div><dt>Base price</dt><dd>{{ formatCredits(attempt.base_credit_price) }} credits</dd></div>
             <div v-if="attempt.component_discount_credits !== undefined"><dt>Owned-component discount</dt><dd>−{{ formatCredits(attempt.component_discount_credits) }} credits</dd></div>
             <div v-if="attempt.operator_discount && attempt.operator_discount_credits !== undefined"><dt>Operator discount credits</dt><dd>−{{ formatCredits(attempt.operator_discount_credits) }} credits</dd></div>
-            <div><dt>Credits charged</dt><dd>{{ formatCredits(attempt.credits_charged ?? 0) }}</dd></div>
+            <div><dt>Credits charged</dt><dd>{{ formatCredits(attempt.credits_charged) }}</dd></div>
             <div><dt>Balance before</dt><dd>{{ formatCredits(attempt.balance_before) }}</dd></div>
             <div><dt>Balance after</dt><dd>{{ formatCredits(attempt.balance_after) }}</dd></div>
           </dl>
@@ -195,8 +195,15 @@ const operatorDiscountProof = computed(() => {
   return `${discount.percent}% · ${discount.discount_id} v${discount.version}${start}${end} · ${discount.timezone}`
 })
 
-function formatCredits(value: number): string {
-  return value.toLocaleString()
+/**
+ * An unpublished figure renders as an em dash, never as zero.
+ *
+ * `credits_charged ?? 0` used to make a receipt read "0 credits charged",
+ * which a customer cannot tell apart from "this was free". If GenStudio has
+ * not published a number, say so.
+ */
+function formatCredits(value: number | null | undefined): string {
+  return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString() : '—'
 }
 
 function formatExpiry(value: string): string {
