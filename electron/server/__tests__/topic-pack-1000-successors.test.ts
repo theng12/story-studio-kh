@@ -85,6 +85,20 @@ const TOPIC_SUCCESSORS = [
 
 const REVIEWED_ROWS: ReviewedRow[] = [
   {
+    slug: 'habits-momentum',
+    class: 'profile',
+    predecessorRoot: 'content-packs/free-starters/topic/habits-momentum',
+    successorRoot: 'content-packs/free-starters/topic/habits-momentum-v1.0.1',
+    document: 'content/topic-pack.json',
+    packId: 'com.storystudio.pack.topic.habits-momentum',
+    itemId: 'com.storystudio.topic.habits-momentum',
+    formulaRoot: 'content-packs/free-starters/formula/practical-motivation',
+    subjects: 50,
+    siblings: 20,
+    tupleAdditions: 970,
+    reviewPath: '.superpowers/sdd/2026-08-25-topic-pack-1000-repair/reviews/habits-momentum-semantic-review.md',
+  },
+  {
     slug: 'night-journeys',
     class: 'profile',
     predecessorRoot: 'content-packs/free-starters/topic/night-journeys',
