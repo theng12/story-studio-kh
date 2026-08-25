@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.60 — 2026-08-25
+
+- **"Thumbnail text" — the nine options for what the words actually say — was in a block you could not see.** Twice. It shipped in 1.4.56 near the top of the Thumbnail Prompts tab, in a group that does not render on the layout you use, so from your seat the feature did not exist. It now sits at the top of the Thumbnail lettering card, above the font, as the first of four decisions — because what the words say changes the picture more than how they look.
+- If the options fail to load, the card says so instead of showing an empty box.
+
+---
+
 ## v1.4.59 — 2026-08-25
 
 - **Rendering a swatch failed with `400 Bad Request`, every time, and it was my mistake.** The Thumbnail Prompts page chooses a *language* model — it writes the prompts — and I passed that where an *image* model was needed. GenStudio quite rightly said DeepSeek is not in its image catalogue. A swatch is an app-level picture, not a per-project one, so the page no longer supplies a model at all: the server picks the **cheapest published image model** that can render 16:9, deterministically, so the choice is stable and never silently orphans swatches already rendered.

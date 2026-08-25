@@ -468,24 +468,6 @@
               language bill for writing them down. Nothing is ever shortened for you — over-length prompts are flagged, not cut.
             </p>
           </div>
-          <!-- What the words SAY, chosen here rather than left to the model.
-               The recipe still supplies a default; it no longer overrules a
-               deliberate choice. -->
-          <div class="form-group headline-mode-group">
-            <label>Thumbnail text</label>
-            <div class="headline-modes" role="radiogroup" aria-label="What the thumbnail text should say">
-              <button
-                v-for="mode in headlineModes" :key="mode.id" type="button" role="radio"
-                :aria-checked="form.thumbnail.thumb_headline_mode === mode.id"
-                :class="['headline-mode', { selected: form.thumbnail.thumb_headline_mode === mode.id }]"
-                @click="form.thumbnail.thumb_headline_mode = mode.id"
-              >
-                <strong>{{ mode.label }}</strong>
-                <span>{{ mode.summary }}</span>
-              </button>
-            </div>
-          </div>
-
           <div class="form-group">
             <label>Text Style</label>
             <select v-model="form.thumbnail.thumb_text_style" class="select">
@@ -779,9 +761,29 @@
            were three scattered dropdowns of words nobody can picture. -->
       <section class="lettering-card mt-2" aria-labelledby="lettering-heading">
         <header class="lettering-head">
-          <div><span class="lettering-eyebrow">Thumbnail lettering</span><h4 id="lettering-heading">How the words look</h4></div>
+          <div><span class="lettering-eyebrow">Thumbnail lettering</span><h4 id="lettering-heading">What the words say, and how they look</h4></div>
           <button type="button" class="link-btn" @click="randomizeThumbStyles">🎲 Surprise me</button>
         </header>
+
+        <!-- WHAT THE WORDS SAY comes before how they look, because it is the
+             decision that changes the picture most. It lived higher up the page
+             in a block he never saw -- twice -- so it now sits in the one card
+             he does. -->
+        <div class="lettering-part">
+          <div class="lettering-part-head"><strong>Thumbnail text</strong><span>What the words actually say</span></div>
+          <div class="headline-modes" role="radiogroup" aria-label="What the thumbnail text should say">
+            <button
+              v-for="mode in headlineModes" :key="mode.id" type="button" role="radio"
+              :aria-checked="form.thumbnail.thumb_headline_mode === mode.id"
+              :class="['headline-mode', { selected: form.thumbnail.thumb_headline_mode === mode.id }]"
+              @click="form.thumbnail.thumb_headline_mode = mode.id"
+            >
+              <strong>{{ mode.label }}</strong>
+              <span>{{ mode.summary }}</span>
+            </button>
+          </div>
+          <p v-if="!headlineModes.length" class="text-muted text-xs">Could not load the text options — reopen the page to try again.</p>
+        </div>
 
         <div class="lettering-part">
           <div class="lettering-part-head"><strong>Font</strong><span>The shape of the letters</span></div>
