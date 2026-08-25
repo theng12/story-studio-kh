@@ -148,10 +148,12 @@
     ],
     "defaultLengthMinutes": 45,
     "lengthMinutesRange": [
-      40,
+      30,
       50
     ],
     "durationPresets": [
+      30,
+      36,
       40,
       45,
       50

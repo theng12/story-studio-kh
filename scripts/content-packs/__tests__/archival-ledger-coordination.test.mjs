@@ -14,7 +14,7 @@ const PACK_ID = 'com.storystudio.pack.kit.archival-ledger'
 const BUNDLE_ID = 'com.storystudio.bundle.archival-ledger'
 const FAMILY = 'com.storystudio.family.kit.archival-ledger'
 const COMPONENTS = [
-  { pack_id: 'com.storystudio.pack.formula.archival-ledger', version: '1.0.0', item_id: 'com.storystudio.formula.archival-ledger', kind: 'series-formula' },
+  { pack_id: 'com.storystudio.pack.formula.archival-ledger', version: '1.0.1', item_id: 'com.storystudio.formula.archival-ledger', kind: 'series-formula' },
   { pack_id: 'com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse', version: '1.0.0', item_id: 'com.storystudio.topic.archival-ledger.states-revolutions-collapse', kind: 'topic-pack' },
   { pack_id: 'com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions', version: '1.0.0', item_id: 'com.storystudio.topic.archival-ledger.money-debt-financial-institutions', kind: 'topic-pack' },
   { pack_id: 'com.storystudio.pack.topic.archival-ledger.empires-trade-extraction', version: '1.0.0', item_id: 'com.storystudio.topic.archival-ledger.empires-trade-extraction', kind: 'topic-pack' },
@@ -28,7 +28,7 @@ test('Archival Ledger coordinates all eight independently stockable components w
   const coordination = JSON.parse(await readFile(new URL('pack.json', SOURCE_DIRECTORY), 'utf8'))
 
   assert.equal(coordination.pack_id, PACK_ID)
-  assert.equal(coordination.version, '1.0.0')
+  assert.equal(coordination.version, '1.0.2')
   assert.equal(coordination.entitlement.sku, 'com.storystudio.sku.kit.archival-ledger')
   assert.equal(coordination.entitlement.family, FAMILY)
   assert.equal(Object.hasOwn(coordination, 'items'), false)
@@ -66,10 +66,10 @@ test('Archival Ledger coordination builds reproducibly and validates with an eph
   const archive = await JSZip.loadAsync(await readFile(firstPath))
 
   assert.equal(first.packId, PACK_ID)
-  assert.equal(first.version, '1.0.0')
+  assert.equal(first.version, '1.0.2')
   assert.equal(first.sha256, second.sha256)
   assert.deepEqual(await readFile(firstPath), await readFile(secondPath))
-  assert.deepEqual(verified, { packId: PACK_ID, version: '1.0.0', sha256: first.sha256 })
+  assert.deepEqual(verified, { packId: PACK_ID, version: '1.0.2', sha256: first.sha256 })
   assert.deepEqual(Object.keys(archive.files), ['manifest.json', 'signature.ed25519'])
   const manifest = JSON.parse(await archive.file('manifest.json').async('text'))
   assert.equal(manifest.items.length, 0)

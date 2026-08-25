@@ -425,12 +425,16 @@ describe('format-loader', () => {
     assert.equal(thumbnail?.defaultFontStyle, 'bold')
   })
 
-  // 40-50 minutes is the owner's decision of 2026-08-21, replacing 30-45. The
-  // NINE PARTS ARE NOT HIS TO CHANGE CASUALLY and were left alone deliberately:
-  // the pacing arc names all nine (Chapter 1 "The familiar story" through
-  // Chapter 9 "The changed world"), so the range stays pinned at [9, 9] and the
-  // extra runtime lands as longer chapters, not more of them.
-  test('Hidden Mechanics of History owns a nine-part, 40-50 minute causal reconstruction', async () => {
+  // 30-50 minutes is the MERGE of the owner's 2026-08-21 decision (40-50) with
+  // the packaged Formula's older 30-45, ruled on 2026-08-25: "let's merge it and
+  // use the longest one. because it's a formula but can be adjusted in-app
+  // still." The union is deliberate - taking the narrower 40-50 would have
+  // removed 30 and 36 from what he can pick, which is the exact thing his
+  // justification forbids. The NINE PARTS ARE NOT HIS TO CHANGE CASUALLY and
+  // were left alone: the pacing arc names all nine (Chapter 1 "The familiar
+  // story" through Chapter 9 "The changed world"), so the range stays pinned at
+  // [9, 9] and the extra runtime lands as longer chapters, not more of them.
+  test('Hidden Mechanics of History owns a nine-part, 30-50 minute causal reconstruction', async () => {
     const nicheLoader = await import('../services/niche-loader.js')
     const shell = (await loader.loadFormat('continuity-chain'))!
     const niche = await nicheLoader.loadNiche('hidden-mechanics-history')
@@ -440,7 +444,8 @@ describe('format-loader', () => {
     assert.equal(merged.script.defaultChapterCount, 9)
     assert.deepEqual(merged.script.chapterCountRange, [9, 9])
     assert.equal(merged.script.defaultLengthMinutes, 45)
-    assert.deepEqual(merged.script.lengthMinutesRange, [40, 50])
+    assert.deepEqual(merged.script.lengthMinutesRange, [30, 50])
+    assert.deepEqual(merged.script.durationPresets, [30, 36, 40, 45, 50])
     assert.match(merged.script.pacingArc[0] || '', /familiar story/i)
     assert.ok(merged.script.additionalRules.some(rule => /Never treat correlation/i.test(rule)))
     assert.ok((merged.idea.titleShapeRules || []).some(rule => /Hidden Mechanics/i.test(rule)))

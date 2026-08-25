@@ -20,9 +20,9 @@
   "script_structure": {
     "default_chapter_count": 9,
     "chapter_count_range": [9, 9],
-    "default_length_minutes": 36,
-    "length_minutes_range": [30, 45],
-    "duration_presets": [30, 36, 45],
+    "default_length_minutes": 45,
+    "length_minutes_range": [30, 50],
+    "duration_presets": [30, 36, 40, 45, 50],
     "default_words_per_minute": 140,
     "chapters_independent": true,
     "pacing_arc": ["Chapter 1: The familiar story — establish the dated outcome, why it matters, and the incomplete explanation the episode will test.", "Chapter 2: The world before it — orient the viewer in place, period, institutions, and conditions already shaping the outcome.", "Chapter 3: The pressure builds — trace the first material, social, fiscal, or political force that made the status quo unstable.", "Chapter 4: The system beneath the event — explain the institutions, incentives, and constraints that directed those pressures.", "Chapter 5: The actors and choices — show what key groups could see, wanted, feared, and actually decided without inventing private intent.", "Chapter 6: The trigger — reconstruct the immediate crisis, decision, or encounter that converted pressure into change.", "Chapter 7: The causal chain — follow how the outcome unfolded, including feedback loops, costs, and unintended consequences.", "Chapter 8: What the record can bear — weigh the strongest evidence, alternative interpretations, and important uncertainty without false balance.", "Chapter 9: The changed world — resolve the causal picture, identify the lasting consequence, and leave the remaining question precise."],

@@ -20,6 +20,9 @@ const COMPONENTS = [
   {
     kind: 'formula',
     slug: 'archival-ledger',
+    // 1.0.1 merged the drifted episode-length range; 1.0.0 stays published and
+    // untouched, so the source and the archive it produced still agree.
+    version: '1.0.1',
     document: 'series-formula.json',
     packId: 'com.storystudio.pack.formula.archival-ledger',
     itemId: 'com.storystudio.formula.archival-ledger',
@@ -35,6 +38,7 @@ const COMPONENTS = [
   ].map(slug => ({
     kind: 'topic',
     slug,
+    version: '1.0.0',
     document: `topic-${slug}.json`,
     packId: `com.storystudio.pack.topic.archival-ledger.${slug}`,
     itemId: `com.storystudio.topic.archival-ledger.${slug}`,
@@ -44,6 +48,7 @@ const COMPONENTS = [
   {
     kind: 'style',
     slug: 'archival-documentary-reconstruction',
+    version: '1.0.0',
     document: 'visual-style.json',
     packId: 'com.storystudio.pack.style.archival-documentary-reconstruction',
     itemId: 'com.storystudio.style.archival-documentary-reconstruction',
@@ -53,6 +58,7 @@ const COMPONENTS = [
   {
     kind: 'thumbnail',
     slug: 'archival-map-investigation',
+    version: '1.0.0',
     document: 'thumbnail-recipe.json',
     packId: 'com.storystudio.pack.thumbnail.archival-map-investigation',
     itemId: 'com.storystudio.thumbnail.archival-map-investigation',
@@ -129,7 +135,7 @@ test('Archival Ledger has eight independently stockable component sources with e
     `reviewed ${component.document}`,
   )))
 
-  assert.equal(componentSources.every(source => source.manifest.version === '1.0.0'), true)
+  assert.equal(componentSources.every(source => source.manifest.version === source.component.version), true)
   assert.equal(componentSources.every(source => source.documents.length === 1), true)
   assert.equal(componentSources.every(source => source.manifest.min_app_version === '{{MIN_APP_VERSION}}'), true)
   assert.equal(componentSources.every(source => source.manifest.lifecycle === 'active'), true)
@@ -174,7 +180,7 @@ test('Archival Ledger has eight independently stockable component sources with e
     packId: component.packId,
     itemId: component.itemId,
     kind: ({ formula: 'series-formula', topic: 'topic-pack', style: 'visual-style', thumbnail: 'thumbnail-recipe' }[component.kind]),
-    version: '1.0.0',
+    version: component.version,
     sku: component.sku,
     family: component.family,
     sourceDirectory: `${component.kind}/${component.slug}`,
@@ -242,7 +248,7 @@ test('each Archival Ledger component source builds deterministically and validat
       const archive = await JSZip.loadAsync(await readFile(firstPath))
 
       assert.equal(first.packId, component.packId)
-      assert.equal(first.version, '1.0.0')
+      assert.equal(first.version, component.version)
       assert.equal(JSON.parse(await archive.file('manifest.json').async('text')).min_app_version, RELEASE_VERSION)
       assert.equal(first.sha256, second.sha256)
       assert.deepEqual(await readFile(firstPath), await readFile(secondPath))

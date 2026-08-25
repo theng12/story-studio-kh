@@ -3,16 +3,16 @@
   "pack_id": "com.storystudio.pack.kit.archival-ledger",
   "publisher_id": "com.storystudio",
   "key_id": "com.storystudio.key.archival-ledger",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "min_app_version": "{{MIN_APP_VERSION}}",
   "lifecycle": "active",
-  "changelog": "The Channel Kit coordinates the independently signed Formula, five Topic Packs, Style, and Thumbnail Recipe into 500+ evidence-led historical documentary directions.",
+  "changelog": "Repins the Formula at 1.0.1 for the merged episode-length range. The Channel Kit coordinates the independently signed Formula, five Topic Packs, Style, and Thumbnail Recipe into 500+ evidence-led historical documentary directions.",
   "entitlement": {
     "sku": "com.storystudio.sku.kit.archival-ledger",
     "family": "com.storystudio.family.kit.archival-ledger"
   },
   "dependencies": [
-    { "pack_id": "com.storystudio.pack.formula.archival-ledger", "version": "1.0.0" },
+    { "pack_id": "com.storystudio.pack.formula.archival-ledger", "version": "1.0.1" },
     { "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse", "version": "1.0.0" },
     { "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions", "version": "1.0.0" },
     { "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction", "version": "1.0.0" },
@@ -27,7 +27,7 @@
       "kind": "channel-kit",
       "name": "Archival Ledger",
       "components": [
-        { "pack_id": "com.storystudio.pack.formula.archival-ledger", "version": "1.0.0", "item_id": "com.storystudio.formula.archival-ledger", "kind": "series-formula" },
+        { "pack_id": "com.storystudio.pack.formula.archival-ledger", "version": "1.0.1", "item_id": "com.storystudio.formula.archival-ledger", "kind": "series-formula" },
         { "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse", "kind": "topic-pack" },
         { "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions", "kind": "topic-pack" },
         { "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction", "version": "1.0.0", "item_id": "com.storystudio.topic.archival-ledger.empires-trade-extraction", "kind": "topic-pack" },

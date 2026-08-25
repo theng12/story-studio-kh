@@ -3,7 +3,7 @@ export const paidComponentRegistry = [
     packId: 'com.storystudio.pack.formula.archival-ledger',
     itemId: 'com.storystudio.formula.archival-ledger',
     kind: 'series-formula',
-    version: '1.0.0',
+    version: '1.0.1',
     sku: 'com.storystudio.sku.formula.archival-ledger',
     family: 'com.storystudio.family.formula.archival-ledger',
     sourceDirectory: 'formula/archival-ledger',

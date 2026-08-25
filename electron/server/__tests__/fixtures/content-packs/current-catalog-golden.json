@@ -36,10 +36,12 @@
         ],
         "default_length_minutes": 45,
         "length_minutes_range": [
-          40,
+          30,
           50
         ],
         "duration_presets": [
+          30,
+          36,
           40,
           45,
           50
@@ -47,7 +49,7 @@
         "default_words_per_minute": 140,
         "chapters_independent": true
       },
-      "narration_profile_sha256": "479fa22a39e3a1702932b9b7a7574d60b84ca3911ab39a23af0ef2b2a345e610",
+      "narration_profile_sha256": "467749aed7e3045d8689d055293b62fbcbb2d9a456d3c7f6cf6fa04934a3d8b4",
       "default_narrator_style_id": "historical-investigator",
       "metadata_profile_sha256": "d0a8342d77e978c710a55c25dde2b3735671aa61208c103c2ac855430b1be96f",
       "production_kit": {
