@@ -28,14 +28,22 @@ export interface LetteringCatalogueEntry {
   /** Where it came from, so the picker can say so and a buyer can see value. */
   source: 'built-in' | 'pack'
   packId: string | null
-  /** In-pack asset paths for the rendered swatches; empty for built-ins. */
+  /** In-pack asset paths for the rendered swatches; empty for built-ins, whose
+   *  swatches are bundled with the app rather than shipped inside an archive. */
   previewAssets: readonly string[]
   /**
-   * The app URL for this style's FIRST bundled swatch, when it has one.
+   * The app URL for this style's rendered swatch.
    *
    * A pack ships its swatches; without this the picker would ignore them and
    * try to generate a replacement through a paid image model, which is exactly
    * what buying the pack was meant to avoid.
+   *
+   * A built-in has no archive to ship one in, so its swatch is bundled in the
+   * frontend build under /builtin-lettering-swatches/ -- the same arrangement
+   * the built-in VISUAL styles already use for `preview_image`. Bundled, not
+   * cached: the content-hash preview cache lives in per-machine userData, so a
+   * swatch seeded there would exist only on the machine that seeded it and
+   * every customer would still open the picker to thirty-five bare words.
    */
   previewUrl: string | null
 }
@@ -51,7 +59,7 @@ function builtIns(): LetteringCatalogueEntry[] {
         source: 'built-in',
         packId: null,
         previewAssets: [],
-        previewUrl: null,
+        previewUrl: `/builtin-lettering-swatches/${axis}-${id}.webp`,
       })
     }
   }

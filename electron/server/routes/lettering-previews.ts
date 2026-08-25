@@ -156,7 +156,9 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
   const style = await findStyle(kind, styleId)
   if (!style) return res.status(404).json({ detail: `Unknown ${kind} style: ${styleId}` })
   if (style.previewUrl) {
-    // Already paid for, inside the pack. Refuse to spend on a second copy.
+    // The image already exists: bundled under frontend/public for built-ins,
+    // or shipped inside the pack for paid styles. Either way it is already
+    // paid for, so refuse to spend on a second copy.
     return res.json({ hash: '', url: style.previewUrl, kind, style_id: styleId, cached: true, model_id: null })
   }
 
