@@ -26,6 +26,7 @@
     </main>
     <div v-if="installQueue.running.value || installQueue.failedCount.value" class="install-queue-strip" role="status" aria-live="polite"><span v-if="installQueue.running.value">Installing — {{ installQueue.pendingCount.value }} left in the queue</span><span v-else>{{ installQueue.failedCount.value }} install(s) failed. Open the pack and try again.</span><button v-if="!installQueue.running.value" type="button" class="notice-action" @click="installQueue.clearFinished()">Dismiss</button></div>
     <ContentPurchaseDialog :visible="dialogOpen" :attempt="selectedAttempt" :product="selectedProduct" :error="dialogError" :busy="purchaseBusy" @close="closeDialog" @confirm="confirmPurchase" @retry="confirmPurchase" />
+    <ContentBatchPurchaseDialog :visible="batch.open.value" :phase="batch.phase.value" :items="batch.items.value" :progress="batch.progress.value" :balance="contentSpendable" :selection-total="selectionTotal" :selected-count="batch.items.value.length" :busy="batch.busy.value" @close="closeBatchDialog" @confirm="confirmBatchPurchase" @retry-failed="batch.retryFailed" />
   </div>
 </template>
 
@@ -36,6 +37,8 @@ import ContentStoreShelf from '~/components/content-store/ContentStoreShelf.vue'
 import ContentLibraryView from '~/components/content-store/ContentLibraryView.vue'
 import ContentInstalledLibraryView from '~/components/content-store/ContentInstalledLibraryView.vue'
 import ContentPurchaseDialog from '~/components/content-store/ContentPurchaseDialog.vue'
+import ContentBatchPurchaseDialog from '~/components/content-store/ContentBatchPurchaseDialog.vue'
+import { useBatchPurchase } from '~/composables/useBatchPurchase'
 import { filterCatalogProducts, orderShelfProducts, type ContentStoreKindFilter } from '~/content-store/catalog-presentation'
 import { useInstallQueue } from '~/composables/useInstallQueue'
 import { contentStoreErrorPresentation, type ContentStoreProduct, type ContentStoreUiError, type PublicContentPurchaseAttempt } from '~/composables/useContentStore'
@@ -90,63 +93,64 @@ function enqueueInstalls(releaseIds: string[]): void { if (networkActionsDisable
 
 // ── Buying several at once ────────────────────────────────────────────────
 //
-// GenStudio quotes and charges ONE product at a time; that contract is not
-// changed here. What the multi-select adds is choosing the set in one go and
-// walking the quotes without returning to the grid between each, so the
-// deliberate confirm-per-purchase step the Store is built around is kept.
+// The orchestration lives in `useBatchPurchase` rather than here: it decides
+// what gets charged, and money-handling logic that cannot be unit-tested from
+// inside a page's <script setup> is money-handling logic that does not get
+// tested. The page keeps only the selection and the wiring.
 const selectedProductIds = ref<string[]>([])
-const batchQueue = ref<string[]>([])
-const batchQuoteBusy = ref(false)
-const batchTotal = ref(0)
 const selectedForPurchase = computed(() => discoverProducts.value.filter(product => selectedProductIds.value.includes(product.productId)))
 const selectionTotal = computed(() => selectedForPurchase.value.reduce((total, product) => total + (product.creditPrice ?? 0), 0))
-const batchProgressLabel = computed(() => batchTotal.value ? `${batchTotal.value - batchQueue.value.length} of ${batchTotal.value}` : '')
+const contentSpendable = computed(() => account.value?.contentSpendableCredits ?? 0)
+const batch = useBatchPurchase({
+  quote: (productId, releaseId) => store.requestQuote(productId, releaseId),
+  confirm: quoteId => store.confirmPurchase(quoteId),
+  lookup: productId => products.value.find(row => row.productId === productId),
+  lastError: () => error.value,
+})
+const batchQuoteBusy = computed(() => batch.busy.value && batch.phase.value === 'quoting')
+const batchProgressLabel = computed(() => batch.progress.value.total ? `${batch.progress.value.done} of ${batch.progress.value.total}` : '')
 function toggleSelection(product: ContentStoreProduct): void {
   selectedProductIds.value = selectedProductIds.value.includes(product.productId)
     ? selectedProductIds.value.filter(id => id !== product.productId)
     : [...selectedProductIds.value, product.productId]
 }
-function clearSelection(): void { selectedProductIds.value = []; batchQueue.value = []; batchTotal.value = 0 }
-async function startBatchPurchase(): Promise<void> {
-  if (networkActionsDisabled.value || batchQuoteBusy.value || !selectedForPurchase.value.length) return
-  batchQueue.value = selectedForPurchase.value.map(product => product.productId)
-  batchTotal.value = batchQueue.value.length
-  await openNextBatchQuote()
+function clearSelection(): void { selectedProductIds.value = [] }
+function startBatchPurchase(): void {
+  if (networkActionsDisabled.value || batch.busy.value) return
+  void batch.start([...selectedForPurchase.value])
 }
-async function openNextBatchQuote(): Promise<void> {
-  batchQuoteBusy.value = true
-  try {
-    for (;;) {
-      const productId = batchQueue.value[0]
-      if (productId === undefined) { batchTotal.value = 0; return }
-      batchQueue.value = batchQueue.value.slice(1)
-      const product = products.value.find(row => row.productId === productId)
-      // Anything that became owned or unavailable between selecting and
-      // quoting is skipped rather than quoted for a second time.
-      if (!product || product.owned || product.retired || !product.currentRelease) continue
-      await openQuote(product)
-      if (dialogOpen.value) return
-    }
-  } finally { batchQuoteBusy.value = false }
+/** A pack that is now owned must not sit selected offering to be bought again. */
+async function confirmBatchPurchase(): Promise<void> {
+  const bought = await batch.confirmAll()
+  if (bought.length) selectedProductIds.value = selectedProductIds.value.filter(id => !bought.includes(id))
 }
+async function closeBatchDialog(): Promise<void> {
+  if (batch.busy.value) return
+  batch.close()
+  await loadStore({ background: true })
+}
+
+// Buying exactly one pack, straight from its card, is unchanged: quote it, show
+// that pack's dialog, confirm it. The batch above is the several-at-once path,
+// and the two do not share a dialog.
 async function openQuote(product: ContentStoreProduct): Promise<void> { if (networkActionsDisabled.value || quoteBusyProduct.value) return; quoteBusyProduct.value = product.productId; dialogError.value = null; try { const attempt = await store.requestQuote(product.productId, product.currentRelease?.releaseId ?? null); selectedQuoteId.value = attempt.quote_id; selectedProductId.value = product.productId; dialogOpen.value = true } catch { /* a failed quote never opens the purchase dialog */ } finally { quoteBusyProduct.value = '' } }
 async function confirmPurchase(quoteId: string): Promise<void> { if (networkActionsDisabled.value || purchaseBusy.value) return; purchaseBusy.value = true; dialogError.value = null; try { await store.confirmPurchase(quoteId) } catch { dialogError.value = error.value } finally { purchaseBusy.value = false } }
+
 /**
- * Closing the dialog leaves the customer exactly where they were.
+ * Closing the single-pack dialog leaves the customer exactly where they were.
  *
  * It used to jump to Owned after every purchase -- "when i purchased it, don't
  * let it take me to the install page". Buying six packs meant being thrown out
  * of the grid six times. What a completed purchase does now is clear that
- * product from the selection and, if a batch is running, open the next quote.
+ * product from the selection and stay put. Buying a whole selection is the
+ * batch dialog's job and no longer queues more of these.
  */
-async function closeDialog(): Promise<void> {
+function closeDialog(): void {
   if (purchaseBusy.value) return
   const completed = selectedAttempt.value?.status === 'completed'
   const purchasedId = selectedProductId.value
   dialogOpen.value = false; selectedQuoteId.value = ''; selectedProductId.value = ''; dialogError.value = null
   if (completed && purchasedId) selectedProductIds.value = selectedProductIds.value.filter(id => id !== purchasedId)
-  if (batchQueue.value.length) { await openNextBatchQuote(); return }
-  batchTotal.value = 0
 }
 function clearFilters(): void { query.value = ''; price.value = 'all'; kind.value = 'all'; tag.value = ''; compatibleOnly.value = false }
 function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? discoverProducts.value.length : tab === 'owned' ? ownedProducts.value.length : tab === 'installed' ? installed.value.length : updateProducts.value.length }

@@ -54,6 +54,18 @@ async function loadStorePage(): Promise<Component> {
       running: computed(() => false),
       clearFinished: () => undefined,
     })
+    // Buying a whole selection lives in ~/composables/useBatchPurchase and has
+    // its own tests (contentStoreBatchPurchase). Here it only has to exist, so
+    // that mounting the page exercises the single-pack paths these tests are
+    // actually about.
+    const useBatchPurchase = () => ({
+      items: ref([]), phase: ref('idle'), open: ref(false), busy: ref(false),
+      progress: ref({ done: 0, total: 0 }),
+      quoted: computed(() => []), quotedTotal: computed(() => 0),
+      start: async () => undefined, confirmAll: async () => [],
+      retryFailed: async () => undefined, close: () => undefined,
+    })
+    const ContentBatchPurchaseDialog = { props: ['visible'], render: () => null }
     const useContentStore = () => globalThis.__contentStorePageStore
     const useAppSettingsModal = () => ({ open: () => undefined })
     const useRoute = () => ({ params: {} })

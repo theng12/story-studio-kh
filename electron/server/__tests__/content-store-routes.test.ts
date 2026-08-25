@@ -177,6 +177,18 @@ describe('Content Store commerce routes', () => {
     })
     const archiveRequest = mock.requests.find(row => row.path.startsWith('/v1/content/archives/'))
     assert.equal(archiveRequest?.authorization, '')
+    // Installing an owned pack must not re-derive recall state one HTTP request
+    // per owned family. It used to, and with 65 owned packs that was 65 requests
+    // BEFORE any bytes moved -- installing a whole library cost ~4,200 of them,
+    // ran past this client's own 8-12s request timeouts, and reported a healthy
+    // store as "the Content Store is unavailable". `/v1/content/receipts`
+    // already states `recalled_release_versions` per entitlement, so the only
+    // correct number here is zero.
+    assert.deepEqual(
+      mock.requests.filter(row => row.path.includes('/entitlements/') && row.path.endsWith('/releases')).map(row => row.path),
+      [],
+      'installing an owned release fans out no per-entitlement release-history requests',
+    )
     const state = await readContentPackState()
     assert.equal(state.packs['com.storystudio.pack.free-recovery-test'].active_version, '1.0.0')
     assert.doesNotMatch(JSON.stringify(installed.body), /receipt_signature|grant_signature|public_key_base64|download_url|"grant"|gsk_|\/Users\//i)
