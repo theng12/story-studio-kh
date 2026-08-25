@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.58 — 2026-08-25
+
+- **One card for the whole lettering decision, where you were already looking.** The swatches added in 1.4.55 went into a block higher up the Thumbnail Prompts tab, while the three dropdowns you actually use — Text style, Font, Title location — sat further down, unchanged. That was my mistake and it made the swatches invisible. Those three dropdowns are now a single "Thumbnail lettering" card, shaped like Channel art style: the font, the finish and the position together, with the swatches in place of the words.
+- Each part says what it decides in plain terms — the font is "the shape of the letters", the text style is "the finish on the letters", the location is "where the words sit in the frame" — and each keeps a "Let the model decide" option. The duplicate randomise button below the card is gone; the card carries its own.
+
+---
+
 ## v1.4.57 — 2026-08-25
 
 - **A Content Pack can now ship thumbnail lettering styles, so a font pack is something you can sell.** Until now the font and treatment lists were hardcoded in the app, which meant a pack could not add a lettering style at all — there was nothing to put in a font pack whatever else was built around it. `lettering-style` joins the seven existing pack item kinds on exactly the principle the last three were added on: a look is a description the engine interprets, and the thumbnail prompt builder already turns a lettering phrase into an instruction for the image model.

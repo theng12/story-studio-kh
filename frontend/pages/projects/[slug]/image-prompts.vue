@@ -491,18 +491,6 @@
             <select v-model="form.thumbnail.thumb_text_style" class="select">
               <option v-for="p in TEXT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
             </select>
-            <!-- The names are only readable if you already know what they mean.
-                 The swatches are the actual answer; the select stays for
-                 keyboard use and for 'auto' and 'custom', which have nothing
-                 to render. -->
-            <LetteringSwatchPicker
-              v-model="form.thumbnail.thumb_text_style"
-              kind="text"
-              :model="form.thumbnail.model"
-              :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
-              caption="Pick by eye — each swatch is the same word in that treatment"
-              class="mt-1"
-            />
             <input
               v-if="form.thumbnail.thumb_text_style === 'custom'"
               v-model="form.thumbnail.thumb_text_style_custom"
@@ -556,14 +544,6 @@
             <select v-model="form.thumbnail.thumb_font_style" class="select">
               <option v-for="p in FONT_STYLE_PRESETS" :key="p.id" :value="p.id">{{ p.label }}</option>
             </select>
-            <LetteringSwatchPicker
-              v-model="form.thumbnail.thumb_font_style"
-              kind="font"
-              :model="form.thumbnail.model"
-              :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
-              caption="Pick by eye — each swatch is the same word in that letterform"
-              class="mt-1"
-            />
             <input
               v-if="form.thumbnail.thumb_font_style === 'custom'"
               v-model="form.thumbnail.thumb_font_style_custom"
@@ -794,39 +774,48 @@
         </template>
       </section>
 
-      <div class="grid-3 mt-2">
-        <div class="form-group">
-          <label>Text style</label>
-          <select v-model="form.thumbnail.thumb_text_style" class="select">
-            <option value="auto">Let LLM decide</option>
-            <option v-for="p in TEXT_STYLE_PRESETS.filter(preset => preset.id !== 'custom')" :key="p.id" :value="p.id">{{ p.label }}</option>
-          </select>
+      <!-- One card for the whole lettering decision, the way Channel art style
+           is one card: the letterform, the treatment and where it sits. They
+           were three scattered dropdowns of words nobody can picture. -->
+      <section class="lettering-card mt-2" aria-labelledby="lettering-heading">
+        <header class="lettering-head">
+          <div><span class="lettering-eyebrow">Thumbnail lettering</span><h4 id="lettering-heading">How the words look</h4></div>
+          <button type="button" class="link-btn" @click="randomizeThumbStyles">🎲 Surprise me</button>
+        </header>
+
+        <div class="lettering-part">
+          <div class="lettering-part-head"><strong>Font</strong><span>The shape of the letters</span></div>
+          <label class="lettering-auto"><input type="radio" value="auto" v-model="form.thumbnail.thumb_font_style" /> Let the model decide</label>
+          <LetteringSwatchPicker
+            v-model="form.thumbnail.thumb_font_style" kind="font"
+            :model="form.thumbnail.model" :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
+            caption="Same word in every swatch, so only the letterform differs"
+          />
         </div>
-        <div class="form-group">
-          <label>Font</label>
-          <select v-model="form.thumbnail.thumb_font_style" class="select">
-            <option value="auto">Let LLM decide</option>
-            <option v-for="p in FONT_STYLE_PRESETS.filter(preset => preset.id !== 'custom')" :key="p.id" :value="p.id">{{ p.label }}</option>
-          </select>
+
+        <div class="lettering-part">
+          <div class="lettering-part-head"><strong>Text style</strong><span>The finish on the letters</span></div>
+          <label class="lettering-auto"><input type="radio" value="auto" v-model="form.thumbnail.thumb_text_style" /> Let the model decide</label>
+          <LetteringSwatchPicker
+            v-model="form.thumbnail.thumb_text_style" kind="text"
+            :model="form.thumbnail.model" :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
+            caption="Same word and same letterform, so only the finish differs"
+          />
         </div>
-        <div class="form-group">
-          <label>Title location</label>
-          <select v-model="form.thumbnail.thumb_text_position" class="select">
-            <option value="auto">Let LLM decide</option>
-            <option value="top">Top</option>
-            <option value="center">Center</option>
-            <option value="bottom">Bottom</option>
-            <option value="bottom-left">Bottom left</option>
-          </select>
+
+        <div class="lettering-part">
+          <div class="lettering-part-head"><strong>Title location</strong><span>Where the words sit in the frame</span></div>
+          <div class="lettering-positions" role="radiogroup" aria-label="Title location">
+            <button
+              v-for="option in titleLocations" :key="option.id" type="button" role="radio"
+              :aria-checked="form.thumbnail.thumb_text_position === option.id"
+              :class="['position-chip', { selected: form.thumbnail.thumb_text_position === option.id }]"
+              @click="form.thumbnail.thumb_text_position = option.id"
+            >{{ option.label }}</button>
+          </div>
         </div>
-      </div>
-      <p class="text-muted text-xs hint-line">
-        Lock any of these when you know the look you want, or leave them on Let LLM decide to get varied thumbnail directions.
-      </p>
+      </section>
       <div class="flex gap-2 mt-1 items-center flex-wrap">
-        <button type="button" class="btn btn-secondary" @click="randomizeThumbStyles">
-          🎲 Randomize title design
-        </button>
         <button
           type="button"
           class="btn btn-secondary"
@@ -1643,6 +1632,13 @@ const selectedGenStudioImageModel = computed(() =>
 )
 interface HeadlineModeOption { id: string; label: string; summary: string; invents: boolean }
 const headlineModes = ref<HeadlineModeOption[]>([])
+const titleLocations = [
+  { id: 'auto', label: 'Let the model decide' },
+  { id: 'top', label: 'Top' },
+  { id: 'center', label: 'Centre' },
+  { id: 'bottom', label: 'Bottom' },
+  { id: 'bottom-left', label: 'Bottom left' },
+]
 onMounted(async () => {
   try {
     const result = await get<{ modes: HeadlineModeOption[] }>('/thumbnail-headline-modes')
@@ -2511,6 +2507,22 @@ async function saveToFile() {
 </script>
 
 <style scoped>
+.lettering-card { display: grid; gap: 16px; padding: 15px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
+.lettering-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.lettering-eyebrow { display: block; color: var(--accent); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.lettering-head h4 { margin-top: 2px; font-size: var(--font-lg); letter-spacing: -.02em; }
+.lettering-part { display: grid; gap: 7px; }
+.lettering-part-head { display: flex; align-items: baseline; gap: 8px; }
+.lettering-part-head strong { font-size: var(--font-sm); }
+.lettering-part-head span { color: var(--text-muted); font-size: var(--font-xs); }
+.lettering-auto { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); cursor: pointer; font-size: var(--font-sm); }
+.lettering-auto input { accent-color: var(--accent); }
+.lettering-positions { display: flex; flex-wrap: wrap; gap: 6px; }
+.position-chip { min-height: var(--control-height-sm); padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-primary); color: var(--text-secondary); cursor: pointer; font: inherit; font-size: var(--font-sm); }
+.position-chip:hover { border-color: var(--border-light); color: var(--text-primary); }
+.position-chip.selected { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); background: var(--accent-dim); color: var(--accent); }
+.position-chip:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 560px) { .position-chip { min-height: 44px; } }
 .headline-mode-group { grid-column: 1 / -1; }
 .headline-modes { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 186px), 1fr)); gap: 7px; }
 .headline-mode { display: grid; gap: 3px; padding: 9px 11px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-primary); cursor: pointer; text-align: left; }
