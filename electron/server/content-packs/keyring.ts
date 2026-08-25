@@ -6,6 +6,7 @@ import { z } from 'zod'
 
 import type { ContentPackVerificationPolicy } from './archive.js'
 import { resolveContentPackRecoveryRoot } from './runtime-paths.js'
+import { logLine } from '../services/logger.js'
 
 const require = createRequire(import.meta.url)
 const QualifiedIdSchema = z.string()
@@ -104,13 +105,15 @@ export async function getFirstPartyContentPackVerificationPolicy(): Promise<Cont
   try {
     raw = await fs.readFile(resourcePath, 'utf8')
   } catch (error) {
-    throw new Error(`Content Pack first-party key resource is unavailable: ${resourcePath}`, { cause: error })
+    logLine('warn', 'Content Pack first-party key resource is unavailable', { target: resourcePath })
+    throw new Error('Content Pack first-party key resource is unavailable', { cause: error })
   }
   let parsed: z.infer<typeof KeyringResourceSchema>
   try {
     parsed = KeyringResourceSchema.parse(JSON.parse(raw))
   } catch (error) {
-    throw new Error(`Content Pack first-party key resource is invalid: ${resourcePath}`, { cause: error })
+    logLine('warn', 'Content Pack first-party key resource is invalid', { target: resourcePath })
+    throw new Error('Content Pack first-party key resource is invalid', { cause: error })
   }
   return createContentPackKeyring(parsed.keys.map(key => ({
     keyId: key.key_id,

@@ -148,7 +148,11 @@ async function cleanupStaleStaging(
 ): Promise<number> {
   try {
     const root = await fs.lstat(paths.stagingRoot)
-    if (!root.isDirectory() || root.isSymbolicLink()) throw new Error(`Content Pack staging root is unsafe: ${paths.stagingRoot}`)
+    // No path in the message, and no logger import either: an explicit test
+    // pins this module's exact dependency list, because boot recovery must not
+    // reach for a remote, a secret store, or the renderer. The path is
+    // recoverable from the runtime paths by anyone debugging this.
+    if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('Content Pack staging root is unsafe')
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
     throw error

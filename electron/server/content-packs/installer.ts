@@ -123,7 +123,11 @@ function assertContained(root: string, candidate: string): string {
 
 async function assertSafeDirectory(target: string): Promise<void> {
   const info = await fs.lstat(target)
-  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`Content Pack write directory is unsafe: ${target}`)
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    // Path in the log, not the message — see `unusableVersion` below.
+    logLine('warn', 'Content Pack write directory is unsafe', { target })
+    throw new Error('Content Pack write directory is unsafe')
+  }
 }
 
 async function ensureExclusiveDirectory(root: string, target: string, createdDirectories?: Set<string>): Promise<void> {
@@ -172,7 +176,10 @@ async function writeExclusiveFile(root: string, target: string, bytes: Uint8Arra
   const handle = await fs.open(target, flags, FILE_MODE)
   try {
     const info = await handle.stat()
-    if (!info.isFile() || info.nlink !== 1) throw new Error(`Content Pack write target is unsafe: ${target}`)
+    if (!info.isFile() || info.nlink !== 1) {
+      logLine('warn', 'Content Pack write target is unsafe', { target })
+      throw new Error('Content Pack write target is unsafe')
+    }
     await handle.writeFile(bytes)
     await handle.sync()
   } finally {
@@ -570,7 +577,8 @@ async function materialiseVerifiedPack(
       manifest: verified.manifest,
     }, policy)
     if (canonicalJson(orphaned.manifest) !== canonicalJson(verified.manifest)) {
-      throw new Error(`Content Pack immutable orphan conflicts with candidate: ${finalPath}`)
+      logLine('warn', 'Content Pack immutable orphan conflicts with candidate', { target: finalPath })
+      throw new Error(`Content Pack immutable orphan conflicts with candidate: ${verified.manifest.pack_id}@${verified.manifest.version}`)
     }
     await fsyncParents(installedRoot, path.dirname(finalPath))
     return

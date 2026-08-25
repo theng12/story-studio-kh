@@ -11,6 +11,7 @@ import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import { installedVersionPath, type ContentPackRuntimePaths } from './runtime-paths.js'
 import type { ContentPackInstalledVersion, ContentPackRuntimeState } from './runtime-types.js'
 import { getContentPackRuntimePaths } from './runtime-paths.js'
+import { logLine } from '../services/logger.js'
 import { withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
 
 const DIRECTORY_MODE = 0o700
@@ -65,7 +66,10 @@ function safeSegment(value: string): string {
 async function lstatDirectory(target: string): Promise<boolean> {
   try {
     const info = await fs.lstat(target)
-    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`Content Pack lifecycle directory is unsafe: ${target}`)
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+      logLine('warn', 'Content Pack lifecycle directory is unsafe', { target })
+      throw new Error('Content Pack lifecycle directory is unsafe')
+    }
     return true
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
@@ -76,7 +80,10 @@ async function lstatDirectory(target: string): Promise<boolean> {
 async function assertSafeDirectoryChain(root: string, target: string): Promise<void> {
   const resolvedRoot = path.resolve(root)
   const resolvedTarget = assertContained(resolvedRoot, target)
-  if (!await lstatDirectory(resolvedRoot)) throw new Error(`Content Pack lifecycle root is missing: ${resolvedRoot}`)
+  if (!await lstatDirectory(resolvedRoot)) {
+    logLine('warn', 'Content Pack lifecycle root is missing', { target: resolvedRoot })
+    throw new Error('Content Pack lifecycle root is missing')
+  }
   let cursor = resolvedRoot
   for (const segment of path.relative(resolvedRoot, resolvedTarget).split(path.sep)) {
     if (!segment || segment === '.' || segment === '..') throw new Error('Content Pack lifecycle path must be contained by its root')

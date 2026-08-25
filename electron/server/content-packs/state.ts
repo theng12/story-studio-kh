@@ -9,6 +9,7 @@ import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { emptyContentPackState, ContentPackRuntimeStateSchema, type ContentPackRuntimeState } from './runtime-types.js'
 import { getContentPackRuntimePaths, installedVersionPath, type ContentPackRuntimePaths } from './runtime-paths.js'
+import { logLine } from '../services/logger.js'
 
 const STATE_MODE = 0o600
 const LOCK_WAIT_MS = 10_000
@@ -26,7 +27,10 @@ export async function prepareContentPackRuntimeRoot(paths: ContentPackRuntimePat
   assertWriteIsolatedInTests(paths.root, 'content-pack-state')
   await fs.mkdir(paths.root, { recursive: true, mode: 0o700 })
   const root = await fs.lstat(paths.root)
-  if (!root.isDirectory() || root.isSymbolicLink()) throw new Error(`Content Pack runtime root is unsafe: ${paths.root}`)
+  if (!root.isDirectory() || root.isSymbolicLink()) {
+    logLine('warn', 'Content Pack runtime root is unsafe', { target: paths.root })
+    throw new Error('Content Pack runtime root is unsafe')
+  }
   const stateParent = path.dirname(paths.statePath)
   if (path.resolve(stateParent) !== path.resolve(paths.root)) throw new Error('Content Pack state path must live directly below its runtime root')
   const parent = await fs.lstat(stateParent)
@@ -80,7 +84,8 @@ async function resetInvalidState(paths: ContentPackRuntimePaths, bytes: Uint8Arr
   }
   const quarantine = await fs.lstat(paths.quarantineRoot)
   if (!quarantine.isDirectory() || quarantine.isSymbolicLink()) {
-    throw new Error(`Content Pack quarantine directory is unsafe: ${paths.quarantineRoot}`)
+    logLine('warn', 'Content Pack quarantine directory is unsafe', { target: paths.quarantineRoot })
+    throw new Error('Content Pack quarantine directory is unsafe')
   }
   const quarantined = invalidStatePath(paths, bytes)
   await fs.writeFile(quarantined, bytes, { flag: 'wx', mode: STATE_MODE }).catch(error => {
