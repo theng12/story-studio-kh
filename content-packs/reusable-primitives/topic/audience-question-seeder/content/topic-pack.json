@@ -1,0 +1,132 @@
+{
+  "kind": "topic-pack",
+  "schema_version": 1,
+  "id": "com.storystudio.topic.audience-question-seeder",
+  "name": "Audience Question Seeder",
+  "description": "A duplicate-resistant Topic Pack for practical audience questions, organized by audience context, question intent, constraint, evidence type, and bounded actionability without owning the answer structure.",
+  "compatible_formula_ids": [
+    "com.storystudio.formula.question-ladder"
+  ],
+  "subjects": [
+    "understand a mechanism",
+    "compare options",
+    "plan a bounded next step",
+    "identify a trade-off",
+    "check an exception",
+    "evaluate an observation"
+  ],
+  "episode_objects": [
+    "first-time learner",
+    "busy caregiver",
+    "budget-conscious household",
+    "small-team operator",
+    "hobby beginner",
+    "returning learner"
+  ],
+  "time_place_scopes": [
+    "time",
+    "budget",
+    "access",
+    "safety",
+    "uncertainty",
+    "competing priorities"
+  ],
+  "mechanisms": [
+    "observe",
+    "ask a professional",
+    "compare criteria",
+    "run a reversible low-risk experiment",
+    "defer pending evidence",
+    "choose among stated options"
+  ],
+  "evidence_lenses": [
+    "primary source",
+    "measurement log",
+    "official guidance",
+    "controlled comparison",
+    "expert explanation",
+    "lived observation labelled as anecdotal"
+  ],
+  "exclusions": [
+    "Reject questions that ask for a diagnosis, medical treatment, or a legal conclusion.",
+    "Do not claim individualized medical, legal, financial, or other professional guidance.",
+    "Reject causal or universal conclusions that exceed the stated evidence.",
+    "Do not turn this Topic Pack into a UI seeding feature, live directory, local listing, or answer-structure system."
+  ],
+  "max_siblings_per_subject": 1,
+  "prompt_context": "Generate one bounded audience question from the selected axes. This Topic Pack supplies question domains only; it does not decide answer structure, act as a UI seeding feature or live directory, or provide individualized medical or legal guidance.",
+  "idea_axes": [
+    {
+      "id": "audience-context",
+      "label": "Audience context",
+      "values": [
+        "first-time learner",
+        "busy caregiver",
+        "budget-conscious household",
+        "small-team operator",
+        "hobby beginner",
+        "returning learner"
+      ]
+    },
+    {
+      "id": "question-intent",
+      "label": "Question intent",
+      "values": [
+        "understand a mechanism",
+        "compare options",
+        "plan a bounded next step",
+        "identify a trade-off",
+        "check an exception",
+        "evaluate an observation"
+      ]
+    },
+    {
+      "id": "constraint",
+      "label": "Constraint",
+      "values": [
+        "time",
+        "budget",
+        "access",
+        "safety",
+        "uncertainty",
+        "competing priorities"
+      ]
+    },
+    {
+      "id": "evidence-type",
+      "label": "Evidence type",
+      "values": [
+        "primary source",
+        "measurement log",
+        "official guidance",
+        "controlled comparison",
+        "expert explanation",
+        "lived observation labelled as anecdotal"
+      ]
+    },
+    {
+      "id": "actionability",
+      "label": "Actionability",
+      "values": [
+        "observe",
+        "ask a professional",
+        "compare criteria",
+        "run a reversible low-risk experiment",
+        "defer pending evidence",
+        "choose among stated options"
+      ]
+    }
+  ],
+  "evidence_expectations": [
+    "Keep primary sources, measurement logs, official guidance, controlled comparisons, expert explanations, and anecdotal observation distinct.",
+    "Label lived observation as anecdotal and never use it alone to support a causal or universal conclusion.",
+    "Do not invent research, a source review, professional assessment, live listing, or individualized guidance."
+  ],
+  "compatibility_rules": [
+    "Reject a candidate when its normalized question duplicates an existing episode or an in-batch candidate; store the rejection reason with the candidate fingerprint.",
+    "Reject a candidate when its subject, audience-context, question-intent, and constraint tuple repeats; store the rejection reason with the candidate fingerprint.",
+    "Reject a candidate when the question asks for a diagnosis, legal conclusion, or medical treatment.",
+    "Reject a candidate when lived observation labelled as anecdotal is paired with a causal or universal conclusion.",
+    "For a retry, reuse the same seed and persisted fingerprint rejection reasons so accepted order and rejection outcomes remain deterministic."
+  ]
+}

@@ -3,6 +3,8 @@ import fs from 'node:fs/promises'
 
 import type { CreateProjectRequest, JobType, ProjectMeta, UpdateConfigRequest } from '../models/types.js'
 import * as projectManager from '../services/project-manager.js'
+import { verifyInstalledContentPackClosure } from './installer.js'
+import { getFirstPartyContentPackVerificationPolicy } from './keyring.js'
 import {
   resolveCatalogItem,
   resolveCatalogPackVersion,
@@ -11,7 +13,8 @@ import {
 } from './registry.js'
 import { getContentPackRuntimePaths, type ContentPackRuntimePaths } from './runtime-paths.js'
 import type { ContentPackProvenance, ContentPackVersionRef } from './runtime-types.js'
-import { withContentPackCoordinationLock } from './state.js'
+import { isBundleOnlyCoordinationManifest } from './schemas.js'
+import { readContentPackState, withContentPackCoordinationLock } from './state.js'
 import type { ContentPackItemKind } from './types.js'
 import { currentJobContentPackProvenance } from './job-provenance-context.js'
 
@@ -65,6 +68,10 @@ export interface ContentPackProjectPinOptions extends ContentPackRegistryOptions
   hooks?: {
     /** Test seam reached under coordination after exact verification. */
     beforeProjectWrite?: () => Promise<void>
+    /** Test seam proving that legacy/local writes follow a signed-catalog miss. */
+    afterCatalogItemResolution?: (id: string, pin: ContentPackVersionRef | undefined) => void
+    /** Test seam for crash-consistent project/config write-phase evidence. */
+    consistentProjectWrite?: projectManager.ConsistentProjectWriteHooks
   }
 }
 
@@ -74,7 +81,24 @@ export interface ProjectContentSelectionUpdate {
   update: (project: ProjectMeta) => void
 }
 
-type SignedSelection = Awaited<ReturnType<typeof resolveSignedSelections>>[number]
+type SignedSelection = { id: string; kind: ContentPackItemKind; ref: ContentPackVersionRef }
+
+export interface ProjectContentBundleApplicationRequest {
+  root: ContentPackVersionRef
+  bundle_id: string
+}
+
+export interface ProjectContentBundleApplicationResult {
+  project_slug: string
+  bundle_id: string
+  formula_id: string
+  topic_pack_ids: string[]
+  default_style_id: string
+  alternative_style_ids: string[]
+  style_refs: Array<{ item_id: string; ref: ContentPackVersionRef }>
+  thumbnail_recipe_id: string
+  content_pack_versions: Record<string, string>
+}
 
 const HIDDEN_MECHANICS_MIGRATION_TARGETS = {
   formula: {
@@ -150,18 +174,75 @@ function applyContentSelections(
   else delete project.content_pack_versions
 }
 
+function pinnedSelectionMissing(
+  selection: { id: string; kind: ContentPackItemKind },
+  packId: string,
+  version: string,
+): ContentPackMissingError {
+  return new ContentPackMissingError([{
+    pack_id: packId,
+    version,
+    item_ids: [selection.id],
+    item_kinds: [selection.kind],
+  }])
+}
+
+function missingPackVersion(packId: string, version: string): ContentPackMissingError {
+  return new ContentPackMissingError([{ pack_id: packId, version, item_ids: [], item_kinds: [] }])
+}
+
+export async function resolveProjectPreferredSelection(
+  project: ProjectMeta,
+  selection: { id: string; kind: ContentPackItemKind },
+  options: ContentPackProjectPinOptions,
+): Promise<SignedSelection | null> {
+  const owner = project.content_pack_items?.[selection.id]
+  if (owner) {
+    const version = project.content_pack_versions?.[owner.pack_id]
+    if (owner.kind !== selection.kind || !version) {
+      throw pinnedSelectionMissing(selection, owner.pack_id, version ?? 'unknown')
+    }
+    let exact: CatalogPackVersion | null = null
+    try {
+      exact = await resolveCatalogPackVersion(owner.pack_id, version, options)
+    } catch { /* normalized below so a corrupt pin never reaches active discovery */ }
+    if (!exact) throw pinnedSelectionMissing(selection, owner.pack_id, version)
+    let entry: Awaited<ReturnType<typeof resolveCatalogItem>> = null
+    try {
+      entry = await resolveCatalogItem(selection.id, exact.ref, {
+        ...options,
+        pins: [exact.ref, ...(options.pins ?? [])],
+      })
+      options.hooks?.afterCatalogItemResolution?.(selection.id, exact.ref)
+    } catch { /* normalized below */ }
+    if (!entry?.pack
+      || entry.value.kind !== selection.kind
+      || entry.pack.pack_id !== owner.pack_id
+      || entry.pack.version !== version
+      || entry.pack.archive_sha256 !== exact.ref.archive_sha256) {
+      throw pinnedSelectionMissing(selection, owner.pack_id, version)
+    }
+    return { id: selection.id, kind: selection.kind, ref: { ...exact.ref } }
+  }
+
+  const entry = await resolveCatalogItem(selection.id, undefined, options)
+  options.hooks?.afterCatalogItemResolution?.(selection.id, undefined)
+  if (!entry?.pack) return null
+  if (entry.value.kind !== selection.kind) {
+    throw Object.assign(new Error(`Content Pack item kind mismatch: ${selection.id}`), { statusCode: 409, expose: true })
+  }
+  return { id: selection.id, kind: selection.kind, ref: { ...entry.pack } }
+}
+
 async function resolveSignedSelections(
+  project: ProjectMeta,
   selections: Array<{ id: string; kind: ContentPackItemKind }>,
   options: ContentPackProjectPinOptions,
-): Promise<Array<{ id: string; kind: ContentPackItemKind; ref: ContentPackVersionRef }>> {
-  const signed: Array<{ id: string; kind: ContentPackItemKind; ref: ContentPackVersionRef }> = []
+): Promise<SignedSelection[]> {
+  const signed: SignedSelection[] = []
   for (const selection of selections) {
-    const entry = await resolveCatalogItem(selection.id, undefined, options)
-    if (!entry?.pack) continue
-    if (entry.value.kind !== selection.kind) {
-      throw Object.assign(new Error(`Content Pack item kind mismatch: ${selection.id}`), { statusCode: 409, expose: true })
-    }
-    signed.push({ id: selection.id, kind: selection.kind, ref: entry.pack })
+    const resolved = await resolveProjectPreferredSelection(project, selection, options)
+    if (resolved) signed.push(resolved)
   }
   return signed
 }
@@ -397,7 +478,9 @@ export async function updateProjectContentSelections(
   options: ContentPackProjectPinOptions = {},
 ): Promise<ProjectMeta> {
   return withContentPackCoordinationLock(pathsFor(options), async () => {
-    const signed = await resolveSignedSelections(input.selections, options)
+    const project = await projectManager.readProjectMetaConsistently(slug)
+    if (!project) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+    const signed = await resolveSignedSelections(project, input.selections, options)
     await options.hooks?.beforeProjectWrite?.()
     const updated = await projectManager.mutateProjectMetaConsistently(slug, project => {
       applyContentSelections(project, signed, input.replace_kinds, input.update)
@@ -486,6 +569,8 @@ export async function updateProjectContentConfigSelections(
   // deadlock — and a rejected write has no reason to hold a write barrier.
   await assertResolvableSelections(slug, request, options)
   return withContentPackCoordinationLock(pathsFor(options), async () => {
+    const project = await projectManager.readProjectMetaConsistently(slug)
+    if (!project) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
     const selections = [
       ...(hasStyle && typeof request.active_style_preset_id === 'string' && request.active_style_preset_id
         ? [{ id: request.active_style_preset_id, kind: 'visual-style' as const }]
@@ -494,7 +579,7 @@ export async function updateProjectContentConfigSelections(
         ? [{ id: request.thumbnail_template_id, kind: 'thumbnail-recipe' as const }]
         : []),
     ]
-    const signed = await resolveSignedSelections(selections, options)
+    const signed = await resolveSignedSelections(project, selections, options)
     await options.hooks?.beforeProjectWrite?.()
     const updated = await projectManager.updateConfigAndProjectMetaConsistently(slug, request, project => {
       applyContentSelections(
@@ -515,6 +600,119 @@ export async function updateProjectContentConfigSelections(
   })
 }
 
+/** Apply one already-installed bundle closure to one project; never installs or purchases content. */
+export async function applyProjectContentBundle(
+  slug: string,
+  request: ProjectContentBundleApplicationRequest,
+  options: ContentPackProjectPinOptions = {},
+): Promise<ProjectContentBundleApplicationResult> {
+  return withContentPackCoordinationLock(pathsFor(options), async () => {
+    const project = await projectManager.readProjectMetaConsistently(slug)
+    if (!project) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+
+    const paths = pathsFor(options)
+    const state = await readContentPackState(paths)
+    const rootState = state.packs[request.root.pack_id]
+    if (!rootState?.versions[request.root.version]
+      || rootState.versions[request.root.version].archive_sha256 !== request.root.archive_sha256) {
+      throw missingPackVersion(request.root.pack_id, request.root.version)
+    }
+    if (rootState.discovery_disabled) {
+      throw Object.assign(new Error(`Content Pack is disabled: ${request.root.pack_id}`), { statusCode: 409, expose: true })
+    }
+    const policy = options.policy ?? await getFirstPartyContentPackVerificationPolicy()
+    let root
+    try {
+      root = await verifyInstalledContentPackClosure(
+        state,
+        request.root.pack_id,
+        request.root.version,
+        policy,
+        options.appVersion,
+      )
+    } catch {
+      throw missingPackVersion(request.root.pack_id, request.root.version)
+    }
+    if (root.archiveSha256 !== request.root.archive_sha256
+      || root.manifest.lifecycle !== 'active'
+      || !isBundleOnlyCoordinationManifest(root.manifest)) {
+      throw Object.assign(new Error('The requested Content Pack root is not an active bundle-only coordination pack.'), { statusCode: 400, expose: true })
+    }
+    const bundles = root.manifest.bundles.filter(bundle => bundle.id === request.bundle_id)
+    if (bundles.length !== 1 || root.manifest.bundles.length !== 1) {
+      throw Object.assign(new Error(`Channel Kit bundle not found: ${request.bundle_id}`), { statusCode: 400, expose: true })
+    }
+
+    const selections: SignedSelection[] = []
+    for (const component of bundles[0]!.components) {
+      const packState = state.packs[component.pack_id]
+      if (packState?.discovery_disabled) {
+        throw Object.assign(new Error(`Content Pack is disabled: ${component.pack_id}`), { statusCode: 409, expose: true })
+      }
+      let verified
+      try {
+        verified = await verifyInstalledContentPackClosure(
+          state,
+          component.pack_id,
+          component.version,
+          policy,
+          options.appVersion,
+        )
+      } catch {
+        throw pinnedSelectionMissing({ id: component.item_id, kind: component.kind }, component.pack_id, component.version)
+      }
+      const item = verified.manifest.items.find(candidate => candidate.id === component.item_id)
+      if (verified.manifest.lifecycle !== 'active' || item?.kind !== component.kind) {
+        throw Object.assign(new Error(`Content Pack component kind or lifecycle mismatch: ${component.item_id}`), { statusCode: 409, expose: true })
+      }
+      selections.push({
+        id: component.item_id,
+        kind: component.kind,
+        ref: {
+          pack_id: component.pack_id,
+          version: component.version,
+          archive_sha256: verified.archiveSha256,
+        },
+      })
+    }
+
+    const formula = selections.find(selection => selection.kind === 'series-formula')!
+    const topics = selections.filter(selection => selection.kind === 'topic-pack')
+    const recipe = selections.find(selection => selection.kind === 'thumbnail-recipe')!
+    const styles = selections.filter(selection => selection.kind === 'visual-style')
+    const defaultStyle = styles[0]!
+    await options.hooks?.beforeProjectWrite?.()
+    const updated = await projectManager.updateConfigAndProjectMetaConsistently(slug, {
+      active_style_preset_id: defaultStyle.id,
+      thumbnail_template_id: recipe.id,
+    }, current => {
+      applyContentSelections(
+        current,
+        selections,
+        ['series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe'],
+        meta => {
+          meta.niche_id = formula.id
+          meta.topic_pack_ids = topics.map(topic => topic.id)
+          meta.active_style_preset_id = defaultStyle.id
+          meta.thumbnail_template_id = recipe.id
+        },
+      )
+    }, options.hooks?.consistentProjectWrite)
+    if (!updated) throw Object.assign(new Error(`Project not found: ${slug}`), { statusCode: 404, expose: true })
+    return {
+      project_slug: updated.slug,
+      bundle_id: request.bundle_id,
+      formula_id: formula.id,
+      topic_pack_ids: topics.map(topic => topic.id),
+      default_style_id: defaultStyle.id,
+      alternative_style_ids: styles.slice(1).map(style => style.id),
+      style_refs: styles.map(style => ({ item_id: style.id, ref: { ...style.ref } })),
+      thumbnail_recipe_id: recipe.id,
+      content_pack_versions: Object.fromEntries(selections.map(selection => [selection.ref.pack_id, selection.ref.version])),
+    }
+  })
+}
+
 /** Create a project and its first exact pins under one coordination barrier. */
 export async function createProjectWithContentSelections(
   request: CreateProjectRequest,
@@ -525,7 +723,7 @@ export async function createProjectWithContentSelections(
       ...(request.niche_id ? [{ id: request.niche_id, kind: 'series-formula' as const }] : []),
       ...(request.topic_pack_ids ?? []).map(id => ({ id, kind: 'topic-pack' as const })),
     ]
-    const signed = await resolveSignedSelections(selections, options)
+    const signed = await resolveSignedSelections({} as ProjectMeta, selections, options)
     const versions: Record<string, string> = {}
     const items: NonNullable<ProjectMeta['content_pack_items']> = {}
     for (const selection of signed) {

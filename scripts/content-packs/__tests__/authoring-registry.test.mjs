@@ -60,8 +60,7 @@ test('rejects unknown, duplicate, and GenStudio-owned registry fields before sou
   )
 
   delete registry.records[0].product_id
-  registry.records[1].pack_id = registry.records[0].pack_id
-  registry.records[1].receipt_ref = registry.records[0].receipt_ref
+  registry.records.push(structuredClone(registry.records[0]))
   await writeFile(copy, JSON.stringify(registry), 'utf8')
   await assert.rejects(
     validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root }),

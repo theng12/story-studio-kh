@@ -1464,6 +1464,7 @@ export async function updateConfigAndProjectMetaConsistently(
   slug: string,
   req: UpdateConfigRequest,
   mutateProject: (project: ProjectMeta) => void,
+  hooks: ConsistentProjectWriteHooks = {},
 ): Promise<ProjectMeta | null> {
   const projectDir = getProjectDir(slug)
   if (!projectDir) return null
@@ -1492,7 +1493,10 @@ export async function updateConfigAndProjectMetaConsistently(
     }
     try {
       await writeJsonAtomic(metaPath, transitionalProject)
+      await hooks.afterTransitionalProjectWrite?.()
       await writeJsonAtomic(configPath, finalConfig)
+      await hooks.afterConfigWrite?.()
+      await hooks.beforeFinalProjectWrite?.()
       await writeJsonAtomic(metaPath, finalProject)
       updated = structuredClone(finalProject)
     } catch (error) {
@@ -1504,6 +1508,12 @@ export async function updateConfigAndProjectMetaConsistently(
   await applyGlobalConfigSideEffects(req)
   await syncManifest(slug)
   return updated
+}
+
+export interface ConsistentProjectWriteHooks {
+  afterTransitionalProjectWrite?: () => Promise<void>
+  afterConfigWrite?: () => Promise<void>
+  beforeFinalProjectWrite?: () => Promise<void>
 }
 
 // ── Standards ───────────────────────────────────────────────────────────────

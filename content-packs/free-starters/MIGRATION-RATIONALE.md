@@ -24,6 +24,22 @@ claimed to migrate:
 No other prompt-relevant legacy field is deliberately omitted. A future signed
 schema extension is required before static-template geometry can be migrated.
 
+The legacy-gallery restoration adds examples, not products or default changes:
+
+- **Dozing Knight** output is compatibility evidence for the existing
+  `centered-hero-headline` recipe together with `builtin-pixel-art-story`; no
+  Dozing Knight pack, channel identity, or franchise wording is created. Its
+  two added previews use title-free left hero crops over a strongly blurred
+  version of the same owner source, then a uniform dim and generic outlined
+  headline; this keeps the lantern and apothecary subjects legible without
+  retaining source wording or creating a title card.
+- **Abiding Faith** output is compatibility evidence for the existing
+  `portrait-block-right` recipe together with the signed
+  `cinematic-photoreal` style; it does not make prayer-only semantics part of
+  the generic portrait recipe.
+- The centered-headline 94px custom JSON remains a loadable user-template fork.
+  It is intentionally not a product, migration target, or new catalog entry.
+
 The legacy `economics-of` source description contains provider-routing wording,
 which the signed Content Pack security contract correctly rejects. Its signed
 description is the existing safe, provider-neutral summary; all other

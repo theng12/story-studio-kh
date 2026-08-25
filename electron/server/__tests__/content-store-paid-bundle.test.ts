@@ -21,6 +21,21 @@ const COMPONENT_FAMILIES = [
   'com.storystudio.style.archival-documentary', 'com.storystudio.recipe.archival-thumbnail',
 ] as const
 const STYLE_FAMILY = COMPONENT_FAMILIES[6]
+const SYMBOLIC_KIT = {
+  productId: 'cprod_symbolic_psychology_kit',
+  family: 'com.storystudio.family.kit.symbolic-psychology-studio',
+  packId: 'com.storystudio.pack.kit.symbolic-psychology-studio',
+  version: '1.0.1',
+  price: 600,
+}
+const SYMBOLIC_COMPONENTS = [
+  { productId: 'cprod_symbolic_formula', family: 'com.storystudio.family.formula.human-behavior-explained', packId: 'com.storystudio.pack.formula.human-behavior-explained', kind: 'series_formula', version: '1.0.1' },
+  { productId: 'cprod_symbolic_topic', family: 'com.storystudio.family.topic.human-behavior-social-dynamics', packId: 'com.storystudio.pack.topic.human-behavior-social-dynamics', kind: 'topic_pack', version: '1.0.0' },
+  { productId: 'cprod_symbolic_recipe', family: 'com.storystudio.family.thumbnail.editorial-psychology-symbolic-split', packId: 'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split', kind: 'thumbnail_recipe', version: '1.0.1' },
+  { productId: 'cprod_symbolic_pastel', family: 'com.storystudio.family.style.pastel-surreal-psychological-collage', packId: 'com.storystudio.pack.style.pastel-surreal-psychological-collage', kind: 'visual_style', version: '1.0.1' },
+  { productId: 'cprod_symbolic_impasto', family: 'com.storystudio.family.style.impasto-psychological-animals', packId: 'com.storystudio.pack.style.impasto-psychological-animals', kind: 'visual_style', version: '1.0.0' },
+  { productId: 'cprod_symbolic_oil', family: 'com.storystudio.family.style.oil-painting-classical', packId: 'com.storystudio.pack.style.oil-painting-classical', kind: 'visual_style', version: '1.0.0' },
+] as const
 const OPERATOR_DISCOUNT = {
   discount_id: 'cdsc_archival_launch', version: 1, percent: 90, starts_on: null,
   ends_on: '2026-12-31', timezone: 'Asia/Phnom_Penh',
@@ -40,7 +55,10 @@ function product(input: {
   productId: string
   family: string
   kind: 'niche_bundle' | 'visual_style' | 'topic_pack' | 'series_formula' | 'thumbnail_recipe'
+  packId?: string
   price?: number
+  version?: string
+  minStoryVersion?: string
   operatorDiscount?: typeof OPERATOR_DISCOUNT | null
   bundleComponents?: Array<{ product_id: string; entitlement_family: string; component_credit_value: number }>
 }) {
@@ -51,9 +69,9 @@ function product(input: {
     publisher_id: 'com.storystudio', credit_price: price, free: price === 0, owned: false, retired: false,
     successor_product_id: null,
     current_release: {
-      release_id: `crel_${input.productId}`, pack_id: `com.storystudio.pack.${input.productId}`,
-      version: '1.0.0', archive_sha256: 'a'.repeat(64), archive_bytes: 4096, archive_available: false,
-      min_story_version: '1.0.0', changelog: 'First release.', component_summary: {},
+      release_id: `crel_${input.productId}`, pack_id: input.packId ?? `com.storystudio.pack.${input.productId}`,
+      version: input.version ?? '1.0.0', archive_sha256: 'a'.repeat(64), archive_bytes: 4096, archive_available: false,
+      min_story_version: input.minStoryVersion ?? '1.0.0', changelog: 'First release.', component_summary: {},
     },
     compatible: true, compatibility_reason: null,
     bundle_components: (input.bundleComponents ?? []).map(component => ({ ...component, title: component.product_id, kind: 'topic_pack', owned: false })),
@@ -72,6 +90,9 @@ async function setup() {
   const archivalComponents = componentIds.map((productId, index) => ({
     product_id: productId, entitlement_family: COMPONENT_FAMILIES[index]!, component_credit_value: index === 6 ? 400 : 0,
   }))
+  const symbolicBundleComponents = SYMBOLIC_COMPONENTS.map(component => ({
+    product_id: component.productId, entitlement_family: component.family, component_credit_value: 0,
+  }))
   mock.contentProducts = [
     product({ productId: 'cprod_archival_kit', family: KIT_FAMILY, kind: 'niche_bundle', price: 2_000, operatorDiscount: OPERATOR_DISCOUNT, bundleComponents: archivalComponents }),
     product({ productId: 'cprod_history_foundations', family: SHARED_KIT_FAMILY, kind: 'niche_bundle', bundleComponents: [
@@ -87,9 +108,22 @@ async function setup() {
     product({ productId: componentIds[6]!, family: COMPONENT_FAMILIES[6]!, kind: 'visual_style' }),
     product({ productId: componentIds[7]!, family: COMPONENT_FAMILIES[7]!, kind: 'thumbnail_recipe' }),
     product({ productId: 'cprod_history_component', family: 'com.storystudio.topic.history-foundations', kind: 'topic_pack' }),
+    product({
+      productId: SYMBOLIC_KIT.productId, family: SYMBOLIC_KIT.family, kind: 'niche_bundle',
+      packId: SYMBOLIC_KIT.packId, price: SYMBOLIC_KIT.price, version: SYMBOLIC_KIT.version,
+      minStoryVersion: '1.4.32', bundleComponents: symbolicBundleComponents,
+    }),
+    ...SYMBOLIC_COMPONENTS.map(component => product({
+      productId: component.productId,
+      family: component.family,
+      packId: component.packId,
+      kind: component.kind,
+      version: component.version,
+    })),
   ]
   mock.configureContentBundle('cprod_archival_kit', componentIds)
   mock.configureContentBundle('cprod_history_foundations', [componentIds[6]!, 'cprod_history_component'])
+  mock.configureContentBundle(SYMBOLIC_KIT.productId, SYMBOLIC_COMPONENTS.map(component => component.productId))
   await setGenStudioUrl(mock.baseUrl)
   await setApiKey('genstudio', KEY)
   return mock
@@ -103,6 +137,64 @@ async function acquireSharedFamily() {
   assert.deepEqual(completed.granted_families, [SHARED_KIT_FAMILY, STYLE_FAMILY, 'com.storystudio.topic.history-foundations'])
   return completed
 }
+
+test('carries Formula→Topic→Recipe→Pastel→Impasto→Oil through checkout without purchasing or changing commerce semantics', async () => {
+  const service = await setup()
+
+  const quoted = facts(await createContentStoreQuote({
+    product_id: SYMBOLIC_KIT.productId,
+    release_id: null,
+  }))
+
+  assert.equal(quoted.base_credit_price, SYMBOLIC_KIT.price)
+  assert.equal(quoted.discount_credits, 0)
+  assert.equal(quoted.operator_discount_credits, 0)
+  assert.equal(quoted.quoted_credits, SYMBOLIC_KIT.price)
+  assert.deepEqual(quoted.owned_components, [])
+  assert.deepEqual(quoted.entitlement_families, [SYMBOLIC_KIT.family, ...SYMBOLIC_COMPONENTS.map(component => component.family)])
+  assert.deepEqual(
+    quoted.bundle_closure.map((entry: Record<string, unknown>) => ({
+      position: entry.position,
+      product_id: entry.product_id,
+      entitlement_family: entry.entitlement_family,
+      version: entry.version,
+    })),
+    SYMBOLIC_COMPONENTS.map((component, position) => ({
+      position,
+      product_id: component.productId,
+      entitlement_family: component.family,
+      version: component.version,
+    })),
+  )
+  assert.deepEqual(
+    quoted.dependencies.map((entry: Record<string, unknown>) => ({
+      position: entry.position,
+      productId: entry.productId,
+      entitlementFamily: entry.entitlementFamily,
+      version: entry.version,
+      kind: entry.kind,
+      states: entry.states,
+    })),
+    SYMBOLIC_COMPONENTS.map((component, position) => ({
+      position,
+      productId: component.productId,
+      entitlementFamily: component.family,
+      version: component.version,
+      kind: component.kind,
+      states: ['free', 'included'],
+    })),
+  )
+  const saved = (await readContentStoreCommerceState()).attempts[quoted.quote_id]!
+  assert.equal(saved.status, 'quoted')
+  assert.deepEqual(saved.bundle_closure, quoted.bundle_closure)
+  const overview = facts(await loadContentStoreOverview())
+  const kit = overview.products.find((candidate: Record<string, unknown>) => candidate.productId === SYMBOLIC_KIT.productId)
+  assert.equal(kit.currentRelease.minStoryVersion, '1.4.32')
+  assert.equal(service.contentPurchasePostCount, 0)
+  assert.deepEqual(service.contentPurchaseCharges, [])
+  assert.equal(service.totalCreditsCharged, 0)
+  assert.deepEqual(service.grantedFamilies, [])
+})
 
 test('qualifies the Archival nine-family atomic grant through a genuine shared-family cross-kit acquisition', async () => {
   const service = await setup()

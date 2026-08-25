@@ -118,7 +118,7 @@ function assertDeclaredPreview(records, ownerId, publicPath) {
   const record = records.find(row => row.sourcePath === sourcePath)
   assert.ok(record, `missing provenance record for declared ${publicPath}`)
   assert.equal(record.ownerId, ownerId, `declared ${publicPath} must retain ${ownerId} provenance`)
-  assert.equal(record.provenance, 'migrated-approved-built-in')
+  assert.ok(['migrated-approved-built-in', 'publisher-created-tool-generated-original'].includes(record.provenance))
   assert.match(record.sha256, /^[a-f0-9]{64}$/)
   return record
 }
@@ -164,7 +164,7 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
   }
   for (const { row, template } of recipeDeclarations) {
     const declaredPaths = template.previewImages || []
-    const approvedRecords = records.filter(record => record.ownerId === row.sourceId && record.status === 'approved')
+    const approvedRecords = records.filter(record => record.ownerId === row.sourceId && record.status === 'approved' && record.sourcePath?.startsWith('frontend/public/'))
     assert.equal(declaredPaths.length, approvedRecords.length, `${row.sourceId} preview declarations must match its approved ledger records`)
     for (const publicPath of declaredPaths) {
       const record = assertDeclaredPreview(records, row.sourceId, publicPath)
@@ -215,7 +215,7 @@ test('declared preview redirects cannot cross a Style or Recipe provenance ident
   )
 })
 
-test('every free Starter Channel Kit source is an independently versioned pack with a unique id', async () => {
+test('free Starter Channel Kit sources preserve 47 lineages and every versioned successor', async () => {
   const sourceRoots = ['formula', 'topic', 'style', 'thumbnail', 'kit']
   const packSources = []
   for (const root of sourceRoots) {
@@ -227,20 +227,37 @@ test('every free Starter Channel Kit source is an independently versioned pack w
       packSources.push({ relative, source })
     }
   }
-  // The COUNT is not the invariant — the catalogue grows, and a snapshot here
-  // turns "somebody authored a pack" into a red suite. Restoring the
-  // animal-hardship-annotation source moved it from 46 to 47. What must hold is
-  // that every source is independently versioned and no two claim the same id.
-  assert.ok(packSources.length >= 46, `free-starter sources shrank to ${packSources.length}`)
+  assert.equal(new Set(packSources.map(row => row.source.pack_id)).size, 47)
   assert.equal(
-    new Set(packSources.map(row => row.source.pack_id)).size,
+    new Set(packSources.map(row => `${row.source.pack_id}@${row.source.version}`)).size,
     packSources.length,
-    'two free-starter sources claim the same pack_id',
+    'two free-starter sources claim the same pack_id@version',
   )
   for (const { relative, source } of packSources) {
-    // A pack's content only reaches a customer through a NEW release, so patch bumps are
-    // the normal way a correction ships. Freeze the identity line, not the patch number.
     assert.match(source.version, /^1\.0\.\d+$/, `${relative} must stay on the 1.0.x release line`)
     assert.match(source.entitlement.family, /^com\.storystudio\.family\./)
   }
+  const historicalFormulas = packSources.filter(({ relative }) => /formula\/.+-v1\.0\.0\/pack\.json$/.test(relative))
+  assert.deepEqual(historicalFormulas.map(({ relative }) => relative).sort(), [
+    'content-packs/free-starters/formula/ancient-humans-v1.0.0/pack.json',
+    'content-packs/free-starters/formula/pov-your-life-as-v1.0.0/pack.json',
+  ])
+  assert.ok(historicalFormulas.every(({ source }) => source.version === '1.0.0'))
+  const successors = packSources.filter(({ relative }) => /-v1\.0\.1\/pack\.json$/.test(relative))
+  assert.deepEqual(successors.map(({ relative }) => relative).sort(), [
+    'content-packs/free-starters/formula/human-behavior-explained-v1.0.1/pack.json',
+    'content-packs/free-starters/kit/a-life-as-v1.0.1/pack.json',
+    'content-packs/free-starters/kit/calm-mind-v1.0.1/pack.json',
+    'content-packs/free-starters/kit/first-humans-v1.0.1/pack.json',
+    'content-packs/free-starters/kit/human-behavior-v1.0.1/pack.json',
+    'content-packs/free-starters/kit/sleep-journeys-v1.0.1/pack.json',
+    'content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1/pack.json',
+    'content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1/pack.json',
+    'content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1/pack.json',
+    'content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1/pack.json',
+    'content-packs/free-starters/topic/habits-momentum-v1.0.1/pack.json',
+    'content-packs/free-starters/topic/human-behavior-social-dynamics-v1.0.1/pack.json',
+    'content-packs/free-starters/topic/natural-world-animals-v1.0.1/pack.json',
+    'content-packs/free-starters/topic/night-journeys-v1.0.1/pack.json',
+  ])
 })

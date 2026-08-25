@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import JSZip from 'jszip'
 
 import {
+  assertContentPackAppCompatible,
   forgetVerifiedContentPackVersions,
   installContentPack,
   quarantineContentPackBytes,
@@ -19,6 +20,7 @@ import { createContentPackKeyring } from '../content-packs/keyring.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
 import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
+import * as projectManager from '../services/project-manager.js'
 import { useTempDataDir } from './_helpers.js'
 
 const PUBLISHER_ID = 'com.storystudio'
@@ -82,6 +84,43 @@ async function buildArchive(options: ArchiveOptions = {}): Promise<Uint8Array> {
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
+async function buildMultiStyleKitArchive(): Promise<Uint8Array> {
+  const components = [
+    { pack_id: 'com.storystudio.pack.formula.human-behavior-explained', version: '1.0.1', item_id: 'com.storystudio.formula.human-behavior-explained', kind: 'series-formula' },
+    { pack_id: 'com.storystudio.pack.topic.human-behavior-social-dynamics', version: '1.0.0', item_id: 'com.storystudio.topic.human-behavior-social-dynamics', kind: 'topic-pack' },
+    { pack_id: 'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split', version: '1.0.1', item_id: 'com.storystudio.thumbnail.editorial-psychology-symbolic-split', kind: 'thumbnail-recipe' },
+    { pack_id: 'com.storystudio.pack.style.pastel-surreal-psychological-collage', version: '1.0.1', item_id: 'com.storystudio.style.pastel-surreal-psychological-collage', kind: 'visual-style' },
+    { pack_id: 'com.storystudio.pack.style.impasto-psychological-animals', version: '1.0.0', item_id: 'com.storystudio.style.impasto-psychological-animals', kind: 'visual-style' },
+    { pack_id: 'com.storystudio.pack.style.oil-painting-classical', version: '1.0.0', item_id: 'com.storystudio.style.oil-painting-classical', kind: 'visual-style' },
+  ]
+  const manifest = Buffer.from(JSON.stringify({
+    pack_format: 1,
+    pack_id: 'com.storystudio.pack.kit.symbolic-psychology-studio',
+    publisher_id: PUBLISHER_ID,
+    key_id: KEY_ID,
+    version: '1.0.1',
+    min_app_version: '1.4.32',
+    lifecycle: 'active',
+    entitlement: {
+      sku: 'com.storystudio.sku.kit.symbolic-psychology-studio',
+      family: 'com.storystudio.family.kit.symbolic-psychology-studio',
+    },
+    dependencies: components.map(({ pack_id, version }) => ({ pack_id, version })),
+    bundles: [{
+      id: 'com.storystudio.bundle.symbolic-psychology-studio',
+      kind: 'channel-kit',
+      name: 'Symbolic Psychology Studio',
+      components,
+    }],
+    items: [],
+    files: [],
+  }), 'utf8')
+  const zip = new JSZip()
+  zip.file('manifest.json', manifest, { createFolders: false })
+  zip.file('signature.ed25519', sign(null, manifest, keyPair.privateKey), { createFolders: false })
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
+}
+
 async function isolated() {
   const temp = await useTempDataDir()
   cleanup = temp.cleanup
@@ -140,6 +179,26 @@ describe('Content Pack local installer', () => {
     await assert.rejects(installContentPack(request(await buildArchive({ dependencies: [{ pack_id: 'com.storystudio.missing', version: '1.0.0' }] })), { paths, policy }), /dependency/i)
     await installContentPack(request(await buildArchive({ packId: 'com.storystudio.dependency' })), { paths, policy })
     await assert.doesNotReject(installContentPack(request(await buildArchive({ dependencies: [{ pack_id: 'com.storystudio.dependency', version: '1.0.0' }] })), { paths, policy }))
+  })
+
+  test('refuses the six-member multi-Style Kit below 1.4.32 before archive activation or project mutation', async () => {
+    await assert.doesNotReject(assertContentPackAppCompatible('1.4.32', PACKAGE_VERSION))
+    const paths = await isolated()
+    const archiveBytes = await buildMultiStyleKitArchive()
+    const project = await projectManager.createProject({ name: 'Compatibility refusal baseline' })
+    const projectBefore = structuredClone(await projectManager.getProject(project.slug))
+    const stateBefore = await readContentPackState(paths)
+
+    await assert.rejects(
+      installContentPack(request(archiveBytes), { paths, policy, appVersion: '1.4.31' }),
+      (error: unknown) => {
+        assert.match((error as Error).message, /requires Story Studio 1\.4\.32 or newer \(this app is 1\.4\.31\)/)
+        return true
+      },
+    )
+
+    assert.deepEqual(await readContentPackState(paths), stateBefore)
+    assert.deepEqual(await projectManager.getProject(project.slug), projectBefore)
   })
 
   test('excludes a recalled retained Store version from unrelated installs but rejects an exact dependency on it', async () => {

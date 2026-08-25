@@ -23,6 +23,7 @@ import type { ContentPackDeliveryAttestation } from '../content-packs/runtime-ty
 import {
   assertContentPackAppCompatible,
   installContentPackLocked,
+  resolveContentPackAppVersion,
   verifyInstalledContentPackClosure,
 } from '../content-packs/installer.js'
 import { getFirstPartyContentPackVerificationPolicy } from '../content-packs/keyring.js'
@@ -148,6 +149,12 @@ interface DeliveryContext {
   completed: Map<string, ContentPackInstallResult>
   visiting: Set<string>
   releaseHistories: Map<string, GenStudioOwnedContentReleases>
+  appVersion: string
+}
+
+export interface ContentStoreDeliveryOptions {
+  /** Test-only seam; production resolves the installed Story Studio version once per delivery. */
+  appVersion?: string
 }
 
 interface OwnedReleaseLookupContext {
@@ -392,13 +399,13 @@ async function bindRootClosure(
 
 async function alreadyInstalled(
   release: GenStudioContentRelease,
-  context: Pick<DeliveryContext, 'paths' | 'policy'>,
+  context: Pick<DeliveryContext, 'paths' | 'policy' | 'appVersion'>,
 ): Promise<{ install: ContentPackInstallResult; dependencies: ReadonlyArray<{ pack_id: string; version: string }> } | null> {
   const state = await readContentPackState(context.paths)
   const pack = state.packs[release.packId]
   const installed = pack?.versions[release.version]
   if (!installed || installed.pending_removal || installed.archive_sha256 !== release.archiveSha256) return null
-  const verified = await verifyInstalledContentPackClosure(state, release.packId, release.version, context.policy)
+  const verified = await verifyInstalledContentPackClosure(state, release.packId, release.version, context.policy, context.appVersion)
   return {
     install: {
       pack_id: release.packId,
@@ -428,12 +435,12 @@ async function installOwnedEntitlement(
     )
   }
   try {
-    await assertContentPackAppCompatible(release.minStoryVersion)
+    await assertContentPackAppCompatible(release.minStoryVersion, context.appVersion)
   } catch {
     throw new ContentStoreLocalError(
       409,
       'CONTENT_PACK_REQUIRES_NEWER_APP',
-      `This release requires Story Studio ${release.minStoryVersion} or newer. Update Story Studio before installing it.`,
+      `This release requires Story Studio ${release.minStoryVersion} or newer (this app is ${context.appVersion}). Update Story Studio before installing it.`,
     )
   }
   const key = releaseKey(release)
@@ -489,9 +496,9 @@ async function installOwnedEntitlement(
       expectedPackId: release.packId,
       expectedVersion: release.version,
       deliveryAttestation: evidence,
-    }, { activate: false, policy: context.policy }, context.paths)
+    }, { activate: false, policy: context.policy, appVersion: context.appVersion }, context.paths)
     const installedState = await readContentPackState(context.paths)
-    await verifyInstalledContentPackClosure(installedState, release.packId, release.version, context.policy)
+    await verifyInstalledContentPackClosure(installedState, release.packId, release.version, context.policy, context.appVersion)
     context.completed.set(key, installed)
     return installed
   } finally {
@@ -511,7 +518,7 @@ async function activateOwnedDeliveryClosure(
         throw new Error(`Content Pack delivery candidate changed before activation: ${installed.pack_id}@${installed.version}`)
       }
     }
-    await verifyInstalledContentPackClosure(state, root.packId, root.version, context.policy)
+    await verifyInstalledContentPackClosure(state, root.packId, root.version, context.policy, context.appVersion)
     for (const installed of context.completed.values()) state.packs[installed.pack_id]!.active_version = installed.version
     const activated = context.completed.get(releaseKey(root))
     if (!activated) throw new Error(`Content Pack root was not staged: ${releaseKey(root)}`)
@@ -524,7 +531,10 @@ async function activateOwnedDeliveryClosure(
   }, context.paths)
 }
 
-export async function installOwnedContentStoreRelease(releaseId: string): Promise<ContentStoreInstallResponse> {
+export async function installOwnedContentStoreRelease(
+  releaseId: string,
+  options: ContentStoreDeliveryOptions = {},
+): Promise<ContentStoreInstallResponse> {
   const verified = await fetchVerifiedOwnership()
   await reconcileRecalledContentStoreReleases(verified)
   const entitlement = verified.receipts.entitlements.find(row => row.currentRelease?.releaseId === releaseId)
@@ -540,6 +550,7 @@ export async function installOwnedContentStoreRelease(releaseId: string): Promis
     completed: new Map(),
     visiting: new Set(),
     releaseHistories: new Map(),
+    appVersion: options.appVersion ?? await resolveContentPackAppVersion(),
   }
   const install = await withContentPackCoordinationLock(paths, async () => {
     await installOwnedEntitlement(entitlement, release, context)

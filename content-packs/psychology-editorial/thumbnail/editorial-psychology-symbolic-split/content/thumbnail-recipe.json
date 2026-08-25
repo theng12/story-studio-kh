@@ -1,0 +1,57 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+  "name": "Editorial Psychology Symbolic Split",
+  "description": "A sparse 16:9 editorial psychology cover built around one symbolic figure or object and a dominant opposing title band.",
+  "layout": "hero",
+  "category": "Psychology",
+  "tags": [
+    "psychology",
+    "editorial",
+    "symbolic",
+    "split composition",
+    "in-image title"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Create a sparse 16:9 editorial psychology cover with exactly one symbolic psychological figure or object. Place the subject left, right, or center-left only when it creates the clearest subject-title separation, leaving a dominant title-safe opposing band. The composition may mirror left-to-right when that improves separation. The selected image model must render the complete intended headline directly into that band; do not create a post-render composite or a dense collage.",
+  "composition_rules": [
+    "Use one symbolic subject: an eroded portrait, mask, mannequin, silhouette, door, flame, sculptural trace, or abstract emotional object.",
+    "Reserve the opposing side as a dominant, uncluttered title-safe band.",
+    "Mirror the subject-title split only when it produces a clearer reading order.",
+    "Keep the image sparse and editorial; never stack multiple unrelated symbolic scenes."
+  ],
+  "required_elements": [
+    "One symbolic psychological figure or object",
+    "A dominant opposing title-safe band",
+    "Large condensed high-contrast headline rendered by the image model"
+  ],
+  "avoid_elements": [
+    "Dense collage or multiple competing subjects",
+    "Post-render typography compositing",
+    "A mechanically retained long 'The Psychology of' prefix",
+    "Tiny, low-contrast, malformed, or unreadable text"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Derive a truthful two to five word editorial hook from the episode title. Do not blindly render a long 'The Psychology of' prefix. The image model must render the complete intended headline hook: use one line for a short phrase, two lines for a medium phrase, or three lines for a longer 2–5 word phrase. Set it in large condensed type, using black or warm white according to the background contrast.",
+  "default_text_style": "high contrast",
+  "default_font_style": "condensed bold",
+  "default_text_position": "center",
+  "headline_formats": [
+    "{CONCISE_ABSTRACT_CONCEPT}",
+    "{STATE} {PREPOSITION} {CONCEPT}",
+    "{METAPHOR} {INNER_EXPERIENCE}",
+    "{CONDITION} {CONSEQUENCE}"
+  ],
+  "visual_style_guidance": "Use a single symbolic subject with strong figure-ground separation and restrained editorial drama. The active visual style remains the final authority for medium, palette, and rendering details.",
+  "preview_assets": [
+    "assets/editorial-psychology-symbolic-split-1.webp",
+    "assets/editorial-psychology-symbolic-split-2.webp",
+    "assets/editorial-psychology-symbolic-split-3.webp",
+    "assets/editorial-psychology-symbolic-split-5.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.human-behavior-explained"
+  ]
+}

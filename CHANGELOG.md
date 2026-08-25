@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.67 — 2026-08-25
+
+- **The Story registry is reconciled.** Historical authored and reserved content-pack identities, exact receipt-bound dependencies, and the six lettering transitions now share one validated canonical ledger.
+- **Ten thumbnail recipes are included locally.** All ten authored recipes have independent specification and visual-quality reviews, thirty deterministic 1672×941 previews, and repeatable keyless build evidence. They remain local authored source candidates; no purchase, activation, publication, or live stocking was performed.
+- **Starter successors preserve their quoted history.** The two Formula 1.0.0 dependencies required by the immutable Kit receipt remain intact while the approved thumbnail successor references are verified.
+
 ## v1.4.66 — 2026-08-25
 
 - **The Content Store works again.** It had a rule refusing any reply from GenStudio containing more than 4,096 separate pieces of data, and the list of what your account owns finally grew past it — eighteen packs bought today, each adding a receipt. Nothing was wrong with the store or your account; the app simply refused to read an answer that had become one item too long. The limit is now 65,536, about eleven times the largest thing you have, and still small enough to refuse a genuinely hostile reply. The check that proves you own what you bought is untouched, and a test now loads all 82 packs and verifies every signature to prove it.

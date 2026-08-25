@@ -1,0 +1,14 @@
+{
+  "kind": "thumbnail-recipe", "schema_version": 1, "id": "com.storystudio.thumbnail.numbered-lineup", "name": "Numbered Lineup",
+  "description": "Three to five equal-status entries in a precise row or grid with correct native numerals.", "layout": "hero", "category": "Explainer", "tags": ["numbered", "lineup", "list", "in-image title"], "aspect_ratio": "16:9", "title_mode": "ai",
+  "composition_guidance": "Arrange three to five equal-status objects, people, or examples in a precise row or grid, each with one large native numeral. The count, visible entries, and numerals must agree exactly. Reserve one clean upper title band for the complete intended episode title rendered directly by the selected image model. The active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": ["Show three to five equal-status entries in a precise row or grid.", "Give every visible entry one large native numeral.", "Require exact agreement between entry count and numerals.", "Reserve one clear upper title band."],
+  "required_elements": ["Three to five equal-status entries", "Correct large native numerals with exact count agreement", "One upper title band with the model-rendered complete episode title"],
+  "avoid_elements": ["Tiny labels", "An implied ranking or winner without episode evidence", "Mismatched count, numeral, or title claims", "Copied trade dress, logos, watermarks, or post-render typography compositing"],
+  "headline_mode": "episode-title", "headline_guidance": "Render the complete intended episode title directly in the upper title band. Use one, two, or three balanced lines according to title length. Fail closed when the title's stated count, native numerals, and visible entries do not agree exactly.",
+  "default_text_style": "high contrast", "default_font_style": "bold editorial", "default_text_position": "top",
+  "headline_formats": ["{COUNT} KINDS OF {SUBJECT}", "{COUNT} {TOOLS} FOR {TASK}", "{COUNT} WAYS TO {ACTION}"],
+  "visual_style_guidance": "The recipe controls equal-status entries, native numeral/count agreement, and the title band. The active Visual Style remains authoritative for all rendering choices.",
+  "preview_assets": ["assets/numbered-lineup-1.webp", "assets/numbered-lineup-2.webp", "assets/numbered-lineup-3.webp"],
+  "compatible_formula_ids": ["com.storystudio.formula.question-ladder", "com.storystudio.formula.natural-world-explained", "com.storystudio.formula.economics-of"]
+}

@@ -140,7 +140,9 @@ test('offline assignments cover every new subject deterministically and safe sou
 test('Dreamscape Story Window binds its approved publisher-created raster', async () => {
   const recipe = await json('thumbnail/dreamscape-story-window/content/thumbnail-recipe.json')
   assert.equal(recipe.id, 'com.storystudio.thumbnail.dreamscape-story-window')
-  assert.deepEqual(recipe.preview_assets, ['assets/dreamscape-story-window.webp'])
+  assert.deepEqual(recipe.preview_assets, [
+    'assets/dreamscape-story-window.webp',
+  ])
   const record = provenanceRecords(await readFile(PROVENANCE, 'utf8')).find(row => row.id === 'dreamscape-story-window')
   assert.ok(record, 'missing dreamscape-story-window provenance record')
   const ownerId = 'dreamscape-story-window'

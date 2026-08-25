@@ -49,33 +49,31 @@ interface ArchiveOptions {
 
 async function buildBundleOnlyArchive(extraEntries: Array<{ path: string; bytes: Uint8Array }> = []) {
   const keyPair = generateKeyPairSync('ed25519')
+  const components = [
+    { pack_id: 'com.storystudio.pack.formula.human-behavior-explained', version: '1.0.1', item_id: 'com.storystudio.formula.human-behavior-explained', kind: 'series-formula' },
+    { pack_id: 'com.storystudio.pack.topic.human-behavior-social-dynamics', version: '1.0.0', item_id: 'com.storystudio.topic.human-behavior-social-dynamics', kind: 'topic-pack' },
+    { pack_id: 'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split', version: '1.0.1', item_id: 'com.storystudio.thumbnail.editorial-psychology-symbolic-split', kind: 'thumbnail-recipe' },
+    { pack_id: 'com.storystudio.pack.style.pastel-surreal-psychological-collage', version: '1.0.1', item_id: 'com.storystudio.style.pastel-surreal-psychological-collage', kind: 'visual-style' },
+    { pack_id: 'com.storystudio.pack.style.impasto-psychological-animals', version: '1.0.0', item_id: 'com.storystudio.style.impasto-psychological-animals', kind: 'visual-style' },
+    { pack_id: 'com.storystudio.pack.style.oil-painting-classical', version: '1.0.0', item_id: 'com.storystudio.style.oil-painting-classical', kind: 'visual-style' },
+  ]
   const manifestBytes = Buffer.from(JSON.stringify({
     pack_format: 1,
-    pack_id: 'com.storystudio.bundle.free-starter',
+    pack_id: 'com.storystudio.pack.kit.symbolic-psychology-studio',
     publisher_id: PUBLISHER_ID,
     key_id: KEY_ID,
-    version: '1.0.0',
-    min_app_version: '1.0.0',
+    version: '1.0.1',
+    min_app_version: '1.4.32',
     lifecycle: 'active',
-    entitlement: { sku: 'com.storystudio.sku.free-starter', family: 'com.storystudio.family.free-starter' },
-    dependencies: [
-      { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0' },
-      { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0' },
-      { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0' },
-      { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0' },
-    ],
+    entitlement: { sku: 'com.storystudio.sku.kit.symbolic-psychology-studio', family: 'com.storystudio.family.kit.symbolic-psychology-studio' },
+    dependencies: components.map(({ pack_id, version }) => ({ pack_id, version })),
     items: [],
     files: [],
     bundles: [{
-      id: 'com.storystudio.bundle.free-starter',
+      id: 'com.storystudio.bundle.symbolic-psychology-studio',
       kind: 'channel-kit',
-      name: 'Free Starter Channel Kit',
-      components: [
-        { pack_id: 'com.storystudio.formula.free-starter', version: '1.0.0', item_id: 'com.storystudio.formula.free-starter', kind: 'series-formula' },
-        { pack_id: 'com.storystudio.topic.free-starter', version: '1.0.0', item_id: 'com.storystudio.topic.free-starter', kind: 'topic-pack' },
-        { pack_id: 'com.storystudio.style.free-starter', version: '1.0.0', item_id: 'com.storystudio.style.free-starter', kind: 'visual-style' },
-        { pack_id: 'com.storystudio.thumbnail.free-starter', version: '1.0.0', item_id: 'com.storystudio.thumbnail.free-starter', kind: 'thumbnail-recipe' },
-      ],
+      name: 'Symbolic Psychology Studio',
+      components,
     }],
   }), 'utf8')
   const signature = sign(null, manifestBytes, keyPair.privateKey)
@@ -312,6 +310,17 @@ describe('immutable content-pack archive verification', () => {
     const verified = await verifyContentPackArchive(archive.archiveBytes, policy(archive.publicKeyPem))
     assert.equal(verified.manifest.items.length, 0)
     assert.equal(verified.files.size, 0)
+    assert.deepEqual(
+      verified.manifest.bundles[0]!.components.map(component => [component.kind, component.pack_id, component.version]),
+      [
+        ['series-formula', 'com.storystudio.pack.formula.human-behavior-explained', '1.0.1'],
+        ['topic-pack', 'com.storystudio.pack.topic.human-behavior-social-dynamics', '1.0.0'],
+        ['thumbnail-recipe', 'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split', '1.0.1'],
+        ['visual-style', 'com.storystudio.pack.style.pastel-surreal-psychological-collage', '1.0.1'],
+        ['visual-style', 'com.storystudio.pack.style.impasto-psychological-animals', '1.0.0'],
+        ['visual-style', 'com.storystudio.pack.style.oil-painting-classical', '1.0.0'],
+      ],
+    )
 
     for (const path of ['content/formula.json', 'assets/preview.png']) {
       const invalid = await buildBundleOnlyArchive([{ path, bytes: Buffer.from('must not be admitted') }])

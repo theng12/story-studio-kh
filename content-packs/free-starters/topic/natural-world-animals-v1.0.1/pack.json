@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.natural-world-animals",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Expanded Animals to 50 specific species with 20 reviewed biological tuples each (1,000 lifetime assignments).",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.natural-world-animals",
+    "family": "com.storystudio.family.topic.natural-world-animals"
+  }
+}

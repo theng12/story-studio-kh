@@ -198,8 +198,9 @@ test('approved preview bytes are copied unchanged and all unblocked sources buil
 test('First Humans binds its approved publisher-created Prehistoric Discovery raster', async () => {
   const { manifest, document } = await sourceFor('thumbnail', 'prehistoric-discovery')
   assert.equal(manifest.pack_id, 'com.storystudio.pack.thumbnail.prehistoric-discovery')
-  assert.equal(document.preview_assets[0], 'assets/prehistoric-discovery.webp')
-  for (const preview of document.preview_assets) assert.match(preview, /^assets\/prehistoric-discovery(-\d+)?\.webp$/)
+  assert.deepEqual(document.preview_assets, [
+    'assets/prehistoric-discovery.webp',
+  ])
   await access(BLOCKED_PREHISTORIC_PREVIEW)
   assert.deepEqual(await sharp(sourceDirectory(BLOCKED_PREHISTORIC_PREVIEW)).metadata().then(({ format, width, height }) => ({ format, width, height })), {
     format: 'webp', width: 1672, height: 941,

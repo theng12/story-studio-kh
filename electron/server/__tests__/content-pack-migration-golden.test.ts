@@ -331,9 +331,26 @@ test('free Starter Kit source components retain effective legacy prompt, style, 
 
 test('static thumbnail layout behavior is golden-protected against top-level rendering changes', async () => {
   const template = await thumbnailTemplateLoader.loadTemplate('centered-hero-headline')
+  const portrait = await thumbnailTemplateLoader.loadTemplate('portrait-block-right')
   assert.ok(template)
+  assert.ok(portrait)
   const facts = thumbnailRecipeFacts(template)
-  assert.match(String(facts.recipe_behavior_sha256), /^[a-f0-9]{64}$/)
+  assert.equal(facts.recipe_behavior_sha256, '5a5685f7c16765caeda6ed8681ee5230f121063f04c362bb0c66ccec77b37c65')
+  assert.deepEqual(template.canvas, { width: 1920, height: 1080 })
+  assert.deepEqual(template.backgroundDimGradient, {
+    side: 'full', coverage: 1, color: '#000000', strength: 0.5,
+  })
+  assert.equal(template.textZones?.[0]?.fontSize, 168)
+
+  assert.equal(
+    thumbnailRecipeFacts(portrait).recipe_behavior_sha256,
+    'a740bfc57153173bbc23bfbcf4b3d315e17aadf9d5c17131c9a9a5191d389115',
+  )
+  assert.deepEqual(portrait.canvas, { width: 1920, height: 1080 })
+  assert.deepEqual(portrait.backgroundDimGradient, {
+    side: 'right', coverage: 0.6, color: '#000000', strength: 0.72,
+  })
+  assert.equal(portrait.textZones?.[0]?.fontSize, 132)
 
   const changed = structuredClone(template)
   assert.ok(changed.canvas)
@@ -379,6 +396,44 @@ test('legacy Hidden Mechanics IDs remain independently resolvable before an expl
   assert.equal(formula?.id, 'hidden-mechanics-history')
   assert.equal(topic?.id, 'historical-states-revolutions-collapse')
   assert.equal(recipe?.id, 'archival-map-investigation')
+})
+
+test('a centered headline legacy user template stays a 94px project override', async () => {
+  const customId = 'centered-hero-headline-custom'
+  const source = JSON.parse(await readFile(join(thumbnailTemplateLoader.BUILTIN_TEMPLATES_DIR, 'centered-hero-headline.json'), 'utf8'))
+  const userDir = thumbnailTemplateLoader._userTemplatesDir()
+  const userPath = join(userDir, `${customId}.json`)
+  source.id = customId
+  source.builtin = false
+  source.textZones[0].fontSize = 94
+
+  await mkdir(userDir, { recursive: true })
+  await writeFile(userPath, JSON.stringify(source))
+  thumbnailTemplateLoader._clearTemplateCaches()
+  try {
+    const custom = await thumbnailTemplateLoader.loadTemplate(customId)
+    assert.equal(custom?.id, customId)
+    assert.equal(custom?.textZones?.[0]?.fontSize, 94)
+
+    const niche = await nicheLoader.getEffectiveNicheFor(projectFor('animals'))
+    assert.ok(niche)
+    assert.equal(niche.defaultThumbnailTemplateId, 'curiosity-question-cartoon')
+    const nicheDefault = await thumbnailTemplateLoader.getEffectiveTemplateFor(
+      projectFor('animals'),
+      niche,
+    )
+    assert.equal(nicheDefault?.id, 'curiosity-question-cartoon')
+    const effective = await thumbnailTemplateLoader.getEffectiveTemplateFor(
+      projectFor('animals'),
+      niche,
+      { thumbnail_template_id: customId },
+    )
+    assert.equal(effective?.id, customId)
+    assert.equal(effective?.textZones?.[0]?.fontSize, 94)
+  } finally {
+    await rm(userPath, { force: true })
+    thumbnailTemplateLoader._clearTemplateCaches()
+  }
 })
 
 test('isolated golden catalog baseline is not taken from user shadow entries', async () => {

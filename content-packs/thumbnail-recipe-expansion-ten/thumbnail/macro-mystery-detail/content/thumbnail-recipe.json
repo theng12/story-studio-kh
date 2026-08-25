@@ -1,0 +1,14 @@
+{
+  "kind": "thumbnail-recipe", "schema_version": 1, "id": "com.storystudio.thumbnail.macro-mystery-detail", "name": "Macro Mystery Detail",
+  "description": "One ambiguous macro detail with a small honest edge clue that preserves context.", "layout": "hero", "category": "Explainer", "tags": ["macro", "mystery", "detail", "in-image title"], "aspect_ratio": "16:9", "title_mode": "ai",
+  "composition_guidance": "Use one extreme close-up of an ordinary subject to create bounded ambiguity, with one small honest contextual clue at the frame edge. Reserve one lower-left title-safe field for the complete intended episode title rendered directly by the selected image model. The active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": ["Show exactly one ambiguous macro detail.", "Include one small honest edge clue that identifies the ordinary subject's context.", "Keep ambiguity bounded by what the image can truthfully show.", "Reserve one lower-left title-safe field."],
+  "required_elements": ["One extreme macro detail", "One honest contextual clue at the frame edge", "One lower-left title-safe field with the model-rendered complete episode title"],
+  "avoid_elements": ["A reaction host or separate inset", "A false reveal or unsupported mystery claim", "Copied trade dress, logos, watermarks, or post-render typography compositing"],
+  "headline_mode": "episode-title", "headline_guidance": "Render the complete intended episode title directly in the lower-left title-safe field. Use one, two, or three balanced lines according to title length while leaving the edge clue visible and the ambiguity honest.",
+  "default_text_style": "high contrast", "default_font_style": "bold editorial", "default_text_position": "bottom-left",
+  "headline_formats": ["WHAT IS THIS?", "LOOK CLOSER AT THIS {SUBJECT}", "THIS ISN'T A {FALSE IMPRESSION}"],
+  "visual_style_guidance": "The recipe controls the macro detail, honest edge clue, lower-left title field, and bounded ambiguity. The active Visual Style remains authoritative for all rendering choices.",
+  "preview_assets": ["assets/macro-mystery-detail-1.webp", "assets/macro-mystery-detail-2.webp", "assets/macro-mystery-detail-3.webp"],
+  "compatible_formula_ids": ["com.storystudio.formula.question-ladder", "com.storystudio.formula.natural-world-explained"]
+}

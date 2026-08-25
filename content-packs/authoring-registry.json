@@ -1,14 +1,1416 @@
 {
-  "revision": 8,
+  "revision": 42,
   "batches": [
     {
       "revision": 2,
-      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
       "request": {
         "expected_revision": 1,
         "coordinator": {
-          "task": "font-packs-of-six",
-          "branch": "main"
+          "task": "author-capi-psychology-components",
+          "branch": "codex/capi-psychology-components"
+        },
+        "proposal_ref": "owner-approved Capi psychology thumbnail recipe and visual style, 2026-08-23",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+            "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+            "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.pastel-surreal-psychological-collage",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 3,
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "request": {
+        "expected_revision": 2,
+        "coordinator": {
+          "task": "legacy-thumbnail-restoration",
+          "branch": "codex/capi-psychology-components"
+        },
+        "proposal_ref": "owner-approved legacy thumbnail restoration, 2026-08-23",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.animal-hardship-annotation",
+            "item_id": "com.storystudio.thumbnail.animal-hardship-annotation",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.animal-hardship-annotation",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.animal-hardship-annotation",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.prehistoric-survival-title-card",
+            "item_id": "com.storystudio.thumbnail.prehistoric-survival-title-card",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.prehistoric-survival-title-card",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.prehistoric-survival-title-card",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.dreamlike-story-title-card",
+            "item_id": "com.storystudio.thumbnail.dreamlike-story-title-card",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.dreamlike-story-title-card",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.dreamlike-story-title-card",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.hand-drawn-hardship-cartoon",
+            "item_id": "com.storystudio.style.hand-drawn-hardship-cartoon",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.hand-drawn-hardship-cartoon",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.hand-drawn-hardship-cartoon",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+            "item_id": "com.storystudio.style.impasto-psychological-animals",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.impasto-psychological-animals",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.impasto-psychological-animals",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.dreamlike-luminous-sleep-illustration",
+            "item_id": "com.storystudio.style.dreamlike-luminous-sleep-illustration",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.dreamlike-luminous-sleep-illustration",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.dreamlike-luminous-sleep-illustration",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 4,
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "request": {
+        "expected_revision": 3,
+        "coordinator": {
+          "task": "legacy-thumbnail-restoration",
+          "branch": "codex/capi-psychology-components"
+        },
+        "proposal_ref": "owner-approved legacy thumbnail restoration successors, 2026-08-23",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+            "item_id": "com.storystudio.thumbnail.centered-hero-headline",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.centered-hero-headline",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.centered-hero-headline",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+            "item_id": "com.storystudio.thumbnail.portrait-block-right",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.portrait-block-right",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.portrait-block-right",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+            "item_id": "com.storystudio.thumbnail.dreamscape-story-window",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.dreamscape-story-window",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.dreamscape-story-window",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+            "item_id": "com.storystudio.thumbnail.prehistoric-discovery",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.prehistoric-discovery",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.prehistoric-discovery",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 5,
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "request": {
+        "expected_revision": 4,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "proposal_ref": "docs/superpowers/plans/2026-08-23-thumbnail-successor-store-archives.md#task-1",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.kit.calm-mind",
+            "bundle_id": "com.storystudio.bundle.calm-mind",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.everyday-calm",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.calm-mind",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.calm-mind",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.human-behavior",
+            "bundle_id": "com.storystudio.bundle.human-behavior",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.minimal-stick-figure-explainer",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.human-behavior",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.human-behavior",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.a-life-as",
+            "bundle_id": "com.storystudio.bundle.a-life-as",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.a-life-as",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.a-life-as",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+            "bundle_id": "com.storystudio.bundle.sleep-journeys",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.sleep-story",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.night-journeys",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.sleep-journeys",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.sleep-journeys",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.first-humans",
+            "bundle_id": "com.storystudio.bundle.first-humans",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/first-humans-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.ancient-humans",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.first-humans",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.first-humans",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 14,
+      "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+      "request": {
+        "expected_revision": 13,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "proposal_ref": "docs/superpowers/specs/2026-08-23-modular-content-expansion-portfolio-design.md#41-free-symbolic-psychology-studio",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+            "item_id": "com.storystudio.style.oil-painting-classical",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/symbolic-psychology-studio/style/oil-painting-classical",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.oil-painting-classical",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.oil-painting-classical",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+            "bundle_id": "com.storystudio.bundle.symbolic-psychology-studio",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+                "version": "1.0.0"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.symbolic-psychology-studio",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.symbolic-psychology-studio",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 17,
+      "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+      "request": {
+        "expected_revision": 16,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-unblock-leaf-successors",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "proposal_ref": "docs/superpowers/plans/2026-08-23-symbolic-psychology-studio-unblock.md#task-4-atomically-reserve-formula-recipe-and-pastel-successors",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+            "item_id": "com.storystudio.formula.human-behavior-explained",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.human-behavior-explained",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.human-behavior-explained",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+            "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+            "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "visual-style",
+            "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.style.pastel-surreal-psychological-collage",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 19,
+      "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+      "request": {
+        "expected_revision": 18,
+        "coordinator": {
+          "task": "reusable-content-primitives-wave-2",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "proposal_ref": "docs/superpowers/specs/2026-08-23-modular-content-expansion-portfolio-design.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.formula.question-ladder",
+            "item_id": "com.storystudio.formula.question-ladder",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/reusable-primitives/formula/question-ladder",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.question-ladder",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.question-ladder",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+            "item_id": "com.storystudio.topic.audience-question-seeder",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/reusable-primitives/topic/audience-question-seeder",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.audience-question-seeder",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.audience-question-seeder",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.formula.before-after-timeline",
+            "item_id": "com.storystudio.formula.before-after-timeline",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "series-formula",
+            "source_path": "content-packs/reusable-primitives/formula/before-after-timeline",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.formula.before-after-timeline",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.formula.before-after-timeline",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.object-hero-question",
+            "item_id": "com.storystudio.thumbnail.object-hero-question",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/reusable-primitives/thumbnail/object-hero-question",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.object-hero-question",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.object-hero-question",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.route-map-one-promise",
+            "item_id": "com.storystudio.thumbnail.route-map-one-promise",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/reusable-primitives/thumbnail/route-map-one-promise",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.route-map-one-promise",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.route-map-one-promise",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 23,
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "request": {
+        "expected_revision": 22,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "proposal_ref": "docs/superpowers/specs/2026-08-24-thumbnail-recipe-expansion-ten-design.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
+            "item_id": "com.storystudio.thumbnail.before-after-proof-panel",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.before-after-proof-panel",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.before-after-proof-panel",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
+            "item_id": "com.storystudio.thumbnail.two-option-criteria-split",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.two-option-criteria-split",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.two-option-criteria-split",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
+            "item_id": "com.storystudio.thumbnail.reaction-evidence-inset",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.reaction-evidence-inset",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.reaction-evidence-inset",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
+            "item_id": "com.storystudio.thumbnail.cutaway-exploded-object",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.cutaway-exploded-object",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.cutaway-exploded-object",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
+            "item_id": "com.storystudio.thumbnail.hero-payoff-companion",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.hero-payoff-companion",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.hero-payoff-companion",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
+            "item_id": "com.storystudio.thumbnail.iconic-result-closeup",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.iconic-result-closeup",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.iconic-result-closeup",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
+            "item_id": "com.storystudio.thumbnail.scale-journey",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.scale-journey",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.scale-journey",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
+            "item_id": "com.storystudio.thumbnail.numbered-lineup",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.numbered-lineup",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.numbered-lineup",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
+            "item_id": "com.storystudio.thumbnail.macro-mystery-detail",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.macro-mystery-detail",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.macro-mystery-detail",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
+            "item_id": "com.storystudio.thumbnail.hands-on-pov-moment",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "thumbnail-recipe",
+            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.thumbnail.hands-on-pov-moment",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.thumbnail.hands-on-pov-moment",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 34,
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "request": {
+        "expected_revision": 33,
+        "coordinator": {
+          "task": "topic-pack-1000-repair",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "proposal_ref": "docs/superpowers/specs/2026-08-25-topic-pack-1000-repair-design.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+            "item_id": "com.storystudio.topic.ancient-humans-survival",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/ancient-humans-survival-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.ancient-humans-survival",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.ancient-humans-survival",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
+            "item_id": "com.storystudio.topic.deep-time-earth-systems",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/deep-time-earth-systems-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.deep-time-earth-systems",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.deep-time-earth-systems",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.economics-businesses",
+            "item_id": "com.storystudio.topic.economics-businesses",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/economics-businesses-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.economics-businesses",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.economics-businesses",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.everyday-calm",
+            "item_id": "com.storystudio.topic.everyday-calm",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/everyday-calm-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.everyday-calm",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.everyday-calm",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.habits-momentum",
+            "item_id": "com.storystudio.topic.habits-momentum",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/habits-momentum-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.habits-momentum",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.habits-momentum",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+            "item_id": "com.storystudio.topic.historical-wars-treaties-world-order",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.historical-wars-treaties-world-order",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.historical-wars-treaties-world-order",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+            "item_id": "com.storystudio.topic.human-behavior-social-dynamics",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/human-behavior-social-dynamics-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.human-behavior-social-dynamics",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.human-behavior-social-dynamics",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.natural-world-animals",
+            "item_id": "com.storystudio.topic.natural-world-animals",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/natural-world-animals-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.natural-world-animals",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.natural-world-animals",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.night-journeys",
+            "item_id": "com.storystudio.topic.night-journeys",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/night-journeys-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.night-journeys",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.night-journeys",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+            "item_id": "com.storystudio.topic.pov-historical-occupations",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/pov-historical-occupations-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.pov-historical-occupations",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.pov-historical-occupations",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+            "item_id": "com.storystudio.topic.audience-question-seeder",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/reusable-primitives/topic/audience-question-seeder-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.audience-question-seeder",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.audience-question-seeder",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction",
+            "item_id": "com.storystudio.topic.archival-ledger.empires-trade-extraction",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/archival-ledger/topic/empires-trade-extraction-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.archival-ledger.empires-trade-extraction",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.archival-ledger.empires-trade-extraction",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power",
+            "item_id": "com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/archival-ledger/topic/infrastructure-commodities-corporate-power-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.archival-ledger.infrastructure-commodities-corporate-power",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.archival-ledger.infrastructure-commodities-corporate-power",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions",
+            "item_id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/archival-ledger/topic/money-debt-financial-institutions-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.archival-ledger.money-debt-financial-institutions",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+            "item_id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/archival-ledger/topic/states-revolutions-collapse-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.archival-ledger.states-revolutions-collapse",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.archival-ledger.states-revolutions-collapse",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+            "item_id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/archival-ledger/topic/wars-treaties-world-order-v1.0.1",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.archival-ledger.wars-treaties-world-order",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 36,
+      "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
+      "request": {
+        "expected_revision": 35,
+        "coordinator": {
+          "task": "registry-reconciliation-lettering-replay",
+          "branch": "codex/story-registry-canonical-reconciliation"
         },
         "proposal_ref": "_handoffs/2026-08-25_font-pack-plan.md",
         "records": [
@@ -192,15 +1594,440 @@
   ],
   "transitions": [
     {
-      "revision": 3,
-      "transition_ref": "lifecycle:2dba5fdcef8c4cdd3bf18de85f9e96c86dd9fb582f57657667590bf65b7089e3",
+      "revision": 6,
+      "transition_ref": "lifecycle:bf1305d8fe717c2928b3a9b45f6b8ab16ffc09008554f4f578d16c3a00f19729",
       "request": {
-        "expected_revision": 2,
+        "expected_revision": 5,
         "coordinator": {
-          "task": "font-packs-of-six",
-          "branch": "main"
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
         },
-        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.calm-mind",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 7,
+      "transition_ref": "lifecycle:60beac8d78ea751fef98eaaf545f705814021aef1dd95ba17c81a60828c7a281",
+      "request": {
+        "expected_revision": 6,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.human-behavior",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 8,
+      "transition_ref": "lifecycle:ee38146dd47c4c3f9f04d9b63230a4b1e9304d93a6dbda47b4618198e798e6fb",
+      "request": {
+        "expected_revision": 7,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.a-life-as",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 9,
+      "transition_ref": "lifecycle:93150c2db7152214c1c85cec87e5c9087dd6536b7f2d06afd7e152b78a0be7fe",
+      "request": {
+        "expected_revision": 8,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 10,
+      "transition_ref": "lifecycle:11b253db614d8c1980a0d3ac394abff71eb0d8967038b67788c34da16353addb",
+      "request": {
+        "expected_revision": 9,
+        "coordinator": {
+          "task": "Task 1: Reserve and author five same-lineage kit successors",
+          "branch": "codex/capi-psychology-components"
+        },
+        "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+        "pack_id": "com.storystudio.pack.kit.first-humans",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 11,
+      "transition_ref": "lifecycle:6a9674ddc1f3155d30dee19d82e9cb7d260fe9e4a248b7a781067949306924fb",
+      "request": {
+        "expected_revision": 10,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+        "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 12,
+      "transition_ref": "lifecycle:2c583fbf8ecc29a750b3bd20c4ee6f281c1d8a1e8808a1364585b55d34aebf84",
+      "request": {
+        "expected_revision": 11,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+        "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 13,
+      "transition_ref": "lifecycle:d42917ecb3e5ba3a8d885161328327e689e249514920594ac6aa85aafcde6516",
+      "request": {
+        "expected_revision": 12,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+        "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 15,
+      "transition_ref": "lifecycle:a15a3a9c61204c603fe26996d10511e0b3b3144a55d9940980902fec782deffb",
+      "request": {
+        "expected_revision": 14,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+        "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 16,
+      "transition_ref": "lifecycle:eb9be1a66bf9810fa56c74d83f57c54da9d9433bff1438fa5ff6d7ebc30745d2",
+      "request": {
+        "expected_revision": 15,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-wave-1",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+        "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 18,
+      "transition_ref": "lifecycle:b434f131242b4e28d7860dcb82acd91f51144646620b9318071f145e7efa773c",
+      "request": {
+        "expected_revision": 17,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-unblock-leaf-successors",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+        "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 20,
+      "transition_ref": "lifecycle:9bce2c983ab1e5fe9ee116662a3bf9d407848a9de6cb0453fc799b27164b63ae",
+      "request": {
+        "expected_revision": 19,
+        "coordinator": {
+          "task": "reusable-content-primitives-wave-2",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+        "pack_id": "com.storystudio.pack.formula.question-ladder",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 21,
+      "transition_ref": "lifecycle:e10b6432682bfeb420d9ac9e065ef3042fe713af94b307f9ae3fc43d1abf7c6f",
+      "request": {
+        "expected_revision": 20,
+        "coordinator": {
+          "task": "reusable-content-primitives-wave-2",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+        "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 22,
+      "transition_ref": "lifecycle:feb0ec21c41d980655ee0ce00843a9e88098249306ab962a8b980a5f0f7368ec",
+      "request": {
+        "expected_revision": 21,
+        "coordinator": {
+          "task": "reusable-content-primitives-wave-2",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+        "pack_id": "com.storystudio.pack.formula.before-after-timeline",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 24,
+      "transition_ref": "lifecycle:8a21d77aa406bcc9b376ac5a93f004d99206a176c72fd5abb0f693151db8b989",
+      "request": {
+        "expected_revision": 23,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 25,
+      "transition_ref": "lifecycle:5e31d2d624ec8b47e97c5d08398b8381132598a0cd6d57dc04843c2e69b46654",
+      "request": {
+        "expected_revision": 24,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 26,
+      "transition_ref": "lifecycle:5ef402c11ea171a08006d869f54b66dffda3a61c7c4b4b95f19074e89e37a72c",
+      "request": {
+        "expected_revision": 25,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 27,
+      "transition_ref": "lifecycle:0fca73d3d1ea33a737aaa7126a380ffd9866e21b0a8e0a58060d69d4eea7e5bb",
+      "request": {
+        "expected_revision": 26,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 28,
+      "transition_ref": "lifecycle:afd1eb17dbb474b2580d6296d461f8e6d50b6013d39f526f2177d1ec9f98ab14",
+      "request": {
+        "expected_revision": 27,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 29,
+      "transition_ref": "lifecycle:862760388b7341d7cc5d350aec208a016d4b0065c4239ef212cea470420a5760",
+      "request": {
+        "expected_revision": 28,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 30,
+      "transition_ref": "lifecycle:f3f40985059c2469da4f390e672337212306c941324eac34d67ca2cd596af5d4",
+      "request": {
+        "expected_revision": 29,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 31,
+      "transition_ref": "lifecycle:c8bb5f11a4df5e0d3e603416a30f26aa1c78fd0f6c707d6771a6e76a1a5f57a7",
+      "request": {
+        "expected_revision": 30,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 32,
+      "transition_ref": "lifecycle:3c71328496b2e102e91a2b556a3e5556d2daea2d15addb40394558fa94c8eb47",
+      "request": {
+        "expected_revision": 31,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 33,
+      "transition_ref": "lifecycle:e3ded206b79d31f5ed862c9955e3d8df3851a482fb8a25c6a2fd89a6672b7b75",
+      "request": {
+        "expected_revision": 32,
+        "coordinator": {
+          "task": "thumbnail-recipe-expansion-ten",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+        "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 35,
+      "transition_ref": "lifecycle:f42a124a14cc9ae36e5382417164185db3cd7fc7cfe448e1984320b75f8b2044",
+      "request": {
+        "expected_revision": 34,
+        "coordinator": {
+          "task": "registry-reconciliation-prehistoric-discovery-authoring",
+          "branch": "codex/story-registry-canonical-reconciliation"
+        },
+        "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+        "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 37,
+      "transition_ref": "lifecycle:c8e914afb449cb9620656de7a5ebf21e9c1544e03a5b8c342020620d724e03f3",
+      "request": {
+        "expected_revision": 36,
+        "coordinator": {
+          "task": "registry-reconciliation-lettering-replay",
+          "branch": "codex/story-registry-canonical-reconciliation"
+        },
+        "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
         "pack_id": "com.storystudio.pack.lettering.arcade",
         "version": "1.0.0",
         "changes": {
@@ -209,15 +2036,15 @@
       }
     },
     {
-      "revision": 4,
-      "transition_ref": "lifecycle:1116cc2bbe41082df6acd9f2f36c6ca7f50541cfbb329c613e2d410e65ff45fb",
+      "revision": 38,
+      "transition_ref": "lifecycle:45fc0ed21d5de78c99ffee809a4b3e7b5f955ddafaa250588d0f2c354de8deba",
       "request": {
-        "expected_revision": 3,
+        "expected_revision": 37,
         "coordinator": {
-          "task": "font-packs-of-six",
-          "branch": "main"
+          "task": "registry-reconciliation-lettering-replay",
+          "branch": "codex/story-registry-canonical-reconciliation"
         },
-        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
         "pack_id": "com.storystudio.pack.lettering.archive",
         "version": "1.0.0",
         "changes": {
@@ -226,15 +2053,15 @@
       }
     },
     {
-      "revision": 5,
-      "transition_ref": "lifecycle:fdf9be316873b8097dd3ff4ec6265f96b3c8b62e393406ee2dae0ceacd8567cc",
+      "revision": 39,
+      "transition_ref": "lifecycle:246e1bd205d6e9c63ef7c3e99f165124188f4cbf534e4aedbb1c559b82af6ec5",
       "request": {
-        "expected_revision": 4,
+        "expected_revision": 38,
         "coordinator": {
-          "task": "font-packs-of-six",
-          "branch": "main"
+          "task": "registry-reconciliation-lettering-replay",
+          "branch": "codex/story-registry-canonical-reconciliation"
         },
-        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
         "pack_id": "com.storystudio.pack.lettering.calm",
         "version": "1.0.0",
         "changes": {
@@ -243,15 +2070,15 @@
       }
     },
     {
-      "revision": 6,
-      "transition_ref": "lifecycle:69af1b11a64f4bf18b86019a20938b1e8db47fd9f6864e28810c1aec2a317a08",
+      "revision": 40,
+      "transition_ref": "lifecycle:de02d6c011b7451c163bb768e8ac5ea047e49d89349b17546131a5f686ce0c46",
       "request": {
-        "expected_revision": 5,
+        "expected_revision": 39,
         "coordinator": {
-          "task": "font-packs-of-six",
-          "branch": "main"
+          "task": "registry-reconciliation-lettering-replay",
+          "branch": "codex/story-registry-canonical-reconciliation"
         },
-        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
         "pack_id": "com.storystudio.pack.lettering.dread",
         "version": "1.0.0",
         "changes": {
@@ -260,15 +2087,15 @@
       }
     },
     {
-      "revision": 7,
-      "transition_ref": "lifecycle:43a7831f990ed5e4a1532ab7baa08a15b3661365238e0153c0ba659d2ce054cc",
+      "revision": 41,
+      "transition_ref": "lifecycle:74af39e50a3bd2ce83a65cefb384ded137a3d73cc5431a4e4046a51c2880bf3a",
       "request": {
-        "expected_revision": 6,
+        "expected_revision": 40,
         "coordinator": {
-          "task": "font-packs-of-six",
-          "branch": "main"
+          "task": "registry-reconciliation-lettering-replay",
+          "branch": "codex/story-registry-canonical-reconciliation"
         },
-        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
         "pack_id": "com.storystudio.pack.lettering.explainer",
         "version": "1.0.0",
         "changes": {
@@ -277,15 +2104,15 @@
       }
     },
     {
-      "revision": 8,
-      "transition_ref": "lifecycle:c0daba5f4195e56ee25b7c266b92ce913832531d7b50e864dddd25a79c0c1d5f",
+      "revision": 42,
+      "transition_ref": "lifecycle:846897983fac223d0cd76a055b74e0b74010b7844b8efc70b86bd1ad53686769",
       "request": {
-        "expected_revision": 7,
+        "expected_revision": 41,
         "coordinator": {
-          "task": "font-packs-of-six",
-          "branch": "main"
+          "task": "registry-reconciliation-lettering-replay",
+          "branch": "codex/story-registry-canonical-reconciliation"
         },
-        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
         "pack_id": "com.storystudio.pack.lettering.investigation",
         "version": "1.0.0",
         "changes": {
@@ -296,15 +2123,15 @@
   ],
   "records": [
     {
-      "receipt_ref": "baseline:com.storystudio.pack.formula.ancient-humans@1.0.1",
+      "receipt_ref": "baseline:com.storystudio.pack.formula.ancient-humans@1.0.0",
       "pack_id": "com.storystudio.pack.formula.ancient-humans",
       "item_id": "com.storystudio.formula.ancient-humans",
-      "version": "1.0.1",
+      "version": "1.0.0",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
       "kind": "series-formula",
-      "source_path": "content-packs/free-starters/formula/ancient-humans",
+      "source_path": "content-packs/free-starters/formula/ancient-humans-v1.0.0",
       "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
@@ -457,15 +2284,15 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.formula.pov-your-life-as@1.0.1",
+      "receipt_ref": "baseline:com.storystudio.pack.formula.pov-your-life-as@1.0.0",
       "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
       "item_id": "com.storystudio.formula.pov-your-life-as",
-      "version": "1.0.1",
+      "version": "1.0.0",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
       "kind": "series-formula",
-      "source_path": "content-packs/free-starters/formula/pov-your-life-as",
+      "source_path": "content-packs/free-starters/formula/pov-your-life-as-v1.0.0",
       "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
@@ -1133,23 +2960,6 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.thumbnail.animal-hardship-annotation@1.0.1",
-      "pack_id": "com.storystudio.pack.thumbnail.animal-hardship-annotation",
-      "item_id": "com.storystudio.thumbnail.animal-hardship-annotation",
-      "version": "1.0.1",
-      "publisher_id": "com.storystudio",
-      "min_app_version": "{{MIN_APP_VERSION}}",
-      "min_app_version_status": "release-bound",
-      "kind": "thumbnail-recipe",
-      "source_path": "content-packs/free-starters/thumbnail/animal-hardship-annotation",
-      "status": "authored",
-      "dependencies": [],
-      "stocking_proposal": {
-        "family": { "id": "com.storystudio.family.thumbnail.animal-hardship-annotation", "status": "proposed" },
-        "sku": { "id": "com.storystudio.sku.thumbnail.animal-hardship-annotation", "status": "proposed" }
-      }
-    },
-    {
       "receipt_ref": "baseline:com.storystudio.pack.thumbnail.annotated-business-board@1.0.0",
       "pack_id": "com.storystudio.pack.thumbnail.annotated-business-board",
       "item_id": "com.storystudio.thumbnail.annotated-business-board",
@@ -1288,10 +3098,10 @@
       }
     },
     {
-      "receipt_ref": "baseline:com.storystudio.pack.thumbnail.prehistoric-discovery@1.0.1",
+      "receipt_ref": "baseline:com.storystudio.pack.thumbnail.prehistoric-discovery@1.0.0",
       "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
       "item_id": "com.storystudio.thumbnail.prehistoric-discovery",
-      "version": "1.0.1",
+      "version": "1.0.0",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
@@ -1765,7 +3575,1405 @@
       }
     },
     {
-      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+      "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+      "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+      "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+      "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.thumbnail.animal-hardship-annotation",
+      "item_id": "com.storystudio.thumbnail.animal-hardship-annotation",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-annotation",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.animal-hardship-annotation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.animal-hardship-annotation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.thumbnail.prehistoric-survival-title-card",
+      "item_id": "com.storystudio.thumbnail.prehistoric-survival-title-card",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/prehistoric-survival-title-card",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.prehistoric-survival-title-card",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.prehistoric-survival-title-card",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.thumbnail.dreamlike-story-title-card",
+      "item_id": "com.storystudio.thumbnail.dreamlike-story-title-card",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/legacy-thumbnail-restoration/thumbnail/dreamlike-story-title-card",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.dreamlike-story-title-card",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.dreamlike-story-title-card",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.style.hand-drawn-hardship-cartoon",
+      "item_id": "com.storystudio.style.hand-drawn-hardship-cartoon",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/legacy-thumbnail-restoration/style/hand-drawn-hardship-cartoon",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.hand-drawn-hardship-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.hand-drawn-hardship-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+      "item_id": "com.storystudio.style.impasto-psychological-animals",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.impasto-psychological-animals",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.impasto-psychological-animals",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:befab004ee2231cdbfc5f076f5b8a87d1fae03b58716cf5ab45d512fce7904b5",
+      "pack_id": "com.storystudio.pack.style.dreamlike-luminous-sleep-illustration",
+      "item_id": "com.storystudio.style.dreamlike-luminous-sleep-illustration",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/legacy-thumbnail-restoration/style/dreamlike-luminous-sleep-illustration",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.dreamlike-luminous-sleep-illustration",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.dreamlike-luminous-sleep-illustration",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+      "item_id": "com.storystudio.thumbnail.centered-hero-headline",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/centered-hero-headline-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.centered-hero-headline",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.centered-hero-headline",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+      "item_id": "com.storystudio.thumbnail.portrait-block-right",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/portrait-block-right-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.portrait-block-right",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.portrait-block-right",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+      "item_id": "com.storystudio.thumbnail.dreamscape-story-window",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/dreamscape-story-window-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.dreamscape-story-window",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.dreamscape-story-window",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:ebdae94fffab98d8cf31d1241a29a42c515615cbbf89a18228354ec310e92768",
+      "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+      "item_id": "com.storystudio.thumbnail.prehistoric-discovery",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/prehistoric-discovery-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.prehistoric-discovery",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.prehistoric-discovery",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.calm-mind",
+      "bundle_id": "com.storystudio.bundle.calm-mind",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.everyday-calm",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.calm-mind",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.calm-mind",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.human-behavior",
+      "bundle_id": "com.storystudio.bundle.human-behavior",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/human-behavior-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.minimal-stick-figure-explainer",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.human-behavior",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.human-behavior",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.a-life-as",
+      "bundle_id": "com.storystudio.bundle.a-life-as",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.a-life-as",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.a-life-as",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.sleep-journeys",
+      "bundle_id": "com.storystudio.bundle.sleep-journeys",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/sleep-journeys-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.sleep-story",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.night-journeys",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.dreamscape-story-window",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.sleep-journeys",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.sleep-journeys",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:53970a488ac5653ca9fdf734d75ff8aed14030cef096417b1b389133fd93c696",
+      "pack_id": "com.storystudio.pack.kit.first-humans",
+      "bundle_id": "com.storystudio.bundle.first-humans",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/first-humans-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.ancient-humans",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.first-humans",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.first-humans",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+      "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+      "item_id": "com.storystudio.style.oil-painting-classical",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/symbolic-psychology-studio/style/oil-painting-classical",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.oil-painting-classical",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.oil-painting-classical",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:0c62aa74cc54d68d7671de008b1893af243589f8c5a0ce91d4ca46c1d6c12270",
+      "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+      "bundle_id": "com.storystudio.bundle.symbolic-psychology-studio",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+          "version": "1.0.0"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.symbolic-psychology-studio",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.symbolic-psychology-studio",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+      "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+      "item_id": "com.storystudio.formula.human-behavior-explained",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.1",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.human-behavior-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.human-behavior-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+      "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+      "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+      "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+      "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.pastel-surreal-psychological-collage",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+      "pack_id": "com.storystudio.pack.formula.question-ladder",
+      "item_id": "com.storystudio.formula.question-ladder",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/reusable-primitives/formula/question-ladder",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.question-ladder",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.question-ladder",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+      "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+      "item_id": "com.storystudio.topic.audience-question-seeder",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/reusable-primitives/topic/audience-question-seeder",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.audience-question-seeder",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.audience-question-seeder",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+      "pack_id": "com.storystudio.pack.formula.before-after-timeline",
+      "item_id": "com.storystudio.formula.before-after-timeline",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/reusable-primitives/formula/before-after-timeline",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.before-after-timeline",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.before-after-timeline",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+      "pack_id": "com.storystudio.pack.thumbnail.object-hero-question",
+      "item_id": "com.storystudio.thumbnail.object-hero-question",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/reusable-primitives/thumbnail/object-hero-question",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.object-hero-question",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.object-hero-question",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+      "pack_id": "com.storystudio.pack.thumbnail.route-map-one-promise",
+      "item_id": "com.storystudio.thumbnail.route-map-one-promise",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/reusable-primitives/thumbnail/route-map-one-promise",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.route-map-one-promise",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.route-map-one-promise",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
+      "item_id": "com.storystudio.thumbnail.before-after-proof-panel",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.before-after-proof-panel",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.before-after-proof-panel",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
+      "item_id": "com.storystudio.thumbnail.two-option-criteria-split",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.two-option-criteria-split",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.two-option-criteria-split",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
+      "item_id": "com.storystudio.thumbnail.reaction-evidence-inset",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.reaction-evidence-inset",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.reaction-evidence-inset",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
+      "item_id": "com.storystudio.thumbnail.cutaway-exploded-object",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.cutaway-exploded-object",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.cutaway-exploded-object",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
+      "item_id": "com.storystudio.thumbnail.hero-payoff-companion",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.hero-payoff-companion",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.hero-payoff-companion",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
+      "item_id": "com.storystudio.thumbnail.iconic-result-closeup",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.iconic-result-closeup",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.iconic-result-closeup",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
+      "item_id": "com.storystudio.thumbnail.scale-journey",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.scale-journey",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.scale-journey",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
+      "item_id": "com.storystudio.thumbnail.numbered-lineup",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.numbered-lineup",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.numbered-lineup",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
+      "item_id": "com.storystudio.thumbnail.macro-mystery-detail",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.macro-mystery-detail",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.macro-mystery-detail",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
+      "item_id": "com.storystudio.thumbnail.hands-on-pov-moment",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.hands-on-pov-moment",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.hands-on-pov-moment",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+      "item_id": "com.storystudio.topic.ancient-humans-survival",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/ancient-humans-survival-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.ancient-humans-survival",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.ancient-humans-survival",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
+      "item_id": "com.storystudio.topic.deep-time-earth-systems",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/deep-time-earth-systems-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.deep-time-earth-systems",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.deep-time-earth-systems",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.economics-businesses",
+      "item_id": "com.storystudio.topic.economics-businesses",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/economics-businesses-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.economics-businesses",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.economics-businesses",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.everyday-calm",
+      "item_id": "com.storystudio.topic.everyday-calm",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/everyday-calm-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.everyday-calm",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.everyday-calm",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.habits-momentum",
+      "item_id": "com.storystudio.topic.habits-momentum",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/habits-momentum-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.habits-momentum",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.habits-momentum",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+      "item_id": "com.storystudio.topic.historical-wars-treaties-world-order",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.historical-wars-treaties-world-order",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.historical-wars-treaties-world-order",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+      "item_id": "com.storystudio.topic.human-behavior-social-dynamics",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/human-behavior-social-dynamics-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.human-behavior-social-dynamics",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.human-behavior-social-dynamics",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.natural-world-animals",
+      "item_id": "com.storystudio.topic.natural-world-animals",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/natural-world-animals-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.natural-world-animals",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.natural-world-animals",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.night-journeys",
+      "item_id": "com.storystudio.topic.night-journeys",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/night-journeys-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.night-journeys",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.night-journeys",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+      "item_id": "com.storystudio.topic.pov-historical-occupations",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/pov-historical-occupations-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.pov-historical-occupations",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.pov-historical-occupations",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+      "item_id": "com.storystudio.topic.audience-question-seeder",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/reusable-primitives/topic/audience-question-seeder-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.audience-question-seeder",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.audience-question-seeder",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction",
+      "item_id": "com.storystudio.topic.archival-ledger.empires-trade-extraction",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/empires-trade-extraction-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.archival-ledger.empires-trade-extraction",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.archival-ledger.empires-trade-extraction",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power",
+      "item_id": "com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/infrastructure-commodities-corporate-power-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.archival-ledger.infrastructure-commodities-corporate-power",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.archival-ledger.infrastructure-commodities-corporate-power",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions",
+      "item_id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/money-debt-financial-institutions-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.archival-ledger.money-debt-financial-institutions",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+      "item_id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/states-revolutions-collapse-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.archival-ledger.states-revolutions-collapse",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.archival-ledger.states-revolutions-collapse",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+      "item_id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/wars-treaties-world-order-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.archival-ledger.wars-treaties-world-order",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "baseline:com.storystudio.pack.formula.pov-your-life-as@1.0.1",
+      "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+      "item_id": "com.storystudio.formula.pov-your-life-as",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/pov-your-life-as",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.pov-your-life-as",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.pov-your-life-as",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "baseline:com.storystudio.pack.formula.ancient-humans@1.0.1",
+      "pack_id": "com.storystudio.pack.formula.ancient-humans",
+      "item_id": "com.storystudio.formula.ancient-humans",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/ancient-humans",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.ancient-humans",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.ancient-humans",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "baseline:com.storystudio.pack.thumbnail.animal-hardship-annotation@1.0.1",
+      "pack_id": "com.storystudio.pack.thumbnail.animal-hardship-annotation",
+      "item_id": "com.storystudio.thumbnail.animal-hardship-annotation",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/animal-hardship-annotation",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.animal-hardship-annotation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.animal-hardship-annotation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
       "pack_id": "com.storystudio.pack.lettering.investigation",
       "item_ids": [
         "com.storystudio.lettering.case-file-stamp",
@@ -1795,7 +5003,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
       "pack_id": "com.storystudio.pack.lettering.dread",
       "item_ids": [
         "com.storystudio.lettering.bone-etch",
@@ -1825,7 +5033,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
       "pack_id": "com.storystudio.pack.lettering.archive",
       "item_ids": [
         "com.storystudio.lettering.broadsheet-masthead",
@@ -1855,7 +5063,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
       "pack_id": "com.storystudio.pack.lettering.explainer",
       "item_ids": [
         "com.storystudio.lettering.bold-outline-pop",
@@ -1885,7 +5093,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
       "pack_id": "com.storystudio.pack.lettering.calm",
       "item_ids": [
         "com.storystudio.lettering.breath-fog",
@@ -1915,7 +5123,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "receipt_ref": "authoring:8b9bd78e764ba002c5a5fe1c44efe43b3b9ff7411a89841619f3e389bb48b9f1",
       "pack_id": "com.storystudio.pack.lettering.arcade",
       "item_ids": [
         "com.storystudio.lettering.crt-scanline",

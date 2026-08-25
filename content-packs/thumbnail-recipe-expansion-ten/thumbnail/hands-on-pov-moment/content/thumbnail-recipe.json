@@ -1,0 +1,14 @@
+{
+  "kind": "thumbnail-recipe", "schema_version": 1, "id": "com.storystudio.thumbnail.hands-on-pov-moment", "name": "Hands-On POV Moment",
+  "description": "First-person or over-shoulder hands perform one legible non-harmful action in context.", "layout": "hero", "category": "Explainer", "tags": ["hands", "pov", "action", "in-image title"], "aspect_ratio": "16:9", "title_mode": "ai",
+  "composition_guidance": "Show first-person or over-shoulder hands performing one legible, honest, non-harmful action in one task context. Keep hands and task in the lower or middle frame, with one upper title band for the complete intended episode title rendered directly by the selected image model. The active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": ["Use first-person or over-shoulder hands, not a portrait.", "Show exactly one legible non-harmful action in one task context.", "Keep hands and task visible in the lower or middle frame.", "Reserve one clean upper title band."],
+  "required_elements": ["An anatomically coherent first-person or over-shoulder pair of hands", "One legible non-harmful action", "One task context", "One upper title band with the model-rendered complete episode title"],
+  "avoid_elements": ["A portrait or result-only fallback", "Extra or malformed hands", "Unsafe instruction", "Copied trade dress, logos, watermarks, or post-render typography compositing"],
+  "headline_mode": "episode-title", "headline_guidance": "Render the complete intended episode title directly in the upper title band. Use one, two, or three balanced lines according to title length while preserving a clear view of the single hands-on action.",
+  "default_text_style": "high contrast", "default_font_style": "bold editorial", "default_text_position": "top",
+  "headline_formats": ["{ACTION} IT RIGHT", "MAKE THE FIRST {CLEAN ACTION}", "TURN A {PLACE} INTO A {RESULT}"],
+  "visual_style_guidance": "The recipe controls the hands-on point of view, single action, task context, and title band. The active Visual Style remains authoritative for all rendering choices.",
+  "preview_assets": ["assets/hands-on-pov-moment-1.webp", "assets/hands-on-pov-moment-2.webp", "assets/hands-on-pov-moment-3.webp"],
+  "compatible_formula_ids": ["com.storystudio.formula.pov-your-life-as", "com.storystudio.formula.practical-motivation"]
+}

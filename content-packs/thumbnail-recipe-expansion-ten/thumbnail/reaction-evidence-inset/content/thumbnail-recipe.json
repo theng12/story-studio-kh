@@ -1,0 +1,16 @@
+{
+  "kind": "thumbnail-recipe", "schema_version": 1,
+  "id": "com.storystudio.thumbnail.reaction-evidence-inset", "name": "Reaction Evidence Inset",
+  "description": "A generic reaction subject connected by gaze or gesture to one native evidence detail.", "layout": "hero", "category": "Explainer",
+  "tags": ["reaction", "evidence", "inset", "in-image title"], "aspect_ratio": "16:9", "title_mode": "ai",
+  "composition_guidance": "Place one generic or rights-cleared reaction subject on one side and one rounded evidence window generated natively in the same scene on the other. Connect them through gaze or gesture. Reserve one upper title band for the complete intended episode title rendered directly by the selected image model. The active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": ["Use one generic or rights-cleared reaction subject.", "Use exactly one native rounded evidence window containing an original object or detail.", "Make the gaze or gesture visibly connect the subject to the evidence window.", "Keep one upper title band clear and readable."],
+  "required_elements": ["One generic or rights-cleared reaction subject", "One native in-scene evidence window", "A visible gaze or gesture connection", "One upper title band with the model-rendered complete episode title"],
+  "avoid_elements": ["Copied screenshots, UI, private data, or creator likenesses", "Separate unrelated insets or a reaction without evidence", "Copied trade dress, logos, watermarks, or post-render typography compositing"],
+  "headline_mode": "episode-title", "headline_guidance": "Render the complete intended episode title directly in the upper title band. Use one, two, or three balanced lines according to title length while keeping the reaction and evidence connection unobscured.",
+  "default_text_style": "high contrast", "default_font_style": "bold editorial", "default_text_position": "top",
+  "headline_formats": ["THAT'S THE {CLUE}", "THE {TINY DETAIL} CHANGES {CONTEXT}", "ONE SMALL {SIGN} TELLS THE STORY"],
+  "visual_style_guidance": "The recipe controls one reaction, one native evidence window, their connection, and the title band. The active Visual Style remains authoritative for all rendering choices.",
+  "preview_assets": ["assets/reaction-evidence-inset-1.webp", "assets/reaction-evidence-inset-2.webp", "assets/reaction-evidence-inset-3.webp"],
+  "compatible_formula_ids": ["com.storystudio.formula.question-ladder", "com.storystudio.formula.natural-world-explained", "com.storystudio.formula.human-behavior-explained"]
+}

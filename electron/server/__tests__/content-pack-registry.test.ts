@@ -46,11 +46,10 @@ function sha256(bytes: Uint8Array): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
-function documents(packId: string, suffix: string): ContentPackDocument[] {
+function documents(packId: string, suffix: string, recipeId = `${packId}.recipe`): ContentPackDocument[] {
   const formulaId = `${packId}.formula`
   const topicId = `${packId}.topic`
   const styleId = `${packId}.style`
-  const recipeId = `${packId}.recipe`
   return [
     {
       kind: 'series-formula', schema_version: 1, id: formulaId, name: `Formula ${suffix}`, description: 'A signed Formula.',
@@ -89,8 +88,9 @@ async function buildArchive(
   suffix: string,
   lifecycle: 'active' | 'retired' = 'active',
   minAppVersion = '1.0.0',
+  recipeId?: string,
 ): Promise<Uint8Array> {
-  const docs = documents(packId, suffix)
+  const docs = documents(packId, suffix, recipeId)
   const jsonFiles = docs.map((document, index) => ({
     path: `content/item-${index}.json`, bytes: Buffer.from(JSON.stringify(document)), document,
   }))
@@ -250,16 +250,22 @@ describe('verified Content Pack registry', () => {
   test('existing loaders prefer qualified signed entries while bare legacy IDs retain exact fallback behavior', async () => {
     const { paths, options } = await isolated()
     const packId = 'com.storystudio.registry-loaders'
-    const archive = await buildArchive(packId, '1.0.0', 'loader')
+    const animalHardshipRecipeId = 'com.storystudio.thumbnail.animal-hardship-annotation'
+    const archive = await buildArchive(packId, '1.0.0', 'loader', 'active', '1.0.0', animalHardshipRecipeId)
     await installContentPack({ archiveBytes: archive, source: 'local-import' }, { paths, policy })
 
     const signedNiche = await nicheLoader.loadNiche(`${packId}.formula`, options)
     const signedTopic = await topicPackLoader.loadTopicPack(`${packId}.topic`, options)
-    const signedRecipe = await thumbnailTemplateLoader.loadTemplate(`${packId}.recipe`, options)
+    const animalHardshipRecipe = await thumbnailTemplateLoader.loadTemplate(animalHardshipRecipeId, options)
     const styles = await listVisualStyles(options)
     assert.equal(signedNiche?.name, 'Formula loader')
     assert.equal(signedTopic?.promptContext, 'Context loader')
-    assert.equal(signedRecipe?.recipe?.conceptGuidance, 'One document.')
+    assert.equal(animalHardshipRecipe?.id, animalHardshipRecipeId)
+    assert.equal(animalHardshipRecipe?.recipe?.conceptGuidance, 'One document.')
+    assert.deepEqual(animalHardshipRecipe?.previewImages, [
+      `/api/content-packs/${packId}/1.0.0/assets/${sha256(PNG_1PX)}`,
+    ])
+    assert.doesNotMatch(JSON.stringify(animalHardshipRecipe), /(?:\/Users\/|file:|install_path|trust)/i)
     assert.equal(styles.find(style => style.id === `${packId}.style`)?.preview_image,
       `/api/content-packs/${packId}/1.0.0/assets/${sha256(PNG_1PX)}`)
     assert.doesNotMatch(JSON.stringify(styles), /(?:\/Users\/|file:)/i)
@@ -267,8 +273,12 @@ describe('verified Content Pack registry', () => {
     const legacyNiche = await nicheLoader.loadNiche('hidden-mechanics-history', options)
     const legacyTopic = await topicPackLoader.loadTopicPack('historical-states-revolutions-collapse', options)
     const legacyRecipe = await thumbnailTemplateLoader.loadTemplate('archival-map-investigation', options)
+    const centeredHero = await thumbnailTemplateLoader.loadTemplate('centered-hero-headline', options)
+    const portraitBlock = await thumbnailTemplateLoader.loadTemplate('portrait-block-right', options)
     assert.equal(legacyNiche?.id, 'hidden-mechanics-history')
     assert.equal(legacyTopic?.id, 'historical-states-revolutions-collapse')
     assert.equal(legacyRecipe?.id, 'archival-map-investigation')
+    assert.equal(centeredHero?.id, 'centered-hero-headline')
+    assert.equal(portraitBlock?.id, 'portrait-block-right')
   })
 })

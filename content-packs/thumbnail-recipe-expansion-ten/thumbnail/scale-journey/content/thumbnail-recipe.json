@@ -1,0 +1,14 @@
+{
+  "kind": "thumbnail-recipe", "schema_version": 1, "id": "com.storystudio.thumbnail.scale-journey", "name": "Scale Journey",
+  "description": "Exactly three related forms progress through continuous depth and scale.", "layout": "hero", "category": "Explainer", "tags": ["scale", "depth", "journey", "in-image title"], "aspect_ratio": "16:9", "title_mode": "ai",
+  "composition_guidance": "Repeat one related subject form exactly three times through continuous scene depth and scale to communicate ordered magnitude. The forms are not numbered peers and make no factual route claim. Reserve one upper title band for the complete intended episode title rendered directly by the selected image model. The active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": ["Show exactly three related forms.", "Place them through continuous scene depth and increasing or decreasing scale.", "Keep the forms part of one coherent scene rather than a lineup.", "Reserve one clear upper title band."],
+  "required_elements": ["Exactly three related subject forms", "Continuous depth and scale progression", "One upper title band with the model-rendered complete episode title"],
+  "avoid_elements": ["Numerals, route markers, or factual navigation claims", "An equal-size lineup or numbered peers", "Copied trade dress, logos, watermarks, or post-render typography compositing"],
+  "headline_mode": "episode-title", "headline_guidance": "Render the complete intended episode title directly in the upper title band. Use one, two, or three balanced lines according to title length without obscuring any part of the three-form scale journey.",
+  "default_text_style": "high contrast", "default_font_style": "bold editorial", "default_text_position": "top",
+  "headline_formats": ["FROM {SMALL FORM} TO {LARGE FORM}", "{TINY STEPS} ADD UP", "SEE THE WHOLE SCALE AT ONCE"],
+  "visual_style_guidance": "The recipe controls exactly three related forms, continuous depth/scale, and the title band. The active Visual Style remains authoritative for all rendering choices.",
+  "preview_assets": ["assets/scale-journey-1.webp", "assets/scale-journey-2.webp", "assets/scale-journey-3.webp"],
+  "compatible_formula_ids": ["com.storystudio.formula.deep-time-documentary", "com.storystudio.formula.history-explained"]
+}

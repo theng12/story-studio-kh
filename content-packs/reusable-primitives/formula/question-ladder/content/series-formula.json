@@ -1,0 +1,170 @@
+{
+  "kind": "series-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.formula.question-ladder",
+  "name": "Question Ladder",
+  "description": "A reusable explanatory Formula that starts with one concrete audience question, defines its scope, explains the mechanism, weighs a trade-off, tests an exception, and ends at the boundary of what the evidence supports.",
+  "channel_promise": "Question → Mechanism → Boundary",
+  "audience": "General audiences seeking clear, evidence-aware explanations of practical, non-clinical questions.",
+  "formula_family": "Evidence-aware explainers",
+  "perspective_policy": "Use an evidence-aware, non-diagnostic narrator who explains the question without prescribing a universal answer or pretending to know the viewer's circumstances.",
+  "narrative_quality_contract": {
+    "opening_policy": "Open with one concrete audience question and state the scope that the episode can responsibly answer.",
+    "forbidden_patterns": [
+      "You won't believe",
+      "The truth they hid",
+      "Watch what happens next",
+      "diagnosing the viewer",
+      "medical or legal certainty",
+      "one-size-fits-all directives",
+      "unsupported causal claims"
+    ],
+    "required_habits": [
+      "Define important terms before explaining the mechanism.",
+      "Distinguish claims, supporting evidence, and uncertainty.",
+      "Name a meaningful trade-off and at least one exception.",
+      "Keep the conclusion inside the stated evidence boundary."
+    ],
+    "closing_policy": "End with the bounded conclusion the evidence supports, the important uncertainty that remains, and no universal directive."
+  },
+  "narrative_rules": [
+    "Keep one concrete question visible through the entire explanation.",
+    "Explain a mechanism rather than substituting advice, testimony, or rhetoric for an answer.",
+    "Treat personal observation as anecdotal unless stronger evidence supports the claim.",
+    "Do not diagnose, provide medical or legal certainty, fabricate causality, or issue a one-size-fits-all directive."
+  ],
+  "title_rules": [
+    "Frame one concrete, answerable question in plain language.",
+    "Reject bait, fear framing, secret-reveal language, and promises the episode cannot prove.",
+    "Reject medical and legal certainty, diagnostic labels, and one-size-fits-all directives.",
+    "Do not imply a universal result, guaranteed outcome, or individualized professional guidance."
+  ],
+  "script_structure": {
+    "default_chapter_count": 6,
+    "chapter_count_range": [
+      6,
+      6
+    ],
+    "default_length_minutes": 12,
+    "length_minutes_range": [
+      8,
+      20
+    ],
+    "duration_presets": [
+      8,
+      12,
+      20
+    ],
+    "default_words_per_minute": 145,
+    "chapters_independent": false,
+    "pacing_arc": [
+      "Concrete question.",
+      "Scope and definitions.",
+      "Mechanism.",
+      "Trade-off.",
+      "Exception.",
+      "Bounded conclusion."
+    ],
+    "additional_rules": [
+      "Require the concrete question, mechanism, trade-off, exception, and bounded conclusion before a candidate is queued.",
+      "Run the duplicate and recency guard against normalized existing-episode questions and in-batch candidates before the candidate is queued.",
+      "Reject a repeated combination of question intent, mechanism depth, trade-off, and exception class within the active batch.",
+      "Reject causal or universal conclusions built only from anecdotal observation.",
+      "Reject combinations whose safe answer would require diagnosis, medical treatment, a legal conclusion, or individualized high-stakes instruction."
+    ]
+  },
+  "compatible_topic_pack_ids": [
+    "com.storystudio.topic.audience-question-seeder"
+  ],
+  "recommended_visual_style_ids": [],
+  "recommended_thumbnail_recipe_ids": [
+    "com.storystudio.thumbnail.object-hero-question"
+  ],
+  "idea_axes": [
+    {
+      "id": "question-intent",
+      "label": "Question intent",
+      "values": [
+        "understand a mechanism",
+        "compare options",
+        "identify a trade-off",
+        "check an exception",
+        "evaluate an observation",
+        "plan a bounded next step"
+      ]
+    },
+    {
+      "id": "mechanism-depth",
+      "label": "Mechanism depth",
+      "values": [
+        "observable pattern",
+        "component interaction",
+        "causal chain",
+        "system feedback",
+        "constraint and limit",
+        "competing explanations"
+      ]
+    },
+    {
+      "id": "trade-off",
+      "label": "Trade-off",
+      "values": [
+        "time versus quality",
+        "cost versus durability",
+        "simplicity versus control",
+        "speed versus confidence",
+        "access versus precision",
+        "short-term versus long-term"
+      ]
+    },
+    {
+      "id": "exception-class",
+      "label": "Exception class",
+      "values": [
+        "scope boundary",
+        "context dependence",
+        "rare case",
+        "evidence gap",
+        "changed conditions",
+        "safety threshold"
+      ]
+    },
+    {
+      "id": "conclusion-boundary",
+      "label": "Conclusion boundary",
+      "values": [
+        "what the evidence supports",
+        "provisional takeaway",
+        "options and criteria",
+        "reversible low-risk next step",
+        "professional referral boundary",
+        "unresolved question"
+      ]
+    }
+  ],
+  "evidence_expectations": [
+    "For every material claim, identify its supporting evidence and state the uncertainty or limitation that remains.",
+    "Prefer primary sources, measurements, official guidance, controlled comparisons, or clearly attributed expert explanation when the question requires them.",
+    "Label lived observation as anecdotal and never use it alone to establish causation or a universal result.",
+    "Do not invent a citation, source review, consensus, causal link, or individualized assessment."
+  ],
+  "idea_system_prompt_role": "Generate distinct, concrete audience questions that can be answered through a mechanism, a real trade-off, an exception, and a bounded evidence-aware conclusion. Reject duplicates, bait, diagnosis, medical or legal certainty, and universal directives.",
+  "idea_guidance_text": "Make every candidate's question intent, mechanism depth, trade-off, exception class, and conclusion boundary explicit. Do not queue a candidate until normalized-title and question fingerprints have been checked against existing episodes and the current batch.",
+  "script_context": "Answer one concrete question in six dependent steps: define the scope, explain the mechanism, weigh a trade-off, test an exception, and stop at the strongest conclusion the evidence supports. Separate claim, evidence, inference, anecdote, and uncertainty in plain language.",
+  "script_system_prompt_role": "You are a clear, evidence-aware, non-diagnostic explainer. You neither sensationalize uncertainty nor disguise it. You never diagnose the viewer, claim medical or legal certainty, fabricate evidence, or turn a general explanation into individualized professional advice.",
+  "script_closing_hint": "State the bounded conclusion, the main exception, and what remains uncertain without adding a universal directive.",
+  "narrator_styles": [
+    {
+      "id": "evidence-aware-explainer",
+      "label": "Evidence-aware explainer",
+      "description": "Clear, curious, and non-diagnostic; distinguishes what is known, inferred, anecdotal, and uncertain."
+    }
+  ],
+  "default_narrator_style_id": "evidence-aware-explainer",
+  "title_shape_rules": [
+    "Use a direct question whose nouns reveal the concrete subject.",
+    "A comparison question must name the options or criteria rather than promise one universal winner.",
+    "An observation question must not imply causation before the episode weighs evidence and alternatives."
+  ],
+  "structural_variety": "vary-all"
+}

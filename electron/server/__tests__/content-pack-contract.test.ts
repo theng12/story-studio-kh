@@ -102,6 +102,27 @@ const bundleOnlyManifest = {
   }],
 } as const
 
+const multiStyleBundleOnlyManifest = {
+  ...bundleOnlyManifest,
+  dependencies: [
+    ...bundleOnlyManifest.dependencies.slice(0, 2),
+    bundleOnlyManifest.dependencies[3],
+    bundleOnlyManifest.dependencies[2],
+    { pack_id: 'com.storystudio.style.free-starter-impasto', version: '1.0.0' },
+    { pack_id: 'com.storystudio.style.free-starter-oil', version: '1.0.0' },
+  ],
+  bundles: [{
+    ...bundleOnlyManifest.bundles[0],
+    components: [
+      ...bundleOnlyManifest.bundles[0].components.slice(0, 2),
+      bundleOnlyManifest.bundles[0].components[3],
+      bundleOnlyManifest.bundles[0].components[2],
+      { pack_id: 'com.storystudio.style.free-starter-impasto', version: '1.0.0', item_id: 'com.storystudio.style.free-starter-impasto', kind: 'visual-style' },
+      { pack_id: 'com.storystudio.style.free-starter-oil', version: '1.0.0', item_id: 'com.storystudio.style.free-starter-oil', kind: 'visual-style' },
+    ],
+  }],
+} as const
+
 const documents = {
   'series-formula': {
     kind: 'series-formula', schema_version: 1,
@@ -216,6 +237,57 @@ describe('Content Pack v1 contracts', () => {
       new Set(['series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe']))
   })
 
+  test('accepts one-or-more ordered Styles in a bundle-only coordination manifest', () => {
+    const parsed = parseContentPackManifest(multiStyleBundleOnlyManifest)
+    const counts = parsed.bundles[0]!.components.reduce<Record<string, number>>(
+      (result, component) => ({ ...result, [component.kind]: (result[component.kind] ?? 0) + 1 }),
+      {},
+    )
+    assert.deepEqual(counts, {
+      'series-formula': 1,
+      'topic-pack': 1,
+      'thumbnail-recipe': 1,
+      'visual-style': 3,
+    })
+    assert.deepEqual(
+      parsed.bundles[0]!.components.map(component => component.kind),
+      ['series-formula', 'topic-pack', 'thumbnail-recipe', 'visual-style', 'visual-style', 'visual-style'],
+    )
+    assert.deepEqual(
+      parsed.bundles[0]!.components.filter(component => component.kind === 'visual-style').map(component => component.item_id),
+      [
+        'com.storystudio.style.free-starter',
+        'com.storystudio.style.free-starter-impasto',
+        'com.storystudio.style.free-starter-oil',
+      ],
+    )
+  })
+
+  test('requires bundle-only dependencies to equal the ordered one-component-per-dependency owner sequence', () => {
+    assertRejected({
+      ...multiStyleBundleOnlyManifest,
+      dependencies: [
+        multiStyleBundleOnlyManifest.dependencies[1],
+        multiStyleBundleOnlyManifest.dependencies[0],
+        ...multiStyleBundleOnlyManifest.dependencies.slice(2),
+      ],
+    }, /order|sequence|component/i)
+
+    const shared = multiStyleBundleOnlyManifest.dependencies[0]
+    assertRejected({
+      ...multiStyleBundleOnlyManifest,
+      dependencies: [shared],
+      bundles: [{
+        ...multiStyleBundleOnlyManifest.bundles[0],
+        components: multiStyleBundleOnlyManifest.bundles[0].components.map(component => ({
+          ...component,
+          pack_id: shared.pack_id,
+          version: shared.version,
+        })),
+      }],
+    }, /cardinality|one component|dependency/i)
+  })
+
   test('keeps empty items or files invalid outside the one bundle-only coordination shape', () => {
     assertRejected({ ...manifest, items: [] }, /items|empty|content/i)
     assertRejected({ ...manifest, files: [] }, /files|empty|content/i)
@@ -230,7 +302,7 @@ describe('Content Pack v1 contracts', () => {
     }, /external|same-pack/i)
   })
 
-  test('requires the coordination bundle to contain one external Formula, one or more Topic Packs, one Style, and one Recipe with exact used dependencies', () => {
+  test('requires the coordination bundle to contain one external Formula, one or more Topic Packs, one or more Styles, and one Recipe with exact used dependencies', () => {
     const fiveTopicBundleOnlyManifest = {
       ...bundleOnlyManifest,
       dependencies: [
@@ -294,12 +366,9 @@ describe('Content Pack v1 contracts', () => {
       ...bundleOnlyManifest,
       bundles: [{
         ...bundleOnlyManifest.bundles[0],
-        components: [
-          ...bundleOnlyManifest.bundles[0].components,
-          { ...bundleOnlyManifest.bundles[0].components[2], item_id: 'com.storystudio.style.second-free-starter' },
-        ],
+        components: bundleOnlyManifest.bundles[0].components.filter(component => component.kind !== 'visual-style'),
       }],
-    }, /Style|exactly|unique|kind/i)
+    }, /Style|component/i)
     assertRejected({
       ...bundleOnlyManifest,
       bundles: [{

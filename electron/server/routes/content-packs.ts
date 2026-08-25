@@ -15,6 +15,7 @@ import {
   uninstallContentPackVersion,
 } from '../content-packs/lifecycle.js'
 import {
+  applyProjectContentBundle,
   listProjectSlugsPinningContentPackVersionLocked,
 } from '../content-packs/project-pins.js'
 import { listVerifiedRecoveryPacks } from '../content-packs/recovery.js'
@@ -37,6 +38,10 @@ const PackIdSchema = ContentPackVersionRefSchema.shape.pack_id
 const VersionSchema = ContentPackVersionRefSchema.shape.version
 const AssetIdSchema = ContentPackVersionRefSchema.shape.archive_sha256
 const ProjectSlugSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{0,127}$/)
+const ProjectBundleApplicationSchema = z.object({
+  root: ContentPackVersionRefSchema,
+  bundle_id: PackIdSchema,
+}).strict()
 
 type LocalContentPackOptions = ContentPackRegistryOptions
 
@@ -291,6 +296,29 @@ router.delete('/content-packs/:packId/versions/:version', async (req, res) => {
     lifecycleFailure(res, error, 'The Content Pack version cannot be removed while it is active, pinned, or required.')
   }
 })
+
+router.post(
+  '/content-packs/projects/:slug/bundles/apply',
+  async (req, res, next) => {
+    const slug = ProjectSlugSchema.safeParse(firstParam(req.params.slug))
+    const body = ProjectBundleApplicationSchema.safeParse(req.body)
+    if (!slug.success || !body.success) {
+      res.status(400).json({ detail: 'A valid project slug, exact bundle root, and bundle ID are required.' })
+      return
+    }
+    try {
+      res.json(await applyProjectContentBundle(slug.data, body.data, routeOptions(req)))
+    } catch (error) {
+      const status = Number((error as { statusCode?: unknown })?.statusCode)
+      const exposed = (error as { expose?: unknown })?.expose === true && error instanceof Error
+      if (exposed && [400, 404, 409].includes(status)) {
+        res.status(status).json({ detail: error.message })
+        return
+      }
+      next(error)
+    }
+  },
+)
 
 router.get('/content-packs/projects/:slug/requirements', async (req, res) => {
   const rawSlug = firstParam(req.params.slug)

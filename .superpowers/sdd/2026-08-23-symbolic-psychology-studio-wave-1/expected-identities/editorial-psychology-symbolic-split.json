@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+  "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+  "version": "1.0.0",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "thumbnail-recipe",
+  "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split",
+      "status": "proposed"
+    }
+  }
+}

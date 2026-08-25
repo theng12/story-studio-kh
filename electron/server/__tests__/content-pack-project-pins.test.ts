@@ -16,6 +16,7 @@ import {
   uninstallContentPackVersion,
 } from '../content-packs/lifecycle.js'
 import {
+  applyProjectContentBundle,
   applyProjectContentUpgrade,
   ContentPackMissingError,
   isProjectContentPackVersionPinnedLocked,
@@ -24,12 +25,13 @@ import {
   resolveProjectContentPins,
   setProjectContentPin,
   snapshotProjectContentPackProvenance,
+  updateProjectContentConfigSelections,
   updateProjectContentSelections,
   createProjectWithContentSelections,
 } from '../content-packs/project-pins.js'
 import { getContentPackRuntimePaths } from '../content-packs/runtime-paths.js'
-import { readContentPackState } from '../content-packs/state.js'
-import type { ContentPackDocument } from '../content-packs/types.js'
+import { mutateContentPackState, readContentPackState } from '../content-packs/state.js'
+import type { ContentPackDocument, ContentPackItemKind } from '../content-packs/types.js'
 import * as jobQueue from '../services/job-queue.js'
 import * as nicheLoader from '../services/niche-loader.js'
 import * as projectManager from '../services/project-manager.js'
@@ -46,6 +48,18 @@ const FORMULA_ID = `${PACK_ID}.formula`
 const TOPIC_ID = `${PACK_ID}.topic`
 const STYLE_ID = `${PACK_ID}.style`
 const RECIPE_ID = `${PACK_ID}.recipe`
+const BUNDLE_PACK_ID = 'com.storystudio.bundle.symbolic-psychology-test'
+const BUNDLE_ID = 'com.storystudio.bundle.symbolic-psychology-test'
+type BundleComponent = { pack_id: string; version: string; item_id: string; kind: ContentPackItemKind }
+
+const BUNDLE_COMPONENTS = [
+  { pack_id: 'com.storystudio.pack.formula.symbolic-test', version: '1.0.1', item_id: 'com.storystudio.formula.symbolic-test', kind: 'series-formula' },
+  { pack_id: 'com.storystudio.pack.topic.symbolic-test', version: '1.0.0', item_id: 'com.storystudio.topic.symbolic-test', kind: 'topic-pack' },
+  { pack_id: 'com.storystudio.pack.thumbnail.symbolic-test', version: '1.0.1', item_id: 'com.storystudio.thumbnail.symbolic-test', kind: 'thumbnail-recipe' },
+  { pack_id: 'com.storystudio.pack.style.pastel-test', version: '1.0.1', item_id: 'com.storystudio.style.pastel-test', kind: 'visual-style' },
+  { pack_id: 'com.storystudio.pack.style.impasto-test', version: '1.0.0', item_id: 'com.storystudio.style.impasto-test', kind: 'visual-style' },
+  { pack_id: 'com.storystudio.pack.style.oil-test', version: '1.0.0', item_id: 'com.storystudio.style.oil-test', kind: 'visual-style' },
+] as const satisfies readonly BundleComponent[]
 const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64')
 const keyPair = generateKeyPairSync('ed25519')
 const policy = createContentPackKeyring([{
@@ -140,6 +154,95 @@ async function buildArchive(version: string, label: string, includeCreativeSelec
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
 }
 
+function bundleDocument(component: BundleComponent, label = component.version): ContentPackDocument {
+  const base = documents(label, true).find(document => document.kind === component.kind)!
+  if (base.kind === 'series-formula') return {
+    ...base,
+    id: component.item_id,
+    compatible_topic_pack_ids: [BUNDLE_COMPONENTS[1].item_id],
+    default_topic_pack_ids: [BUNDLE_COMPONENTS[1].item_id],
+  }
+  if (base.kind === 'topic-pack') return {
+    ...base,
+    id: component.item_id,
+    compatible_formula_ids: [BUNDLE_COMPONENTS[0].item_id],
+  }
+  if (base.kind === 'visual-style' || base.kind === 'thumbnail-recipe') return {
+    ...base,
+    id: component.item_id,
+    compatible_formula_ids: [BUNDLE_COMPONENTS[0].item_id],
+    preview_assets: ['assets/preview.png'],
+  }
+  throw new Error(`Unsupported bundle fixture kind: ${component.kind}`)
+}
+
+async function buildBundleComponentArchive(
+  component: BundleComponent,
+  options: { kind?: ContentPackItemKind; label?: string; lifecycle?: 'active' | 'retired' | 'replaced' } = {},
+): Promise<Uint8Array> {
+  const actual = { ...component, kind: options.kind ?? component.kind }
+  const document = bundleDocument(actual, options.label)
+  const contentBytes = Buffer.from(JSON.stringify(document))
+  const usesPreview = actual.kind === 'visual-style' || actual.kind === 'thumbnail-recipe'
+  const manifest = Buffer.from(JSON.stringify({
+    pack_format: 1,
+    pack_id: component.pack_id,
+    publisher_id: PUBLISHER_ID,
+    key_id: KEY_ID,
+    version: component.version,
+    min_app_version: '1.0.0',
+    lifecycle: options.lifecycle ?? 'active',
+    entitlement: { sku: `${component.pack_id}.sku`, family: `${component.pack_id}.family` },
+    bundles: [],
+    items: [{ id: component.item_id, kind: actual.kind, schema_version: 1, path: 'content/item.json' }],
+    files: [
+      { path: 'content/item.json', sha256: sha256(contentBytes), bytes: contentBytes.byteLength, mime: 'application/json' },
+      ...(usesPreview ? [{ path: 'assets/preview.png', sha256: sha256(PNG_1PX), bytes: PNG_1PX.byteLength, mime: 'image/png' }] : []),
+    ],
+  }))
+  const zip = new JSZip()
+  zip.file('manifest.json', manifest, { createFolders: false })
+  zip.file('signature.ed25519', sign(null, manifest, keyPair.privateKey), { createFolders: false })
+  zip.file('content/item.json', contentBytes, { createFolders: false })
+  if (usesPreview) zip.file('assets/preview.png', PNG_1PX, { createFolders: false })
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
+}
+
+async function buildBundleRootArchive(components: BundleComponent[] = [...BUNDLE_COMPONENTS]): Promise<Uint8Array> {
+  const manifest = Buffer.from(JSON.stringify({
+    pack_format: 1,
+    pack_id: BUNDLE_PACK_ID,
+    publisher_id: PUBLISHER_ID,
+    key_id: KEY_ID,
+    version: '1.0.1',
+    min_app_version: '1.0.0',
+    lifecycle: 'active',
+    entitlement: { sku: `${BUNDLE_PACK_ID}.sku`, family: `${BUNDLE_PACK_ID}.family` },
+    dependencies: components.map(({ pack_id, version }) => ({ pack_id, version })),
+    bundles: [{ id: BUNDLE_ID, kind: 'channel-kit', name: 'Symbolic Psychology Test Kit', components }],
+    items: [],
+    files: [],
+  }))
+  const zip = new JSZip()
+  zip.file('manifest.json', manifest, { createFolders: false })
+  zip.file('signature.ed25519', sign(null, manifest, keyPair.privateKey), { createFolders: false })
+  return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE', platform: 'UNIX' })
+}
+
+async function installBundleFixture(
+  options: Awaited<ReturnType<typeof isolated>>['options'],
+  componentOptions: Partial<Record<string, Parameters<typeof buildBundleComponentArchive>[1]>> = {},
+) {
+  const refs = new Map<string, Awaited<ReturnType<typeof installContentPack>>>()
+  for (const component of BUNDLE_COMPONENTS) {
+    const archiveBytes = await buildBundleComponentArchive(component, componentOptions[component.item_id])
+    refs.set(component.item_id, await installContentPack({ archiveBytes, source: 'local-import' }, options))
+  }
+  const archiveBytes = await buildBundleRootArchive()
+  const root = await installContentPack({ archiveBytes, source: 'local-import' }, options)
+  return { refs, root }
+}
+
 async function isolated() {
   const temp = await useTempDataDir()
   cleanup = temp.cleanup
@@ -197,6 +300,10 @@ describe('exact project Content Pack pins', () => {
 
     assert.deepEqual(project.content_pack_versions, { [PACK_ID]: '1.0.0' })
     assert.equal((await resolveProjectContentPins(project, options))[0]?.archive_sha256, active.archive_sha256)
+    await install('1.1.0', 'newer active', options)
+    assert.equal((await resolveProjectContentPins((await projectManager.getProject(project.slug))!, options))[0]?.archive_sha256,
+      active.archive_sha256,
+      'a newer active release must not change the exact Formula/Topic pin created by signed discovery')
   })
 
   test('pins the active exact versions only when a user explicitly changes selected content', async () => {
@@ -247,7 +354,7 @@ describe('exact project Content Pack pins', () => {
     assert.match(effective?.scriptContext || '', /Script context v1/)
     assert.doesNotMatch(effective?.scriptContext || '', /v1\.1/)
 
-    await assert.rejects(updateProjectContentSelections(project.slug, {
+    const reselected = await updateProjectContentSelections(project.slug, {
       replace_kinds: ['series-formula', 'topic-pack'],
       selections: [
         { id: FORMULA_ID, kind: 'series-formula' },
@@ -257,8 +364,9 @@ describe('exact project Content Pack pins', () => {
         projectMeta.niche_id = FORMULA_ID
         projectMeta.topic_pack_ids = [TOPIC_ID]
       },
-    }, options), /review and apply an explicit upgrade/i)
-    assert.equal((await projectManager.getProject(project.slug))?.content_pack_versions?.[PACK_ID], '1.0.0')
+    }, options)
+    assert.equal(reselected.content_pack_versions?.[PACK_ID], '1.0.0',
+      'reselecting a pinned item must resolve its exact owner/version instead of the newer active release')
 
     const plan = await planProjectContentUpgrade(project.slug, PACK_ID, '1.1.0', options)
     assert.equal(plan.from.version, '1.0.0')
@@ -457,6 +565,275 @@ describe('exact project Content Pack pins', () => {
       .send({ thumbnail_template_id: 'archival-map-investigation' })
       .expect(200)
     assert.equal((await projectManager.getConfig(project.slug) as any)?.thumbnail_template_id, 'archival-map-investigation')
+  })
+
+  test('unpinned signed Recipe discovery validates kind before creating an exact pin', async () => {
+    const { options } = await isolated()
+    await installCreative('1.0.0', 'creative', options)
+    const project = await projectManager.createProject({ name: 'Recipe Kind Validation' })
+    const beforeProject = await projectManager.getProject(project.slug)
+    const beforeConfig = await projectManager.getConfig(project.slug)
+
+    await assert.rejects(updateProjectContentConfigSelections(project.slug, {
+      thumbnail_template_id: STYLE_ID,
+    }, options), /kind mismatch/i)
+    assert.deepEqual(await projectManager.getProject(project.slug), beforeProject)
+    assert.deepEqual(await projectManager.getConfig(project.slug), beforeConfig)
+  })
+
+  test('applies one exact multi-Style bundle in one coordinated operation and keeps a selected alternative pinned', async () => {
+    const { options } = await isolated()
+    const { refs, root } = await installBundleFixture(options)
+    const project = await projectManager.createProject({ name: 'Ordered Bundle Application' })
+
+    const applied = await applyProjectContentBundle(project.slug, {
+      root: { pack_id: BUNDLE_PACK_ID, version: '1.0.1', archive_sha256: root.archive_sha256 },
+      bundle_id: BUNDLE_ID,
+    }, options)
+
+    assert.equal(applied.formula_id, BUNDLE_COMPONENTS[0].item_id)
+    assert.deepEqual(applied.topic_pack_ids, [BUNDLE_COMPONENTS[1].item_id])
+    assert.equal(applied.thumbnail_recipe_id, BUNDLE_COMPONENTS[2].item_id)
+    assert.equal(applied.default_style_id, BUNDLE_COMPONENTS[3].item_id)
+    assert.deepEqual(applied.alternative_style_ids, [BUNDLE_COMPONENTS[4].item_id, BUNDLE_COMPONENTS[5].item_id])
+    assert.deepEqual(applied.style_refs, BUNDLE_COMPONENTS.slice(3).map(component => ({
+      item_id: component.item_id,
+      ref: {
+        pack_id: component.pack_id,
+        version: component.version,
+        archive_sha256: refs.get(component.item_id)!.archive_sha256,
+      },
+    })))
+
+    const saved = await projectManager.getProject(project.slug)
+    const config = await projectManager.getConfig(project.slug)
+    assert.equal(saved?.niche_id, BUNDLE_COMPONENTS[0].item_id)
+    assert.deepEqual(saved?.topic_pack_ids, [BUNDLE_COMPONENTS[1].item_id])
+    assert.equal(saved?.active_style_preset_id, BUNDLE_COMPONENTS[3].item_id)
+    assert.equal(saved?.thumbnail_template_id, BUNDLE_COMPONENTS[2].item_id)
+    assert.equal(config?.active_style_preset_id, BUNDLE_COMPONENTS[3].item_id)
+    assert.equal(config?.thumbnail_template_id, BUNDLE_COMPONENTS[2].item_id)
+    assert.deepEqual(saved?.content_pack_versions, Object.fromEntries(BUNDLE_COMPONENTS.map(component => [component.pack_id, component.version])))
+    assert.deepEqual(Object.keys(saved?.content_pack_items ?? {}), BUNDLE_COMPONENTS.map(component => component.item_id))
+
+    const alternative = BUNDLE_COMPONENTS[4]
+    const newerArchive = await buildBundleComponentArchive({ ...alternative, version: '1.0.2' }, { label: 'newer active' })
+    await installContentPack({ archiveBytes: newerArchive, source: 'local-import' }, options)
+    const selected = await updateProjectContentConfigSelections(project.slug, {
+      active_style_preset_id: alternative.item_id,
+    }, options)
+    assert.equal(selected.content_pack_versions?.[alternative.pack_id], alternative.version)
+    assert.equal((await resolveProjectArtStyle(project.slug, options))?.description, `Style bible ${alternative.version}`)
+  })
+
+  test('bundle application fails closed on missing, disabled, recalled, corrupt, and wrong-kind components without project mutation', async () => {
+    for (const failure of ['missing', 'disabled', 'recalled', 'corrupt', 'wrong-kind'] as const) {
+      const { options } = await isolated()
+      const wrongKind = failure === 'wrong-kind'
+        ? { [BUNDLE_COMPONENTS[4].item_id]: { kind: 'thumbnail-recipe' as const } }
+        : {}
+      const { root } = await installBundleFixture(options, wrongKind)
+      const project = await projectManager.createProject({ name: `Bundle Failure ${failure}` })
+      const beforeProject = await projectManager.getProject(project.slug)
+      const beforeConfig = await projectManager.getConfig(project.slug)
+      const target = BUNDLE_COMPONENTS[4]
+      const state = await readContentPackState(options.paths)
+      const installed = state.packs[target.pack_id].versions[target.version]
+      if (failure === 'missing') await fs.rm(installed.install_path, { recursive: true })
+      if (failure === 'disabled') await setContentPackDiscoveryDisabled(target.pack_id, true, options)
+      if (failure === 'corrupt') {
+        await mutateContentPackState(current => {
+          current.packs[target.pack_id].versions[target.version].archive_sha256 = '0'.repeat(64)
+        }, options.paths)
+      }
+      if (failure === 'recalled') {
+        await mutateContentPackState(current => {
+          const retained = current.packs[target.pack_id].versions[target.version]
+          current.packs[target.pack_id].active_version = undefined
+          retained.source = 'genstudio-store'
+          retained.delivery_attestation = {
+            account_id: 'acct_test', product_id: 'product_test', entitlement_family: 'family_test', release_id: 'release_test',
+            pack_id: target.pack_id, version: target.version, archive_sha256: retained.archive_sha256, archive_bytes: 1,
+            genstudio_origin: 'https://genstudio.example', subject: 'bundle-closure-member', closure_members: [], key_id: 'receipt-key',
+            receipt_canonical_json: '{}', receipt_signature: 'signature',
+          }
+          retained.recalled = { observed_at: new Date().toISOString(), account_id: 'acct_test', genstudio_origin: 'https://genstudio.example' }
+        }, options.paths)
+      }
+
+      await assert.rejects(applyProjectContentBundle(project.slug, {
+        root: { pack_id: BUNDLE_PACK_ID, version: '1.0.1', archive_sha256: root.archive_sha256 },
+        bundle_id: BUNDLE_ID,
+      }, options), /unavailable|disabled|recalled|kind|content pack/i, failure)
+      assert.deepEqual(await projectManager.getProject(project.slug), beforeProject, failure)
+      assert.deepEqual(await projectManager.getConfig(project.slug), beforeConfig, failure)
+      await cleanup?.()
+      cleanup = undefined
+    }
+  })
+
+  test('bundle application refuses an existing different-version pin before writing either file', async () => {
+    const { options } = await isolated()
+    const { root } = await installBundleFixture(options)
+    const project = await projectManager.createProject({ name: 'Bundle Pin Conflict' })
+    const pastel = BUNDLE_COMPONENTS[3]
+    const newerArchive = await buildBundleComponentArchive({ ...pastel, version: '1.0.2' }, { label: 'conflicting pin' })
+    const newer = await installContentPack({ archiveBytes: newerArchive, source: 'local-import' }, options)
+    await setProjectContentPin(project.slug, {
+      pack_id: pastel.pack_id,
+      version: '1.0.2',
+      archive_sha256: newer.archive_sha256,
+    }, options)
+    const beforeProject = await projectManager.getProject(project.slug)
+    const beforeConfig = await projectManager.getConfig(project.slug)
+
+    await assert.rejects(applyProjectContentBundle(project.slug, {
+      root: { pack_id: BUNDLE_PACK_ID, version: '1.0.1', archive_sha256: root.archive_sha256 },
+      bundle_id: BUNDLE_ID,
+    }, options), /explicit upgrade|pins.*1\.0\.2/i)
+    assert.deepEqual(await projectManager.getProject(project.slug), beforeProject)
+    assert.deepEqual(await projectManager.getConfig(project.slug), beforeConfig)
+  })
+
+  test('bundle writes expose crash-consistent transitional pins and roll back each injected write-phase failure', async () => {
+    for (const failurePhase of ['afterTransitionalProjectWrite', 'afterConfigWrite', 'beforeFinalProjectWrite'] as const) {
+      const { options } = await isolated()
+      const { root } = await installBundleFixture(options)
+      const project = await projectManager.createProject({ name: `Bundle Write Failure ${failurePhase}` })
+      const projectPath = path.join(projectManager.ensureProjectsRoot(), project.slug, 'project.json')
+      const configPath = path.join(projectManager.ensureProjectsRoot(), project.slug, 'config.json')
+      const beforeProject = await projectManager.getProject(project.slug)
+      const beforeConfig = await projectManager.getConfig(project.slug)
+      const observed: string[] = []
+      const inspectPhase = async (phase: typeof failurePhase) => {
+        observed.push(phase)
+        const currentProject = JSON.parse(await fs.readFile(projectPath, 'utf8'))
+        const currentConfig = JSON.parse(await fs.readFile(configPath, 'utf8'))
+        assert.deepEqual(currentProject.content_pack_versions,
+          Object.fromEntries(BUNDLE_COMPONENTS.map(component => [component.pack_id, component.version])))
+        assert.equal(Object.keys(currentProject.content_pack_items).length, BUNDLE_COMPONENTS.length)
+        assert.equal(currentProject.active_style_preset_id, BUNDLE_COMPONENTS[3].item_id)
+        assert.equal(
+          currentConfig.active_style_preset_id,
+          phase === 'afterTransitionalProjectWrite' ? beforeConfig?.active_style_preset_id : BUNDLE_COMPONENTS[3].item_id,
+        )
+        if (phase === failurePhase) throw new Error(`injected ${phase}`)
+      }
+
+      await assert.rejects(applyProjectContentBundle(project.slug, {
+        root: { pack_id: BUNDLE_PACK_ID, version: '1.0.1', archive_sha256: root.archive_sha256 },
+        bundle_id: BUNDLE_ID,
+      }, {
+        ...options,
+        hooks: {
+          consistentProjectWrite: {
+            afterTransitionalProjectWrite: () => inspectPhase('afterTransitionalProjectWrite'),
+            afterConfigWrite: () => inspectPhase('afterConfigWrite'),
+            beforeFinalProjectWrite: () => inspectPhase('beforeFinalProjectWrite'),
+          },
+        },
+      }), new RegExp(`injected ${failurePhase}`))
+      assert.deepEqual(observed, [
+        'afterTransitionalProjectWrite',
+        ...(['afterConfigWrite', 'beforeFinalProjectWrite'].includes(failurePhase) ? ['afterConfigWrite'] : []),
+        ...(failurePhase === 'beforeFinalProjectWrite' ? ['beforeFinalProjectWrite'] : []),
+      ])
+      assert.deepEqual(await projectManager.getProject(project.slug), beforeProject, failurePhase)
+      assert.deepEqual(await projectManager.getConfig(project.slug), beforeConfig, failurePhase)
+      await cleanup?.()
+      cleanup = undefined
+    }
+  })
+
+  test('missing, recalled, owner-mismatched, and hash-mismatched owner pins never fall through to a newer active Style', async () => {
+    for (const failure of ['missing', 'recalled', 'owner-mismatched', 'hash-mismatched'] as const) {
+      const { options } = await isolated()
+      const { root } = await installBundleFixture(options)
+      const project = await projectManager.createProject({ name: `Fail Closed Alternative ${failure}` })
+      await applyProjectContentBundle(project.slug, {
+        root: { pack_id: BUNDLE_PACK_ID, version: '1.0.1', archive_sha256: root.archive_sha256 },
+        bundle_id: BUNDLE_ID,
+      }, options)
+      const alternative = BUNDLE_COMPONENTS[4]
+      const newerArchive = await buildBundleComponentArchive({ ...alternative, version: '1.0.2' }, { label: 'newer active' })
+      await installContentPack({ archiveBytes: newerArchive, source: 'local-import' }, options)
+      const state = await readContentPackState(options.paths)
+      const retained = state.packs[alternative.pack_id].versions[alternative.version]
+      if (failure === 'missing') await fs.rm(retained.install_path, { recursive: true })
+      if (failure === 'hash-mismatched') {
+        await mutateContentPackState(current => {
+          current.packs[alternative.pack_id].versions[alternative.version].archive_sha256 = 'f'.repeat(64)
+        }, options.paths)
+      }
+      if (failure === 'recalled') {
+        await mutateContentPackState(current => {
+          const pinned = current.packs[alternative.pack_id].versions[alternative.version]
+          pinned.source = 'genstudio-store'
+          pinned.delivery_attestation = {
+            account_id: 'acct_test', product_id: 'product_test', entitlement_family: 'family_test', release_id: 'release_test',
+            pack_id: alternative.pack_id, version: alternative.version, archive_sha256: pinned.archive_sha256, archive_bytes: 1,
+            genstudio_origin: 'https://genstudio.example', subject: 'bundle-closure-member', closure_members: [], key_id: 'receipt-key',
+            receipt_canonical_json: '{}', receipt_signature: 'signature',
+          }
+          pinned.recalled = { observed_at: new Date().toISOString(), account_id: 'acct_test', genstudio_origin: 'https://genstudio.example' }
+        }, options.paths)
+      }
+      if (failure === 'owner-mismatched') {
+        const projectPath = path.join(projectManager.ensureProjectsRoot(), project.slug, 'project.json')
+        const saved = JSON.parse(await fs.readFile(projectPath, 'utf8'))
+        saved.content_pack_items[alternative.item_id].pack_id = BUNDLE_COMPONENTS[5].pack_id
+        await fs.writeFile(projectPath, JSON.stringify(saved))
+      }
+      const beforeProject = await projectManager.getProject(project.slug)
+      const beforeConfig = await projectManager.getConfig(project.slug)
+
+      await assert.rejects(updateProjectContentConfigSelections(project.slug, {
+        active_style_preset_id: alternative.item_id,
+      }, options), /required Content Pack version is unavailable/i, failure)
+      assert.deepEqual(await projectManager.getProject(project.slug), beforeProject, failure)
+      assert.deepEqual(await projectManager.getConfig(project.slug), beforeConfig, failure)
+      await cleanup?.()
+      cleanup = undefined
+    }
+  })
+
+  test('legacy config, niche, and topic writes confirm a signed-catalog miss and create no pins', async () => {
+    const { options } = await isolated()
+    const project = await projectManager.createProject({ name: 'Legacy Local Selections' })
+    const resolutions: Array<{ id: string; pin?: unknown }> = []
+    const observed = {
+      ...options,
+      hooks: {
+        afterCatalogItemResolution: (id: string, pin: unknown) => { resolutions.push({ id, pin }) },
+      },
+    }
+
+    await updateProjectContentConfigSelections(project.slug, {
+      active_style_preset_id: 'builtin-local-style',
+      thumbnail_template_id: 'builtin-local-recipe',
+    }, observed)
+    await updateProjectContentSelections(project.slug, {
+      replace_kinds: ['series-formula'], selections: [{ id: 'legacy-local-niche', kind: 'series-formula' }],
+      update(meta) { meta.niche_id = 'legacy-local-niche' },
+    }, observed)
+    await updateProjectContentSelections(project.slug, {
+      replace_kinds: ['topic-pack'], selections: [{ id: 'legacy-local-topic', kind: 'topic-pack' }],
+      update(meta) { meta.topic_pack_ids = ['legacy-local-topic'] },
+    }, observed)
+
+    assert.deepEqual(resolutions, [
+      { id: 'builtin-local-style', pin: undefined },
+      { id: 'builtin-local-recipe', pin: undefined },
+      { id: 'legacy-local-niche', pin: undefined },
+      { id: 'legacy-local-topic', pin: undefined },
+    ])
+    const saved = await projectManager.getProject(project.slug)
+    assert.equal(saved?.active_style_preset_id, 'builtin-local-style')
+    assert.equal(saved?.thumbnail_template_id, 'builtin-local-recipe')
+    assert.equal(saved?.niche_id, 'legacy-local-niche')
+    assert.deepEqual(saved?.topic_pack_ids, ['legacy-local-topic'])
+    assert.equal(saved?.content_pack_items, undefined)
+    assert.equal(saved?.content_pack_versions, undefined)
   })
 
   test('reports a selected item missing from an available exact archive only to its consumers', async () => {

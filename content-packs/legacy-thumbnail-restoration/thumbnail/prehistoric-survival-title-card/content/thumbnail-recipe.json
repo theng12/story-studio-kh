@@ -1,0 +1,57 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.prehistoric-survival-title-card",
+  "name": "Prehistoric Survival Title Card",
+  "description": "A full-title prehistoric survival explainer cover that connects one simple ancient human to a concrete environmental challenge.",
+  "layout": "hero",
+  "category": "Explainer",
+  "tags": [
+    "prehistory",
+    "ancient humans",
+    "survival",
+    "educational cartoon",
+    "in-image title"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Create a clear 16:9 prehistoric survival title card with one anatomically simple stick-limbed ancient human facing a concrete survival challenge. Keep human and animal, weather, food, terrain, fire, or primitive material evidence visibly connected whenever it is relevant. Use a limited earthy or icy palette, a readable mobile-scale silhouette, and an uncluttered right-side or upper title-safe band for an energetic high-contrast full title or full question rendered directly by the selected image model.",
+  "composition_rules": [
+    "Show one anatomically simple stick-limbed ancient human as the primary emotional anchor.",
+    "Connect the human to one visible survival challenge through relevant food, weather, fire, terrain, mammals, or a primitive tool rather than isolated decorative props.",
+    "Reserve either a right-side or an upper title-safe band for the complete high-contrast title rendered by the image model.",
+    "Keep the silhouette, survival evidence, and title readable in a single fast mobile viewing pass."
+  ],
+  "required_elements": [
+    "One anatomically simple stick-limbed ancient human",
+    "One concrete survival challenge with materially connected evidence",
+    "A limited earthy or icy educational-cartoon palette",
+    "A readable full episode-title or full-question card rendered by the image model"
+  ],
+  "avoid_elements": [
+    "Violence, gore, or threatening combat",
+    "Fantasy armor, magic, fake archaeology, or modern objects",
+    "Copied episode titles, channel branding, watermarks, logos, or copied trade dress",
+    "Dense labels, incidental sign text, illegible or malformed text",
+    "Post-render typography compositing"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Render the complete intended full episode title or question directly in the title-safe band. Use one, two, or three balanced lines according to title length while preserving high contrast and small-screen readability. Do not reuse saved episode wording, channel identity, fixed catchphrases, or source-specific signs.",
+  "default_text_style": "high contrast",
+  "default_font_style": "bold explainer",
+  "default_text_position": "center",
+  "headline_formats": [
+    "HOW DID {ANCIENT HUMANS} SURVIVE {CHALLENGE}?",
+    "SURVIVING {ENVIRONMENTAL CHALLENGE}",
+    "THE FIGHT FOR {FOOD OR SHELTER}"
+  ],
+  "visual_style_guidance": "Keep the recipe independent of its active visual style while favoring an original simple 2D prehistoric educational cartoon: clean black outlines, stick-limbed figures, flat limited colors, humble clothing and tools, connected survival evidence, and no photorealism or fantasy spectacle.",
+  "preview_assets": [
+    "assets/prehistoric-survival-title-card-1.webp",
+    "assets/prehistoric-survival-title-card-2.webp",
+    "assets/prehistoric-survival-title-card-3.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.ancient-humans"
+  ]
+}

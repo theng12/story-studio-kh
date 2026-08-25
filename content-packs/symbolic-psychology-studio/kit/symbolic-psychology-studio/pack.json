@@ -1,0 +1,85 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Evidence-aware symbolic psychology with three compatible visual styles.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.kit.symbolic-psychology-studio",
+    "family": "com.storystudio.family.kit.symbolic-psychology-studio"
+  },
+  "dependencies": [
+    {
+      "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+      "version": "1.0.0"
+    }
+  ],
+  "bundles": [
+    {
+      "id": "com.storystudio.bundle.symbolic-psychology-studio",
+      "kind": "channel-kit",
+      "name": "Symbolic Psychology Studio",
+      "components": [
+        {
+          "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.formula.human-behavior-explained",
+          "kind": "series-formula"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.topic.human-behavior-social-dynamics",
+          "kind": "topic-pack"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.thumbnail.editorial-psychology-symbolic-split",
+          "kind": "thumbnail-recipe"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.style.pastel-surreal-psychological-collage",
+          "kind": "visual-style"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.impasto-psychological-animals",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.style.impasto-psychological-animals",
+          "kind": "visual-style"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.oil-painting-classical",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.style.oil-painting-classical",
+          "kind": "visual-style"
+        }
+      ]
+    }
+  ]
+}
