@@ -332,7 +332,7 @@
     "a shell-weight balance",
     "a cork display rest",
     "a paper ruler strip",
-    "a linen table cloth",
+    "a shell-table shoreline chart",
     "a catalog pencil",
     "a ribbon drawer pull",
     "a clam-shell pair",
@@ -437,7 +437,7 @@
     "a ribbon binding sample",
     "a scrap-paper envelope",
     "a finished quilt block",
-    "a quilt-room ledger",
+    "a quilt-block corner card",
     "a table dust cover",
     "a composing stick",
     "a row of lead letters",
@@ -511,10 +511,10 @@
     "a packet of loose seeds",
     "a linen work mat",
     "a cabinet drawer key",
-    "a paper ruler",
+    "a specimen-outline card",
     "a dried flower fragment",
     "a folder corner guard",
-    "an accession-number ribbon",
+    "an accession-window label",
     "a stack of empty folders",
     "a workroom shade",
     "a kraft seed packet",
@@ -525,7 +525,7 @@
     "a paper accession card",
     "a row of storage tins",
     "a humidity indicator",
-    "a packet-weight scale",
+    "a seed-packet tare token",
     "a wooden seed scoop",
     "a stack of coin envelopes",
     "a bean variety tag",
@@ -554,10 +554,10 @@
     "a route-copy ledger",
     "a clerk’s foot rail",
     "a pencil-rack lamp baffle",
-    "a felt eyepiece cap",
+    "an eyepiece-cover inspection tab",
     "a canvas telescope cover",
     "a brass focus knob",
-    "a wooden lens box",
+    "a spare-lens cradle peg",
     "a cotton dust blower",
     "a star-chart folio",
     "a red lamp chimney cap",
@@ -604,7 +604,7 @@
     "a canvas mail sack",
     "a leather counter pad",
     "a route-sorting rail",
-    "a spool of parcel twine",
+    "a parcel-twine length card",
     "a stamp inventory card",
     "a wooden money drawer",
     "a felt ink-pad cover",
@@ -623,7 +623,7 @@
     "a cedar linen token",
     "a wooden linen token",
     "a laundry-bag drawcord",
-    "a ribbon shelf label",
+    "a towel-shelf spacing block",
     "a quilted mattress cover",
     "a pair of curtain ties",
     "a folded bath mat",
@@ -667,7 +667,7 @@
     "a canvas rain cape",
     "a jar of smooth pebbles",
     "a coiled curtain cord",
-    "a linen pillow cover",
+    "a cedar bunk-pillow spacer",
     "a wooden spoon rack",
     "a paper mooring note",
     "a wool seat cushion",
@@ -678,12 +678,13 @@
     "a brass station clock key",
     "a wool bench blanket",
     "a paper luggage label",
+    "a timetable reading strip",
     "a leather message pouch",
     "a row of wooden chairs",
     "a pencil notice card",
     "a canvas umbrella sleeve",
     "a ceramic flower vase",
-    "a brass bell cover",
+    "a padded bell-clapper rest",
     "a folded newspaper",
     "a ticket punch case",
     "a reed doormat",
@@ -692,6 +693,7 @@
     "a station key ring",
     "a white berth sheet",
     "a berth blanket strap",
+    "a berth-blanket shelf divider",
     "a brass berth number",
     "a cotton hand towel",
     "a felt slipper pair",
@@ -701,6 +703,7 @@
     "a wooden linen shelf",
     "a tray-cloth storage sleeve",
     "a curtain tie cord",
+    "a robe-collar support ring",
     "a linen inventory slip",
     "a wool seat cover",
     "a linen-service hamper liner",
@@ -710,7 +713,7 @@
     "a flat stepping stone",
     "a bamboo hand broom",
     "a stone lantern basin",
-    "a reed garden mat",
+    "a garden kneeling pad",
     "a wooden sandal rack",
     "a cotton kneeling cloth",
     "a ceramic pebble tray",
@@ -725,7 +728,7 @@
     "a small gravel rake",
     "a linen tool wrap",
     "a garden ledger",
-    "a reed screen tie",
+    "a veranda screen-bottom weight",
     "a cedar door pull",
     "a bamboo writing brush",
     "an inkstone",
@@ -744,7 +747,7 @@
     "a brush-washing bowl",
     "a scroll label tag",
     "a calligraphy window screen",
-    "a calligraphy ledger",
+    "a calligraphy title proof strip",
     "a padded floor cushion",
     "a writing-room screen",
     "a handmade paper sheet",
@@ -801,10 +804,10 @@
     "a leather apron",
     "a pair of felt insoles",
     "a ribbon shoe tie",
-    "a cobbler ledger",
+    "a finished-pair heel token",
     "a padded work stool",
     "a glass shop case key",
-    "a shoe-display curtain tie",
+    "a shoe-display privacy screen",
     "a blue grosgrain ribbon",
     "a velvet hat band",
     "a wooden hat block",
@@ -819,7 +822,7 @@
     "a feather storage sleeve",
     "a round hat-box lid",
     "a wooden pin dish",
-    "a spool of matching thread",
+    "a thread-color comparison card",
     "a millinery ledger",
     "a padded chair cushion",
     "a glass display key",
@@ -858,6 +861,7 @@
     "a puppet hat ribbon",
     "a wardrobe drawer",
     "a repaired-cape hanger card",
+    "a costume-thread color strip",
     "a sewing-stool drawer",
     "a garment cupboard key",
     "a stage-side curtain",
@@ -885,9 +889,10 @@
     "a stack of choral parts",
     "a wooden score cart",
     "a linen page ribbon",
+    "a quartet-part sequence rail",
     "a paper rehearsal note",
     "a row of music pencils",
-    "a large orchestral folio",
+    "an orchestral folio spine guard",
     "a page-turn clip",
     "a cotton score cloth",
     "a metronome cover",
@@ -914,9 +919,11 @@
     "a horsehair comb",
     "a bow repair ticket",
     "a padded violin cradle",
-    "a bow-maker's ledger",
+    "a bow-bench sleeve guard",
+    "a finished-bow rack label",
     "a bench magnifier",
     "a workshop key",
+    "a violin-display light meter card",
     "a perforated music roll",
     "a labeled roll box",
     "a wooden roll cabinet",
@@ -933,6 +940,7 @@
     "a piano-lamp pull chain",
     "a roll-repair ribbon",
     "a roll-cabinet tally clip",
+    "a piano-window cord weight",
     "a piano-room door plate",
     "a paper-wrapped bouquet",
     "a spool of cotton ribbon",
@@ -948,7 +956,7 @@
     "a cotton twine spool",
     "a shallow ribbon drawer",
     "a wrapped-bouquet counter token",
-    "a reed display mat",
+    "a bouquet-counter drip tray",
     "a watering cup",
     "a green apron",
     "a glass cabinet key",
@@ -974,7 +982,7 @@
     "a spice-jar shade card",
     "a carved spice-shop door token",
     "a tide-and-wind slate",
-    "a brass barometer card",
+    "a barometer date card",
     "a blue observation pencil",
     "a cloud-chart ribbon",
     "a wooden instrument key",
@@ -994,15 +1002,20 @@
     "a wooden brochure rack",
     "a pressed fern card",
     "a trail-map corner band",
+    "a bird-guide shelf ribbon",
     "a stack of blank postcards",
     "a pinecone specimen tray",
     "a brochure-rack groove brush",
+    "a linen visitor-table cover",
     "a paper animal-track card",
+    "a guide-desk graphite test slip",
     "a visitor-room ledger",
     "a canvas field satchel",
     "a ceramic leaf vase",
     "a reed floor runner",
+    "a guide-cabinet key tally bead",
     "a visitor-room shutter",
+    "a guide-desk closing bead",
     "a sable detail brush",
     "a bamboo brush rack",
     "a porcelain mixing tile",
@@ -1020,7 +1033,7 @@
     "a studio ledger",
     "a padded painter's stool",
     "a drawer key",
-    "a linen dust cover"
+    "a brush-rack moisture card"
   ],
   "time_place_scopes": [
     "the same blue-hour village lane and lamp room",
@@ -1347,7 +1360,7 @@
     "centering the empty pan after measuring",
     "placing it beneath a curved specimen",
     "sliding it beside a shell for scale",
-    "brushing away three grains of sand",
+    "placing the final shell group beside its matching shoreline band",
     "measuring the catalog-pencil point against the shell-detail gauge",
     "tying the loose end into a flat bow",
     "nesting the two matching valves together",
@@ -1453,7 +1466,7 @@
     "pinning it beneath the border note",
     "tucking tiny useful patches inside",
     "placing it beneath a flat portfolio",
-    "drawing a small star beside the completed block",
+    "sliding it beneath the completed block to compare all four square corners",
     "settling it over the arranged patch rows",
     "sliding clean type back into its case",
     "sorting each letter into its labeled box",
@@ -1529,10 +1542,10 @@
     "sliding it beneath a newly mounted leaf",
     "rolling the work mat inward so its paper fibers stay contained",
     "clipping the cabinet-drawer key onto the archivist ring",
-    "placing it beside the specimen for scale",
+    "matching the pressed leaf edge to its closest printed contour without moving the specimen",
     "settling it beneath a transparent cover slip",
     "fitting the corner guard over the worn paper corner",
-    "tying it loosely around the closed specimen folder",
+    "sliding it into the closed folder's title pocket with the number facing outward",
     "aligning their spines inside the cabinet",
     "lowering the cover until the filed specimens are fully shaded",
     "counting it into the barley drawer",
@@ -1544,7 +1557,7 @@
     "nesting small tins inside the empty crate",
     "noting the steady color on the archive sheet",
     "wiping dust from the sealed cabinet top",
-    "centering the empty pan after weighing",
+    "returning the token to the zero notch after weighing",
     "returning it to the divided tool box",
     "aligning their folded flaps",
     "placing them inside the clean drawer",
@@ -1575,10 +1588,10 @@
     "tying the route-copy ledger ribbon after the finished chart is filed",
     "folding it flat against the map desk",
     "lowering its small flap until the rack edge falls dim",
-    "fitting the felt cap over the cooled eyepiece",
+    "passing the inspection tab around the full cover edge to confirm an even seal",
     "closing the canvas cover seam along the polished telescope tube",
     "wiping one fingerprint with chamois",
-    "closing the lid over the spare glass",
+    "moving it from open to occupied after the spare glass is stored",
     "returning it to its padded drawer",
     "folding the cover beneath its cloth tie",
     "seating it on the cooled lamp after the lens is covered",
@@ -1625,7 +1638,7 @@
     "folding the empty sack along its seam",
     "wiping one ink mark from the edge",
     "clipping the last letter beneath its district tab",
-    "securing the parcel-twine tail beneath a folded paper band",
+    "winding the measured twine once through the card's two end notches",
     "ticking the final sheet in pencil",
     "sliding the empty coin tray closed",
     "fitting the felt cover over the dry ink pad",
@@ -1644,7 +1657,7 @@
     "placing it on top of the folded sheet stack beside its shelf label",
     "moving it to the ready peg",
     "coiling it inside the side pocket after the bag is emptied",
-    "tying it around the towel stack",
+    "placing it between the two folded towel stacks to keep the gap even",
     "rolling it around a cloth core",
     "matching their woven tassels",
     "standing it inside the lower cupboard",
@@ -1688,7 +1701,7 @@
     "hanging it from the cabin hook",
     "centering it behind the bookend",
     "coiling the curtain cord into a loose circle on the shelf",
-    "smoothing it over the bunk pillow",
+    "placing it behind the bunk pillow to leave an even air gap at the wall",
     "returning each spoon to its groove",
     "filing it inside the cabin ledger",
     "patting the wool seat cushion flat beside the window",
@@ -1700,14 +1713,14 @@
     "checking the brass station-clock key teeth against the felt-drawer diagram",
     "draping the wool bench blanket across the end seat",
     "filing it in the lost-property box",
-    "lowering the green reading-lamp shade until the table edge falls dim",
+    "checking the last departure line beneath the dimmed waiting-room lamp",
     "hanging the window cloth on the drying rail after the lower pane",
     "checking the leather message-pouch clasp against its closure mark",
     "centering each chair on its floor mark",
     "copying tomorrow's platform note",
     "folding it inside the coat cupboard",
     "centering it on the sill mat",
-    "placing felt over the unused bell",
+    "sliding it beneath the clapper so the unused waiting-room bell stays silent",
     "stacking it beneath the date clip",
     "sliding it into the attendant's drawer",
     "brushing one dry leaf from its edge",
@@ -1718,7 +1731,7 @@
     "folding it along the bunk edge",
     "threading it through the shelf buckle around the rolled blanket",
     "buttoning the linen pillowcase flap around the spare pillow",
-    "fastening it around the cupboard stack",
+    "sliding it upright between the two spare blanket stacks",
     "wiping one fingerprint from its face",
     "folding it inside the wash alcove",
     "nesting it beneath the lower berth",
@@ -1728,7 +1741,7 @@
     "aligning folded cases by size",
     "sliding the folded checked cloth inside",
     "fastening the tie cord through the curtain ring",
-    "centering a spare robe on it",
+    "fastening it inside the spare robe collar before hanging",
     "ticking the final berth packet",
     "folding the wool seat cover inside the sleeper cupboard",
     "tucking its clean rim evenly over the hamper edge",
@@ -1738,7 +1751,7 @@
     "brushing dry moss crumbs from its edge",
     "sweeping fallen needles into a small basket",
     "lifting one leaf from the dry bowl",
-    "rolling it beneath the veranda rail",
+    "turning its dry face upward beside the veranda rail",
     "aligning empty pairs by size",
     "folding it on the low bench",
     "turning pale stones until every clean face points upward",
@@ -1753,7 +1766,7 @@
     "raking one final quiet arc into the gravel",
     "rolling it around the hand broom",
     "drawing the final path arc beneath the tea-garden ledger entry",
-    "releasing the screen across the veranda",
+    "sliding it into the screen hem pocket after the screen settles",
     "wiping one dry hand mark from its face",
     "rinsing ink from its pointed hairs",
     "wiping its shallow well with cotton",
@@ -1772,7 +1785,7 @@
     "letting clear water settle before covering it",
     "copying the title in soft pencil",
     "folding its hinged panels across the window",
-    "copying the finished scroll title into the calligraphy ledger index",
+    "comparing its final characters with the finished scroll heading before filing",
     "placing the padded floor cushion inside the desk recess with its pull tab outward",
     "folding it across the closed workspace",
     "lifting it from the felt drying cloth",
@@ -1831,10 +1844,10 @@
     "rolling the leather apron around the cleaned shoe brush",
     "aligning them beneath their label",
     "tying the ribbon shoe tie into a loose storage bow",
-    "drawing a collection line beneath the finished cobbler pair",
+    "placing it between the completed shoes so the pair stays matched",
     "resting the work stool upside down on the swept floor mat",
     "fastening the glass shop-case key clasp to its brass hook",
-    "releasing it so the two curtain panels meet",
+    "folding its three panels across the display until the shoes disappear",
     "winding it around a flat spool",
     "folding it inside tissue paper",
     "returning it to its numbered shelf",
@@ -1850,7 +1863,7 @@
     "settling it over the finished hat",
     "tying the ribbon swatch to its sample card through two eyelets",
     "centering it on the worktable",
-    "securing the thread end beneath the spool paper band",
+    "laying one loose strand across the matching ribbon swatch",
     "copying the ribbon-band total onto the millinery ledger cover slip",
     "lifting the chair cushion onto the empty fitting chair",
     "placing the glass display key beneath the wall-hook label",
@@ -1891,7 +1904,7 @@
     "fastening it in a flat bow",
     "aligning folded collars in one row",
     "clipping it to the costume hanger",
-    "brushing thread ends into the scrap cup",
+    "pressing one saved thread end beneath its matching color tab",
     "sliding the thread tray fully inside its felt-lined cavity",
     "counting the garment-cupboard key notches against the key chart",
     "tying the stage-side curtain center ribbons across the costume alcove",
@@ -1919,10 +1932,10 @@
     "aligning them inside a paper folder",
     "rolling it beside the catalog desk",
     "tucking it inside the closed volume",
-    "placing it beside the returned quartet",
+    "arranging the four returned part labels from first violin through cello",
     "filing it in the conductor envelope",
     "aligning them inside a felt tray",
-    "closing its cover beneath cotton ties",
+    "fitting it along the lower spine before shelving the folio upright",
     "returning it to the accessories drawer",
     "brushing dust from an empty shelf",
     "settling the felt cover over the silent metronome until the pendulum is fully shaded",
@@ -1949,12 +1962,12 @@
     "returning it to its narrow case",
     "sliding the bow ticket beneath the repair-case strap",
     "folding its support arms inward",
-    "rolling the cotton apron with the wood-dust side enclosed",
-    "counting completed bows into the bow-maker ledger total",
+    "buttoning it over the cleaned tool rest",
+    "fastening the date label beneath the final occupied rack groove",
     "lowering its arm over the work mat",
     "folding the felt bench cover into thirds beside the bow tools",
     "turning the workshop key tag until its labeled face points upward inside the wooden dish",
-    "lowering the blind halfway until the violin display falls into shade",
+    "checking its quiet-light mark beside the resting violin",
     "winding it evenly onto its spool",
     "sliding the closed roll inside",
     "filing the box by title",
@@ -1973,7 +1986,7 @@
     "coiling it inside a paper envelope",
     "fastening it to the final filed-roll line",
     "sliding the cabinet-drawer key into the wall key sleeve",
-    "hooking the released curtain tie beside the tall window",
+    "setting it in the sill notch after the curtain closes",
     "aligning the quiet-room card beneath its clip",
     "folding the outer paper beneath the stems",
     "tying one loose bow around the wrap",
@@ -1989,7 +2002,7 @@
     "measuring one cotton-twine parcel length against the counter guide",
     "sorting the spare ribbon in the shallow drawer by shade",
     "moving it into the ready-vase row",
-    "rolling it beneath the counter",
+    "sliding it beneath the wrapped stems to catch the final drop",
     "returning it to the sink hook",
     "hanging the green apron from its compost-side peg",
     "threading the glass cabinet-key ring onto the wall peg",
@@ -2016,7 +2029,7 @@
     "comparing two jar-label colors beneath the lowered counter lamp",
     "hanging the resting token on the closed-shop peg",
     "drawing separate calm marks beside the two instrument readings",
-    "copying the current barometer date onto the brass card",
+    "copying the current barometer date in pencil beside its printed instrument mark",
     "rounding the observation-pencil point on a fine sanding card",
     "looping it once around the folded cloud chart before shelving it upright",
     "aligning the wooden instrument key beside its numbered peg",
@@ -2039,22 +2052,22 @@
     "aligning guides by height",
     "placing it beneath a clear cover",
     "tucking its two ends beneath opposite map corners",
-    "turning the brass drawer label until the bird-guide title faces forward",
+    "threading its title tab through the shelf-edge slot",
     "counting blank postcards into the visitor-guide rack",
     "centering each cone in a felt ring",
     "clearing one dry leaf fragment from the lowest rack groove",
-    "folding it beside the map stand",
+    "hanging it from the drying rail by both stitched loops",
     "filing it behind the mammal divider",
     "holding the magnifier above the track card to inspect its printed edge",
-    "arranging the pencil points in alternating left-right directions inside the tray",
+    "drawing one short line with each sharpened pencil before returning it to the tray",
     "copying the returned guide shelf code into the visitor-room ledger",
     "checking the empty field-satchel lining beneath its open flap",
     "resting the wool chair cushion against the guide-chair back with its dry face outward",
     "turning the ceramic leaf vase until its painted face points forward",
     "brushing one dry needle from the edge",
-    "sliding the cabinet key into the guide pouch after the latch closes",
+    "moving it to the returned groove after the latch closes",
     "swinging it inward until the forest reflection disappears",
-    "turning the welcome token face-down in the guide-desk tray",
+    "sliding it into the closed groove after the welcome card is turned",
     "rinsing blue pigment from its tip",
     "sorting the dry brushes into wide, medium, and narrow rack grooves",
     "wiping one pale color circle",
@@ -2073,7 +2086,7 @@
     "closing the studio ledger after the washed-brush total is checked",
     "setting the painter stool on its side beneath the drying shelf",
     "turning the drawer key until the pigment-drawer latch seats",
-    "tying the linen dust-cover corners beneath the brush rack",
+    "hanging it inside the cleaned rack to confirm the dry mark",
     "angling the blind slats away from the covered brush rack"
   ],
   "evidence_lenses": [
@@ -2349,7 +2362,7 @@
     "Use a steady overhead view for centering the empty pan after measuring, with the shell-weight balance never leaving frame. Let the balance’s visible edge, each quiet contact, and the ordered detail (after measuring) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw.",
     "Frame the cork display rest with its destination before placing it beneath a curved specimen. Stay uncut through the muted transfer, keeping the rest’s cork detail and the final detail (beneath a curved specimen) visible until the final placement of the cork display rest is fully beneath a curved specimen and remains stable after release.",
     "Frame the paper ruler strip with its destination before sliding it beside a shell for scale. Stay uncut through the muted transfer, keeping the strip’s paper detail and the final detail (beside a shell for scale) visible until the final placement of the paper ruler strip is fully beside a shell and remains stable after release.",
-    "Follow the linen table cloth through brushing away three grains of sand in one continuous close pass. Keep the cloth’s linen detail, the tool’s soft contact and the worked patch changing together, and the final detail (three grains of sand) readable; stop when the away three grains of sand has received one complete visible pass and the tool lifts at its endpoint.",
+    "Keep the shell-table shoreline chart, final shell group, and printed bands visible from above. Place the group beside its matching band with soft shell contacts, show every shell clear of the printed line, and hold when the completed grouping remains stable.",
     "Place the catalog pencil and its comparison mark in the same quiet frame for measuring the catalog-pencil point against the shell-detail gauge. Keep the pencil’s visible edge, the hands’ pause, and the reference detail (against the shell-detail gauge) visible; end when the object and its reference can be compared in one frame before the tool is set down.",
     "Trace the fastening path across the ribbon drawer pull without a cut while tying the loose end into a flat bow. Keep the pull’s visible edge, thread tension, and the final detail (into a flat bow) readable until the fastening lies flat, holds its intended tension, and the fingers release it.",
     "Use a steady overhead view for nesting the two matching valves together, with the clam-shell pair never leaving frame. Let the pair’s visible edge, each quiet contact, and the ordered detail (two matching valves together) establish the result; finish when each nested piece is fully supported by its neighbor and the group remains stable.",
@@ -2455,7 +2468,7 @@
     "Trace the fastening path across the ribbon binding sample without a cut while pinning it beneath the border note. Keep the sample’s visible edge, thread tension, and the final detail (beneath the border note) readable until the fastening lies flat, holds its intended tension, and the fingers release it.",
     "Keep the scrap-paper envelope, the working hand, and every indispensable changed point in one continuous quiet frame throughout tucking tiny useful patches inside. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw.",
     "Frame the finished quilt block with its destination before placing it beneath a flat portfolio. Stay uncut through the muted transfer, keeping the block’s visible edge and the final detail (beneath a flat portfolio) visible until the final placement of the finished quilt block is fully beneath a flat portfolio and remains stable after release.",
-    "Hold the quilt-room ledger, writing point, and reference in one frame during drawing a small star beside the completed block. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (beside the completed block); end only when the intended mark is legible and the writing point lifts cleanly.",
+    "Frame the quilt-block corner card and all four completed-block corners from above. Slide the card beneath the block with a faint cloth-paper sound, align each printed corner in turn, and hold when all four fabric corners match the square guides without moving the block.",
     "Follow the table dust cover from its starting position through settling it over the arranged patch rows in a single steady view. Keep the cover’s visible edge and the final detail (over the arranged patch rows) visible; hold when the table dust cover stops moving at the named resting point and remains there.",
     "Frame the composing stick with its destination before sliding clean type back into its case. Stay uncut through the muted transfer, keeping the stick’s visible edge and the final detail (into its case) visible until the final placement of the clean type back is fully inside its case and remains stable after release.",
     "Use a steady overhead view for sorting each letter into its labeled box, with the row of lead letters never leaving frame. Let the letters’ visible edge, each quiet contact, and the ordered detail (into its labeled box) establish the result; finish when the named categories are visibly separate and every item remains in its correct group.",
@@ -2531,10 +2544,10 @@
     "Frame the blotting-paper sheet with its destination before sliding it beneath a newly mounted leaf. Stay uncut through the muted transfer, keeping the sheet’s visible edge and the final detail (beneath a newly mounted leaf) visible until the final placement of the blotting-paper sheet is fully beneath a newly mounted leaf and remains stable after release.",
     "Watch the linen work mat change shape in one unbroken side view during rolling the work mat inward so its paper fibers stay contained. Preserve the mat’s linen detail, the subdued contact sound, and the final detail (paper fibers stay contained); hold until the finished roll keeps its compact shape without a supporting hand.",
     "Begin with the cabinet drawer key and its exact working point together, then remain uncut through clipping the cabinet-drawer key onto the archivist ring. Keep the key’s visible edge, the exact contact point and its restrained sound, and the final detail (onto the archivist ring) visible; finish when the cabinet-drawer key remains attached at its stated clip point and does not slip after release.",
-    "Frame the paper ruler with its destination before placing it beside the specimen for scale. Stay uncut through the muted transfer, keeping the ruler’s paper detail and the final detail (beside the specimen for scale) visible until the final placement of the paper ruler is fully beside the specimen and remains stable after release.",
+    "Keep the specimen-outline card and pressed leaf edge visible together while the leaf remains still. Move the printed contours beside the leaf with a faint card slide, stop at the closest matching outline, and hold when the chosen contour and full leaf edge can be compared directly.",
     "Follow the dried flower fragment from its starting position through settling it beneath a transparent cover slip in a single steady view. Keep the fragment’s visible edge and the final detail (beneath a transparent cover slip) visible; hold when the dried flower fragment stops moving at the named resting point and remains there.",
     "Keep the folder corner guard, working hand, and closure point together throughout fitting the corner guard over the worn paper corner. Let the guard’s visible edge, the subdued closure sound, and the closure detail (over the worn paper corner) remain clear, then hold when the fitted point sits flush and remains seated after the hand leaves.",
-    "Keep the accession-number ribbon and closed specimen folder visible throughout the tie. Loop the ribbon loosely around the folder, form one soft knot with the number facing up, and hold when the folder remains closed without the ribbon pinching its edges.",
+    "Keep the accession-window label, closed folder, and title pocket in one close view. Slide the label fully into the pocket with a faint card sound, leave the complete accession number facing outward and legible, and hold when the label stays square after release.",
     "Use a steady overhead view for aligning their spines inside the cabinet, with the stack of empty folders never leaving frame. Let the folders’ visible edge, each quiet contact, and the ordered detail (inside the cabinet) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
     "Follow the workroom shade from its starting position through lowering the cover until the filed specimens are fully shaded in a single steady view. Keep the shade’s visible edge and the final detail (until the filed specimens are fully shaded) visible; hold when the target condition—the filed specimens are fully shaded—is plainly visible and the hands become still.",
     "Place the kraft seed packet and its comparison mark in the same quiet frame for counting it into the barley drawer. Keep the packet’s visible edge, the hands’ pause, and the reference detail (into the barley drawer) visible; end when the visible groups match the completed count and the counting hand withdraws.",
@@ -2546,7 +2559,7 @@
     "Use a steady overhead view for nesting small tins inside the empty crate, with the row of storage tins never leaving frame. Let the tins’ visible edge, each quiet contact, and the ordered detail (inside the empty crate) establish the result; finish when the final nested placement is inside the empty crate, fully supported after release.",
     "Hold the humidity indicator, writing point, and reference in one frame during noting the steady color on the archive sheet. Preserve the indicator’s visible edge, the faint stroke sound, and the written detail (on the archive sheet); end only when the intended mark is legible and the writing point lifts cleanly.",
     "Follow the linen shelf cloth through wiping dust from the sealed cabinet top in one continuous close pass. Keep the cloth’s linen detail, the tool’s soft contact and the worked patch changing together, and the final detail (from the sealed cabinet top) readable; stop when the worked patch is visibly clear and the tool lifts away.",
-    "Use a steady overhead view for centering the empty pan after weighing, with the packet-weight scale never leaving frame. Let the scale’s visible edge, each quiet contact, and the ordered detail (after weighing) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw.",
+    "Frame the seed-packet tare token and the marked zero notch after weighing is complete. Move the token back along its short track with a soft click, show its center line exactly meeting zero, and hold when it remains at the notch after the hand withdraws.",
     "Frame the wooden seed scoop with its destination before returning it to the divided tool box. Stay uncut through the muted transfer, keeping the scoop’s wood detail and the final detail (to the divided tool box) visible until the final placement of the wooden seed scoop is fully at the divided tool box and remains stable after release.",
     "Use a steady overhead view for aligning their folded flaps, with the stack of coin envelopes never leaving frame. Let the envelopes’ visible edge, each quiet contact, and the ordered detail (aligning their folded flaps) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
     "Frame the cotton glove pair with its destination before placing them inside the clean drawer. Stay uncut through the muted transfer, keeping the pair’s cotton detail and the final detail (inside the clean drawer) visible until the final placement of the cotton glove pair is fully inside the clean drawer and remains stable after release.",
@@ -2577,10 +2590,10 @@
     "Trace the fastening path across the route-copy ledger without a cut while tying the route-copy ledger ribbon after the finished chart is filed. Keep the ledger’s visible edge, thread tension, and the final detail (after the finished chart is filed) readable until the fastening lies flat, holds its intended tension, and the fingers release it.",
     "Frame the clerk’s foot rail and its hinge against the map desk. Fold the rail inward through its full quiet arc until it lies flat at the desk stop, then release it and hold while the hinge and rail remain motionless.",
     "Keep the pencil-rack lamp baffle and the full rack edge in view. Lower the small flap through its short quiet hinge arc until the rack edge falls evenly dim, then hold after release with the flap fixed at its stop.",
-    "Keep the felt eyepiece cap, working hand, and closure point together throughout fitting the felt cap over the cooled eyepiece. Let the cap’s felt detail, the subdued closure sound, and the closure detail (over the cooled eyepiece) remain clear, then hold when the fitted point sits flush and remains seated after the hand leaves.",
+    "Keep the eyepiece-cover inspection tab, the fitted cover edge, and the working hand in one continuous close view. Pass the tab around the full edge with a faint paper whisper, show the same marked depth and light resistance along the complete circuit, and hold when the cover remains evenly seated after the tab lifts.",
     "Keep the canvas telescope cover, working hand, and closure point together throughout closing the canvas cover seam along the polished telescope tube. Let the cover’s canvas detail, the subdued closure sound, and the closure detail (along the polished telescope tube) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves.",
     "Follow the brass focus knob through wiping one fingerprint with chamois in one continuous close pass. Keep the knob’s brass detail, the tool’s soft contact and the worked patch changing together, and the final detail (with chamois) readable; stop when the worked patch is visibly clear and the tool lifts away.",
-    "Keep the wooden lens box, working hand, and closure point together throughout closing the lid over the spare glass. Let the box’s wood detail, the subdued closure sound, and the closure detail (over the spare glass) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves. Show the spare glass isolated in its padded recess before the lens-box lid settles.",
+    "Keep the spare-lens cradle peg, open and occupied marks, and stored glass in one quiet view. Move the peg to occupied with a soft wooden click, show the peg centered on the mark and the glass still in its cradle, and hold after release.",
     "Keep the cotton dust blower, the working hand, and every indispensable changed point in one continuous quiet frame throughout returning it to its padded drawer. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw.",
     "Watch the star-chart folio change shape in one unbroken side view during folding the cover beneath its cloth tie. Preserve the folio’s visible edge, the subdued contact sound, and the final detail (beneath its cloth tie); hold until the star-chart folio’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Show the cooled red lamp and the chimney cap beside it after the lens has been covered. Lower the cap squarely over the chimney with a muted rim contact, verify it is fully seated, and hold when it remains level after the hand withdraws.",
@@ -2627,7 +2640,7 @@
     "Watch the canvas mail sack change shape in one unbroken side view during folding the empty sack along its seam. Preserve the sack’s canvas detail, the subdued contact sound, and the final detail (along its seam); hold until the canvas mail sack’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Follow the leather counter pad through wiping one ink mark from the edge in one continuous close pass. Keep the pad’s leather detail, the tool’s soft contact and the worked patch changing together, and the final detail (from the edge) readable; stop when the worked patch is visibly clear and the tool lifts away.",
     "Follow the last letter from the sorting surface to the route-sorting rail without a cut. Open the district clip with a soft click, place the letter fully beneath its matching tab, and hold when the clip closes and the letter remains square and readable.",
-    "Begin with the spool of parcel twine and its exact working point together, then remain uncut through securing the parcel-twine tail beneath a folded paper band. Keep the twine’s visible edge, the exact contact point and its restrained sound, and the final detail (beneath a folded paper band) visible; finish when the loose end stays at the exact securing point named in the action after tension is released.",
+    "Show the parcel-twine length card, measured strand, and both end notches in one steady overhead view. Wind the twine once through the two notches with a dry fiber sound, then hold when the full measured length lies flat on the card and neither end slips free.",
     "Hold the stamp inventory card, writing point, and reference in one frame during ticking the final sheet in pencil. Preserve the card’s visible edge, the faint stroke sound, and the written detail (final sheet in pencil); end only when the intended mark is legible and the writing point lifts cleanly.",
     "Keep the wooden money drawer, the working hand, and every indispensable changed point in one continuous quiet frame throughout sliding the empty coin tray closed. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw.",
     "Keep the felt ink-pad cover, working hand, and closure point together throughout fitting the felt cover over the dry ink pad. Let the cover’s felt detail, the subdued closure sound, and the closure detail (over the dry ink pad) remain clear, then hold when the fitted point sits flush and remains seated after the hand leaves. Show every felt edge resting beyond the dry ink-pad rim after the fingers withdraw.",
@@ -2646,7 +2659,7 @@
     "Show the cedar linen token, the folded sheet stack, and its shelf label together. Place the token flat on top beside the label with one light wooden touch, then hold when the stack stays square and the token remains fully visible after release.",
     "Keep the wooden linen token, the working hand, and every indispensable changed point in one continuous quiet frame throughout moving it to the ready peg. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw.",
     "Keep the empty laundry bag, its side pocket, and the loose drawcord in the same quiet frame. Coil the cord into an even palm-sized circle, tuck the complete coil inside the pocket, and hold when no cord end hangs outside after release.",
-    "Trace the fastening path across the ribbon shelf label without a cut while tying it around the towel stack. Keep the label’s visible edge, thread tension, and the final detail (around the towel stack) readable until the fastening lies flat, holds its intended tension, and the fingers release it.",
+    "Frame both folded towel stacks and the towel-shelf spacing block from the cupboard front. Place the block between the stacks with a muted shelf touch, align both stack edges to its sides, and hold when the gap remains even after the hands withdraw.",
     "Watch the quilted mattress cover change shape in one unbroken side view during rolling it around a cloth core. Preserve the cover’s visible edge, the subdued contact sound, and the final detail (around a cloth core); hold until the finished roll keeps its compact shape without a supporting hand.",
     "Use a steady overhead view for matching their woven tassels, with the pair of curtain ties never leaving frame. Let the ties’ visible edge, each quiet contact, and the ordered detail (matching their woven tassels) establish the result; finish when the matched features correspond visibly and the paired items remain together.",
     "Frame the folded bath mat with its destination before standing it inside the lower cupboard. Stay uncut through the muted transfer, keeping the mat’s visible edge and the final detail (inside the lower cupboard) visible until the final placement of the folded bath mat is fully inside the lower cupboard and remains stable after release.",
@@ -2690,7 +2703,7 @@
     "Frame the canvas rain cape with its destination before hanging it from the cabin hook. Stay uncut through the muted transfer, keeping the cape’s canvas detail and the final detail (from the cabin hook) visible until the canvas rain cape hangs from the cabin hook with no twist after release.",
     "Use a steady overhead view for centering it behind the bookend, with the jar of smooth pebbles never leaving frame. Let the pebbles’ visible edge, each quiet contact, and the ordered detail (behind the bookend) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw.",
     "Watch the coiled curtain cord change shape in one unbroken side view during coiling the curtain cord into a loose circle on the shelf. Preserve the cord’s visible edge, the subdued contact sound, and the final detail (into a loose circle on the shelf); hold until the finished roll keeps its compact shape without a supporting hand.",
-    "Follow the linen pillow cover from its starting position through smoothing it over the bunk pillow in a single steady view. Keep the cover’s linen detail and the final detail (over the bunk pillow) visible; hold when the worked material lies visibly flat without a raised edge after the hand lifts.",
+    "Show the cedar bunk-pillow spacer, pillow, and wall edge in one side view. Place the spacer behind the pillow with a muted wooden touch, ease the pillow back until it meets both spacer ends, and hold when an even air gap remains visible along the wall.",
     "Frame the wooden spoon rack with its destination before returning each spoon to its groove. Stay uncut through the muted transfer, keeping the rack’s wood detail and the final detail (to its groove) visible until the final placement of each spoon is fully at its groove and remains stable after release.",
     "Frame the paper mooring note with its destination before filing it inside the cabin ledger. Stay uncut through the muted transfer, keeping the note’s paper detail and the final detail (inside the cabin ledger) visible until the filing position of the paper mooring note is inside the cabin ledger, visible in order after release.",
     "Follow the wool seat cushion from its starting position through patting the wool seat cushion flat beside the window in a single steady view. Keep the cushion’s wool detail and the final detail (beside the window) visible; hold when the worked surface remains level and retains its even shape after the hand lifts.",
@@ -2702,14 +2715,14 @@
     "Place the brass station clock key and its comparison mark in the same quiet frame for checking the brass station-clock key teeth against the felt-drawer diagram. Keep the key’s brass detail, the hands’ pause, and the reference detail (against the felt-drawer diagram) visible; end when the object and its reference can be compared in one frame before the tool is set down.",
     "Watch the wool bench blanket change shape in one unbroken side view during draping the wool bench blanket across the end seat. Preserve the blanket’s wool detail, the subdued contact sound, and the final detail (across the end seat); hold until the cloth hangs evenly and its lower edge stops moving.",
     "Frame the paper luggage label with its destination before filing it in the lost-property box. Stay uncut through the muted transfer, keeping the label’s paper detail and the final detail (in the lost-property box) visible until the filing position of the paper luggage label is in the lost-property box, visible in order after release.",
-    "Follow the green reading lamp from its starting position through lowering the green reading-lamp shade until the table edge falls dim in a single steady view. Keep the lamp’s visible edge and the final detail (until the table edge falls dim) visible; hold when the target condition—the table edge falls dim—is plainly visible and the hands become still.",
+    "Keep the timetable reading strip, last departure line, and dimmed waiting-room lamp in one fixed view. Move the strip beneath the lamp with a faint paper slide, show the complete departure line still legible in the softened light, and hold after the hand withdraws.",
     "Frame the cotton window cloth with its destination before hanging the window cloth on the drying rail after the lower pane. Stay uncut through the muted transfer, keeping the cloth’s cotton detail and the final detail (on the drying rail after the lower pane) visible until the hanging point of the window cloth is on the drying rail, with no twist after release.",
     "Place the leather message pouch and its comparison mark in the same quiet frame for checking the leather message-pouch clasp against its closure mark. Keep the pouch’s leather detail, the hands’ pause, and the reference detail (against its closure mark) visible; end when the object and its reference can be compared in one frame before the tool is set down.",
     "Use a steady overhead view for centering each chair on its floor mark, with the row of wooden chairs never leaving frame. Let the chairs’ wood detail, each quiet contact, and the ordered detail (on its floor mark) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw.",
     "Hold the pencil notice card, writing point, and reference in one frame during copying tomorrow's platform note. Preserve the card’s visible edge, the faint stroke sound, and the written detail (copying tomorrow's platform note); end only when the intended mark is legible and the writing point lifts cleanly.",
     "Watch the canvas umbrella sleeve change shape in one unbroken side view during folding it inside the coat cupboard. Preserve the sleeve’s canvas detail, the subdued contact sound, and the final detail (inside the coat cupboard); hold until the canvas umbrella sleeve’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Use a steady overhead view for centering it on the sill mat, with the ceramic flower vase never leaving frame. Let the vase’s ceramic detail, each quiet contact, and the ordered detail (on the sill mat) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw.",
-    "Frame the brass bell cover with its destination before placing felt over the unused bell. Stay uncut through the muted transfer, keeping the cover’s brass detail and the final detail (over the unused bell) visible until the final placement of the felt is fully over the unused bell and remains stable after release.",
+    "Keep the padded bell-clapper rest, clapper, and bell rim visible in one quiet close-up. Slide the rest beneath the clapper with a soft fabric contact, show the clapper supported clear of the bell wall, and hold after release while the bell remains silent.",
     "Use a steady overhead view for stacking it beneath the date clip, with the folded newspaper never leaving frame. Let the newspaper’s visible edge, each quiet contact, and the ordered detail (beneath the date clip) establish the result; finish when the stack stands level, every layer is supported, and nothing shifts after release.",
     "Frame the ticket punch case with its destination before sliding it into the attendant's drawer. Stay uncut through the muted transfer, keeping the case’s visible edge and the final detail (into the attendant's drawer) visible until the final placement of the ticket punch case is fully inside the attendant's drawer and remains stable after release.",
     "Follow the reed doormat through brushing one dry leaf from its edge in one continuous close pass. Keep the doormat’s reed detail, the tool’s soft contact and the worked patch changing together, and the final detail (from its edge) readable; stop when its edge is visibly free of one dry leaf and the tool lifts.",
@@ -2720,7 +2733,7 @@
     "Watch the white berth sheet change shape in one unbroken side view during folding it along the bunk edge. Preserve the sheet’s visible edge, the subdued contact sound, and the final detail (along the bunk edge); hold until the white berth sheet’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Follow the berth blanket strap through the shelf buckle while the rolled blanket remains still. Pull the strap just snug enough to encircle the blanket, let the buckle settle with a muted touch, and hold when the roll stays secured without compressing out of shape.",
     "Begin with the linen pillowcase and its exact working point together, then remain uncut through buttoning the linen pillowcase flap around the spare pillow. Keep the pillowcase’s linen detail, the exact contact point and its restrained sound, and the final detail (around the spare pillow) visible; finish when every named button sits through its loop and the fastened fabric remains supported.",
-    "Keep the canvas blanket strap, working hand, and closure point together throughout fastening it around the cupboard stack. Let the strap’s canvas detail, the subdued closure sound, and the closure detail (around the cupboard stack) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves.",
+    "Keep the berth-blanket shelf divider and both spare stacks visible from the cupboard front. Slide the divider between them with a soft shelf sound, show its top edge upright and both stacks separate, and hold when no blanket leans across the divider.",
     "Follow the brass berth number through wiping one fingerprint from its face in one continuous close pass. Keep the number’s brass detail, the tool’s soft contact and the worked patch changing together, and the final detail (from its face) readable; stop when the worked patch is visibly clear and the tool lifts away.",
     "Watch the cotton hand towel change shape in one unbroken side view during folding it inside the wash alcove. Preserve the towel’s cotton detail, the subdued contact sound, and the final detail (inside the wash alcove); hold until the cotton hand towel’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Use a steady overhead view for nesting it beneath the lower berth, with the felt slipper pair never leaving frame. Let the pair’s felt detail, each quiet contact, and the ordered detail (beneath the lower berth) establish the result; finish when the final nested placement is beneath the lower berth, fully supported after release.",
@@ -2730,7 +2743,7 @@
     "Keep the wooden linen shelf, the working hand, and every indispensable changed point in one continuous quiet frame throughout aligning folded cases by size. Show the folded cases arranged in visibly increasing size order and stable on the shelf, then hold after the hands withdraw.",
     "Keep the folded checked tray cloth and its storage sleeve aligned in a steady overhead view. Slide the cloth completely inside with a soft fabric glide, square the sleeve opening, and hold when no cloth corner protrudes after release.",
     "Keep the curtain tie cord, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening the tie cord through the curtain ring. Show the tie cord passing through the curtain ring and holding the curtain without slipping, then hold after the hands withdraw.",
-    "Use a steady overhead view for centering a spare robe on it, with the padded hanger never leaving frame. Let the hanger’s visible edge, each quiet contact, and the ordered detail (on it) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw. Show both shoulders of the spare robe balanced on the padded hanger after release.",
+    "Keep the robe-collar support ring and open spare-robe collar in one close view. Fasten the ring inside the collar with a subdued fabric click, show the collar held in an even curve, and hold when the robe hangs without the ring shifting.",
     "Hold the linen inventory slip, writing point, and reference in one frame during ticking the final berth packet. Preserve the slip’s linen detail, the faint stroke sound, and the written detail (the final berth packet); end only when the intended mark is legible and the writing point lifts cleanly.",
     "Watch the wool seat cover change shape in one unbroken side view during folding the wool seat cover inside the sleeper cupboard. Preserve the cover’s wool detail, the subdued contact sound, and the final detail (inside the sleeper cupboard); hold until the wool seat cover’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Show the clean linen-service hamper liner opening above the hamper rim. Tuck the liner outward around the full rim with soft cloth contact, then hold on an even, wrinkle-free edge that stays in place after both hands withdraw.",
@@ -2740,7 +2753,7 @@
     "Follow the flat stepping stone through brushing dry moss crumbs from its edge in one continuous close pass. Keep the stone’s stone detail, the tool’s soft contact and the worked patch changing together, and the final detail (from its edge) readable; stop when its edge is visibly free of the dry moss crumbs and the tool lifts.",
     "Keep the bamboo hand broom, the working hand, and every indispensable changed point in one continuous quiet frame throughout sweeping fallen needles into a small basket. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw.",
     "Follow the stone lantern basin from its starting position through lifting one leaf from the dry bowl in a single steady view. Keep the basin’s stone detail and the final detail (from the dry bowl) visible; hold when one leaf fully clears its starting point and pauses clear of every surrounding surface.",
-    "Watch the reed garden mat change shape in one unbroken side view during rolling it beneath the veranda rail. Preserve the mat’s reed detail, the subdued contact sound, and the final detail (beneath the veranda rail); hold until the finished roll keeps its compact shape without a supporting hand.",
+    "Frame both faces of the garden kneeling pad beside the veranda rail. Turn the pad once with a subdued surface rustle, show the dry face fully upward and free of loose needles, and hold when it rests flat after release.",
     "Keep the wooden sandal rack, the working hand, and every indispensable changed point in one continuous quiet frame throughout aligning empty pairs by size. Show the sandal pairs arranged from smallest to largest with even heels and alternating left-right orientation, then hold after the hands withdraw.",
     "Watch the cotton kneeling cloth change shape in one unbroken side view during folding it on the low bench. Preserve the cloth’s cotton detail, the subdued contact sound, and the final detail (on the low bench); hold until the cotton kneeling cloth’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Follow the ceramic pebble tray from its starting position through turning pale stones until every clean face points upward in a single steady view. Keep the tray’s ceramic detail and the final detail (until every clean face points upward) visible; hold when the target condition—every clean face points upward—is plainly visible and the hands become still.",
@@ -2755,7 +2768,7 @@
     "Follow the small gravel rake through raking one final quiet arc into the gravel in one continuous close pass. Keep the rake’s visible edge, the tool’s soft contact and the worked patch changing together, and the final detail (into the gravel) readable; stop when the final arc remains visible in the gravel and the rake lifts cleanly.",
     "Watch the linen tool wrap change shape in one unbroken side view during rolling it around the hand broom. Preserve the wrap’s linen detail, the subdued contact sound, and the final detail (around the hand broom); hold until the finished roll keeps its compact shape without a supporting hand.",
     "Hold the garden ledger, writing point, and reference in one frame during drawing the final path arc beneath the tea-garden ledger entry. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (beneath the tea-garden ledger entry); end only when the intended mark is legible and the writing point lifts cleanly.",
-    "Follow the reed screen tie from its starting position through releasing the screen across the veranda in a single steady view. Keep the tie’s reed detail and the final detail (across the veranda) visible; hold when the screen is fully free of the tie and remains motionless at its named endpoint.",
+    "Keep the veranda screen-bottom weight, hem pocket, and settled screen edge visible together. Slide the weight fully into the pocket with a dry fabric whisper, close the small flap, and hold when the hem hangs level without swinging.",
     "Keep the cedar door pull and its dry hand mark in a close, softly lit view. Wipe the mark once along the wood grain with a folded cloth, show the face evenly clean, and hold after the cloth leaves the pull.",
     "Hold the bamboo writing brush and its receiving surface together through rinsing ink from its pointed hairs. Keep the brush’s bamboo detail, the low liquid sound, and the final detail (from its pointed hairs) synchronized; finish when the rinse runs clear and no residue remains on the worked area.",
     "Follow the inkstone through wiping its shallow well with cotton in one continuous close pass. Keep the inkstone’s visible edge, the tool’s soft contact and the worked patch changing together, and the final detail (with cotton) readable; stop when the worked patch is visibly clear and the tool lifts away.",
@@ -2774,7 +2787,7 @@
     "Hold the brush-washing bowl and its receiving surface together through letting clear water settle before covering it. Keep the bowl’s visible edge, the low liquid sound, and the final detail (before covering it) synchronized; finish when the visible motion ceases and the named surface remains undisturbed.",
     "Hold the scroll label tag, writing point, and reference in one frame during copying the title in soft pencil. Preserve the tag’s visible edge, the faint stroke sound, and the written detail (title in soft pencil); end only when the intended mark is legible and the writing point lifts cleanly.",
     "Keep every hinged panel of the calligraphy window screen visible. Fold the panels across the window one by one with restrained hinge sounds until they meet in a continuous cover, then hold when the closed screen stands stable without a supporting hand.",
-    "Hold the calligraphy ledger, writing point, and reference in one frame during copying the finished scroll title into the calligraphy ledger index. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (into the calligraphy ledger index); end only when the intended mark is legible and the writing point lifts cleanly.",
+    "Frame the calligraphy title proof strip beside the finished scroll heading without covering either line. Align the final characters with a faint paper slide, show every character matching in sequence, and hold when the proof strip is released flat before filing.",
     "Frame the padded floor cushion with its destination before placing the padded floor cushion inside the desk recess with its pull tab outward. Stay uncut through the muted transfer, keeping the cushion’s visible edge and the final detail (inside the desk recess with its pull tab outward) visible until the final placement of the padded floor cushion is fully inside the desk recess with its pull tab outward and remains stable after release.",
     "Keep the writing-room screen, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding it across the closed workspace. Show each hinged screen panel folded across the workspace and resting flat against its neighboring panel, then hold after the hands withdraw.",
     "Follow the handmade paper sheet from its starting position through lifting it from the felt drying cloth in a single steady view. Keep the sheet’s paper detail and the final detail (from the felt drying cloth) visible; hold when the handmade paper sheet fully clears its starting point and pauses clear of every surrounding surface.",
@@ -2833,10 +2846,10 @@
     "Watch the leather apron change shape in one unbroken side view during rolling the leather apron around the cleaned shoe brush. Preserve the apron’s leather detail, the subdued contact sound, and the final detail (around the cleaned shoe brush); hold until the finished roll keeps its compact shape without a supporting hand.",
     "Use a steady overhead view for aligning them beneath their label, with the pair of felt insoles never leaving frame. Let the insoles’ felt detail, each quiet contact, and the ordered detail (beneath their label) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
     "Trace the fastening path across the ribbon shoe tie without a cut while tying the ribbon shoe tie into a loose storage bow. Keep the tie’s visible edge, thread tension, and the final detail (into a loose storage bow) readable until the fastening lies flat, holds its intended tension, and the fingers release it.",
-    "Hold the cobbler ledger, writing point, and reference in one frame during drawing a collection line beneath the finished cobbler pair. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (beneath the finished cobbler pair); end only when the intended mark is legible and the writing point lifts cleanly.",
+    "Show the finished-pair heel token and both completed shoes in one low view. Place the token between the heels with one soft bench contact, turn its pair number outward, and hold when both shoes remain aligned around the readable token.",
     "Frame the padded work stool with its destination before resting the work stool upside down on the swept floor mat. Stay uncut through the muted transfer, keeping the stool’s visible edge and the final detail (on the swept floor mat) visible until the final placement of the work stool upside down is fully on the swept floor mat and remains stable after release.",
     "Keep the glass shop case key, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening the glass shop-case key clasp to its brass hook. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint; also show the key clasp visibly closed around the brass hook and the key hanging without slipping, then hold after the hands withdraw.",
-    "Show the shoe-display curtain tie and both curtain panels before release. Loosen the tie with a faint fabric sound, let the two panels travel inward until their edges meet over the shoes, and hold when the display remains fully covered.",
+    "Keep all three shoe-display privacy-screen panels and the displayed shoes in one wide view. Fold the panels across the display with three restrained hinge sounds until the shoes disappear, then hold when every panel stands aligned and stable without support.",
     "Watch the blue grosgrain ribbon change shape in one unbroken side view during winding it around a flat spool. Preserve the ribbon’s visible edge, the subdued contact sound, and the final detail (around a flat spool); hold until the finished roll keeps its compact shape without a supporting hand.",
     "Watch the velvet hat band change shape in one unbroken side view during folding it inside tissue paper. Preserve the band’s velvet detail, the subdued contact sound, and the final detail (inside tissue paper); hold until the velvet hat band’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Frame the wooden hat block with its destination before returning it to its numbered shelf. Stay uncut through the muted transfer, keeping the block’s wood detail and the final detail (to its numbered shelf) visible until the final placement of the wooden hat block is fully at its numbered shelf and remains stable after release.",
@@ -2852,7 +2865,7 @@
     "Follow the round hat-box lid from its starting position through settling it over the finished hat in a single steady view. Keep the lid’s visible edge and the final detail (over the finished hat) visible; hold when the round hat-box lid stops moving at the named resting point and remains there.",
     "Trace the fastening path across the ribbon sample card without a cut while tying the ribbon swatch to its sample card through two eyelets. Keep the card’s visible edge, thread tension, and the final detail (to its sample card through two eyelets) readable until the fastening lies flat, holds its intended tension, and the fingers release it.",
     "Use a steady overhead view for centering it on the worktable, with the wooden pin dish never leaving frame. Let the dish’s wood detail, each quiet contact, and the ordered detail (on the worktable) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw.",
-    "Begin with the spool of matching thread and its exact working point together, then remain uncut through securing the thread end beneath the spool paper band. Keep the thread’s visible edge, the exact contact point and its restrained sound, and the final detail (beneath the spool paper band) visible; finish when the loose end stays at the exact securing point named in the action after tension is released.",
+    "Keep the thread-color comparison card, loose strand, and ribbon swatches under the same quiet light. Lay the strand across its matching swatch with a soft fiber touch, show both colors aligned along their full overlap, and hold after the fingers withdraw.",
     "Hold the millinery ledger, writing point, and reference in one frame during copying the ribbon-band total onto the millinery ledger cover slip. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (onto the millinery ledger cover slip); end only when the intended mark is legible and the writing point lifts cleanly.",
     "Keep the padded chair cushion, the working hand, and every indispensable changed point in one continuous quiet frame throughout lifting the chair cushion onto the empty fitting chair. Show the cushion lifted clear and placed squarely on the empty fitting chair, then hold after the hands withdraw.",
     "Keep the glass display key, the working hand, and every indispensable changed point in one continuous quiet frame throughout placing the glass display key beneath the wall-hook label. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw.",
@@ -2893,7 +2906,7 @@
     "Keep the puppet hat ribbon, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening it in a flat bow. Show the bow’s center knot lying flat, both loops visible, and the ribbon holding after release, then hold after the hands withdraw.",
     "Use a steady overhead view for aligning folded collars in one row, with the wardrobe drawer never leaving frame. Let the drawer’s visible edge, each quiet contact, and the ordered detail (collars in one row) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
     "Keep the repaired cape, costume hanger, and hanger card together. Open the card clip, fasten it to the hanger with a quiet click, and hold when the repair label faces forward and the cape hangs without strain.",
-    "Keep the linen work mat, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing thread ends into the scrap cup. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw.",
+    "Keep the costume-thread color strip, saved thread end, and labeled tabs under the same quiet light. Lay the thread against the tabs, press it beneath the matching color with a soft fiber touch, and hold when the strand remains visible and the chosen label is readable.",
     "Show the thread tray aligned with the felt-lined sewing-stool drawer cavity. Slide the tray fully inside with a muted felt glide until its front edge sits flush, then hold after the hand withdraws and the drawer contents remain still.",
     "Place the garment cupboard key and its comparison mark in the same quiet frame for counting the garment-cupboard key notches against the key chart. Keep the key’s visible edge, the hands’ pause, and the reference detail (against the key chart) visible; end when the visible groups match the completed count and the counting hand withdraws.",
     "Trace the fastening path across the stage-side curtain without a cut while tying the stage-side curtain center ribbons across the costume alcove. Keep the curtain’s visible edge, thread tension, and the final detail (across the costume alcove) readable until the fastening lies flat, holds its intended tension, and the fingers release it.",
@@ -2921,10 +2934,10 @@
     "Use a steady overhead view for aligning them inside a paper folder, with the stack of choral parts never leaving frame. Let the parts’ visible edge, each quiet contact, and the ordered detail (inside a paper folder) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
     "Keep the wooden score cart, the working hand, and every indispensable changed point in one continuous quiet frame throughout rolling it beside the catalog desk. Show the cart roll beside the catalog desk, stop at the marked parking point, and remain still, then hold after the hands withdraw.",
     "Frame the linen page ribbon with its destination before tucking it inside the closed volume. Stay uncut through the muted transfer, keeping the ribbon’s linen detail and the final detail (inside the closed volume) visible until the final placement of the linen page ribbon is fully inside the closed volume and remains stable after release.",
-    "Frame the brass shelf marker with its destination before placing it beside the returned quartet. Stay uncut through the muted transfer, keeping the marker’s brass detail and the final detail (beside the returned quartet) visible until the final placement of the brass shelf marker is fully beside the returned quartet and remains stable after release.",
+    "Frame the quartet-part sequence rail and all four returned labels from above. Place the labels from first violin through cello with four soft card contacts, then hold when the complete order is readable and every label remains inside its own rail slot.",
     "Frame the paper rehearsal note with its destination before filing it in the conductor envelope. Stay uncut through the muted transfer, keeping the note’s paper detail and the final detail (in the conductor envelope) visible until the filing position of the paper rehearsal note is in the conductor envelope, visible in order after release.",
     "Use a steady overhead view for aligning them inside a felt tray, with the row of music pencils never leaving frame. Let the pencils’ visible edge, each quiet contact, and the ordered detail (inside a felt tray) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
-    "Keep the large orchestral folio, working hand, and closure point together throughout closing its cover beneath cotton ties. Let the folio’s visible edge, the subdued closure sound, and the closure detail (beneath cotton ties) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves.",
+    "Frame the orchestral folio spine guard and lower spine together before shelving. Fit the guard along the full lower edge with a subdued cloth slide, show both corners seated and the title unobscured, then hold when the folio stands upright without the guard shifting.",
     "Frame the page-turn clip with its destination before returning it to the accessories drawer. Stay uncut through the muted transfer, keeping the clip’s visible edge and the final detail (to the accessories drawer) visible until the final placement of the page-turn clip is fully at the accessories drawer and remains stable after release.",
     "Follow the cotton score cloth through brushing dust from an empty shelf in one continuous close pass. Keep the cloth’s cotton detail, the tool’s soft contact and the worked patch changing together, and the final detail (from an empty shelf) readable; stop when an empty shelf is visibly free of the dust and the tool lifts.",
     "Follow the metronome cover from its starting position through settling the felt cover over the silent metronome until the pendulum is fully shaded in a single steady view. Keep the cover’s visible edge and the final detail (over the silent metronome until the pendulum is fully shaded) visible; hold when the target condition—the pendulum is fully shaded—is plainly visible and the hands become still.",
@@ -2951,12 +2964,12 @@
     "Frame the horsehair comb with its destination before returning it to its narrow case. Stay uncut through the muted transfer, keeping the comb’s visible edge and the final detail (to its narrow case) visible until the final placement of the horsehair comb is fully at its narrow case and remains stable after release.",
     "Frame the bow repair ticket with its destination before sliding the bow ticket beneath the repair-case strap. Stay uncut through the muted transfer, keeping the ticket’s visible edge and the final detail (beneath the repair-case strap) visible until the final placement of the bow ticket is fully beneath the repair-case strap and remains stable after release.",
     "Keep the padded violin cradle, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding its support arms inward. Show both support arms folded inward at their hinges and resting inside the cradle outline, then hold after the hands withdraw.",
-    "Watch the cotton apron change shape in one unbroken side view during rolling the cotton apron with the wood-dust side enclosed. Preserve the apron’s cotton detail, the subdued contact sound, and the final detail (with the wood-dust side enclosed); hold until the finished roll keeps its compact shape without a supporting hand.",
-    "Place the bow-maker's ledger and its comparison mark in the same quiet frame for counting completed bows into the bow-maker ledger total. Keep the ledger’s visible edge, the hands’ pause, and the reference detail (into the bow-maker ledger total) visible; end when the visible groups match the completed count and the counting hand withdraws.",
+    "Frame the bow-bench sleeve guard and cleaned tool rest from end to end. Draw the guard over the rest with a soft fabric sound, button both closures beneath it, and hold when the full rest is covered and the guard remains smooth after release.",
+    "Keep the finished-bow rack label, final occupied groove, and fastening clip together in one close view. Fasten the date label beneath that groove with a subdued click, show the full date legible and the bow above undisturbed, and hold when the label remains level after release.",
     "Follow the bench magnifier from its starting position through lowering its arm over the work mat in a single steady view. Keep the magnifier’s visible edge and the final detail (over the work mat) visible; hold when the bench magnifier arm reaches over the work mat and remains motionless after release.",
     "Watch the felt bench cover change shape in one unbroken side view during folding the felt bench cover into thirds beside the bow tools. Preserve the cover’s felt detail, the subdued contact sound, and the final detail (into thirds beside the bow tools); hold until the felt bench cover’s worked edges meet, the crease lies flat, and the released fold holds. Show all three felt layers aligned beside the bow tools after the final fold.",
     "Follow the workshop key from its starting position through turning the workshop key tag until its labeled face points upward inside the wooden dish in a single steady view. Keep the key’s visible edge and the final detail (until its labeled face points upward inside the wooden dish) visible; hold when the target condition—its labeled face points upward inside the wooden dish—is plainly visible and the hands become still.",
-    "Follow the window blind from its starting position through lowering the blind halfway until the violin display falls into shade in a single steady view. Keep the blind’s visible edge and the final detail (until the violin display falls into shade) visible; hold when the target condition—the violin display falls into shade—is plainly visible and the hands become still.",
+    "Frame the violin-display light meter card beside the resting violin without covering the instrument. Hold the card steady in the softened light, show the indicator aligned with the printed quiet-light mark, and withdraw the hand while the violin remains undisturbed.",
     "Watch the perforated music roll change shape in one unbroken side view during winding it evenly onto its spool. Preserve the roll’s visible edge, the subdued contact sound, and the final detail (onto its spool); hold until the finished roll keeps its compact shape without a supporting hand.",
     "Keep the labeled roll box, the working hand, and every indispensable changed point in one continuous quiet frame throughout sliding the closed roll inside. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw.",
     "Frame the wooden roll cabinet with its destination before filing the box by title. Stay uncut through the muted transfer, keeping the cabinet’s wood detail and the final detail (by title) visible until the box is visibly filed in title order.",
@@ -2975,7 +2988,7 @@
     "Watch the roll-repair ribbon change shape in one unbroken side view during coiling it inside a paper envelope. Preserve the ribbon’s visible edge, the subdued contact sound, and the final detail (inside a paper envelope); hold until the finished roll keeps its compact shape without a supporting hand.",
     "Frame the roll-cabinet tally clip and final filed-roll line together. Fasten the clip directly beside that line with a subdued metal click, show the mark unobscured, and hold when the clip remains square after release.",
     "Frame the cabinet drawer key with its destination before sliding the cabinet-drawer key into the wall key sleeve. Stay uncut through the muted transfer, keeping the key’s visible edge and the final detail (into the wall key sleeve) visible until the final placement of the cabinet-drawer key is fully inside the wall key sleeve and remains stable after release.",
-    "Begin with the curtain tie and its exact working point together, then remain uncut through hooking the released curtain tie beside the tall window. Keep the tie’s visible edge, the exact contact point and its restrained sound, and the final detail (beside the tall window) visible; finish when the released tie hangs fully from the hook and the curtain remains undisturbed.",
+    "Frame the piano-window cord weight, sill notch, and closed curtain edge in one side view. Set the weight into the notch with a muted touch, show the cord hanging vertical and clear of the curtain, and hold when the weight remains seated after release.",
     "Show the piano-room door plate, quiet-room card, and retaining clip together. Square the card beneath the clip with a faint paper slide, then hold when its borders are even and the card remains secured after release.",
     "Watch the paper-wrapped bouquet change shape in one unbroken side view during folding the outer paper beneath the stems. Preserve the bouquet’s visible edge, the subdued contact sound, and the final detail (beneath the stems); hold until the paper-wrapped bouquet’s worked edges meet, the crease lies flat, and the released fold holds.",
     "Trace the fastening path across the spool of cotton ribbon without a cut while tying one loose bow around the wrap. Keep the ribbon’s cotton detail, thread tension, and the final detail (around the wrap) readable until the fastening lies flat, holds its intended tension, and the fingers release it.",
@@ -2991,7 +3004,7 @@
     "Place the cotton twine spool and its comparison mark in the same quiet frame for measuring one cotton-twine parcel length against the counter guide. Keep the spool’s cotton detail, the hands’ pause, and the reference detail (against the counter guide) visible; end when the object and its reference can be compared in one frame before the tool is set down.",
     "Use a steady overhead view for sorting the spare ribbon in the shallow drawer by shade, with the shallow ribbon drawer never leaving frame. Let the drawer’s visible edge, each quiet contact, and the ordered detail (by shade) establish the result; finish when the named categories are visibly separate and every item remains in its correct group.",
     "Show the wrapped-bouquet counter token and the ready-vase row from above. Move the token into the next open ready position with a soft counter touch, then hold when it is aligned with the finished bouquets and remains still.",
-    "Watch the reed display mat change shape in one unbroken side view during rolling it beneath the counter. Preserve the mat’s reed detail, the subdued contact sound, and the final detail (beneath the counter); hold until the finished roll keeps its compact shape without a supporting hand.",
+    "Keep the bouquet-counter drip tray and wrapped stem ends together in a low side view. Slide the tray beneath the stems with a faint counter sound, show the final drop land inside its center, and hold when the stems and tray remain still with the counter dry.",
     "Frame the watering cup with its destination before returning it to the sink hook. Stay uncut through the muted transfer, keeping the cup’s visible edge and the final detail (to the sink hook) visible until the final placement of the watering cup is fully at the sink hook and remains stable after release.",
     "Frame the green apron with its destination before hanging the green apron from its compost-side peg. Stay uncut through the muted transfer, keeping the apron’s visible edge and the final detail (from its compost-side peg) visible until the green apron hangs from its compost-side peg with no twist after release.",
     "Keep the glass cabinet key, the working hand, and every indispensable changed point in one continuous quiet frame throughout threading the glass cabinet-key ring onto the wall peg. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint; also show the key ring fully around the wall peg and the key hanging still after release, then hold after the hands withdraw.",
@@ -3018,7 +3031,7 @@
     "Place the spice-jar shade card beneath the lowered counter lamp beside the two jar labels. Bring both labels alongside the card under the same subdued lamp pool, show their colors plainly distinguishable, and hold after the hand withdraws.",
     "Frame the carved spice-shop door token with its destination before hanging the resting token on the closed-shop peg. Stay uncut through the muted transfer, keeping the token’s visible edge and the final detail (on the closed-shop peg) visible until the hanging point of the resting token is on the closed-shop peg, with no twist after release.",
     "Keep the tide-and-wind slate and both instrument readings visible together. Draw one calm mark beside the tide reading and a separate calm mark beside the wind reading with two faint chalk strokes, then show both marks legible before the writing hand lifts.",
-    "Keep the brass barometer card, the working hand, and every indispensable changed point in one continuous quiet frame throughout copying the current barometer date onto the brass card. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw.",
+    "Keep the barometer date card, printed instrument mark, source date, and pencil point together in one steady frame. Copy every date character beside the mark with faint pencil strokes, then hold when the complete date is legible and the pencil lifts cleanly without claiming a material for the card.",
     "Begin with the blue observation pencil and its exact working point together, then remain uncut through rounding the observation-pencil point on a fine sanding card. Keep the pencil’s visible edge, the exact contact point and its restrained sound, and the final detail (on a fine sanding card) visible; finish when the observation point has an even rounded profile and the sanding card is still.",
     "Keep the folded cloud chart and its ribbon together in a steady side view. Follow the ribbon around the chart with its faint paper-soft slide, then show one complete loop lying flat before the chart is shelved upright and remains supported after release.",
     "Use a steady overhead view for aligning the wooden instrument key beside its numbered peg, with the wooden instrument key never leaving frame. Let the key’s wood detail, each quiet contact, and the ordered detail (beside its numbered peg) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
@@ -3041,22 +3054,22 @@
     "Use a steady overhead view for aligning guides by height, with the wooden brochure rack never leaving frame. Let the rack’s wood detail, each quiet contact, and the ordered detail (by height) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw. Keep the tallest guide at the back and the brochure fronts visible in descending order.",
     "Frame the pressed fern card with its destination before placing it beneath a clear cover. Stay uncut through the muted transfer, keeping the card’s visible edge and the final detail (beneath a clear cover) visible until the final placement of the pressed fern card is fully beneath a clear cover and remains stable after release.",
     "Keep the folded trail map and both ends of the corner band visible from above. Tuck one band end beneath each opposite map corner, make the soft paper contacts in sequence, and hold when both corners stay captured and the map remains closed.",
-    "Follow the brass drawer label from its starting position through turning the brass drawer label until the bird-guide title faces forward in a single steady view. Keep the label’s brass detail and the final detail (until the bird-guide title faces forward) visible; hold when the target condition—the bird-guide title faces forward—is plainly visible and the hands become still.",
+    "Show the bird-guide shelf ribbon, printed title tab, and shelf-edge slot together. Thread the tab fully through the slot with a soft fiber-paper sound, turn the title outward, and hold when the ribbon hangs straight and the complete title remains readable.",
     "Place the stack of blank postcards and its comparison mark in the same quiet frame for counting blank postcards into the visitor-guide rack. Keep the postcards’ visible edge, the hands’ pause, and the reference detail (into the visitor-guide rack) visible; end when the visible groups match the completed count and the counting hand withdraws.",
     "Use a steady overhead view for centering each cone in a felt ring, with the pinecone specimen tray never leaving frame. Let the tray’s visible edge, each quiet contact, and the ordered detail (in a felt ring) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw.",
     "Stay close on the lowest brochure-rack groove, the dry leaf fragment, and the narrow groove brush. Sweep the fragment along the groove into the waiting catch with a faint bristle sound, then show the entire groove clear before the brush lifts.",
-    "Watch the linen table cover change shape in one unbroken side view during folding it beside the map stand. Preserve the cover’s linen detail, the subdued contact sound, and the final detail (beside the map stand); hold until the linen table cover’s worked edges meet, the crease lies flat, and the released fold holds.",
+    "Keep the linen visitor-table cover, both stitched loops, and drying rail in one uncut view. Lift each loop over its rail peg with two soft cloth touches, then hold when the cover hangs evenly, its lower hem clears the floor, and neither loop twists.",
     "Frame the paper animal-track card with its destination before filing it behind the mammal divider. Stay uncut through the muted transfer, keeping the card’s paper detail and the final detail (behind the mammal divider) visible until the filing position of the paper animal-track card is behind the mammal divider, visible in order after release.",
     "Begin with the glass magnifier and its exact working point together, then remain uncut through holding the magnifier above the track card to inspect its printed edge. Keep the magnifier’s glass detail, the exact contact point and its restrained sound, and the final detail (above the track card to inspect its printed edge) visible; finish when the printed edge is sharp through the magnifier before the hand lowers it.",
-    "Use a steady overhead view for arranging the pencil points in alternating left-right directions inside the tray, with the wooden pencil tray never leaving frame. Let the tray’s wood detail, each quiet contact, and the ordered detail (inside the tray) establish the result; finish when the intended arrangement is fully visible and remains unchanged after the hands withdraw. Keep neighboring pencil points alternating left and right after the tray is released.",
+    "Frame the guide-desk graphite test slip, sharpened pencils, and tray together. Draw one short, separate line with each pencil using faint graphite strokes, show every line unbroken, then hold after all pencils return to the tray and the writing hand lifts.",
     "Hold the visitor-room ledger, writing point, and reference in one frame during copying the returned guide shelf code into the visitor-room ledger. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (into the visitor-room ledger); end only when the intended mark is legible and the writing point lifts cleanly.",
     "Place the canvas field satchel and its comparison mark in the same quiet frame for checking the empty field-satchel lining beneath its open flap. Keep the satchel’s canvas detail, the hands’ pause, and the reference detail (beneath its open flap) visible; end when the object and its reference can be compared in one frame before the tool is set down. Keep the field satchel’s canvas flap open while every empty lining corner remains visible.",
     "Frame the wool chair cushion with its destination before resting the wool chair cushion against the guide-chair back with its dry face outward. Stay uncut through the muted transfer, keeping the cushion’s wool detail and the final detail (with its dry face outward) visible until the final placement of the wool chair cushion is fully against the guide-chair back with its dry face outward and remains stable after release.",
     "Follow the ceramic leaf vase from its starting position through turning the ceramic leaf vase until its painted face points forward in a single steady view. Keep the vase’s ceramic detail and the final detail (until its painted face points forward) visible; hold when the target condition—its painted face points forward—is plainly visible and the hands become still. Keep the ceramic leaf vase’s painted face forward and its base centered on the sill mat.",
     "Follow the reed floor runner through brushing one dry needle from the edge in one continuous close pass. Keep the runner’s reed detail, the tool’s soft contact and the worked patch changing together, and the final detail (from the edge) readable; stop when the edge is visibly free of one dry needle and the tool lifts.",
-    "Frame the cabinet key with its destination before sliding the cabinet key into the guide pouch after the latch closes. Stay uncut through the muted transfer, keeping the key’s visible edge and the final detail (into the guide pouch after the latch closes) visible until the final placement of the cabinet key is fully inside the guide pouch and remains stable after release.",
+    "Show the guide-cabinet key tally bead, returned groove, and closed latch in one close frame. Move the bead along its track with a muted click until its center meets the returned mark, then hold when it stays in the groove after release.",
     "Keep the visitor-room shutter, window, and reflected forest in one steady composition. Swing the shutter inward on its quiet hinge until the reflected trees disappear from the glass, then hold when the shutter rests fully closed.",
-    "Keep the door sign token, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the welcome token face-down in the guide-desk tray. Show the welcome token lying face-down and stable inside the guide-desk tray, then hold after the hands withdraw.",
+    "Keep the guide-desk closing bead, marked groove, and turned welcome card visible together. Slide the bead into the closed groove with one muted contact, show it seated at the groove stop, and hold when the card remains face-down and the bead stays still.",
     "Hold the sable detail brush and its receiving surface together through rinsing blue pigment from its tip. Keep the brush’s visible edge, the low liquid sound, and the final detail (from its tip) synchronized; finish when the rinse runs clear and no residue remains on the worked area.",
     "Use a steady overhead view for sorting the dry brushes into wide, medium, and narrow rack grooves, with the bamboo brush rack never leaving frame. Let the rack’s bamboo detail, each quiet contact, and the ordered detail (into wide, medium, and narrow rack grooves) establish the result; finish when the named categories are visibly separate and every item remains in its correct group.",
     "Follow the porcelain mixing tile through wiping one pale color circle in one continuous close pass. Keep the tile’s porcelain detail, the tool’s soft contact and the worked patch changing together, and the final detail (one pale color circle) readable; stop when the worked patch is visibly clear and the tool lifts away.",
@@ -3075,7 +3088,7 @@
     "Keep the studio ledger, working hand, and closure point together throughout closing the studio ledger after the washed-brush total is checked. Let the ledger’s visible edge, the subdued closure sound, and the closure detail (after the washed-brush total is checked) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves. Keep the washed-brush total legible while the studio ledger closes beneath its blotter.",
     "Frame the padded painter's stool with its destination before setting the painter stool on its side beneath the drying shelf. Stay uncut through the muted transfer, keeping the stool’s visible edge and the final detail (on its side beneath the drying shelf) visible until the final placement of the painter stool is fully on its side beneath the drying shelf and remains stable after release.",
     "Follow the drawer key from its starting position through turning the drawer key until the pigment-drawer latch seats in a single steady view. Keep the key’s visible edge and the final detail (until the pigment-drawer latch seats) visible; hold when the target condition—the pigment-drawer latch seats—is plainly visible and the hands become still.",
-    "Trace the fastening path across the linen dust cover without a cut while tying the linen dust-cover corners beneath the brush rack. Keep the cover’s linen detail, thread tension, and the final detail (beneath the brush rack) readable until the fastening lies flat, holds its intended tension, and the fingers release it. Show both linen cover corners tied beneath the porcelain brush rack without pinching a brush.",
+    "Keep the brush-rack moisture card, cleaned grooves, and printed dry mark together. Hang the card inside the rack with a faint paper touch, show the indicator resting at the dry mark and every groove unobstructed, and hold after the hand withdraws.",
     "Begin with the window blind and its exact working point together, then remain uncut through angling the blind slats away from the covered brush rack. Keep the blind’s visible edge, the exact contact point and its restrained sound, and the final detail (from the covered brush rack) visible; finish when the covered brush rack falls into even shade and the slats remain still."
   ],
   "exclusions": [
@@ -4811,10 +4824,10 @@
           "evidence_lens": "Frame the paper ruler strip with its destination before sliding it beside a shell for scale. Stay uncut through the muted transfer, keeping the strip’s paper detail and the final detail (beside a shell for scale) visible until the final placement of the paper ruler strip is fully beside a shell and remains stable after release."
         },
         {
-          "episode_object": "a linen table cloth",
+          "episode_object": "a shell-table shoreline chart",
           "time_place_scope": "the same sheltered seaside study at dusk",
-          "mechanism": "brushing away three grains of sand",
-          "evidence_lens": "Follow the linen table cloth through brushing away three grains of sand in one continuous close pass. Keep the cloth’s linen detail, the tool’s soft contact and the worked patch changing together, and the final detail (three grains of sand) readable; stop when the away three grains of sand has received one complete visible pass and the tool lifts at its endpoint."
+          "mechanism": "placing the final shell group beside its matching shoreline band",
+          "evidence_lens": "Keep the shell-table shoreline chart, final shell group, and printed bands visible from above. Place the group beside its matching band with soft shell contacts, show every shell clear of the printed line, and hold when the completed grouping remains stable."
         },
         {
           "episode_object": "a catalog pencil",
@@ -5472,10 +5485,10 @@
           "evidence_lens": "Frame the finished quilt block with its destination before placing it beneath a flat portfolio. Stay uncut through the muted transfer, keeping the block’s visible edge and the final detail (beneath a flat portfolio) visible until the final placement of the finished quilt block is fully beneath a flat portfolio and remains stable after release."
         },
         {
-          "episode_object": "a quilt-room ledger",
+          "episode_object": "a quilt-block corner card",
           "time_place_scope": "the same lamplit quilt room after supper",
-          "mechanism": "drawing a small star beside the completed block",
-          "evidence_lens": "Hold the quilt-room ledger, writing point, and reference in one frame during drawing a small star beside the completed block. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (beside the completed block); end only when the intended mark is legible and the writing point lifts cleanly."
+          "mechanism": "sliding it beneath the completed block to compare all four square corners",
+          "evidence_lens": "Frame the quilt-block corner card and all four completed-block corners from above. Slide the card beneath the block with a faint cloth-paper sound, align each printed corner in turn, and hold when all four fabric corners match the square guides without moving the block."
         },
         {
           "episode_object": "a table dust cover",
@@ -5948,10 +5961,10 @@
           "evidence_lens": "Begin with the cabinet drawer key and its exact working point together, then remain uncut through clipping the cabinet-drawer key onto the archivist ring. Keep the key’s visible edge, the exact contact point and its restrained sound, and the final detail (onto the archivist ring) visible; finish when the cabinet-drawer key remains attached at its stated clip point and does not slip after release."
         },
         {
-          "episode_object": "a paper ruler",
+          "episode_object": "a specimen-outline card",
           "time_place_scope": "the same dry herbarium workroom at dusk",
-          "mechanism": "placing it beside the specimen for scale",
-          "evidence_lens": "Frame the paper ruler with its destination before placing it beside the specimen for scale. Stay uncut through the muted transfer, keeping the ruler’s paper detail and the final detail (beside the specimen for scale) visible until the final placement of the paper ruler is fully beside the specimen and remains stable after release."
+          "mechanism": "matching the pressed leaf edge to its closest printed contour without moving the specimen",
+          "evidence_lens": "Keep the specimen-outline card and pressed leaf edge visible together while the leaf remains still. Move the printed contours beside the leaf with a faint card slide, stop at the closest matching outline, and hold when the chosen contour and full leaf edge can be compared directly."
         },
         {
           "episode_object": "a dried flower fragment",
@@ -5966,10 +5979,10 @@
           "evidence_lens": "Keep the folder corner guard, working hand, and closure point together throughout fitting the corner guard over the worn paper corner. Let the guard’s visible edge, the subdued closure sound, and the closure detail (over the worn paper corner) remain clear, then hold when the fitted point sits flush and remains seated after the hand leaves."
         },
         {
-          "episode_object": "an accession-number ribbon",
+          "episode_object": "an accession-window label",
           "time_place_scope": "the same dry herbarium workroom at dusk",
-          "mechanism": "tying it loosely around the closed specimen folder",
-          "evidence_lens": "Keep the accession-number ribbon and closed specimen folder visible throughout the tie. Loop the ribbon loosely around the folder, form one soft knot with the number facing up, and hold when the folder remains closed without the ribbon pinching its edges."
+          "mechanism": "sliding it into the closed folder's title pocket with the number facing outward",
+          "evidence_lens": "Keep the accession-window label, closed folder, and title pocket in one close view. Slide the label fully into the pocket with a faint card sound, leave the complete accession number facing outward and legible, and hold when the label stays square after release."
         },
         {
           "episode_object": "a stack of empty folders",
@@ -6043,10 +6056,10 @@
           "evidence_lens": "Follow the linen shelf cloth through wiping dust from the sealed cabinet top in one continuous close pass. Keep the cloth’s linen detail, the tool’s soft contact and the worked patch changing together, and the final detail (from the sealed cabinet top) readable; stop when the worked patch is visibly clear and the tool lifts away."
         },
         {
-          "episode_object": "a packet-weight scale",
+          "episode_object": "a seed-packet tare token",
           "time_place_scope": "the same cool seed archive before night",
-          "mechanism": "centering the empty pan after weighing",
-          "evidence_lens": "Use a steady overhead view for centering the empty pan after weighing, with the packet-weight scale never leaving frame. Let the scale’s visible edge, each quiet contact, and the ordered detail (after weighing) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw."
+          "mechanism": "returning the token to the zero notch after weighing",
+          "evidence_lens": "Frame the seed-packet tare token and the marked zero notch after weighing is complete. Move the token back along its short track with a soft click, show its center line exactly meeting zero, and hold when it remains at the notch after the hand withdraws."
         },
         {
           "episode_object": "a wooden seed scoop",
@@ -6239,10 +6252,10 @@
       "subject": "observatory lens-cover round",
       "tuples": [
         {
-          "episode_object": "a felt eyepiece cap",
+          "episode_object": "an eyepiece-cover inspection tab",
           "time_place_scope": "the same resting observatory after the viewing hour",
-          "mechanism": "fitting the felt cap over the cooled eyepiece",
-          "evidence_lens": "Keep the felt eyepiece cap, working hand, and closure point together throughout fitting the felt cap over the cooled eyepiece. Let the cap’s felt detail, the subdued closure sound, and the closure detail (over the cooled eyepiece) remain clear, then hold when the fitted point sits flush and remains seated after the hand leaves."
+          "mechanism": "passing the inspection tab around the full cover edge to confirm an even seal",
+          "evidence_lens": "Keep the eyepiece-cover inspection tab, the fitted cover edge, and the working hand in one continuous close view. Pass the tab around the full edge with a faint paper whisper, show the same marked depth and light resistance along the complete circuit, and hold when the cover remains evenly seated after the tab lifts."
         },
         {
           "episode_object": "a canvas telescope cover",
@@ -6257,10 +6270,10 @@
           "evidence_lens": "Follow the brass focus knob through wiping one fingerprint with chamois in one continuous close pass. Keep the knob’s brass detail, the tool’s soft contact and the worked patch changing together, and the final detail (with chamois) readable; stop when the worked patch is visibly clear and the tool lifts away."
         },
         {
-          "episode_object": "a wooden lens box",
+          "episode_object": "a spare-lens cradle peg",
           "time_place_scope": "the same resting observatory after the viewing hour",
-          "mechanism": "closing the lid over the spare glass",
-          "evidence_lens": "Keep the wooden lens box, working hand, and closure point together throughout closing the lid over the spare glass. Let the box’s wood detail, the subdued closure sound, and the closure detail (over the spare glass) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves. Show the spare glass isolated in its padded recess before the lens-box lid settles."
+          "mechanism": "moving it from open to occupied after the spare glass is stored",
+          "evidence_lens": "Keep the spare-lens cradle peg, open and occupied marks, and stored glass in one quiet view. Move the peg to occupied with a soft wooden click, show the peg centered on the mark and the glass still in its cradle, and hold after release."
         },
         {
           "episode_object": "a cotton dust blower",
@@ -6549,10 +6562,10 @@
           "evidence_lens": "Follow the last letter from the sorting surface to the route-sorting rail without a cut. Open the district clip with a soft click, place the letter fully beneath its matching tab, and hold when the clip closes and the letter remains square and readable."
         },
         {
-          "episode_object": "a spool of parcel twine",
+          "episode_object": "a parcel-twine length card",
           "time_place_scope": "the same small post office after the mail sacks are empty",
-          "mechanism": "securing the parcel-twine tail beneath a folded paper band",
-          "evidence_lens": "Begin with the spool of parcel twine and its exact working point together, then remain uncut through securing the parcel-twine tail beneath a folded paper band. Keep the twine’s visible edge, the exact contact point and its restrained sound, and the final detail (beneath a folded paper band) visible; finish when the loose end stays at the exact securing point named in the action after tension is released."
+          "mechanism": "winding the measured twine once through the card's two end notches",
+          "evidence_lens": "Show the parcel-twine length card, measured strand, and both end notches in one steady overhead view. Wind the twine once through the two notches with a dry fiber sound, then hold when the full measured length lies flat on the card and neither end slips free."
         },
         {
           "episode_object": "a stamp inventory card",
@@ -6668,10 +6681,10 @@
           "evidence_lens": "Keep the empty laundry bag, its side pocket, and the loose drawcord in the same quiet frame. Coil the cord into an even palm-sized circle, tuck the complete coil inside the pocket, and hold when no cord end hangs outside after release."
         },
         {
-          "episode_object": "a ribbon shelf label",
+          "episode_object": "a towel-shelf spacing block",
           "time_place_scope": "the same quiet village inn linen room",
-          "mechanism": "tying it around the towel stack",
-          "evidence_lens": "Trace the fastening path across the ribbon shelf label without a cut while tying it around the towel stack. Keep the label’s visible edge, thread tension, and the final detail (around the towel stack) readable until the fastening lies flat, holds its intended tension, and the fingers release it."
+          "mechanism": "placing it between the two folded towel stacks to keep the gap even",
+          "evidence_lens": "Frame both folded towel stacks and the towel-shelf spacing block from the cupboard front. Place the block between the stacks with a muted shelf touch, align both stack edges to its sides, and hold when the gap remains even after the hands withdraw."
         },
         {
           "episode_object": "a quilted mattress cover",
@@ -6942,10 +6955,10 @@
           "evidence_lens": "Watch the coiled curtain cord change shape in one unbroken side view during coiling the curtain cord into a loose circle on the shelf. Preserve the cord’s visible edge, the subdued contact sound, and the final detail (into a loose circle on the shelf); hold until the finished roll keeps its compact shape without a supporting hand."
         },
         {
-          "episode_object": "a linen pillow cover",
+          "episode_object": "a cedar bunk-pillow spacer",
           "time_place_scope": "the same moored houseboat cabin at night",
-          "mechanism": "smoothing it over the bunk pillow",
-          "evidence_lens": "Follow the linen pillow cover from its starting position through smoothing it over the bunk pillow in a single steady view. Keep the cover’s linen detail and the final detail (over the bunk pillow) visible; hold when the worked material lies visibly flat without a raised edge after the hand lifts."
+          "mechanism": "placing it behind the bunk pillow to leave an even air gap at the wall",
+          "evidence_lens": "Show the cedar bunk-pillow spacer, pillow, and wall edge in one side view. Place the spacer behind the pillow with a muted wooden touch, ease the pillow back until it meets both spacer ends, and hold when an even air gap remains visible along the wall."
         },
         {
           "episode_object": "a wooden spoon rack",
@@ -7019,10 +7032,10 @@
           "evidence_lens": "Frame the paper luggage label with its destination before filing it in the lost-property box. Stay uncut through the muted transfer, keeping the label’s paper detail and the final detail (in the lost-property box) visible until the filing position of the paper luggage label is in the lost-property box, visible in order after release."
         },
         {
-          "episode_object": "a green reading lamp",
+          "episode_object": "a timetable reading strip",
           "time_place_scope": "the same empty country waiting room after the last arrival",
-          "mechanism": "lowering the green reading-lamp shade until the table edge falls dim",
-          "evidence_lens": "Follow the green reading lamp from its starting position through lowering the green reading-lamp shade until the table edge falls dim in a single steady view. Keep the lamp’s visible edge and the final detail (until the table edge falls dim) visible; hold when the target condition—the table edge falls dim—is plainly visible and the hands become still."
+          "mechanism": "checking the last departure line beneath the dimmed waiting-room lamp",
+          "evidence_lens": "Keep the timetable reading strip, last departure line, and dimmed waiting-room lamp in one fixed view. Move the strip beneath the lamp with a faint paper slide, show the complete departure line still legible in the softened light, and hold after the hand withdraws."
         },
         {
           "episode_object": "a cotton window cloth",
@@ -7061,10 +7074,10 @@
           "evidence_lens": "Use a steady overhead view for centering it on the sill mat, with the ceramic flower vase never leaving frame. Let the vase’s ceramic detail, each quiet contact, and the ordered detail (on the sill mat) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw."
         },
         {
-          "episode_object": "a brass bell cover",
+          "episode_object": "a padded bell-clapper rest",
           "time_place_scope": "the same empty country waiting room after the last arrival",
-          "mechanism": "placing felt over the unused bell",
-          "evidence_lens": "Frame the brass bell cover with its destination before placing felt over the unused bell. Stay uncut through the muted transfer, keeping the cover’s brass detail and the final detail (over the unused bell) visible until the final placement of the felt is fully over the unused bell and remains stable after release."
+          "mechanism": "sliding it beneath the clapper so the unused waiting-room bell stays silent",
+          "evidence_lens": "Keep the padded bell-clapper rest, clapper, and bell rim visible in one quiet close-up. Slide the rest beneath the clapper with a soft fabric contact, show the clapper supported clear of the bell wall, and hold after release while the bell remains silent."
         },
         {
           "episode_object": "a folded newspaper",
@@ -7132,10 +7145,10 @@
           "evidence_lens": "Begin with the linen pillowcase and its exact working point together, then remain uncut through buttoning the linen pillowcase flap around the spare pillow. Keep the pillowcase’s linen detail, the exact contact point and its restrained sound, and the final detail (around the spare pillow) visible; finish when every named button sits through its loop and the fastened fabric remains supported."
         },
         {
-          "episode_object": "a canvas blanket strap",
+          "episode_object": "a berth-blanket shelf divider",
           "time_place_scope": "the same softly moving sleeper carriage at night",
-          "mechanism": "fastening it around the cupboard stack",
-          "evidence_lens": "Keep the canvas blanket strap, working hand, and closure point together throughout fastening it around the cupboard stack. Let the strap’s canvas detail, the subdued closure sound, and the closure detail (around the cupboard stack) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves."
+          "mechanism": "sliding it upright between the two spare blanket stacks",
+          "evidence_lens": "Keep the berth-blanket shelf divider and both spare stacks visible from the cupboard front. Slide the divider between them with a soft shelf sound, show its top edge upright and both stacks separate, and hold when no blanket leans across the divider."
         },
         {
           "episode_object": "a brass berth number",
@@ -7192,10 +7205,10 @@
           "evidence_lens": "Keep the curtain tie cord, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening the tie cord through the curtain ring. Show the tie cord passing through the curtain ring and holding the curtain without slipping, then hold after the hands withdraw."
         },
         {
-          "episode_object": "a padded hanger",
+          "episode_object": "a robe-collar support ring",
           "time_place_scope": "the same softly moving sleeper carriage at night",
-          "mechanism": "centering a spare robe on it",
-          "evidence_lens": "Use a steady overhead view for centering a spare robe on it, with the padded hanger never leaving frame. Let the hanger’s visible edge, each quiet contact, and the ordered detail (on it) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw. Show both shoulders of the spare robe balanced on the padded hanger after release."
+          "mechanism": "fastening it inside the spare robe collar before hanging",
+          "evidence_lens": "Keep the robe-collar support ring and open spare-robe collar in one close view. Fasten the ring inside the collar with a subdued fabric click, show the collar held in an even curve, and hold when the robe hangs without the ring shifting."
         },
         {
           "episode_object": "a linen inventory slip",
@@ -7257,10 +7270,10 @@
           "evidence_lens": "Follow the stone lantern basin from its starting position through lifting one leaf from the dry bowl in a single steady view. Keep the basin’s stone detail and the final detail (from the dry bowl) visible; hold when one leaf fully clears its starting point and pauses clear of every surrounding surface."
         },
         {
-          "episode_object": "a reed garden mat",
+          "episode_object": "a garden kneeling pad",
           "time_place_scope": "the same enclosed tea garden under moonlight",
-          "mechanism": "rolling it beneath the veranda rail",
-          "evidence_lens": "Watch the reed garden mat change shape in one unbroken side view during rolling it beneath the veranda rail. Preserve the mat’s reed detail, the subdued contact sound, and the final detail (beneath the veranda rail); hold until the finished roll keeps its compact shape without a supporting hand."
+          "mechanism": "turning its dry face upward beside the veranda rail",
+          "evidence_lens": "Frame both faces of the garden kneeling pad beside the veranda rail. Turn the pad once with a subdued surface rustle, show the dry face fully upward and free of loose needles, and hold when it rests flat after release."
         },
         {
           "episode_object": "a wooden sandal rack",
@@ -7347,10 +7360,10 @@
           "evidence_lens": "Hold the garden ledger, writing point, and reference in one frame during drawing the final path arc beneath the tea-garden ledger entry. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (beneath the tea-garden ledger entry); end only when the intended mark is legible and the writing point lifts cleanly."
         },
         {
-          "episode_object": "a reed screen tie",
+          "episode_object": "a veranda screen-bottom weight",
           "time_place_scope": "the same enclosed tea garden under moonlight",
-          "mechanism": "releasing the screen across the veranda",
-          "evidence_lens": "Follow the reed screen tie from its starting position through releasing the screen across the veranda in a single steady view. Keep the tie’s reed detail and the final detail (across the veranda) visible; hold when the screen is fully free of the tie and remains motionless at its named endpoint."
+          "mechanism": "sliding it into the screen hem pocket after the screen settles",
+          "evidence_lens": "Keep the veranda screen-bottom weight, hem pocket, and settled screen edge visible together. Slide the weight fully into the pocket with a dry fabric whisper, close the small flap, and hold when the hem hangs level without swinging."
         },
         {
           "episode_object": "a cedar door pull",
@@ -7466,10 +7479,10 @@
           "evidence_lens": "Keep every hinged panel of the calligraphy window screen visible. Fold the panels across the window one by one with restrained hinge sounds until they meet in a continuous cover, then hold when the closed screen stands stable without a supporting hand."
         },
         {
-          "episode_object": "a calligraphy ledger",
+          "episode_object": "a calligraphy title proof strip",
           "time_place_scope": "the same moonlit writing room after the final line",
-          "mechanism": "copying the finished scroll title into the calligraphy ledger index",
-          "evidence_lens": "Hold the calligraphy ledger, writing point, and reference in one frame during copying the finished scroll title into the calligraphy ledger index. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (into the calligraphy ledger index); end only when the intended mark is legible and the writing point lifts cleanly."
+          "mechanism": "comparing its final characters with the finished scroll heading before filing",
+          "evidence_lens": "Frame the calligraphy title proof strip beside the finished scroll heading without covering either line. Align the final characters with a faint paper slide, show every character matching in sequence, and hold when the proof strip is released flat before filing."
         },
         {
           "episode_object": "a padded floor cushion",
@@ -7835,10 +7848,10 @@
           "evidence_lens": "Trace the fastening path across the ribbon shoe tie without a cut while tying the ribbon shoe tie into a loose storage bow. Keep the tie’s visible edge, thread tension, and the final detail (into a loose storage bow) readable until the fastening lies flat, holds its intended tension, and the fingers release it."
         },
         {
-          "episode_object": "a cobbler ledger",
+          "episode_object": "a finished-pair heel token",
           "time_place_scope": "the same quiet cobbler shop after closing",
-          "mechanism": "drawing a collection line beneath the finished cobbler pair",
-          "evidence_lens": "Hold the cobbler ledger, writing point, and reference in one frame during drawing a collection line beneath the finished cobbler pair. Preserve the ledger’s visible edge, the faint stroke sound, and the written detail (beneath the finished cobbler pair); end only when the intended mark is legible and the writing point lifts cleanly."
+          "mechanism": "placing it between the completed shoes so the pair stays matched",
+          "evidence_lens": "Show the finished-pair heel token and both completed shoes in one low view. Place the token between the heels with one soft bench contact, turn its pair number outward, and hold when both shoes remain aligned around the readable token."
         },
         {
           "episode_object": "a padded work stool",
@@ -7853,10 +7866,10 @@
           "evidence_lens": "Keep the glass shop case key, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening the glass shop-case key clasp to its brass hook. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint; also show the key clasp visibly closed around the brass hook and the key hanging without slipping, then hold after the hands withdraw."
         },
         {
-          "episode_object": "a shoe-display curtain tie",
+          "episode_object": "a shoe-display privacy screen",
           "time_place_scope": "the same quiet cobbler shop after closing",
-          "mechanism": "releasing it so the two curtain panels meet",
-          "evidence_lens": "Show the shoe-display curtain tie and both curtain panels before release. Loosen the tie with a faint fabric sound, let the two panels travel inward until their edges meet over the shoes, and hold when the display remains fully covered."
+          "mechanism": "folding its three panels across the display until the shoes disappear",
+          "evidence_lens": "Keep all three shoe-display privacy-screen panels and the displayed shoes in one wide view. Fold the panels across the display with three restrained hinge sounds until the shoes disappear, then hold when every panel stands aligned and stable without support."
         }
       ]
     },
@@ -7954,10 +7967,10 @@
           "evidence_lens": "Use a steady overhead view for centering it on the worktable, with the wooden pin dish never leaving frame. Let the dish’s wood detail, each quiet contact, and the ordered detail (on the worktable) establish the result; finish when the visible margins are balanced and remain unchanged after the hands withdraw."
         },
         {
-          "episode_object": "a spool of matching thread",
+          "episode_object": "a thread-color comparison card",
           "time_place_scope": "the same lamplit millinery room at night",
-          "mechanism": "securing the thread end beneath the spool paper band",
-          "evidence_lens": "Begin with the spool of matching thread and its exact working point together, then remain uncut through securing the thread end beneath the spool paper band. Keep the thread’s visible edge, the exact contact point and its restrained sound, and the final detail (beneath the spool paper band) visible; finish when the loose end stays at the exact securing point named in the action after tension is released."
+          "mechanism": "laying one loose strand across the matching ribbon swatch",
+          "evidence_lens": "Keep the thread-color comparison card, loose strand, and ribbon swatches under the same quiet light. Lay the strand across its matching swatch with a soft fiber touch, show both colors aligned along their full overlap, and hold after the fingers withdraw."
         },
         {
           "episode_object": "a millinery ledger",
@@ -8210,10 +8223,10 @@
           "evidence_lens": "Keep the repaired cape, costume hanger, and hanger card together. Open the card clip, fasten it to the hanger with a quiet click, and hold when the repair label faces forward and the cape hangs without strain."
         },
         {
-          "episode_object": "a linen work mat",
+          "episode_object": "a costume-thread color strip",
           "time_place_scope": "the same empty puppet theater wardrobe at night",
-          "mechanism": "brushing thread ends into the scrap cup",
-          "evidence_lens": "Keep the linen work mat, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing thread ends into the scrap cup. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+          "mechanism": "pressing one saved thread end beneath its matching color tab",
+          "evidence_lens": "Keep the costume-thread color strip, saved thread end, and labeled tabs under the same quiet light. Lay the thread against the tabs, press it beneath the matching color with a soft fiber touch, and hold when the strand remains visible and the chosen label is readable."
         },
         {
           "episode_object": "a sewing-stool drawer",
@@ -8388,10 +8401,10 @@
           "evidence_lens": "Frame the linen page ribbon with its destination before tucking it inside the closed volume. Stay uncut through the muted transfer, keeping the ribbon’s linen detail and the final detail (inside the closed volume) visible until the final placement of the linen page ribbon is fully inside the closed volume and remains stable after release."
         },
         {
-          "episode_object": "a brass shelf marker",
+          "episode_object": "a quartet-part sequence rail",
           "time_place_scope": "the same hushed music library after rehearsal",
-          "mechanism": "placing it beside the returned quartet",
-          "evidence_lens": "Frame the brass shelf marker with its destination before placing it beside the returned quartet. Stay uncut through the muted transfer, keeping the marker’s brass detail and the final detail (beside the returned quartet) visible until the final placement of the brass shelf marker is fully beside the returned quartet and remains stable after release."
+          "mechanism": "arranging the four returned part labels from first violin through cello",
+          "evidence_lens": "Frame the quartet-part sequence rail and all four returned labels from above. Place the labels from first violin through cello with four soft card contacts, then hold when the complete order is readable and every label remains inside its own rail slot."
         },
         {
           "episode_object": "a paper rehearsal note",
@@ -8406,10 +8419,10 @@
           "evidence_lens": "Use a steady overhead view for aligning them inside a felt tray, with the row of music pencils never leaving frame. Let the pencils’ visible edge, each quiet contact, and the ordered detail (inside a felt tray) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw."
         },
         {
-          "episode_object": "a large orchestral folio",
+          "episode_object": "an orchestral folio spine guard",
           "time_place_scope": "the same hushed music library after rehearsal",
-          "mechanism": "closing its cover beneath cotton ties",
-          "evidence_lens": "Keep the large orchestral folio, working hand, and closure point together throughout closing its cover beneath cotton ties. Let the folio’s visible edge, the subdued closure sound, and the closure detail (beneath cotton ties) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves."
+          "mechanism": "fitting it along the lower spine before shelving the folio upright",
+          "evidence_lens": "Frame the orchestral folio spine guard and lower spine together before shelving. Fit the guard along the full lower edge with a subdued cloth slide, show both corners seated and the title unobscured, then hold when the folio stands upright without the guard shifting."
         },
         {
           "episode_object": "a page-turn clip",
@@ -8573,16 +8586,16 @@
           "evidence_lens": "Keep the padded violin cradle, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding its support arms inward. Show both support arms folded inward at their hinges and resting inside the cradle outline, then hold after the hands withdraw."
         },
         {
-          "episode_object": "a cotton apron",
+          "episode_object": "a bow-bench sleeve guard",
           "time_place_scope": "the same silent violin workshop at night",
-          "mechanism": "rolling the cotton apron with the wood-dust side enclosed",
-          "evidence_lens": "Watch the cotton apron change shape in one unbroken side view during rolling the cotton apron with the wood-dust side enclosed. Preserve the apron’s cotton detail, the subdued contact sound, and the final detail (with the wood-dust side enclosed); hold until the finished roll keeps its compact shape without a supporting hand."
+          "mechanism": "buttoning it over the cleaned tool rest",
+          "evidence_lens": "Frame the bow-bench sleeve guard and cleaned tool rest from end to end. Draw the guard over the rest with a soft fabric sound, button both closures beneath it, and hold when the full rest is covered and the guard remains smooth after release."
         },
         {
-          "episode_object": "a bow-maker's ledger",
+          "episode_object": "a finished-bow rack label",
           "time_place_scope": "the same silent violin workshop at night",
-          "mechanism": "counting completed bows into the bow-maker ledger total",
-          "evidence_lens": "Place the bow-maker's ledger and its comparison mark in the same quiet frame for counting completed bows into the bow-maker ledger total. Keep the ledger’s visible edge, the hands’ pause, and the reference detail (into the bow-maker ledger total) visible; end when the visible groups match the completed count and the counting hand withdraws."
+          "mechanism": "fastening the date label beneath the final occupied rack groove",
+          "evidence_lens": "Keep the finished-bow rack label, final occupied groove, and fastening clip together in one close view. Fasten the date label beneath that groove with a subdued click, show the full date legible and the bow above undisturbed, and hold when the label remains level after release."
         },
         {
           "episode_object": "a bench magnifier",
@@ -8603,10 +8616,10 @@
           "evidence_lens": "Follow the workshop key from its starting position through turning the workshop key tag until its labeled face points upward inside the wooden dish in a single steady view. Keep the key’s visible edge and the final detail (until its labeled face points upward inside the wooden dish) visible; hold when the target condition—its labeled face points upward inside the wooden dish—is plainly visible and the hands become still."
         },
         {
-          "episode_object": "a window blind",
+          "episode_object": "a violin-display light meter card",
           "time_place_scope": "the same silent violin workshop at night",
-          "mechanism": "lowering the blind halfway until the violin display falls into shade",
-          "evidence_lens": "Follow the window blind from its starting position through lowering the blind halfway until the violin display falls into shade in a single steady view. Keep the blind’s visible edge and the final detail (until the violin display falls into shade) visible; hold when the target condition—the violin display falls into shade—is plainly visible and the hands become still."
+          "mechanism": "checking its quiet-light mark beside the resting violin",
+          "evidence_lens": "Frame the violin-display light meter card beside the resting violin without covering the instrument. Hold the card steady in the softened light, show the indicator aligned with the printed quiet-light mark, and withdraw the hand while the violin remains undisturbed."
         }
       ]
     },
@@ -8722,10 +8735,10 @@
           "evidence_lens": "Frame the cabinet drawer key with its destination before sliding the cabinet-drawer key into the wall key sleeve. Stay uncut through the muted transfer, keeping the key’s visible edge and the final detail (into the wall key sleeve) visible until the final placement of the cabinet-drawer key is fully inside the wall key sleeve and remains stable after release."
         },
         {
-          "episode_object": "a curtain tie",
+          "episode_object": "a piano-window cord weight",
           "time_place_scope": "the same empty piano room beneath a low lamp",
-          "mechanism": "hooking the released curtain tie beside the tall window",
-          "evidence_lens": "Begin with the curtain tie and its exact working point together, then remain uncut through hooking the released curtain tie beside the tall window. Keep the tie’s visible edge, the exact contact point and its restrained sound, and the final detail (beside the tall window) visible; finish when the released tie hangs fully from the hook and the curtain remains undisturbed."
+          "mechanism": "setting it in the sill notch after the curtain closes",
+          "evidence_lens": "Frame the piano-window cord weight, sill notch, and closed curtain edge in one side view. Set the weight into the notch with a muted touch, show the cord hanging vertical and clear of the curtain, and hold when the weight remains seated after release."
         },
         {
           "episode_object": "a piano-room door plate",
@@ -8823,10 +8836,10 @@
           "evidence_lens": "Show the wrapped-bouquet counter token and the ready-vase row from above. Move the token into the next open ready position with a soft counter touch, then hold when it is aligned with the finished bouquets and remains still."
         },
         {
-          "episode_object": "a reed display mat",
+          "episode_object": "a bouquet-counter drip tray",
           "time_place_scope": "the same quiet flower shop after closing",
-          "mechanism": "rolling it beneath the counter",
-          "evidence_lens": "Watch the reed display mat change shape in one unbroken side view during rolling it beneath the counter. Preserve the mat’s reed detail, the subdued contact sound, and the final detail (beneath the counter); hold until the finished roll keeps its compact shape without a supporting hand."
+          "mechanism": "sliding it beneath the wrapped stems to catch the final drop",
+          "evidence_lens": "Keep the bouquet-counter drip tray and wrapped stem ends together in a low side view. Slide the tray beneath the stems with a faint counter sound, show the final drop land inside its center, and hold when the stems and tray remain still with the counter dry."
         },
         {
           "episode_object": "a watering cup",
@@ -8995,10 +9008,10 @@
           "evidence_lens": "Keep the tide-and-wind slate and both instrument readings visible together. Draw one calm mark beside the tide reading and a separate calm mark beside the wind reading with two faint chalk strokes, then show both marks legible before the writing hand lifts."
         },
         {
-          "episode_object": "a brass barometer card",
+          "episode_object": "a barometer date card",
           "time_place_scope": "the same sheltered coastal station office on a mild night",
-          "mechanism": "copying the current barometer date onto the brass card",
-          "evidence_lens": "Keep the brass barometer card, the working hand, and every indispensable changed point in one continuous quiet frame throughout copying the current barometer date onto the brass card. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+          "mechanism": "copying the current barometer date in pencil beside its printed instrument mark",
+          "evidence_lens": "Keep the barometer date card, printed instrument mark, source date, and pencil point together in one steady frame. Copy every date character beside the mark with faint pencil strokes, then hold when the complete date is legible and the pencil lifts cleanly without claiming a material for the card."
         },
         {
           "episode_object": "a blue observation pencil",
@@ -9138,10 +9151,10 @@
           "evidence_lens": "Keep the folded trail map and both ends of the corner band visible from above. Tuck one band end beneath each opposite map corner, make the soft paper contacts in sequence, and hold when both corners stay captured and the map remains closed."
         },
         {
-          "episode_object": "a brass drawer label",
+          "episode_object": "a bird-guide shelf ribbon",
           "time_place_scope": "the same empty woodland visitor room at dusk",
-          "mechanism": "turning the brass drawer label until the bird-guide title faces forward",
-          "evidence_lens": "Follow the brass drawer label from its starting position through turning the brass drawer label until the bird-guide title faces forward in a single steady view. Keep the label’s brass detail and the final detail (until the bird-guide title faces forward) visible; hold when the target condition—the bird-guide title faces forward—is plainly visible and the hands become still."
+          "mechanism": "threading its title tab through the shelf-edge slot",
+          "evidence_lens": "Show the bird-guide shelf ribbon, printed title tab, and shelf-edge slot together. Thread the tab fully through the slot with a soft fiber-paper sound, turn the title outward, and hold when the ribbon hangs straight and the complete title remains readable."
         },
         {
           "episode_object": "a stack of blank postcards",
@@ -9162,10 +9175,10 @@
           "evidence_lens": "Stay close on the lowest brochure-rack groove, the dry leaf fragment, and the narrow groove brush. Sweep the fragment along the groove into the waiting catch with a faint bristle sound, then show the entire groove clear before the brush lifts."
         },
         {
-          "episode_object": "a linen table cover",
+          "episode_object": "a linen visitor-table cover",
           "time_place_scope": "the same empty woodland visitor room at dusk",
-          "mechanism": "folding it beside the map stand",
-          "evidence_lens": "Watch the linen table cover change shape in one unbroken side view during folding it beside the map stand. Preserve the cover’s linen detail, the subdued contact sound, and the final detail (beside the map stand); hold until the linen table cover’s worked edges meet, the crease lies flat, and the released fold holds."
+          "mechanism": "hanging it from the drying rail by both stitched loops",
+          "evidence_lens": "Keep the linen visitor-table cover, both stitched loops, and drying rail in one uncut view. Lift each loop over its rail peg with two soft cloth touches, then hold when the cover hangs evenly, its lower hem clears the floor, and neither loop twists."
         },
         {
           "episode_object": "a paper animal-track card",
@@ -9180,10 +9193,10 @@
           "evidence_lens": "Begin with the glass magnifier and its exact working point together, then remain uncut through holding the magnifier above the track card to inspect its printed edge. Keep the magnifier’s glass detail, the exact contact point and its restrained sound, and the final detail (above the track card to inspect its printed edge) visible; finish when the printed edge is sharp through the magnifier before the hand lowers it."
         },
         {
-          "episode_object": "a wooden pencil tray",
+          "episode_object": "a guide-desk graphite test slip",
           "time_place_scope": "the same empty woodland visitor room at dusk",
-          "mechanism": "arranging the pencil points in alternating left-right directions inside the tray",
-          "evidence_lens": "Use a steady overhead view for arranging the pencil points in alternating left-right directions inside the tray, with the wooden pencil tray never leaving frame. Let the tray’s wood detail, each quiet contact, and the ordered detail (inside the tray) establish the result; finish when the intended arrangement is fully visible and remains unchanged after the hands withdraw. Keep neighboring pencil points alternating left and right after the tray is released."
+          "mechanism": "drawing one short line with each sharpened pencil before returning it to the tray",
+          "evidence_lens": "Frame the guide-desk graphite test slip, sharpened pencils, and tray together. Draw one short, separate line with each pencil using faint graphite strokes, show every line unbroken, then hold after all pencils return to the tray and the writing hand lifts."
         },
         {
           "episode_object": "a visitor-room ledger",
@@ -9216,10 +9229,10 @@
           "evidence_lens": "Follow the reed floor runner through brushing one dry needle from the edge in one continuous close pass. Keep the runner’s reed detail, the tool’s soft contact and the worked patch changing together, and the final detail (from the edge) readable; stop when the edge is visibly free of one dry needle and the tool lifts."
         },
         {
-          "episode_object": "a cabinet key",
+          "episode_object": "a guide-cabinet key tally bead",
           "time_place_scope": "the same empty woodland visitor room at dusk",
-          "mechanism": "sliding the cabinet key into the guide pouch after the latch closes",
-          "evidence_lens": "Frame the cabinet key with its destination before sliding the cabinet key into the guide pouch after the latch closes. Stay uncut through the muted transfer, keeping the key’s visible edge and the final detail (into the guide pouch after the latch closes) visible until the final placement of the cabinet key is fully inside the guide pouch and remains stable after release."
+          "mechanism": "moving it to the returned groove after the latch closes",
+          "evidence_lens": "Show the guide-cabinet key tally bead, returned groove, and closed latch in one close frame. Move the bead along its track with a muted click until its center meets the returned mark, then hold when it stays in the groove after release."
         },
         {
           "episode_object": "a visitor-room shutter",
@@ -9228,10 +9241,10 @@
           "evidence_lens": "Keep the visitor-room shutter, window, and reflected forest in one steady composition. Swing the shutter inward on its quiet hinge until the reflected trees disappear from the glass, then hold when the shutter rests fully closed."
         },
         {
-          "episode_object": "a door sign token",
+          "episode_object": "a guide-desk closing bead",
           "time_place_scope": "the same empty woodland visitor room at dusk",
-          "mechanism": "turning the welcome token face-down in the guide-desk tray",
-          "evidence_lens": "Keep the door sign token, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the welcome token face-down in the guide-desk tray. Show the welcome token lying face-down and stable inside the guide-desk tray, then hold after the hands withdraw."
+          "mechanism": "sliding it into the closed groove after the welcome card is turned",
+          "evidence_lens": "Keep the guide-desk closing bead, marked groove, and turned welcome card visible together. Slide the bead into the closed groove with one muted contact, show it seated at the groove stop, and hold when the card remains face-down and the bead stays still."
         }
       ]
     },
@@ -9347,10 +9360,10 @@
           "evidence_lens": "Follow the drawer key from its starting position through turning the drawer key until the pigment-drawer latch seats in a single steady view. Keep the key’s visible edge and the final detail (until the pigment-drawer latch seats) visible; hold when the target condition—the pigment-drawer latch seats—is plainly visible and the hands become still."
         },
         {
-          "episode_object": "a linen dust cover",
+          "episode_object": "a brush-rack moisture card",
           "time_place_scope": "the same small porcelain studio after the paint cups are covered",
-          "mechanism": "tying the linen dust-cover corners beneath the brush rack",
-          "evidence_lens": "Trace the fastening path across the linen dust cover without a cut while tying the linen dust-cover corners beneath the brush rack. Keep the cover’s linen detail, thread tension, and the final detail (beneath the brush rack) readable until the fastening lies flat, holds its intended tension, and the fingers release it. Show both linen cover corners tied beneath the porcelain brush rack without pinching a brush."
+          "mechanism": "hanging it inside the cleaned rack to confirm the dry mark",
+          "evidence_lens": "Keep the brush-rack moisture card, cleaned grooves, and printed dry mark together. Hang the card inside the rack with a faint paper touch, show the indicator resting at the dry mark and every groove unobstructed, and hold after the hand withdraws."
         },
         {
           "episode_object": "a window blind",
