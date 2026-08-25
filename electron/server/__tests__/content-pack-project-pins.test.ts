@@ -574,9 +574,16 @@ describe('exact project Content Pack pins', () => {
     const beforeProject = await projectManager.getProject(project.slug)
     const beforeConfig = await projectManager.getConfig(project.slug)
 
+    // The wording changed when `assertResolvableSelections` landed, and the new
+    // wording is the right one. A Style id offered as a Recipe is not a Recipe
+    // by any route — not in the signed catalogue, not in the built-in template
+    // library — so the request is refused BEFORE the pin resolver is reached,
+    // and the customer is told what to do instead of being handed the internal
+    // phrase "kind mismatch". What this test is actually for is unchanged and
+    // still enforced below: a wrong-kind id is refused, and nothing is written.
     await assert.rejects(updateProjectContentConfigSelections(project.slug, {
       thumbnail_template_id: STYLE_ID,
-    }, options), /kind mismatch/i)
+    }, options), /thumbnail recipe .* could not be resolved/i)
     assert.deepEqual(await projectManager.getProject(project.slug), beforeProject)
     assert.deepEqual(await projectManager.getConfig(project.slug), beforeConfig)
   })
@@ -808,10 +815,22 @@ describe('exact project Content Pack pins', () => {
       },
     }
 
+    // These two ids used to be invented ones. `assertResolvableSelections` now
+    // refuses an id that resolves NOWHERE — and it is right to: saving one
+    // leaves the project pointing at a style or recipe nothing can render. So
+    // the legacy route is now exercised with ids that are genuinely resolvable
+    // the legacy way, which is what this test was always about:
+    //   • the Style arrives as a local preset in the same payload, exactly as
+    //     the picker sends it
+    //   • the Recipe is a bare built-in template id, the shape a real
+    //     pre-Content-Pack project carries
+    // Neither is in the signed catalogue, so both must still confirm a
+    // signed-catalogue miss and create no pins.
     await updateProjectContentConfigSelections(project.slug, {
-      active_style_preset_id: 'builtin-local-style',
-      thumbnail_template_id: 'builtin-local-recipe',
-    }, observed)
+      active_style_preset_id: 'legacy-local-style',
+      thumbnail_template_id: 'archival-map-investigation',
+      style_presets: [{ id: 'legacy-local-style', description: 'A local preset saved with this project.' }],
+    } as any, observed)
     await updateProjectContentSelections(project.slug, {
       replace_kinds: ['series-formula'], selections: [{ id: 'legacy-local-niche', kind: 'series-formula' }],
       update(meta) { meta.niche_id = 'legacy-local-niche' },
@@ -822,14 +841,14 @@ describe('exact project Content Pack pins', () => {
     }, observed)
 
     assert.deepEqual(resolutions, [
-      { id: 'builtin-local-style', pin: undefined },
-      { id: 'builtin-local-recipe', pin: undefined },
+      { id: 'legacy-local-style', pin: undefined },
+      { id: 'archival-map-investigation', pin: undefined },
       { id: 'legacy-local-niche', pin: undefined },
       { id: 'legacy-local-topic', pin: undefined },
     ])
     const saved = await projectManager.getProject(project.slug)
-    assert.equal(saved?.active_style_preset_id, 'builtin-local-style')
-    assert.equal(saved?.thumbnail_template_id, 'builtin-local-recipe')
+    assert.equal(saved?.active_style_preset_id, 'legacy-local-style')
+    assert.equal(saved?.thumbnail_template_id, 'archival-map-investigation')
     assert.equal(saved?.niche_id, 'legacy-local-niche')
     assert.deepEqual(saved?.topic_pack_ids, ['legacy-local-topic'])
     assert.equal(saved?.content_pack_items, undefined)
