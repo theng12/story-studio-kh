@@ -46,16 +46,20 @@ const HUMAN_BEHAVIOR_V1_SOURCE_HASHES = {
   'content/series-formula.json': 'bc008e06a736dda9e266c39ad4efd9af5df59103d7ac01ce0fb00d09a4961712',
 } as const
 const EDITORIAL_PROVENANCE_ROW_HASHES = {
+  // Re-pinned 2026-08-26. These hash the ledger ROW TEXT, and the owner-identity
+  // cleanse rewrote an absolute home path and a channel name inside these rows.
+  // The asset bytes are unchanged and are still verified separately below, so the
+  // provenance chain itself is intact -- only the wording of the record moved.
   'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-1.webp':
-    'd59ef8ea529691d8b249b26d9604951e5e134fc871f3471b911645a1913855d9',
+    'c92873cff96ad8ce2a74153a32e0f03eb8dc1c9b775606b406b351d74171a373',
   'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-2.webp':
-    'c2294ea7e93f02a261d53534304916a3c7693f52947490215c50cb1277d5ca9c',
+    '43dc83d998e85643dab592f63d28629d3d5b0eff5ab7705823d0f34878dc0547',
   'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-3.webp':
-    '81008d3cde7640ffb67c2b86f554282dc317db0f41de0df383b2f1ad66efe478',
+    'cbe87243888b5589b49d26ee543190c332ffa1f47c952fcd4f1268929dadd1af',
   'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-5.webp':
-    'bbb3dd072cc4ddc1550b0628e4bdc1dd6021a4eb3716a02871335e607c39a515',
+    '2f27c35e378943726cc2258b7942bcc2fece339d22d25f273c190824fbf63ed1',
   'style/pastel-surreal-psychological-collage/assets/pastel-surreal-psychological-collage.webp':
-    '5df384239d53293a76a5c92c4465347b693b1586ce2c2a4a3f7f0ededf9be723',
+    'a9044497df6d7130f6c354eac26327dbdf2a4c9309c1c51baa5b2a3087026779',
 } as const
 const HUMAN_BEHAVIOR = 'com.storystudio.formula.human-behavior-explained'
 const IMPASTO_SHA256 = '27050a92b2b71afd9a238ccd8ac9e72497ba2dda576bd4ad05fd01e465178e07'
