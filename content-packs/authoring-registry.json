@@ -1133,6 +1133,23 @@
       }
     },
     {
+      "receipt_ref": "baseline:com.storystudio.pack.thumbnail.animal-hardship-annotation@1.0.1",
+      "pack_id": "com.storystudio.pack.thumbnail.animal-hardship-annotation",
+      "item_id": "com.storystudio.thumbnail.animal-hardship-annotation",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/animal-hardship-annotation",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.thumbnail.animal-hardship-annotation", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.thumbnail.animal-hardship-annotation", "status": "proposed" }
+      }
+    },
+    {
       "receipt_ref": "baseline:com.storystudio.pack.thumbnail.annotated-business-board@1.0.0",
       "pack_id": "com.storystudio.pack.thumbnail.annotated-business-board",
       "item_id": "com.storystudio.thumbnail.annotated-business-board",
