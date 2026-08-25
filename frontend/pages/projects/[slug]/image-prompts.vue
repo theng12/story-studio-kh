@@ -785,20 +785,20 @@
 
         <div class="lettering-part">
           <div class="lettering-part-head"><strong>Font</strong><span>The shape of the letters</span></div>
-          <label class="lettering-auto"><input type="radio" value="auto" v-model="form.thumbnail.thumb_font_style" /> Let the model decide</label>
           <LetteringSwatchPicker
             v-model="form.thumbnail.thumb_font_style" kind="font"
-            :model="form.thumbnail.model" :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
+            :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
+            title="Choose a font"
             caption="Same word in every swatch, so only the letterform differs"
           />
         </div>
 
         <div class="lettering-part">
           <div class="lettering-part-head"><strong>Text style</strong><span>The finish on the letters</span></div>
-          <label class="lettering-auto"><input type="radio" value="auto" v-model="form.thumbnail.thumb_text_style" /> Let the model decide</label>
           <LetteringSwatchPicker
             v-model="form.thumbnail.thumb_text_style" kind="text"
-            :model="form.thumbnail.model" :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
+            :aspect-ratio="form.thumbnail.aspect_ratio || '16:9'"
+            title="Choose a text style"
             caption="Same word and same letterform, so only the finish differs"
           />
         </div>

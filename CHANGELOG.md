@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.59 — 2026-08-25
+
+- **Rendering a swatch failed with `400 Bad Request`, every time, and it was my mistake.** The Thumbnail Prompts page chooses a *language* model — it writes the prompts — and I passed that where an *image* model was needed. GenStudio quite rightly said DeepSeek is not in its image catalogue. A swatch is an app-level picture, not a per-project one, so the page no longer supplies a model at all: the server picks the **cheapest published image model** that can render 16:9, deterministically, so the choice is stable and never silently orphans swatches already rendered.
+- **Each of the three lettering choices is now one line, with the grid in a popup**, like the Recipe Library and the Style Library. The chosen style shows as a small strip — its swatch, its name, the phrase it injects — and "Browse" opens the full grid. That holds at thirty-five styles and still holds at three hundred.
+- "Let the model decide" is a swatch inside the grid rather than a radio button above it, so every option lives in one place.
+
+---
+
 ## v1.4.58 — 2026-08-25
 
 - **One card for the whole lettering decision, where you were already looking.** The swatches added in 1.4.55 went into a block higher up the Thumbnail Prompts tab, while the three dropdowns you actually use — Text style, Font, Title location — sat further down, unchanged. That was my mistake and it made the swatches invisible. Those three dropdowns are now a single "Thumbnail lettering" card, shaped like Channel art style: the font, the finish and the position together, with the swatches in place of the words.

@@ -33,6 +33,7 @@ import {
 import { getApiKey } from '../services/app-secrets-store.js'
 import { generateImageWithGenStudio, listImageModels } from '../lib/genstudio-client.js'
 import { DEFAULT_HEADLINE_MODE, HEADLINE_MODES } from '../models/thumbnail-headlines.js'
+import type { GenStudioImageModel } from '../lib/genstudio-client.js'
 
 export const router = Router()
 
@@ -52,10 +53,39 @@ router.get('/thumbnail-headline-modes', (_req, res) => {
 const PreviewSchema = z.object({
   kind: z.enum(['font', 'text']),
   style_id: z.string().min(1).max(120),
-  model: z.string().min(1),
-  aspect_ratio: z.string().min(1),
+  /**
+   * Optional, and normally absent. The page that hosts this picker chooses a
+   * LANGUAGE model — it writes the prompts — and passing that where an image
+   * model belongs is what made every swatch fail with a 400. A swatch is an
+   * app-level asset, not a per-project one, so the server picks the image
+   * model itself and the page does not have to know one.
+   */
+  model: z.string().min(1).optional(),
+  aspect_ratio: z.string().min(1).optional(),
   force: z.boolean().optional(),
 })
+
+const SWATCH_ASPECT = '16:9'
+
+/**
+ * The cheapest published image model that can render a 16:9 swatch.
+ *
+ * Cheapest because a swatch is a small picture of a word, rendered once, and
+ * paying a premium rate for thirty-five of them buys nothing. Deterministic on
+ * ties by id, because the choice is part of the cache key: a model that moved
+ * about would silently orphan every swatch already rendered.
+ */
+function pickSwatchModel(catalog: readonly GenStudioImageModel[]): GenStudioImageModel | null {
+  const usable = catalog.filter(model =>
+    model.available && !model.locked && !model.qualification_only
+    && (!model.aspect_ratios.length || model.aspect_ratios.includes(SWATCH_ASPECT)))
+  if (!usable.length) return null
+  return [...usable].sort((left, right) => {
+    const leftCost = left.credits_per_image ?? Number.MAX_SAFE_INTEGER
+    const rightCost = right.credits_per_image ?? Number.MAX_SAFE_INTEGER
+    return leftCost - rightCost || left.id.localeCompare(right.id)
+  })[0]!
+}
 
 async function cachedUrlFor(kind: LetteringKind, styleId: string, modelId: string, aspectRatio: string) {
   const style = findLetteringStyle(kind, styleId)
@@ -71,8 +101,16 @@ async function cachedUrlFor(kind: LetteringKind, styleId: string, modelId: strin
 }
 
 router.get('/lettering-styles', async (req, res) => {
-  const modelId = String(req.query.model || '')
-  const aspectRatio = String(req.query.aspect_ratio || '16:9')
+  const aspectRatio = String(req.query.aspect_ratio || SWATCH_ASPECT)
+  // Resolve the SAME model the preview route would choose, or a swatch that
+  // exists reads as missing and the owner pays to render it twice.
+  let modelId = String(req.query.model || '')
+  if (!modelId) {
+    const apiKey = await getApiKey('genstudio').catch(() => '')
+    if (apiKey) {
+      try { modelId = pickSwatchModel(await listImageModels(apiKey))?.id || '' } catch { modelId = '' }
+    }
+  }
   const styles = allLetteringStyles()
   // With no model named the picker still renders every style, just without
   // swatches — the list of choices is not a fact about any image model.
@@ -92,8 +130,7 @@ router.get('/lettering-styles', async (req, res) => {
 router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req, res) => {
   const kind = req.body.kind as LetteringKind
   const styleId = String(req.body.style_id)
-  const modelId = String(req.body.model)
-  const aspectRatio = String(req.body.aspect_ratio)
+  const aspectRatio = String(req.body.aspect_ratio || SWATCH_ASPECT)
   const force = req.body.force === true
 
   const style = findLetteringStyle(kind, styleId)
@@ -101,10 +138,6 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
 
   const styleTag = swatchStyleTag(style)
   const variantId = swatchVariantId(kind)
-  if (!force) {
-    const cached = await cachedUrlFor(kind, styleId, modelId, aspectRatio)
-    if (cached) return res.json({ ...cached, kind, style_id: styleId, cached: true })
-  }
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
@@ -117,12 +150,26 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
   } catch (e: any) {
     return res.status(502).json({ detail: e?.message || 'Could not load the GenStudio image catalog' })
   }
-  const selected = catalog.find(model => model.id === modelId)
-  if (!selected) return res.status(400).json({ detail: `Not in the live GenStudio image catalog: ${modelId}` })
+  const requested = req.body.model ? String(req.body.model) : ''
+  const selected = requested
+    ? catalog.find(model => model.id === requested) || null
+    : pickSwatchModel(catalog)
+  if (!selected) {
+    return res.status(409).json({
+      detail: requested
+        ? `Not in the live GenStudio image catalog: ${requested}`
+        : `No published GenStudio image model can render a ${aspectRatio} swatch right now.`,
+    })
+  }
   if (!selected.available) return res.status(409).json({ detail: `${selected.display_name} is currently unavailable in GenStudio.` })
   if (selected.locked) return res.status(409).json({ detail: `${selected.display_name} is locked for this GenStudio account.` })
   if (selected.aspect_ratios.length && !selected.aspect_ratios.includes(aspectRatio)) {
     return res.status(400).json({ detail: `${selected.display_name} does not support ${aspectRatio}.` })
+  }
+  const modelId = selected.id
+  if (!force) {
+    const cached = await cachedUrlFor(kind, styleId, modelId, aspectRatio)
+    if (cached) return res.json({ ...cached, kind, style_id: styleId, cached: true, model_id: modelId })
   }
 
   const prompt = `${styleTag}. ${SWATCH_FRAMING}`
@@ -157,5 +204,10 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
   const saved = await saveStylePreview({
     styleTag, modelId, aspectRatio, tier: '', variantId, imageBytes,
   })
-  res.json({ hash: saved.hash, url: `/api/style-preview-cache/${saved.hash}`, kind, style_id: styleId, cached: false })
+  res.json({
+    hash: saved.hash, url: `/api/style-preview-cache/${saved.hash}`,
+    kind, style_id: styleId, cached: false,
+    model_id: modelId, model_label: selected.display_name,
+    credits: selected.credits_per_image ?? null,
+  })
 })
