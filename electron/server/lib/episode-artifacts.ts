@@ -78,17 +78,47 @@ export function matchChapterFile(name: string, code: string): number | null {
   return m ? parseInt(m[1]!, 10) : null
 }
 
+
+/**
+ * A line that stamps THE APPLICATION'S OWN NAME onto a customer artifact.
+ *
+ * Up to v1.4.66 `buildNarrationDocx`/`buildImagePromptsDocx` wrote
+ * `Story Studio \u2022 Episode {code}` as the second line of every unified
+ * narration and image-prompts file. Those files are read back VERBATIM as the
+ * "Story context" block of the YouTube description / tag / thumbnail / scene
+ * prompts, so the model was handed the tool's name as if it were the series
+ * name — and wrote it into published copy: "In this episode of Story Studio",
+ * "#StoryStudio". A prompt carries the CHANNEL's identity; it must never carry
+ * the software's.
+ *
+ * The writer no longer emits the line, but every file already on disk still
+ * has it, so it is also removed on the way IN to a prompt. Matching is on the
+ * whole stamp line (optionally italicised, optionally " KH"), never on a bare
+ * occurrence of the words, so narration prose is never altered.
+ */
+const TOOL_IDENTITY_STAMP =
+  /^[ \t]*\*?[ \t]*Story[ \t\-_]*Studio(?:[ \t]+KH)?[ \t]*[\u2022\u00b7|\u2013\u2014-][^\n]*$/i
+
+/** Drop every application-identity stamp line from artifact text. */
+export function stripToolIdentityStamp(text: string): string {
+  return text.split('\n').filter(line => !TOOL_IDENTITY_STAMP.test(line)).join('\n')
+}
+
 /**
  * Read an artifact as raw plain text, dual-read: a `.md`/`.txt` file is read
  * directly; a legacy `.docx` goes through mammoth's text extractor. Replaces
  * the direct `mammoth.extractRawText({ path: paths.narration_docx })` calls so
  * those readers transparently handle both formats.
+ *
+ * Every caller of this feeds the result into an LLM prompt as story context,
+ * so the application-identity stamp legacy files carry is removed here rather
+ * than at each of those call sites.
  */
 export async function readArtifactRawText(pathConstant: string): Promise<string> {
   const p = resolveReadPath(pathConstant)
   if (/\.docx$/i.test(p)) {
     const mammoth = await import('mammoth')
-    return (await mammoth.default.extractRawText({ path: p })).value
+    return stripToolIdentityStamp((await mammoth.default.extractRawText({ path: p })).value)
   }
-  return await fs.readFile(p, 'utf8')
+  return stripToolIdentityStamp(await fs.readFile(p, 'utf8'))
 }

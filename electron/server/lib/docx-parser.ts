@@ -10,6 +10,7 @@
 
 import mammoth from 'mammoth'
 import fs from 'fs/promises'
+import { stripToolIdentityStamp } from './episode-artifacts.js'
 
 // ── Source readers (Markdown preferred, legacy .docx via mammoth) ───────────
 
@@ -41,12 +42,19 @@ function markdownToLines(md: string): StructuredLine[] {
  * `.docx` goes through mammoth → HTML → htmlToLines.
  */
 async function readStructuredLines(filePath: string): Promise<StructuredLine[]> {
+  // stripToolIdentityStamp: files written before v1.4.67 carry a
+  // "Story Studio • Episode {code}" line under the title. `narrationDocxToMarkdown`
+  // round-trips these lines back out as prompt context (scene-planner,
+  // generators/episode.ts), which is how the application's own name reached
+  // published YouTube copy. No parser here has ever wanted that line.
   if (/\.(?:md|txt)$/i.test(filePath)) {
     const text = await fs.readFile(filePath, 'utf8')
-    return markdownToLines(text)
+    return markdownToLines(stripToolIdentityStamp(text))
   }
   const result = await mammoth.convertToHtml({ path: filePath })
-  return htmlToLines(result.value)
+  return htmlToLines(result.value).filter(
+    line => stripToolIdentityStamp(line.text) === line.text,
+  )
 }
 
 // ── Image Prompts Parser ────────────────────────────────────────────────────

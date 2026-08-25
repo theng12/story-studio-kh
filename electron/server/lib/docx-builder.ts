@@ -14,9 +14,16 @@ import { writeAtomic } from './sync-safe.js'
 
 export interface BuildNarrationOpts {
   /**
-   * Prepend the episode-title heading + "Story Studio • Episode {code}"
-   * subtitle block at the top of the docx. Default true (the unified
-   * narration always wants this for visual polish).
+   * Prepend the episode-title heading + "Episode {code}" subtitle block at
+   * the top of the docx. Default true (the unified narration always wants
+   * this for visual polish).
+   *
+   * That subtitle line named the APPLICATION until v1.4.67 ("Story Studio
+   * • Episode {code}"). This file is read back verbatim as the story context
+   * of the YouTube description, tag, thumbnail and scene prompts, so the line
+   * taught the model the tool's name and the model published it — "In this
+   * episode of Story Studio", "#StoryStudio". A generated artifact carries
+   * the CHANNEL's identity, never the software's.
    *
    * Set false for per-chapter source files written by
    * narration-assembly: each chapter gets its own .docx, and including a
@@ -44,7 +51,7 @@ export async function buildNarrationDocx(
     // rendered the title in Word's Title style (a non-heading paragraph),
     // which is what this mirrors. The structural `# \u2026 \u2014 Narration` separator
     // inside narrationText remains the first real heading.
-    out += `${title}\nStory Studio \u2022 Episode ${code}\n\n`
+    out += `${title}\nEpisode ${code}\n\n`
   }
   out += narrationText.trim() + '\n'
   await fs.mkdir(path.dirname(outputPath), { recursive: true })
@@ -54,7 +61,10 @@ export async function buildNarrationDocx(
 export async function buildImagePromptsDocx(
   promptsText: string, code: string, title: string, outputPath: string,
 ): Promise<void> {
-  const out = `# ${title} \u2014 Image Prompts\n\n*Story Studio \u2022 Episode ${code}*\n\n${promptsText.trim()}\n`
+  // No application name here either: the image-prompts file is read back as
+  // prompt context (generators/image-prompts.ts) and is an artifact the owner
+  // hands to other people.
+  const out = `# ${title} \u2014 Image Prompts\n\n*Episode ${code}*\n\n${promptsText.trim()}\n`
   await fs.mkdir(path.dirname(outputPath), { recursive: true })
   await writeAtomic(outputPath, out)
 }
