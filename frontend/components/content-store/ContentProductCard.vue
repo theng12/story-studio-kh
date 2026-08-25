@@ -93,25 +93,56 @@ const canInstall = computed(() => {
 </script>
 
 <style scoped>
-.content-product-card { display: grid; min-width: 0; gap: 13px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
+/*
+ * Column, not grid — this is what makes a row of cards read as a grid.
+ *
+ * The shelf stretches every card in a row to the tallest one. A `display: grid`
+ * card then spread that extra height evenly across its own auto rows, so the
+ * cover, the badge row and the title each started at a different offset on
+ * every card — measured drift of 51px across four cards in one row. A flex
+ * column packs the blocks from the top at one fixed gap and lets
+ * `.product-action`'s `margin-top: auto` do what it was always written to do:
+ * absorb the leftover height in one place, at the bottom.
+ */
+.content-product-card { display: flex; flex-direction: column; min-width: 0; gap: 13px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-secondary); }
 .content-product-card[data-owned='true'] { border-color: color-mix(in srgb, var(--success) 44%, var(--border)); }
 .content-product-card[data-selected] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .select-row { display: inline-flex; align-items: center; gap: 7px; min-height: 32px; color: var(--text-secondary); cursor: pointer; font-size: var(--font-sm); font-weight: 650; }
 .select-row input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; }
 .queue-note { margin-left: auto; color: var(--success); font-size: var(--font-sm); font-weight: 650; }
-.product-proof-link { display: grid; min-width: 0; gap: 12px; color: inherit; text-decoration: none; }
+/* Same reason as the card itself: as a grid this stretched the cover to
+   whatever height the copy left over, which is why no two covers were the
+   same size. */
+.product-proof-link { display: flex; flex-direction: column; min-width: 0; gap: 12px; color: inherit; text-decoration: none; }
 .product-proof-link:hover h3 { color: var(--accent); }
 .product-copy { display: grid; min-width: 0; gap: 6px; }
 .product-title-row { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
-h3 { min-width: 0; overflow-wrap: anywhere; font-size: var(--font-xl); letter-spacing: -.02em; line-height: 1.2; }
+/* Two lines maximum keeps the title row — and so the "Available" tag beside
+   it — the same height on every card. Longer titles do exist. */
+h3 { display: -webkit-box; min-width: 0; overflow: hidden; overflow-wrap: anywhere; font-size: var(--font-xl); letter-spacing: -.02em; line-height: 1.2; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .status-tag { flex: 0 0 auto; max-width: 48%; padding: 3px 7px; border: 1px solid var(--border-light); border-radius: 999px; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.25; text-align: right; }
-.product-promise { color: var(--text-primary); font-size: var(--font-sm); font-weight: 650; line-height: 1.45; overflow-wrap: anywhere; }
+/* Catalogue copy is written to no fixed length — these run from 3 to 20 lines,
+   which is what made the row ragged. The card shows a consistent opening and
+   "View proof" carries the reader to the full text; it is clamped, never
+   rewritten. */
+.product-promise { display: -webkit-box; overflow: hidden; color: var(--text-primary); font-size: var(--font-sm); font-weight: 650; line-height: 1.45; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.product-transformation { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 5; }
 .product-transformation, .ownership-status { color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; overflow-wrap: anywhere; }
 .compatibility-message { display: grid; gap: 3px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; overflow-wrap: anywhere; }
 .compatibility-message strong { color: var(--warning); }
 .recall-message { display: grid; gap: 3px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }.recall-message strong { color: var(--warning); }
 .closure-message { display: grid; gap: 3px; padding: 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--warning) 9%, var(--bg-secondary)); color: var(--text-secondary); font-size: var(--font-sm); line-height: 1.45; }.closure-message strong { color: var(--warning); }
-.product-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
+/*
+ * The slack goes ABOVE the status line, not below it. Titles run to one or two
+ * lines and promises to two or three, so without this the last line of the card
+ * ("GenStudio supplies the exact quote…") sat at three different heights across
+ * a row. Taking the auto margin here instead of on `.product-action` pins the
+ * status line and the action row together at the bottom, and puts the variation
+ * in one deliberate gap after the description. The status branch in the
+ * template is exhaustive — one of them always renders — so this always applies.
+ */
+.ownership-status, .compatibility-message { margin-top: auto; }
+.product-action { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
 .proof-action { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-size: var(--font-sm); font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
 .product-action .btn { margin-left: auto; min-height: var(--control-height-sm); padding: 7px 11px; font-size: var(--font-sm); }
 @media (max-width: 560px) { .product-action .btn { min-height: 44px; } }
