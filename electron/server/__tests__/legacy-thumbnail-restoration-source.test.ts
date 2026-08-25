@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { execFile as execFileCallback } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { test } from 'node:test'
 
 import sharp from 'sharp'
@@ -10,6 +12,7 @@ import sharp from 'sharp'
 import { parseContentPackDocument } from '../content-packs/schemas.js'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..')
+const execFile = promisify(execFileCallback)
 const RESTORATION_ROOT = path.join(ROOT, 'content-packs', 'legacy-thumbnail-restoration')
 const GENERATION_RECEIPT_ROOT = path.join(
   ROOT,
@@ -104,11 +107,6 @@ const FREE_STARTER_ROOT = path.join(ROOT, 'content-packs', 'free-starters')
 const VERSIONED_FREE_STARTER_GALLERIES = [
   {
     slug: 'centered-hero-headline',
-    historicalHashes: {
-      'pack.json': '879414768773630f3e68b5294a044688d8f4e3a7aa6442b4b4767ef6159b2efe',
-      'content/thumbnail-recipe.json': '3f51f8e86e1f2866764932f67a632e9db634dad2d0e7d18f77053dadb8b1b253',
-      'assets/centered-hero-headline.webp': '330334bf935e06fb8167a4ea8321d37a92f64b12a88e9564ccb9cf45f893d2ab',
-    },
     assets: [
       'centered-hero-headline.webp',
       'centered-hero-headline-2.webp',
@@ -118,11 +116,6 @@ const VERSIONED_FREE_STARTER_GALLERIES = [
   },
   {
     slug: 'portrait-block-right',
-    historicalHashes: {
-      'pack.json': '1990565fc67d1646a2c45e98c6cbd34ee4cc9629a32b095ebbd55f4cf39009aa',
-      'content/thumbnail-recipe.json': '2198086e0ce362d59abb78740cc12df1b30b49c45f35be054c1376248078f908',
-      'assets/portrait-block-right.webp': 'd7f458e7e6a4025e8a52c22fab0827fcae32c3c2d576be1e32bf6da439ecc00f',
-    },
     assets: [
       'portrait-block-right.webp',
       'portrait-block-right-2.webp',
@@ -132,11 +125,6 @@ const VERSIONED_FREE_STARTER_GALLERIES = [
   },
   {
     slug: 'dreamscape-story-window',
-    historicalHashes: {
-      'pack.json': '62c958b88f46010600c532fd8eb2149ef2fcd631eb99803f6677085663c0b736',
-      'content/thumbnail-recipe.json': 'f699c850469798aff6406a9d3d440d8b4c445b703457fe26148a43d60301f296',
-      'assets/dreamscape-story-window.webp': '1c2ea52dfd2677ce59178e308559c2ae7d97a3a7c2a4c6f6b73bdccf37a8d2ce',
-    },
     assets: [
       'dreamscape-story-window.webp',
       'dreamscape-story-window-2.webp',
@@ -146,11 +134,6 @@ const VERSIONED_FREE_STARTER_GALLERIES = [
   },
   {
     slug: 'prehistoric-discovery',
-    historicalHashes: {
-      'pack.json': '4802b098abd371f34b005fa86b949741e631a7f37fd9b6beca958d43176ad2c6',
-      'content/thumbnail-recipe.json': '87f69dc592ea05525f1d4fa59d239b9f04fcd5b3258234353a583038cef122f9',
-      'assets/prehistoric-discovery.webp': '557f86602b5f96f8d92fc28f981c79eb1121d63b2f7ab1d8bff535e8524dfd14',
-    },
     assets: [
       'prehistoric-discovery.webp',
       'prehistoric-discovery-2.webp',
@@ -478,17 +461,138 @@ test('Dreamlike Luminous Sleep Illustration supplies a text-free, ledgered style
   await assertWebp(DREAMLIKE_STYLE_ROOT, DREAMLIKE_STYLE_ASSET, ledger)
 })
 
+/**
+ * v1.4.68 — the published-bytes guard, reshaped.
+ *
+ * WHAT IT USED TO DO, AND WHY THAT WAS WRONG. It read the UNVERSIONED
+ * directory of each gallery slug and asserted its bytes still hashed to the
+ * values published at commit 46711262 — i.e. it assumed the unversioned
+ * directory is permanently the 1.0.0 baseline. It is not. The unversioned
+ * directory is the CURRENT version and moves: `b0b984ab` bumped
+ * `portrait-block-right` to 1.0.2 for a good reason (stripping our own working
+ * notes out of what a customer buys) and that alone broke the guard. The other
+ * three slugs were passing by luck, not design — the next bump to any of them
+ * would have broken it identically.
+ *
+ * Re-pinning the constants to the 1.0.2 bytes would have made it green and
+ * DEFEATED it: a moving directory re-pinned to a snapshot, guaranteed to
+ * re-break, never checking the thing that matters.
+ *
+ * WHAT IT DOES NOW. Bytes are pinned by IDENTITY, not by directory name:
+ *
+ *   • every pack directory of these families is looked up in a committed byte
+ *     manifest by its directory name, and must match exactly — no changed file,
+ *     no added file, no removed file
+ *   • a `-vX.Y.Z` directory must declare exactly that version in `pack.json`
+ *   • one identity lives in exactly one directory: no two directories of a pack
+ *     may declare the same version, and each directory's `pack_id@version` must
+ *     be the identity the authoring registry records at that exact source path
+ *   • an identity whose directory no longer exists — `portrait-block-right`
+ *     1.0.0, whose bytes live only in history — is verified against the commit
+ *     that published it
+ *
+ * MEASURED, and worth writing down because it is the obvious wrong guess: the
+ * unversioned directory is NOT reliably the newest version. It is simply the
+ * original directory. A `-vX.Y.Z` sibling may be BEHIND it (`portrait-block-right`
+ * is 1.0.2 unversioned beside a retained 1.0.1) or AHEAD of it (`centered-hero-headline`
+ * is 1.0.0 unversioned beside a reserved 1.0.1 being staged). Asserting an
+ * ordering between them would fail on three of these four families today, and
+ * would be asserting a convention the repository does not actually keep.
+ *
+ * So a bump no longer breaks the guard; it requires a deliberate manifest
+ * update. And an edit to ANY published version directory is now caught, which
+ * is the real rule and something the old shape could not detect at all.
+ *
+ * The old `preview_assets` equality against the unversioned directory is gone
+ * on purpose. That was a claim about how the CURRENT gallery has evolved, not
+ * an immutability claim, and it belongs to the successor assertions above.
+ */
+const PUBLISHED_BYTES_MANIFEST = path.join(
+  ROOT, 'electron', 'server', '__tests__', 'fixtures', 'published-free-starter-thumbnail-bytes.json',
+)
+const VERSION_SUFFIX = /-v(\d+\.\d+\.\d+)$/
+
+type ByteManifest = {
+  published_directories: Record<string, { pack_id: string, version: string, files: Record<string, string> }>
+  retired_identities: Record<string, { commit: string, path: string, files: Record<string, string> }>
+}
+
+async function treeHashes(root: string): Promise<Record<string, string>> {
+  const hashes: Record<string, string> = {}
+  const walk = async (dir: string, prefix = ''): Promise<void> => {
+    for (const entry of (await fs.readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name
+      if (entry.isDirectory()) await walk(path.join(dir, entry.name), relative)
+      else hashes[relative] = sha256(await fs.readFile(path.join(dir, entry.name)))
+    }
+  }
+  await walk(root)
+  return hashes
+}
+
+test('every published free-starter Recipe version keeps its exact bytes, whichever directory holds it', async () => {
+  const manifest = JSON.parse(await fs.readFile(PUBLISHED_BYTES_MANIFEST, 'utf8')) as ByteManifest
+  const thumbnailRoot = path.join(FREE_STARTER_ROOT, 'thumbnail')
+  const families: string[] = VERSIONED_FREE_STARTER_GALLERIES.map(gallery => gallery.slug)
+  const onDisk = (await fs.readdir(thumbnailRoot, { withFileTypes: true }))
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name)
+    .filter(name => families.includes(name.replace(VERSION_SUFFIX, '')))
+    .sort()
+
+  assert.deepEqual(onDisk, Object.keys(manifest.published_directories).sort(),
+    'every gallery directory on disk must be pinned, and every pinned directory must exist')
+
+  const declared = new Map<string, { packId: string, version: string, hashes: Record<string, string> }>()
+  for (const name of onDisk) {
+    const pinned = manifest.published_directories[name]!
+    const packManifest = await readJson(path.join(thumbnailRoot, name, 'pack.json'))
+    const suffix = VERSION_SUFFIX.exec(name)?.[1]
+    if (suffix) {
+      assert.equal(packManifest.version, suffix, `${name} must declare the version its directory name claims`)
+    }
+    assert.equal(packManifest.pack_id, pinned.pack_id, `${name} must declare its pinned pack id`)
+    assert.equal(packManifest.version, pinned.version, `${name} must declare its pinned version`)
+    const hashes = await treeHashes(path.join(thumbnailRoot, name))
+    assert.deepEqual(hashes, pinned.files,
+      `${name} must retain its published bytes exactly — no changed, added, or removed file`)
+    declared.set(name, { packId: String(packManifest.pack_id), version: String(packManifest.version), hashes })
+  }
+
+  // One identity, one directory — and the authoring registry decides which.
+  const registry = JSON.parse(await fs.readFile(
+    path.join(ROOT, 'content-packs', 'authoring-registry.json'), 'utf8',
+  )) as { records: Array<{ pack_id: string, version: string, source_path: string }> }
+  const registeredSource = new Map(registry.records.map(
+    record => [`${record.pack_id}@${record.version}`, record.source_path],
+  ))
+  const seen = new Map<string, string>()
+  for (const [name, entry] of declared) {
+    const identity = `${entry.packId}@${entry.version}`
+    const duplicate = seen.get(identity)
+    assert.equal(duplicate, undefined,
+      `${identity} is declared by both ${duplicate} and ${name}; one published identity has one source`)
+    seen.set(identity, name)
+    assert.equal(registeredSource.get(identity), `content-packs/free-starters/thumbnail/${name}`,
+      `${identity} must be the identity the authoring registry records for ${name}`)
+  }
+
+  for (const [identity, retired] of Object.entries(manifest.retired_identities)) {
+    for (const [relative, expected] of Object.entries(retired.files)) {
+      const { stdout } = await execFile('git', ['show', `${retired.commit}:${retired.path}/${relative}`], {
+        cwd: ROOT, encoding: 'buffer', maxBuffer: 32 * 1024 * 1024,
+      })
+      assert.equal(sha256(Buffer.from(stdout)), expected,
+        `${identity} no longer has a directory, so ${relative} must still hash to what ${retired.commit.slice(0, 8)} published`)
+    }
+  }
+})
+
 test('published 1.0.0 free-starter sources retain their historical bytes while 1.0.1 successors carry the enriched galleries', async () => {
   for (const gallery of VERSIONED_FREE_STARTER_GALLERIES) {
-    const historicalRoot = path.join(FREE_STARTER_ROOT, 'thumbnail', gallery.slug)
     const successorRoot = path.join(FREE_STARTER_ROOT, 'thumbnail', `${gallery.slug}-v1.0.1`)
-    const historicalRecipe = await readJson(path.join(historicalRoot, 'content', 'thumbnail-recipe.json'))
     const successorManifest = await readJson(path.join(successorRoot, 'pack.json'))
     const successorRecipe = await readJson(path.join(successorRoot, 'content', 'thumbnail-recipe.json'))
-    assert.deepEqual(historicalRecipe.preview_assets, [`assets/${gallery.assets[0]}`])
-    for (const [relativePath, expectedHash] of Object.entries(gallery.historicalHashes)) {
-      assert.equal(sha256(await fs.readFile(path.join(historicalRoot, relativePath))), expectedHash, `${gallery.slug} historical ${relativePath} retains commit 46711262 bytes`)
-    }
     assert.equal(successorManifest.version, '1.0.1')
     assert.equal(successorManifest.pack_id, `com.storystudio.pack.thumbnail.${gallery.slug}`)
     const entitlement = successorManifest.entitlement as { family: string, sku: string }
