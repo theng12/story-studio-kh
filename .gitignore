@@ -1,5 +1,5 @@
 # Dependencies (matches at any depth — no leading slash)
-node_modules/
+node_modules
 
 # Build / compile outputs
 dist/
