@@ -44,7 +44,7 @@ export const TEXT_STYLES: Record<string, string> = {
   shadow:          'deep drop shadow, clean solid fill, strong contrast',
   glitch:          'digital glitch effect, RGB split, scan-line texture',
   embossed:        'embossed metallic 3D bevel, subtle gold highlights',
-  handwritten:     'inked finish, slightly uneven edges, soft ink bleed, organic feel',
+  handwritten:     'inked finish, uneven ink density, dry-brush streaks and blotches within the letters, pooled dark edges',
   vintage:         'vintage sepia print, lightly weathered, muted warm tones',
   pastel:          'soft pastel palette, gentle airbrushed glow, dreamlike',
 }
