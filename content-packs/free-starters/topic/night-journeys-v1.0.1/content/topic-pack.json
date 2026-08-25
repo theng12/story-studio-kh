@@ -921,7 +921,7 @@
     "a padded violin cradle",
     "a bow-bench sleeve guard",
     "a finished-bow rack label",
-    "a bench magnifier",
+    "a bow-hair contrast card",
     "a workshop key",
     "a violin-display light meter card",
     "a perforated music roll",
@@ -949,7 +949,7 @@
     "a wooden stem tray",
     "a bundle of lavender",
     "a brass label holder",
-    "a linen counter cloth",
+    "a wooden vase-depth gauge",
     "a row of ceramic pots",
     "a paper flower tag",
     "a basket of dried petals",
@@ -971,6 +971,7 @@
     "a paper cardamom packet",
     "a shallow label tray",
     "a cork jar stopper",
+    "a linen counter cloth",
     "a wooden drawer divider",
     "a sealed-jar shelf token",
     "a spice-apron hanging loop",
@@ -1964,7 +1965,7 @@
     "folding its support arms inward",
     "buttoning it over the cleaned tool rest",
     "fastening the date label beneath the final occupied rack groove",
-    "lowering its arm over the work mat",
+    "sliding the contrast card beneath the rested bow hair until the full ribbon crosses its white field",
     "folding the felt bench cover into thirds beside the bow tools",
     "turning the workshop key tag until its labeled face points upward inside the wooden dish",
     "checking its quiet-light mark beside the resting violin",
@@ -1995,7 +1996,7 @@
     "brushing clipped leaves into compost",
     "rolling it inside thin paper",
     "sliding tomorrow's flower card inside",
-    "folding it beside the empty vase",
+    "lowering its cork-tipped stem into the empty vase until the etched shoulder meets the rim",
     "placing each ceramic pot on its own felt shelf ring",
     "writing the color name in pencil",
     "sorting pale petals into a sachet",
@@ -2966,7 +2967,7 @@
     "Keep the padded violin cradle, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding its support arms inward. Show both support arms folded inward at their hinges and resting inside the cradle outline, then hold after the hands withdraw.",
     "Frame the bow-bench sleeve guard and cleaned tool rest from end to end. Draw the guard over the rest with a soft fabric sound, button both closures beneath it, and hold when the full rest is covered and the guard remains smooth after release.",
     "Keep the finished-bow rack label, final occupied groove, and fastening clip together in one close view. Fasten the date label beneath that groove with a subdued click, show the full date legible and the bow above undisturbed, and hold when the label remains level after release.",
-    "Follow the bench magnifier from its starting position through lowering its arm over the work mat in a single steady view. Keep the magnifier’s visible edge and the final detail (over the work mat) visible; hold when the bench magnifier arm reaches over the work mat and remains motionless after release.",
+    "Keep the bow-hair contrast card, the rested bow hair, and the white field in one quiet close view while sliding the contrast card beneath the rested bow hair until the full ribbon crosses its white field. Finish when the complete hair ribbon is readable against the white field, the card lies flat, and neither card nor bow shifts after release.",
     "Watch the felt bench cover change shape in one unbroken side view during folding the felt bench cover into thirds beside the bow tools. Preserve the cover’s felt detail, the subdued contact sound, and the final detail (into thirds beside the bow tools); hold until the felt bench cover’s worked edges meet, the crease lies flat, and the released fold holds. Show all three felt layers aligned beside the bow tools after the final fold.",
     "Follow the workshop key from its starting position through turning the workshop key tag until its labeled face points upward inside the wooden dish in a single steady view. Keep the key’s visible edge and the final detail (until its labeled face points upward inside the wooden dish) visible; hold when the target condition—its labeled face points upward inside the wooden dish—is plainly visible and the hands become still.",
     "Frame the violin-display light meter card beside the resting violin without covering the instrument. Hold the card steady in the softened light, show the indicator aligned with the printed quiet-light mark, and withdraw the hand while the violin remains undisturbed.",
@@ -2997,7 +2998,7 @@
     "Keep the wooden stem tray, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing clipped leaves into compost. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw.",
     "Watch the bundle of lavender change shape in one unbroken side view during rolling it inside thin paper. Preserve the lavender’s visible edge, the subdued contact sound, and the final detail (inside thin paper); hold until the finished roll keeps its compact shape without a supporting hand.",
     "Keep the brass label holder, the working hand, and every indispensable changed point in one continuous quiet frame throughout sliding tomorrow's flower card inside. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw.",
-    "Watch the linen counter cloth change shape in one unbroken side view during folding it beside the empty vase. Preserve the cloth’s linen detail, the subdued contact sound, and the final detail (beside the empty vase); hold until the linen counter cloth’s worked edges meet, the crease lies flat, and the released fold holds.",
+    "Frame the wooden vase-depth gauge and the empty vase together while lowering its cork-tipped stem into the empty vase until the etched shoulder meets the rim. Keep the gauge’s wood grain, the muted cork contact, and the etched shoulder visible; finish when the shoulder rests evenly on the vase rim, the stem hangs centered inside, and the released gauge remains still.",
     "Frame the row of ceramic pots with its destination before placing each ceramic pot on its own felt shelf ring. Stay uncut through the muted transfer, keeping the pots’ ceramic detail and the final detail (on its own felt shelf ring) visible until the final placement of each ceramic pot is fully on its own felt shelf ring and remains stable after release.",
     "Hold the paper flower tag, writing point, and reference in one frame during writing the color name in pencil. Preserve the tag’s paper detail, the faint stroke sound, and the written detail (color name in pencil); end only when the intended mark is legible and the writing point lifts cleanly.",
     "Keep the basket of dried petals, the working hand, and every indispensable changed point in one continuous quiet frame throughout sorting pale petals into a sachet. Show all selected pale petals visibly inside the sachet and no loose petal left in the basket, then hold after the hands withdraw.",
@@ -8598,10 +8599,10 @@
           "evidence_lens": "Keep the finished-bow rack label, final occupied groove, and fastening clip together in one close view. Fasten the date label beneath that groove with a subdued click, show the full date legible and the bow above undisturbed, and hold when the label remains level after release."
         },
         {
-          "episode_object": "a bench magnifier",
+          "episode_object": "a bow-hair contrast card",
           "time_place_scope": "the same silent violin workshop at night",
-          "mechanism": "lowering its arm over the work mat",
-          "evidence_lens": "Follow the bench magnifier from its starting position through lowering its arm over the work mat in a single steady view. Keep the magnifier’s visible edge and the final detail (over the work mat) visible; hold when the bench magnifier arm reaches over the work mat and remains motionless after release."
+          "mechanism": "sliding the contrast card beneath the rested bow hair until the full ribbon crosses its white field",
+          "evidence_lens": "Keep the bow-hair contrast card, the rested bow hair, and the white field in one quiet close view while sliding the contrast card beneath the rested bow hair until the full ribbon crosses its white field. Finish when the complete hair ribbon is readable against the white field, the card lies flat, and neither card nor bow shifts after release."
         },
         {
           "episode_object": "a felt bench cover",
@@ -8794,10 +8795,10 @@
           "evidence_lens": "Keep the brass label holder, the working hand, and every indispensable changed point in one continuous quiet frame throughout sliding tomorrow's flower card inside. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
         },
         {
-          "episode_object": "a linen counter cloth",
+          "episode_object": "a wooden vase-depth gauge",
           "time_place_scope": "the same quiet flower shop after closing",
-          "mechanism": "folding it beside the empty vase",
-          "evidence_lens": "Watch the linen counter cloth change shape in one unbroken side view during folding it beside the empty vase. Preserve the cloth’s linen detail, the subdued contact sound, and the final detail (beside the empty vase); hold until the linen counter cloth’s worked edges meet, the crease lies flat, and the released fold holds."
+          "mechanism": "lowering its cork-tipped stem into the empty vase until the etched shoulder meets the rim",
+          "evidence_lens": "Frame the wooden vase-depth gauge and the empty vase together while lowering its cork-tipped stem into the empty vase until the etched shoulder meets the rim. Keep the gauge’s wood grain, the muted cork contact, and the etched shoulder visible; finish when the shoulder rests evenly on the vase rim, the stem hangs centered inside, and the released gauge remains still."
         },
         {
           "episode_object": "a row of ceramic pots",
