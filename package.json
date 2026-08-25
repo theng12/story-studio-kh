@@ -32,7 +32,7 @@
     "content-pack:registry": "node scripts/content-packs/authoring-registry.mjs",
     "start": "electron .",
     "test:backend": "node scripts/testing/run-backend-tests.mjs",
-    "test:frontend": "cd frontend && npx tsx --import ./__tests__/setup.ts --test __tests__/*.test.ts",
+    "test:frontend": "cd frontend && npx nuxi prepare && npx tsx --import ./__tests__/setup.ts --test __tests__/*.test.ts",
     "test:release": "node --test scripts/release/__tests__/*.test.mjs",
     "test": "npm run test:backend && npm run test:frontend && npm run test:release",
     "lint": "eslint electron/server electron/main.ts",
