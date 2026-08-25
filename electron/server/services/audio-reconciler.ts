@@ -6,7 +6,8 @@
  *
  * Strategy:
  *   1. Replicate the generator's chunk-filename logic to compute what files
- *      SHOULD exist for a given episode (same parser + same 4800-char split).
+ *      SHOULD exist for a given episode (same parser, same shared request
+ *      planner, same per-model published boundary).
  *   2. Compare to what's on disk.
  *   3. Reclaim only accepted GenStudio jobs with their durable job id.
  *
@@ -16,7 +17,6 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
-import { chunkText } from '../lib/text-chunker.js'
 import { normalizeForTts } from '../lib/tts-text.js'
 import { findNarrationFile, resolveAudioDir } from '../generators/audio.js'
 import { readManifest } from './task-manifest.js'
@@ -27,6 +27,7 @@ import {
 } from '../lib/genstudio-client.js'
 import { findFileCaseInsensitive } from './fs-case-insensitive.js'
 import { getApiKey } from './app-secrets-store.js'
+import { resolveTtsRequestBudget } from './tts-request-plan.js'
 
 export interface ExpectedChunk {
   filename: string        // e.g. TN0001_Chapter_03_part2.mp3
@@ -44,9 +45,10 @@ export interface AudioStatus {
   expected: ExpectedChunk[]
   present: string[]       // filenames on disk with size > 0
   missing: string[]       // filenames absent OR zero-byte
-  /** Historical provider classification inferred from the latest audio job.
-   *  It is used only to reproduce legacy chunk filenames while reading status;
-   *  it never selects a recovery client. */
+  /** 'genstudio' when an audio job identified the model this episode was (or
+   *  will be) generated with, '' when none could be found. Informational only:
+   *  GenStudio is the sole route, and recovery reads the manifest entry's own
+   *  provider rather than this field. */
   provider: string
 }
 
@@ -89,55 +91,54 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
   const sections = await parseNarrationDocx(narrationPath)
   const code = episodeId.toUpperCase()
 
-  // Resolve the SAME per-model TTS chunk cap the generator used, so our
-  // expected chunk split matches the files actually on disk. The generator
-  // splits at AudioModelConfig.tts_soft_max_chars (e.g. Voice Studio Kokoro =
-  // 2000); using the chunker's 4800 default here under-counts chunks for local
-  // models, so a fully-generated multi-part section (…_part1/_part2) looked
-  // "missing" because we only expected a single …{slug}.mp3. Mirror
-  // generators/audio.ts: read the cap off the episode's most recent audio
-  // job's model. Dynamic imports avoid an import cycle (this module is a
-  // static dep of the job-queue's executor graph). Fail-quiet → chunker default.
-  let ttsChunkCap: number | undefined
-  let genStudioMaxCharacters: number | undefined
+  // Resolve the SAME request boundary the generator submitted at, so the
+  // filenames predicted here are the filenames generation writes.
+  //
+  // GenStudio is the only TTS route now — `resolveAudioProvider` returns
+  // 'genstudio' unconditionally — so there is exactly one boundary to
+  // reproduce: the SELECTED model's published `maximum_input_characters`,
+  // less Story Studio's head-room. `resolveTtsRequestBudget` is the one place
+  // that decides it, and generation, quoting and this status view now all read
+  // it from there, so the three cannot drift.
+  //
+  // This used to classify the model by id prefix and only take the GenStudio
+  // path when the classification said 'genstudio'. That classification could
+  // no longer succeed: its inputs came from `config.audio_models`, which
+  // `genStudioOnlyAudioModels()` now always returns empty, so every model fell
+  // through to a prefix test that a published handle like `fish-audio-s2-1-pro`
+  // does not match. Status therefore planned at `chunkText`'s 4,800-character
+  // default — an ElevenLabs-era figure belonging to a retired direct route —
+  // and predicted a `_part1`/`_part2` split for any section over 4,800
+  // characters that generation submits whole. Model-specific chunking is the
+  // fleet's business, not Story Studio's; the only length this client may hold
+  // is the one the selected model publishes.
+  //
+  // Dynamic imports avoid an import cycle (this module is a static dep of the
+  // job-queue's executor graph).
+  let requestBudget: number | undefined
   let provider = ''
   try {
     const { getJobs } = await import('./job-queue.js')
     const jobs = await getJobs(slug)
-    const lastAudio = jobs
-      .filter(j => j.type === 'audio' && (j.episode_id || '').toUpperCase() === code)
-      .sort((a, b) => String(b.finished_at || b.created_at || '').localeCompare(String(a.finished_at || a.created_at || '')))[0]
+    const audioJobs = jobs
+      .filter(j => j.type === 'audio')
+      .sort((a, b) => String(b.finished_at || b.created_at || '').localeCompare(String(a.finished_at || a.created_at || '')))
+    // This episode's own job names the model it was generated with. Terminal
+    // job history is pruned, so an episode whose job has aged out falls back to
+    // the project's most recent audio job — the same model in practice, and a
+    // far better answer than a constant.
+    const lastAudio = audioJobs.find(j => (j.episode_id || '').toUpperCase() === code) || audioJobs[0]
     const model = (lastAudio?.params as any)?.model
     if (model) {
-      const pm = await import('./project-manager.js')
-      const config = await pm.getConfig(slug)
-      const entry = (config as any)?.audio_models?.[model]
-      const cap = entry?.tts_soft_max_chars
-      if (typeof cap === 'number' && cap > 0) ttsChunkCap = cap
-      // Reproduce the generator's GenStudio boundary from the same live source
-      // it used: the selected model's published maximum_input_characters. A
-      // remembered number here would silently predict the wrong filenames.
-      const { getApiKey } = await import('./app-secrets-store.js')
+      provider = 'genstudio'
       const apiKey = await getApiKey('genstudio').catch(() => '')
       if (apiKey) {
         const ttsModel = (await listGenStudioTtsModels(apiKey).catch(() => []))
           .find(candidate => candidate.id === model)
-        if (ttsModel) genStudioMaxCharacters = ttsModel.maximum_input_characters
+        if (ttsModel) requestBudget = resolveTtsRequestBudget(ttsModel).effective
       }
-      // Preserve the provider classification only so status calculation can
-      // reproduce the old chunk boundaries. Recovery ignores this field and
-      // accepts GenStudio manifest entries only.
-      provider = entry?.provider
-        || (model.startsWith('eleven_') ? 'elevenlabs'
-          : model.startsWith('genaipro-') ? 'genaipro'
-          : model.startsWith('kie-') ? 'kie'
-          : model.startsWith('fishaudio-') ? 'fishaudio'
-          : model.startsWith('voicestudio-') ? 'voicestudio'
-          : model.startsWith('genstudio-') ? 'genstudio'
-          : model.startsWith('macos-') ? 'macos'
-          : 'fal')
     }
-  } catch { /* fall back to the chunker's default cap */ }
+  } catch { /* boundary unresolved — handled per section below */ }
 
   const expected: ExpectedChunk[] = []
   for (const section of sections) {
@@ -147,9 +148,17 @@ export async function getAudioStatus(slug: string, episodeId: string): Promise<A
     // used for recovery matching — match what the generator actually produced.
     const sectionText = normalizeForTts(section.text).text
     const sectionStats = narrationTextStats(sectionText)
-    const chunks = provider === 'genstudio' && genStudioMaxCharacters
-      ? splitGenStudioApiRequests(sectionText, genStudioMaxCharacters)
-      : chunkText(sectionText, ttsChunkCap)
+    // No boundary resolved means this project has never run an audio job (750
+    // terminal jobs are retained, so history does not quietly age out under a
+    // working project), or the catalogue was momentarily unreachable. Either
+    // way Story Studio does not know this model's published request length and
+    // must not substitute a number of its own — the previous 4,800 default is
+    // exactly the mistake this avoids. Expect the section as one request: it is
+    // what every published GenStudio TTS model does with a chapter-length
+    // section, and a project with no audio job has no part files to miss.
+    const chunks = requestBudget
+      ? splitGenStudioApiRequests(sectionText, requestBudget)
+      : [sectionText]
 
     // v1.0.310 — imported / hand-placed whole-chapter override. If the
     // generator WOULD split this section into _part1/_part2… but a single
