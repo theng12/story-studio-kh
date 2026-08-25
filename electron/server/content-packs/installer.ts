@@ -22,6 +22,7 @@ import {
 import { withContentPackCoordinationLock, withContentPackStateTransaction } from './state.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
 import { resolveStoryStudioVersion } from '../lib/app-version.js'
+import { logLine } from '../services/logger.js'
 
 const DIRECTORY_MODE = 0o700
 const FILE_MODE = 0o600
@@ -441,7 +442,49 @@ export async function quarantineContentPackBytes(
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
   }
   await fsyncDirectory(paths.quarantineRoot)
+  // Quarantining was previously silent in every log, so a paid pack could fail
+  // to install and leave no trace anywhere except an opaque folder nobody reads.
+  logLine('warn', 'Content Pack archive quarantined', {
+    code: failureCode(reason), archive_sha256: digest, archive_bytes: bytes.byteLength,
+  })
   return archivePath
+}
+
+/**
+ * A failed attempt keeps its bytes so the failure can be examined. Once the
+ * IDENTICAL archive installs, that copy stops being evidence and becomes a
+ * standing accusation against a pack that works.
+ *
+ * Two paid packs sat in quarantine marked `invalid_archive` while both were
+ * installed, active and being served — one had been quarantined by a bug fixed
+ * 39 minutes later, the other by being pushed through the local-import door,
+ * which verifies Store archives against the wrong trust profile. Nothing ever
+ * cleared either, so the only durable record of both was wrong.
+ */
+export async function releaseQuarantinedContentPackBytes(
+  archiveSha256: string,
+  paths: ContentPackRuntimePaths,
+): Promise<boolean> {
+  if (!/^[0-9a-f]{64}$/.test(archiveSha256)) return false
+  const archivePath = assertContained(paths.quarantineRoot, path.join(paths.quarantineRoot, `${archiveSha256}.sspack`))
+  let released = false
+  for (const target of [`${archivePath}.json`, archivePath]) {
+    try {
+      // lstat, never stat: a symlink planted here must be removed as the link
+      // it is, never followed to whatever it points at.
+      const entry = await fs.lstat(target)
+      if (!entry.isFile()) continue
+      await fs.unlink(target)
+      released = true
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+  }
+  if (released) {
+    await fsyncDirectory(paths.quarantineRoot)
+    logLine('info', 'Content Pack quarantine cleared by a successful install', { archive_sha256: archiveSha256 })
+  }
+  return released
 }
 
 async function stageArchive(bytes: Uint8Array, paths: ContentPackRuntimePaths): Promise<string> {
@@ -545,7 +588,7 @@ export async function installContentPackLocked(
   }
   await assertContentPackAppCompatible(verified.manifest.min_app_version, options.appVersion)
 
-  return withContentPackStateTransaction(async state => {
+  const installed = await withContentPackStateTransaction(async state => {
     let transactionRoot: string | undefined
     try {
       transactionRoot = await stageArchive(request.archiveBytes, paths)
@@ -594,4 +637,8 @@ export async function installContentPackLocked(
       if (transactionRoot) await removeTreeIfContained(paths.stagingRoot, transactionRoot)
     }
   }, paths)
+  // Best effort on purpose: clearing stale evidence must never turn a
+  // completed, verified install back into a failure.
+  try { await releaseQuarantinedContentPackBytes(archiveSha, paths) } catch { /* the install stands regardless */ }
+  return installed
 }

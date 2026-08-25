@@ -242,6 +242,68 @@ describe('Content Pack local installer', () => {
     assert.deepEqual(sidecar, { code: 'invalid_archive' })
   })
 
+  /**
+   * Found in the wild: two PAID packs sat in quarantine marked `invalid_archive`
+   * while both were installed, active and being served. One was quarantined by a
+   * bug fixed 39 minutes later, the other by being pushed through the local-import
+   * door, which verifies a Store archive against the wrong trust profile. Nothing
+   * ever cleared either entry, so the only durable record of both packs said they
+   * were corrupt -- and it was wrong. A retry that succeeds must retract the
+   * accusation, or the evidence outlives the fault forever.
+   */
+  test('a successful install clears the quarantined copy of the identical archive', async () => {
+    const paths = await isolated()
+    const archiveBytes = await buildArchive()
+
+    // An earlier attempt at these exact bytes failed and was quarantined.
+    const quarantined = await quarantineContentPackBytes(archiveBytes, 'invalid_archive', paths)
+    await fs.access(quarantined)
+    await fs.access(`${quarantined}.json`)
+
+    // The retry succeeds -- same bytes, same digest.
+    const result = await installContentPack(request(archiveBytes), { paths, policy })
+    assert.equal(result.archive_sha256, sha256(archiveBytes))
+
+    await assert.rejects(fs.stat(quarantined), { code: 'ENOENT' }, 'the quarantined archive must not outlive a successful install')
+    await assert.rejects(fs.stat(`${quarantined}.json`), { code: 'ENOENT' }, 'the quarantine verdict must not outlive a successful install')
+    assert.deepEqual(await fs.readdir(paths.quarantineRoot), [])
+  })
+
+  /**
+   * The exact shape of the two packs found in the wild: already installed and
+   * active, with a stale quarantine entry beside them. Re-installing takes the
+   * immutable "already retained" branch and never writes a new version, so the
+   * cleanup has to sit outside that branch or those two would never be cleared.
+   */
+  test('re-installing an already-installed version still clears its stale quarantine entry', async () => {
+    const paths = await isolated()
+    const archiveBytes = await buildArchive()
+    await installContentPack(request(archiveBytes), { paths, policy })
+
+    // The stale entry is written AFTER the pack is already installed and active.
+    const quarantined = await quarantineContentPackBytes(archiveBytes, 'invalid_archive', paths)
+    await fs.access(quarantined)
+
+    await installContentPack(request(archiveBytes), { paths, policy })
+    assert.deepEqual(await fs.readdir(paths.quarantineRoot), [])
+  })
+
+  test('clearing quarantine leaves an unrelated pack\'s quarantined bytes untouched', async () => {
+    const paths = await isolated()
+    const installedBytes = await buildArchive()
+    const unrelatedBytes = Buffer.from('a genuinely broken archive from some other pack')
+    const unrelated = await quarantineContentPackBytes(unrelatedBytes, 'invalid_archive', paths)
+    await quarantineContentPackBytes(installedBytes, 'invalid_archive', paths)
+
+    await installContentPack(request(installedBytes), { paths, policy })
+
+    assert.deepEqual(await fs.readFile(unrelated), unrelatedBytes, 'an unresolved failure must still be retained')
+    assert.deepEqual(
+      (await fs.readdir(paths.quarantineRoot)).sort(),
+      [path.basename(unrelated), `${path.basename(unrelated)}.json`].sort(),
+    )
+  })
+
   test('never changes a previous active version when every transaction cut point fails', async () => {
     const paths = await isolated()
     await installContentPack(request(await buildArchive({ version: '1.0.0' })), { paths, policy })
