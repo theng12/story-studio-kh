@@ -14,6 +14,8 @@ import {
 } from '../services/content-store-delivery.js'
 import { GenStudioContentStoreApiError } from '../lib/genstudio-content-store.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
+import { redactSecrets } from '../lib/redact-secrets.js'
+import { logLine } from '../services/logger.js'
 
 const MAX_BODY_BYTES = 16 * 1024
 const OPAQUE_ID = z.string().min(1).max(256).regex(/^[^\u0000-\u001f\u007f]+$/)
@@ -136,8 +138,24 @@ function handleFailure(
     res.status(400).json({ code: 'CONTENT_STORE_REQUEST_INVALID', detail: 'Content Store request fields are invalid.' })
     return
   }
-  // The commerce journal and client carry paths and signed evidence internally.
-  // Do not pass those raw failures into the shared logger/renderer boundary.
+  // The commerce journal and client carry paths and signed evidence internally,
+  // so the RESPONSE stays the generic fallback -- none of that reaches the
+  // renderer. The log is a different audience: it is local, redacted below, and
+  // it is the only place the cause can be recovered from afterwards.
+  //
+  // Logging the synthetic fallback instead made every unexpected Content Store
+  // failure indistinguishable -- a request timeout, an unreadable state file
+  // and an outright bug all wrote the same "Failed to load the Content Store"
+  // line with a stack pointing at this function. Diagnosing the install outage
+  // that motivated this change meant guessing, because the evidence had been
+  // thrown away at the moment it was produced.
+  logLine('error', 'Content Store failure surfaced as a generic 500', {
+    fallback,
+    raw: redactSecrets(String((error as { message?: unknown })?.message ?? error ?? '')),
+    name: String((error as { name?: unknown })?.name ?? ''),
+    code: (error as { code?: unknown })?.code,
+    stack: redactSecrets(String((error as { stack?: unknown })?.stack ?? '')),
+  })
   res.status(500).json(humanizeBackendError(new Error(fallback), fallback))
 }
 

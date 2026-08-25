@@ -412,11 +412,32 @@ async function activeKey(): Promise<string> {
   return apiKey
 }
 
+/**
+ * How many owned-release-history requests may be in flight at once.
+ *
+ * Enriching the purchase journal asks GenStudio for one release history per
+ * owned entitlement family, and it used to ask for all of them simultaneously:
+ * an outer `Promise.all` over every local attempt, each running an inner
+ * `Promise.all` over its bundle's closure. For an account owning sixty-five
+ * packs across eleven bundles that is far more concurrent requests than
+ * GenStudio's connection pool has connections, so the surplus sat waiting for
+ * one -- long enough for this client's own request timeouts to fire and turn a
+ * healthy store into "the Content Store is unavailable".
+ *
+ * Six is chosen to stay comfortably inside a small server pool while still
+ * being six times faster than a serial walk. It is a ceiling, not a target:
+ * the memoised `releaseHistory` map still collapses duplicate families first,
+ * so most of these slots go unused on a typical account.
+ */
+const OWNED_RELEASE_HISTORY_CONCURRENCY = 6
+
 interface PublicDependencyContext {
   apiKey: string
   catalog: GenStudioContentProduct[]
   installed: PublicContentInstalledPack[]
   releaseHistory: Map<string, Promise<PublicOwnedReleaseEvidence>>
+  /** Shared gate, so nested fan-outs cannot multiply past the ceiling above. */
+  gate: RequestGate
 }
 
 interface PublicOwnedReleaseEvidence {
@@ -424,12 +445,48 @@ interface PublicOwnedReleaseEvidence {
   unavailable: boolean
 }
 
+/**
+ * A counting semaphore over promises. Held on the context rather than per
+ * call site, because the concurrency that mattered was the PRODUCT of two
+ * nested fan-outs -- bounding either one alone would still have let the other
+ * multiply it back past the ceiling.
+ */
+interface RequestGate {
+  run: <T>(work: () => Promise<T>) => Promise<T>
+}
+
+function requestGate(limit: number): RequestGate {
+  let active = 0
+  const waiting: Array<() => void> = []
+  const release = (): void => {
+    active -= 1
+    waiting.shift()?.()
+  }
+  return {
+    async run<T>(work: () => Promise<T>): Promise<T> {
+      if (active >= limit) await new Promise<void>(resolve => waiting.push(resolve))
+      active += 1
+      try {
+        return await work()
+      } finally {
+        release()
+      }
+    },
+  }
+}
+
 function dependencyContext(
   apiKey: string,
   catalog: GenStudioContentProduct[],
   installed: PublicContentInstalledPack[],
 ): PublicDependencyContext {
-  return { apiKey, catalog, installed, releaseHistory: new Map() }
+  return {
+    apiKey,
+    catalog,
+    installed,
+    releaseHistory: new Map(),
+    gate: requestGate(OWNED_RELEASE_HISTORY_CONCURRENCY),
+  }
 }
 
 function ownedReleaseHistory(
@@ -438,7 +495,8 @@ function ownedReleaseHistory(
 ): Promise<PublicOwnedReleaseEvidence> {
   let pending = context.releaseHistory.get(entitlementFamily)
   if (!pending) {
-    pending = listGenStudioOwnedContentReleases(context.apiKey, entitlementFamily)
+    pending = context.gate
+      .run(() => listGenStudioOwnedContentReleases(context.apiKey, entitlementFamily))
       .then(history => ({ releases: history.releases, unavailable: false }))
       .catch(error => {
         if (error instanceof GenStudioContentStoreApiError && (error.status === 403 || error.status === 404)) {

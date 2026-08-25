@@ -100,8 +100,27 @@ export async function restoreContentStoreOwnership(): Promise<ContentStoreOvervi
   return loadContentStoreOverview()
 }
 
-/** Persist an online recall as a local disablement without deleting permanent ownership/history. */
-async function reconcileRecalledContentStoreReleases(verified: {
+/**
+ * Persist an online recall as a local disablement without deleting permanent
+ * ownership/history.
+ *
+ * The recall facts come out of the verified restore receipts this function is
+ * already handed. They used to be rebuilt instead by fetching every owned
+ * family's full release history and filtering it for `recalled` -- one HTTP
+ * round trip per owned pack, on a path that runs before EVERY install. With
+ * sixty-five owned packs that was sixty-five requests to learn something the
+ * receipts response had already stated, and installing the whole library paid
+ * it sixty-five times over: ~4,200 requests to install 65 packs. Long enough
+ * for the client's own 8-12s request timeouts to start firing, which is what
+ * surfaced to the customer as "the Content Store is unavailable".
+ *
+ * `recalled_release_versions` is computed server-side as every release of that
+ * product in state RECALLED (see GenStudio `content_store/service.py`
+ * `restore`), which is exactly what the old loop reconstructed. Reading it
+ * costs nothing and cannot disagree with itself, because it arrives inside the
+ * same signature-verified restore payload as the ownership it describes.
+ */
+function reconcileRecalledContentStoreReleases(verified: {
   apiKey: string
   account: GenStudioContentAccount
   receipts: GenStudioContentReceipts
@@ -109,18 +128,11 @@ async function reconcileRecalledContentStoreReleases(verified: {
 }): Promise<void> {
   const recalled = new Map<string, string[]>()
   for (const entitlement of verified.receipts.entitlements) {
-    const history = await listGenStudioOwnedContentReleases(verified.apiKey, entitlement.entitlementFamily)
-    if (history.entitlementFamily !== entitlement.entitlementFamily || history.entitlementId !== entitlement.entitlementId
-      || history.productId !== entitlement.productId) throw new ContentStoreLocalError(409, 'CONTENT_PACK_OWNED_RELEASE_MISMATCH', 'GenStudio returned release history for different verified ownership.')
-    for (const release of history.releases) {
-      if (release.state === 'recalled') {
-        const versions = recalled.get(entitlement.entitlementFamily) ?? []
-        versions.push(release.version)
-        recalled.set(entitlement.entitlementFamily, versions)
-      }
+    if (entitlement.recalledReleaseVersions.length > 0) {
+      recalled.set(entitlement.entitlementFamily, [...entitlement.recalledReleaseVersions])
     }
   }
-  await reconcileContentStoreRecalledVersions({
+  return reconcileContentStoreRecalledVersions({
     accountId: verified.account.accountId, origin: verified.origin, recalledVersionsByFamily: recalled,
   })
 }
