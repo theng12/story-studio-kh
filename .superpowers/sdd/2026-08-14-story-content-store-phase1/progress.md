@@ -4,10 +4,10 @@
 
 - Approved design: `docs/superpowers/specs/2026-08-13-content-pack-store-design.md`
 - Implementation plan: `docs/superpowers/plans/2026-08-14-story-content-store-phase1.md`
-- GenStudio exact contract: `/build/Developer/genstudiokh/docs/product/api-contract-changes-1.4.0.md`
+- GenStudio exact contract: `<owner-home>/Developer/genstudiokh/docs/product/api-contract-changes-1.4.0.md`
 - GenStudio live release: 1.4.0, charging contract 0.21.0
 - Starting Story Studio release: v1.0.834 at `94c6578cff6cb8bb19a0fea0b95173df3e87291d`
-- Branch/worktree: `codex/content-pack-platform` at `/build/Developer/story-studio-kh/.worktrees/content-pack-platform`
+- Branch/worktree: `codex/content-pack-platform` at `<owner-home>/Developer/story-studio-kh/.worktrees/content-pack-platform`
 
 ## Execution rules
 
@@ -102,6 +102,6 @@ Add one section per task with:
 - The first release-version `npm run verify` passed 2,562/2,565 backend tests and exposed three exact release-fixture failures: two hardcoded v1.0.834 expectations and one compiled-layout app-version resolver failure. The focused RED was retained; `78e9fb3d` (`fix: resolve release version from compiled layout`) checks only the verified source/compiled package roots, requires the `story-studio-kh` package identity, and makes tests derive the current package version. Electron build plus the two focused suites then passed 36/36.
 - Final full `npm run verify` exited 0: lint had zero errors and 1,722 pre-existing warnings; Electron/frontend typechecks passed; backend 2,565/2,565, frontend 572/572, and release 9/9 tests passed; changelog, typography, source and built security, model-drift, source and built desktop-release, frontend production generation, and Electron build gates passed. `git diff --check` exited 0.
 - Production dependency audits are clean: root `npm audit --omit=dev --audit-level=low` and frontend equivalent each reported zero vulnerabilities. The complete frontend audit also reported zero. The complete root development audit reports two high-severity findings through Electron's development-only `extract-zip`; npm's offered remediation is a breaking Electron 43 upgrade, so Phase 1 preserves the lockfile and discloses rather than forcing an unrelated major runtime migration.
-- `npm run dist:smoke` exited 0 and independently ran the changelog, typography, security, model-drift, release, build, package-input, artifact-content, and read-only mount checks. Artifact: `/build/Developer/story-studio-kh/.worktrees/content-pack-platform/dist/Story Studio KH 1.0.835-arm64.dmg`; 228,474,324 bytes; SHA-256 `f3f2fb773990988529939ea8cc23d3b90a2278e54a6f6057d15025e0849eb3ca`; ad-hoc signature with no Developer ID; read-only DMG mount verified.
+- `npm run dist:smoke` exited 0 and independently ran the changelog, typography, security, model-drift, release, build, package-input, artifact-content, and read-only mount checks. Artifact: `<owner-home>/Developer/story-studio-kh/.worktrees/content-pack-platform/dist/Story Studio KH 1.0.835-arm64.dmg`; 228,474,324 bytes; SHA-256 `f3f2fb773990988529939ea8cc23d3b90a2278e54a6f6057d15025e0849eb3ca`; ad-hoc signature with no Developer ID; read-only DMG mount verified.
 - Packaged fresh-data QA launched the packaged app with an isolated data directory. `/api/health` returned 200 with `boot_complete: true`; `/api/content-packs` returned the verified bundled recovery pack; `/api/content-store` returned the truthful missing-`content:read` 400. A controlled local GET-only GenStudio mock returned a healthy empty catalog and 5,000-credit account; no live quote or purchase route was called. Rendered QA at 1,440×900 and 390×844 verified the empty and missing-key states, responsive balance layout, no horizontal overflow, and no console errors.
 - Phase 1 remains bounded to catalog, permanent account ownership, durable one-attempt purchase evidence, and an unverified receipt cache. Downloads, restore, purchased-pack installation, receipt verification, gallery/license/portal behavior, catalog stocking, and every live credit mutation remain deferred to their published later-phase contracts.

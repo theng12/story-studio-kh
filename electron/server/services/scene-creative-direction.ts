@@ -50,12 +50,12 @@ export const CREATIVE_PROFILES: Record<Exclude<SceneCreativeProfile, 'custom'>, 
   },
   editorial: {
     label: 'Editorial',
-    usage: 'Best for psychology, culture, commentary, business, and Capi-style conceptual explanations.',
+    usage: 'Best for psychology, culture, commentary, business, and conceptual explanations.',
     weights: { 'editorial-metaphor': 6, 'character-psychology': 5, symbolic: 4, 'minimal-graphic': 3, 'conceptual-collage': 3, 'literal-narrative': 1 },
   },
   spiritual: {
     label: 'Spiritual',
-    usage: 'Best for faith, reflection, prayer, hope, healing, and Abiding Faith-style poetic storytelling.',
+    usage: 'Best for faith, reflection, prayer, hope, healing, and poetic devotional storytelling.',
     weights: { 'spiritual-allegory': 6, symbolic: 5, 'poetic-environment': 5, 'minimal-graphic': 2, 'literal-narrative': 1 },
   },
   abstract: {

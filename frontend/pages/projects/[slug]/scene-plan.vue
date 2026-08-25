@@ -1267,8 +1267,8 @@ interface CreativeDirection {
 const CREATIVE_PROFILES: Array<{ id: CreativeProfile; label: string; usage: string }> = [
   { id: 'narrative', label: 'Narrative', usage: 'Stories, history, biography, explanations' },
   { id: 'balanced', label: 'Balanced', usage: 'Education with occasional visual metaphor' },
-  { id: 'editorial', label: 'Editorial', usage: 'Psychology, culture, commentary, Capi' },
-  { id: 'spiritual', label: 'Spiritual', usage: 'Faith, prayer, hope, reflection, Abiding Faith' },
+  { id: 'editorial', label: 'Editorial', usage: 'Psychology, culture, commentary, business' },
+  { id: 'spiritual', label: 'Spiritual', usage: 'Faith, prayer, hope, reflection, devotion' },
   { id: 'abstract', label: 'Abstract', usage: 'Artistic essays, dreamlike and conceptual work' },
   { id: 'custom', label: 'Custom', usage: 'Your own selected mix of visual strategies' },
 ]

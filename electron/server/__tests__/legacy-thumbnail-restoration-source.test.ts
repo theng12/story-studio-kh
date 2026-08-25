@@ -41,14 +41,14 @@ const PREHISTORIC_STYLE_ROOT = path.join(
   'style',
   'prehistoric-stick-cartoon',
 )
-const CAPI_RECIPE_ROOT = path.join(
+const EDITORIAL_RECIPE_ROOT = path.join(
   ROOT,
   'content-packs',
   'psychology-editorial',
   'thumbnail',
   'editorial-psychology-symbolic-split',
 )
-const CAPI_PASTEL_STYLE_ROOT = path.join(
+const EDITORIAL_PASTEL_STYLE_ROOT = path.join(
   ROOT,
   'content-packs',
   'psychology-editorial',
@@ -69,20 +69,20 @@ const PREHISTORIC_SURVIVAL_ASSETS = [
 ] as const
 const ANCIENT_HUMANS_FORMULA_ID = 'com.storystudio.formula.ancient-humans'
 const HUMAN_BEHAVIOR_FORMULA_ID = 'com.storystudio.formula.human-behavior-explained'
-const CAPI_RECIPE_ASSETS = [
+const EDITORIAL_RECIPE_ASSETS = [
   'editorial-psychology-symbolic-split-1.webp',
   'editorial-psychology-symbolic-split-2.webp',
   'editorial-psychology-symbolic-split-3.webp',
   'editorial-psychology-symbolic-split-5.webp',
 ] as const
-const CAPI_RECIPE_ASSET_HASHES = [
+const EDITORIAL_RECIPE_ASSET_HASHES = [
   'f82c5659ca989b27af5cf789c6270b4ef40aa24ec6060f1a91e015374a52f277',
   'cf65e48ae0215b3ab8e4a331f91b0cc126ee8fc0dea63724836b6b0bd7a744fb',
   '7d419bf83d807f8ce287040f51e5d620617e595f6bd09dc5ca7ee332252b6290',
   'b816e5ed7fb95eb16e16f95100e1e7b4840ee0f3f046e0d8eca4c766d820e492',
 ] as const
-const CAPI_PASTEL_ASSET = 'pastel-surreal-psychological-collage.webp'
-const CAPI_PASTEL_HASH = '398cb595ce5c285570ce057cb81c86b73a739a5d220fc44a85faa7378b2e87ab'
+const EDITORIAL_PASTEL_ASSET = 'pastel-surreal-psychological-collage.webp'
+const EDITORIAL_PASTEL_HASH = '398cb595ce5c285570ce057cb81c86b73a739a5d220fc44a85faa7378b2e87ab'
 const DREAMLIKE_RECIPE_ROOT = path.join(
   RESTORATION_ROOT,
   'thumbnail',
@@ -285,7 +285,7 @@ test('Animal Hardship Annotation has three ledgered, decodable original-generate
   assert.match(String(recipe.headline_guidance), /full.*episode title/i)
   for (const asset of RECIPE_ASSETS) await assertWebp(RECIPE_ROOT, asset, ledger)
   for (const asset of RECIPE_ASSETS) assertOriginalGeneratedPreview(ledger, asset)
-  assert.match(String(recipe.avoid_elements), /MineePod|multiple arrows|generic curiosity-only|watermarks|logos|malformed text|copied trade dress/i)
+  assert.match(String(recipe.avoid_elements), /copied channel title|multiple arrows|generic curiosity-only|watermarks|logos|malformed text|copied trade dress/i)
 })
 
 test('Prehistoric Survival Title Card remains a full-title survival recipe distinct from Prehistoric Discovery', async () => {
@@ -364,24 +364,24 @@ test('Hand-Drawn Hardship Cartoon has one ledgered, decodable owner-derived styl
   await assertWebp(STYLE_ROOT, STYLE_ASSET, ledger)
 })
 
-test('Impasto Psychological Animals retains the Capi recipe and supplies a distinct text-free style preview', async () => {
-  const capiRecipe = await readJson(path.join(CAPI_RECIPE_ROOT, 'content', 'thumbnail-recipe.json'))
+test('Impasto Psychological Animals retains the Editorial recipe and supplies a distinct text-free style preview', async () => {
+  const editorialRecipe = await readJson(path.join(EDITORIAL_RECIPE_ROOT, 'content', 'thumbnail-recipe.json'))
   const ledger = await fs.readFile(path.join(RESTORATION_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
-  parseContentPackDocument('thumbnail-recipe', capiRecipe)
-  assert.equal(capiRecipe.id, 'com.storystudio.thumbnail.editorial-psychology-symbolic-split')
-  assert.deepEqual(capiRecipe.preview_assets, CAPI_RECIPE_ASSETS.map(asset => `assets/${asset}`))
-  assert.deepEqual(capiRecipe.compatible_formula_ids, [HUMAN_BEHAVIOR_FORMULA_ID])
-  for (let index = 0; index < CAPI_RECIPE_ASSETS.length; index += 1) {
-    const bytes = await fs.readFile(path.join(CAPI_RECIPE_ROOT, 'assets', CAPI_RECIPE_ASSETS[index]))
-    assert.equal(sha256(bytes), CAPI_RECIPE_ASSET_HASHES[index])
+  parseContentPackDocument('thumbnail-recipe', editorialRecipe)
+  assert.equal(editorialRecipe.id, 'com.storystudio.thumbnail.editorial-psychology-symbolic-split')
+  assert.deepEqual(editorialRecipe.preview_assets, EDITORIAL_RECIPE_ASSETS.map(asset => `assets/${asset}`))
+  assert.deepEqual(editorialRecipe.compatible_formula_ids, [HUMAN_BEHAVIOR_FORMULA_ID])
+  for (let index = 0; index < EDITORIAL_RECIPE_ASSETS.length; index += 1) {
+    const bytes = await fs.readFile(path.join(EDITORIAL_RECIPE_ROOT, 'assets', EDITORIAL_RECIPE_ASSETS[index]))
+    assert.equal(sha256(bytes), EDITORIAL_RECIPE_ASSET_HASHES[index])
   }
-  const capiPastel = await readJson(path.join(CAPI_PASTEL_STYLE_ROOT, 'content', 'visual-style.json'))
-  assert.equal(capiPastel.id, 'com.storystudio.style.pastel-surreal-psychological-collage')
-  assert.deepEqual(capiPastel.preview_assets, [`assets/${CAPI_PASTEL_ASSET}`])
-  assert.deepEqual(capiPastel.compatible_formula_ids, [HUMAN_BEHAVIOR_FORMULA_ID])
+  const editorialPastel = await readJson(path.join(EDITORIAL_PASTEL_STYLE_ROOT, 'content', 'visual-style.json'))
+  assert.equal(editorialPastel.id, 'com.storystudio.style.pastel-surreal-psychological-collage')
+  assert.deepEqual(editorialPastel.preview_assets, [`assets/${EDITORIAL_PASTEL_ASSET}`])
+  assert.deepEqual(editorialPastel.compatible_formula_ids, [HUMAN_BEHAVIOR_FORMULA_ID])
   assert.equal(
-    sha256(await fs.readFile(path.join(CAPI_PASTEL_STYLE_ROOT, 'assets', CAPI_PASTEL_ASSET))),
-    CAPI_PASTEL_HASH,
+    sha256(await fs.readFile(path.join(EDITORIAL_PASTEL_STYLE_ROOT, 'assets', EDITORIAL_PASTEL_ASSET))),
+    EDITORIAL_PASTEL_HASH,
   )
 
   await assertPack(
@@ -401,7 +401,7 @@ test('Impasto Psychological Animals retains the Capi recipe and supplies a disti
   assert.match(String(impasto.style_bible), /anthropomorphic animal/i)
   assert.match(String(impasto.style_bible), /strong figure-ground separation/i)
   assert.match(String(impasto.style_bible), /opposing title-safe band/i)
-  assert.doesNotMatch(String(impasto.style_bible), /Emotional Armor|Capi|EP\d{4}/i)
+  assert.doesNotMatch(String(impasto.style_bible), /Emotional Armor|EP\d{4}/i)
   await assertWebp(IMPASTO_STYLE_ROOT, IMPASTO_STYLE_ASSET, ledger)
 })
 
@@ -427,7 +427,7 @@ test('Dreamlike Sleep Title Card stays distinct from the framed Dreamscape recip
   assert.doesNotMatch(JSON.stringify(recipe), forbiddenRuntimeMetadata)
   assert.doesNotMatch(
     JSON.stringify(recipe),
-    /The Elephant Who Loved the Rain|Paper Lanterns|Cave of Whispers|TerraNash|Story Sprout/i,
+    /The Elephant Who Loved the Rain|Paper Lanterns|Cave of Whispers|Sleep Stories|Story Garden/i,
   )
   parseContentPackDocument('thumbnail-recipe', recipe)
   assert.equal(recipe.id, 'com.storystudio.thumbnail.dreamlike-story-title-card')
@@ -464,7 +464,7 @@ test('Dreamlike Luminous Sleep Illustration supplies a text-free, ledgered style
   assert.doesNotMatch(JSON.stringify(style), forbiddenRuntimeMetadata)
   assert.doesNotMatch(
     JSON.stringify(style),
-    /The Elephant Who Loved the Rain|Paper Lanterns|Cave of Whispers|TerraNash|Story Sprout/i,
+    /The Elephant Who Loved the Rain|Paper Lanterns|Cave of Whispers|Sleep Stories|Story Garden/i,
   )
   parseContentPackDocument('visual-style', style)
   assert.equal(style.id, 'com.storystudio.style.dreamlike-luminous-sleep-illustration')

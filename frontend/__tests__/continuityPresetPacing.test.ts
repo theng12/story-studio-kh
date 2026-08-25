@@ -116,7 +116,7 @@ function makeCharacterSheetPresets(slug: string) {
 
 /**
  * Presets saved BEFORE 2026-08-03, shapes taken verbatim from
- * boundful/config.json. These still carry a stored `pacing` — under the
+ * a real project's config.json. These still carry a stored `pacing` — under the
  * reversed rule, that rhythm is now theirs to apply.
  */
 function storedOwnerPresets() {
@@ -176,7 +176,7 @@ function pacinglessOwnerPreset() {
   }
 }
 
-function seedOwnerConfig(slug = 'boundful') {
+function seedOwnerConfig(slug = 'my-channel') {
   configStore[slug] = {
     continuity_page_presets: [...storedOwnerPresets(), pacinglessOwnerPreset()],
     'continuity_page_last_preset_continuity-page': '',
@@ -186,7 +186,7 @@ function seedOwnerConfig(slug = 'boundful') {
 describe('Character Sheet presets carry the scene rhythm again (2026-08-18 reversal)', () => {
   test('a preset that stores a rhythm applies it', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
 
     // The episode is on the dense default…
@@ -209,7 +209,7 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
 
   test('a preset saved WITHOUT a rhythm leaves the live rhythm untouched', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
 
     // The customer deliberately chose 1–3s on this episode.
@@ -234,7 +234,7 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
     // value that a fallback would visibly clobber, and assert the default is
     // not what came out.
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.pacing = { min_sec: 12, max_sec: 20 }
 
@@ -251,7 +251,7 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
 
   test('an extended documentary pacing profile survives a rhythm-less preset intact', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     const profile = {
       min_sec: 2, max_sec: 5,
@@ -269,7 +269,7 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
     // Otherwise a 5–10s band would inherit the previous episode's
     // `settled_*` holds and produce a hybrid nobody configured.
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.pacing = {
       min_sec: 2, max_sec: 5,
@@ -284,8 +284,8 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
 
   test('a half-written band is treated as no stored rhythm, not as a partial one', async () => {
     seedOwnerConfig()
-    ;(configStore['boundful'].continuity_page_presets[1].data as any).pacing = { max_sec: 10 }
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    ;(configStore['my-channel'].continuity_page_presets[1].data as any).pacing = { max_sec: 10 }
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.pacing = { min_sec: 1, max_sec: 3 }
 
@@ -301,7 +301,7 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
 
   test('switching between stored presets tracks each preset\'s own rhythm', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.pacing = { min_sec: 1, max_sec: 3 }
 
@@ -323,33 +323,33 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
 
   test('applying never rewrites the customer\'s stored preset', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.pacing = { min_sec: 1, max_sec: 3 }
     presets.activeId.value = 'preset-august-sepia'
     presets.applyActive()
 
     assert.equal(
-      'pacing' in configStore['boundful'].continuity_page_presets[2].data,
+      'pacing' in configStore['my-channel'].continuity_page_presets[2].data,
       false,
       'a rhythm-less preset is not silently back-filled on disk',
     )
     assert.deepEqual(
-      configStore['boundful'].continuity_page_presets[1].data.pacing,
+      configStore['my-channel'].continuity_page_presets[1].data.pacing,
       { min_sec: 5, max_sec: 10 },
       'and a stored rhythm is left exactly as saved',
     )
   })
 
   test('newly saved presets DO store the rhythm — that is the whole reversal', async () => {
-    configStore['boundful'] = {}
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    configStore['my-channel'] = {}
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.pacing = { min_sec: 1, max_sec: 3 }
     config.value.style_bible = 'sepia ink'
 
     assert.ok(await presets.saveAs('BL - Sepia Ink'))
-    const stored = configStore['boundful'].continuity_page_presets[0]
+    const stored = configStore['my-channel'].continuity_page_presets[0]
     assert.deepEqual(stored.data.pacing, { min_sec: 1, max_sec: 3 }, 'the rhythm is preset data now')
     assert.equal(stored.data.style_bible, 'sepia ink', 'the look is still saved')
   })
@@ -358,21 +358,21 @@ describe('Character Sheet presets carry the scene rhythm again (2026-08-18 rever
     // The Character Sheet tells the customer that saving over the preset
     // captures the rhythm. That instruction has to be true.
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     presets.activeId.value = 'preset-august-sepia'
     presets.applyActive()
     config.value.pacing = { min_sec: 8, max_sec: 15 }
 
     assert.ok(await presets.overwrite())
-    const stored = configStore['boundful'].continuity_page_presets
+    const stored = configStore['my-channel'].continuity_page_presets
       .find((p: any) => p.id === 'preset-august-sepia')
     assert.deepEqual(stored.data.pacing, { min_sec: 8, max_sec: 15 })
   })
 
   test('the page can tell an applied rhythm from a preserved one', async () => {
     seedOwnerConfig()
-    const { presets, notices } = makeCharacterSheetPresets('boundful')
+    const { presets, notices } = makeCharacterSheetPresets('my-channel')
     await presets.load()
 
     presets.activeId.value = 'preset-ms-paint'
@@ -438,7 +438,7 @@ describe('Character Sheet preset / episode anchor boundary — NOT reversed', ()
 
   test('applying a preset does not switch the episode anchor ON', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
 
     // The customer has NO episode anchor for this episode.
@@ -458,10 +458,10 @@ describe('Character Sheet preset / episode anchor boundary — NOT reversed', ()
   test('applying a preset does not switch the episode anchor OFF', async () => {
     seedOwnerConfig()
     // A preset that stores the anchor as OFF — the mirror image of the bug.
-    configStore['boundful'].continuity_page_presets[0].data.references.sheet = false
-    configStore['boundful'].continuity_page_presets[0].data.use_episode_sheet = false
+    configStore['my-channel'].continuity_page_presets[0].data.references.sheet = false
+    configStore['my-channel'].continuity_page_presets[0].data.use_episode_sheet = false
 
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
 
     // The customer deliberately switched the episode anchor ON.
@@ -478,7 +478,7 @@ describe('Character Sheet preset / episode anchor boundary — NOT reversed', ()
 
   test('an anchor held only in the legacy references.sheet mirror survives', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
 
     // Older continuity.json files carried the choice only in the mirror.
@@ -494,7 +494,7 @@ describe('Character Sheet preset / episode anchor boundary — NOT reversed', ()
 
   test('switching between several stored presets never drifts the anchor', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.use_episode_sheet = false
     config.value.references.sheet = false
@@ -509,7 +509,7 @@ describe('Character Sheet preset / episode anchor boundary — NOT reversed', ()
 
   test('the exclusion is on read — the stored preset still says sheet: true', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.use_episode_sheet = false
     config.value.references.sheet = false
@@ -518,15 +518,15 @@ describe('Character Sheet preset / episode anchor boundary — NOT reversed', ()
 
     assert.equal(config.value.use_episode_sheet, false)
     assert.equal(
-      configStore['boundful'].continuity_page_presets[0].data.references.sheet,
+      configStore['my-channel'].continuity_page_presets[0].data.references.sheet,
       true,
       'applying must not rewrite the customer\'s stored preset',
     )
   })
 
   test('newly saved presets store neither the anchor toggle nor its mirror', async () => {
-    configStore['boundful'] = {}
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    configStore['my-channel'] = {}
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.use_episode_sheet = true
     config.value.references.sheet = true
@@ -535,7 +535,7 @@ describe('Character Sheet preset / episode anchor boundary — NOT reversed', ()
     config.value.style_bible = 'sepia ink'
 
     assert.ok(await presets.saveAs('BL - Sepia Ink'))
-    const stored = configStore['boundful'].continuity_page_presets[0]
+    const stored = configStore['my-channel'].continuity_page_presets[0]
     assert.equal('use_episode_sheet' in stored.data, false, 'the anchor toggle is episode state')
     assert.equal('sheet' in stored.data.references, false, 'so is its legacy mirror')
     // The genuinely reusable look references are still saved.
@@ -557,7 +557,7 @@ describe('Character Sheet preset / episode anchor boundary — NOT reversed', ()
 
   test('a preset still carries the reusable look references through an apply', async () => {
     seedOwnerConfig()
-    const { presets, config } = makeCharacterSheetPresets('boundful')
+    const { presets, config } = makeCharacterSheetPresets('my-channel')
     await presets.load()
     config.value.references.prev_render = false
     config.value.references.style = false

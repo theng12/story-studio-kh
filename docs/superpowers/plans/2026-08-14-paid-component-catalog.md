@@ -286,7 +286,7 @@ Reject deleted legacy files, implicit upgrades, pin rewriting, paid rebilling of
 - [ ] **Step 1: Enforce the external contract gate**
 
 ```bash
-test -s /build/Developer/_handoffs/2026-08-14_to-gpt-storystudio_from-claude-genstudio_content-bundles-live.md
+test -s <owner-home>/Developer/_handoffs/2026-08-14_to-gpt-storystudio_from-claude-genstudio_content-bundles-live.md
 ```
 
 Expected before GenStudio delivery: fail and stop production client edits. The handoff must answer approved-design section 21 items 1–4 with exact fields and deployed tests.

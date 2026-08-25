@@ -26,8 +26,8 @@ describe('daily production brief wording', () => {
   test('summarizes publishing, schedule coverage, and upload backlog once', () => {
     const payload = formatDigestMessage(digest({
       projects: [{
-        slug: 'dozing-knight',
-        name: 'Dozing Knight',
+        slug: 'night-tales',
+        name: 'Night Tales',
         going_live_today: [{ episode_code: 'DK0040', scheduled_for: '2026-07-14T09:00:00.000Z' }],
         total_scheduled_future: 2,
         total_scheduled_past: 10,
@@ -39,7 +39,7 @@ describe('daily production brief wording', () => {
       totals: { going_live_today: 1, scheduled_future: 2, not_uploaded: 3, uploaded: 12 },
     }))
 
-    assert.match(payload.body, /Dozing Knight/)
+    assert.match(payload.body, /Night Tales/)
     assert.match(payload.body, /Publishing today: DK0040 at/)
     assert.match(payload.body, /Schedule: 2 future upload\(s\).*coverage through/)
     assert.match(payload.body, /Awaiting upload: 3 accepted episode\(s\)/)

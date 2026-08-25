@@ -335,7 +335,7 @@
         <!-- v1.0.87+: three always-visible fields, multiplication-only.
              Old layout had a dropdown locking the user into 1/2/3/4 or
              "Custom total" mode where they typed an absolute number. That
-             felt arbitrary — bound-explainer wants 250 scenes from 8
+             felt arbitrary — reasons-explainer wants 250 scenes from 8
              reasons (31/reason), and the dropdown's 1-4 cap forced
              everyone into Custom mode where the chapter relationship
              evaporated. The new flow is just: chapter count × scenes
@@ -1934,7 +1934,7 @@ const promptPresets = computed(() => thumbnailPresets)
  * v1.0.87+ note on the scene-count seeding: the form is now
  * multiplication-only (chapters × scenes-per-chapter). The format's
  * `defaultScenesTotalRange[0]` (the low end) is divided by the resolved
- * chapter count to set `scenes_per_chapter`. Example: bound-explainer
+ * chapter count to set `scenes_per_chapter`. Example: reasons-explainer
  * has range [60, 180] and an 8-chapter outline → 60/8 = 7.5 → ceil to
  * 8 scenes per chapter → 64 total prompts as the starting point.
  *

@@ -8,7 +8,7 @@
 
 **Tech Stack:** JSON Content Pack schemas and handoffs, Node.js `node:test`, TypeScript/TSX tests, Sharp WebP decoding, existing deterministic `.sspack` builder/validator, and keyless `genstudio-store-receipt-v1` candidate validation.
 
-**Spec:** `docs/superpowers/specs/2026-08-23-modular-content-expansion-portfolio-design.md`; `content-packs/authoring-registry.json`; `/build/.codex/skills/story-studio-channel-kit-authoring/references/component-handoff-contract.md`.
+**Spec:** `docs/superpowers/specs/2026-08-23-modular-content-expansion-portfolio-design.md`; `content-packs/authoring-registry.json`; `<owner-home>/.codex/skills/story-studio-channel-kit-authoring/references/component-handoff-contract.md`.
 
 ## Global Constraints
 
@@ -50,10 +50,10 @@
 | `electron/server/__tests__/reusable-content-primitives-source.test.ts` | Source schemas, Formula/Topic/Recipe compatibility, diversity, safety, exact-title, provenance, and no-runtime-secret regression tests. |
 | `scripts/content-packs/__tests__/reusable-content-primitives-pack.test.mjs` | Deterministic keyless candidate archive, size, closure, and delivery-profile tests. |
 | `scripts/content-packs/__tests__/authoring-registry.test.mjs` | Five-record atomic receipt and receipt verification regression coverage. |
-| `/build/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/{question-ladder,audience-question-seeder,before-after-timeline,object-hero-question,route-map-one-promise}.sspack` | One retained verified canonical candidate per successful leaf only; this fresh external root fails closed if it already exists. |
-| `/build/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/ledger.json` | Machine ledger with absolute archive path, SHA-256, byte count, `min_app_version`, profile, original receipt, and reviews for each delivered leaf; no `component_summary`. |
-| `/build/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/release-handoff.json` | Final release handoff for delivered leaves; first permitted `component_summary` location. |
-| `/build/Developer/_handoffs/2026-08-23_to-genstudio_from-storystudio_reusable-primitives-wave-2.json` | Exact non-mutating receiver handoff; second permitted `component_summary` location; absent when no leaf is delivered. |
+| `<owner-home>/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/{question-ladder,audience-question-seeder,before-after-timeline,object-hero-question,route-map-one-promise}.sspack` | One retained verified canonical candidate per successful leaf only; this fresh external root fails closed if it already exists. |
+| `<owner-home>/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/ledger.json` | Machine ledger with absolute archive path, SHA-256, byte count, `min_app_version`, profile, original receipt, and reviews for each delivered leaf; no `component_summary`. |
+| `<owner-home>/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/release-handoff.json` | Final release handoff for delivered leaves; first permitted `component_summary` location. |
+| `<owner-home>/Developer/_handoffs/2026-08-23_to-genstudio_from-storystudio_reusable-primitives-wave-2.json` | Exact non-mutating receiver handoff; second permitted `component_summary` location; absent when no leaf is delivered. |
 
 ## Component Contract Matrix
 
@@ -530,8 +530,8 @@ git commit -m "feat(content-packs): add route map promise recipe"
 - Modify: `electron/server/__tests__/reusable-content-primitives-source.test.ts`
 - Create: `.superpowers/sdd/2026-08-23-reusable-content-primitives-wave-2/handoffs/wave-2-candidate.json` (ignored)
 - Create: `.superpowers/sdd/2026-08-23-reusable-content-primitives-wave-2/handoffs/{question-ladder,audience-question-seeder,before-after-timeline,object-hero-question,route-map-one-promise}-stocking.json` for delivered leaves only (ignored)
-- Create only after at least one leaf is delivered: `/build/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/{*.sspack,ledger.json,release-handoff.json}`
-- Create only after at least one leaf is delivered: `/build/Developer/_handoffs/2026-08-23_to-genstudio_from-storystudio_reusable-primitives-wave-2.json`
+- Create only after at least one leaf is delivered: `<owner-home>/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/{*.sspack,ledger.json,release-handoff.json}`
+- Create only after at least one leaf is delivered: `<owner-home>/Developer/_handoffs/2026-08-23_to-genstudio_from-storystudio_reusable-primitives-wave-2.json`
 
 **Interfaces:**
 - Consumes: the fixed five registry records, only source roots that actually exist, ignored authoring/review evidence, `buildContentPack({ sourceDirectory, outputPath, deliveryProfile, minAppVersion })`, and `validateContentPack({ archivePath, deliveryProfile })` from `scripts/content-packs/lib.mjs`.
@@ -564,7 +564,7 @@ Then derive the exact Wave 2 transition set from persisted transition events wit
 
 Finally assert the current authored source-path set equals the exact unique transitioned source-qualified set and the current reserved set equals its fixed-wave complement. This preserves the original reservation proposal/receipt as history while proving current lifecycle state solely from one exact `reserved` → `authored` event per transitioned leaf. The durable test reads no ignored review/handoff file.
 
-Write staging tests with a **different** `mkdtemp(join(tmpdir(), 'story-wave-two-stage-test-'))`. Its `candidateRoot` contains verified fixture candidates; its `artifactRoot` is a non-existent child; and its `receiverHandoffPath` is a different non-existent child. Never point tests at `/build/Developer/_handoffs/`. Use explicit `allowedSlugs` equal to the fixed five-slug wave set and `eligibleSlugs` equal to a two-slug authored∩eligible subset. Require all four slug collections to be unique and enforce these exact equations before any filesystem write:
+Write staging tests with a **different** `mkdtemp(join(tmpdir(), 'story-wave-two-stage-test-'))`. Its `candidateRoot` contains verified fixture candidates; its `artifactRoot` is a non-existent child; and its `receiverHandoffPath` is a different non-existent child. Never point tests at `<owner-home>/Developer/_handoffs/`. Use explicit `allowedSlugs` equal to the fixed five-slug wave set and `eligibleSlugs` equal to a two-slug authored∩eligible subset. Require all four slug collections to be unique and enforce these exact equations before any filesystem write:
 
 ```js
 assert.deepEqual(new Set(entries.map(entry => entry.slug)), new Set(eligibleSlugs))
@@ -642,8 +642,8 @@ Enter the single cross-wave registry lane. For each `eligibleLeaves` entry, in f
 Set `authoredLeaves` to the intersection of `eligibleLeaves` and exact committed Wave 2 registry records now at `authored`. If empty, create neither real destination and skip stocking. Otherwise, before calling the helper, require both of these exact destinations to be absent:
 
 ```text
-/build/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/
-/build/Developer/_handoffs/2026-08-23_to-genstudio_from-storystudio_reusable-primitives-wave-2.json
+<owner-home>/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23/
+<owner-home>/Developer/_handoffs/2026-08-23_to-genstudio_from-storystudio_reusable-primitives-wave-2.json
 ```
 
 Pass only `authoredLeaves`, their first verified **real candidateRoot** archive, actual digest/bytes, floor/profile/receipt/reviews, and these exact release summaries:
@@ -687,8 +687,8 @@ import { join } from 'node:path'
 import { validateContentPack } from './scripts/content-packs/lib.mjs'
 
 const working = '.superpowers/sdd/2026-08-23-reusable-content-primitives-wave-2/handoffs'
-const artifactRoot = '/build/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23'
-const receiverPath = '/build/Developer/_handoffs/2026-08-23_to-genstudio_from-storystudio_reusable-primitives-wave-2.json'
+const artifactRoot = '<owner-home>/Developer/_handoffs/artifacts/story-reusable-primitives-wave-2-2026-08-23'
+const receiverPath = '<owner-home>/Developer/_handoffs/2026-08-23_to-genstudio_from-storystudio_reusable-primitives-wave-2.json'
 const candidate = JSON.parse(await readFile(join(working, 'wave-2-candidate.json'), 'utf8'))
 const allowed = [
   'question-ladder', 'audience-question-seeder', 'before-after-timeline',

@@ -1,7 +1,7 @@
 /**
  * The application must never sign its own name into the customer's product.
  *
- * MEASURED 2026-08-25 on the owner's Dozing Knight channel. The YouTube
+ * MEASURED 2026-08-25 on the owner's Night Tales channel. The YouTube
  * Finalizer for DK0052 ("The Girl Who Followed the Hare") saved a v1 whose
  * description read
  *

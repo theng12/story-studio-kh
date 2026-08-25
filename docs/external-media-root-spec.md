@@ -55,8 +55,8 @@ The episode dir layout is **mirrored** under the media root using the same
 `folder_template` relative path, so resolution is symmetric:
 
 ```
-iCloud (output_root):   .../abiding-faith/episodes/Season 006/EP0110 - Title/EP0110 - 01 Script/
-SSD    (media_root):    ${MEDIA}/abiding-faith/episodes/Season 006/EP0110 - Title/EP0110 - 05 Scene Images/
+iCloud (output_root):   .../my-channel/episodes/Season 006/EP0110 - Title/EP0110 - 01 Script/
+SSD    (media_root):    ${MEDIA}/my-channel/episodes/Season 006/EP0110 - Title/EP0110 - 05 Scene Images/
 ```
 
 ---

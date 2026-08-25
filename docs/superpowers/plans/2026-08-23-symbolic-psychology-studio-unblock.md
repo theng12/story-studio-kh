@@ -79,17 +79,17 @@ Do not auto-apply during purchase/install: the Store install route has no projec
 | `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1/` | Receipt-bound Pastel successor, created only after returned evidence qualifies |
 | `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1/pack.json` | Immutable six-node bundle-only Kit successor |
 | `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/source-scaffolds/` | Non-discoverable receipt-derived Recipe/Pastel source checklists; contains no `pack.json` or creative bytes |
-| `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/` | Historical root excluded from fresh-summary scans; wording is reconciled in two named JSON files while `evidence-ledger.json` and its audited summaries remain byte-identical |
-| `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/` | Fresh successor build evidence, blocked candidates, reviews, and final local-only receiver handoff |
+| `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/` | Historical root excluded from fresh-summary scans; wording is reconciled in two named JSON files while `evidence-ledger.json` and its audited summaries remain byte-identical |
+| `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/` | Fresh successor build evidence, blocked candidates, reviews, and final local-only receiver handoff |
 
 ---
 
 ### Task 1: Reconcile External Review Truth Before Any New Work
 
 **Files:**
-- Modify: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/candidate-handoffs.json`
-- Modify: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/review-requests.json`
-- Read and preserve byte-for-byte: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/evidence-ledger.json`
+- Modify: `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/candidate-handoffs.json`
+- Modify: `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/review-requests.json`
+- Read and preserve byte-for-byte: `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/evidence-ledger.json`
 - Modify: `scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs`
 - Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/evidence-reconciliation-review.md`
 
@@ -117,7 +117,7 @@ Also assert Pastel and Kit `evidence.golden_prompt_parity` are `blocked` because
 - [ ] **Step 2: Run RED against the explicit evidence root**
 
 ```bash
-STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT=/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23 \
+STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT=<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23 \
   node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs
 ```
 
@@ -137,7 +137,7 @@ Do not change hashes, archive paths, identities, counts, review results, Formula
 
 ```bash
 env -u STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs
-STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT=/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23 \
+STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT=<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23 \
   node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs
 ```
 
@@ -582,8 +582,8 @@ git commit -m "fix(content-packs): issue non-diagnostic behavior formula"
 ### Task 6: Qualify and Author Recipe and Pastel Successors
 
 **Files:**
-- Consume: `/build/Developer/_handoffs/2026-08-23_symbolic-psychology-recipe-preview-draft-prompt-batch.json`
-- Consume: `/build/Developer/_handoffs/2026-08-23_to-gpt-studiofleet_from-gpt-storystudio_symbolic-psychology-{recipe,pastel}-preview-replacement.md`
+- Consume: `<owner-home>/Developer/_handoffs/2026-08-23_symbolic-psychology-recipe-preview-draft-prompt-batch.json`
+- Consume: `<owner-home>/Developer/_handoffs/2026-08-23_to-gpt-studiofleet_from-gpt-storystudio_symbolic-psychology-{recipe,pastel}-preview-replacement.md`
 - Create only after complete returned evidence: `content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1/{pack.json,content/thumbnail-recipe.json,assets/...}`
 - Create only after complete returned evidence: `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1/{pack.json,content/visual-style.json,assets/...}`
 - Modify: `content-packs/psychology-editorial/PREVIEW-PROVENANCE.md` by adding successor rows; never edit/remove `1.0.0` rows
@@ -633,7 +633,7 @@ Commit only versioned `1.0.1` source, appended provenance, tests, transitions, a
 - Create: `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1/pack.json`
 - Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/promotions/symbolic-psychology-studio-v1.0.1.json`
 - Modify: source/registry tests and `content-packs/authoring-registry.json`
-- Create: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/{build-evidence,blocked-candidates}/`
+- Create: `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/{build-evidence,blocked-candidates}/`
 
 **Interfaces:**
 - Consumes: authored/receipt-verified Formula, Recipe, and Pastel `1.0.1`; Topic, Impasto, Oil `1.0.0`; Task 2 support; Task 3 app version.
@@ -708,8 +708,8 @@ Retain reviewed leaf candidates and one Kit candidate under the fresh external r
 
 **Files:**
 - Create: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/final-review.md`
-- Create after a clean rereview: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/release-handoff.json`
-- Create after a clean rereview: `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/receiver-handoff.json`
+- Create after a clean rereview: `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/release-handoff.json`
+- Create after a clean rereview: `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/receiver-handoff.json`
 - Modify: `.superpowers/sdd/2026-08-23-symbolic-psychology-studio-unblock/progress.md`
 
 **Interfaces:**
@@ -741,7 +741,7 @@ npm run check:model-drift
 git diff --check
 ```
 
-Also re-run the opt-in Wave 1 external evidence audit and validate every retained candidate by exact profile/hash. The audit may read the historical root, but the fresh `component_summary` prohibition scan must exclude exactly `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/`.
+Also re-run the opt-in Wave 1 external evidence audit and validate every retained candidate by exact profile/hash. The audit may read the historical root, but the fresh `component_summary` prohibition scan must exclude exactly `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/`.
 
 - [ ] **Step 2: Independent whole-wave review**
 
@@ -798,7 +798,7 @@ Kit successor:
 }
 ```
 
-Run a semantic recursive JSON-key scan, not a raw text search, over all newly authored successor source directories, successor reservation/expected-identity/promotion records, the four new registry records, fresh archive/build/candidate records, structured fresh review records, and `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/`. Exclude the entire historical Wave 1 evidence root named in Step 1. Require exactly the four `component_summary` keys above, all under the new `release-handoff.json`, and zero in every other fresh JSON/artifact. Markdown reviewers may discuss the field name but may not embed a structured summary object. Separately re-hash the excluded Wave 1 `evidence-ledger.json` and require its audited historical summary entries to remain byte-identical.
+Run a semantic recursive JSON-key scan, not a raw text search, over all newly authored successor source directories, successor reservation/expected-identity/promotion records, the four new registry records, fresh archive/build/candidate records, structured fresh review records, and `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-unblock-2026-08-23/`. Exclude the entire historical Wave 1 evidence root named in Step 1. Require exactly the four `component_summary` keys above, all under the new `release-handoff.json`, and zero in every other fresh JSON/artifact. Markdown reviewers may discuss the field name but may not embed a structured summary object. Separately re-hash the excluded Wave 1 `evidence-ledger.json` and require its audited historical summary entries to remain byte-identical.
 
 - [ ] **Step 4: Assemble but do not deliver the receiver handoff**
 

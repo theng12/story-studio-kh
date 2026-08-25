@@ -12,13 +12,13 @@
 
 ## Global Constraints
 
-- Source baseline is clean commit `22308b72808b9408806272e4426cb22980d0a227` on isolated branch `codex/capi-psychology-components`.
+- Source baseline is clean commit `22308b72808b9408806272e4426cb22980d0a227` on isolated branch `codex/editorial-psychology-components`.
 - The authoritative component source and preview bytes are exactly those at that commit; do not regenerate or edit previews.
 - Existing published `1.0.0` sources and archives remain byte-identical and restorable. Every new byte uses exact version `1.0.1` or a genuinely new component's already-reserved `1.0.0`.
 - Five kit successors are required: Calm Mind, Human Behavior, A Life As…, Sleep Journeys, and First Humans.
 - Each kit successor retains the same pack, bundle, family, SKU, and all non-thumbnail dependency identities. Exactly one thumbnail dependency moves from `1.0.0` to its approved same-pack `1.0.1`.
 - All fifteen Store archives use `--delivery-profile genstudio-store-receipt-v1`, `--min-app-version 1.0.843`, no private key, no archive `key_id`, and no `signature.ed25519`.
-- The archive batch must be deterministic, structurally validated, at most 52,428,800 bytes per archive, and written to a new non-existent directory under `/build/Developer/_handoffs/artifacts/`.
+- The archive batch must be deterministic, structurally validated, at most 52,428,800 bytes per archive, and written to a new non-existent directory under `<owner-home>/Developer/_handoffs/artifacts/`.
 - The owner has authorized stocking/publishing, but Story performs no GenStudio product/release/archive upload, closure mutation, price/discount change, purchase, charge, deploy, tag, push, or public DMG action.
 - Do not touch the main checkout's active Content Store/music work or reset any unrelated files.
 
@@ -104,9 +104,9 @@ Commit the registry, five source manifests, and focused tests. Do not change app
 ### Task 2: Build, validate, ledger, and hand off fifteen Store archives
 
 **Files:**
-- Create externally: `/build/Developer/_handoffs/artifacts/story-thumbnail-successors-2026-08-23/archives/*.sspack`
-- Create externally: `/build/Developer/_handoffs/artifacts/story-thumbnail-successors-2026-08-23/archive-ledger.json`
-- Create externally: `/build/Developer/_handoffs/2026-08-23_to-claude-genstudio_from-gpt-storystudio_thumbnail-successor-delivery-archives.md`
+- Create externally: `<owner-home>/Developer/_handoffs/artifacts/story-thumbnail-successors-2026-08-23/archives/*.sspack`
+- Create externally: `<owner-home>/Developer/_handoffs/artifacts/story-thumbnail-successors-2026-08-23/archive-ledger.json`
+- Create externally: `<owner-home>/Developer/_handoffs/2026-08-23_to-claude-genstudio_from-gpt-storystudio_thumbnail-successor-delivery-archives.md`
 - Preserve: repository source bytes after Task 1's commit
 
 **Interfaces:**

@@ -1,4 +1,4 @@
-# SDD ledger — plan: /build/Developer/story-studio-kh/.worktrees/content-store-launch-catalog-spec/docs/superpowers/plans/2026-08-14-paid-component-catalog.md
+# SDD ledger — plan: <owner-home>/Developer/story-studio-kh/.worktrees/content-store-launch-catalog-spec/docs/superpowers/plans/2026-08-14-paid-component-catalog.md
 
 Base: 441d178a61170f152dfe2f255ffd6ef26dc070fa
 Execution branch: codex/paid-component-catalog

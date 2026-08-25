@@ -255,7 +255,7 @@ describe('overlays actually change the picture', { skip: !ffmpegAvailable && 'no
     const { file } = await renderPreview({
       overlays: [{
         id: 'lower-third-clean',
-        params: { title: 'TERRANASH', subtitle: 'Sleep Stories', fade_in_ms: 0, fade_out_ms: 0 },
+        params: { title: 'MY CHANNEL', subtitle: 'Sleep Stories', fade_in_ms: 0, fade_out_ms: 0 },
       }],
     })
     const band = { x: 10, y: 180, w: 220, h: 80 }

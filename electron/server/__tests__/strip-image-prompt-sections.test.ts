@@ -5,7 +5,7 @@ import { stripImagePromptSections } from '../generators/episode.js'
 // v1.0.335 regression — the default production_standards.txt template shipped
 // with an "## Image Prompts" section whose example string ("watercolor style,
 // soft palette") leaked into chunked-narration chapters as literal thumbnail
-// prompts (capi EP0017/19/23). systemPrompt() now strips image/thumbnail H2
+// prompts (EP0017/19/23). systemPrompt() now strips image/thumbnail H2
 // sections from the standards before folding them into the script-writing
 // system prompt. These pin that behaviour.
 

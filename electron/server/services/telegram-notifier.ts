@@ -110,7 +110,7 @@ export interface TelegramDetectResult {
   ok: boolean
   /** Most recent chat that messaged the bot, when at least one message exists. */
   chat_id?: string
-  /** Display name we can show in the UI ("@theng12" or "First Last"). */
+  /** Display name we can show in the UI ("@username" or "First Last"). */
   chat_label?: string
   /** Total updates Telegram returned — useful when the user has multiple
    *  chats and we only auto-fill the latest. */

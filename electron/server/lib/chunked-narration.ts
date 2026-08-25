@@ -1260,7 +1260,7 @@ function listicleOutlinePrompt(p: ChunkedNarrationParams, compact: boolean): str
   const t = sectionTerms(p)
   // For independent-chapters formats the "topic" wording was format-
   // hardcoded; we now route through the format's term ("Topic" for
-  // listicle, "Reason" for bound-explainer, etc.) so the LLM produces
+  // listicle, "Reason" for reasons-explainer, etc.) so the LLM produces
   // matching headings naturally.
   // The key is "title", not "topic_title". `outlineOutputContract` requires
   // `title` under `additionalProperties: false`, so the old `topic_title`
@@ -1648,7 +1648,7 @@ function effectiveWordTarget(entry: OutlineEntry, p: ChunkedNarrationParams): nu
  * + narrative prompts share one source of truth, and the per-entry override
  * path can call it once per slot. The percentages (12% hook / 76% body /
  * 12% close) and beat-count clamp (3..6) come from the v1.0.71 listicle
- * undershoot fix — see the Brainwise commit for the empirical reasoning.
+ * undershoot fix — see the compilation-mode commit for the empirical reasoning.
  */
 interface WordBudget {
   target: number

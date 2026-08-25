@@ -542,7 +542,7 @@ test('tool-generated preview assets have honest reproducible publisher provenanc
     assert.equal(record?.generation_tool, 'codex-built-in-imagegen')
     assert.equal(record?.generation_authority, 'owner-authorized-2026-08-15-content-store-launch')
     assert.match(String(record?.source_prompt), /Original 16:9/)
-    assert.match(String(record?.source_path), /^\/Users\/thengmacmini\/\.codex\/generated_images\//)
+    assert.match(String(record?.source_path), /^<owner-home>\/\.codex\/generated_images\//)
     assert.match(String(record?.sha256), /^[a-f0-9]{64}$/)
   }
 })

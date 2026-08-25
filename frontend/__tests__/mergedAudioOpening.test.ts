@@ -35,14 +35,14 @@ describe('merged audio opening line', () => {
     const line = describeMergedAudioOpening({
       source: 'recorded',
       lead_in_sec: 14.4,
-      intro: { filename: 'Boundless_Intro.mp3', duration_sec: 12.4, gap_after_sec: 2 },
+      intro: { filename: 'Channel_Intro.mp3', duration_sec: 12.4, gap_after_sec: 2 },
       music_lead_in_sec: 0,
       reason: null,
     })!
     assert.equal(line.certainty, 'stated')
     assert.equal(line.hasIntro, true)
     assert.match(line.text, /Intro included/)
-    assert.match(line.text, /Boundless_Intro\.mp3/)
+    assert.match(line.text, /Channel_Intro\.mp3/)
     assert.match(line.text, /12\.4s/)
     assert.match(line.text, /2\.0s gap/)
     assert.match(line.text, /narration starts at 14\.4s/)

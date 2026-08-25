@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript, Electron/Express server, Nuxt/Vue frontend, Node test runner, existing Mock GenStudio service.
 
-**Source design:** `docs/superpowers/specs/2026-08-11-generation-guard-and-cancellation-design.md`, extended by the deployed GenStudio 0.97.1 contract verified from live OpenAPI and `/build/Developer/_handoffs/2026-08-12_to-gpt-storystudio_from-claude-genstudio_{cancel-api-contract,cancel-endpoints-final-paths,deployed-0971}.md`.
+**Source design:** `docs/superpowers/specs/2026-08-11-generation-guard-and-cancellation-design.md`, extended by the deployed GenStudio 0.97.1 contract verified from live OpenAPI and `<owner-home>/Developer/_handoffs/2026-08-12_to-gpt-storystudio_from-claude-genstudio_{cancel-api-contract,cancel-endpoints-final-paths,deployed-0971}.md`.
 
 ## Global Constraints
 
@@ -236,7 +236,7 @@ git commit -m "fix: reconcile GenStudio cancellation across modalities"
 - Modify: `package.json`
 - Modify: `package-lock.json`
 - Modify: `CHANGELOG.md`
-- Move after adoption passes: the three pending GenStudio cancellation handoffs into `/build/Developer/_handoffs/_handoff-trash/`
+- Move after adoption passes: the three pending GenStudio cancellation handoffs into `<owner-home>/Developer/_handoffs/_handoff-trash/`
 
 **Interfaces:**
 - Consumes reviewed Task 1–2 code.

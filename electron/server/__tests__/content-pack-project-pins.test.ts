@@ -557,7 +557,7 @@ describe('exact project Content Pack pins', () => {
     app.use('/api', settingsRouter)
     app.use(errorBoundary)
 
-    // `boundful` carries exactly this: an unqualified built-in template id from
+    // A real project carries exactly this: an unqualified built-in template id from
     // before Content Packs. It resolves through the legacy loader, so refusing
     // it would break a working channel to satisfy a rule about tidiness.
     await request(app)

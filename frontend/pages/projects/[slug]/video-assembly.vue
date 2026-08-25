@@ -897,7 +897,7 @@
       <!-- ─── Video Layout (v1.0.63+ / Path C) ─────────────────────────
            Picks between the standard scene-clip pipeline (narrative /
            scene-images flow) and the inverted compilation layout
-           (BrainWise / listicle: looping background plate as base,
+           (compilation-mode / listicle: looping background plate as base,
            per-chapter foreground icons composited on top with
            chapter-aligned timing). The card is at the very top of
            Step 4 because the choice changes how every OTHER setting
@@ -913,7 +913,7 @@
         </div>
         <p class="text-muted text-sm mt-1">
           <strong>Standard</strong> renders scene images full-frame as the base video — the sleep-story default.
-          <strong>Compilation</strong> uses a looping background (e.g. starfield) as the base and composites each chapter's icon as a foreground overlay — the BrainWise / listicle / explainer layout.
+          <strong>Compilation</strong> uses a looping background (e.g. starfield) as the base and composites each chapter's icon as a foreground overlay — the compilation-mode / listicle / explainer layout.
         </p>
         <div class="flex gap-2 mt-1">
           <label class="checkbox-label" style="display: inline-flex; gap: 6px; align-items: center;">
@@ -2668,7 +2668,7 @@ const { videoAssemblyGenerating } = useGenerating()
 
 // v1.0.83+: format-aware section vocabulary. Sections that show
 // "Chapter X" / "X chapter(s)" / "Per-scene chapter assignments" all
-// rebind through this composable so a bound-explainer project sees
+// rebind through this composable so a reasons-explainer project sees
 // "Per-scene reason assignments", a listicle project sees "Per-scene
 // topic assignments", etc. Reactive on project meta change.
 const { project: vaProject, config: vaConfig } = useProject()
@@ -3351,7 +3351,7 @@ function persistEpisodeOverlayTimings() {
 // Inverts the visual model: looping background plate becomes the base
 // video, scene images render as chapter-aligned foreground overlays.
 // Required when the channel produces listicle / explainer videos
-// (BrainWise-style "100 paradoxes explained") where each chapter is
+// (compilation-mode-style "100 paradoxes explained") where each chapter is
 // an independent topic and visual continuity comes from the bg.
 type CompilationFgPosition = 'center' | 'top-third' | 'bottom-third' | 'lower-right' | 'lower-left'
 const compilationLayout = reactive<{
@@ -4341,7 +4341,7 @@ function snapshotEffectsData() {
     // v1.0.68+: compilation_layout was being saved to the slot preset
     // but NOT to the bundle's fallback snapshot. Result: pipeline
     // batch runs that resolved a bundle preset would lose the
-    // BrainWise compilation layout entirely (reverting to standard
+    // compilation-mode compilation layout entirely (reverting to standard
     // sleep-story rendering with the foreground icons stretched as
     // full-screen scenes). Now mirrored here so batch parity holds.
     compilation_layout: {

@@ -1034,7 +1034,7 @@ watch(project, (p) => {
 }, { immediate: true })
 
 // v1.0.82+: format-aware section labels for the UI ("Chapter" for sleep-story,
-// "Reason" for bound-explainer, "Topic" for listicle). The composable reads
+// "Reason" for reasons-explainer, "Topic" for listicle). The composable reads
 // the section vocabulary from the loaded format list and updates reactively
 // when projectFormatId changes (e.g. project switch in the sidebar).
 const sectionLabel = useSectionLabel(projectFormatId)

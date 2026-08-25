@@ -164,7 +164,7 @@ test('what Story Studio accepts locally never changes the replay key', () => {
     system: 'system',
     userMessage: 'user',
     maxOutputTokens: 16_384,
-    requestIdentity: 'boundful:EP0067:scene-plan:visual:visual-0008',
+    requestIdentity: 'my-channel:EP0067:scene-plan:visual:visual-0008',
   }
   assert.equal(
     buildGenStudioChatIdempotencyKey({ ...request, outputContract: contract }),

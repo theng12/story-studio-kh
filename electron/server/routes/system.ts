@@ -417,7 +417,7 @@ router.post('/system/queue/resume', async (_req, res) => {
 // Named roots were retired in v1.4.3. The label → path map they managed was
 // the fourth location concept, and the one that made a project non-portable in
 // exactly the situation portability existed for: carried to another Mac,
-// `${TERRANASH}` meant nothing until someone re-declared it by hand. Shared
+// `${MY_FOLDER}` meant nothing until someone re-declared it by hand. Shared
 // files now live at `<Library>/_Project Assets` and are written as `${ASSET}/…`,
 // which needs no per-machine configuration and therefore has no routes.
 

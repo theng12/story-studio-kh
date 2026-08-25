@@ -9,8 +9,8 @@ push, and deployment remain outside this checkpoint.
 
 ## Immutable integration identity
 
-- Repository: /build/Developer/story-studio-kh
-- Worktree: /build/Developer/story-studio-kh/.worktrees/content-store-release-foundation
+- Repository: <owner-home>/Developer/story-studio-kh
+- Worktree: <owner-home>/Developer/story-studio-kh/.worktrees/content-store-release-foundation
 - Branch: codex/content-store-release-foundation
 - Integration base: 58dda52214a873cf0b697d961cae31c58b00a64b
 - Integrated code head before the current evidence-only commit:
@@ -415,7 +415,7 @@ At clean final code/artifact head
 warnings. Changelog, typography, source and built security, model drift,
 source and built release checks, Nuxt static build, and Electron compile passed.
 The verification log is
-`/build/Developer/_handoffs/story-studio-kh-v1.0.842-verify-0664bf1-20260816.log`
+`<owner-home>/Developer/_handoffs/story-studio-kh-v1.0.842-verify-0664bf1-20260816.log`
 with SHA-256 `e7e4a785bd7c534b2a8f4af63a0e10af03a2eda358f3ac654721cbc3e65f04ce`.
 
 The unsigned smoke package and an independent artifact verification both passed:

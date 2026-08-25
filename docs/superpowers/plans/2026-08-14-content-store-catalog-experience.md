@@ -144,7 +144,7 @@ interface ContentStoreOverview {
 - [ ] **Step 1: Enforce the external contract gate**
 
 ```bash
-test -s /build/Developer/_handoffs/2026-08-14_to-gpt-storystudio_from-claude-genstudio_content-catalog-merchandising-live.md
+test -s <owner-home>/Developer/_handoffs/2026-08-14_to-gpt-storystudio_from-claude-genstudio_content-catalog-merchandising-live.md
 ```
 
 Expected before GenStudio delivery: fail and stop without production parser edits. After delivery, create the bounded redacted deployed-response fixture from the handoff evidence; the handoff must name exact response locations, limits, nullability, and media policy.

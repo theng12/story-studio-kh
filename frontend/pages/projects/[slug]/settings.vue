@@ -1842,7 +1842,7 @@
     </div>
 
     <!-- v1.4.3 — the Named Roots tab is gone. It mapped labels like
-         ${TERRANASH} to a folder on THIS Mac, which made a project
+         ${MY_FOLDER} to a folder on THIS Mac, which made a project
          non-portable in exactly the situation portability was for: carry it to
          another machine and the label meant nothing until someone re-declared
          it by hand. Shared files now live at <Library>/_Project Assets and are
@@ -2439,7 +2439,7 @@ const selectedProductionKitDurations = computed(() => {
 //
 // The cadence belongs to the CHANNEL; the plan belongs to the ACCOUNT. A plan
 // is keyed platform:account_id and so cannot exist before YouTube is connected
-// — Boundful's channel predates its account by months. Setting the cadence
+// — a channel can predate its account by months. Setting the cadence
 // here means a channel has a rhythm from day one and the plan is created from
 // it on connect. Once a plan exists the PLAN is the authority; this is a seed.
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']

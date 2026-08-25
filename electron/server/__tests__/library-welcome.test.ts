@@ -47,8 +47,8 @@ describe('adopting a folder that already contains channels', () => {
     // Seeded at projectsRoot, which is what a chosen Library becomes.
     const root = pm.projectsRoot()
     await fs.mkdir(root, { recursive: true })
-    await seedChannel(root, 'terranash-sleep-stories', 'TerraNash Sleep Stories')
-    await seedChannel(root, 'dozing knight', "Dozing Knight's Tales")
+    await seedChannel(root, 'sleep-stories', 'Sleep Stories')
+    await seedChannel(root, 'night tales', "Night Tales")
     await seedChannel(root, 'រឿងខ្មែរ', 'Khmer Stories')
     // Decoys that must not become channels.
     await fs.mkdir(path.join(root, 'Random Notes'), { recursive: true })
@@ -58,14 +58,14 @@ describe('adopting a folder that already contains channels', () => {
     const list = await pm.listProjects()
     assert.deepEqual(
       list.map(p => p.slug).sort(),
-      ['dozing knight', 'terranash-sleep-stories', 'រឿងខ្មែរ'].sort(),
+      ['night tales', 'sleep-stories', 'រឿងខ្មែរ'].sort(),
     )
   })
 
   test('adopting adds the two fixed folders WITHOUT disturbing the channels', async () => {
     const target = path.join(tmp.dir, 'His Library')
     await fs.mkdir(target, { recursive: true })
-    const channel = await seedChannel(target, 'terranash', 'TerraNash')
+    const channel = await seedChannel(target, 'sleep-stories', 'Sleep Stories')
     await lib.setLibraryRoot(target)
     assert.ok(existsSync(path.join(target, '_Project Assets')))
     assert.ok(existsSync(path.join(target, 'Exports')))

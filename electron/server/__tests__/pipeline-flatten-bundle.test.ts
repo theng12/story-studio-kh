@@ -143,7 +143,7 @@ describe('flattenVideoAssemblyBundle', () => {
     assert.equal(out.overlays, undefined)
   })
 
-  test('flattens compilation_layout (v1.0.63 BrainWise mode) to video_layout + background_plate + foreground_defaults', () => {
+  test('flattens compilation_layout (v1.0.63 compilation-mode mode) to video_layout + background_plate + foreground_defaults', () => {
     const out = flattenVideoAssemblyBundle(
       bundle({
         effects: {

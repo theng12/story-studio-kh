@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- The remote source of truth is GenStudio KH release **1.4.0**, charging contract **0.21.0**, documented in `/build/Developer/genstudiokh/docs/product/api-contract-changes-1.4.0.md` and the four `2026-08-13_*content-store*.md` handoffs in `/build/Developer/_handoffs/`.
+- The remote source of truth is GenStudio KH release **1.4.0**, charging contract **0.21.0**, documented in `<owner-home>/Developer/genstudiokh/docs/product/api-contract-changes-1.4.0.md` and the four `2026-08-13_*content-store*.md` handoffs in `<owner-home>/Developer/_handoffs/`.
 - Use exactly `content:read` for `GET /v1/content/account`, `GET /v1/content/products`, and `POST /v1/content/quotes`; use exactly `content:purchase` for `POST /v1/content/purchases`. Existing keys are immutable and do not gain these scopes.
 - A key probe may prove `content:read` by reading `/v1/content/account`. Phase 1 exposes no non-debit endpoint that proves `content:purchase`, so Story must label that scope **required but not non-destructively verified** until an actual purchase is attempted.
 - Use `content_spendable_credits`, never `available_credits`, for purchase affordability. The former excludes foundation-only credits; referral-reward credits remain spendable because GenStudio classifies them as general credits.

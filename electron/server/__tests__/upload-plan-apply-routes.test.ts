@@ -46,7 +46,7 @@ let slug = ''
 let accountId = ''
 let planId = ''
 
-/** Mon/Wed/Fri 22:00 — the owner's real Boundful cadence. */
+/** Mon/Wed/Fri 22:00 — a real channel cadence. */
 const SCHEDULE = { weekdays: [1, 3, 5], time_local: '22:00', timezone: 'Asia/Phnom_Penh' }
 
 const CODES = ['EP0001', 'EP0002', 'EP0003', 'EP0004']

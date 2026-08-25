@@ -502,7 +502,7 @@ export async function updateProjectContentSelections(
  * be refused: a signed catalog item of the right kind; OR, for a style, a
  * project-local `style_presets` entry that actually carries prose; OR, for a
  * recipe, any id the template loader can load, legacy built-ins included.
- * (`boundful` carries the bare legacy id `archival-map-investigation`, which
+ * (a real project carries the bare legacy id `archival-map-investigation`, which
  * resolves that way and must keep saving.) An empty string on either axis
  * clears the selection and is always allowed.
  */

@@ -14,7 +14,7 @@ qualification.
 The Story Studio KH v1.0.700 release is paired with GenStudio KH v0.16.0
 (`396806d`). Its exact-release staging qualification
 `qrun_f27bf5a5bb4a4d64be05c0581e0691da` passed voice, image, and transcription
-on `terranash-tsh` with a zero-job backlog.
+on `<fleet-host>` with a zero-job backlog.
 
 ## Safety boundary
 

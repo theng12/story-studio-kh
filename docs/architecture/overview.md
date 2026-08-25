@@ -6,7 +6,7 @@ The mental map of this codebase. Read this first when debugging or planning a ch
 
 ## What this app is
 
-A personal-use desktop content-production pipeline for a single operator (`theng12`) producing long-form YouTube content across multiple channels (sleep stories, prayer, devotional, listicles, etc.). It runs as an Electron app on a Mac mini M4 and can optionally expose itself headless over Tailscale ("server mode") so the same backend can be driven from a remote browser.
+A personal-use desktop content-production pipeline for a single operator producing long-form YouTube content across multiple channels (sleep stories, prayer, devotional, listicles, etc.). It runs as an Electron app on a Mac mini M4 and can optionally expose itself headless over Tailscale ("server mode") so the same backend can be driven from a remote browser.
 
 **Not:** a SaaS. Not multi-tenant. No paying customers. The license/DRM scaffolding is dead code (see [project_personal_use](memory) — slated for removal).
 
@@ -160,7 +160,7 @@ Each project lives as a folder under `PROJECTS_ROOT` (configured in app-settings
 
 ```
 PROJECTS_ROOT/
-├── <slug>/                          (e.g. abiding-faith/)
+├── <slug>/                          (e.g. my-channel/)
 │   ├── project.json                 (format_id, niche_id, name, season config, etc.)
 │   ├── config.json                  (per-project settings, overrides, api keys → DEPRECATED, app-level now)
 │   ├── secrets.json                 (YouTube OAuth tokens only — no API keys)

@@ -275,7 +275,7 @@ describe('Automatic cue approval (auto_approve_cues)', () => {
    * this same validator accepts (80-char title + 100-char subtitle, at ~15
    * characters a second) actually needs in order to be read — and because how
    * long to hold a label is the editor's call about his own film, not the
-   * app's. Reported on Boundful EP0047: "the contextual cue exist but it
+   * app's. Reported on a live EP0047: "the contextual cue exist but it
    * disappears too fast."
    */
   test('holds back a candidate too brief to read, and only that', () => {

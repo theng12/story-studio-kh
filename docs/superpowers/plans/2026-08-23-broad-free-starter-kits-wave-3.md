@@ -44,8 +44,8 @@ Audience Question Seeder is not an implicit sixth Topic dependency; it remains a
 | content-packs/free-broad-starters/topic/{everyday-systems-decisions,life-changes-choices,home-routine-systems,family-discovery,weekend-routes-activities}/{pack.json,content/topic-pack.json} | Five receipt-bound Topic leaves. |
 | content-packs/free-broad-starters/kit/{everyday-explainers,personal-story-lessons,practical-home-routine,family-discovery,weekend-guides}/pack.json | Five bundle-only coordinator closures. |
 | scripts/content-packs/__tests__/broad-free-starter-wave-three.test.mjs | Receipt, closure, test-local handoff-summary, safety, coverage, candidate and review tests. |
-| /build/Developer/_handoffs/artifacts/story-wave-3-broad-free-candidates-2026-08-23/ | Fresh retained candidate archives and exact evidence ledger; fail if it already exists. |
-| /build/Developer/_handoffs/2026-08-23_to-genstudio_wave-3-broad-free-candidates.md | Non-mutating candidate/stocking handoff. |
+| <owner-home>/Developer/_handoffs/artifacts/story-wave-3-broad-free-candidates-2026-08-23/ | Fresh retained candidate archives and exact evidence ledger; fail if it already exists. |
+| <owner-home>/Developer/_handoffs/2026-08-23_to-genstudio_wave-3-broad-free-candidates.md | Non-mutating candidate/stocking handoff. |
 
 ### Task 1: Gate Wave 3 on qualified primitives and exact reusable releases
 
@@ -307,9 +307,9 @@ git commit -m "feat: compose broad free starter kits"
 
 **Files:**
 - Modify: scripts/content-packs/__tests__/broad-free-starter-wave-three.test.mjs
-- Create externally: /build/Developer/_handoffs/artifacts/story-wave-3-broad-free-candidates-2026-08-23/archives/*.sspack
-- Create externally: /build/Developer/_handoffs/artifacts/story-wave-3-broad-free-candidates-2026-08-23/evidence-ledger.json
-- Create externally: /build/Developer/_handoffs/2026-08-23_to-genstudio_wave-3-broad-free-candidates.md
+- Create externally: <owner-home>/Developer/_handoffs/artifacts/story-wave-3-broad-free-candidates-2026-08-23/archives/*.sspack
+- Create externally: <owner-home>/Developer/_handoffs/artifacts/story-wave-3-broad-free-candidates-2026-08-23/evidence-ledger.json
+- Create externally: <owner-home>/Developer/_handoffs/2026-08-23_to-genstudio_wave-3-broad-free-candidates.md
 
 **Interfaces:**
 - Consumes: 12 authored sources and keyless builder/validator.

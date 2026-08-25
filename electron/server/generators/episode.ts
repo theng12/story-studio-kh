@@ -169,7 +169,7 @@ function applyPerspectiveToFormat(
  * system prompt builder to keep image-prompt rules out of the writing LLM's
  * context (they belong to dedicated generators with their own prompts, and
  * carrying them into the chapter call causes the LLM to dump thumbnail
- * prompts inside chapter bodies — see capi EP0017/19/23 regression).
+ * prompts inside chapter bodies — see the EP0017/19/23 regression).
  *
  * Stripping rule: any H2 heading whose title CONTAINS the words "image
  * prompt" or "thumbnail" (case-insensitive) is dropped along with all the
@@ -204,7 +204,7 @@ function systemPrompt(format: Format, productionStandards: string): string {
   // system prompt (each generator has its own dedicated prompts), and earlier
   // template versions shipped with an "Image Prompts" section whose example
   // string ("watercolor style, soft palette") caused the chunked-narration
-  // LLM to emit thumbnail prompts inside chapter bodies (capi EP0017/19/23).
+  // LLM to emit thumbnail prompts inside chapter bodies (EP0017/19/23).
   // Templates have been cleaned, but legacy projects still have the buggy file
   // on disk — this strip protects them without needing a per-project migration.
   const cleanedStandards = stripImagePromptSections(productionStandards)
@@ -268,7 +268,7 @@ function narrationPrompt(
   const hostName = intro.host_name || 'your narrator'
 
   // Section label — what the format calls its primary content unit.
-  // Sleep-story → "Chapter", bound-explainer → "Reason", listicle →
+  // Sleep-story → "Chapter", reasons-explainer → "Reason", listicle →
   // "Topic". Defaults to Chapter/Chapters so every format without the
   // field set in JSON keeps its existing prompt copy unchanged.
   const sectionSingular = format.script.sectionLabel?.singular || 'Chapter'

@@ -45,7 +45,7 @@ export interface Character {
 
 /**
  * Accept any of the common shapes a caller might pass:
- *   - plain string ("mineepod")
+ *   - plain string ("my-channel")
  *   - getter function (() => route.params.slug)
  *   - Vue Ref / ComputedRef (computed(() => route.params.slug))
  *

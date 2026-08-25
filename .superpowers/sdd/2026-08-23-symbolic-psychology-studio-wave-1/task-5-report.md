@@ -4,7 +4,7 @@
 
 **Source commit:** `e67a9bebfaaa01294857b71ca66901b90591fce9`
 
-**External artifact root:** `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/`
+**External artifact root:** `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/`
 
 ## Initial outcome (superseded by Fix Round 1 below)
 
@@ -94,7 +94,7 @@ The superseded first-pass Recipe archive was also moved to `quarantine/supersede
 RED command and result:
 
 ```bash
-npx tsx --test electron/server/__tests__/capi-psychology-components-source.test.ts electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts
+npx tsx --test electron/server/__tests__/editorial-psychology-components-source.test.ts electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts
 ```
 
 Result before the source edit: `5/9 passed`, with all four failures proving the document/file/provenance still contained preview #4. After the source edit the same command passed `9/9`.
@@ -121,15 +121,15 @@ One initial diagnostic validate invocation omitted `--delivery-profile genstudio
 
 ### Pastel visual block and replacement request
 
-The existing Pastel preview was not silently relabeled: independent visual review found a heavy-impasto forest/lantern image rather than the promised matte mixed-media collage. The owner-authorized search remained limited to Capi episode/scene assets.
+The existing Pastel preview was not silently relabeled: independent visual review found a heavy-impasto forest/lantern image rather than the promised matte mixed-media collage. The owner-authorized search remained limited to Editorial episode/scene assets.
 
 Evidence commands/results:
 
 ```bash
-find "/build/Documents/Story Studio KH/Story Studio Projects/Capi/episodes/Season 003/EP0050 - The Psychology of the Silent Descent/EP0050 - 05 Scene Images" -maxdepth 1 -type f
+find "<owner-home>/Documents/Story Studio KH/Story Studio Projects/<project>/episodes/Season 003/EP0050 - The Psychology of the Silent Descent/EP0050 - 05 Scene Images" -maxdepth 1 -type f
 # 141 PNG scene assets; full contact sheet and plausible outliers visually inspected; all remained oil/impasto.
 
-rg -n -i --glob '**/03 Scene Prompts/*.{json,md,txt}' 'mixed[- ]media|collage|torn paper|cut paper' "/build/Documents/Story Studio KH/Story Studio Projects/Capi/episodes"
+rg -n -i --glob '**/03 Scene Prompts/*.{json,md,txt}' 'mixed[- ]media|collage|torn paper|cut paper' "<owner-home>/Documents/Story Studio KH/Story Studio Projects/<project>/episodes"
 # no matches
 ```
 
@@ -141,7 +141,7 @@ sha256=d70083a8bddc67e032d465c63f91845d6178ae60c785d6aba9ce4e7db357a054
 bytes=290429
 ```
 
-Its stockable archive path/digest is null in the receiver handoff. The exact capability-and-quote-only Studio Hub request is `/build/Developer/_handoffs/2026-08-23_to-gpt-studiofleet_from-gpt-storystudio_symbolic-psychology-pastel-preview-replacement.md`. It authorizes no job or generation; any charged route requires an exact returned quote and explicit owner authority before submission.
+Its stockable archive path/digest is null in the receiver handoff. The exact capability-and-quote-only Studio Hub request is `<owner-home>/Developer/_handoffs/2026-08-23_to-gpt-studiofleet_from-gpt-storystudio_symbolic-psychology-pastel-preview-replacement.md`. It authorizes no job or generation; any charged route requires an exact returned quote and explicit owner authority before submission.
 
 ### Kit commercial and safety blockers
 
@@ -215,11 +215,11 @@ Recipe archive path, digest, and byte count are null in the receiver-ready entry
 The exact capability-and-quote-only replacement material is:
 
 ```text
-/build/Developer/_handoffs/2026-08-23_symbolic-psychology-recipe-preview-draft-prompt-batch.json
+<owner-home>/Developer/_handoffs/2026-08-23_symbolic-psychology-recipe-preview-draft-prompt-batch.json
 sha256=ceb4cee15331105d657ef5a7aea66a4e2e87877f32c5efe0a8022b48732c3c3b
 bytes=2578
 
-/build/Developer/_handoffs/2026-08-23_to-gpt-studiofleet_from-gpt-storystudio_symbolic-psychology-recipe-preview-replacement.md
+<owner-home>/Developer/_handoffs/2026-08-23_to-gpt-studiofleet_from-gpt-storystudio_symbolic-psychology-recipe-preview-replacement.md
 sha256=413078780e5626c12ff18e6edc070fa1b8e4258e7580589484ef9777c6d6d250
 ```
 
@@ -245,7 +245,7 @@ bytes=403483
 Its fresh validation command/result was:
 
 ```bash
-npm run content-pack:validate -- /build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/archives/com.storystudio.pack.style.oil-painting-classical@1.0.0.sspack --delivery-profile genstudio-store-receipt-v1
+npm run content-pack:validate -- <owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/archives/com.storystudio.pack.style.oil-painting-classical@1.0.0.sspack --delivery-profile genstudio-store-receipt-v1
 # Content Pack com.storystudio.pack.style.oil-painting-classical 1.0.0 sha256=95f6271a0f56afd850c1548bfff703177ba9b5977584093fea833f1bbf02e3fc bytes=403483
 ```
 
@@ -253,7 +253,7 @@ Commerce terms remain undecided and were not supplied. None of the handoffs make
 
 ### Portable opt-in evidence assertions
 
-The dedicated committed test no longer depends on `/build/...`. External assertions require the explicit absolute environment input `STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT`; normal clean-checkout runs execute the source/registry checks and skip only the two external assertions with this exact message:
+The dedicated committed test no longer depends on `<owner-home>/...`. External assertions require the explicit absolute environment input `STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT`; normal clean-checkout runs execute the source/registry checks and skip only the two external assertions with this exact message:
 
 ```text
 Set STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT to an absolute artifact root to run external evidence assertions.
@@ -268,7 +268,7 @@ node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.te
 STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT=relative node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs
 # precise opt-in failure: STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT must be an absolute path
 
-STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT=/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23 node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs
+STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT=<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23 node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs
 # tests 4; pass 4; fail 0; skipped 0
 ```
 

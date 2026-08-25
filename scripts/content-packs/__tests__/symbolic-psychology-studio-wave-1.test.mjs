@@ -67,7 +67,7 @@ function closurePairs(entries) {
   return entries.map(({ pack_id, version }) => [pack_id, version])
 }
 
-test('promotion receipts: the original Capi and Impasto reservations are the only path to authored sources', async () => {
+test('promotion receipts: the original Editorial and Impasto reservations are the only path to authored sources', async () => {
   const registry = await readJson(REGISTRY_PATH)
   const expected = [
     [CLOSURE[2][0], RECIPE_RECEIPT],

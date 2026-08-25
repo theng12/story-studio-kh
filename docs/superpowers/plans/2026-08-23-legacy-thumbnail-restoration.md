@@ -4,18 +4,18 @@
 
 **Goal:** Restore every genuinely distinct pre-refactor thumbnail grammar as original, modular Content Pack recipe/style sources, while preserving legacy selections and giving every restored recipe a visible gallery of three to five original 16:9 previews.
 
-**Architecture:** Keep the signed Content Pack documents as the source of new reusable recipe and style contracts. The existing adapters continue to project signed recipes into `ThumbnailTemplate`; legacy bare IDs and user templates continue through their current fallback chain. New source-only components live under `content-packs/legacy-thumbnail-restoration/`; existing free-starter, Archival Ledger, and Capi components are enriched or verified in place, never replaced by a parallel product.
+**Architecture:** Keep the signed Content Pack documents as the source of new reusable recipe and style contracts. The existing adapters continue to project signed recipes into `ThumbnailTemplate`; legacy bare IDs and user templates continue through their current fallback chain. New source-only components live under `content-packs/legacy-thumbnail-restoration/`; existing free-starter, Archival Ledger, and Editorial components are enriched or verified in place, never replaced by a parallel product.
 
 **Tech Stack:** JSON Content Pack schemas, Node.js `node:test`, TypeScript/TSX tests, Sharp raster decoding, deterministic `.sspack` builder/validator, Ed25519 ephemeral test keys.
 
-**Spec:** `docs/superpowers/specs/2026-08-14-content-store-launch-catalog-design.md`; this plan implements the owner-approved 2026-08-23 restoration map, and `.superpowers/sdd/capi-psychology-components/legacy-thumbnail-stock-report.md` is its historical evidence inventory.
+**Spec:** `docs/superpowers/specs/2026-08-14-content-store-launch-catalog-design.md`; this plan implements the owner-approved 2026-08-23 restoration map, and `.superpowers/sdd/editorial-psychology-components/legacy-thumbnail-stock-report.md` is its historical evidence inventory.
 
 ## Global Constraints
 
 - Component source identity uses `com.storystudio`, exact `1.0.0`, `{{KEY_ID}}`, and `{{MIN_APP_VERSION}}`; no source document contains model/provider routing, GenStudio product/release/account facts, pricing, a URL, credentials, executable content, or a production key.
 - Reserve all six new identities in one coordinator-owned compare-and-swap batch before any leaf creates a component source. Leaf tasks only verify the coordinator receipt; they never reserve, repair, or transition registry records.
 - The three new recipes are `animal-hardship-annotation`, `prehistoric-survival-title-card`, and `dreamlike-story-title-card`; the three new styles are `hand-drawn-hardship-cartoon`, `impasto-psychological-animals`, and `dreamlike-luminous-sleep-illustration`.
-- Reuse, rather than repackage, `centered-hero-headline` plus `builtin-pixel-art-story` for Dozing Knight and `portrait-block-right` plus `cinematic-photoreal` for Abiding Faith. Retain Capi's `editorial-psychology-symbolic-split` and `pastel-surreal-psychological-collage` unchanged as active components.
+- Reuse, rather than repackage, `centered-hero-headline` plus `builtin-pixel-art-story` for Night Tales and `portrait-block-right` plus `cinematic-photoreal` for Devotional Hour. Retain Editorial's `editorial-psychology-symbolic-split` and `pastel-surreal-psychological-collage` unchanged as active components.
 - Treat `centered-hero-headline-custom` as a compatibility parameter/note for `centered-hero-headline`, not a separately sellable or signed recipe. Keep the 94px user fork readable.
 - Preserve all legacy aliases and fallback order: qualified signed recipe, then legacy user template, then legacy built-in; bare historical IDs and user forks must not be rewritten or deleted.
 - Every recipe in the restored lineup has three to five declared, decodable, original WebP previews at exactly 1672×941 (16:9). The lineup is the seven free-starter recipes, Archival Map Investigation, Editorial Psychology Symbolic Split, and the three new recipes.
@@ -44,11 +44,11 @@
 | Historical channel grammar | Recipe | Style | Formula compatibility | Product decision |
 | --- | --- | --- | --- | --- |
 | Bound-style animal hardship annotation | `com.storystudio.thumbnail.animal-hardship-annotation` | `com.storystudio.style.hand-drawn-hardship-cartoon` | `com.storystudio.formula.natural-world-explained` | New recipe and style. Full truthful title plus one short handwritten hardship annotation and one arrow remain distinct from `curiosity-question-cartoon`. |
-| Capi impasto psychological animal essay | `com.storystudio.thumbnail.editorial-psychology-symbolic-split` | `com.storystudio.style.impasto-psychological-animals` | `com.storystudio.formula.human-behavior-explained` | Retain the existing symbolic recipe; add the distinct impasto animal style. Do not overwrite the existing pastel-collage style or Capi recipe previews. |
+| Editorial impasto psychological animal essay | `com.storystudio.thumbnail.editorial-psychology-symbolic-split` | `com.storystudio.style.impasto-psychological-animals` | `com.storystudio.formula.human-behavior-explained` | Retain the existing symbolic recipe; add the distinct impasto animal style. Do not overwrite the existing pastel-collage style or Editorial recipe previews. |
 | Brain Wise prehistoric survival explainer | `com.storystudio.thumbnail.prehistoric-survival-title-card` | `com.storystudio.style.prehistoric-stick-cartoon` | `com.storystudio.formula.ancient-humans` | New title-card recipe; reuse the existing style. It stays distinct from short-hook `prehistoric-discovery`. |
-| Story Sprout/TerraNash luminous sleep card | `com.storystudio.thumbnail.dreamlike-story-title-card` | `com.storystudio.style.dreamlike-luminous-sleep-illustration` | `com.storystudio.formula.sleep-story` | New recipe and style; it stays distinct from framed `dreamscape-story-window`. |
-| Dozing Knight fantasy title card | `com.storystudio.thumbnail.centered-hero-headline` | `builtin-pixel-art-story` | Existing legacy-compatible selection | No new component, pack, or preview derivative. Document only that the existing centered headline structure and pixel style remain selectable. |
-| Abiding Faith pastoral prayer | `com.storystudio.thumbnail.portrait-block-right` | `com.storystudio.style.cinematic-photoreal` | Existing prayer / POV-compatible selection | No new component. Preserve its legacy typography/fallback and the existing signed cinematic style. |
+| Story Garden/Sleep Stories luminous sleep card | `com.storystudio.thumbnail.dreamlike-story-title-card` | `com.storystudio.style.dreamlike-luminous-sleep-illustration` | `com.storystudio.formula.sleep-story` | New recipe and style; it stays distinct from framed `dreamscape-story-window`. |
+| Night Tales fantasy title card | `com.storystudio.thumbnail.centered-hero-headline` | `builtin-pixel-art-story` | Existing legacy-compatible selection | No new component, pack, or preview derivative. Document only that the existing centered headline structure and pixel style remain selectable. |
+| Devotional Hour pastoral prayer | `com.storystudio.thumbnail.portrait-block-right` | `com.storystudio.style.cinematic-photoreal` | Existing prayer / POV-compatible selection | No new component. Preserve its legacy typography/fallback and the existing signed cinematic style. |
 | Centered 94px custom user template | `centered-hero-headline` with a user-fork `fontSize: 94` compatibility note | N/A | Existing selection | No new item, family, SKU, source folder, or migration. |
 
 ### Task 1: Coordinator-only identity reservation and leaf receipt handoff
@@ -156,7 +156,7 @@ git commit -m "chore(content-packs): reserve legacy thumbnail identities"
 - Test: `electron/server/__tests__/legacy-thumbnail-restoration-source.test.ts`
 
 **Interfaces:**
-- Consumes: owner-supplied saved thumbnail outputs under `/build/Documents/Story Studio KH/Story Studio Projects/`, `sharp(input).resize(1672, 941, { fit: 'cover' }).webp({ quality: 88 })`, and SHA-256 byte hashes.
+- Consumes: owner-supplied saved thumbnail outputs under `<owner-home>/Documents/Story Studio KH/Story Studio Projects/`, `sharp(input).resize(1672, 941, { fit: 'cover' }).webp({ quality: 88 })`, and SHA-256 byte hashes.
 - Produces: one ledger row per runtime asset: source path, source SHA-256, output path, output SHA-256, 1672×941 decode result, rights basis, and `saved-output-conversion` or `existing-approved-byte` operation.
 
 - [ ] **Step 1: Write the failing asset ledger contract**
@@ -181,11 +181,11 @@ Expected: FAIL because the restoration ledger and declared assets do not exist.
 Use this read-only inventory command for each approved source family; inspect decoded images rather than trusting filenames:
 
 ```bash
-find '/build/Documents/Story Studio KH/Story Studio Projects' -type f \
+find '<owner-home>/Documents/Story Studio KH/Story Studio Projects' -type f \
   \( -iname '*Thumb*.png' -o -iname '*Thumb*.jpg' -o -iname '*Thumb*.jpeg' -o -iname '*Thumb*.webp' \) -print
 ```
 
-Start with the evidence paths named in `legacy-thumbnail-stock-report.md`: MineePod for hardship annotation, Capi for impasto animals, brain-wise for prehistoric survival, story-sprout/TerraNash for dreamlike sleep, plus existing tracked preview bytes for the free-starter/Archival/Capi families. Select three materially distinct images per new recipe where available; a style may use one text-free original preview. Do not request a model generation, call Studio Hub, or reuse an image containing a copied episode title as the reusable prompt contract.
+Start with the evidence paths named in `legacy-thumbnail-stock-report.md`: one channel per family: hardship annotation, impasto animals, prehistoric survival, and dreamlike sleep, plus existing tracked preview bytes for the free-starter/Archival/editorial families. Select three materially distinct images per new recipe where available; a style may use one text-free original preview. Do not request a model generation, call Studio Hub, or reuse an image containing a copied episode title as the reusable prompt contract.
 
 - [ ] **Step 4: Apply the deterministic conversion and record provenance, or halt exactly**
 
@@ -229,7 +229,7 @@ git commit -m "docs(content-packs): record restoration preview provenance"
 
 - [ ] **Step 1: Add failing source assertions for the distinct hardship grammar**
 
-Add assertions that the recipe has `layout: 'hero'`, `aspect_ratio: '16:9'`, `title_mode: 'ai'`, `headline_mode: 'episode-title'`, exactly three preview assets, and requires all of: one anatomically legible expressive animal, one hand-drawn arrow, one 3–6 word handwritten hardship annotation, and a readable full episode-title card. Assert it rejects a copied MineePod title, multiple arrows, generic curiosity-only wording, watermarks, logos, malformed text, and copied trade dress.
+Add assertions that the recipe has `layout: 'hero'`, `aspect_ratio: '16:9'`, `title_mode: 'ai'`, `headline_mode: 'episode-title'`, exactly three preview assets, and requires all of: one anatomically legible expressive animal, one hand-drawn arrow, one 3–6 word handwritten hardship annotation, and a readable full episode-title card. Assert it rejects a copied channel title, multiple arrows, generic curiosity-only wording, watermarks, logos, malformed text, and copied trade dress.
 
 ```ts
 assert.deepEqual(recipe.compatible_formula_ids, ['com.storystudio.formula.natural-world-explained'])
@@ -282,7 +282,7 @@ git add content-packs/legacy-thumbnail-restoration/thumbnail/animal-hardship-ann
 git commit -m "feat(content-packs): add animal hardship components"
 ```
 
-### Task 4: Retain Capi's symbolic recipe and add the impasto psychological-animal style
+### Task 4: Retain Editorial's symbolic recipe and add the impasto psychological-animal style
 
 **Files:**
 - Create: `content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals/pack.json`
@@ -297,33 +297,33 @@ git commit -m "feat(content-packs): add animal hardship components"
 
 - [ ] **Step 1: Add failing retention and distinctness assertions**
 
-Assert the existing Capi symbolic recipe remains present with five declared previews, unchanged identity, and `human-behavior-explained` compatibility. Assert the new style has one text-free declared preview and its style bible explicitly describes thick impasto oil paint, muted melancholy, an anthropomorphic animal engaged in a human-scale activity, strong figure-ground separation, and an optional opposing title-safe band supplied by the retained recipe.
+Assert the existing Editorial symbolic recipe remains present with five declared previews, unchanged identity, and `human-behavior-explained` compatibility. Assert the new style has one text-free declared preview and its style bible explicitly describes thick impasto oil paint, muted melancholy, an anthropomorphic animal engaged in a human-scale activity, strong figure-ground separation, and an optional opposing title-safe band supplied by the retained recipe.
 
 ```ts
-assert.equal(existingCapiRecipe.preview_assets.length, 5)
+assert.equal(existingEditorialRecipe.preview_assets.length, 5)
 assert.deepEqual(impasto.compatible_formula_ids, ['com.storystudio.formula.human-behavior-explained'])
 assert.match(impasto.style_bible, /thick impasto oil paint/i)
 assert.match(impasto.style_bible, /anthropomorphic animal/i)
-assert.doesNotMatch(impasto.style_bible, /Emotional Armor|Capi|EP\d{4}/i)
+assert.doesNotMatch(impasto.style_bible, /Emotional Armor|EP\d{4}/i)
 ```
 
 - [ ] **Step 2: Run the source test to verify the new-style assertion fails**
 
 Run: `npx tsx --test electron/server/__tests__/legacy-thumbnail-restoration-source.test.ts`
 
-Expected: FAIL only on missing impasto source/asset assertions; the existing Capi component assertions remain green.
+Expected: FAIL only on missing impasto source/asset assertions; the existing Editorial component assertions remain green.
 
 - [ ] **Step 3: Implement the receipt-bound impasto style source**
 
-Use a `visual-style` document with category `Illustration`, search tags `psychology`, `impasto`, `oil paint`, `anthropomorphic animals`, and `editorial`, a render-ready style bible, and a negative prompt excluding cute mascot design, stock photography, glossy CGI, neon, copied trade dress, episode text, watermarks/logos, malformed limbs, malformed anatomy, and malformed text. Do not add a second Capi recipe or change its existing five preview bytes.
+Use a `visual-style` document with category `Illustration`, search tags `psychology`, `impasto`, `oil paint`, `anthropomorphic animals`, and `editorial`, a render-ready style bible, and a negative prompt excluding cute mascot design, stock photography, glossy CGI, neon, copied trade dress, episode text, watermarks/logos, malformed limbs, malformed anatomy, and malformed text. Do not add a second Editorial recipe or change its existing five preview bytes.
 
 - [ ] **Step 4: Add the ledgered text-free preview and run the focused test**
 
 Run: `npx tsx --test electron/server/__tests__/legacy-thumbnail-restoration-source.test.ts`
 
-Expected: PASS; the style preview decodes as 1672×941 and the test proves Capi's original recipe remains independently available.
+Expected: PASS; the style preview decodes as 1672×941 and the test proves Editorial's original recipe remains independently available.
 
-- [ ] **Step 5: Commit the Capi style extension without altering the retained recipe**
+- [ ] **Step 5: Commit the Editorial style extension without altering the retained recipe**
 
 ```bash
 git add content-packs/legacy-thumbnail-restoration/style/impasto-psychological-animals content-packs/legacy-thumbnail-restoration/PREVIEW-PROVENANCE.md electron/server/__tests__/legacy-thumbnail-restoration-source.test.ts
@@ -414,7 +414,7 @@ Expected: FAIL because the new recipe/style and their declared preview files do 
 
 - [ ] **Step 3: Implement the two receipt-bound sources**
 
-Set the recipe's `layout` to `hero`, `title_mode` to `ai`, and `headline_mode` to `episode-title`; set the visual style category to `Illustration`. Make the wording abstract reusable grammar only: no `The Elephant Who Loved the Rain`, TerraNash episode code, channel name, copied composition, or fixed character. The style negative prompt must prohibit visual peril, loud saturated neon, photoreal stock imagery, logos/watermarks, copied trade dress, and malformed anatomy/text.
+Set the recipe's `layout` to `hero`, `title_mode` to `ai`, and `headline_mode` to `episode-title`; set the visual style category to `Illustration`. Make the wording abstract reusable grammar only: no `The Elephant Who Loved the Rain`, Sleep Stories episode code, channel name, copied composition, or fixed character. The style negative prompt must prohibit visual peril, loud saturated neon, photoreal stock imagery, logos/watermarks, copied trade dress, and malformed anatomy/text.
 
 - [ ] **Step 4: Add ledgered preview assets and run the source test**
 
@@ -473,10 +473,10 @@ assert.equal(portraitLegacy.previewImages[0], '/thumbnail-recipe-previews/portra
 Add an explicit reuse matrix assertion:
 
 ```ts
-assert.deepEqual(dozingKnight, {
+assert.deepEqual(nightTales, {
   recipe: 'com.storystudio.thumbnail.centered-hero-headline', style: 'builtin-pixel-art-story',
 })
-assert.deepEqual(abidingFaith, {
+assert.deepEqual(devotional, {
   recipe: 'com.storystudio.thumbnail.portrait-block-right', style: 'com.storystudio.style.cinematic-photoreal',
 })
 ```
@@ -496,7 +496,7 @@ Expected: FAIL because the four sources expose one preview and the two legacy ru
 
 Keep each original asset reference as index zero and append only ledgered `-2` and `-3` asset paths. Copy the centered and portrait additions to `frontend/public/thumbnail-recipe-previews/` under the same basenames, then append URLs to their legacy template JSON. Do not alter their `id`, existing `recipe` nullability, fixed geometry, `textZones`, `backgroundDimGradient`, `accentStrokes`, `logoSlot`, or user-template compatibility.
 
-Do not add a Dozing Knight or Abiding Faith pack. Update `MIGRATION-RATIONALE.md` to state that Dozing Knight reuses the existing centered recipe plus `builtin-pixel-art-story`, Abiding Faith reuses portrait plus signed `cinematic-photoreal`, and the centered 94px custom JSON remains a loadable fork rather than a product.
+Do not add a Night Tales or Devotional Hour pack. Update `MIGRATION-RATIONALE.md` to state that Night Tales reuses the existing centered recipe plus `builtin-pixel-art-story`, Devotional Hour reuses portrait plus signed `cinematic-photoreal`, and the centered 94px custom JSON remains a loadable fork rather than a product.
 
 - [ ] **Step 4: Run focused gallery checks**
 
@@ -654,7 +654,7 @@ npm run check:security
 npm run check:model-drift
 ```
 
-Expected: all functional checks pass; lint may report the repository's existing warnings but exits 0 with no lint errors. The explicit audit must report all twelve recipes, three-to-five previews each, four established three-preview families retained, three new recipes/styles, Capi retention, Dozing Knight/Abiding Faith reuse, and legacy fallback preservation.
+Expected: all functional checks pass; lint may report the repository's existing warnings but exits 0 with no lint errors. The explicit audit must report all twelve recipes, three-to-five previews each, four established three-preview families retained, three new recipes/styles, Editorial retention, Night Tales/Devotional Hour reuse, and legacy fallback preservation.
 
 - [ ] **Step 5: Commit qualification code only; do not release**
 
@@ -669,7 +669,7 @@ Do not change version files or `CHANGELOG.md`, run a release/GenStudio command, 
 
 **Spec coverage:** Componentized independent recipe/style sources, exact IDs/versions, compatible Formula declarations, strict decoded previews, no provider/model/pricing material, immutable candidate bytes, legacy readability, and deterministic offline validation map to Tasks 1–9. The plan deliberately does not claim a catalog product, customer entitlement, install, migration, Store UI change, production delivery profile, or release because the approved catalog spec keeps those outside source authoring.
 
-**Owner-approved restoration coverage:** Task 3 covers animal hardship plus hand-drawn style; Task 4 retains Capi symbolic and adds impasto style; Task 5 covers prehistoric full-title survival and reuses its current style; Task 6 covers dreamlike title card plus luminous style; Task 7 documents Dozing Knight/Abiding Faith reuse and centered-custom compatibility. Tasks 7 and 9 enforce three-to-five previews for all twelve recipes, enrich the four named one-preview sources, and preserve the four pre-existing three-preview families.
+**Owner-approved restoration coverage:** Task 3 covers animal hardship plus hand-drawn style; Task 4 retains Editorial symbolic and adds impasto style; Task 5 covers prehistoric full-title survival and reuses its current style; Task 6 covers dreamlike title card plus luminous style; Task 7 documents Night Tales/Devotional Hour reuse and centered-custom compatibility. Tasks 7 and 9 enforce three-to-five previews for all twelve recipes, enrich the four named one-preview sources, and preserve the four pre-existing three-preview families.
 
 **Placeholder scan:** No task authorizes unspecified paid generation. The only path for missing preview bytes is the exact written Studio Hub authorization blocker. All new identities, paths, IDs, test commands, lifecycle boundaries, and expected outputs are specified above.
 

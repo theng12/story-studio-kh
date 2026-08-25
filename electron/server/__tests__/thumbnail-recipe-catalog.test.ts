@@ -97,8 +97,8 @@ test('centered and portrait legacy templates expose three source-backed browseab
       'centered-hero-headline',
       [
         '/thumbnail-recipe-previews/centered-hero-headline.webp',
-        '/thumbnail-recipe-previews/centered-hero-headline-dozing-knight-01.webp',
-        '/thumbnail-recipe-previews/centered-hero-headline-dozing-knight-05.webp',
+        '/thumbnail-recipe-previews/centered-hero-headline-02.webp',
+        '/thumbnail-recipe-previews/centered-hero-headline-03.webp',
       ],
     ],
     [
@@ -106,8 +106,8 @@ test('centered and portrait legacy templates expose three source-backed browseab
       'portrait-block-right',
       [
         '/thumbnail-recipe-previews/portrait-block-right.webp',
-        '/thumbnail-recipe-previews/portrait-block-right-capi-01.webp',
-        '/thumbnail-recipe-previews/portrait-block-right-abiding-faith-01.webp',
+        '/thumbnail-recipe-previews/portrait-block-right-02.webp',
+        '/thumbnail-recipe-previews/portrait-block-right-03.webp',
       ],
     ],
   ] as const) {

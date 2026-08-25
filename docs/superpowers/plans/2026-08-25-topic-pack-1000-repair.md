@@ -401,9 +401,9 @@ npm run content-pack:registry -- validate
 - Modify: `scripts/content-packs/stage-handoff-artifacts.mjs`
 - Create: `scripts/content-packs/__tests__/topic-pack-1000-successors-pack.test.mjs`
 - Read: `scripts/content-packs/build-pack.mjs`, `scripts/content-packs/validate-pack.mjs`
-- Create outside repository: `/build/Developer/_handoffs/candidates/topic-pack-1000-repair-2026-08-25/`
-- Create outside repository: `/build/Developer/_handoffs/artifacts/topic-pack-1000-repair-2026-08-25/`
-- Create outside repository: `/build/Developer/_handoffs/2026-08-25_to-claude-genstudio_from-gpt-storystudio_topic-pack-1000-repair-candidates.json`
+- Create outside repository: `<owner-home>/Developer/_handoffs/candidates/topic-pack-1000-repair-2026-08-25/`
+- Create outside repository: `<owner-home>/Developer/_handoffs/artifacts/topic-pack-1000-repair-2026-08-25/`
+- Create outside repository: `<owner-home>/Developer/_handoffs/2026-08-25_to-claude-genstudio_from-gpt-storystudio_topic-pack-1000-repair-candidates.json`
 - Do not modify: desktop package/changelog, GenStudio, Kit, Formula, schema, adapter, or planner files
 
 **Interfaces:** Consumes 16 authored receipt-bound successors. Produces 32 temporary candidates, 16 retained final archives, one validated evidence ledger, and one receiver handoff only when all leaves pass.
@@ -429,13 +429,13 @@ node --test scripts/content-packs/__tests__/topic-pack-1000-successors-pack.test
 - [ ] Build every root twice to fresh paths with the required profile; example for the first leaf:
 
 ```bash
-npm run content-pack:build -- ./content-packs/free-starters/topic/ancient-humans-survival-v1.0.1 --delivery-profile genstudio-store-receipt-v1 --min-app-version 1.0.843 --output /build/Developer/_handoffs/candidates/topic-pack-1000-repair-2026-08-25/ancient-humans-survival-a.sspack
-npm run content-pack:build -- ./content-packs/free-starters/topic/ancient-humans-survival-v1.0.1 --delivery-profile genstudio-store-receipt-v1 --min-app-version 1.0.843 --output /build/Developer/_handoffs/candidates/topic-pack-1000-repair-2026-08-25/ancient-humans-survival-b.sspack
-npm run content-pack:validate -- /build/Developer/_handoffs/candidates/topic-pack-1000-repair-2026-08-25/ancient-humans-survival-a.sspack --delivery-profile genstudio-store-receipt-v1
+npm run content-pack:build -- ./content-packs/free-starters/topic/ancient-humans-survival-v1.0.1 --delivery-profile genstudio-store-receipt-v1 --min-app-version 1.0.843 --output <owner-home>/Developer/_handoffs/candidates/topic-pack-1000-repair-2026-08-25/ancient-humans-survival-a.sspack
+npm run content-pack:build -- ./content-packs/free-starters/topic/ancient-humans-survival-v1.0.1 --delivery-profile genstudio-store-receipt-v1 --min-app-version 1.0.843 --output <owner-home>/Developer/_handoffs/candidates/topic-pack-1000-repair-2026-08-25/ancient-humans-survival-b.sspack
+npm run content-pack:validate -- <owner-home>/Developer/_handoffs/candidates/topic-pack-1000-repair-2026-08-25/ancient-humans-survival-a.sspack --delivery-profile genstudio-store-receipt-v1
 ```
 
 - [ ] Verify byte/SHA equality, receipt identity, prohibited-material absence, source/review hash bindings, evidence-file digests, and size ceiling for all 16. A single failure blocks every archive and evidence-file staging and produces no receiver handoff.
-- [ ] Stage all 16 only after all candidate pairs and evidence bindings pass using `waveId: 'topic-pack-1000-repair'`. Revalidate final copied archives and review evidence; require the ledger and release handoff to contain the two-build equality proof plus retained evidence relative paths and hashes; and write `/build/Developer/_handoffs/2026-08-25_to-claude-genstudio_from-gpt-storystudio_topic-pack-1000-repair-candidates.json` with all 16 and no blocked/missing leaf. No retained ledger or handoff field may reference the temporary SDD review paths or candidate paths.
+- [ ] Stage all 16 only after all candidate pairs and evidence bindings pass using `waveId: 'topic-pack-1000-repair'`. Revalidate final copied archives and review evidence; require the ledger and release handoff to contain the two-build equality proof plus retained evidence relative paths and hashes; and write `<owner-home>/Developer/_handoffs/2026-08-25_to-claude-genstudio_from-gpt-storystudio_topic-pack-1000-repair-candidates.json` with all 16 and no blocked/missing leaf. No retained ledger or handoff field may reference the temporary SDD review paths or candidate paths.
 - [ ] Send the complete receiver handoff to GenStudio requesting that it add and publish the sixteen `1.0.1` releases under the same existing products and identities; preserve current prices, commerce, and Kit disposition; keep Audience Question Seeder’s product draft/unreachable; and return exact product ID, release ID, entitlement family/SKU, owner-upgrade behavior, and customer reachability evidence for every release. The handoff must explicitly forbid new products, repricing, product activation, Kit mutation, and publication of the Audience product. Story sends evidence only and does not perform any GenStudio mutation.
 - [ ] Run broad verification:
 

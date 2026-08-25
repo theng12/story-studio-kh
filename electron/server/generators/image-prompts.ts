@@ -361,7 +361,7 @@ export async function generateImagePrompts(job: Job): Promise<void> {
    *   Large bold sans-serif text 'EP0344' is placed on the right
    *
    * — five images with a filing code printed across them, and credits spent to
-   * produce them. Measured on the owner's Abiding Faith channel, 2026-08-24.
+   * produce them. Measured on a real devotional channel, 2026-08-24.
    *
    * The episode already knows its own title: the folder was created from the
    * idea's title and `resolveEpisodeTitleByCode` reads it back the same way.

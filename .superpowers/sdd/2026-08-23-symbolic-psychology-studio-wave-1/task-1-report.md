@@ -9,10 +9,10 @@ Created the two required RED contract suites without changing registry state, au
 
 The suites are intentionally partitioned by capability:
 
-- `source evidence:` verifies the existing Capi provenance hashes and current Impasto image/compatibility evidence.
+- `source evidence:` verifies the existing Editorial provenance hashes and current Impasto image/compatibility evidence.
 - `Oil source:` requires the future Store source to preserve the shared built-in strings verbatim, carry the approved SHA-256 WebP, and exclude runtime-identifying/commercial/routing data.
 - `Gothic evidence:` requires no Gothic source directory and a five-item blocked evidence disclosure in the new provenance ledger.
-- `promotion receipts:` is the Task 2-focused gate. It proves each later-authored Capi/Impasto record comes from its original reservation receipt and must have transitioned to `authored`.
+- `promotion receipts:` is the Task 2-focused gate. It proves each later-authored Editorial/Impasto record comes from its original reservation receipt and must have transitioned to `authored`.
 - `kit closure:` requires the source-free coordinator and exact ordered six-node closure.
 - `candidate summaries:` requires the future external `evidence-ledger.json` to use the minimal Story-owned v1 summary object for Recipe, Pastel, Oil, and Kit candidates.
 
@@ -36,7 +36,7 @@ git diff --check
 
 Observed results:
 
-- Source suite: 2 pass (current Capi/Impasto evidence), 2 expected RED failures: absent Oil Store source and absent Symbolic Psychology provenance ledger/Gothic block.
+- Source suite: 2 pass (current Editorial/Impasto evidence), 2 expected RED failures: absent Oil Store source and absent Symbolic Psychology provenance ledger/Gothic block.
 - Registry/candidate suite: 3 expected RED failures: the three receipt-bound records remain `reserved`, the bundle-only Kit root is absent, and the external `evidence-ledger.json` is absent.
 - Registry validation passed at revision 10 with 72 records.
 - JavaScript syntax and whitespace checks passed.
@@ -51,7 +51,7 @@ Observed results:
 
 ## Fix Round 1
 
-Bound every Capi SHA-256 to the ledger line that names its exact asset, rather than accepting independent hash presence anywhere in the ledger. Added the approved Impasto preview SHA-256 `27050a92b2b71afd9a238ccd8ac9e72497ba2dda576bd4ad05fd01e465178e07`, with both asset-byte and provenance-line assertions.
+Bound every Editorial SHA-256 to the ledger line that names its exact asset, rather than accepting independent hash presence anywhere in the ledger. Added the approved Impasto preview SHA-256 `27050a92b2b71afd9a238ccd8ac9e72497ba2dda576bd4ad05fd01e465178e07`, with both asset-byte and provenance-line assertions.
 
 Executed:
 
@@ -65,7 +65,7 @@ git diff --check
 
 Observed output:
 
-- Source suite: Capi and Impasto evidence subtests pass; Oil and Gothic remain intentionally RED because their Wave 1 source/ledger artifacts are absent.
+- Source suite: Editorial and Impasto evidence subtests pass; Oil and Gothic remain intentionally RED because their Wave 1 source/ledger artifacts are absent.
 - Promotion-only gate remains intentionally RED: the Recipe record is still `reserved`, expected `authored`.
 - Registry validation passed: `authoring registry revision 10: 72 records`.
 - JavaScript syntax and whitespace checks passed.

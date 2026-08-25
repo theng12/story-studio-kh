@@ -56,10 +56,10 @@
 ### Task 3: Bind the four Story authoring skills to the registry
 
 **Files:**
-- Modify: `/build/.codex/skills/story-studio-channel-kit-authoring/SKILL.md`
-- Modify: `/build/.codex/skills/story-studio-niche-adoption/SKILL.md`
-- Modify: `/build/.codex/skills/story-studio-thumbnail-adoption/SKILL.md`
-- Modify: `/build/.codex/skills/story-studio-visual-style-adoption/SKILL.md`
+- Modify: `<owner-home>/.codex/skills/story-studio-channel-kit-authoring/SKILL.md`
+- Modify: `<owner-home>/.codex/skills/story-studio-niche-adoption/SKILL.md`
+- Modify: `<owner-home>/.codex/skills/story-studio-thumbnail-adoption/SKILL.md`
+- Modify: `<owner-home>/.codex/skills/story-studio-visual-style-adoption/SKILL.md`
 - Create: `.superpowers/sdd/2026-08-15-content-pack-authoring-registry/skill-verification.md`
 
 **Interfaces:**

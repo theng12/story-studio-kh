@@ -24,7 +24,7 @@ documentation only; it does not authorize stocking or any external mutation.
 
 ### External evidence after values
 
-Observed at `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/`; external JSON was not modified in this task.
+Observed at `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/`; external JSON was not modified in this task.
 
 | File | SHA-256 after | Bytes |
 | --- | --- | ---: |
@@ -59,7 +59,7 @@ quarantine item, publisher code, or external JSON was changed.
 
 - `env -u STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs`
   — 2 passed, 0 failed, 2 intentional skips.
-- `STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT=/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23 node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs`
+- `STORY_SYMBOLIC_PSYCHOLOGY_EVIDENCE_ROOT=<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23 node --test scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs`
   — 4 passed, 0 failed, 0 skipped.
 - Independent read-only comparison and stale-string scan are recorded in
   `evidence-reconciliation-review.md`.

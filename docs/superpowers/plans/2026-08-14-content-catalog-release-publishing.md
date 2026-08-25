@@ -250,7 +250,7 @@ git commit -m "docs: record Content Catalog archives"
 ### Task 5: Prepare exact GenStudio stocking handoffs and qualification fixtures
 
 **Files:**
-- Create: `/build/Developer/_handoffs/2026-08-14_to-claude-genstudio_from-gpt-storystudio_content-catalog-release-evidence.md`
+- Create: `<owner-home>/Developer/_handoffs/2026-08-14_to-claude-genstudio_from-gpt-storystudio_content-catalog-release-evidence.md`
 - Create: `.superpowers/sdd/2026-08-14-content-catalog-release/genstudio-qualification.md`
 
 **Interfaces:**

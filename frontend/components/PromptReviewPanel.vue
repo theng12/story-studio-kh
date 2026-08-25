@@ -128,7 +128,7 @@ const props = defineProps<{
   refreshKey?: number
   /** The published prompt-character CEILING for the image model these prompts
    *  will feed (separate per kind in case the Scene and Thumbnail tabs target
-   *  different models — Bound-style explainers do). Each row renders a
+   *  different models — reasons-explainers do). Each row renders a
    *  char-counter against the relevant ceiling, amber when over, so the user
    *  spots prompts that would be refused before paying credits. Advisory only:
    *  nothing here blocks a save, a regenerate, or a render. */
@@ -159,7 +159,7 @@ const busy = ref<Set<string>>(new Set())
 const saving = ref<Set<string>>(new Set())
 const errors = ref<Record<string, string>>({})
 
-// v1.0.87+: scenes pagination. Bound-explainer at sentence-aligned
+// v1.0.87+: scenes pagination. Reasons-explainer at sentence-aligned
 // pacing routinely lands 150-250 scenes per episode, which renders as
 // an unscrollable wall in the legacy "list every row" layout. Page
 // size 25 fits one screen and matches the chunked-batch boundary

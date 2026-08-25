@@ -97,7 +97,7 @@ export function splitNarrationIntoChapters(narrationText: string): NarrationPart
 
     // Level-2 section heading. Accepts any of the known format-aware
     // section terms (Chapter for sleep-story / narrative, Reason for
-    // bound-explainer, Topic for listicle, Section/Part/Lesson/Bit for
+    // reasons-explainer, Topic for listicle, Section/Part/Lesson/Bit for
     // future / user-custom formats). The actual term doesn't matter
     // structurally — we capture (term, number, title) and downstream
     // slug derivation reuses the term verbatim, so audio MP3 filenames

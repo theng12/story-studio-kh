@@ -67,7 +67,7 @@ async function makeEpisode(name: string, opts: {
       duration_sec: 989.820522,
       opening: {
         lead_in_sec: opts.leadInSec ?? 16.066,
-        intro: { filename: 'Boundless - Intro Audio 15s.MP3', duration_sec: 15.073, gap_after_sec: 1 },
+        intro: { filename: 'Channel - Intro Audio 15s.MP3', duration_sec: 15.073, gap_after_sec: 1 },
         music_lead_in_sec: 0,
       },
     }))

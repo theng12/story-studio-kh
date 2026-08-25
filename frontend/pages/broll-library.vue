@@ -403,7 +403,7 @@
             <input
               v-model="createDraft.folder_path"
               class="input"
-              placeholder="/Volumes/SSD/prayer-broll"
+              placeholder="/Volumes/Media/b-roll"
             />
             <button
               type="button"
@@ -497,7 +497,7 @@
         <div class="form-group">
           <label>Folder path <span class="req">*</span></label>
           <div class="path-input-row">
-            <input v-model="editDraft.folder_path" class="input" placeholder="/Volumes/HDD-2TB/capi-images" />
+            <input v-model="editDraft.folder_path" class="input" placeholder="/Volumes/Media/b-roll" />
             <button type="button" class="btn btn-secondary btn-sm" :disabled="picking" @click="onBrowseEditFolder">
               📁 {{ picking ? 'Opening…' : 'Browse…' }}
             </button>

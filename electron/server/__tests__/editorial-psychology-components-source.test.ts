@@ -110,7 +110,7 @@ async function assertSource(source: Source, kind: 'thumbnail-recipe' | 'visual-s
   return document
 }
 
-test('Capi-derived component sources carry the exact reserved identities and decodable preview assets', async () => {
+test('Editorial-derived component sources carry the exact reserved identities and decodable preview assets', async () => {
   await assertSource(RECIPE, 'thumbnail-recipe')
   await assertSource(STYLE, 'visual-style')
 })
@@ -168,10 +168,10 @@ test('Pastel Surreal Psychological Collage preserves the reusable visual and saf
   assert.match(String(style.negative_prompt), /logos|watermarks/i)
   assert.match(String(style.negative_prompt), /copied trade dress/i)
   assert.match(String(style.negative_prompt), /malformed anatomy|malformed.*text/i)
-  assert.doesNotMatch(String(style.style_bible), /The Psychology of|Capi|EP\d{4}/i)
+  assert.doesNotMatch(String(style.style_bible), /The Psychology of|EP\d{4}/i)
 })
 
-test('Capi provenance ledger identifies every copied preview byte without putting owner paths in runtime JSON', async () => {
+test('Editorial provenance ledger identifies every copied preview byte without putting owner paths in runtime JSON', async () => {
   const ledger = await fs.readFile(path.join(PSYCHOLOGY_EDITORIAL_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
   for (const source of [RECIPE, STYLE]) {
     for (const asset of source.assets) {
@@ -184,5 +184,5 @@ test('Capi provenance ledger identifies every copied preview byte without puttin
     readJson(path.join(RECIPE.root, 'content', 'thumbnail-recipe.json')),
     readJson(path.join(STYLE.root, 'content', 'visual-style.json')),
   ])
-  assert.doesNotMatch(JSON.stringify(runtimeJson), /\/Users\/thengmacmini\/Documents|GenStudio|price|discount|provider|model_id/i)
+  assert.doesNotMatch(JSON.stringify(runtimeJson), /\/Users\/[^/"\s]+\/Documents|GenStudio|price|discount|provider|model_id/i)
 })

@@ -132,10 +132,11 @@ async function defaultSourceRoot(): Promise<string> {
  * The key an upload proof is filed under: the CHANNEL and the code together.
  *
  * v1.4.10. This used to be the bare code, and that was a data-loss bug. Seven
- * of his eleven channels use the `EP` prefix, 302 codes exist in more than one
- * channel, and `EP0001`–`EP0006` exist in seven each — so `EP0042` uploaded on
- * `abiding-faith` authorised moving Boundful's un-uploaded `EP0042` master into
- * abiding-faith's archive folder and deleting the original. The copy-verify-
+ * of the eleven channels on the reporting machine use the `EP` prefix, 302
+ * codes exist in more than one channel, and `EP0001`–`EP0006` exist in seven
+ * each — so `EP0042` uploaded on one channel authorised moving a SECOND
+ * channel's un-uploaded `EP0042` master into the first channel's archive
+ * folder and deleting the original. The copy-verify-
  * remove ordering was never the problem: the file was verified into the wrong
  * place, correctly, and then removed.
  *
@@ -229,11 +230,11 @@ function codeFrom(filename: string, dir: string, sourceRoot: string): string {
  * Which channel does this file physically belong to?
  *
  * Answered from where the file SITS, never from what it is called. A file under
- * `…/YouTube Exports/boundful/Season 003/EP0042 - …/` belongs to Boundful, and
- * may only ever be proven against Boundful's sidecar.
+ * `…/YouTube Exports/<channel>/Season 003/EP0042 - …/` belongs to that channel,
+ * and may only ever be proven against that channel's sidecar.
  *
  * The folder the user pointed the scan at counts as the outermost segment —
- * picking `…/YouTube Exports/boundful` is the same evidence as scanning its
+ * picking `…/YouTube Exports/<channel>` is the same evidence as scanning its
  * parent, just stated one level up.
  *
  * There is NO fallback to a code-only match. A video whose channel cannot be

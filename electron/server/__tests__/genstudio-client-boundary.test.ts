@@ -321,13 +321,13 @@ test('GenStudio chat retries keep one logical request identity', () => {
     userMessage: 'Create one metadata record.',
     temperature: 0.2,
     maxOutputTokens: 4_096,
-    requestIdentity: 'boundful:EP0001:metadata',
+    requestIdentity: 'my-channel:EP0001:metadata',
   }
   const first = buildGenStudioChatIdempotencyKey(request)
   assert.equal(first, buildGenStudioChatIdempotencyKey(request))
   assert.notEqual(first, buildGenStudioChatIdempotencyKey({
     ...request,
-    requestIdentity: 'boundful:EP0002:metadata',
+    requestIdentity: 'my-channel:EP0002:metadata',
   }))
   assert.match(first, /^story-chat-[a-f0-9]{47}$/)
 })
@@ -371,7 +371,7 @@ test('a prose retry after the response_format fix no longer collides with a v1.0
     userMessage: 'Expand EP0067 batch 1 of 4.',
     temperature: 0.2,
     maxOutputTokens: 4_096,
-    requestIdentity: 'boundful:EP0067:expand:1',
+    requestIdentity: 'my-channel:EP0067:expand:1',
     outputContract: { mode: 'prose' as const },
   }
 
@@ -405,7 +405,7 @@ test('a JSON Object chat key is untouched by the response_format fix — nothing
     userMessage: 'Plan the next scene.',
     temperature: 0.2,
     maxOutputTokens: 4_096,
-    requestIdentity: 'boundful:EP0067:scene-plan',
+    requestIdentity: 'my-channel:EP0067:scene-plan',
     outputContract: { mode: 'json_object' as const },
   }
   assert.equal(

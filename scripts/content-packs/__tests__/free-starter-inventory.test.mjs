@@ -186,7 +186,7 @@ test('free Starter Channel Kit registry freezes approved identities, source mapp
     assert.equal(record.sourcePath, sourcePath)
     assert.equal(record.sha256, hash)
     assert.equal(record.generation_tool, 'codex-built-in-imagegen')
-    assert.match(record.source_path, /^\/Users\/thengmacmini\/\.codex\/generated_images\//)
+    assert.match(record.source_path, /^<owner-home>\/\.codex\/generated_images\//)
     assert.match(record.source_prompt, /Original 16:9/)
     assert.equal(sha256(await readFile(new URL(sourcePath, ROOT))), hash)
   }

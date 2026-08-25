@@ -798,7 +798,7 @@ export async function createProject(
     // project has the SAME shape as a default-location one
     // ({root}/episodes/Season…). Without this, Season folders land
     // directly in the picked folder alongside project.json + cache — the
-    // inconsistency older custom-folder projects (Capi, Boundful) showed.
+    // inconsistency older custom-folder projects showed.
     // Mirrors the './episodes' relative default. The basename guard avoids
     // double-nesting if the user literally picked an `episodes` folder.
     // Only affects NEW projects; existing output_root values are untouched.
@@ -906,8 +906,8 @@ export async function createProject(
   // Ensure episodes dir + jobs.json
   // v1.0.326 — skip the alias mkdir when the projectDir is itself named
   // 'episodes' (legacy nested-import shape). Otherwise we'd create the
-  // doubly-nested `<x>/episodes/episodes/` empty vestige the user found on
-  // MineePod. See import-project.ts for the matching guard.
+  // doubly-nested `<x>/episodes/episodes/` empty vestige a user found on an
+  // imported project. See import-project.ts for the matching guard.
   if (path.basename(projectDir).toLowerCase() !== 'episodes') {
     await fs.mkdir(path.join(projectDir, 'episodes'), { recursive: true })
   }

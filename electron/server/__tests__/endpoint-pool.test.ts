@@ -25,7 +25,7 @@ describe('endpoint-pool', () => {
       'fetch failed',
       'request to http://x timed out',
       'socket hang up',
-      'ENOTFOUND theng-macmini-m1',
+      'ENOTFOUND my-mac-m1',
       'EHOSTUNREACH',
       'host unreachable',
       // The LM Studio pre-flight probe's thrown message (v1.0.304):

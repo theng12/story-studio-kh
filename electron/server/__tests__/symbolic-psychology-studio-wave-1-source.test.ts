@@ -14,14 +14,14 @@ const FORMULA_ROOT = path.join(ROOT, 'content-packs', 'free-starters', 'formula'
 const PSYCHOLOGY_ROOT = path.join(ROOT, 'content-packs', 'psychology-editorial')
 const STUDIO_ROOT = path.join(ROOT, 'content-packs', 'symbolic-psychology-studio')
 const UNBLOCK_SDD_ROOT = path.join(ROOT, '.superpowers', 'sdd', '2026-08-23-symbolic-psychology-studio-unblock')
-const CAPI_ASSETS = [
+const EDITORIAL_ASSETS = [
   'editorial-psychology-symbolic-split-1.webp',
   'editorial-psychology-symbolic-split-2.webp',
   'editorial-psychology-symbolic-split-3.webp',
   'editorial-psychology-symbolic-split-5.webp',
   'pastel-surreal-psychological-collage.webp',
 ] as const
-const CAPI_HASHES = [
+const EDITORIAL_HASHES = [
   'f82c5659ca989b27af5cf789c6270b4ef40aa24ec6060f1a91e015374a52f277',
   'cf65e48ae0215b3ab8e4a331f91b0cc126ee8fc0dea63724836b6b0bd7a744fb',
   '7d419bf83d807f8ce287040f51e5d620617e595f6bd09dc5ca7ee332252b6290',
@@ -31,21 +31,21 @@ const CAPI_HASHES = [
 const RECIPE_V1_SOURCE_HASHES = {
   'pack.json': '09800de2f8112da41eefb9dcdc76901d432643380382f4109ccd941c8323d2e5',
   'content/thumbnail-recipe.json': '74b3192de5c61d796d64f819bca3bb806a30728cdf9b49fddfd19240320a12f8',
-  'assets/editorial-psychology-symbolic-split-1.webp': CAPI_HASHES[0],
-  'assets/editorial-psychology-symbolic-split-2.webp': CAPI_HASHES[1],
-  'assets/editorial-psychology-symbolic-split-3.webp': CAPI_HASHES[2],
-  'assets/editorial-psychology-symbolic-split-5.webp': CAPI_HASHES[3],
+  'assets/editorial-psychology-symbolic-split-1.webp': EDITORIAL_HASHES[0],
+  'assets/editorial-psychology-symbolic-split-2.webp': EDITORIAL_HASHES[1],
+  'assets/editorial-psychology-symbolic-split-3.webp': EDITORIAL_HASHES[2],
+  'assets/editorial-psychology-symbolic-split-5.webp': EDITORIAL_HASHES[3],
 } as const
 const PASTEL_V1_SOURCE_HASHES = {
   'pack.json': '2528f1c88b65a64b86177acffaaabd031a9f671fe0351e9e60000c71dc8131a0',
   'content/visual-style.json': 'd12274ba7f5541226a8a9cdbdefd961679fbc1e90f08c7bfa4a5a75733e5751d',
-  'assets/pastel-surreal-psychological-collage.webp': CAPI_HASHES[4],
+  'assets/pastel-surreal-psychological-collage.webp': EDITORIAL_HASHES[4],
 } as const
 const HUMAN_BEHAVIOR_V1_SOURCE_HASHES = {
   'pack.json': '9a4dde3a8e889b537b19b45f006b9b981ed9e0982dc5852af705924ae7caa7be',
   'content/series-formula.json': 'bc008e06a736dda9e266c39ad4efd9af5df59103d7ac01ce0fb00d09a4961712',
 } as const
-const CAPI_PROVENANCE_ROW_HASHES = {
+const EDITORIAL_PROVENANCE_ROW_HASHES = {
   'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-1.webp':
     'd59ef8ea529691d8b249b26d9604951e5e134fc871f3471b911645a1913855d9',
   'thumbnail/editorial-psychology-symbolic-split/assets/editorial-psychology-symbolic-split-2.webp':
@@ -102,7 +102,7 @@ test('immutable v1.0.0 Recipe and Pastel source and provenance bytes retain exac
       `Pastel v1.0.0 ${relativePath} must remain byte-identical`,
     )
   }
-  for (const [runtimePath, expectedHash] of Object.entries(CAPI_PROVENANCE_ROW_HASHES)) {
+  for (const [runtimePath, expectedHash] of Object.entries(EDITORIAL_PROVENANCE_ROW_HASHES)) {
     const matchingRows = ledger.split('\n').filter(line => line.includes(`\`${runtimePath}\``))
     assert.equal(matchingRows.length, 1, `${runtimePath} must have exactly one immutable provenance row`)
     assert.equal(sha256(Buffer.from(matchingRows[0]!)), expectedHash, `${runtimePath} provenance row must remain byte-identical`)
@@ -325,7 +325,7 @@ test('leaf successor reservation is one receipt-bound batch with non-discoverabl
         'The palette is limited to dusty peach, mauve, lavender, pale blue, cream, charcoal, and warm gray, with ember orange only as a restrained accent.',
         'The composition contains one sparse fragmented or eroded portrait, mask, mannequin, silhouette, door, flame, sculptural human trace, or abstract emotional object.',
         'Glossy CGI, wet or heavy impasto, photoreal stock imagery, neon color, crowded scenes, typography, copied trade dress, malformed anatomy or text, logos, and watermarks are rejected.',
-        'No reference or saved image, Capi source, image edit, compositing, masking, title plate, post-render overlay, logo, watermark, or UI is permitted.',
+        'No reference or saved image, Editorial source, image edit, compositing, masking, title plate, post-render overlay, logo, watermark, or UI is permitted.',
       ],
     },
   ] as const
@@ -359,7 +359,7 @@ test('leaf successor reservation is one receipt-bound batch with non-discoverabl
   }
 })
 
-test('source evidence: Capi preview bytes match the provenance ledger', async () => {
+test('source evidence: Editorial preview bytes match the provenance ledger', async () => {
   const recipeRoot = path.join(PSYCHOLOGY_ROOT, 'thumbnail', 'editorial-psychology-symbolic-split')
   const pastelRoot = path.join(PSYCHOLOGY_ROOT, 'style', 'pastel-surreal-psychological-collage')
   const ledger = await fs.readFile(path.join(PSYCHOLOGY_ROOT, 'PREVIEW-PROVENANCE.md'), 'utf8')
@@ -368,16 +368,16 @@ test('source evidence: Capi preview bytes match the provenance ledger', async ()
 
   parseContentPackDocument('thumbnail-recipe', recipe)
   parseContentPackDocument('visual-style', pastel)
-  assert.deepEqual(recipe.preview_assets, CAPI_ASSETS.slice(0, 4).map(asset => `assets/${asset}`))
-  assert.deepEqual(pastel.preview_assets, [`assets/${CAPI_ASSETS[4]}`])
+  assert.deepEqual(recipe.preview_assets, EDITORIAL_ASSETS.slice(0, 4).map(asset => `assets/${asset}`))
+  assert.deepEqual(pastel.preview_assets, [`assets/${EDITORIAL_ASSETS[4]}`])
 
-  for (const [index, asset] of CAPI_ASSETS.entries()) {
+  for (const [index, asset] of EDITORIAL_ASSETS.entries()) {
     const root = index < 4 ? recipeRoot : pastelRoot
     const bytes = await fs.readFile(path.join(root, 'assets', asset))
-    assert.equal(sha256(bytes), CAPI_HASHES[index], `${asset} must retain its reviewed source byte`)
+    assert.equal(sha256(bytes), EDITORIAL_HASHES[index], `${asset} must retain its reviewed source byte`)
     const ledgerEntry = ledger.split('\n').find(line => line.includes(asset))
-    assert.ok(ledgerEntry, `${asset} must remain in the Capi provenance ledger`)
-    assert.match(ledgerEntry, new RegExp(CAPI_HASHES[index]), `${asset} must retain its paired provenance hash`)
+    assert.ok(ledgerEntry, `${asset} must remain in the Editorial provenance ledger`)
+    assert.match(ledgerEntry, new RegExp(EDITORIAL_HASHES[index]), `${asset} must retain its paired provenance hash`)
   }
 })
 
@@ -419,7 +419,7 @@ test('Oil source: Store packaging preserves the built-in contract, qualified ass
   )
   assert.doesNotMatch(
     JSON.stringify(document),
-    /Capi|episode|provider|model|price|discount|GenStudio|(?:\/Users\/|[A-Za-z]:[\\/])/i,
+    /episode|provider|model|price|discount|GenStudio|(?:\/Users\/|[A-Za-z]:[\\/])/i,
   )
 })
 

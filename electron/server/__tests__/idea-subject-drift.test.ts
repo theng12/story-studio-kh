@@ -1,5 +1,5 @@
 /**
- * MEASURED 2026-08-24 on the owner's own MineePod run. A thirteen-idea campaign
+ * MEASURED 2026-08-24 on one of the owner's own real runs. A thirteen-idea campaign
  * on the Animals Topic Pack lost six of its first ten slots to
  * "output drifted from assigned subject", kept refilling, and ended
  *

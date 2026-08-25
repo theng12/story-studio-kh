@@ -3,7 +3,7 @@
  * anchoring a stale plan's timings to the current subtitles by matching each
  * scene's transcript text, preserving scene ids/images.
  *
- *   - a uniformly-shifted plan (the brain-wise EP0022 case: scenes 28s ahead
+ *   - a uniformly-shifted plan (the real EP0022 case: scenes 28s ahead
  *     of the voice) snaps back onto the cue times; ids preserved.
  *   - result is contiguous (end = next start), monotonic, last scene ends at
  *     the audio/SRT end → zero coverage gap by construction.

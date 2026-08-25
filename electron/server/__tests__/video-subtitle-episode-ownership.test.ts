@@ -29,8 +29,8 @@ import os from 'os'
 
 import { assertSubtitleFileBelongsToEpisode, resolveEpisodeSubtitleFile } from '../generators/video.js'
 
-const EP47_DIR = '/projects/boundful/episodes/Season 003/EP0047 - Rome'
-const EP48_DIR = '/projects/boundful/episodes/Season 003/EP0048 - Timbuktu'
+const EP47_DIR = '/projects/my-channel/episodes/Season 003/EP0047 - Rome'
+const EP48_DIR = '/projects/my-channel/episodes/Season 003/EP0048 - Timbuktu'
 
 function reqWith(srtPath: string | undefined, enabled = true): any {
   return { subtitles: srtPath === undefined ? undefined : { enabled, srt_path: srtPath, style: {} } }
@@ -44,7 +44,7 @@ describe('subtitle file ownership at Video Assembly preflight', () => {
   test('refuses the exact shape of the incident, naming the other episode', async () => {
     const req = reqWith(`${EP48_DIR}/EP0048 - 09 Subtitles Output/EP0048_stitched.corrected.srt`)
     await assert.rejects(
-      () => assertSubtitleFileBelongsToEpisode('boundful', 'EP0047', EP47_DIR, req),
+      () => assertSubtitleFileBelongsToEpisode('my-channel', 'EP0047', EP47_DIR, req),
       (e: Error) => {
         assert.match(e.message, /not EP0047's/)
         assert.match(e.message, /EP0048_stitched\.corrected\.srt/)
@@ -59,7 +59,7 @@ describe('subtitle file ownership at Video Assembly preflight', () => {
   test('accepts this episode\'s own file and says so in the job log', async () => {
     const job = jobStub()
     const req = reqWith(`${EP47_DIR}/EP0047 - 09 Subtitles Output/EP0047_stitched.srt`)
-    await assertSubtitleFileBelongsToEpisode('boundful', 'EP0047', EP47_DIR, req, job)
+    await assertSubtitleFileBelongsToEpisode('my-channel', 'EP0047', EP47_DIR, req, job)
     // The log used to print "Burning in subtitles: EP0048_stitched.srt" for a
     // correct render and a catastrophic one in identical words. The one line
     // that could have caught this now states the ownership it verified.
@@ -71,7 +71,7 @@ describe('subtitle file ownership at Video Assembly preflight', () => {
   test('accepts a legacy subtitles folder, because ownership is the episode dir', async () => {
     const job = jobStub()
     const req = reqWith(`${EP47_DIR}/EP0047 - 09 Subtitles/EP0047_whisper.srt`)
-    await assertSubtitleFileBelongsToEpisode('boundful', 'EP0047', EP47_DIR, req, job)
+    await assertSubtitleFileBelongsToEpisode('my-channel', 'EP0047', EP47_DIR, req, job)
     assert.equal(job.output_lines.length, 1)
   })
 
@@ -79,7 +79,7 @@ describe('subtitle file ownership at Video Assembly preflight', () => {
     // `/…/EP0047 - Rome` must not swallow `/…/EP0047 - Rome (old)`.
     const req = reqWith(`${EP47_DIR} (old)/EP0047_stitched.srt`)
     await assert.rejects(
-      () => assertSubtitleFileBelongsToEpisode('boundful', 'EP0047', EP47_DIR, req),
+      () => assertSubtitleFileBelongsToEpisode('my-channel', 'EP0047', EP47_DIR, req),
       /not EP0047's/,
     )
   })
@@ -90,11 +90,11 @@ describe('subtitle file ownership at Video Assembly preflight', () => {
     // so nothing is blocked. Refusing here would stop a render over a field the
     // customer has already switched out of the picture.
     await assertSubtitleFileBelongsToEpisode(
-      'boundful', 'EP0047', EP47_DIR,
+      'my-channel', 'EP0047', EP47_DIR,
       reqWith(`${EP48_DIR}/EP0048_stitched.srt`, false), job,
     )
-    await assertSubtitleFileBelongsToEpisode('boundful', 'EP0047', EP47_DIR, reqWith(''), job)
-    await assertSubtitleFileBelongsToEpisode('boundful', 'EP0047', EP47_DIR, reqWith(undefined), job)
+    await assertSubtitleFileBelongsToEpisode('my-channel', 'EP0047', EP47_DIR, reqWith(''), job)
+    await assertSubtitleFileBelongsToEpisode('my-channel', 'EP0047', EP47_DIR, reqWith(undefined), job)
     assert.deepEqual(job.output_lines, [])
   })
 
@@ -103,7 +103,7 @@ describe('subtitle file ownership at Video Assembly preflight', () => {
     // unresolvable path as acceptable would defeat the whole check.
     const req = reqWith('${NOT_A_ROOT_ON_THIS_MACHINE}/EP0048_stitched.srt')
     await assert.rejects(
-      () => assertSubtitleFileBelongsToEpisode('boundful', 'EP0047', EP47_DIR, req),
+      () => assertSubtitleFileBelongsToEpisode('my-channel', 'EP0047', EP47_DIR, req),
       /not EP0047's/,
     )
   })
@@ -111,7 +111,7 @@ describe('subtitle file ownership at Video Assembly preflight', () => {
   test('a file with no episode code is refused without inventing an owner', async () => {
     const req = reqWith('/Users/someone/Downloads/transcript.srt')
     await assert.rejects(
-      () => assertSubtitleFileBelongsToEpisode('boundful', 'EP0047', EP47_DIR, req),
+      () => assertSubtitleFileBelongsToEpisode('my-channel', 'EP0047', EP47_DIR, req),
       (e: Error) => {
         assert.match(e.message, /transcript\.srt/)
         assert.doesNotMatch(e.message, /It belongs to/)
@@ -201,7 +201,7 @@ describe('subtitle file ownership at Video Assembly preflight', () => {
     try {
       const job = jobStub()
       await assertSubtitleFileBelongsToEpisode(
-        'boundful', 'EP0047', root,
+        'my-channel', 'EP0047', root,
         reqWith(path.join(root, 'subs', 'EP0047_stitched.srt')), job,
       )
       assert.equal(job.output_lines.length, 1)

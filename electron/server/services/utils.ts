@@ -59,7 +59,7 @@ export interface EpisodePaths {
 /**
  * One read of the project's unchanging facts, shared across a single request.
  *
- * MEASURED on the owner's Capi project, 2026-08-23: 302 accepted episodes,
+ * MEASURED 2026-08-23 on a 302-episode project:
  * `/episodes` taking 7.4 s cold. The list resolves paths PER EPISODE, and each
  * resolution re-read the same two files:
  *

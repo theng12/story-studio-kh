@@ -30,7 +30,7 @@ const page = readFileSync(
 // ── Part A: what the preset actually says ───────────────────────────────────
 
 test('a preset that stores auto-approve reports the value it stores', () => {
-  // The owner's real preset body, from Boundful/config.json.
+  // A real preset body, taken from a live project's config.json.
   assert.equal(storedPresetAutoApprove({
     model: 'deepseek-v4-flash', density: 'restrained', placement: 'top-right', auto_approve: true,
   }), true)

@@ -223,7 +223,7 @@ describe('a dismissed upgrade notice never comes back', () => {
     await settings.setAppSetting('external_final_video_root', exportRoot)
 
     const namedRoots = path.join(tmp.dir, 'named-roots.json')
-    await fs.writeFile(namedRoots, JSON.stringify({ TERRANASH: path.join(tmp.dir, 'tn-assets') }))
+    await fs.writeFile(namedRoots, JSON.stringify({ MY_FOLDER: path.join(tmp.dir, 'tn-assets') }))
 
     const first = await mig.migrateLegacyLocationSettings()
     assert.deepEqual(
@@ -289,7 +289,7 @@ describe('a dismissed upgrade notice never comes back', () => {
     await settings.setAppSetting('external_final_video_root', exportRoot)
     await fs.writeFile(
       path.join(tmp.dir, 'named-roots.json'),
-      JSON.stringify({ TERRANASH: path.join(tmp.dir, 'tn-assets') }),
+      JSON.stringify({ MY_FOLDER: path.join(tmp.dir, 'tn-assets') }),
     )
     await mig.migrateLegacyLocationSettings()
 

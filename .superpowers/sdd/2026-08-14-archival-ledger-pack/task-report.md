@@ -34,4 +34,4 @@ trust-key record is authorized for this monolithic identity.
 
 ## Traceability concern
 
-The requested handoffs `2026-08-14_to-gpt-storystudio_from-claude-genstudio_author-the-first-packs.md`, `..._ledger-price-ruled-2000.md`, and `..._170-live-field-names.md` were not present in the repository or the accessible `/build/Developer` tree. This source follows the owner-approved proposal, including the parent-supplied 2,000-credit catalog-only rule, and current HMH production assets; those missing handoffs should be attached before GenStudio catalog entry or production signing review.
+The requested handoffs `2026-08-14_to-gpt-storystudio_from-claude-genstudio_author-the-first-packs.md`, `..._ledger-price-ruled-2000.md`, and `..._170-live-field-names.md` were not present in the repository or the accessible `<owner-home>/Developer` tree. This source follows the owner-approved proposal, including the parent-supplied 2,000-credit catalog-only rule, and current HMH production assets; those missing handoffs should be attached before GenStudio catalog entry or production signing review.

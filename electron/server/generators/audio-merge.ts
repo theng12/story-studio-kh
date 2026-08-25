@@ -368,7 +368,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
   const outputRoot = await pm.getProjectOutputRoot(project_slug)
   if (!outputRoot) throw new Error('Project directory not found')
 
-  // Expand portable asset paths (`${PROJECT}`, `${TERRANASH}`, …) to absolute
+  // Expand portable asset paths (`${PROJECT}`, `${MY_FOLDER}`, …) to absolute
   // paths for this machine. Legacy absolutes pass through untouched.
   const tryResolve = (p: string | undefined, label: string): string | undefined => {
     if (!p || !isPortablePath(p)) return p
@@ -636,7 +636,7 @@ export async function generateAudioMerge(job: Job): Promise<void> {
 
     // v1.0.81+: per-sentence timing sidecar (audio_sentences.json).
     // Drives sentence-aligned video assembly for formats that opt in
-    // (e.g. bound-explainer). Char-length-weighted apportionment from
+    // (e.g. reasons-explainer). Char-length-weighted apportionment from
     // the chapter durations we just measured — no provider-specific
     // dependency, so this works for ElevenLabs / fal / GenAIPro alike.
     // Best-effort: if narration parse fails or no chapters matched,

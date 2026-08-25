@@ -133,7 +133,7 @@ export interface ProjectMeta {
 
   /**
    * Niche primitive — subject-domain layer orthogonal to Format. Format
-   * answers "what shape of video" (bound-explainer, sleep-story, listicle);
+   * answers "what shape of video" (reasons-explainer, sleep-story, listicle);
    * Niche answers "what subject domain" (plants, animals, fungi, insects).
    *
    * `niche_id` selects a base Niche profile from the built-in library
@@ -300,7 +300,7 @@ export interface ScriptFormat {
    *  the legacy sleep-story-flavoured set [15, 20, 30, 45, 60, 90].
    *  Format authors should set this to values that make sense for their
    *  format's typical episode length (broll-narration: [5, 8, 10, 15,
-   *  20, 30]; bound-explainer: [8, 12, 15, 20]; kids-fairytale:
+   *  20, 30]; reasons-explainer: [8, 12, 15, 20]; kids-fairytale:
    *  [5, 8, 10, 15]). The format's `defaultLengthMinutes` should appear
    *  in this list so the dropdown shows the right value selected on
    *  fresh project load instead of falling through to "Custom...". */
@@ -350,7 +350,7 @@ export interface ScriptFormat {
    * v1.0.82+: user-facing label for the format's primary content unit.
    * Defaults to {singular: "Chapter", plural: "Chapters"} when absent
    * so every existing format keeps its current vocabulary. Explainer
-   * formats override with their natural term — bound-explainer uses
+   * formats override with their natural term — reasons-explainer uses
    * "Reason"/"Reasons", listicle uses "Topic"/"Topics" — so the UI
    * surfaces and the LLM-emitted section headings ("## Reason 01: …")
    * match the format's content type rather than always saying
@@ -492,7 +492,7 @@ export interface ImagePromptFormat {
    *     to chapters; per-scene duration is uniform (`seconds_per_scene`)
    *     and chapter duration determines how many scenes are cycled.
    *
-   *   "sentence" — Bound-style explainer pacing. Scenes within a chapter
+   *   "sentence" — reasons-explainer pacing. Scenes within a chapter
    *     are distributed across the chapter's sentences (computed from
    *     audio_sentences.json), and each scene's on-screen duration is
    *     the sum of its assigned sentences' durations. Produces 3-6s
@@ -964,7 +964,7 @@ export interface Niche {
   // Authoring guide: see prayer.json (strict; locks "Prayer for X")
   // and devotional.json (strict; locks "{N} Lessons from {Ref}").
   // Niches that ride happily on the format default (plants, animals,
-  // fungi, insects under bound-explainer) leave these all unset.
+  // fungi, insects under reasons-explainer) leave these all unset.
 
   titleShapeRules?: string[]
   titleLengthRange?: [number, number]
@@ -1478,7 +1478,7 @@ export interface CreateProjectRequest {
    * v1.4.20 — how often this channel publishes, set when the channel is made.
    *
    * An Upload Plan is keyed `platform:account_id` and so cannot exist before a
-   * YouTube account is connected — Boundful's channel predates its account by
+   * YouTube account is connected — a channel can predate its account by
    * months. Storing the cadence on the CHANNEL means a new channel has a
    * publishing rhythm from day one, and the plan is created from it the moment
    * an account is connected. See services/publish-cadence.ts.
@@ -3110,7 +3110,7 @@ export interface VideoBackgroundNoise {
 }
 
 /**
- * Compilation video layout (v1.0.63+ / Path C, BrainWise channel mode).
+ * Compilation video layout (v1.0.63+ / Path C, compilation-mode channel mode).
  *
  * Two layouts now coexist in the pipeline:
  *

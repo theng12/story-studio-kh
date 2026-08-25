@@ -76,7 +76,7 @@ export interface Format {
     /** v1.0.71+: chapters expand in parallel (listicle) vs sequentially. */
     chaptersIndependent?: boolean
     /** v1.0.82+: user-facing label for the format's primary content unit.
-     *  Sleep-story → Chapter, bound-explainer → Reason, listicle → Topic.
+     *  Sleep-story → Chapter, reasons-explainer → Reason, listicle → Topic.
      *  Missing on older formats — UI consumers default to "Chapter". */
     sectionLabel?: {
       singular: string

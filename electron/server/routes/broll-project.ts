@@ -120,7 +120,7 @@ router.post('/projects/:slug/broll/pick', async (req, res) => {
     const narrationSec = await readNarrationDurationSec(slug, episode_id, title)
     if (!narrationSec) {
       // Format-aware copy: broll-narration is single-chapter so audio-
-      // merge usually isn't needed; sleep-story / bound-explainer hits
+      // merge usually isn't needed; sleep-story / reasons-explainer hits
       // this same code path though, so mention merge when narration is
       // expected to be multi-chapter. Either way the action is the same:
       // run Audio Generator first.

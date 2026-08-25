@@ -102,7 +102,7 @@ All commands below ran once at final code/artifact head
      annotated exceptions), source and built release checks, Nuxt static build,
      and Electron compile passed.
    - Durable log:
-     `/build/Developer/_handoffs/story-studio-kh-v1.0.842-verify-0664bf1-20260816.log`
+     `<owner-home>/Developer/_handoffs/story-studio-kh-v1.0.842-verify-0664bf1-20260816.log`
      — SHA-256 `e7e4a785bd7c534b2a8f4af63a0e10af03a2eda358f3ac654721cbc3e65f04ce`.
 2. `npm run dist:smoke`
    - PASS, exit 0: unsigned arm64 DMG built, inspected, mounted read-only, and
@@ -112,18 +112,18 @@ All commands below ran once at final code/artifact head
      bundle `com.storystudio.kh`; version `1.0.842`; arm64; ad-hoc signature
      with no Developer ID (expected for the unsigned smoke flow).
    - Durable log:
-     `/build/Developer/_handoffs/story-studio-kh-v1.0.842-dist-smoke-0664bf1-20260816.log`
+     `<owner-home>/Developer/_handoffs/story-studio-kh-v1.0.842-dist-smoke-0664bf1-20260816.log`
      — SHA-256 `4bf9cb5ff86ffcba0b104e07060f56912e2ec607228e380a52ec0fb78c3b3298`.
 3. `npm run check:release -- --built --package-input`
    - PASS, exit 0: source contract, built startup, and package inputs passed.
    - Durable log:
-     `/build/Developer/_handoffs/story-studio-kh-v1.0.842-check-release-built-package-input-0664bf1-20260816.log`
+     `<owner-home>/Developer/_handoffs/story-studio-kh-v1.0.842-check-release-built-package-input-0664bf1-20260816.log`
      — SHA-256 `2deb6aa4515930aee152286396f50c0aa1639649fb821123d501af4d920fe8f7`.
 4. `npm run verify:artifact -- --app "dist/mac-arm64/Story Studio KH.app" --dmg "dist/Story Studio KH 1.0.842-arm64.dmg"`
    - PASS, exit 0: independently repeated the exact bundle/version/architecture,
      ad-hoc signature, SHA-256, and read-only mount checks.
    - Durable log:
-     `/build/Developer/_handoffs/story-studio-kh-v1.0.842-verify-artifact-0664bf1-20260816.log`
+     `<owner-home>/Developer/_handoffs/story-studio-kh-v1.0.842-verify-artifact-0664bf1-20260816.log`
      — SHA-256 `f1aced1d98ac40c761285e317cb93b029c77b3ce25cb4a64c0d3dd62729ef743`.
 5. Packaged QA
    - GO: the packaged UI retained 44×44 minimum interactive targets and the

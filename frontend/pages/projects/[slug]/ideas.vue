@@ -1427,7 +1427,7 @@ const titlePreviewText = computed(() => {
 
 // v1.0.93+ — Ideas Generator presets. Captures the full form so users
 // running multiple channel framings on one project (e.g. "Morning Prayer"
-// AND "Evening Prayer" AND "Daily Devotional" all on Abiding Faith) can
+// AND "Evening Prayer" AND "Daily Devotional" all on one devotional channel) can
 // switch in one click instead of retyping seven fields per batch. Device-
 // aware filtering comes from usePresets directly — presets saved on Mac A
 // stay hidden on Mac B by default with a toggle to reveal.
@@ -1534,7 +1534,7 @@ async function onIdeasPresetDelete() {
 // matches the *_last_* convention used by other generator pages.
 const formatId = ref<string>('continuity-chain')
 // v1.0.83+: reactive section-label vocabulary for the active format
-// ("Chapter" for sleep-story, "Reason" for bound-explainer, "Topic" for
+// ("Chapter" for sleep-story, "Reason" for reasons-explainer, "Topic" for
 // listicle). Used in form labels, table column headers, and inline copy
 // so the Ideas page matches whatever the script will be structured as.
 const sectionLabel = useSectionLabel(formatId)
@@ -1595,7 +1595,7 @@ let patternHydrated = false
  * v1.0.66+ — keep the FULL format objects (not just id+name) so the
  * Ideas Generator dropdowns + Randomize / Surprise Me can pull
  * vocabularies from `format.idea.{genre|theme|mood|keyword}Vocabulary`.
- * Without this, BrainWise (listicle format) would still see sleep-
+ * Without this, compilation-mode (listicle format) would still see sleep-
  * story-flavoured "coming-of-age / quiet rebellion / lantern" options
  * baked into the page even though the format has its own vocab.
  */
@@ -1683,7 +1683,7 @@ async function loadPatternPreferences(): Promise<boolean> {
   // The project's chosen format lives on the project META, not on
   // /settings/config. settings.vue + scripts.vue both read meta.format_id;
   // ideas.vue used to read /settings/config.format_id which is always
-  // undefined → formatId stayed at the 'narrative' default and BrainWise
+  // undefined → formatId stayed at the 'narrative' default and compilation-mode
   // (listicle) projects saw lantern/observatory/coming-of-age vocab. Fix:
   // hit project meta for format_id, settings/config for the *_last_*
   // pattern/subject memory.
@@ -1829,7 +1829,7 @@ onMounted(async () => {
 // The pools are deliberately format-neutral now: tone-mixed words
 // that work for sleep stories AND listicles AND true-crime, instead
 // of the old sleep-story-leaning "lantern / observatory / weaver"
-// bias that broke BrainWise users in v1.0.65.
+// bias that broke compilation-mode users in v1.0.65.
 const GENERIC_FALLBACK_GENRES = [
   'fantasy', 'mystery', 'documentary', 'explainer', 'comedy', 'thriller',
   'science', 'history', 'adventure', 'slice-of-life', 'anthology',

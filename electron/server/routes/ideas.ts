@@ -224,7 +224,7 @@ Rules:
   // Now everything format-variable comes from the format itself.
   // Range widening — see buildPastePrompt below for rationale. Per-
   // project format_overrides can push the default outside the format's
-  // declared range (BrainWise: 100 chapters / 120 min vs listicle's
+  // declared range (compilation-mode: 100 chapters / 120 min vs listicle's
   // [3,20] / [10,90]). Auto-extend so the LLM doesn't see a
   // contradictory "between 3 and 20 (default 100)" instruction.
   const [chMinFmt, chMaxFmt] = format.script.chapterCountRange
@@ -734,7 +734,7 @@ Rules:
   //
   // Per-project format overrides can push `defaultChapterCount` /
   // `defaultLengthMinutes`
-  // outside the format's declared range — e.g. BrainWise running 100
+  // outside the format's declared range — e.g. compilation-mode running 100
   // chapters in a 2-hour video against listicle's [3,20] / [10,90]
   // defaults. When that happens we widen the prompt's stated range to
   // include the default so the LLM doesn't get a contradictory
@@ -1037,7 +1037,7 @@ router.patch('/projects/:slug/episodes/:code/mark-done', async (req, res) => {
     if (!updated) return res.status(404).json({ detail: `No accepted idea matches episode '${code}'` })
     // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
   // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // Capi) and project.json several times over: hundreds of reads of two files
+  // a 302-episode project) and project.json several times over: hundreds of reads of two files
   // that cannot change while one response is being built. See
   // `ProjectFactsCache`.
   const { createProjectFactsCache } = await import('../services/utils.js')
@@ -1064,7 +1064,7 @@ router.patch('/projects/:slug/episodes/:code/status-overrides', async (req, res)
     if (!updated) return res.status(404).json({ detail: `No accepted idea matches episode '${code}'` })
     // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
   // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // Capi) and project.json several times over: hundreds of reads of two files
+  // a 302-episode project) and project.json several times over: hundreds of reads of two files
   // that cannot change while one response is being built. See
   // `ProjectFactsCache`.
   const { createProjectFactsCache } = await import('../services/utils.js')
@@ -1091,7 +1091,7 @@ router.post('/projects/:slug/episodes/bulk-mark-done', async (req, res) => {
     const result = await im.bulkMarkDone(slug, episode_codes, done)
     // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
   // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // Capi) and project.json several times over: hundreds of reads of two files
+  // a 302-episode project) and project.json several times over: hundreds of reads of two files
   // that cannot change while one response is being built. See
   // `ProjectFactsCache`.
   const { createProjectFactsCache } = await import('../services/utils.js')
@@ -1120,7 +1120,7 @@ router.post('/projects/:slug/episodes/bulk-mark-done-by-source', async (req, res
     const result = await im.bulkMarkDoneBySource(slug, source, done)
     // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
   // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // Capi) and project.json several times over: hundreds of reads of two files
+  // a 302-episode project) and project.json several times over: hundreds of reads of two files
   // that cannot change while one response is being built. See
   // `ProjectFactsCache`.
   const { createProjectFactsCache } = await import('../services/utils.js')
@@ -1149,7 +1149,7 @@ router.get('/projects/:slug/episodes', async (req, res) => {
 
   // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
   // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // Capi) and project.json several times over: hundreds of reads of two files
+  // a 302-episode project) and project.json several times over: hundreds of reads of two files
   // that cannot change while one response is being built. See
   // `ProjectFactsCache`.
   const { createProjectFactsCache } = await import('../services/utils.js')
@@ -1217,7 +1217,7 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
 
   // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
   // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // Capi) and project.json several times over: hundreds of reads of two files
+  // a 302-episode project) and project.json several times over: hundreds of reads of two files
   // that cannot change while one response is being built. See
   // `ProjectFactsCache`.
   const { createProjectFactsCache } = await import('../services/utils.js')
@@ -1426,7 +1426,7 @@ router.get('/projects/:slug/episodes/:code/status', async (req, res) => {
   try {
     // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
   // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // Capi) and project.json several times over: hundreds of reads of two files
+  // a 302-episode project) and project.json several times over: hundreds of reads of two files
   // that cannot change while one response is being built. See
   // `ProjectFactsCache`.
   const { createProjectFactsCache } = await import('../services/utils.js')

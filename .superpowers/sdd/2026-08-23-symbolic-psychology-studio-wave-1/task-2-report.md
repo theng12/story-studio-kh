@@ -36,9 +36,9 @@ The registry validated before and after every individual transition. Final state
 
 - RED observed first: `promotion receipts` failed because Editorial Psychology Symbolic Split was still `reserved`.
 - GREEN: named `promotion receipts` test passed after the three promotions.
-- `npx tsx --test electron/server/__tests__/capi-psychology-components-source.test.ts` — 5 passed.
+- `npx tsx --test electron/server/__tests__/editorial-psychology-components-source.test.ts` — 5 passed.
 - Focused Impasto restoration source test — 1 passed.
-- Focused Wave 1 Capi/Impasto source-evidence tests — 2 passed.
+- Focused Wave 1 Editorial/Impasto source-evidence tests — 2 passed.
 - `node --test scripts/content-packs/__tests__/legacy-thumbnail-restoration-pack.test.mjs` — 24 passed.
 - `npm run content-pack:registry -- validate` — passed at revision 13 with 72 records.
 

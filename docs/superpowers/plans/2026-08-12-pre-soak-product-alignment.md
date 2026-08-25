@@ -34,7 +34,7 @@
 - Modify: `electron/server/__tests__/genstudio-video-tts-transcription-hardening.test.ts`
 - Modify: `frontend/pages/projects/[slug]/jobs.vue`
 - Modify: `frontend/__tests__/genStudioCreditRelease.test.ts`
-- Create: `/build/Developer/_handoffs/2026-08-12_to-claude-genstudio_from-gpt-storystudio_cancel-contract-source-verification.md`
+- Create: `<owner-home>/Developer/_handoffs/2026-08-12_to-claude-genstudio_from-gpt-storystudio_cancel-contract-source-verification.md`
 
 **Interfaces:**
 - Consumes: current `GenStudioJob`, cancellation parser, account snapshot settlement, Jobs settlement display.
@@ -142,7 +142,7 @@ The Jobs hero renders `N active / L standard lanes`. It shows a temporary boost 
 Re-run Step 2. Inspect Project Jobs and All Jobs at desktop and 320–390px using stubbed 0.93, 0.94 baseline, and 0.94 boosted responses. Then run once:
 
 ```bash
-node /build/.codex/skills/impeccable/scripts/detect.mjs --json \
+node <owner-home>/.codex/skills/impeccable/scripts/detect.mjs --json \
   'frontend/pages/projects/[slug]/jobs.vue'
 ```
 
@@ -333,7 +333,7 @@ git commit -m "refactor: retire legacy format contracts"
 - Modify: `package.json`
 - Modify: `package-lock.json`
 - Modify: `CHANGELOG.md`
-- Move completed incoming briefs to `/build/Developer/_handoffs/_handoff-trash/` only after their verification passes.
+- Move completed incoming briefs to `<owner-home>/Developer/_handoffs/_handoff-trash/` only after their verification passes.
 
 **Interfaces:**
 - Consumes: reviewed commits from Tasks 1–5.

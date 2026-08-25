@@ -360,7 +360,7 @@
   Run:
 
   ```bash
-  node /build/.codex/skills/impeccable/scripts/detect.mjs --json \
+  node <owner-home>/.codex/skills/impeccable/scripts/detect.mjs --json \
     frontend/components/ModelMenu.vue \
     frontend/components/ModelSelector.vue \
     frontend/components/ImageModelPicker.vue \

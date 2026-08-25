@@ -45,9 +45,9 @@
 | `content-packs/thumbnail-recipe-expansion-ten/PREVIEW-PROVENANCE.md` | Immutable row-level preview provenance, rights, hashes, sizes, dimensions, transforms, and receipts. |
 | `electron/server/__tests__/thumbnail-recipe-expansion-ten-source.test.ts` | Receipt/source/schema/distinctness/title/provenance/runtime-adapter tests. |
 | `scripts/content-packs/__tests__/thumbnail-recipe-expansion-ten-pack.test.mjs` | Deterministic candidate, validation, profile, size, summary-scope, and partial-qualification tests. |
-| `/build/Developer/_handoffs/2026-08-24_to-gpt-studiofleet_from-gpt-storystudio_thumbnail-expansion-ten-preview-quote.md` | Quote-only Studio Hub handoff created after the batch hash exists. |
-| `/build/Developer/_handoffs/artifacts/story-thumbnail-expansion-ten-2026-08-24/` | Fresh external candidate archives, ledger, release handoff, and blocked rows. |
-| `/build/Developer/_handoffs/2026-08-24_to-claude-genstudio_from-gpt-storystudio_thumbnail-expansion-ten-candidates.json` | Local receiver handoff, created only after staging completes; it grants no mutation authority. |
+| `<owner-home>/Developer/_handoffs/2026-08-24_to-gpt-studiofleet_from-gpt-storystudio_thumbnail-expansion-ten-preview-quote.md` | Quote-only Studio Hub handoff created after the batch hash exists. |
+| `<owner-home>/Developer/_handoffs/artifacts/story-thumbnail-expansion-ten-2026-08-24/` | Fresh external candidate archives, ledger, release handoff, and blocked rows. |
+| `<owner-home>/Developer/_handoffs/2026-08-24_to-claude-genstudio_from-gpt-storystudio_thumbnail-expansion-ten-candidates.json` | Local receiver handoff, created only after staging completes; it grants no mutation authority. |
 
 ## Exact Reservation Proposal Matrix
 
@@ -142,7 +142,7 @@ git commit -m "chore(content-packs): reserve ten thumbnail recipes"
 
 **Files:**
 - Create: `.superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/preview-batch.json`
-- Create: `/build/Developer/_handoffs/2026-08-24_to-gpt-studiofleet_from-gpt-storystudio_thumbnail-expansion-ten-preview-quote.md`
+- Create: `<owner-home>/Developer/_handoffs/2026-08-24_to-gpt-studiofleet_from-gpt-storystudio_thumbnail-expansion-ten-preview-quote.md`
 
 **Interfaces:**
 - Consumes: ten verified receipt records and the exact thirty preview rows in Spec section 5.
@@ -453,8 +453,8 @@ git commit -m "chore(content-packs): qualify ten thumbnail recipes"
 **Files:**
 - Create: `scripts/content-packs/__tests__/thumbnail-recipe-expansion-ten-pack.test.mjs`
 - Consume: `scripts/content-packs/stage-handoff-artifacts.mjs`
-- Create: `/build/Developer/_handoffs/artifacts/story-thumbnail-expansion-ten-2026-08-24/{*.sspack,ledger.json,release-handoff.json}`
-- Create: `/build/Developer/_handoffs/2026-08-24_to-claude-genstudio_from-gpt-storystudio_thumbnail-expansion-ten-candidates.json`
+- Create: `<owner-home>/Developer/_handoffs/artifacts/story-thumbnail-expansion-ten-2026-08-24/{*.sspack,ledger.json,release-handoff.json}`
+- Create: `<owner-home>/Developer/_handoffs/2026-08-24_to-claude-genstudio_from-gpt-storystudio_thumbnail-expansion-ten-candidates.json`
 
 **Interfaces:**
 - Consumes: fixed ten-record registry set, only authored/review-clean source roots, exact receipt, and per-recipe reviews.

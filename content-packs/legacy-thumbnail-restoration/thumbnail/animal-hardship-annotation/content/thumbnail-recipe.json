@@ -29,7 +29,7 @@
     "A readable full episode-title card rendered by the image model"
   ],
   "avoid_elements": [
-    "A copied MineePod title or episode wording",
+    "A copied channel title or episode wording",
     "Multiple arrows or multiple handwritten captions",
     "Generic curiosity-only wording that does not name a concrete constraint",
     "Watermarks, logos, channel branding, or copied trade dress",

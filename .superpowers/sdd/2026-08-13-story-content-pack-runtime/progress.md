@@ -5,7 +5,7 @@
 - Approved design: `docs/superpowers/specs/2026-08-13-content-pack-store-design.md`
 - Runtime plan: `docs/superpowers/plans/2026-08-13-story-content-pack-runtime.md`
 - Foundation final gate: GO at `c7b6d82` with 85/85 backend, 17/17 publisher/fixture, full typecheck, and production audit 0 vulnerabilities.
-- Branch/worktree: `codex/content-pack-platform` at `/build/Developer/story-studio-kh/.worktrees/content-pack-platform`
+- Branch/worktree: `codex/content-pack-platform` at `<owner-home>/Developer/story-studio-kh/.worktrees/content-pack-platform`
 
 ## Tasks
 
@@ -21,7 +21,7 @@
 
 ## Commerce boundary
 
-- GenStudio work order: `/build/Developer/_handoffs/2026-08-13_to-claude-genstudio_from-gpt-storystudio_content-pack-credit-store-contract.md`.
+- GenStudio work order: `<owner-home>/Developer/_handoffs/2026-08-13_to-claude-genstudio_from-gpt-storystudio_content-pack-credit-store-contract.md`.
 - No purchase, receipt, entitlement, account, or remote store behavior is enabled by this runtime plan.
 
 ## Task 4 verification

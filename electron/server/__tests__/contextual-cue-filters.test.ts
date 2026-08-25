@@ -144,7 +144,7 @@ describe('contextual cue FFmpeg treatments', () => {
   })
 
   test('a branded opening moves every timing expression by exactly the measured length', () => {
-    // 10s intro, plan starting at 0 — the live Boundless case, where cues used
+    // 10s intro, plan starting at 0 — the live branded-intro case, where cues used
     // to fire 10s early because nothing added the opening to their times.
     const shifted = buildContextualCueDrawtextFilters(cue('documentary-label'), 10)
     assert.ok(shifted.every(filter => filter.includes('enable=between(t\\,20.000\\,23.500)')))

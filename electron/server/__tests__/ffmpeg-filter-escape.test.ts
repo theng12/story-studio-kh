@@ -235,7 +235,7 @@ describe('escapeFilterPath', () => {
 
   test('a path survives both unescaping passes', () => {
     for (const dir of HOSTILE_DIRS) {
-      const p = `/Story Studio Projects/Boundful/${dir}/subs.srt`
+      const p = `/Story Studio Projects/My Channel/${dir}/subs.srt`
       assert.equal(unescapeBothLevels(`${escapeFilterPath(p)}:original_size=1920x1080`), p, `round trip failed for: ${dir}`)
     }
   })

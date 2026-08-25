@@ -123,7 +123,7 @@ export async function migrateLegacyLocationSettings(): Promise<MigrationNotice[]
       notices.push({
         id: 'named-roots-retired',
         title: 'Custom folder labels have been replaced',
-        body: 'Labels like ${TERRANASH} pointed at a different folder on every Mac, so a project '
+        body: 'Labels like ${MY_FOLDER} pointed at a different folder on every Mac, so a project '
           + 'that worked here did not work anywhere else. Shared files now live in the '
           + '"_Project Assets" folder inside your Library and are written as ${ASSET}/…. Move the '
           + 'files from the folders below into _Project Assets, and any preset that referenced a '

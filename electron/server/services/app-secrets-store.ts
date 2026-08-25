@@ -338,69 +338,32 @@ async function pruneOldBackups(filePath: string): Promise<void> {
   }
 }
 
+/**
+ * Returns the stored key for a known provider, verbatim.
+ *
+ * Historical note — a `migrateLegacyDefault` step used to sit here. It
+ * rewrote stored *local-modal URLs* (the `voicestudio` / `imagestudio`
+ * providers, which used "URL-as-secret" semantics) when they still held a
+ * default shipped by v1.0.149-v1.0.157, resetting them to '' so the user got
+ * the clean "unconfigured" setup state instead of a dead host.
+ *
+ * That migration became unreachable in v1.0.669 (commit 868a84f9,
+ * 2026-07-23), when `voicestudio` and `imagestudio` were dropped from
+ * SECRET_PROVIDERS for the GenStudio-only pipeline: `isKnownProvider` now
+ * rejects both ids on the first line below, and `normaliseV3` discards their
+ * stored entries on read. It survived only as dead code carrying a hardcoded
+ * private network address, so it has been removed. No behaviour is lost —
+ * no caller has been able to reach it since v1.0.669.
+ *
+ * `userSet` is still written by setApiKey and preserved by normaliseV3. It is
+ * no longer consulted here only because there is no migration left for it to
+ * override. If a value-rewriting migration is ever reintroduced, gate it on
+ * `userSet` so an explicit Save always wins — that was the v1.0.206 fix.
+ */
 export async function getApiKey(providerId: string): Promise<string> {
   if (!isKnownProvider(providerId)) return ''
   const v3 = await readAppSecrets()
-  const entry = v3.providers[providerId]
-  const stored = entry?.apiKey ?? ''
-  // v1.0.206 — an explicitly-saved value is authoritative and is NEVER
-  // rewritten. This is the fix for "I saved m1 but it keeps using m4": the
-  // legacy-default migration below used to override the user's saved local-
-  // modal URL because that URL had once been a shipped default. Now any
-  // value the user Saved (userSet) is returned verbatim.
-  if (entry?.userSet) return stored
-  // Legacy migration only for values that were never explicitly saved —
-  // i.e. a stale default an older app version carried into storage. Only
-  // the dead Tailscale-IP defaults remain in scope (see migrateLegacyDefault);
-  // `.local` hostnames are legitimate per-machine choices and are left alone.
-  return migrateLegacyDefault(providerId, stored)
-}
-
-/**
- * v1.0.158+ — rewrite stored URLs that match any pre-current default
- * for either local modal so existing installs migrate cleanly without
- * the user clearing-and-re-saving in Settings. User-typed URLs (any
- * shape other than a listed legacy default) are left alone so a
- * deliberate Tailscale IP / custom hostname isn't silently overwritten.
- *
- * Lives in the secrets store (not the client libs) to avoid a circular
- * import — both clients already depend on this module.
- *
- * History of the migration targets:
- *   voicestudio:
- *     v1.0.149-v1.0.157  http://100.120.246.10:47870           (Tailscale IP)
- *     v1.0.158           http://theng-macmini-m1.local:47870   (M1 Bonjour)
- *     v1.0.159+          http://theng-macmini-m4.local:47870   (M4 Bonjour — current)
- *
- *   imagestudio:
- *     v1.0.151-v1.0.157  http://100.120.246.10:47868           (Tailscale IP)
- *     v1.0.158+          http://theng-macmini-m1.local:47868   (M1 Bonjour — current)
- *
- * The M1 stays the canonical Image Studio host even after v1.0.159 split
- * Voice Studio onto the M4 — Image generation fits comfortably in M1's
- * 8 GB unified memory while VoxCPM2 doesn't, so the user runs both
- * modals simultaneously on separate Macs.
- */
-// v1.0.206 — ONLY the dead Tailscale-IP defaults remain here. `.local`
-// hostnames (m1/m4) are legitimate per-machine hosts the user switches
-// between — migrating one to another fought the user's explicit Save, which
-// was the whole bug. Those are no longer migrated; an explicit Save wins
-// regardless (see getApiKey → userSet), and the only thing the migration
-// still does is upgrade the truly-unreachable original Tailscale IP.
-const VOICESTUDIO_LEGACY_DEFAULTS = new Set<string>([
-  'http://100.120.246.10:47870',           // v1.0.149-v1.0.157 (dead Tailscale IP)
-])
-const IMAGESTUDIO_LEGACY_DEFAULTS = new Set<string>([
-  'http://100.120.246.10:47868',           // v1.0.151-v1.0.157 (dead Tailscale IP)
-])
-// v1.0.207 — local-modal defaults are now empty (no universal host), so a
-// stored value matching the original dead Tailscale-IP default migrates to
-// EMPTY ("unconfigured") rather than to another machine's hostname. The
-// user then sees the clean empty state + setup help and enters their own URL.
-function migrateLegacyDefault(providerId: string, stored: string): string {
-  if (providerId === 'voicestudio' && VOICESTUDIO_LEGACY_DEFAULTS.has(stored)) return ''
-  if (providerId === 'imagestudio' && IMAGESTUDIO_LEGACY_DEFAULTS.has(stored)) return ''
-  return stored
+  return v3.providers[providerId]?.apiKey ?? ''
 }
 
 export async function setApiKey(providerId: string, apiKey: string): Promise<void> {

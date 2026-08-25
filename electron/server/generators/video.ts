@@ -390,7 +390,7 @@ export { buildLetterboxFilter, computeVignetteAngle } from '../lib/video-effects
 
 // ── Portable-path expansion ────────────────────────────────────────────────
 // Walks the fields of a GenerateVideoRequest that carry user-supplied file
-// paths and expands portable forms (`${PROJECT}/foo`, `${TERRANASH}/bar`) to
+// paths and expands portable forms (`${PROJECT}/foo`, `${MY_FOLDER}/bar`) to
 // absolute paths for this machine. Mutates `req` in place so downstream
 // code (existsSync, ffmpeg -i arg builders) doesn't need to know about
 // portable paths at all. Legacy absolute paths pass through unchanged.
@@ -1289,7 +1289,7 @@ export async function generateVideo(job: Job): Promise<void> {
     }
   }
 
-  // Expand any portable asset paths (`${PROJECT}/...`, `${TERRANASH}/...`)
+  // Expand any portable asset paths (`${PROJECT}/...`, `${MY_FOLDER}/...`)
   // to absolute paths on this machine BEFORE downstream code touches them.
   // Keeps legacy absolute paths unchanged.
   resolveAssetPathsInPlace(req, outputRoot, job)
@@ -1670,7 +1670,7 @@ export async function generateVideo(job: Job): Promise<void> {
     // v1.0.81+: when the project's format opts into sentence alignment
     // AND audio_sentences.json exists, compute per-scene durations from
     // sentence-level timing instead of using the uniform recycling
-    // default. This is what gives Bound-style explainer pacing — each
+    // default. This is what gives reasons-explainer pacing — each
     // scene stays on screen exactly as long as its assigned sentences.
     // The block is fully optional and best-effort: any failure falls
     // back to uniform per-scene durations and logs why.
@@ -2112,7 +2112,7 @@ export async function generateVideo(job: Job): Promise<void> {
     //   • the plan reserved the opening (the strict path above trims the intro
     //     to exactly that window and drops title cards)
     //                         → reserved − reserved  = 0, nothing shifts
-    //   • intro enabled, plan reserved nothing (the live Boundless case)
+    //   • intro enabled, plan reserved nothing (the live branded-intro case)
     //                         → openingLength − 0    = openingLength
     // A legacy plan whose scenes begin after the merged audio's lead-in gives a
     // negative shift, which is equally correct: the cue follows its scene.
@@ -2488,7 +2488,7 @@ export async function generateVideo(job: Job): Promise<void> {
 
 /**
  * Render a looped background-plate clip that fills the full target
- * duration. Used as the base video in compilation mode (BrainWise-style
+ * duration. Used as the base video in compilation mode (compilation-mode-style
  * listicle / explainer channels) where the visual continuity comes
  * from a starfield / atmospheric loop and per-chapter foreground icons
  * are composited on top via the auto-generated overlay layers.
@@ -4674,7 +4674,7 @@ async function runFinalComposition(opts: CompositionOpts): Promise<void> {
           // lead-in", conflating two unrelated numbers: the stitcher's lead-in
           // is the non-narration AUDIO at the head of the merged track (music /
           // intro audio), while the intro/title clips are VIDEO. On a real
-          // Boundless episode those are 16.07s and 10.00s — they are not the
+          // episode those are 16.07s and 10.00s — they are not the
           // same quantity and are not required to agree. Captions therefore
           // need no shift, while contextual cues (which answer to the PICTURE)
           // do — see `sceneTimelineOffsetSec`. Suppressing captions during a

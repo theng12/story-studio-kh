@@ -11,9 +11,9 @@ Completed the exact Oil Painting Classical Store source and the bundle-only Symb
 
 ## Verification
 
-`npx tsx --test electron/server/__tests__/capi-psychology-components-source.test.ts electron/server/__tests__/legacy-thumbnail-restoration-source.test.ts electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts` — 20 passed, 0 failed.
+`npx tsx --test electron/server/__tests__/editorial-psychology-components-source.test.ts electron/server/__tests__/legacy-thumbnail-restoration-source.test.ts electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts` — 20 passed, 0 failed.
 
-`node --test scripts/content-packs/__tests__/authoring-registry.test.mjs scripts/content-packs/__tests__/legacy-thumbnail-restoration-pack.test.mjs scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs` — 58 passed; one expected out-of-scope candidate-summary failure because `/build/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/evidence-ledger.json` does not exist. Task 4 explicitly excludes candidate/archive work.
+`node --test scripts/content-packs/__tests__/authoring-registry.test.mjs scripts/content-packs/__tests__/legacy-thumbnail-restoration-pack.test.mjs scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs` — 58 passed; one expected out-of-scope candidate-summary failure because `<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/evidence-ledger.json` does not exist. Task 4 explicitly excludes candidate/archive work.
 
 `npm run content-pack:registry -- validate` — `authoring registry revision 16: 74 records`.
 

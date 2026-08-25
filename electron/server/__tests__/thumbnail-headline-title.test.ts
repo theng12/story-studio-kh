@@ -1,5 +1,5 @@
 /**
- * MEASURED 2026-08-24 on the owner's Abiding Faith channel. Every thumbnail
+ * MEASURED 2026-08-24 on a real devotional channel. Every thumbnail
  * prompt for EP0344 came back reading
  *
  *   Large bold sans-serif text 'EP0344' is placed on the right

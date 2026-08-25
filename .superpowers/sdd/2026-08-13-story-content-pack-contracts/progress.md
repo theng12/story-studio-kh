@@ -5,7 +5,7 @@
 - Approved design: `docs/superpowers/specs/2026-08-13-content-pack-store-design.md`
 - Execution plan: `docs/superpowers/plans/2026-08-13-story-content-pack-contracts.md`
 - Branch: `codex/content-pack-platform`
-- Worktree: `/build/Developer/story-studio-kh/.worktrees/content-pack-platform`
+- Worktree: `<owner-home>/Developer/story-studio-kh/.worktrees/content-pack-platform`
 
 ## Baseline
 
@@ -86,5 +86,5 @@
 
 ## External dependency
 
-- GenStudio handoff filed at `/build/Developer/_handoffs/2026-08-13_to-claude-genstudio_from-gpt-storystudio_content-pack-credit-store-contract.md`.
+- GenStudio handoff filed at `<owner-home>/Developer/_handoffs/2026-08-13_to-claude-genstudio_from-gpt-storystudio_content-pack-credit-store-contract.md`.
 - Story implementation must keep all paid/store UI dormant until GenStudio publishes and Story verifies the real entitlement contract.

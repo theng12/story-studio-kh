@@ -22,7 +22,7 @@
  * starts. This measures the head of the merged AUDIO TRACK, which is a
  * different artifact produced by a different generator at a different time —
  * an episode can have a ten-second video opening and no audio intro at all
- * (Boundful) or the reverse. `OpeningHead`'s whole design is that adding a
+ * (seen in the field) or the reverse. `OpeningHead`'s whole design is that adding a
  * fifth bucket is a compile error at both video call sites; forcing an audio
  * intro through it would either break that guarantee or make a change to
  * Audio Assembly break the Scene Plan. Two different facts, two modules.

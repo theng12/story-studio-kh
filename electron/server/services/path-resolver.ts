@@ -4,7 +4,7 @@
  * prefixes.
  *
  * Two shapes we round-trip:
- *   portable      — "${PROJECT}/00 Assets/logo.png" or "${TERRANASH}/logo.png"
+ *   portable      — "${PROJECT}/00 Assets/logo.png" or "${MY_FOLDER}/logo.png"
  *   absolute      — "/Users/alice/.../logo.png"  (whatever the OS sees)
  *
  * All resolvers are pure string ops — no filesystem calls — so they stay
@@ -56,7 +56,7 @@ export function assetsRoot(): string {
  * v1.4.3 removed arbitrary `${NAME}` tokens backed by a per-machine map. They
  * were the fourth location concept, and the one that made a project
  * non-portable in the exact situation portability was for: carry the project to
- * another Mac and `${TERRANASH}` meant nothing there until someone re-declared
+ * another Mac and `${MY_FOLDER}` meant nothing there until someone re-declared
  * it by hand.
  *
  * An unknown token still throws rather than resolving to something plausible —

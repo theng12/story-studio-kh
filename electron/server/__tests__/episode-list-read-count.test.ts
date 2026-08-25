@@ -1,7 +1,7 @@
 /**
  * v1.4.48 — one read of the project's facts per LIST, not per episode.
  *
- * MEASURED on the owner's Capi project, 2026-08-23: 302 accepted episodes,
+ * MEASURED 2026-08-23 on a 302-episode project:
  * `/episodes` taking 7.368 s cold and 43–158 ms warm. The cost was not the
  * work — it was reading the same two files over and over:
  *

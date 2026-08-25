@@ -211,7 +211,7 @@ export function usePresets<T = any>(opts: UsePresetsOptions<T>) {
       // meta (Ideas Generator's niche_id / format_id) pass autoApplyOnLoad
       // = false. There the preset auto-apply was racing the project-meta
       // hydration and silently clobbering the project's niche on every
-      // navigation — the actual bug the user reported on Abiding Faith.
+      // navigation — the actual bug the user reported on a live channel.
       const autoApply = opts.autoApplyOnLoad !== false
       if (autoApply && activeId.value) applyActive()
     } catch { /* ignore */ }

@@ -235,7 +235,7 @@ router.get('/projects/:slug/video-editor/ambient-files', async (req, res) => {
 })
 
 // Scan local background-plate assets in project directory (v1.0.63+).
-// Compilation video layout (BrainWise / listicle channels) needs a
+// Compilation video layout (compilation-mode / listicle channels) needs a
 // looping background video or static image to play behind the per-
 // chapter foreground icons. Mirrors the music-files / overlay-files
 // scanners — drop sources into ${PROJECT}/backgrounds/, click + Add.

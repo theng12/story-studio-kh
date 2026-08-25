@@ -8,7 +8,7 @@
  *
  * He is right, and it fixes a real hole in the Pipeline scheduling step. An
  * Upload Plan is keyed `platform:account_id`, so it cannot exist until a
- * YouTube account has been connected — Boundful's channel predates its account
+ * YouTube account has been connected — a channel can predate its account
  * by months. A step that schedules a finished episode would therefore fail on
  * every channel until somebody remembered to open Upload Center and make a
  * plan, which is precisely the manual step the feature exists to remove.

@@ -33,12 +33,12 @@ beforeEach(async () => {
 })
 after(async () => { await tmp?.cleanup() })
 
-const SLUG = 'terranash'
+const SLUG = 'sleep-stories'
 
 /**
  * v1.4.10 — every helper here now takes a SLUG, and that is the point.
  *
- * This fixture used to be one project (`terranash`, prefix `TN`), which is why
+ * This fixture used to be a single project on one prefix, which is why
  * the worst bug this feature ever had shipped green. The sweep proved a file's
  * upload by episode code alone; seven of the owner's eleven channels use the
  * `EP` prefix and 302 codes exist in more than one channel, so an upload on one
@@ -181,26 +181,27 @@ describe('deciding what may be moved', () => {
 /**
  * The cross-channel case — the reason 1.4.10 exists.
  *
- * `EP0042` is a real collision on his machine: Boundful's is a finished master
- * he never uploaded, abiding-faith's is published. Keyed on the code alone,
- * abiding-faith's upload marked Boundful's file `ready`, copied it into
- * `<dest>/abiding-faith/`, verified it byte-for-byte in the wrong place, and
+ * `EP0042` is a real collision on his machine: one channel's is a finished
+ * master he never uploaded, a second channel's is published. Keyed on the code
+ * alone, the second channel's upload marked the first channel's file `ready`,
+ * copied it into the second channel's archive folder, verified it byte-for-byte
+ * in the wrong place, and
  * removed the original. 2.23 GB, gone, with a green checksum.
  */
 describe('a code is not an identity — it belongs to a channel', () => {
-  const OTHER = 'abiding-faith'
+  const OTHER = 'devotional'
 
   test('an upload on one channel must NOT authorise moving another channel’s file', async () => {
     const src = path.join(tmp.dir, 'YouTube Exports')
     await seedEpisode('EP0042', 'Published Elsewhere', true, OTHER)
-    await seedEpisode('EP0042', 'The Real Reason Suleiman', false, 'boundful')
-    const master = await seedExport(src, 'EP0042', 2048, 'boundful')
+    await seedEpisode('EP0042', 'The Real Reason Suleiman', false, 'my-channel')
+    const master = await seedExport(src, 'EP0042', 2048, 'my-channel')
 
     const preview = await sweep.previewArchiveSweep({ sourceRoot: src })
     const row = preview.candidates.find(c => c.source_path === master)!
-    assert.equal(row.status, 'skipped', 'Boundful’s un-uploaded master must not be ready to move')
+    assert.equal(row.status, 'skipped', 'the un-uploaded master must not be ready to move')
     assert.equal(row.reason_code, 'not_uploaded')
-    assert.match(row.reason!, /boundful/, 'the reason must name the channel it was judged against')
+    assert.match(row.reason!, /my-channel/, 'the reason must name the channel it was judged against')
     assert.equal(preview.ready_count, 0)
 
     const dest = path.join(tmp.dir, 'archive')
@@ -216,9 +217,9 @@ describe('a code is not an identity — it belongs to a channel', () => {
     // is still archivable, and only into its own channel's folder.
     const src = path.join(tmp.dir, 'YouTube Exports')
     await seedEpisode('EP0042', 'Published Here', true, OTHER)
-    await seedEpisode('EP0042', 'Not Published There', false, 'boundful')
+    await seedEpisode('EP0042', 'Not Published There', false, 'my-channel')
     const published = await seedExport(src, 'EP0042', 2048, OTHER)
-    const master = await seedExport(src, 'EP0042', 4096, 'boundful')
+    const master = await seedExport(src, 'EP0042', 4096, 'my-channel')
 
     const dest = path.join(tmp.dir, 'archive')
     const result = await sweep.runArchiveSweep({ destination: dest, sourceRoot: src })
@@ -250,7 +251,7 @@ describe('a code is not an identity — it belongs to a channel', () => {
   })
 
   test('scanning one channel’s folder directly still identifies the channel', async () => {
-    // He may point the picker at `…/YouTube Exports/terranash` rather than its
+    // He may point the picker at `…/YouTube Exports/<channel>` rather than its
     // parent. That is the same evidence, stated one level up.
     const src = path.join(tmp.dir, 'YouTube Exports')
     await seedEpisode('TN0001', 'Uploaded One', true)

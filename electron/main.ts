@@ -407,8 +407,8 @@ function installJobNotifier(): void {
         || !!(settings.telegram?.enabled && settings.telegram.bot_token && settings.telegram.chat_id)
       if (!anyChannelOn) return
 
-      // Resolve a friendly project label so notifications carry "—
-      // TerraNash Sleep Stories" instead of just "Pipeline finished".
+      // Resolve a friendly project label so notifications carry the channel
+      // name instead of just "Pipeline finished".
       // Falls back to slug when the project meta lookup fails (e.g.
       // project deleted between job submission and completion ping).
       let projectLabel: string | undefined

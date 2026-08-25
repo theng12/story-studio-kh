@@ -44,8 +44,8 @@ Challenge uses Before/After Timeline as its sole Formula closure. Existing Pract
 | content-packs/paid-specialists/topic/{comparison-domains-criteria,human-scale-documentary-subjects,progress-evidence-challenge-constraints,case-evidence-operating-decisions,open-questions-evidence-boundaries}/{pack.json,content/topic-pack.json} | Five deep, safe Topic leaves. |
 | content-packs/paid-specialists/kit/{comparison-lab,cinematic-mini-docs,challenge-progress,case-study-breakdown,mystery-investigation}/pack.json | Five manifest-only coordinators. |
 | scripts/content-packs/__tests__/paid-specialist-wave-four.test.mjs | Admission, collision, coverage, closure, summary, safety, keyless candidate, and review tests. |
-| /build/Developer/_handoffs/artifacts/story-wave-4-paid-specialist-candidates-2026-08-23/ | Fresh retained candidate archives and evidence ledger. |
-| /build/Developer/_handoffs/2026-08-23_to-genstudio_wave-4-paid-specialist-candidates.md | Non-mutating candidate/stocking handoff. |
+| <owner-home>/Developer/_handoffs/artifacts/story-wave-4-paid-specialist-candidates-2026-08-23/ | Fresh retained candidate archives and evidence ledger. |
+| <owner-home>/Developer/_handoffs/2026-08-23_to-genstudio_wave-4-paid-specialist-candidates.md | Non-mutating candidate/stocking handoff. |
 
 ### Task 1: Write paid-admission and collision tests before reservation
 
@@ -306,9 +306,9 @@ git commit -m "feat: compose specialist kit closures"
 
 **Files:**
 - Modify: scripts/content-packs/__tests__/paid-specialist-wave-four.test.mjs
-- Create externally: /build/Developer/_handoffs/artifacts/story-wave-4-paid-specialist-candidates-2026-08-23/archives/*.sspack
-- Create externally: /build/Developer/_handoffs/artifacts/story-wave-4-paid-specialist-candidates-2026-08-23/evidence-ledger.json
-- Create externally: /build/Developer/_handoffs/2026-08-23_to-genstudio_wave-4-paid-specialist-candidates.md
+- Create externally: <owner-home>/Developer/_handoffs/artifacts/story-wave-4-paid-specialist-candidates-2026-08-23/archives/*.sspack
+- Create externally: <owner-home>/Developer/_handoffs/artifacts/story-wave-4-paid-specialist-candidates-2026-08-23/evidence-ledger.json
+- Create externally: <owner-home>/Developer/_handoffs/2026-08-23_to-genstudio_wave-4-paid-specialist-candidates.md
 
 **Interfaces:**
 - Consumes: 14 authored sources and deployed keyless delivery profile.

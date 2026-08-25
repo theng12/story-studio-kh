@@ -671,7 +671,7 @@ export function repairPlanCoverage(
 // When the audio is re-generated / re-stitched AFTER a plan was made (e.g.
 // files added, an intro chapter dropped), the plan's start/end become stale —
 // the scenes drift out of sync with the voice (measured: a uniform 28s shift
-// on brain-wise EP0022/24 after the intro-skip offset changed). Re-anchor each
+// on one project's EP0022/24 after the intro-skip offset changed). Re-anchor each
 // existing scene to WHERE ITS NARRATION ACTUALLY IS NOW by text-matching its
 // transcript_segment against the current stitched-SRT cues — preserving every
 // scene id, image, and prompt (no re-plan, no forfeited images).

@@ -14,7 +14,7 @@
  *     flags it if it's empty (only `.DS_Store` / `._*` macOS junk).
  *
  * 2.  Walks each registered project for a "duplicated season tree" — the
- *     MineePod-shape problem where the same `Season NNN/EP*` content lives
+ *     outer-wrapper-shape problem where the same `Season NNN/EP*` content lives
  *     both at the OUTER project root and inside an INNER `episodes/`
  *     subdirectory. For each duplicated episode, compares the directory
  *     trees (file count + total bytes) so you can see which side has the
@@ -150,8 +150,9 @@ async function collectProjectDirs() {
   //                        `<root>/<name>/episodes/.story-studio-project.json`.
   //                        Single-marker projects where `<name>/episodes/` IS
   //                        the project root (`output_root` set to that path).
-  //    We need both so the bug scan covers every project (MineePod was the
-  //    only outer-marker one; the other 5 user projects use inner-marker).
+  //    We need both so the bug scan covers every project (on the machine
+  //    that reported this, one project was outer-marker and the other 5
+  //    were inner-marker).
   if (existsSync(projectsRoot)) {
     for (const e of await safeReaddir(projectsRoot)) {
       if (!e.isDirectory()) continue
@@ -199,7 +200,7 @@ async function scanBogusEpisodesDirs(projectDirs) {
       }
     }
     // CASE B — projectDir/episodes/episodes/ exists empty (the historical
-    // MineePod shape: standard `<project>/episodes/` was created normally,
+    // outer-wrapper shape: standard `<project>/episodes/` was created normally,
     // then a later linked-project path of `<project>/episodes/` re-triggered
     // the alias mkdir, producing the third level). The fix's guard prevents
     // this from happening AGAIN; this case catches existing vestiges.
@@ -221,7 +222,7 @@ async function scanDuplicateSeasons(projectDirs) {
   const findings = []
   for (const [slug, projectDir] of projectDirs) {
     // The outer wrapper case: projectDir has BOTH a `Season NNN/` AND a
-    // `episodes/Season NNN/` whose names overlap. That's the MineePod shape.
+    // `episodes/Season NNN/` whose names overlap. That's the outer-wrapper shape.
     const outerEntries = await safeReaddir(projectDir)
     const outerSeasons = outerEntries.filter(e => e.isDirectory() && /^Season\s+\d+$/i.test(e.name)).map(e => e.name)
     if (!outerSeasons.length) continue
@@ -312,7 +313,7 @@ async function applyBogusCleanup(findings) {
 
 /**
  * Move a directory into TRASH_DIR while preserving the relative path under the
- * project. So /<root>/MineePod/Season 001 becomes /<trash>/MineePod/Season 001
+ * project. So /<root>/<project>/Season 001 becomes /<trash>/<project>/Season 001
  * — the user can see at a glance what came from where. If a collision exists
  * (e.g. the user re-runs after a previous move), suffix with a timestamp.
  */

@@ -91,7 +91,7 @@ describe('what precedes the narration in a merged audio file', () => {
         generated_at: '2026-08-18T00:00:00.000Z',
         opening: {
           lead_in_sec: 16.066,
-          intro: { filename: 'Boundless_Intro.mp3', duration_sec: 14.066, gap_after_sec: 2 },
+          intro: { filename: 'Channel_Intro.mp3', duration_sec: 14.066, gap_after_sec: 2 },
           music_lead_in_sec: 0,
         },
       },
@@ -108,7 +108,7 @@ describe('what precedes the narration in a merged audio file', () => {
 
     assert.equal(opening.source, 'recorded')
     assert.equal(opening.lead_in_sec, 16.066)
-    assert.equal(opening.intro?.filename, 'Boundless_Intro.mp3')
+    assert.equal(opening.intro?.filename, 'Channel_Intro.mp3')
     assert.equal(opening.intro?.gap_after_sec, 2)
     assert.equal(opening.music_lead_in_sec, 0)
     assert.equal(opening.reason, null)
@@ -256,7 +256,7 @@ describe('what precedes the narration in a merged audio file', () => {
 
 describe('the record the merge writes', () => {
   const sections = EP0047_SECTIONS
-  const intro = { filename: 'Boundless_Intro.mp3', duration_sec: 14.066, gap_after_sec: 2 }
+  const intro = { filename: 'Channel_Intro.mp3', duration_sec: 14.066, gap_after_sec: 2 }
 
   test('prefers the measured file over the arithmetic of its own parts', () => {
     const record = buildMergedAudioOpeningRecord({
