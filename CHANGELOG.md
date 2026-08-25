@@ -4,6 +4,17 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.65 — 2026-08-25
+
+- **Installing a pack you own stopped asking GenStudio the same question 65 times.** Before every single install, the app fetched the entire release history of every pack you own — just to check whether any had been withdrawn. Installing a library meant thousands of requests. Nothing errored; it was simply slower than the app's own timeout, and it told you "the Content Store is unavailable" when the store was perfectly healthy. The server had already answered that question in one field the app was not reading. 65 requests became none.
+- **Select all, then one click buys all.** The selection bar counted your packs and totalled their price, and then the quote showed one product and bought one product. It now prices the whole basket, shows a single total before you agree to anything, and settles each pack independently — so one failure does not undo the rest, and you are told exactly which failed and why. Packs you already own are skipped rather than charged, and a retry cannot buy the same pack twice.
+- **A row of Content Store cards lines up.** The selection bar, the selection buttons and the install-progress strip had no styling written for them at all, which is why "2 selected" and the credit total ran together as one word. The cards used a layout that spread each card's spare height between everything inside it, so the picture, the price and the title landed at a different height on every card.
+- **An information notice no longer looks like a warning.** Every heading in a notice box was coloured warning-amber, including purely informational ones — which is how you learn to ignore amber before a real warning arrives.
+- **Internal notes stopped shipping inside packs customers download.** Four packs and two built-in channel types carried working notes naming this channel's own shows and four outside creators. They are gone from the bytes, not just the source.
+- **The wildlife formula covers insects**, instead of excluding them and pointing at a pack that was never made. A thumbnail recipe that both required and forbade a subtitle banner now agrees with its own artwork, and three series that pointed at subject packs which do not exist now point at the ones that do.
+
+---
+
 ## v1.4.64 — 2026-08-25
 
 - **Your channel types no longer decide what your videos look like.** Nine of them carried art-direction written into the file itself, and if a channel had no style of its own the app quietly used that instead — with nothing on screen to say so. Four of your channels were being drawn in a look nobody had chosen. Each one has been pinned to the exact look it was already using, saved as a normal style you can see and change, so the pictures come out word for word the same as before.
