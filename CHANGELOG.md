@@ -4,6 +4,15 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.62 — 2026-08-25
+
+- **Six font packs are on the shelf.** True Crime & Investigation, Horror & Dread, Documentary & Archive, Bold Explainer, Calm & Sleep, Retro & Arcade — six lettering styles each, three letterforms and three treatments per pack so any two can be combined. 300 credits a pack, 90% off until the end of the year. No font files are installed: each style carries the phrase the image model draws from, so the letters are part of the picture instead of a layer stuck on top.
+- **Every style ships with its own swatch.** All thirty-six were rendered once, showing the same word, and travel inside the pack — so a pack style shows a picture the moment it is installed, with nothing to generate and nothing more to pay.
+- **Three faults in the lettering work, each of which would have made those packs worthless.** A pack's swatches counted as unreferenced files, so no font pack could be built at all. The picker read only the built-in list, so an installed pack's styles never appeared in it. And when they did appear, the app ignored the swatch in the pack and asked an image model to draw a new one — charging you again for a picture you had already bought.
+- Pack styles now show their real name in the picker instead of their internal id.
+
+---
+
 ## v1.4.61 — 2026-08-25
 
 - **"Reference-guided thumbnail" is collapsed by default.** It is an occasional tool and it sat wide open between the art style and the lettering, breaking the run you actually make every episode: style, then recipe, then what the words say and how they look. It is now a single line — "Use an existing thumbnail as a guide" — that opens when you want it.
