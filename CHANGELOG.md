@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.66 — 2026-08-25
+
+- **The Content Store works again.** It had a rule refusing any reply from GenStudio containing more than 4,096 separate pieces of data, and the list of what your account owns finally grew past it — eighteen packs bought today, each adding a receipt. Nothing was wrong with the store or your account; the app simply refused to read an answer that had become one item too long. The limit is now 65,536, about eleven times the largest thing you have, and still small enough to refuse a genuinely hostile reply. The check that proves you own what you bought is untouched, and a test now loads all 82 packs and verifies every signature to prove it.
+- **When a reply is too large, the app says so.** This cost a full day to find because every failure looked identical: "The Content Store is unavailable", every count zero, no clue anywhere. It now names what was too big, which request it came from, and tells you that updating the app is the fix rather than refreshing.
+
+---
+
 ## v1.4.65 — 2026-08-25
 
 - **Installing a pack you own stopped asking GenStudio the same question 65 times.** Before every single install, the app fetched the entire release history of every pack you own — just to check whether any had been withdrawn. Installing a library meant thousands of requests. Nothing errored; it was simply slower than the app's own timeout, and it told you "the Content Store is unavailable" when the store was perfectly healthy. The server had already answered that question in one field the app was not reading. 65 requests became none.
