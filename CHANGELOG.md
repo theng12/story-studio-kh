@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.64 — 2026-08-25
+
+- **Your channel types no longer decide what your videos look like.** Nine of them carried art-direction written into the file itself, and if a channel had no style of its own the app quietly used that instead — with nothing on screen to say so. Four of your channels were being drawn in a look nobody had chosen. Each one has been pinned to the exact look it was already using, saved as a normal style you can see and change, so the pictures come out word for word the same as before.
+- **A Formula can now only suggest.** Its recommended look appears on the Formula card in one of three plain states — already in use, installed with a button to apply it, or not installed with a link to where you can get it. Nothing is ever written into a project without you clicking.
+- **The app will no longer save an art style that isn't there.** That is what had been silently happening to Boundful: a style it could not find, no warning anywhere, and images generated without it for months. Saving one now fails with a clear message instead of succeeding quietly, and a project already in that state says so on screen.
+- **A pack that fails to install no longer sits in a corner marked broken for ever.** Installing it successfully now clears the old failure, and failures leave a trace in the log instead of vanishing without one.
+- One thing did change: **Capi's thumbnails** lose their separate charcoal-and-ink direction, which lived in a slot the new saved-style setting cannot reach. Its covers now follow its scene style. Picking a thumbnail recipe for Capi in Settings restores a deliberate look — the psychology one already installed is the closest match.
+
+---
+
 ## v1.4.63 — 2026-08-25
 
 - **The Content Store came back.** Adding font packs this morning broke it in two places at once, and this is the half that lives in the app. The app's screens were taught what a font pack is; the part that checks what the shop sends back was not. One unrecognised item does not get skipped — it collapses the whole list, so all 82 products disappeared, not just the six new ones. Your credits, your purchases and the 64 packs you own were never at risk; the store was simply frozen until both halves were fixed.
