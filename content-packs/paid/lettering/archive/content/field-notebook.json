@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.field-notebook",
+  "name": "Field Notebook",
+  "description": "Quick pencil handwriting from a working notebook: slightly slanted, unfussy, written to be used later.",
+  "axis": "font",
+  "phrase": "quick pencil field-notes handwriting, slightly slanted, uneven baseline, soft graphite strokes with visible grain, unfussy and functional rather than decorative",
+  "preview_assets": [
+    "assets/field-notebook.webp"
+  ]
+}

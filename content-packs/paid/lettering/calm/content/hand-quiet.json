@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.hand-quiet",
+  "name": "Hand Quiet",
+  "description": "Unhurried lowercase handwriting with soft round strokes \u2014 a note left for someone, not a headline.",
+  "axis": "font",
+  "phrase": "unhurried lowercase handwriting with soft rounded strokes, gentle consistent slant, generous spacing, no flourishes, calm and personal rather than decorative",
+  "preview_assets": [
+    "assets/hand-quiet.webp"
+  ]
+}

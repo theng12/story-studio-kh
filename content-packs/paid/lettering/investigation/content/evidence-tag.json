@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.evidence-tag",
+  "name": "Evidence Tag",
+  "description": "Printed onto a buff evidence tag with a red rule and a punched string hole. Small, official, and unmistakably catalogued.",
+  "axis": "text",
+  "phrase": "lettering printed onto a buff manila evidence tag with a thin red border rule and a punched string hole at one corner, slightly creased card stock, dark typewriter-grey ink",
+  "preview_assets": [
+    "assets/evidence-tag.webp"
+  ]
+}

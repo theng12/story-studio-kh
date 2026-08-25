@@ -16,6 +16,7 @@ export type ContentStoreProductKind =
   | 'topic_pack'
   | 'visual_style'
   | 'thumbnail_recipe'
+  | 'font_pack'
   | 'niche_bundle'
 
 export interface ContentStoreRelease {

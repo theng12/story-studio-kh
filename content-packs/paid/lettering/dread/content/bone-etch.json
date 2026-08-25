@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.bone-etch",
+  "name": "Bone Etch",
+  "description": "Brittle letterforms carved from pale bone, with hairline fractures running through the thicker strokes.",
+  "axis": "font",
+  "phrase": "brittle letterforms carved from pale weathered bone, hairline fractures running through the thicker strokes, chipped terminals, dry chalky surface, narrow angular construction",
+  "preview_assets": [
+    "assets/bone-etch.webp"
+  ]
+}

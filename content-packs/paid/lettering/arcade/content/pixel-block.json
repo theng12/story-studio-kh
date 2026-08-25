@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.pixel-block",
+  "name": "Pixel Block",
+  "description": "Chunky low-resolution pixel letters built from hard square blocks. No anti-aliasing anywhere.",
+  "axis": "font",
+  "phrase": "chunky low-resolution pixel letterforms built from hard square blocks, no anti-aliasing at all, stepped diagonal edges, strict grid alignment, limited palette",
+  "preview_assets": [
+    "assets/pixel-block.webp"
+  ]
+}

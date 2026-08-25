@@ -9,7 +9,7 @@
         <span v-else class="chosen-pending">{{ modelValue === 'auto' ? 'auto' : 'no swatch' }}</span>
       </span>
       <span class="chosen-copy">
-        <strong>{{ modelValue === 'auto' ? 'Let the model decide' : (chosen?.id.replace(/-/g, ' ') || modelValue) }}</strong>
+        <strong>{{ modelValue === 'auto' ? 'Let the model decide' : (chosen ? styleLabel(chosen) : modelValue) }}</strong>
         <span>{{ modelValue === 'auto' ? caption : chosen?.phrase }}</span>
       </span>
       <button type="button" class="btn btn-secondary btn-sm" @click="open = true">Browse {{ styles.length }}</button>
@@ -47,7 +47,7 @@
             <img v-if="style.preview" :src="style.preview.url" :alt="`The word ${word} in the ${style.id} style`" loading="lazy" decoding="async" />
             <span v-else class="swatch-pending">not rendered yet</span>
           </span>
-          <span class="swatch-name">{{ style.id.replace(/-/g, ' ') }}</span>
+          <span class="swatch-name">{{ styleLabel(style) }}</span>
         </button>
       </div>
 
@@ -59,11 +59,28 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 
-interface SwatchStyle { kind: string; id: string; phrase: string; preview: { hash: string; url: string } | null }
+interface SwatchStyle {
+  kind: string; id: string; phrase: string
+  /** Present on pack styles; built-ins are named by their id. */
+  name?: string
+  description?: string
+  source?: 'built-in' | 'pack'
+  pack_id?: string | null
+  preview: { hash: string; url: string } | null
+}
 
 const props = defineProps<{ kind: 'font' | 'text'; modelValue: string; model?: string; aspectRatio?: string; caption: string; title: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const open = ref(false)
+/**
+ * A pack style carries a real name; a built-in only has its id. Showing the id
+ * for a pack style would print "com.storystudio.lettering.case file stamp",
+ * which is precisely the unreadable label the swatches exist to replace.
+ */
+function styleLabel(style: { id: string, name?: string }) {
+  return style.name?.trim() || style.id.replace(/-/g, ' ')
+}
+
 const chosen = computed(() => styles.value.find(style => style.id === props.modelValue) || null)
 function choose(id: string): void { emit('update:modelValue', id); open.value = false }
 

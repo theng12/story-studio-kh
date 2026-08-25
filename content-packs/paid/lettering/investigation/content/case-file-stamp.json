@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.case-file-stamp",
+  "name": "Case File Stamp",
+  "description": "Official rubber-stamped capitals, pressed unevenly so some strokes are solid and others break away. Reads as something filed, dated and closed.",
+  "axis": "font",
+  "phrase": "rubber-stamped official capitals, ink pressed unevenly so some strokes are solid and others break away at the edges, slight rotation, hard-edged bureaucratic letterforms",
+  "preview_assets": [
+    "assets/case-file-stamp.webp"
+  ]
+}

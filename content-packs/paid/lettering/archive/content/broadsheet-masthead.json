@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.broadsheet-masthead",
+  "name": "Broadsheet Masthead",
+  "description": "The dense nineteenth-century newspaper masthead: heavy thick-thin serifs set tight, built to be read across a room.",
+  "axis": "font",
+  "phrase": "dense nineteenth-century newspaper masthead serif, strong thick-to-thin stroke contrast, sharp bracketed serifs, tight tracking, tall and authoritative proportions",
+  "preview_assets": [
+    "assets/broadsheet-masthead.webp"
+  ]
+}

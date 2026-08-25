@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.moonlit-thread",
+  "name": "Moonlit Thread",
+  "description": "Hairline letterforms set wide apart, thin as thread. Almost weightless.",
+  "axis": "font",
+  "phrase": "hairline letterforms with uniformly thread-thin strokes, very wide even tracking, tall delicate proportions, pale cool tone, almost weightless on the page",
+  "preview_assets": [
+    "assets/moonlit-thread.webp"
+  ]
+}

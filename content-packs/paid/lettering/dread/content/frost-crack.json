@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.frost-crack",
+  "name": "Frost Crack",
+  "description": "Angular letters split by frost fractures, as though the cold got into them and they gave.",
+  "axis": "font",
+  "phrase": "angular hard-edged letterforms split by frost fractures, clean break lines running across the strokes, sharp crystalline facets at the joints, pale blue-white edges",
+  "preview_assets": [
+    "assets/frost-crack.webp"
+  ]
+}

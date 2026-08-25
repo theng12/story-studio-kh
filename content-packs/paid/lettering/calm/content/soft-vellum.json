@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.soft-vellum",
+  "name": "Soft Vellum",
+  "description": "Warm cream vellum with a faint translucent glow coming through the letters.",
+  "axis": "text",
+  "phrase": "warm cream vellum surface with a faint translucent glow coming through the letters from behind, very soft edges, low contrast, no hard shadow anywhere",
+  "preview_assets": [
+    "assets/soft-vellum.webp"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.cold-steel",
+  "name": "Cold Steel",
+  "description": "Brushed gunmetal with a hard cold rim light and no warmth anywhere in it. Serious without being loud.",
+  "axis": "text",
+  "phrase": "brushed gunmetal fill with fine horizontal grain, hard cold blue-white rim light along the top edges, deep neutral shadow beneath, no warm tones anywhere, matte not glossy",
+  "preview_assets": [
+    "assets/cold-steel.webp"
+  ]
+}

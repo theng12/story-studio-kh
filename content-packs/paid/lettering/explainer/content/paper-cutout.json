@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.paper-cutout",
+  "name": "Paper Cutout",
+  "description": "Letters cut from thick coloured paper with the scissor edges left showing.",
+  "axis": "font",
+  "phrase": "letters cut from thick coloured construction paper, visible slightly irregular scissor-cut edges, small drop shadow where each letter lifts off the surface, flat solid colour",
+  "preview_assets": [
+    "assets/paper-cutout.webp"
+  ]
+}

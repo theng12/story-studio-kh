@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.engraved-brass",
+  "name": "Engraved Brass",
+  "description": "Cut into aged brass, the lines darkened with age and the surface holding a soft warm sheen.",
+  "axis": "text",
+  "phrase": "lettering engraved into aged brass, incised lines darkened with age and tarnish, soft warm sheen across the polished surface, fine machine-cut edges, shallow relief",
+  "preview_assets": [
+    "assets/engraved-brass.webp"
+  ]
+}

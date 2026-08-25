@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.bold-outline-pop",
+  "name": "Bold Outline Pop",
+  "description": "Extra-heavy geometric sans wearing a thick contrasting outline. The safest bet on a small screen.",
+  "axis": "font",
+  "phrase": "extra-heavy geometric sans-serif letterforms wearing a thick contrasting outline, closed compact counters, tight even spacing, maximum weight and clarity",
+  "preview_assets": [
+    "assets/bold-outline-pop.webp"
+  ]
+}

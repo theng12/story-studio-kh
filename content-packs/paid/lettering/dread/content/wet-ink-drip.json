@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.wet-ink-drip",
+  "name": "Wet Ink Drip",
+  "description": "Glossy black ink still wet, running slowly down from the baseline.",
+  "axis": "text",
+  "phrase": "glossy wet black ink fill with bright specular highlights, slow thick drips running down from the baseline of each letter, pooling slightly at the bottom, high shine",
+  "preview_assets": [
+    "assets/wet-ink-drip.webp"
+  ]
+}

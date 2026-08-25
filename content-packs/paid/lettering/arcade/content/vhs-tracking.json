@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.vhs-tracking",
+  "name": "VHS Tracking",
+  "description": "Chroma-shifted colour fringing with a tracking tear ripping across the middle of the word.",
+  "axis": "text",
+  "phrase": "chroma-shifted red and cyan colour fringing offset from the letters, a horizontal tracking tear ripping across the middle of the word, analogue noise and slight vertical smear",
+  "preview_assets": [
+    "assets/vhs-tracking.webp"
+  ]
+}

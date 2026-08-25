@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.shadow-swallow",
+  "name": "Shadow Swallow",
+  "description": "Letters whose lower halves are eaten by darkness \u2014 you read the tops and your eye finishes the rest.",
+  "axis": "font",
+  "phrase": "heavy letterforms whose lower halves dissolve into deep darkness, only the upper portions fully formed and legible, soft gradient into black, no hard bottom edge",
+  "preview_assets": [
+    "assets/shadow-swallow.webp"
+  ]
+}

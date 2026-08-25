@@ -30,6 +30,14 @@ export interface LetteringCatalogueEntry {
   packId: string | null
   /** In-pack asset paths for the rendered swatches; empty for built-ins. */
   previewAssets: readonly string[]
+  /**
+   * The app URL for this style's FIRST bundled swatch, when it has one.
+   *
+   * A pack ships its swatches; without this the picker would ignore them and
+   * try to generate a replacement through a paid image model, which is exactly
+   * what buying the pack was meant to avoid.
+   */
+  previewUrl: string | null
 }
 
 function builtIns(): LetteringCatalogueEntry[] {
@@ -43,6 +51,7 @@ function builtIns(): LetteringCatalogueEntry[] {
         source: 'built-in',
         packId: null,
         previewAssets: [],
+        previewUrl: null,
       })
     }
   }
@@ -71,6 +80,10 @@ export async function letteringCatalogue(
     if (!id || !axis || !phrase) continue
     const key = `${axis}:${id}`
     if (taken.has(key)) continue
+    const previewAssets = Array.isArray(document.preview_assets)
+      ? document.preview_assets.filter((value): value is string => typeof value === 'string')
+      : []
+    const previewAsset = entry.pack ? entry.assets?.[previewAssets[0] ?? ''] : undefined
     taken.add(key)
     rows.push({
       id, axis, phrase,
@@ -78,9 +91,12 @@ export async function letteringCatalogue(
       description: typeof document.description === 'string' ? document.description : phrase,
       source: 'pack',
       packId: entry.pack?.pack_id ?? null,
-      previewAssets: Array.isArray(document.preview_assets)
-        ? document.preview_assets.filter((value): value is string => typeof value === 'string')
-        : [],
+      previewAssets,
+      previewUrl: previewAsset
+        ? `/api/content-packs/${encodeURIComponent(entry.pack!.pack_id)}`
+          + `/${encodeURIComponent(entry.pack!.version)}`
+          + `/assets/${encodeURIComponent(previewAsset.asset_id)}`
+        : null,
     })
   }
   return rows

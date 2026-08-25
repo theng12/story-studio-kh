@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.microfilm-caption",
+  "name": "Microfilm Caption",
+  "description": "The small evenly spaced characters that head a reel of microfilm \u2014 plain, mechanical, unarguable.",
+  "axis": "font",
+  "phrase": "small evenly spaced monospace caption characters as printed at the head of a microfilm reel, plain mechanical letterforms, uniform stroke weight, slight optical softness",
+  "preview_assets": [
+    "assets/microfilm-caption.webp"
+  ]
+}

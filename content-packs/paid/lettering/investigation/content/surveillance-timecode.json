@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.surveillance-timecode",
+  "name": "Surveillance Timecode",
+  "description": "The rigid monospaced characters burned into the corner of a camera recording \u2014 thin, evenly spaced, faintly aliased.",
+  "axis": "font",
+  "phrase": "rigid monospaced surveillance-camera overlay characters, thin even strokes, wide uniform tracking, faint pixel aliasing along the edges, plain unstyled machine lettering",
+  "preview_assets": [
+    "assets/surveillance-timecode.webp"
+  ]
+}

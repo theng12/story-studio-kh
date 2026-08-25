@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.crt-scanline",
+  "name": "CRT Scanline",
+  "description": "Glowing phosphor with horizontal scanlines crossing the letters and a soft bloom around them.",
+  "axis": "text",
+  "phrase": "glowing green-white phosphor fill with regular horizontal scanlines crossing the letters, soft bloom around the strokes, slight barrel curvature, dark screen behind",
+  "preview_assets": [
+    "assets/crt-scanline.webp"
+  ]
+}

@@ -1,7 +1,299 @@
 {
-  "revision": 1,
-  "batches": [],
-  "transitions": [],
+  "revision": 8,
+  "batches": [
+    {
+      "revision": 2,
+      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "request": {
+        "expected_revision": 1,
+        "coordinator": {
+          "task": "font-packs-of-six",
+          "branch": "main"
+        },
+        "proposal_ref": "_handoffs/2026-08-25_font-pack-plan.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.lettering.investigation",
+            "item_ids": [
+              "com.storystudio.lettering.case-file-stamp",
+              "com.storystudio.lettering.chalk-outline",
+              "com.storystudio.lettering.cold-steel",
+              "com.storystudio.lettering.evidence-tag",
+              "com.storystudio.lettering.redacted-marker",
+              "com.storystudio.lettering.surveillance-timecode"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/paid/lettering/investigation",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.investigation",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.investigation",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.dread",
+            "item_ids": [
+              "com.storystudio.lettering.bone-etch",
+              "com.storystudio.lettering.candle-smoke",
+              "com.storystudio.lettering.frost-crack",
+              "com.storystudio.lettering.rust-bleed",
+              "com.storystudio.lettering.shadow-swallow",
+              "com.storystudio.lettering.wet-ink-drip"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/paid/lettering/dread",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.dread",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.dread",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.archive",
+            "item_ids": [
+              "com.storystudio.lettering.broadsheet-masthead",
+              "com.storystudio.lettering.engraved-brass",
+              "com.storystudio.lettering.field-notebook",
+              "com.storystudio.lettering.letterpress-plate",
+              "com.storystudio.lettering.microfilm-caption",
+              "com.storystudio.lettering.museum-placard"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/paid/lettering/archive",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.archive",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.archive",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.explainer",
+            "item_ids": [
+              "com.storystudio.lettering.bold-outline-pop",
+              "com.storystudio.lettering.chalkboard-clean",
+              "com.storystudio.lettering.highlighter-block",
+              "com.storystudio.lettering.marker-slab",
+              "com.storystudio.lettering.paper-cutout",
+              "com.storystudio.lettering.sticker-cut"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/paid/lettering/explainer",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.explainer",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.explainer",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.calm",
+            "item_ids": [
+              "com.storystudio.lettering.breath-fog",
+              "com.storystudio.lettering.dusk-gradient-soft",
+              "com.storystudio.lettering.hand-quiet",
+              "com.storystudio.lettering.linen-press",
+              "com.storystudio.lettering.moonlit-thread",
+              "com.storystudio.lettering.soft-vellum"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/paid/lettering/calm",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.calm",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.calm",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.lettering.arcade",
+            "item_ids": [
+              "com.storystudio.lettering.crt-scanline",
+              "com.storystudio.lettering.diner-neon-tube",
+              "com.storystudio.lettering.eighties-airbrush",
+              "com.storystudio.lettering.pixel-block",
+              "com.storystudio.lettering.seventies-bubble",
+              "com.storystudio.lettering.vhs-tracking"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "lettering-style",
+            "source_path": "content-packs/paid/lettering/arcade",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.lettering.arcade",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.lettering.arcade",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "transitions": [
+    {
+      "revision": 3,
+      "transition_ref": "lifecycle:2dba5fdcef8c4cdd3bf18de85f9e96c86dd9fb582f57657667590bf65b7089e3",
+      "request": {
+        "expected_revision": 2,
+        "coordinator": {
+          "task": "font-packs-of-six",
+          "branch": "main"
+        },
+        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "pack_id": "com.storystudio.pack.lettering.arcade",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 4,
+      "transition_ref": "lifecycle:1116cc2bbe41082df6acd9f2f36c6ca7f50541cfbb329c613e2d410e65ff45fb",
+      "request": {
+        "expected_revision": 3,
+        "coordinator": {
+          "task": "font-packs-of-six",
+          "branch": "main"
+        },
+        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "pack_id": "com.storystudio.pack.lettering.archive",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 5,
+      "transition_ref": "lifecycle:fdf9be316873b8097dd3ff4ec6265f96b3c8b62e393406ee2dae0ceacd8567cc",
+      "request": {
+        "expected_revision": 4,
+        "coordinator": {
+          "task": "font-packs-of-six",
+          "branch": "main"
+        },
+        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "pack_id": "com.storystudio.pack.lettering.calm",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 6,
+      "transition_ref": "lifecycle:69af1b11a64f4bf18b86019a20938b1e8db47fd9f6864e28810c1aec2a317a08",
+      "request": {
+        "expected_revision": 5,
+        "coordinator": {
+          "task": "font-packs-of-six",
+          "branch": "main"
+        },
+        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "pack_id": "com.storystudio.pack.lettering.dread",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 7,
+      "transition_ref": "lifecycle:43a7831f990ed5e4a1532ab7baa08a15b3661365238e0153c0ba659d2ce054cc",
+      "request": {
+        "expected_revision": 6,
+        "coordinator": {
+          "task": "font-packs-of-six",
+          "branch": "main"
+        },
+        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "pack_id": "com.storystudio.pack.lettering.explainer",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 8,
+      "transition_ref": "lifecycle:c0daba5f4195e56ee25b7c266b92ce913832531d7b50e864dddd25a79c0c1d5f",
+      "request": {
+        "expected_revision": 7,
+        "coordinator": {
+          "task": "font-packs-of-six",
+          "branch": "main"
+        },
+        "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+        "pack_id": "com.storystudio.pack.lettering.investigation",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    }
+  ],
   "records": [
     {
       "receipt_ref": "baseline:com.storystudio.pack.formula.ancient-humans@1.0.0",
@@ -1467,6 +1759,186 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "pack_id": "com.storystudio.pack.lettering.investigation",
+      "item_ids": [
+        "com.storystudio.lettering.case-file-stamp",
+        "com.storystudio.lettering.chalk-outline",
+        "com.storystudio.lettering.cold-steel",
+        "com.storystudio.lettering.evidence-tag",
+        "com.storystudio.lettering.redacted-marker",
+        "com.storystudio.lettering.surveillance-timecode"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/paid/lettering/investigation",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.investigation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.investigation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "pack_id": "com.storystudio.pack.lettering.dread",
+      "item_ids": [
+        "com.storystudio.lettering.bone-etch",
+        "com.storystudio.lettering.candle-smoke",
+        "com.storystudio.lettering.frost-crack",
+        "com.storystudio.lettering.rust-bleed",
+        "com.storystudio.lettering.shadow-swallow",
+        "com.storystudio.lettering.wet-ink-drip"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/paid/lettering/dread",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.dread",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.dread",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "pack_id": "com.storystudio.pack.lettering.archive",
+      "item_ids": [
+        "com.storystudio.lettering.broadsheet-masthead",
+        "com.storystudio.lettering.engraved-brass",
+        "com.storystudio.lettering.field-notebook",
+        "com.storystudio.lettering.letterpress-plate",
+        "com.storystudio.lettering.microfilm-caption",
+        "com.storystudio.lettering.museum-placard"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/paid/lettering/archive",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.archive",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.archive",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "pack_id": "com.storystudio.pack.lettering.explainer",
+      "item_ids": [
+        "com.storystudio.lettering.bold-outline-pop",
+        "com.storystudio.lettering.chalkboard-clean",
+        "com.storystudio.lettering.highlighter-block",
+        "com.storystudio.lettering.marker-slab",
+        "com.storystudio.lettering.paper-cutout",
+        "com.storystudio.lettering.sticker-cut"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/paid/lettering/explainer",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.explainer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.explainer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "pack_id": "com.storystudio.pack.lettering.calm",
+      "item_ids": [
+        "com.storystudio.lettering.breath-fog",
+        "com.storystudio.lettering.dusk-gradient-soft",
+        "com.storystudio.lettering.hand-quiet",
+        "com.storystudio.lettering.linen-press",
+        "com.storystudio.lettering.moonlit-thread",
+        "com.storystudio.lettering.soft-vellum"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/paid/lettering/calm",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.calm",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.calm",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:4f15164e046acc43d0e7bc15dbf52f3fcfbc82dde1888fc9ac4113661a6a4237",
+      "pack_id": "com.storystudio.pack.lettering.arcade",
+      "item_ids": [
+        "com.storystudio.lettering.crt-scanline",
+        "com.storystudio.lettering.diner-neon-tube",
+        "com.storystudio.lettering.eighties-airbrush",
+        "com.storystudio.lettering.pixel-block",
+        "com.storystudio.lettering.seventies-bubble",
+        "com.storystudio.lettering.vhs-tracking"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "lettering-style",
+      "source_path": "content-packs/paid/lettering/arcade",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.lettering.arcade",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.lettering.arcade",
           "status": "proposed"
         }
       }

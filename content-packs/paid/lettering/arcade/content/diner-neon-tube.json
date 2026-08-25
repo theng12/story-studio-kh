@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.diner-neon-tube",
+  "name": "Diner Neon Tube",
+  "description": "Letters bent from one continuous glass tube, the way a roadside sign was actually made.",
+  "axis": "font",
+  "phrase": "letters bent from a single continuous glass neon tube, uniform tube thickness throughout, visible tube ends and bends, connected script-like construction, mounted look",
+  "preview_assets": [
+    "assets/diner-neon-tube.webp"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.chalkboard-clean",
+  "name": "Chalkboard Clean",
+  "description": "Clean white chalk on a dark green board, lightly dusty but never smudged into illegibility.",
+  "axis": "text",
+  "phrase": "clean bright white chalk on a dark green chalkboard, light chalk dust around the strokes, crisp confident lines with no smudging, matte board texture behind",
+  "preview_assets": [
+    "assets/chalkboard-clean.webp"
+  ]
+}

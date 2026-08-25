@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.rust-bleed",
+  "name": "Rust Bleed",
+  "description": "Corroded iron with orange rust bleeding outward into whatever is behind it.",
+  "axis": "text",
+  "phrase": "corroded dark iron fill with pitted texture, orange-brown rust bleeding outward from the edges and staining the surrounding surface, flaking metal, damp weathered look",
+  "preview_assets": [
+    "assets/rust-bleed.webp"
+  ]
+}

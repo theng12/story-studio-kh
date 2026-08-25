@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.redacted-marker",
+  "name": "Redacted Marker",
+  "description": "Each line sits on a heavy black marker bar with the words knocked out of it \u2014 the classifed-document look, made legible.",
+  "axis": "text",
+  "phrase": "each line of text sitting inside a heavy black marker redaction bar with the letters knocked out in clean white, marker bar edges slightly ragged and overlapping, hard graphic contrast",
+  "preview_assets": [
+    "assets/redacted-marker.webp"
+  ]
+}

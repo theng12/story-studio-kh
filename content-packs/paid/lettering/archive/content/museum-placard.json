@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.museum-placard",
+  "name": "Museum Placard",
+  "description": "Fine engraved lettering on a cream enamel plaque \u2014 the caption beside the exhibit, not the exhibit.",
+  "axis": "text",
+  "phrase": "fine engraved dark lettering on a smooth cream enamel museum plaque, shallow crisp incision, subtle beveled plaque edge, restrained and evenly spaced",
+  "preview_assets": [
+    "assets/museum-placard.webp"
+  ]
+}

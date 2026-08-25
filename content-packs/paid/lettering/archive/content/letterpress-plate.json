@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.letterpress-plate",
+  "name": "Letterpress Plate",
+  "description": "Pressed deep into cotton-rag paper, ink dense where the plate bit hardest.",
+  "axis": "text",
+  "phrase": "lettering pressed deeply into thick cotton rag paper, visible debossed impression with a soft inner shadow, ink dense and slightly darker at the edges of each stroke, warm off-white paper texture",
+  "preview_assets": [
+    "assets/letterpress-plate.webp"
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.seventies-bubble",
+  "name": "Seventies Bubble",
+  "description": "Inflated 1970s bubble letters, rounded and crowding into each other.",
+  "axis": "font",
+  "phrase": "inflated 1970s bubble letterforms, fully rounded swollen strokes, tiny closed counters, letters crowding and touching each other, thick even outline",
+  "preview_assets": [
+    "assets/seventies-bubble.webp"
+  ]
+}

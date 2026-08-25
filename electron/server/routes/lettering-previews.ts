@@ -24,9 +24,10 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { validateBody } from '../lib/validate.js'
 import {
-  allLetteringStyles, findLetteringStyle, swatchStyleTag, swatchVariantId,
+  swatchStyleTag, swatchVariantId,
   SWATCH_FRAMING, SWATCH_WORD, type LetteringKind,
 } from '../lib/lettering-swatches.js'
+import { letteringCatalogue, type LetteringCatalogueEntry } from '../services/lettering-catalogue.js'
 import {
   getCachedStylePreview, saveStylePreview,
 } from '../services/style-preview-cache.js'
@@ -87,15 +88,26 @@ function pickSwatchModel(catalog: readonly GenStudioImageModel[]): GenStudioImag
   })[0]!
 }
 
-async function cachedUrlFor(kind: LetteringKind, styleId: string, modelId: string, aspectRatio: string) {
-  const style = findLetteringStyle(kind, styleId)
-  if (!style) return null
+/**
+ * A pack style ships its own rendered swatch, so it is never generated here.
+ * Only a built-in can miss a swatch, and only a built-in is ever paid for.
+ */
+function asSwatchStyle(entry: LetteringCatalogueEntry) {
+  return { kind: entry.axis, id: entry.id, phrase: entry.phrase }
+}
+
+async function findStyle(kind: LetteringKind, styleId: string) {
+  return (await letteringCatalogue()).find(row => row.axis === kind && row.id === styleId) || null
+}
+
+async function cachedUrlFor(entry: LetteringCatalogueEntry, modelId: string, aspectRatio: string) {
+  if (entry.previewUrl) return { hash: '', url: entry.previewUrl }
   const cached = await getCachedStylePreview({
-    styleTag: swatchStyleTag(style),
+    styleTag: swatchStyleTag(asSwatchStyle(entry)),
     modelId,
     aspectRatio,
     tier: '',
-    variantId: swatchVariantId(kind),
+    variantId: swatchVariantId(entry.axis),
   })
   return cached ? { hash: cached.hash, url: `/api/style-preview-cache/${cached.hash}` } : null
 }
@@ -111,14 +123,22 @@ router.get('/lettering-styles', async (req, res) => {
       try { modelId = pickSwatchModel(await listImageModels(apiKey))?.id || '' } catch { modelId = '' }
     }
   }
-  const styles = allLetteringStyles()
+  const styles = await letteringCatalogue()
   // With no model named the picker still renders every style, just without
-  // swatches — the list of choices is not a fact about any image model.
+  // swatches — the list of choices is not a fact about any image model. A pack
+  // style is the exception: its swatch came in the archive, so it shows either
+  // way and never waits on an image catalogue.
   const rows = await Promise.all(styles.map(async (style) => ({
-    kind: style.kind,
+    kind: style.axis,
     id: style.id,
+    name: style.name,
+    description: style.description,
+    source: style.source,
+    pack_id: style.packId,
     phrase: style.phrase,
-    preview: modelId ? await cachedUrlFor(style.kind, style.id, modelId, aspectRatio) : null,
+    preview: style.previewUrl
+      ? { hash: '', url: style.previewUrl }
+      : modelId ? await cachedUrlFor(style, modelId, aspectRatio) : null,
   })))
   res.json({
     word: SWATCH_WORD,
@@ -133,10 +153,14 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
   const aspectRatio = String(req.body.aspect_ratio || SWATCH_ASPECT)
   const force = req.body.force === true
 
-  const style = findLetteringStyle(kind, styleId)
+  const style = await findStyle(kind, styleId)
   if (!style) return res.status(404).json({ detail: `Unknown ${kind} style: ${styleId}` })
+  if (style.previewUrl) {
+    // Already paid for, inside the pack. Refuse to spend on a second copy.
+    return res.json({ hash: '', url: style.previewUrl, kind, style_id: styleId, cached: true, model_id: null })
+  }
 
-  const styleTag = swatchStyleTag(style)
+  const styleTag = swatchStyleTag(asSwatchStyle(style))
   const variantId = swatchVariantId(kind)
 
   const apiKey = await getApiKey('genstudio').catch(() => '')
@@ -168,7 +192,7 @@ router.post('/lettering-styles/preview', validateBody(PreviewSchema), async (req
   }
   const modelId = selected.id
   if (!force) {
-    const cached = await cachedUrlFor(kind, styleId, modelId, aspectRatio)
+    const cached = await cachedUrlFor(style, modelId, aspectRatio)
     if (cached) return res.json({ ...cached, kind, style_id: styleId, cached: true, model_id: modelId })
   }
 

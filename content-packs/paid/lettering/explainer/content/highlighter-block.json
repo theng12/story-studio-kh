@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.highlighter-block",
+  "name": "Highlighter Block",
+  "description": "Dark letters sitting on a bright highlighter block, with the marker edges left visible.",
+  "axis": "text",
+  "phrase": "dark near-black letters sitting on a bright yellow highlighter block, translucent marker ink with visible overlapping stroke edges and slight bleed beyond the text, flat paper behind",
+  "preview_assets": [
+    "assets/highlighter-block.webp"
+  ]
+}

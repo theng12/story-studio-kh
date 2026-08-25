@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.breath-fog",
+  "name": "Breath Fog",
+  "description": "As if breathed onto cold glass \u2014 edges softly diffusing, nothing sharp.",
+  "axis": "text",
+  "phrase": "letters appearing as condensation breathed onto cold glass, edges softly diffusing outward, faint bloom around each stroke, cool pale tone, nothing sharp or hard-edged",
+  "preview_assets": [
+    "assets/breath-fog.webp"
+  ]
+}

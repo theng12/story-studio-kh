@@ -23,7 +23,7 @@ const MAX_DISCOVERY_ENTRIES = 100_000
 const MAX_DISCOVERY_DIRECTORIES = 10_000
 const RETIRED_SOURCE_ROOT = 'content-packs/archival-ledger'
 const RECORD_FIELDS = new Set([
-  'receipt_ref', 'pack_id', 'item_id', 'bundle_id', 'version', 'publisher_id',
+  'receipt_ref', 'pack_id', 'item_id', 'item_ids', 'bundle_id', 'version', 'publisher_id',
   'min_app_version', 'min_app_version_status', 'kind', 'source_path', 'status',
   'dependencies', 'stocking_proposal',
 ])
@@ -37,7 +37,16 @@ const KIND_NAMESPACES = {
   'visual-style': { pack: `${PUBLISHER_ID}.pack.style.`, item: `${PUBLISHER_ID}.style.`, proposal: 'style' },
   'thumbnail-recipe': { pack: `${PUBLISHER_ID}.pack.thumbnail.`, item: `${PUBLISHER_ID}.thumbnail.`, proposal: 'thumbnail' },
   'channel-kit': { pack: `${PUBLISHER_ID}.pack.kit.`, bundle: `${PUBLISHER_ID}.bundle.`, proposal: 'kit' },
+  // A lettering pack is the first source shape that carries SEVERAL creative
+  // documents in one pack: the owner sells thumbnail lettering in packs of six
+  // ("50 per font so packs of 6 for 300 credit"), and six styles in six packs
+  // would be six products. Its identity is therefore a SET of item ids, which
+  // is the only thing this ledger has to learn to keep covering every source.
+  'lettering-style': { pack: `${PUBLISHER_ID}.pack.lettering.`, item: `${PUBLISHER_ID}.lettering.`, proposal: 'lettering' },
 }
+/** Kinds whose pack holds many creative documents rather than exactly one. */
+const MULTI_ITEM_KINDS = new Set(['lettering-style'])
+const MAX_PACK_ITEMS = 24
 const root = fileURLToPath(new URL('../..', import.meta.url))
 
 function fail(message) {
@@ -221,9 +230,29 @@ function validateRecord(record, index, { request = false } = {}) {
   if (!STATUSES.has(record.status)) fail(`${label} has invalid status`)
   if (request && record.status !== 'reserved') fail(`${label} status must be reserved`)
   const hasItem = typeof record.item_id === 'string'
+  const hasItems = Array.isArray(record.item_ids)
   const hasBundle = typeof record.bundle_id === 'string'
-  if (record.kind === 'channel-kit' ? hasItem || !hasBundle : !hasItem || hasBundle) fail(`${label} has an invalid coordinator/leaf identity shape`)
+  const multi = MULTI_ITEM_KINDS.has(record.kind)
+  const expected = record.kind === 'channel-kit'
+    ? (!hasItem && !hasItems && hasBundle)
+    : multi
+      ? (!hasItem && hasItems && !hasBundle)
+      : (hasItem && !hasItems && !hasBundle)
+  if (!expected) fail(`${label} has an invalid coordinator/leaf identity shape`)
   if (hasItem) qualifiedId(record.item_id, `${label} item_id`, namespaces.item)
+  if (hasItems) {
+    if (!record.item_ids.length) fail(`${label} item_ids must not be empty`)
+    if (record.item_ids.length > MAX_PACK_ITEMS) fail(`${label} item_ids must not exceed ${MAX_PACK_ITEMS} documents`)
+    const seen = new Set()
+    for (const [position, id] of record.item_ids.entries()) {
+      qualifiedId(id, `${label} item_ids[${position}]`, namespaces.item)
+      if (seen.has(id)) fail(`${label} repeats item id ${id}`)
+      seen.add(id)
+    }
+    // Stored sorted so one pack has exactly one canonical identity, and a
+    // reordered request cannot mint a second receipt for the same six styles.
+    if (!same(record.item_ids, [...record.item_ids].sort())) fail(`${label} item_ids must be sorted`)
+  }
   if (hasBundle) qualifiedId(record.bundle_id, `${label} bundle_id`, namespaces.bundle)
   const sourcePath = canonicalSourcePath(record.source_path, `${label} source_path`)
   exactFields(record.stocking_proposal, new Set(['family', 'sku']), `${label} stocking_proposal`)
@@ -231,7 +260,7 @@ function validateRecord(record, index, { request = false } = {}) {
   const validated = {
     ...(request ? {} : { receipt_ref: boundedString(record.receipt_ref, `${label} receipt_ref`, 256) }),
     pack_id: packId,
-    ...(hasItem ? { item_id: record.item_id } : { bundle_id: record.bundle_id }),
+    ...(hasItem ? { item_id: record.item_id } : hasItems ? { item_ids: [...record.item_ids] } : { bundle_id: record.bundle_id }),
     version,
     publisher_id: PUBLISHER_ID,
     min_app_version: record.min_app_version,
@@ -499,9 +528,20 @@ async function reconcileSources(records, repositoryRoot) {
       const documents = await readdir(contentPath, { withFileTypes: true }).catch(() => [])
       const jsonDocuments = documents.filter((entry) => entry.isFile() && !entry.isSymbolicLink() && entry.name.endsWith('.json'))
       if (documents.some((entry) => entry.isSymbolicLink())) fail(`authored source ${sourcePath} must not contain content symlinks`)
-      if (jsonDocuments.length !== 1) fail(`authored source ${sourcePath} must contain exactly one content document`)
-      const document = await readBoundedJson(join(contentPath, jsonDocuments[0].name), MAX_MANIFEST_BYTES, `content document ${sourcePath}`)
-      if (record.kind !== document.kind || record.item_id !== document.id) fail(`component identity differs for ${sourcePath}`)
+      if (MULTI_ITEM_KINDS.has(record.kind)) {
+        if (!jsonDocuments.length) fail(`authored source ${sourcePath} must contain at least one content document`)
+        const found = []
+        for (const entry of jsonDocuments) {
+          const document = await readBoundedJson(join(contentPath, entry.name), MAX_MANIFEST_BYTES, `content document ${sourcePath}`)
+          if (record.kind !== document.kind) fail(`component identity differs for ${sourcePath}`)
+          found.push(document.id)
+        }
+        if (!same([...found].sort(), record.item_ids)) fail(`component identity differs for ${sourcePath}`)
+      } else {
+        if (jsonDocuments.length !== 1) fail(`authored source ${sourcePath} must contain exactly one content document`)
+        const document = await readBoundedJson(join(contentPath, jsonDocuments[0].name), MAX_MANIFEST_BYTES, `content document ${sourcePath}`)
+        if (record.kind !== document.kind || record.item_id !== document.id) fail(`component identity differs for ${sourcePath}`)
+      }
     }
   }
   const missingAuthored = records.find((record) => record.status === 'authored' && !discovered.has(record.source_path))
@@ -614,7 +654,8 @@ async function validateRegistryDocument(registry, repositoryRoot) {
   const transitions = validateTransitions(registry.transitions)
   validateRevisionEvents(registry.revision, batches, transitions)
   unique(records, function pack_id(record) { return record.pack_id })
-  unique(records.filter((record) => record.item_id), function item_id(record) { return record.item_id })
+  unique(records.flatMap((record) => (record.item_ids ?? (record.item_id ? [record.item_id] : [])).map((id) => ({ id }))),
+    function item_id(record) { return record.id })
   unique(records.filter((record) => record.bundle_id), function bundle_id(record) { return record.bundle_id })
   unique(records, function source_path(record) { return record.source_path })
   unique(records, function family(record) { return record.stocking_proposal.family.id })

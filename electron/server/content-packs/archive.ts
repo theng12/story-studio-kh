@@ -298,6 +298,11 @@ function referencedRasterPaths(document: ContentPackDocument): readonly string[]
   switch (document.kind) {
     case 'visual-style':
     case 'thumbnail-recipe':
+    // A lettering style's swatch is the whole point of the document -- the
+    // owner buys the picture, not the name -- so its preview assets are
+    // referenced exactly like a style's. Leaving it out of this switch made
+    // every swatch look like an orphan and no lettering pack could be built.
+    case 'lettering-style':
       return document.preview_assets
     default:
       return []

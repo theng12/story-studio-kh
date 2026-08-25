@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.dusk-gradient-soft",
+  "name": "Dusk Gradient",
+  "description": "A slow gradient from dusty lavender into warm rose, with no hard edge anywhere in it.",
+  "axis": "text",
+  "phrase": "slow smooth gradient fill running from dusty lavender into warm rose, very soft edges with a gentle outer glow, low saturation, no outline and no hard shadow",
+  "preview_assets": [
+    "assets/dusk-gradient-soft.webp"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.archive",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Documentary & Archive Lettering pack: six lettering styles, three letterforms and three treatments.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.archive",
+    "family": "com.storystudio.family.lettering.archive"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.candle-smoke",
+  "name": "Candle Smoke",
+  "description": "Drawn in rising smoke, trailing off into soot at the edges. Quiet dread rather than a shout.",
+  "axis": "text",
+  "phrase": "letters formed from rising grey candle smoke, edges trailing upward into soft soot wisps, dark warm shadow behind, faint amber glow at the base of the strokes",
+  "preview_assets": [
+    "assets/candle-smoke.webp"
+  ]
+}

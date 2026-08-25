@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.marker-slab",
+  "name": "Marker Slab",
+  "description": "Fat chisel-marker letters laid down in single confident strokes. Nothing hesitant about it.",
+  "axis": "font",
+  "phrase": "fat chisel-tip marker letterforms drawn in single confident strokes, blunt square stroke ends, slightly uneven thickness, heavy and immediate",
+  "preview_assets": [
+    "assets/marker-slab.webp"
+  ]
+}

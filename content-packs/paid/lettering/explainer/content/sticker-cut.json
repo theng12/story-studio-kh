@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.sticker-cut",
+  "name": "Sticker Cut",
+  "description": "Die-cut sticker treatment: a thick white border all the way round and a small offset shadow.",
+  "axis": "text",
+  "phrase": "die-cut sticker treatment with a thick even white border following the outside of the whole word, small soft offset drop shadow beneath, bright saturated fill, glossy vinyl finish",
+  "preview_assets": [
+    "assets/sticker-cut.webp"
+  ]
+}

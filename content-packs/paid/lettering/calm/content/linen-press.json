@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.linen-press",
+  "name": "Linen Press",
+  "description": "A soft slab-serif with rounded terminals, gently pressed rather than printed hard.",
+  "axis": "font",
+  "phrase": "soft slab-serif letterforms with rounded terminals and low stroke contrast, gently pressed rather than sharply printed, warm neutral tone, comfortable generous spacing",
+  "preview_assets": [
+    "assets/linen-press.webp"
+  ]
+}

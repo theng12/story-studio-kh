@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.chalk-outline",
+  "name": "Chalk Outline",
+  "description": "Hollow letters drawn in a single wobbling chalk line, the way a scene gets marked out on the ground.",
+  "axis": "font",
+  "phrase": "hollow letters drawn as a single wobbling chalk outline, hand-drawn unsteady line, no fill inside the strokes, dusty chalk texture on the line itself",
+  "preview_assets": [
+    "assets/chalk-outline.webp"
+  ]
+}

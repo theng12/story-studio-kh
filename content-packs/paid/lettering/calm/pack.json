@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.lettering.calm",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Calm & Sleep Lettering pack: six lettering styles, three letterforms and three treatments.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.lettering.calm",
+    "family": "com.storystudio.family.lettering.calm"
+  }
+}

@@ -18,6 +18,7 @@ const KIND_ORDER: readonly ContentStoreProductKind[] = [
   'topic_pack',
   'visual_style',
   'thumbnail_recipe',
+  'font_pack',
   'niche_bundle',
 ]
 

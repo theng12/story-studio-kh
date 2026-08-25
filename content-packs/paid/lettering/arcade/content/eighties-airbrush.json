@@ -1,0 +1,12 @@
+{
+  "kind": "lettering-style",
+  "schema_version": 1,
+  "id": "com.storystudio.lettering.eighties-airbrush",
+  "name": "Eighties Airbrush",
+  "description": "Airbrushed magenta into cyan with a chrome bevel and one starburst highlight, exactly as promised.",
+  "axis": "text",
+  "phrase": "airbrushed gradient from hot magenta into cyan, polished chrome bevel along the top edge, one bright four-point starburst highlight, soft airbrush shading, glossy 1980s finish",
+  "preview_assets": [
+    "assets/eighties-airbrush.webp"
+  ]
+}

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { appendFile, cp, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -18,15 +19,64 @@ async function temporaryRepository() {
   return root
 }
 
-test('reconciles the strict 55-pack authored registry against source manifests', async () => {
+/**
+ * The revision the committed ledger is actually on.
+ *
+ * Reservations and transitions advance it, so a test that hard-codes 1 fails
+ * the first time anybody reserves a real batch -- which is the ledger working,
+ * not breaking. Read it instead, and assert the invariants that do hold.
+ */
+/** How many batches and transitions the committed ledger already holds. */
+function liveBatchCount() {
+  return JSON.parse(readFileSync(registryPath, 'utf8')).batches.length
+}
+
+function liveTransitionCount() {
+  return JSON.parse(readFileSync(registryPath, 'utf8')).transitions.length
+}
+
+/** How many records the committed ledger holds right now. */
+function liveRecordCount() {
+  return JSON.parse(readFileSync(registryPath, 'utf8')).records.length
+}
+
+async function currentRevision() {
+  return JSON.parse(await readFile(registryPath, 'utf8')).revision
+}
+
+/** The same fact, for the synchronous request builders below. */
+function liveRevision() {
+  return JSON.parse(readFileSync(registryPath, 'utf8')).revision
+}
+
+test('reconciles the authored registry against source manifests', async () => {
   const { validateAuthoringRegistry } = await import(registryModule)
   const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
 
-  assert.equal(result.revision, 1)
-  assert.equal(result.records.length, 55)
-  assert.equal(result.records.filter((record) => record.status === 'authored').length, 55)
-  assert.equal(result.records.filter((record) => record.item_id).length, 44)
-  assert.equal(result.records.filter((record) => record.bundle_id).length, 11)
+  assert.equal(result.revision, await currentRevision())
+  // The ledger only ever grows; the 55-record baseline is a floor, not a fact.
+  assert.ok(result.records.length >= 55, `registry shrank to ${result.records.length} records`)
+  assert.equal(result.records.filter((record) => record.status === 'authored').length, result.records.length)
+  // Every record carries exactly one identity shape: a single item, a set of
+  // items (a lettering pack of six), or a coordinator bundle.
+  for (const record of result.records) {
+    const shapes = [record.item_id, record.item_ids, record.bundle_id].filter((value) => value !== undefined)
+    assert.equal(shapes.length, 1, `${record.pack_id} carries ${shapes.length} identity shapes`)
+  }
+  assert.ok(result.records.some((record) => record.bundle_id), 'no Channel Kit coordinator remains registered')
+})
+
+test('registers a lettering pack by the exact set of styles it ships', async () => {
+  const { validateAuthoringRegistry } = await import(registryModule)
+  const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
+  const lettering = result.records.filter((record) => record.kind === 'lettering-style')
+  assert.ok(lettering.length, 'no lettering pack is registered')
+  for (const record of lettering) {
+    assert.ok(Array.isArray(record.item_ids) && record.item_ids.length > 1,
+      `${record.pack_id} must declare the several styles it carries`)
+    assert.deepEqual(record.item_ids, [...record.item_ids].sort(),
+      `${record.pack_id} item_ids must be stored sorted`)
+  }
 })
 
 test('rejects unknown, duplicate, and GenStudio-owned registry fields before source reconciliation', async (t) => {
@@ -68,9 +118,9 @@ test('rejects authored records whose exact source identity or dependency closure
   )
 })
 
-function reservationRequest() {
+function reservationRequest(expectedRevision = liveRevision()) {
   return {
-    expected_revision: 1,
+    expected_revision: expectedRevision,
     coordinator: { task: 'content-pack-authoring', branch: 'codex/reserve-content-pack' },
     proposal_ref: 'proposal:reserved-style',
     records: [{
@@ -170,11 +220,11 @@ test('reserves a complete batch once with a deterministic receipt', async (t) =>
   })
 
   const result = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
-  assert.equal(result.revision, 2)
+  assert.equal(result.revision, liveRevision() + 1)
   assert.match(result.receipt_ref, /^authoring:[a-f0-9]{64}$/)
   const registry = JSON.parse(await readFile(copy, 'utf8'))
-  assert.equal(registry.revision, 2)
-  assert.equal(registry.records.length, 57)
+  assert.equal(registry.revision, liveRevision() + 1)
+  assert.equal(registry.records.length, liveRecordCount() + request.records.length)
   assert.equal(registry.records.at(-1).receipt_ref, result.receipt_ref)
   assert.equal(registry.records.at(-2).receipt_ref, result.receipt_ref)
   await assert.rejects(
@@ -190,7 +240,7 @@ test('leaves registry bytes unchanged for stale, colliding, malformed, unknown, 
   const copy = join(root, 'content-packs', 'authoring-registry.json')
   const original = await readFile(copy)
   const cases = [
-    ['stale', (request) => { request.expected_revision = 99 }, /stale expected revision/i],
+    ['stale', (request) => { request.expected_revision = liveRevision() + 99 }, /stale expected revision/i],
     ['pack collision', (request) => { request.records[0].pack_id = 'com.storystudio.pack.style.cinematic-photoreal' }, /duplicate pack_id/i],
     ['item collision', (request) => { request.records[0].item_id = 'com.storystudio.style.cinematic-photoreal' }, /duplicate item_id/i],
     ['bundle collision', (request) => {
@@ -225,7 +275,7 @@ test('concurrent reservations from the same revision allow at most one success',
     reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: reservationRequest() }),
   ])
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1)
-  assert.equal(JSON.parse(await readFile(copy, 'utf8')).revision, 2)
+  assert.equal(JSON.parse(await readFile(copy, 'utf8')).revision, liveRevision() + 1)
 })
 
 test('rejects a reserved coordinator without its complete exact dependency closure', async (t) => {
@@ -261,22 +311,22 @@ test('persists receipt metadata and verifies a leaf exact identity', async (t) =
   const result = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request })
 
   const registry = JSON.parse(await readFile(copy, 'utf8'))
-  assert.equal(registry.batches.length, 1)
-  assert.equal(registry.batches[0].revision, 2)
-  assert.equal(registry.batches[0].receipt_ref, result.receipt_ref)
-  assert.deepEqual(registry.batches[0].request, request)
+  assert.equal(registry.batches.length, liveBatchCount() + 1)
+  assert.equal(registry.batches.at(-1).revision, liveRevision() + 1)
+  assert.equal(registry.batches.at(-1).receipt_ref, result.receipt_ref)
+  assert.deepEqual(registry.batches.at(-1).request, request)
   assert.deepEqual(await verifyAuthoringReceipt({
     registryPath: copy,
     repositoryRoot: root,
-    revision: 2,
+    revision: liveRevision() + 1,
     receiptRef: result.receipt_ref,
     expectedIdentity: request.records[0],
-  }), { revision: 2, receipt_ref: result.receipt_ref, identity: request.records[0] })
+  }), { revision: liveRevision() + 1, receipt_ref: result.receipt_ref, identity: request.records[0] })
 
   for (const [label, revision, receiptRef, expectedIdentity] of [
-    ['revision', 3, result.receipt_ref, request.records[0]],
-    ['receipt', 2, `authoring:${'0'.repeat(64)}`, request.records[0]],
-    ['identity', 2, result.receipt_ref, { ...request.records[0], item_id: 'com.storystudio.style.tampered' }],
+    ['revision', liveRevision() + 2, result.receipt_ref, request.records[0]],
+    ['receipt', liveRevision() + 1, `authoring:${'0'.repeat(64)}`, request.records[0]],
+    ['identity', liveRevision() + 1, result.receipt_ref, { ...request.records[0], item_id: 'com.storystudio.style.tampered' }],
   ]) {
     await assert.rejects(
       verifyAuthoringReceipt({ registryPath: copy, repositoryRoot: root, revision, receiptRef, expectedIdentity }),
@@ -536,17 +586,17 @@ test('promotes an exact reserved source to authored and keeps its immutable rece
   const transitioned = await transitionAuthoringRecord({
     registryPath: copy,
     repositoryRoot: root,
-    request: transitionRequest({ ...reserved, record: request.records[0] }, 2, { status: 'authored' }),
+    request: transitionRequest({ ...reserved, record: request.records[0] }, liveRevision() + 1, { status: 'authored' }),
   })
-  assert.equal(transitioned.revision, 3)
+  assert.equal(transitioned.revision, liveRevision() + 2)
   assert.match(transitioned.transition_ref, /^lifecycle:[a-f0-9]{64}$/)
   const registry = JSON.parse(await readFile(copy, 'utf8'))
-  assert.equal(registry.transitions.length, 1)
+  assert.equal(registry.transitions.length, liveTransitionCount() + 1)
   assert.equal(registry.records.at(-1).status, 'authored')
   assert.equal((await verifyAuthoringReceipt({
     registryPath: copy,
     repositoryRoot: root,
-    revision: 2,
+    revision: liveRevision() + 1,
     receiptRef: reserved.receipt_ref,
     expectedIdentity: request.records[0],
   })).receipt_ref, reserved.receipt_ref)
@@ -563,7 +613,7 @@ test('offers a coordinator transition CLI and enforces lifecycle CAS', async (t)
   const reservation = reservationRequest()
   const reserved = await reserveAuthoringBatch({ registryPath: copy, repositoryRoot: root, request: reservation })
   await materializeReservedStyle(root, reservation.records[0])
-  const request = transitionRequest({ ...reserved, record: reservation.records[0] }, 2, { status: 'authored' })
+  const request = transitionRequest({ ...reserved, record: reservation.records[0] }, liveRevision() + 1, { status: 'authored' })
   const requestPath = join(root, 'transition.json')
   await writeFile(requestPath, JSON.stringify(request), 'utf8')
 
@@ -572,7 +622,7 @@ test('offers a coordinator transition CLI and enforces lifecycle CAS', async (t)
     transitionAuthoringRecord({ registryPath: copy, repositoryRoot: root, request }),
   ])
   assert.equal([cli, competing].filter((result) => result.status === 'fulfilled').length, 1)
-  assert.equal(JSON.parse(await readFile(copy, 'utf8')).revision, 3)
+  assert.equal(JSON.parse(await readFile(copy, 'utf8')).revision, liveRevision() + 2)
   const winner = cli.status === 'fulfilled' ? JSON.parse(cli.value.stdout) : competing.value
   assert.match(winner.transition_ref, /^lifecycle:[a-f0-9]{64}$/)
 })
@@ -594,7 +644,7 @@ test('refuses authored promotion until the registered source is exact and leaves
   await assert.rejects(transitionAuthoringRecord({
     registryPath: copy,
     repositoryRoot: root,
-    request: transitionRequest({ ...reserved, record: request.records[0] }, 2, { status: 'authored' }),
+    request: transitionRequest({ ...reserved, record: request.records[0] }, liveRevision() + 1, { status: 'authored' }),
   }), /source|component identity/i)
   assert.deepEqual(await readFile(copy), before)
 })
@@ -613,14 +663,14 @@ test('advances stocking proposals proposed to reserved to confirmed with confirm
   await transitionAuthoringRecord({
     registryPath: copy,
     repositoryRoot: root,
-    request: transitionRequest(assignment, 2, {
+    request: transitionRequest(assignment, liveRevision() + 1, {
       stocking_proposal: { family: { status: 'reserved' }, sku: { status: 'reserved' } },
     }),
   })
   await transitionAuthoringRecord({
     registryPath: copy,
     repositoryRoot: root,
-    request: transitionRequest(assignment, 3, {
+    request: transitionRequest(assignment, liveRevision() + 2, {
       stocking_proposal: {
         family: { status: 'confirmed', confirmation_ref: '  genstudio:family-confirmation  ' },
         sku: { status: 'confirmed', confirmation_ref: '  genstudio:sku-confirmation  ' },
@@ -635,7 +685,7 @@ test('advances stocking proposals proposed to reserved to confirmed with confirm
   assert.equal((await verifyAuthoringReceipt({
     registryPath: copy,
     repositoryRoot: root,
-    revision: 2,
+    revision: liveRevision() + 1,
     receiptRef: reserved.receipt_ref,
     expectedIdentity: request.records[0],
   })).receipt_ref, reserved.receipt_ref)
@@ -662,7 +712,7 @@ test('rejects whitespace-only confirmed proposal references during reservation a
   await assert.rejects(transitionAuthoringRecord({
     registryPath: copy,
     repositoryRoot: root,
-    request: transitionRequest({ ...reserved, record: request.records[0] }, 2, {
+    request: transitionRequest({ ...reserved, record: request.records[0] }, liveRevision() + 1, {
       stocking_proposal: { family: { status: 'confirmed', confirmation_ref: '   ' } },
     }),
   }), /confirmation_ref.*(?:blank|whitespace|non-empty)/i)
@@ -687,7 +737,7 @@ test('rejects skipped, reversed, or unconfirmed lifecycle changes without changi
     await assert.rejects(transitionAuthoringRecord({
       registryPath: copy,
       repositoryRoot: root,
-      request: transitionRequest(assignment, 2, changes),
+      request: transitionRequest(assignment, liveRevision() + 1, changes),
     }), error)
     assert.deepEqual(await readFile(copy), before)
   }
