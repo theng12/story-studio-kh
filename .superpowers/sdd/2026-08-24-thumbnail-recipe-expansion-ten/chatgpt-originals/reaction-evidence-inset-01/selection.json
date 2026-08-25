@@ -1,0 +1,18 @@
+{
+  "job_id": "reaction-evidence-inset-01",
+  "prompt_sha256": "d08d27f31131e43886deeef8015c4859a0c4989d1ff4bf70fae87aadc691f83f",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "0c98c5a4ea46a8480c7051e50ce7725830832a2c8e715e161fb58805673b3beb",
+  "bytes": 2198154,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGB decoded successfully" },
+  "attempt_count": 2,
+  "rejection_reasons": ["Attempt 1 put the title in a black bottom-strip treatment and left it too close to the frame edge."],
+  "exact_title_transcription": "THAT'S THE CLUE",
+  "headline_line_count_verdict": "PASS: one line, exact wording, comfortably inside the frame",
+  "recipe_invariant_verdict": "PASS: profile researcher gaze and pointing gesture connect to one native circular leaf-vein evidence window.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)"
+}

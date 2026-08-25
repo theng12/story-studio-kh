@@ -1,0 +1,5 @@
+
+> story-studio-kh@1.4.32 content-pack:registry
+> node scripts/content-packs/authoring-registry.mjs reserve --request .superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/reservation-request.json
+
+{"revision":23,"receipt_ref":"authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378"}

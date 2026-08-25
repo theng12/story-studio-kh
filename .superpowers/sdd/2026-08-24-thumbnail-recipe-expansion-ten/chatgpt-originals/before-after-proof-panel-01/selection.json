@@ -1,0 +1,17 @@
+{
+  "job_id": "before-after-proof-panel-01",
+  "prompt_sha256": "afddc196f4b7c0ed60d8a0d15cf73fd75a1bfb26ae1f87b6b340910c7ca11b9e",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "28cf0c657abe429d2bb893b1276d673b6c682e9962894c5d69772f1acef31185",
+  "bytes": 1973300,
+  "format": "png",
+  "dimensions": { "width": 1671, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGB decoded successfully" },
+  "attempt_count": 1,
+  "exact_title_transcription": "FROM SEED TO SPROUT",
+  "headline_line_count_verdict": "PASS: one line, exact wording",
+  "recipe_invariant_verdict": "PASS: same seed tray changes from bare soil to healthy sprouts across a clear left-to-right seam.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)"
+}

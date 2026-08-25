@@ -1,0 +1,17 @@
+{
+  "job_id": "reaction-evidence-inset-02",
+  "prompt_sha256": "4a4b4aa3491ae65b872662603a5dcb4d6c9ee93bcf8f2ec2aa8b1b88a02f5ee0",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "def3c974fdd9daa6b8281d041c8d95e12525f92a1730e1c5d1b8044223429a8d",
+  "bytes": 1991601,
+  "format": "png",
+  "dimensions": { "width": 1671, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGB decoded successfully" },
+  "attempt_count": 1,
+  "exact_title_transcription": "THE TINY DETAIL\nCHANGES EVERYTHING",
+  "headline_line_count_verdict": "PASS: two lines with exact line break and wording",
+  "recipe_invariant_verdict": "PASS: the baker's pointing gesture connects to one native rounded close-detail window showing risen dough texture.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)"
+}

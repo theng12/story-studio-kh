@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "numbered-lineup-03",
+  "prompt_sha256": "45e52a06b4b8880f30e06ee077298d73f9720dbe4d575383f01f90d5d97629fb",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "986fdaf39fb3d07190df11fdb0e8f8482a308b6c09bd7e261362460607ce3b9d",
+  "selected_file_bytes": 2234339,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 2,
+  "exact_title_transcription": "FOUR WAYS\nTO START\nA COMPOST PILE",
+  "line_count_verdict": "PASS — exact three lines with the approved breaks.",
+  "recipe_invariant_verdict": "PASS — four compost starter materials are equal-status visible entries with correct native numerals 1–4.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

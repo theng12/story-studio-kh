@@ -1,0 +1,17 @@
+{
+  "job_id": "cutaway-exploded-object-01",
+  "prompt_sha256": "26db7ee6136be4d3211abf7736b1b6eab019a991645cd46062ae5c96ac872b66",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "ed5c34f069a58483d59d9d14b31bd58cd4d3bb53c6422fa4b326ec16d1b7f728",
+  "bytes": 2012012,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGB decoded successfully" },
+  "attempt_count": 1,
+  "exact_title_transcription": "INSIDE A SEED",
+  "headline_line_count_verdict": "PASS: one line, exact wording",
+  "recipe_invariant_verdict": "PASS: a single central botanical seed shows shell, stored food, and embryo separated in ordered depth without labels or callout-board treatment.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)"
+}

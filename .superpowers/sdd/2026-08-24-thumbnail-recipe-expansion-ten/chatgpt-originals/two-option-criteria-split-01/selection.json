@@ -1,0 +1,25 @@
+{
+  "job_id": "two-option-criteria-split-01",
+  "prompt_sha256": "6a19caeaa8fd436338d12c778f68ef2bdcbb8a39036a66616b3b7252949087eb",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "9b2e49ace8bbd84fc055cc96a138e6057df40b10b935d31ae9cc51fb5fd92b07",
+  "bytes": 2408743,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGB decoded successfully" },
+  "attempt_count": 4,
+  "rejection_reasons": ["Original attempt 1 contained incidental legible planning-sheet words, violating the no-extra-words requirement.", "Fix Round 1 attempt 1 contained incidental legible planning-sheet words."],
+  "exact_title_transcription": "PAPER OR DIGITAL?",
+  "headline_line_count_verdict": "PASS: one line, exact wording; selected replacement contains no other legible words.",
+  "recipe_invariant_verdict": "PASS: equivalent present-time paper and a blank unbranded e-ink-like object have equal visual weight across a central divide; no recognizable device UI appears.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)",
+  "fix_round_1": {
+    "rejected_file": "rejected-review-round-1.png",
+    "rejected_file_sha256": "ee3f972099f6f83cdf2968780c6741cc8a032e3403000a2217fce6b5f76f55e1",
+    "replacement_file_sha256": "9b2e49ace8bbd84fc055cc96a138e6057df40b10b935d31ae9cc51fb5fd92b07",
+    "new_attempt_count": 2,
+    "visual_verdict": "PASS: direct upper-scene headline, no title plate, blank unbranded e-ink-like display, and no incidental legible text."
+  }
+}

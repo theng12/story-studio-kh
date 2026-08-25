@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "macro-mystery-detail-03",
+  "prompt_sha256": "411f17be75916006c28c8f9b694f72b31c14232a25d252a96419cdd665eeb350",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "7fd46109544f1cba6c61173789ce915d14cde6bd41d6a0cc306baefea7a0bf51",
+  "selected_file_bytes": 2944718,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 1,
+  "exact_title_transcription": "THIS ISN'T\nA LANDSCAPE\nIT'S BREAD",
+  "line_count_verdict": "PASS — exact three lines with the approved breaks.",
+  "recipe_invariant_verdict": "PASS — craggy bread-crust macro is honestly contextualized by the visible partial loaf edge; no false reveal or inset.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

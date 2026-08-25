@@ -1,0 +1,25 @@
+{
+  "job_id": "reaction-evidence-inset-03",
+  "prompt_sha256": "05143b4461bb8550602cd8901f559616e1ff5c6b2c958ea2b7b75fb8b60ecb01",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "b37490d2edd19e55b0ddb5a758541d71cf6b84298ba993009bd7fe2cd515dce8",
+  "bytes": 3031047,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGBA decoded successfully" },
+  "attempt_count": 3,
+  "rejection_reasons": ["Attempt 1 placed a star/circle-like mark on the bicycle chain detail, violating the no-logo constraint."],
+  "exact_title_transcription": "ONE SMALL\nSIGN TELLS\nTHE STORY",
+  "headline_line_count_verdict": "PASS: three lines with exact line breaks and wording, rendered directly against upper scene space.",
+  "recipe_invariant_verdict": "PASS: a generic mechanic gesture connects to one native rounded close-detail window containing an unbranded worn bicycle chain link in a single full-frame workshop scene.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)",
+  "fix_round_1": {
+    "rejected_file": "rejected-review-round-1.png",
+    "rejected_file_sha256": "1e0f5e611b7d6c235371b7712851780a081e5991a989108ccb9256400a7eeae6",
+    "replacement_file_sha256": "b37490d2edd19e55b0ddb5a758541d71cf6b84298ba993009bd7fe2cd515dce8",
+    "new_attempt_count": 1,
+    "visual_verdict": "PASS: direct upper-scene three-line headline without a title block; one full-frame workshop scene and one rounded native chain-link evidence window connected by gesture."
+  }
+}

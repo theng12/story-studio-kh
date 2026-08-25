@@ -1,0 +1,10 @@
+{
+  "job_id": "hero-payoff-companion-03",
+  "prompt_sha256": "bfbf83b72634a74b7e79a1b9764516ae2abea5ffb9798db81445dd7c76850c1d",
+  "selected_file": "selected.png", "selected_file_sha256": "12ec6a8e45ef0acf120f7e28662853d765c4f01974d5e4855dbffae09d2722a3", "selected_file_bytes": 2169402,
+  "format": "PNG", "dimensions": { "width": 1672, "height": 941 }, "decode": "PASS (PNG decoded by macOS ImageIO/sips)", "attempt_count": 2,
+  "exact_title_transcription": "THE PLAN\nFINALLY BECOMES\nREAL", "line_count_verdict": "PASS (3 lines, exact requested breaks)",
+  "recipe_invariant_verdict": "PASS (generic young adult and one completed unbranded birdhouse are distinct, related anchors; gaze/posture makes the payoff clear)",
+  "rejection_reasons": ["Attempt 1 used a teal painted title banner/title plate."],
+  "originality_no_reference_declaration": "PASS — completely original generation; no reference images supplied or used.", "tool_provenance": "built-in ChatGPT image generation", "generated_timestamp_exposed": null
+}

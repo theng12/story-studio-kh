@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "scale-journey-03",
+  "prompt_sha256": "09a92925e9f08d9a04fb3b3359860ddc82127bb48afb39656817bde95f96d5a6",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "cecce979f25df3f5c65fc05dc2be89b6e0ac74a8a265ba291e3371408a5be0c2",
+  "selected_file_bytes": 1940737,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 1,
+  "exact_title_transcription": "SEE THE\nWHOLE SCALE\nAT ONCE",
+  "line_count_verdict": "PASS — exact three lines with the approved breaks.",
+  "recipe_invariant_verdict": "PASS — exactly three clay bowls progress through continuous diagonal studio depth; no numbered peers or navigation claim.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

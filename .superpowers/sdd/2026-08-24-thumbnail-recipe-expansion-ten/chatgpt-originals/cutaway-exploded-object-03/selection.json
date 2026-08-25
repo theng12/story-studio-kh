@@ -1,0 +1,9 @@
+{
+  "job_id": "cutaway-exploded-object-03",
+  "prompt_sha256": "9b6220f11f7b9b90b7046636fee97cfc1acdd73ffb27a939fdb291d61e4a06fc",
+  "selected_file": "selected.png", "selected_file_sha256": "f7363e63f841a87dc6539d9a722a7237f28fe019530c8feae48070afa24caf3f", "selected_file_bytes": 2092324,
+  "format": "PNG", "dimensions": { "width": 1672, "height": 941 }, "decode": "PASS (PNG decoded by macOS ImageIO/sips)", "attempt_count": 1,
+  "exact_title_transcription": "THE LAYERS\nTHAT MAKE\nA ROOF WORK", "line_count_verdict": "PASS (3 lines, exact requested breaks)",
+  "recipe_invariant_verdict": "PASS (one isometric roof section clearly exposes ordered shingles, membrane, insulation, and rafters; title space is upper-left)",
+  "originality_no_reference_declaration": "PASS — completely original generation; no reference images supplied or used.", "tool_provenance": "built-in ChatGPT image generation", "generated_timestamp_exposed": null
+}

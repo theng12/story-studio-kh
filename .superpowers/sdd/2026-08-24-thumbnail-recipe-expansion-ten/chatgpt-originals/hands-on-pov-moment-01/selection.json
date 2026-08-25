@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "hands-on-pov-moment-01",
+  "prompt_sha256": "41be5fc39608d79e14732abbe5e986b4f8db1e48bfb1c0a60faa6ab14e3a86df",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "a0b163a21a56dc630329b5bd837b84f66c5fd8a70d86cfbff77f3cf8816c4590",
+  "selected_file_bytes": 2015758,
+  "format": "png",
+  "dimensions": { "width": 1671, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 1,
+  "exact_title_transcription": "PLANT IT RIGHT",
+  "line_count_verdict": "PASS — exact one unbroken line.",
+  "recipe_invariant_verdict": "PASS — two anatomically coherent first-person gloved hands place one seedling into prepared soil, with the garden row visible ahead.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

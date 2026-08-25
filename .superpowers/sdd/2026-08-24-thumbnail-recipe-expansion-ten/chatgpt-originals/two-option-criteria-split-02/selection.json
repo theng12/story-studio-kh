@@ -1,0 +1,18 @@
+{
+  "job_id": "two-option-criteria-split-02",
+  "prompt_sha256": "0c8f80e5d5a223fefc632d3121dcbf3fe9318316d836ec8bb229b7f0050ade36",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "a1bec8992db1196a3b5b6d583b1e1aef21c4b00803c9c52078bbc2e163e4d19a",
+  "bytes": 2070413,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGB decoded successfully" },
+  "attempt_count": 2,
+  "rejection_reasons": ["Attempt 1 used a large rounded title plate."],
+  "exact_title_transcription": "QUIET SPACE\nOR BUSY SPACE?",
+  "headline_line_count_verdict": "PASS: two lines with exact line break and wording",
+  "recipe_invariant_verdict": "PASS: two equally weighted present-time chair-nook alternatives are separated by a central divide, with no winner implied.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)"
+}

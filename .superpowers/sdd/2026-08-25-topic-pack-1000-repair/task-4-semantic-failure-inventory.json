@@ -1,0 +1,3399 @@
+{
+  "schemaVersion": 1,
+  "title": "Task 4 Night Journeys exhaustive semantic repair inventory",
+  "auditRubric": {
+    "evidence": "Every evidence lens was checked for truthful literal material cues, grammatical action decomposition, direct observation of the mechanism’s indispensable action, and a visible completion state.",
+    "collisions": "Conservative normalization removes articles, materials, count, decorative and profile/location modifiers, and maps only close synonyms; a group is retained only when the remaining object class, action path, and completion beat are materially the same.",
+    "recommendationPolicy": "Each collision group retains one anchor and supplies exact sleep-safe object/mechanism replacements for every other coordinate. Each evidence row supplies an exact whole-lens replacement."
+  },
+  "bindings": {
+    "sourceCommit": "d05f355d3df04e9c6cffd6c49c1a6476ead918aa",
+    "sourcePath": "content-packs/free-starters/topic/night-journeys-v1.0.1/content/topic-pack.json",
+    "sourceSha256": "35231b362bab97a79e38c26f7d23a5da95d6429dfab5099b5b87b48f4a4e3f10",
+    "sourceBytes": 1022411,
+    "boundSemanticReviewPath": ".superpowers/sdd/2026-08-25-topic-pack-1000-repair/reviews/night-journeys-semantic-review.md",
+    "boundSemanticReviewSha256": "bf6c444219739297a930fe7d58fc1246aed2764e3fa2d10298e556096c486035",
+    "auditedTupleCoordinatesSha256": "772d58e7dd2c2bad1948c5a9b90039e16b5ce20823fc9086da6c8feb2c9a55f3",
+    "auditedTupleContentSha256": "49e1e8832b736cbdb78b7fc1fd3471569a247a799ad8d9be38a3551e70041f43",
+    "evidenceFailureCoordinatesSha256": "59c6a713bf19ecc6702b71a219c0939a773b963005472cbc636d1b4cebbf866f",
+    "collisionCoordinatesSha256": "08e24b7b1e35c39819be1f2f48dab0a20948798c3770255cea21e102d5a7aa3d"
+  },
+  "auditedCorpus": {
+    "profiles": 50,
+    "tuplesPerProfile": 20,
+    "totalTuples": 1000
+  },
+  "summary": {
+    "evidenceFailureRows": 109,
+    "evidenceFailureDimensions": 163,
+    "countsByFailureType": {
+      "action": 38,
+      "completion": 50,
+      "grammar": 61,
+      "material": 14
+    },
+    "countsByProfile": {
+      "lantern keeper's evening round": 1,
+      "library book return": 3,
+      "candle maker's last pour": 3,
+      "quiet ferry crossing": 2,
+      "orchard basket sorting": 2,
+      "lighthouse window cleaning": 2,
+      "bakery's early dough": 3,
+      "observatory blanket folding": 2,
+      "teashop closing ritual": 4,
+      "greenhouse seed tending": 4,
+      "clockmaker's workshop closing": 2,
+      "bookbinder's paste-brush cleanup": 2,
+      "weaver's moonlit thread winding": 3,
+      "quilt-room patch arranging": 3,
+      "letterpress type return": 1,
+      "pottery studio brush washing": 1,
+      "museum textile cover round": 3,
+      "herbarium specimen filing": 1,
+      "seed archive packet counting": 2,
+      "map-room pencil tending": 3,
+      "observatory lens-cover round": 4,
+      "planetarium seat-card arranging": 1,
+      "small-town post office stamp sorting": 2,
+      "village inn linen folding": 3,
+      "canal lockhouse ledger closing": 3,
+      "houseboat cabin shelf settling": 3,
+      "sleeper-car linen arranging": 2,
+      "tea garden stone brushing": 2,
+      "calligrapher's desk closing": 2,
+      "paper studio sheet pressing": 3,
+      "basket maker reed bundling": 4,
+      "cobbler's lace sorting": 2,
+      "hatmaker's ribbon spooling": 3,
+      "tailor's button-card sorting": 1,
+      "puppet-theater costume mending": 2,
+      "dollhouse repair bench": 1,
+      "music-library score shelving": 5,
+      "violin-workshop bow resting": 2,
+      "piano-room music-roll filing": 4,
+      "florist's night bouquet wrapping": 4,
+      "spice-shop jar labeling": 2,
+      "coastal weather-log copying": 4,
+      "woodland visitor-guide filing": 1,
+      "porcelain brush-rack closing": 2
+    },
+    "countsByOrdinal": {
+      "1": 6,
+      "2": 5,
+      "3": 6,
+      "4": 3,
+      "5": 8,
+      "6": 2,
+      "7": 5,
+      "8": 3,
+      "9": 4,
+      "10": 9,
+      "11": 7,
+      "12": 2,
+      "13": 6,
+      "14": 6,
+      "15": 7,
+      "16": 3,
+      "17": 3,
+      "18": 6,
+      "19": 10,
+      "20": 8
+    },
+    "collisionGroups": 28,
+    "collisionCoordinateOccurrences": 100,
+    "uniqueCollisionCoordinates": 100,
+    "collisionAnchorsRetained": 28,
+    "collisionExactPairRewrites": 72,
+    "collisionCoordinatesAppearingInMultipleGroups": []
+  },
+  "evidenceFailures": [
+    {
+      "coordinate": "1/10",
+      "profile": "lantern keeper's evening round",
+      "profileIndex": 0,
+      "ordinal": 10,
+      "tupleIndex": 9,
+      "episodeObject": "a ceramic oil funnel",
+      "mechanism": "letting the final drop settle before wiping the rim",
+      "currentEvidenceLens": "Hold the ceramic oil funnel and its receiving surface together through letting the final drop settle before wiping the rim. Keep the funnel’s ceramic detail, the low liquid sound, and the final detail (before wiping the rim) synchronized; finish when the visible motion ceases and the named surface remains undisturbed.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The lens verifies the liquid settling but never verifies the mechanism’s rim-wiping action.",
+      "recommendedEvidenceLens": "Keep the ceramic oil funnel, the working hand, and every indispensable changed point in one continuous quiet frame throughout letting the final drop settle before wiping the rim. Show the final drop fully still, then the funnel rim wiped clean and dry before the cloth lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "3/1",
+      "profile": "library book return",
+      "profileIndex": 2,
+      "ordinal": 1,
+      "tupleIndex": 0,
+      "episodeObject": "a clothbound travel book",
+      "mechanism": "returning the clothbound travel book upright at its read shelf mark",
+      "currentEvidenceLens": "Frame the clothbound travel book with its destination before returning the clothbound travel book upright at its read shelf mark. Stay uncut through the muted transfer, keeping the book’s cloth detail and the final detail (at its read shelf mark) visible until the clothbound travel book upright at its read shelf mark reaches the at its read shelf mark position and stays there after release. Hold after the travel book stands upright at its shelf mark with the spine visible.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause.",
+      "recommendedEvidenceLens": "Keep the clothbound travel book, the working hand, and every indispensable changed point in one continuous quiet frame throughout returning the clothbound travel book upright at its read shelf mark. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "3/2",
+      "profile": "library book return",
+      "profileIndex": 2,
+      "ordinal": 2,
+      "tupleIndex": 1,
+      "episodeObject": "a wooden return cart",
+      "mechanism": "moving the return cart along the carpet to the history alcove",
+      "currentEvidenceLens": "Follow the wooden return cart from its starting position through moving the return cart along the carpet to the history alcove in a single steady view. Keep the cart’s wood detail and the final detail (along the carpet to the history alcove) visible; hold when the return cart along the carpet reaches at the history alcove and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the wooden return cart, the working hand, and every indispensable changed point in one continuous quiet frame throughout moving the return cart along the carpet to the history alcove. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "3/18",
+      "profile": "library book return",
+      "profileIndex": 2,
+      "ordinal": 18,
+      "tupleIndex": 17,
+      "episodeObject": "a stack of newspapers",
+      "mechanism": "folding each issue along its existing center crease",
+      "currentEvidenceLens": "Watch the stack of newspapers change shape in one unbroken side view during folding each issue along its existing center crease. Preserve the newspapers’ visible edge, the subdued contact sound, and the final detail (along its existing center crease); hold until the stack of newspapers’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The completion appends a singular possessive to an already plural noun phrase.",
+      "recommendedEvidenceLens": "Keep the stack of newspapers, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding each issue along its existing center crease. Show the actually folded part with its edges aligned and its crease or fold holding after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "4/11",
+      "profile": "candle maker's last pour",
+      "profileIndex": 3,
+      "ordinal": 11,
+      "tupleIndex": 10,
+      "episodeObject": "a linen apron",
+      "mechanism": "brushing wax crumbs into the scrap bowl",
+      "currentEvidenceLens": "Follow the linen apron through brushing wax crumbs into the scrap bowl in one continuous close pass. Keep the apron’s linen detail, the tool’s soft contact and the worked patch changing together, and the final detail (into the scrap bowl) readable; stop when the wax crumbs is fully contained inside the scrap bowl and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the linen apron, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing wax crumbs into the scrap bowl. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "4/15",
+      "profile": "candle maker's last pour",
+      "profileIndex": 3,
+      "ordinal": 15,
+      "tupleIndex": 14,
+      "episodeObject": "a wax thermometer",
+      "mechanism": "returning the cooled instrument to its padded box",
+      "currentEvidenceLens": "Frame the wax thermometer with its destination before returning the cooled instrument to its padded box. Stay uncut through the muted transfer, keeping the thermometer’s wax detail and the final detail (to its padded box) visible until the final placement of the cooled instrument is fully at its padded box and remains stable after release.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“wax” describes what the thermometer measures, not the thermometer material.",
+      "recommendedEvidenceLens": "Keep the wax thermometer, the working hand, and every indispensable changed point in one continuous quiet frame throughout returning the cooled instrument to its padded box. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "4/20",
+      "profile": "candle maker's last pour",
+      "profileIndex": 3,
+      "ordinal": 20,
+      "tupleIndex": 19,
+      "episodeObject": "a workshop window shade",
+      "mechanism": "lowering the shade after every flame is out",
+      "currentEvidenceLens": "Follow the workshop window shade from its starting position through lowering the shade after every flame is out in a single steady view. Keep the shade’s visible edge and the final detail (after every flame is out) visible; hold when the prerequisite—every flame is out—is visible before the shade reaches its resting position.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The completion stops at the prerequisite and explicitly ends before the shade reaches its resting position.",
+      "recommendedEvidenceLens": "Keep the workshop window shade, the working hand, and every indispensable changed point in one continuous quiet frame throughout lowering the shade after every flame is out. Show every flame visibly out and the shade fully lowered to its resting position, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "5/7",
+      "profile": "quiet ferry crossing",
+      "profileIndex": 4,
+      "ordinal": 7,
+      "tupleIndex": 6,
+      "episodeObject": "a cabin lantern shade",
+      "mechanism": "turning the shade toward the table rather than the windows",
+      "currentEvidenceLens": "Follow the cabin lantern shade from its starting position through turning the shade toward the table rather than the windows in a single steady view. Keep the shade’s visible edge and the final detail (rather than the windows) visible; hold when the shade reaches at the table rather than the windows and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the cabin lantern shade, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the shade toward the table rather than the windows. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "5/19",
+      "profile": "quiet ferry crossing",
+      "profileIndex": 4,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a dockside gate key",
+      "mechanism": "turning the key only after the ferry rests at the berth",
+      "currentEvidenceLens": "Follow the dockside gate key from its starting position through turning the key only after the ferry rests at the berth in a single steady view. Keep the key’s visible edge and the final detail (after the ferry rests at the berth) visible; hold when the prerequisite—the ferry rests at the berth—is visible before the key only reaches its resting position.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The lens verifies the ferry prerequisite but ends before showing the key complete its turn.",
+      "recommendedEvidenceLens": "Keep the dockside gate key, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the key only after the ferry rests at the berth. Show the ferry resting at the berth and the key completing one visible turn to its final stop, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "7/15",
+      "profile": "orchard basket sorting",
+      "profileIndex": 6,
+      "ordinal": 15,
+      "tupleIndex": 14,
+      "episodeObject": "a small pruning basket",
+      "mechanism": "brushing dry leaves from the basket corners",
+      "currentEvidenceLens": "Follow the small pruning basket through brushing dry leaves from the basket corners in one continuous close pass. Keep the basket’s visible edge, the tool’s soft contact and the worked patch changing together, and the final detail (from the basket corners) readable; stop when the basket corners is visibly free of the dry leaves and the tool lifts.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "Plural “basket corners” is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the small pruning basket, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing dry leaves from the basket corners. Show all basket corners visibly free of the dry leaves before the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "7/20",
+      "profile": "orchard basket sorting",
+      "profileIndex": 6,
+      "ordinal": 20,
+      "tupleIndex": 19,
+      "episodeObject": "a lantern hook",
+      "mechanism": "hanging the shaded lantern after every basket is settled",
+      "currentEvidenceLens": "Frame the lantern hook with its destination before hanging the shaded lantern after every basket is settled. Stay uncut through the muted transfer, keeping the hook’s visible edge and the final detail (after every basket is settled) visible until the shaded lantern reaches the after every basket is settled position and stays there after release.",
+      "failureTypes": [
+        "action",
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause. The temporal phrase is treated as a destination, so the lens never verifies that the lantern hangs from the hook.",
+      "recommendedEvidenceLens": "Keep the lantern hook, the working hand, and every indispensable changed point in one continuous quiet frame throughout hanging the shaded lantern after every basket is settled. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release; also show every basket settled and the shaded lantern hanging securely from the selected hook, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "8/11",
+      "profile": "lighthouse window cleaning",
+      "profileIndex": 7,
+      "ordinal": 11,
+      "tupleIndex": 10,
+      "episodeObject": "a stack of fresh cloths",
+      "mechanism": "folding clean squares beside the wash bowl",
+      "currentEvidenceLens": "Watch the stack of fresh cloths change shape in one unbroken side view during folding clean squares beside the wash bowl. Preserve the cloths’ visible edge, the subdued contact sound, and the final detail (beside the wash bowl); hold until the stack of fresh cloths’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The completion appends a singular possessive to an already plural noun phrase.",
+      "recommendedEvidenceLens": "Keep the stack of fresh cloths, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding clean squares beside the wash bowl. Show the actually folded part with its edges aligned and its crease or fold holding after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "8/16",
+      "profile": "lighthouse window cleaning",
+      "profileIndex": 7,
+      "ordinal": 16,
+      "tupleIndex": 15,
+      "episodeObject": "a lantern-room stool",
+      "mechanism": "moving the stool to the next sheltered pane",
+      "currentEvidenceLens": "Follow the lantern-room stool from its starting position through moving the stool to the next sheltered pane in a single steady view. Keep the stool’s visible edge and the final detail (to the next sheltered pane) visible; hold when the stool reaches at the next sheltered pane and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the lantern-room stool, the working hand, and every indispensable changed point in one continuous quiet frame throughout moving the stool to the next sheltered pane. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "10/1",
+      "profile": "bakery's early dough",
+      "profileIndex": 9,
+      "ordinal": 1,
+      "tupleIndex": 0,
+      "episodeObject": "a round of bread dough",
+      "mechanism": "folding the soft dough inward beneath both palms",
+      "currentEvidenceLens": "Watch the round of bread dough change shape in one unbroken side view during folding the soft dough inward beneath both palms. Preserve the dough’s visible edge, the subdued contact sound, and the final detail (beneath both palms); hold until the round of bread dough’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The cloth-fold template requires a flat crease for soft bread dough rather than showing the inward dough fold and changed shape.",
+      "recommendedEvidenceLens": "Keep the round of bread dough, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding the soft dough inward beneath both palms. Show both palms folding the dough inward and the joined dough surface holding its rounded resting shape, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "10/19",
+      "profile": "bakery's early dough",
+      "profileIndex": 9,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a bakery window shade",
+      "mechanism": "lowering the shade while the dough rests",
+      "currentEvidenceLens": "Follow the bakery window shade from its starting position through lowering the shade while the dough rests in a single steady view. Keep the shade’s visible edge and the final detail (while the dough rests) visible; hold when the shade while the dough rests reaches its resting position while the dough rests remains visible.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "A temporal while-clause is duplicated inside the grammatical subject and again after the predicate.",
+      "recommendedEvidenceLens": "Keep the bakery window shade, the working hand, and every indispensable changed point in one continuous quiet frame throughout lowering the shade while the dough rests. Show the moved part at its intended resting orientation while the continuing background condition remains visible, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "10/20",
+      "profile": "bakery's early dough",
+      "profileIndex": 9,
+      "ordinal": 20,
+      "tupleIndex": 19,
+      "episodeObject": "a kitchen timer card",
+      "mechanism": "turning the silent card to the next gentle task",
+      "currentEvidenceLens": "Follow the kitchen timer card from its starting position through turning the silent card to the next gentle task in a single steady view. Keep the card’s visible edge and the final detail (to the next gentle task) visible; hold when the silent card reaches at the next gentle task and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the kitchen timer card, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the silent card to the next gentle task. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "11/5",
+      "profile": "observatory blanket folding",
+      "profileIndex": 10,
+      "ordinal": 5,
+      "tupleIndex": 4,
+      "episodeObject": "a cedar blanket chest",
+      "mechanism": "lowering the lid after the last fold",
+      "currentEvidenceLens": "Follow the cedar blanket chest from its starting position through lowering the lid after the last fold in a single steady view. Keep the chest’s visible edge and the final detail (after the last fold) visible; hold when the prerequisite—the last fold—is visible before the lid reaches its resting position.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The lens verifies the last-fold prerequisite but ends before the chest lid reaches a closed position.",
+      "recommendedEvidenceLens": "Keep the cedar blanket chest, the working hand, and every indispensable changed point in one continuous quiet frame throughout lowering the lid after the last fold. Show the last blanket fold complete and the cedar lid fully lowered and still, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "11/13",
+      "profile": "observatory blanket folding",
+      "profileIndex": 10,
+      "ordinal": 13,
+      "tupleIndex": 12,
+      "episodeObject": "a round bolster cover",
+      "mechanism": "turning its seam toward the wall",
+      "currentEvidenceLens": "Follow the round bolster cover from its starting position through turning its seam toward the wall in a single steady view. Keep the cover’s visible edge and the final detail (seam toward the wall) visible; hold when the round bolster cover seam reaches at the wall and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the round bolster cover, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning its seam toward the wall. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "13/2",
+      "profile": "teashop closing ritual",
+      "profileIndex": 12,
+      "ordinal": 2,
+      "tupleIndex": 1,
+      "episodeObject": "a stack of porcelain cups",
+      "mechanism": "nesting them by painted pattern",
+      "currentEvidenceLens": "Use a steady overhead view for nesting them by painted pattern, with the stack of porcelain cups never leaving frame. Let the cups’ porcelain detail, each quiet contact, and the ordered detail (by painted pattern) establish the result; finish when each nested piece is fully supported by its neighbor and the group remains stable.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The nesting completion checks support but never verifies grouping the cups by painted pattern.",
+      "recommendedEvidenceLens": "Keep the stack of porcelain cups, the working hand, and every indispensable changed point in one continuous quiet frame throughout nesting them by painted pattern. Show each painted pattern grouped visibly and every nested cup supported after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "13/3",
+      "profile": "teashop closing ritual",
+      "profileIndex": 12,
+      "ordinal": 3,
+      "tupleIndex": 2,
+      "episodeObject": "a bamboo tea scoop",
+      "mechanism": "brushing the last leaves into the compost bowl",
+      "currentEvidenceLens": "Follow the bamboo tea scoop through brushing the last leaves into the compost bowl in one continuous close pass. Keep the scoop’s bamboo detail, the tool’s soft contact and the worked patch changing together, and the final detail (into the compost bowl) readable; stop when the last leaves is fully contained inside the compost bowl and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the bamboo tea scoop, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing the last leaves into the compost bowl. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "13/4",
+      "profile": "teashop closing ritual",
+      "profileIndex": 12,
+      "ordinal": 4,
+      "tupleIndex": 3,
+      "episodeObject": "a small clay teapot",
+      "mechanism": "turning its lid aside while it dries",
+      "currentEvidenceLens": "Follow the small clay teapot from its starting position through turning its lid aside while it dries in a single steady view. Keep the teapot’s clay detail and the final detail (aside while it dries) visible; hold when the small clay teapot lid aside while it dries reaches its resting position while it dries remains visible.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "A temporal while-clause is duplicated inside the grammatical subject and again after the predicate.",
+      "recommendedEvidenceLens": "Keep the small clay teapot, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning its lid aside while it dries. Show the moved part at its intended resting orientation while the continuing background condition remains visible, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "13/7",
+      "profile": "teashop closing ritual",
+      "profileIndex": 12,
+      "ordinal": 7,
+      "tupleIndex": 6,
+      "episodeObject": "a row of tea tins",
+      "mechanism": "turning each label toward the shelf edge",
+      "currentEvidenceLens": "Follow the row of tea tins from its starting position through turning each label toward the shelf edge in a single steady view. Keep the tins’ visible edge and the final detail (toward the shelf edge) visible; hold when each label reaches at the shelf edge and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the row of tea tins, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning each label toward the shelf edge. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "15/3",
+      "profile": "greenhouse seed tending",
+      "profileIndex": 14,
+      "ordinal": 3,
+      "tupleIndex": 2,
+      "episodeObject": "a packet of basil seeds",
+      "mechanism": "folding its paper flap after sowing",
+      "currentEvidenceLens": "Watch the packet of basil seeds change shape in one unbroken side view during folding its paper flap after sowing. Preserve the seeds’ visible edge, the subdued contact sound, and the final detail (after sowing); hold until the packet of basil seeds’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The completion appends a singular possessive to an already plural noun phrase.",
+      "recommendedEvidenceLens": "Keep the packet of basil seeds, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding its paper flap after sowing. Show the actually folded part with its edges aligned and its crease or fold holding after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "15/9",
+      "profile": "greenhouse seed tending",
+      "profileIndex": 14,
+      "ordinal": 9,
+      "tupleIndex": 8,
+      "episodeObject": "a bamboo pot marker",
+      "mechanism": "placing it at the back of the thyme row",
+      "currentEvidenceLens": "Frame the bamboo pot marker with its destination before placing it at the back of the thyme row. Stay uncut through the muted transfer, keeping the marker’s bamboo detail and the final detail (at the back of the thyme row) visible until the bamboo pot marker at the back of the thyme row reaches the at the back of the thyme row position and stays there after release.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause.",
+      "recommendedEvidenceLens": "Keep the bamboo pot marker, the working hand, and every indispensable changed point in one continuous quiet frame throughout placing it at the back of the thyme row. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "15/15",
+      "profile": "greenhouse seed tending",
+      "profileIndex": 14,
+      "ordinal": 15,
+      "tupleIndex": 14,
+      "episodeObject": "a row of peat-free pots",
+      "mechanism": "stacking the peat-free pots mouth-down on the drainage rack",
+      "currentEvidenceLens": "Use a steady overhead view for stacking the peat-free pots mouth-down on the drainage rack, with the row of peat-free pots never leaving frame. Let the pots’ visible edge, each quiet contact, and the ordered detail (on the drainage rack) establish the result; finish when the stack stands level, every layer is supported, and nothing shifts after release.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The stacking completion checks stability but never verifies the indispensable mouth-down orientation.",
+      "recommendedEvidenceLens": "Keep the row of peat-free pots, the working hand, and every indispensable changed point in one continuous quiet frame throughout stacking the peat-free pots mouth-down on the drainage rack. Show every pot visibly mouth-down on the drainage rack and the stack stable, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "15/19",
+      "profile": "greenhouse seed tending",
+      "profileIndex": 14,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a warm vent handle",
+      "mechanism": "turning it to the settled night position",
+      "currentEvidenceLens": "Follow the warm vent handle from its starting position through turning it to the settled night position in a single steady view. Keep the handle’s visible edge and the final detail (to the settled night position) visible; hold when the warm vent handle reaches at the settled night position and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the warm vent handle, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it to the settled night position. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "16/19",
+      "profile": "clockmaker's workshop closing",
+      "profileIndex": 15,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a padded stool",
+      "mechanism": "turning the stool inward beside the low workbench",
+      "currentEvidenceLens": "Follow the padded stool from its starting position through turning the stool inward beside the low workbench in a single steady view. Keep the stool’s visible edge and the final detail (beside the low workbench) visible; hold when the stool inward reaches beside the low workbench and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The adverb “inward” is inserted into the subject before an ill-fitted “reaches beside” predicate.",
+      "recommendedEvidenceLens": "Keep the padded stool, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the stool inward beside the low workbench. Show the stool turned inward and resting beside the low workbench, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "16/20",
+      "profile": "clockmaker's workshop closing",
+      "profileIndex": 15,
+      "ordinal": 20,
+      "tupleIndex": 19,
+      "episodeObject": "a workshop curtain",
+      "mechanism": "lowering the inner workshop curtain to the street-window sill",
+      "currentEvidenceLens": "Follow the workshop curtain from its starting position through lowering the inner workshop curtain to the street-window sill in a single steady view. Keep the curtain’s visible edge and the final detail (to the street-window sill) visible; hold when the inner workshop curtain reaches at the street-window sill and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the workshop curtain, the working hand, and every indispensable changed point in one continuous quiet frame throughout lowering the inner workshop curtain to the street-window sill. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "17/13",
+      "profile": "bookbinder's paste-brush cleanup",
+      "profileIndex": 16,
+      "ordinal": 13,
+      "tupleIndex": 12,
+      "episodeObject": "a finishing press handle",
+      "mechanism": "turning it back to the resting notch",
+      "currentEvidenceLens": "Follow the finishing press handle from its starting position through turning it back to the resting notch in a single steady view. Keep the handle’s visible edge and the final detail (to the resting notch) visible; hold when the finishing press handle back reaches at the resting notch and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the finishing press handle, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it back to the resting notch. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "17/19",
+      "profile": "bookbinder's paste-brush cleanup",
+      "profileIndex": 16,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a paper offcut basket",
+      "mechanism": "flattening useful strips for tomorrow",
+      "currentEvidenceLens": "Begin with the paper offcut basket and its exact working point together, then remain uncut through flattening useful strips for tomorrow. Keep the basket’s paper detail, the exact contact point and its restrained sound, and the final detail (for tomorrow) visible; finish when the worked material lies flat across its full visible area after the pressure lifts.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“paper offcut” describes the basket contents; it does not establish that the basket is paper.",
+      "recommendedEvidenceLens": "Keep the paper offcut basket, the working hand, and every indispensable changed point in one continuous quiet frame throughout flattening useful strips for tomorrow. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "18/1",
+      "profile": "weaver's moonlit thread winding",
+      "profileIndex": 17,
+      "ordinal": 1,
+      "tupleIndex": 0,
+      "episodeObject": "a wooden yarn swift",
+      "mechanism": "folding its arms after the skein is wound",
+      "currentEvidenceLens": "Watch the wooden yarn swift change shape in one unbroken side view during folding its arms after the skein is wound. Preserve the swift’s wood detail, the subdued contact sound, and the final detail (after the skein is wound); hold until the wooden yarn swift’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "A rigid yarn swift is evaluated with cloth edges and a flat crease rather than folded arms and hinge stops.",
+      "recommendedEvidenceLens": "Keep the wooden yarn swift, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding its arms after the skein is wound. Show each swift arm folded at its hinge into the closed position and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "18/10",
+      "profile": "weaver's moonlit thread winding",
+      "profileIndex": 17,
+      "ordinal": 10,
+      "tupleIndex": 9,
+      "episodeObject": "a basket of yarn cones",
+      "mechanism": "nesting the smaller cones at the center",
+      "currentEvidenceLens": "Use a steady overhead view for nesting the smaller cones at the center, with the basket of yarn cones never leaving frame. Let the cones’ visible edge, each quiet contact, and the ordered detail (at the center) establish the result; finish when each nested piece is fully supported by its neighbor and the group remains stable.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The nesting completion checks support but not that the smaller cones occupy the center.",
+      "recommendedEvidenceLens": "Keep the basket of yarn cones, the working hand, and every indispensable changed point in one continuous quiet frame throughout nesting the smaller cones at the center. Show the smaller cones visibly centered inside the larger-cone ring and the arrangement stable, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "18/16",
+      "profile": "weaver's moonlit thread winding",
+      "profileIndex": 17,
+      "ordinal": 16,
+      "tupleIndex": 15,
+      "episodeObject": "a shallow thread tray",
+      "mechanism": "lifting clipped ends into the scrap jar",
+      "currentEvidenceLens": "Follow the shallow thread tray from its starting position through lifting clipped ends into the scrap jar in a single steady view. Keep the tray’s visible edge and the final detail (into the scrap jar) visible; hold when the clipped ends fully clears its starting point and pauses clear of every surrounding surface.",
+      "failureTypes": [
+        "action",
+        "completion",
+        "grammar"
+      ],
+      "reason": "A plural lifted-material phrase is paired with singular “clears”. Beyond the agreement defect, clearing the starting point does not show the clipped ends arriving inside the scrap jar.",
+      "recommendedEvidenceLens": "Keep the shallow thread tray, the working hand, and every indispensable changed point in one continuous quiet frame throughout lifting clipped ends into the scrap jar. Show all lifted material clear of its source, with any named destination also visible before release; also show all clipped ends lifted from the tray and visibly contained inside the scrap jar, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "19/3",
+      "profile": "quilt-room patch arranging",
+      "profileIndex": 18,
+      "ordinal": 3,
+      "tupleIndex": 2,
+      "episodeObject": "a wooden seam roller",
+      "mechanism": "rolling one cool seam flat",
+      "currentEvidenceLens": "Watch the wooden seam roller change shape in one unbroken side view during rolling one cool seam flat. Preserve the roller’s wood detail, the subdued contact sound, and the final detail (one cool seam flat); hold until the finished roll keeps its compact shape without a supporting hand.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "Rolling a seam roller to flatten a seam is misread as creating a compact roll.",
+      "recommendedEvidenceLens": "Keep the wooden seam roller, the working hand, and every indispensable changed point in one continuous quiet frame throughout rolling one cool seam flat. Show the seam roller complete one end-to-end pass and the worked seam remain visibly flat, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "19/9",
+      "profile": "quilt-room patch arranging",
+      "profileIndex": 18,
+      "ordinal": 9,
+      "tupleIndex": 8,
+      "episodeObject": "a patchwork color card",
+      "mechanism": "moving one swatch to the chosen row",
+      "currentEvidenceLens": "Follow the patchwork color card from its starting position through moving one swatch to the chosen row in a single steady view. Keep the card’s visible edge and the final detail (to the chosen row) visible; hold when one swatch reaches at the chosen row and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the patchwork color card, the working hand, and every indispensable changed point in one continuous quiet frame throughout moving one swatch to the chosen row. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "19/17",
+      "profile": "quilt-room patch arranging",
+      "profileIndex": 18,
+      "ordinal": 17,
+      "tupleIndex": 16,
+      "episodeObject": "a scrap-paper envelope",
+      "mechanism": "tucking tiny useful patches inside",
+      "currentEvidenceLens": "Frame the scrap-paper envelope with its destination before tucking tiny useful patches inside. Stay uncut through the muted transfer, keeping the envelope’s visible edge and the final detail (tiny useful patches inside) visible until the tiny useful patches reaches the tiny useful patches inside position and stays there after release.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause.",
+      "recommendedEvidenceLens": "Keep the scrap-paper envelope, the working hand, and every indispensable changed point in one continuous quiet frame throughout tucking tiny useful patches inside. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "20/14",
+      "profile": "letterpress type return",
+      "profileIndex": 19,
+      "ordinal": 14,
+      "tupleIndex": 13,
+      "episodeObject": "a hand press handle",
+      "mechanism": "lowering it to the resting position",
+      "currentEvidenceLens": "Follow the hand press handle from its starting position through lowering it to the resting position in a single steady view. Keep the handle’s visible edge and the final detail (to the resting position) visible; hold when the hand press handle reaches at the resting position and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the hand press handle, the working hand, and every indispensable changed point in one continuous quiet frame throughout lowering it to the resting position. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "21/8",
+      "profile": "pottery studio brush washing",
+      "profileIndex": 20,
+      "ordinal": 8,
+      "tupleIndex": 7,
+      "episodeObject": "a cotton apron",
+      "mechanism": "brushing dry clay crumbs into the reclaim tray",
+      "currentEvidenceLens": "Follow the cotton apron through brushing dry clay crumbs into the reclaim tray in one continuous close pass. Keep the apron’s cotton detail, the tool’s soft contact and the worked patch changing together, and the final detail (into the reclaim tray) readable; stop when the dry clay crumbs is fully contained inside the reclaim tray and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the cotton apron, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing dry clay crumbs into the reclaim tray. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "22/6",
+      "profile": "museum textile cover round",
+      "profileIndex": 21,
+      "ordinal": 6,
+      "tupleIndex": 5,
+      "episodeObject": "a glass case key",
+      "mechanism": "wrapping the glass-case key inside its curator felt pouch",
+      "currentEvidenceLens": "Watch the glass case key change shape in one unbroken side view during wrapping the glass-case key inside its curator felt pouch. Preserve the key’s glass detail, the subdued contact sound, and the final detail (inside its curator felt pouch); hold until the final wrap lies flat and the enclosed object no longer shifts.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“glass case” describes the case served by the key, not the key material.",
+      "recommendedEvidenceLens": "Keep the glass case key, the working hand, and every indispensable changed point in one continuous quiet frame throughout wrapping the glass-case key inside its curator felt pouch. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "22/16",
+      "profile": "museum textile cover round",
+      "profileIndex": 21,
+      "ordinal": 16,
+      "tupleIndex": 15,
+      "episodeObject": "a carved mannequin base",
+      "mechanism": "turning its label toward the aisle",
+      "currentEvidenceLens": "Follow the carved mannequin base from its starting position through turning its label toward the aisle in a single steady view. Keep the base’s visible edge and the final detail (label toward the aisle) visible; hold when the carved mannequin base label reaches at the aisle and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the carved mannequin base, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning its label toward the aisle. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "22/19",
+      "profile": "museum textile cover round",
+      "profileIndex": 21,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a low lamp shade",
+      "mechanism": "turning it away from the resting textiles",
+      "currentEvidenceLens": "Follow the low lamp shade from its starting position through turning it away from the resting textiles in a single steady view. Keep the shade’s visible edge and the final detail (from the resting textiles) visible; hold when the low lamp shade away reaches from the resting textiles and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion inserts “away” before “reaches from”, producing an invalid clause.",
+      "recommendedEvidenceLens": "Keep the low lamp shade, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it away from the resting textiles. Show the shade or cover visibly turned away from the named surface and motionless after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "23/10",
+      "profile": "herbarium specimen filing",
+      "profileIndex": 22,
+      "ordinal": 10,
+      "tupleIndex": 9,
+      "episodeObject": "a cotton dust brush",
+      "mechanism": "lifting loose fibers from the cabinet corners with the dust brush",
+      "currentEvidenceLens": "Follow the cotton dust brush from its starting position through lifting loose fibers from the cabinet corners with the dust brush in a single steady view. Keep the brush’s cotton detail and the final detail (from the cabinet corners with the dust brush) visible; hold when the loose fibers fully clears its starting point and pauses clear of every surrounding surface.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural lifted-material phrase is paired with singular “clears”.",
+      "recommendedEvidenceLens": "Keep the cotton dust brush, the working hand, and every indispensable changed point in one continuous quiet frame throughout lifting loose fibers from the cabinet corners with the dust brush. Show all lifted material clear of its source, with any named destination also visible before release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "24/3",
+      "profile": "seed archive packet counting",
+      "profileIndex": 23,
+      "ordinal": 3,
+      "tupleIndex": 2,
+      "episodeObject": "a brass drawer label",
+      "mechanism": "turning the crop name toward the aisle",
+      "currentEvidenceLens": "Follow the brass drawer label from its starting position through turning the crop name toward the aisle in a single steady view. Keep the label’s brass detail and the final detail (name toward the aisle) visible; hold when the crop name reaches at the aisle and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the brass drawer label, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the crop name toward the aisle. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "24/4",
+      "profile": "seed archive packet counting",
+      "profileIndex": 23,
+      "ordinal": 4,
+      "tupleIndex": 3,
+      "episodeObject": "a shallow counting tray",
+      "mechanism": "brushing three seed husks into a sample envelope",
+      "currentEvidenceLens": "Follow the shallow counting tray through brushing three seed husks into a sample envelope in one continuous close pass. Keep the tray’s visible edge, the tool’s soft contact and the worked patch changing together, and the final detail (into a sample envelope) readable; stop when three seed husks is fully contained inside a sample envelope and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the shallow counting tray, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing three seed husks into a sample envelope. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "25/1",
+      "profile": "map-room pencil tending",
+      "profileIndex": 24,
+      "ordinal": 1,
+      "tupleIndex": 0,
+      "episodeObject": "a blue map pencil",
+      "mechanism": "paring the map pencil to a broad shading point over the cup",
+      "currentEvidenceLens": "Begin with the blue map pencil and its exact working point together, then remain uncut through paring the map pencil to a broad shading point over the cup. Keep the pencil’s visible edge, the exact contact point and its restrained sound, and the final detail (to a broad shading point over the cup) visible; finish when the broad shading point is visible and every shaving remains above the cup.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The lens says every shaving remains above the cup; safe completion requires the shavings to be caught inside it.",
+      "recommendedEvidenceLens": "Keep the blue map pencil, the working hand, and every indispensable changed point in one continuous quiet frame throughout paring the map pencil to a broad shading point over the cup. Show the broad shading point visibly formed and every shaving contained inside the cup, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "25/8",
+      "profile": "map-room pencil tending",
+      "profileIndex": 24,
+      "ordinal": 8,
+      "tupleIndex": 7,
+      "episodeObject": "a linen map brush",
+      "mechanism": "sweeping one speck from a margin",
+      "currentEvidenceLens": "Follow the linen map brush through sweeping one speck from a margin in one continuous close pass. Keep the brush’s linen detail, the tool’s soft contact and the worked patch changing together, and the final detail (from a margin) readable; stop when a margin is visibly free of one speck and the tool lifts.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“linen map” describes the map/surface served by the brush; it does not establish a linen brush.",
+      "recommendedEvidenceLens": "Keep the linen map brush, the working hand, and every indispensable changed point in one continuous quiet frame throughout sweeping one speck from a margin. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "25/20",
+      "profile": "map-room pencil tending",
+      "profileIndex": 24,
+      "ordinal": 20,
+      "tupleIndex": 19,
+      "episodeObject": "a green lamp shade",
+      "mechanism": "turning it toward the closed pencil rack",
+      "currentEvidenceLens": "Follow the green lamp shade from its starting position through turning it toward the closed pencil rack in a single steady view. Keep the shade’s visible edge and the final detail (the closed pencil rack) visible; hold when the green lamp shade reaches at the closed pencil rack and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the green lamp shade, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it toward the closed pencil rack. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "26/5",
+      "profile": "observatory lens-cover round",
+      "profileIndex": 25,
+      "ordinal": 5,
+      "tupleIndex": 4,
+      "episodeObject": "a cotton dust blower",
+      "mechanism": "returning it to its padded drawer",
+      "currentEvidenceLens": "Frame the cotton dust blower with its destination before returning it to its padded drawer. Stay uncut through the muted transfer, keeping the blower’s cotton detail and the final detail (to its padded drawer) visible until the final placement of the cotton dust blower is fully at its padded drawer and remains stable after release.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“cotton dust” is a compound use label and does not establish a cotton blower.",
+      "recommendedEvidenceLens": "Keep the cotton dust blower, the working hand, and every indispensable changed point in one continuous quiet frame throughout returning it to its padded drawer. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "26/7",
+      "profile": "observatory lens-cover round",
+      "profileIndex": 25,
+      "ordinal": 7,
+      "tupleIndex": 6,
+      "episodeObject": "a red lamp shade",
+      "mechanism": "turning it toward the floor before covering it",
+      "currentEvidenceLens": "Follow the red lamp shade from its starting position through turning it toward the floor before covering it in a single steady view. Keep the shade’s visible edge and the final detail (before covering it) visible; hold when the red lamp shade reaches at the floor and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the red lamp shade, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it toward the floor before covering it. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "26/10",
+      "profile": "observatory lens-cover round",
+      "profileIndex": 25,
+      "ordinal": 10,
+      "tupleIndex": 9,
+      "episodeObject": "a glass filter case",
+      "mechanism": "nesting the case inside its foam slot",
+      "currentEvidenceLens": "Use a steady overhead view for nesting the case inside its foam slot, with the glass filter case never leaving frame. Let the case’s glass detail, each quiet contact, and the ordered detail (inside its foam slot) establish the result; finish when the final nested placement is inside its foam slot, fully supported after release.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“glass filter” describes the filter held by the case, not the case material.",
+      "recommendedEvidenceLens": "Keep the glass filter case, the working hand, and every indispensable changed point in one continuous quiet frame throughout nesting the case inside its foam slot. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "26/20",
+      "profile": "observatory lens-cover round",
+      "profileIndex": 25,
+      "ordinal": 20,
+      "tupleIndex": 19,
+      "episodeObject": "a round hatch latch",
+      "mechanism": "turning it to the resting position",
+      "currentEvidenceLens": "Follow the round hatch latch from its starting position through turning it to the resting position in a single steady view. Keep the latch’s visible edge and the final detail (to the resting position) visible; hold when the round hatch latch reaches at the resting position and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the round hatch latch, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it to the resting position. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "27/14",
+      "profile": "planetarium seat-card arranging",
+      "profileIndex": 26,
+      "ordinal": 14,
+      "tupleIndex": 13,
+      "episodeObject": "a domed lamp cover",
+      "mechanism": "turning it away from the screen",
+      "currentEvidenceLens": "Follow the domed lamp cover from its starting position through turning it away from the screen in a single steady view. Keep the cover’s visible edge and the final detail (from the screen) visible; hold when the domed lamp cover away reaches from the screen and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion inserts “away” before “reaches from”, producing an invalid clause.",
+      "recommendedEvidenceLens": "Keep the domed lamp cover, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it away from the screen. Show the shade or cover visibly turned away from the named surface and motionless after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "28/13",
+      "profile": "small-town post office stamp sorting",
+      "profileIndex": 27,
+      "ordinal": 13,
+      "tupleIndex": 12,
+      "episodeObject": "a wooden money drawer",
+      "mechanism": "sliding the empty coin tray closed",
+      "currentEvidenceLens": "Frame the wooden money drawer with its destination before sliding the empty coin tray closed. Stay uncut through the muted transfer, keeping the drawer’s wood detail and the final detail (empty coin tray closed) visible until the empty coin tray closed reaches the empty coin tray closed position and stays there after release.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause.",
+      "recommendedEvidenceLens": "Keep the wooden money drawer, the working hand, and every indispensable changed point in one continuous quiet frame throughout sliding the empty coin tray closed. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "28/15",
+      "profile": "small-town post office stamp sorting",
+      "profileIndex": 27,
+      "ordinal": 15,
+      "tupleIndex": 14,
+      "episodeObject": "a date-wheel card",
+      "mechanism": "turning it to tomorrow's date",
+      "currentEvidenceLens": "Follow the date-wheel card from its starting position through turning it to tomorrow's date in a single steady view. Keep the card’s visible edge and the final detail (to tomorrow's date) visible; hold when the date-wheel card reaches at tomorrow's date and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the date-wheel card, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it to tomorrow's date. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "29/5",
+      "profile": "village inn linen folding",
+      "profileIndex": 28,
+      "ordinal": 5,
+      "tupleIndex": 4,
+      "episodeObject": "a stack of napkins",
+      "mechanism": "nesting them by stitched border",
+      "currentEvidenceLens": "Use a steady overhead view for nesting them by stitched border, with the stack of napkins never leaving frame. Let the napkins’ visible edge, each quiet contact, and the ordered detail (by stitched border) establish the result; finish when each nested piece is fully supported by its neighbor and the group remains stable.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The support-only nesting completion never verifies grouping napkins by stitched border.",
+      "recommendedEvidenceLens": "Keep the stack of napkins, the working hand, and every indispensable changed point in one continuous quiet frame throughout nesting them by stitched border. Show each stitched-border pattern grouped visibly and the nested napkins stable, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "29/8",
+      "profile": "village inn linen folding",
+      "profileIndex": 28,
+      "ordinal": 8,
+      "tupleIndex": 7,
+      "episodeObject": "a wooden linen token",
+      "mechanism": "moving it to the ready peg",
+      "currentEvidenceLens": "Follow the wooden linen token from its starting position through moving it to the ready peg in a single steady view. Keep the token’s wood detail and the final detail (to the ready peg) visible; hold when the wooden linen token reaches at the ready peg and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the wooden linen token, the working hand, and every indispensable changed point in one continuous quiet frame throughout moving it to the ready peg. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "29/14",
+      "profile": "village inn linen folding",
+      "profileIndex": 28,
+      "ordinal": 14,
+      "tupleIndex": 13,
+      "episodeObject": "a linen inventory card",
+      "mechanism": "ticking the final shelf count",
+      "currentEvidenceLens": "Hold the linen inventory card, writing point, and reference in one frame during ticking the final shelf count. Preserve the card’s linen detail, the faint stroke sound, and the written detail (the final shelf count); end only when the intended mark is legible and the writing point lifts cleanly.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“linen inventory” describes the card’s subject; it does not establish a linen card.",
+      "recommendedEvidenceLens": "Keep the linen inventory card, the working hand, and every indispensable changed point in one continuous quiet frame throughout ticking the final shelf count. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "30/9",
+      "profile": "canal lockhouse ledger closing",
+      "profileIndex": 29,
+      "ordinal": 9,
+      "tupleIndex": 8,
+      "episodeObject": "a small desk clock",
+      "mechanism": "winding it after the count",
+      "currentEvidenceLens": "Watch the small desk clock change shape in one unbroken side view during winding it after the count. Preserve the clock’s visible edge, the subdued contact sound, and the final detail (after the count); hold until the finished roll keeps its compact shape without a supporting hand.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "Winding a desk clock is misclassified as making a compact roll.",
+      "recommendedEvidenceLens": "Keep the small desk clock, the working hand, and every indispensable changed point in one continuous quiet frame throughout winding it after the count. Show one deliberate winding turn complete, the key stopped, and the clock resting unchanged on the desk, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "30/18",
+      "profile": "canal lockhouse ledger closing",
+      "profileIndex": 29,
+      "ordinal": 18,
+      "tupleIndex": 17,
+      "episodeObject": "a green lamp shade",
+      "mechanism": "turning the green lamp shade toward the ledger",
+      "currentEvidenceLens": "Follow the green lamp shade from its starting position through turning the green lamp shade toward the ledger in a single steady view. Keep the shade’s visible edge and the final detail (shade toward the ledger) visible; hold when the green lamp shade reaches at the ledger and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the green lamp shade, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the green lamp shade toward the ledger. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "30/19",
+      "profile": "canal lockhouse ledger closing",
+      "profileIndex": 29,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a paper route envelope",
+      "mechanism": "tucking the completed card inside",
+      "currentEvidenceLens": "Frame the paper route envelope with its destination before tucking the completed card inside. Stay uncut through the muted transfer, keeping the envelope’s paper detail and the final detail (the completed card inside) visible until the completed card reaches the the completed card inside position and stays there after release.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause.",
+      "recommendedEvidenceLens": "Keep the paper route envelope, the working hand, and every indispensable changed point in one continuous quiet frame throughout tucking the completed card inside. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "31/3",
+      "profile": "houseboat cabin shelf settling",
+      "profileIndex": 30,
+      "ordinal": 3,
+      "tupleIndex": 2,
+      "episodeObject": "a brass porthole latch",
+      "mechanism": "turning it to the resting notch",
+      "currentEvidenceLens": "Follow the brass porthole latch from its starting position through turning it to the resting notch in a single steady view. Keep the latch’s brass detail and the final detail (to the resting notch) visible; hold when the brass porthole latch reaches at the resting notch and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the brass porthole latch, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it to the resting notch. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "31/5",
+      "profile": "houseboat cabin shelf settling",
+      "profileIndex": 30,
+      "ordinal": 5,
+      "tupleIndex": 4,
+      "episodeObject": "a cotton dish cloth",
+      "mechanism": "folding the cotton dish cloth over the houseboat rail with both corners separated",
+      "currentEvidenceLens": "Watch the cotton dish cloth change shape in one unbroken side view during folding the cotton dish cloth over the houseboat rail with both corners separated. Preserve the cloth’s cotton detail, the subdued contact sound, and the final detail (over the houseboat rail with both corners separated); hold until the cotton dish cloth’s worked edges meet, the crease lies flat, and the released fold holds. Keep the cotton dish cloth’s lower corners separated on the houseboat drying peg.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The generic requirement that worked edges meet contradicts the explicit requirement that the lower corners remain separated.",
+      "recommendedEvidenceLens": "Keep the cotton dish cloth, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding the cotton dish cloth over the houseboat rail with both corners separated. Show the cloth folded over the rail with both lower corners visibly separated and motionless, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "31/7",
+      "profile": "houseboat cabin shelf settling",
+      "profileIndex": 30,
+      "ordinal": 7,
+      "tupleIndex": 6,
+      "episodeObject": "a wicker provision basket",
+      "mechanism": "folding its checked liner inward",
+      "currentEvidenceLens": "Watch the wicker provision basket change shape in one unbroken side view during folding its checked liner inward. Preserve the basket’s visible edge, the subdued contact sound, and the final detail (its checked liner inward); hold until the wicker provision basket’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The lens assigns worked edges and a crease to the rigid basket instead of the checked liner being folded inward.",
+      "recommendedEvidenceLens": "Keep the wicker provision basket, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding its checked liner inward. Show the checked liner folded inward all around the basket rim and holding below the rim after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "33/11",
+      "profile": "sleeper-car linen arranging",
+      "profileIndex": 32,
+      "ordinal": 11,
+      "tupleIndex": 10,
+      "episodeObject": "a wooden linen shelf",
+      "mechanism": "aligning folded cases by size",
+      "currentEvidenceLens": "Use a steady overhead view for aligning folded cases by size, with the wooden linen shelf never leaving frame. Let the shelf’s wood detail, each quiet contact, and the ordered detail (by size) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "A shared-edge alignment does not verify the indispensable size order of the folded cases.",
+      "recommendedEvidenceLens": "Keep the wooden linen shelf, the working hand, and every indispensable changed point in one continuous quiet frame throughout aligning folded cases by size. Show the folded cases arranged in visibly increasing size order and stable on the shelf, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "33/13",
+      "profile": "sleeper-car linen arranging",
+      "profileIndex": 32,
+      "ordinal": 13,
+      "tupleIndex": 12,
+      "episodeObject": "a curtain tie cord",
+      "mechanism": "fastening the tie cord through the curtain ring",
+      "currentEvidenceLens": "Keep the curtain tie cord, working hand, and closure point together throughout fastening the tie cord through the curtain ring. Let the cord’s visible edge, the subdued closure sound, and the closure detail (through the curtain ring) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "A tie cord threaded through a ring is completed with a generic closed edge rather than visible threading and retained tension.",
+      "recommendedEvidenceLens": "Keep the curtain tie cord, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening the tie cord through the curtain ring. Show the tie cord passing through the curtain ring and holding the curtain without slipping, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "34/2",
+      "profile": "tea garden stone brushing",
+      "profileIndex": 33,
+      "ordinal": 2,
+      "tupleIndex": 1,
+      "episodeObject": "a bamboo hand broom",
+      "mechanism": "sweeping fallen needles into a small basket",
+      "currentEvidenceLens": "Follow the bamboo hand broom through sweeping fallen needles into a small basket in one continuous close pass. Keep the broom’s bamboo detail, the tool’s soft contact and the worked patch changing together, and the final detail (into a small basket) readable; stop when the fallen needles is fully contained inside a small basket and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the bamboo hand broom, the working hand, and every indispensable changed point in one continuous quiet frame throughout sweeping fallen needles into a small basket. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "34/5",
+      "profile": "tea garden stone brushing",
+      "profileIndex": 33,
+      "ordinal": 5,
+      "tupleIndex": 4,
+      "episodeObject": "a wooden sandal rack",
+      "mechanism": "aligning empty pairs by size",
+      "currentEvidenceLens": "Use a steady overhead view for aligning empty pairs by size, with the wooden sandal rack never leaving frame. Let the rack’s wood detail, each quiet contact, and the ordered detail (by size) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw. Make the sandal pairs alternate left and right while their heels remain even on the rack.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "Neither the generic aligned-edge sentence nor the added alternating-direction sentence verifies the asserted size order.",
+      "recommendedEvidenceLens": "Keep the wooden sandal rack, the working hand, and every indispensable changed point in one continuous quiet frame throughout aligning empty pairs by size. Show the sandal pairs arranged from smallest to largest with even heels and alternating left-right orientation, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "35/10",
+      "profile": "calligrapher's desk closing",
+      "profileIndex": 34,
+      "ordinal": 10,
+      "tupleIndex": 9,
+      "episodeObject": "a felt desk mat",
+      "mechanism": "lifting paper fibers from the desk mat with a folded corner",
+      "currentEvidenceLens": "Follow the felt desk mat from its starting position through lifting paper fibers from the desk mat with a folded corner in a single steady view. Keep the mat’s felt detail and the final detail (from the desk mat with a folded corner) visible; hold when the paper fibers fully clears its starting point and pauses clear of every surrounding surface.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural lifted-material phrase is paired with singular “clears”.",
+      "recommendedEvidenceLens": "Keep the felt desk mat, the working hand, and every indispensable changed point in one continuous quiet frame throughout lifting paper fibers from the desk mat with a folded corner. Show all lifted material clear of its source, with any named destination also visible before release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "35/20",
+      "profile": "calligrapher's desk closing",
+      "profileIndex": 34,
+      "ordinal": 20,
+      "tupleIndex": 19,
+      "episodeObject": "a writing-room screen",
+      "mechanism": "folding it across the closed workspace",
+      "currentEvidenceLens": "Watch the writing-room screen change shape in one unbroken side view during folding it across the closed workspace. Preserve the screen’s visible edge, the subdued contact sound, and the final detail (across the closed workspace); hold until the writing-room screen’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "A hinged room screen is evaluated with cloth edges and a flat crease instead of panel hinges and final panel positions.",
+      "recommendedEvidenceLens": "Keep the writing-room screen, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding it across the closed workspace. Show each hinged screen panel folded across the workspace and resting flat against its neighboring panel, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "36/5",
+      "profile": "paper studio sheet pressing",
+      "profileIndex": 35,
+      "ordinal": 5,
+      "tupleIndex": 4,
+      "episodeObject": "a paper deckle frame",
+      "mechanism": "nesting it inside the matching mold",
+      "currentEvidenceLens": "Use a steady overhead view for nesting it inside the matching mold, with the paper deckle frame never leaving frame. Let the frame’s paper detail, each quiet contact, and the ordered detail (inside the matching mold) establish the result; finish when the final nested placement is inside the matching mold, fully supported after release.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“paper deckle” describes the papermaking tool’s use; a wet-use deckle frame is not established as paper.",
+      "recommendedEvidenceLens": "Keep the paper deckle frame, the working hand, and every indispensable changed point in one continuous quiet frame throughout nesting it inside the matching mold. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "36/10",
+      "profile": "paper studio sheet pressing",
+      "profileIndex": 35,
+      "ordinal": 10,
+      "tupleIndex": 9,
+      "episodeObject": "a cotton apron",
+      "mechanism": "brushing fibers into the reclaim basket",
+      "currentEvidenceLens": "Follow the cotton apron through brushing fibers into the reclaim basket in one continuous close pass. Keep the apron’s cotton detail, the tool’s soft contact and the worked patch changing together, and the final detail (into the reclaim basket) readable; stop when the fibers is fully contained inside the reclaim basket and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the cotton apron, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing fibers into the reclaim basket. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "36/13",
+      "profile": "paper studio sheet pressing",
+      "profileIndex": 35,
+      "ordinal": 13,
+      "tupleIndex": 12,
+      "episodeObject": "a wooden drying clip",
+      "mechanism": "sorting clips into a shallow bowl",
+      "currentEvidenceLens": "Use a steady overhead view for sorting clips into a shallow bowl, with the wooden drying clip never leaving frame. Let the clip’s wood detail, each quiet contact, and the ordered detail (into a shallow bowl) establish the result; finish when the named categories are visibly separate and every item remains in its correct group.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "“Sorting clips into a shallow bowl” has one destination, but the lens invents unnamed categories and correct groups.",
+      "recommendedEvidenceLens": "Keep the wooden drying clip, the working hand, and every indispensable changed point in one continuous quiet frame throughout sorting clips into a shallow bowl. Show all drying clips visibly collected inside the shallow bowl and no clip left on the bench, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "37/5",
+      "profile": "basket maker reed bundling",
+      "profileIndex": 36,
+      "ordinal": 5,
+      "tupleIndex": 4,
+      "episodeObject": "a shallow reed tray",
+      "mechanism": "aligning short offcuts by length",
+      "currentEvidenceLens": "Use a steady overhead view for aligning short offcuts by length, with the shallow reed tray never leaving frame. Let the tray’s reed detail, each quiet contact, and the ordered detail (by length) establish the result; finish when all named edges share the intended line and no piece shifts after the hands withdraw.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "Shared-edge alignment does not verify the asserted ordering of reed offcuts by length.",
+      "recommendedEvidenceLens": "Keep the shallow reed tray, the working hand, and every indispensable changed point in one continuous quiet frame throughout aligning short offcuts by length. Show the short offcuts arranged from shortest to longest with each end visible and the row stable, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "37/11",
+      "profile": "basket maker reed bundling",
+      "profileIndex": 36,
+      "ordinal": 11,
+      "tupleIndex": 10,
+      "episodeObject": "a cotton apron",
+      "mechanism": "brushing reed curls into a basket",
+      "currentEvidenceLens": "Follow the cotton apron through brushing reed curls into a basket in one continuous close pass. Keep the apron’s cotton detail, the tool’s soft contact and the worked patch changing together, and the final detail (into a basket) readable; stop when the reed curls is fully contained inside a basket and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the cotton apron, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing reed curls into a basket. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "37/13",
+      "profile": "basket maker reed bundling",
+      "profileIndex": 36,
+      "ordinal": 13,
+      "tupleIndex": 12,
+      "episodeObject": "a finished bread basket",
+      "mechanism": "tucking its checked liner inside",
+      "currentEvidenceLens": "Frame the finished bread basket with its destination before tucking its checked liner inside. Stay uncut through the muted transfer, keeping the basket’s visible edge and the final detail (its checked liner inside) visible until the finished bread basket checked liner reaches the its checked liner inside position and stays there after release.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause.",
+      "recommendedEvidenceLens": "Keep the finished bread basket, the working hand, and every indispensable changed point in one continuous quiet frame throughout tucking its checked liner inside. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "37/15",
+      "profile": "basket maker reed bundling",
+      "profileIndex": 36,
+      "ordinal": 15,
+      "tupleIndex": 14,
+      "episodeObject": "a reed color card",
+      "mechanism": "filing it behind the willow tab",
+      "currentEvidenceLens": "Frame the reed color card with its destination before filing it behind the willow tab. Stay uncut through the muted transfer, keeping the card’s reed detail and the final detail (behind the willow tab) visible until the filing position of the reed color card is behind the willow tab, visible in order after release.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“reed color” describes the card’s catalog subject; it does not establish a reed card.",
+      "recommendedEvidenceLens": "Keep the reed color card, the working hand, and every indispensable changed point in one continuous quiet frame throughout filing it behind the willow tab. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "38/6",
+      "profile": "cobbler's lace sorting",
+      "profileIndex": 37,
+      "ordinal": 6,
+      "tupleIndex": 5,
+      "episodeObject": "a leather offcut envelope",
+      "mechanism": "filing useful pieces by color",
+      "currentEvidenceLens": "Frame the leather offcut envelope with its destination before filing useful pieces by color. Stay uncut through the muted transfer, keeping the envelope’s leather detail and the final detail (by color) visible until the useful pieces is visibly filed in color order.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "Plural “useful pieces” is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the leather offcut envelope, the working hand, and every indispensable changed point in one continuous quiet frame throughout filing useful pieces by color. Show the useful pieces visibly separated into color groups before the envelope is released, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "38/19",
+      "profile": "cobbler's lace sorting",
+      "profileIndex": 37,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a glass shop case key",
+      "mechanism": "fastening the glass shop-case key clasp to its brass hook",
+      "currentEvidenceLens": "Keep the glass shop case key, working hand, and closure point together throughout fastening the glass shop-case key clasp to its brass hook. Let the key’s glass detail, the subdued closure sound, and the closure detail (to its brass hook) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves.",
+      "failureTypes": [
+        "action",
+        "completion",
+        "material"
+      ],
+      "reason": "“glass shop case” describes the display case served by the key, not the key material. The generic fitted-edge completion does not directly show the key clasp attached to the brass hook.",
+      "recommendedEvidenceLens": "Keep the glass shop case key, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening the glass shop-case key clasp to its brass hook. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint; also show the key clasp visibly closed around the brass hook and the key hanging without slipping, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "39/11",
+      "profile": "hatmaker's ribbon spooling",
+      "profileIndex": 38,
+      "ordinal": 11,
+      "tupleIndex": 10,
+      "episodeObject": "a linen work cloth",
+      "mechanism": "brushing thread ends into a tray",
+      "currentEvidenceLens": "Follow the linen work cloth through brushing thread ends into a tray in one continuous close pass. Keep the cloth’s linen detail, the tool’s soft contact and the worked patch changing together, and the final detail (into a tray) readable; stop when the thread ends is fully contained inside a tray and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the linen work cloth, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing thread ends into a tray. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "39/18",
+      "profile": "hatmaker's ribbon spooling",
+      "profileIndex": 38,
+      "ordinal": 18,
+      "tupleIndex": 17,
+      "episodeObject": "a padded chair cushion",
+      "mechanism": "lifting the chair cushion onto the empty fitting chair",
+      "currentEvidenceLens": "Follow the padded chair cushion from its starting position through lifting the chair cushion onto the empty fitting chair in a single steady view. Keep the cushion’s visible edge and the final detail (onto the empty fitting chair) visible; hold when the chair cushion fully clears its starting point and pauses clear of every surrounding surface.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "Clearing the starting point does not verify that the lifted cushion arrives on the fitting chair.",
+      "recommendedEvidenceLens": "Keep the padded chair cushion, the working hand, and every indispensable changed point in one continuous quiet frame throughout lifting the chair cushion onto the empty fitting chair. Show the cushion lifted clear and placed squarely on the empty fitting chair, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "39/19",
+      "profile": "hatmaker's ribbon spooling",
+      "profileIndex": 38,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a glass display key",
+      "mechanism": "placing the glass display key beneath the wall-hook label",
+      "currentEvidenceLens": "Frame the glass display key with its destination before placing the glass display key beneath the wall-hook label. Stay uncut through the muted transfer, keeping the key’s glass detail and the final detail (beneath the wall-hook label) visible until the final placement of the glass display key is fully beneath the wall-hook label and remains stable after release.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“glass display” describes the display served by the key, not the key material.",
+      "recommendedEvidenceLens": "Keep the glass display key, the working hand, and every indispensable changed point in one continuous quiet frame throughout placing the glass display key beneath the wall-hook label. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "40/1",
+      "profile": "tailor's button-card sorting",
+      "profileIndex": 39,
+      "ordinal": 1,
+      "tupleIndex": 0,
+      "episodeObject": "a card of pearl buttons",
+      "mechanism": "sorting it into the cream drawer",
+      "currentEvidenceLens": "Use a steady overhead view for sorting it into the cream drawer, with the card of pearl buttons never leaving frame. Let the buttons’ pearl detail, each quiet contact, and the ordered detail (into the cream drawer) establish the result; finish when the named categories are visibly separate and every item remains in its correct group.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "A single button card filed into one drawer is misread as a multi-category sorting result.",
+      "recommendedEvidenceLens": "Keep the card of pearl buttons, the working hand, and every indispensable changed point in one continuous quiet frame throughout sorting it into the cream drawer. Show the pearl-button card fully inside the cream drawer behind its matching divider, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "41/14",
+      "profile": "puppet-theater costume mending",
+      "profileIndex": 40,
+      "ordinal": 14,
+      "tupleIndex": 13,
+      "episodeObject": "a puppet hat ribbon",
+      "mechanism": "fastening it in a flat bow",
+      "currentEvidenceLens": "Keep the puppet hat ribbon, working hand, and closure point together throughout fastening it in a flat bow. Let the ribbon’s visible edge, the subdued closure sound, and the closure detail (in a flat bow) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "A flat bow is evaluated as a fitted closed edge rather than by its knot, loops, and released tension.",
+      "recommendedEvidenceLens": "Keep the puppet hat ribbon, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening it in a flat bow. Show the bow’s center knot lying flat, both loops visible, and the ribbon holding after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "41/17",
+      "profile": "puppet-theater costume mending",
+      "profileIndex": 40,
+      "ordinal": 17,
+      "tupleIndex": 16,
+      "episodeObject": "a linen work mat",
+      "mechanism": "brushing thread ends into the scrap cup",
+      "currentEvidenceLens": "Follow the linen work mat through brushing thread ends into the scrap cup in one continuous close pass. Keep the mat’s linen detail, the tool’s soft contact and the worked patch changing together, and the final detail (into the scrap cup) readable; stop when the thread ends is fully contained inside the scrap cup and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the linen work mat, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing thread ends into the scrap cup. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "42/18",
+      "profile": "dollhouse repair bench",
+      "profileIndex": 41,
+      "ordinal": 18,
+      "tupleIndex": 17,
+      "episodeObject": "a magnifier stand",
+      "mechanism": "folding its arm over the bench",
+      "currentEvidenceLens": "Watch the magnifier stand change shape in one unbroken side view during folding its arm over the bench. Preserve the stand’s visible edge, the subdued contact sound, and the final detail (over the bench); hold until the magnifier stand’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "A hinged magnifier arm is evaluated with cloth edges and a crease rather than the arm joint and folded endpoint.",
+      "recommendedEvidenceLens": "Keep the magnifier stand, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding its arm over the bench. Show the magnifier arm folded at its joint over the bench and held at its resting stop, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "43/3",
+      "profile": "music-library score shelving",
+      "profileIndex": 42,
+      "ordinal": 3,
+      "tupleIndex": 2,
+      "episodeObject": "a wooden score cart",
+      "mechanism": "rolling it beside the catalog desk",
+      "currentEvidenceLens": "Watch the wooden score cart change shape in one unbroken side view during rolling it beside the catalog desk. Preserve the cart’s wood detail, the subdued contact sound, and the final detail (beside the catalog desk); hold until the finished roll keeps its compact shape without a supporting hand.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "Rolling a wheeled score cart beside a desk is misread as creating a compact roll.",
+      "recommendedEvidenceLens": "Keep the wooden score cart, the working hand, and every indispensable changed point in one continuous quiet frame throughout rolling it beside the catalog desk. Show the cart roll beside the catalog desk, stop at the marked parking point, and remain still, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "43/14",
+      "profile": "music-library score shelving",
+      "profileIndex": 42,
+      "ordinal": 14,
+      "tupleIndex": 13,
+      "episodeObject": "a stack of program sheets",
+      "mechanism": "folding them along the center line",
+      "currentEvidenceLens": "Watch the stack of program sheets change shape in one unbroken side view during folding them along the center line. Preserve the sheets’ visible edge, the subdued contact sound, and the final detail (along the center line); hold until the stack of program sheets’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The completion appends a singular possessive to an already plural noun phrase.",
+      "recommendedEvidenceLens": "Keep the stack of program sheets, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding them along the center line. Show the actually folded part with its edges aligned and its crease or fold holding after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "43/15",
+      "profile": "music-library score shelving",
+      "profileIndex": 42,
+      "ordinal": 15,
+      "tupleIndex": 14,
+      "episodeObject": "a wooden book cradle",
+      "mechanism": "folding the wooden book cradle after the folio is shelved",
+      "currentEvidenceLens": "Watch the wooden book cradle change shape in one unbroken side view during folding the wooden book cradle after the folio is shelved. Preserve the cradle’s wood detail, the subdued contact sound, and the final detail (after the folio is shelved); hold until the wooden book cradle’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "A wooden book cradle is evaluated with cloth edges and a crease rather than its folding hinges.",
+      "recommendedEvidenceLens": "Keep the wooden book cradle, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding the wooden book cradle after the folio is shelved. Show both cradle supports folded at their hinges and lying flat after the folio is shelved, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "43/17",
+      "profile": "music-library score shelving",
+      "profileIndex": 42,
+      "ordinal": 17,
+      "tupleIndex": 16,
+      "episodeObject": "a green desk lamp",
+      "mechanism": "fastening the green desk-lamp swivel beside the catalog",
+      "currentEvidenceLens": "Keep the green desk lamp, working hand, and closure point together throughout fastening the green desk-lamp swivel beside the catalog. Let the lamp’s visible edge, the subdued closure sound, and the closure detail (beside the catalog) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The generic fitted-edge completion does not show the desk-lamp swivel locked at a useful angle.",
+      "recommendedEvidenceLens": "Keep the green desk lamp, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening the green desk-lamp swivel beside the catalog. Show the swivel visibly tightened and the lamp remaining aimed beside the catalog after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "43/19",
+      "profile": "music-library score shelving",
+      "profileIndex": 42,
+      "ordinal": 19,
+      "tupleIndex": 18,
+      "episodeObject": "a cabinet key",
+      "mechanism": "turning the cabinet-key label forward on the librarian ring",
+      "currentEvidenceLens": "Follow the cabinet key from its starting position through turning the cabinet-key label forward on the librarian ring in a single steady view. Keep the key’s visible edge and the final detail (on the librarian ring) visible; hold when the cabinet-key label forward reaches on the librarian ring and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The parser produces “label forward reaches on”, which is not a grammatical orientation completion.",
+      "recommendedEvidenceLens": "Keep the cabinet key, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the cabinet-key label forward on the librarian ring. Show the cabinet-key label facing forward while the key remains on the librarian ring, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "44/11",
+      "profile": "violin-workshop bow resting",
+      "profileIndex": 43,
+      "ordinal": 11,
+      "tupleIndex": 10,
+      "episodeObject": "a tiny screw tray",
+      "mechanism": "closing the lidded screw cups after the repair count",
+      "currentEvidenceLens": "Keep the tiny screw tray, working hand, and closure point together throughout closing the lidded screw cups after the repair count. Let the tray’s visible edge, the subdued closure sound, and the closure detail (after the repair count) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "Closing several screw cups is collapsed to one generic fitted edge, so completion of every lid is not established.",
+      "recommendedEvidenceLens": "Keep the tiny screw tray, the working hand, and every indispensable changed point in one continuous quiet frame throughout closing the lidded screw cups after the repair count. Show every screw-cup lid visibly seated flush and all cups remaining closed, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "44/14",
+      "profile": "violin-workshop bow resting",
+      "profileIndex": 43,
+      "ordinal": 14,
+      "tupleIndex": 13,
+      "episodeObject": "a padded violin cradle",
+      "mechanism": "folding its support arms inward",
+      "currentEvidenceLens": "Watch the padded violin cradle change shape in one unbroken side view during folding its support arms inward. Preserve the cradle’s visible edge, the subdued contact sound, and the final detail (its support arms inward); hold until the padded violin cradle’s worked edges meet, the crease lies flat, and the released fold holds.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "A padded violin cradle is evaluated with cloth edges and a crease rather than its folding support arms.",
+      "recommendedEvidenceLens": "Keep the padded violin cradle, the working hand, and every indispensable changed point in one continuous quiet frame throughout folding its support arms inward. Show both support arms folded inward at their hinges and resting inside the cradle outline, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "45/2",
+      "profile": "piano-room music-roll filing",
+      "profileIndex": 44,
+      "ordinal": 2,
+      "tupleIndex": 1,
+      "episodeObject": "a labeled roll box",
+      "mechanism": "sliding the closed roll inside",
+      "currentEvidenceLens": "Frame the labeled roll box with its destination before sliding the closed roll inside. Stay uncut through the muted transfer, keeping the box’s visible edge and the final detail (the closed roll inside) visible until the closed roll reaches the the closed roll inside position and stays there after release.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause.",
+      "recommendedEvidenceLens": "Keep the labeled roll box, the working hand, and every indispensable changed point in one continuous quiet frame throughout sliding the closed roll inside. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "45/10",
+      "profile": "piano-room music-roll filing",
+      "profileIndex": 44,
+      "ordinal": 10,
+      "tupleIndex": 9,
+      "episodeObject": "a felt piano cover",
+      "mechanism": "fastening the felt piano cover beneath the closed keyboard lip",
+      "currentEvidenceLens": "Keep the felt piano cover, working hand, and closure point together throughout fastening the felt piano cover beneath the closed keyboard lip. Let the cover’s felt detail, the subdued closure sound, and the closure detail (beneath the closed keyboard lip) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves. Let the felt piano cover follow the closed keyboard’s full front edge without a ridge.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The generic closure plus ridge sentence does not directly show the cover fastened beneath the keyboard lip.",
+      "recommendedEvidenceLens": "Keep the felt piano cover, the working hand, and every indispensable changed point in one continuous quiet frame throughout fastening the felt piano cover beneath the closed keyboard lip. Show the cover’s fastening points visibly secured beneath the keyboard lip and the full front edge lying smooth, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "45/12",
+      "profile": "piano-room music-roll filing",
+      "profileIndex": 44,
+      "ordinal": 12,
+      "tupleIndex": 11,
+      "episodeObject": "a cotton dust brush",
+      "mechanism": "dusting the cabinet ledge into a folded paper catch",
+      "currentEvidenceLens": "Follow the cotton dust brush through dusting the cabinet ledge into a folded paper catch in one continuous close pass. Keep the brush’s cotton detail, the tool’s soft contact and the worked patch changing together, and the final detail (into a folded paper catch) readable; stop when the cabinet ledge is fully contained inside a folded paper catch and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "The lens claims the cabinet ledge itself is contained in the paper catch instead of the dust removed from it.",
+      "recommendedEvidenceLens": "Keep the cotton dust brush, the working hand, and every indispensable changed point in one continuous quiet frame throughout dusting the cabinet ledge into a folded paper catch. Show all dust brushed from the cabinet ledge and visibly contained inside the folded paper catch, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "45/15",
+      "profile": "piano-room music-roll filing",
+      "profileIndex": 44,
+      "ordinal": 15,
+      "tupleIndex": 14,
+      "episodeObject": "a brass lamp key",
+      "mechanism": "turning the shade toward the floor",
+      "currentEvidenceLens": "Follow the brass lamp key from its starting position through turning the shade toward the floor in a single steady view. Keep the key’s brass detail and the final detail (shade toward the floor) visible; hold when the shade reaches at the floor and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the brass lamp key, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the shade toward the floor. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "46/5",
+      "profile": "florist's night bouquet wrapping",
+      "profileIndex": 45,
+      "ordinal": 5,
+      "tupleIndex": 4,
+      "episodeObject": "a wooden stem tray",
+      "mechanism": "brushing clipped leaves into compost",
+      "currentEvidenceLens": "Follow the wooden stem tray through brushing clipped leaves into compost in one continuous close pass. Keep the tray’s wood detail, the tool’s soft contact and the worked patch changing together, and the final detail (into compost) readable; stop when the clipped leaves is fully contained inside compost and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the wooden stem tray, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing clipped leaves into compost. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "46/7",
+      "profile": "florist's night bouquet wrapping",
+      "profileIndex": 45,
+      "ordinal": 7,
+      "tupleIndex": 6,
+      "episodeObject": "a brass label holder",
+      "mechanism": "sliding tomorrow's flower card inside",
+      "currentEvidenceLens": "Frame the brass label holder with its destination before sliding tomorrow's flower card inside. Stay uncut through the muted transfer, keeping the holder’s brass detail and the final detail (tomorrow's flower card inside) visible until the tomorrow's flower card reaches the tomorrow's flower card inside position and stays there after release.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause.",
+      "recommendedEvidenceLens": "Keep the brass label holder, the working hand, and every indispensable changed point in one continuous quiet frame throughout sliding tomorrow's flower card inside. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "46/11",
+      "profile": "florist's night bouquet wrapping",
+      "profileIndex": 45,
+      "ordinal": 11,
+      "tupleIndex": 10,
+      "episodeObject": "a basket of dried petals",
+      "mechanism": "sorting pale petals into a sachet",
+      "currentEvidenceLens": "Use a steady overhead view for sorting pale petals into a sachet, with the basket of dried petals never leaving frame. Let the petals’ visible edge, each quiet contact, and the ordered detail (into a sachet) establish the result; finish when the named categories are visibly separate and every item remains in its correct group.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "Pale petals placed into one sachet are misread as multiple categories that must remain separate.",
+      "recommendedEvidenceLens": "Keep the basket of dried petals, the working hand, and every indispensable changed point in one continuous quiet frame throughout sorting pale petals into a sachet. Show all selected pale petals visibly inside the sachet and no loose petal left in the basket, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "46/18",
+      "profile": "florist's night bouquet wrapping",
+      "profileIndex": 45,
+      "ordinal": 18,
+      "tupleIndex": 17,
+      "episodeObject": "a glass cabinet key",
+      "mechanism": "threading the glass cabinet-key ring onto the wall peg",
+      "currentEvidenceLens": "Begin with the glass cabinet key and its exact working point together, then remain uncut through threading the glass cabinet-key ring onto the wall peg. Keep the key’s glass detail, the exact contact point and its restrained sound, and the final detail (onto the wall peg) visible; finish when the end emerges through the named opening and lies still on the far side.",
+      "failureTypes": [
+        "action",
+        "completion",
+        "material"
+      ],
+      "reason": "“glass cabinet” describes the cabinet served by the key, not the key material. A key ring placed onto a peg is treated as a thread end emerging through an opening and lying on a far side.",
+      "recommendedEvidenceLens": "Keep the glass cabinet key, the working hand, and every indispensable changed point in one continuous quiet frame throughout threading the glass cabinet-key ring onto the wall peg. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint; also show the key ring fully around the wall peg and the key hanging still after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "47/1",
+      "profile": "spice-shop jar labeling",
+      "profileIndex": 46,
+      "ordinal": 1,
+      "tupleIndex": 0,
+      "episodeObject": "a cinnamon jar",
+      "mechanism": "turning its paper label toward the aisle",
+      "currentEvidenceLens": "Follow the cinnamon jar from its starting position through turning its paper label toward the aisle in a single steady view. Keep the jar’s visible edge and the final detail (label toward the aisle) visible; hold when the cinnamon jar paper label reaches at the aisle and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the cinnamon jar, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning its paper label toward the aisle. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "47/10",
+      "profile": "spice-shop jar labeling",
+      "profileIndex": 46,
+      "ordinal": 10,
+      "tupleIndex": 9,
+      "episodeObject": "a linen counter cloth",
+      "mechanism": "brushing a few seeds into compost",
+      "currentEvidenceLens": "Follow the linen counter cloth through brushing a few seeds into compost in one continuous close pass. Keep the cloth’s linen detail, the tool’s soft contact and the worked patch changing together, and the final detail (into compost) readable; stop when a few seeds is fully contained inside compost and the tool lifts from the cleared path.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "A plural debris phrase is paired with singular “is”.",
+      "recommendedEvidenceLens": "Keep the linen counter cloth, the working hand, and every indispensable changed point in one continuous quiet frame throughout brushing a few seeds into compost. Show all named debris visibly contained in the destination and the cleared path visible when the tool lifts, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "48/2",
+      "profile": "coastal weather-log copying",
+      "profileIndex": 47,
+      "ordinal": 2,
+      "tupleIndex": 1,
+      "episodeObject": "a brass barometer card",
+      "mechanism": "copying the current barometer date onto the brass card",
+      "currentEvidenceLens": "Hold the brass barometer card, writing point, and reference in one frame during copying the current barometer date onto the brass card. Preserve the card’s brass detail, the faint stroke sound, and the written detail (onto the brass card); end only when the intended mark is legible and the writing point lifts cleanly.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“brass barometer” describes the instrument associated with the card; pencil writing also does not support a brass card.",
+      "recommendedEvidenceLens": "Keep the brass barometer card, the working hand, and every indispensable changed point in one continuous quiet frame throughout copying the current barometer date onto the brass card. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "48/9",
+      "profile": "coastal weather-log copying",
+      "profileIndex": 47,
+      "ordinal": 9,
+      "tupleIndex": 8,
+      "episodeObject": "a small station clock",
+      "mechanism": "winding it after the final entry",
+      "currentEvidenceLens": "Watch the small station clock change shape in one unbroken side view during winding it after the final entry. Preserve the clock’s visible edge, the subdued contact sound, and the final detail (after the final entry); hold until the finished roll keeps its compact shape without a supporting hand.",
+      "failureTypes": [
+        "action",
+        "completion"
+      ],
+      "reason": "Winding a station clock is misclassified as making a compact roll.",
+      "recommendedEvidenceLens": "Keep the small station clock, the working hand, and every indispensable changed point in one continuous quiet frame throughout winding it after the final entry. Show one deliberate winding turn complete, the key stopped, and the station clock resting unchanged, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "48/10",
+      "profile": "coastal weather-log copying",
+      "profileIndex": 47,
+      "ordinal": 10,
+      "tupleIndex": 9,
+      "episodeObject": "a glass rain-measure card",
+      "mechanism": "noting the settled mark in pencil",
+      "currentEvidenceLens": "Hold the glass rain-measure card, writing point, and reference in one frame during noting the settled mark in pencil. Preserve the card’s glass detail, the faint stroke sound, and the written detail (settled mark in pencil); end only when the intended mark is legible and the writing point lifts cleanly.",
+      "failureTypes": [
+        "material"
+      ],
+      "reason": "“glass rain measure” describes the instrument associated with the card, not the card material.",
+      "recommendedEvidenceLens": "Keep the glass rain-measure card, the working hand, and every indispensable changed point in one continuous quiet frame throughout noting the settled mark in pencil. Show the object’s visible edge without inventing a material from its compound name, the complete action, and its observable endpoint, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "48/18",
+      "profile": "coastal weather-log copying",
+      "profileIndex": 47,
+      "ordinal": 18,
+      "tupleIndex": 17,
+      "episodeObject": "a drawer of index cards",
+      "mechanism": "filing the final date card",
+      "currentEvidenceLens": "Frame the drawer of index cards with its destination before filing the final date card. Stay uncut through the muted transfer, keeping the cards’ visible edge and the final detail (the final date card) visible until the final date card reaches the the final date card position and stays there after release.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "The transfer parser converts an action phrase into a malformed “reaches the … position” clause.",
+      "recommendedEvidenceLens": "Keep the drawer of index cards, the working hand, and every indispensable changed point in one continuous quiet frame throughout filing the final date card. Show the moved item fully at, inside, beneath, or behind the literal destination named in the mechanism and stable after release, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "49/20",
+      "profile": "woodland visitor-guide filing",
+      "profileIndex": 48,
+      "ordinal": 20,
+      "tupleIndex": 19,
+      "episodeObject": "a door sign token",
+      "mechanism": "turning the welcome token face-down in the guide-desk tray",
+      "currentEvidenceLens": "Follow the door sign token from its starting position through turning the welcome token face-down in the guide-desk tray in a single steady view. Keep the token’s visible edge and the final detail (in the guide-desk tray) visible; hold when the welcome token face-down reaches in the guide-desk tray and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The parser produces “token face-down reaches in”, which is not a grammatical placement completion.",
+      "recommendedEvidenceLens": "Keep the door sign token, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning the welcome token face-down in the guide-desk tray. Show the welcome token lying face-down and stable inside the guide-desk tray, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "50/4",
+      "profile": "porcelain brush-rack closing",
+      "profileIndex": 49,
+      "ordinal": 4,
+      "tupleIndex": 3,
+      "episodeObject": "a row of paint cups",
+      "mechanism": "closing each cup with a fitted lid",
+      "currentEvidenceLens": "Keep the row of paint cups, working hand, and closure point together throughout closing each cup with a fitted lid. Let the cups’ visible edge, the subdued closure sound, and the closure detail (with a fitted lid) remain clear, then hold when the fitted edge sits flush and remains closed after the hand leaves.",
+      "failureTypes": [
+        "completion",
+        "grammar"
+      ],
+      "reason": "Multiple cups and lids are reduced to singular “the fitted edge”, so completion of each closure is not established.",
+      "recommendedEvidenceLens": "Keep the row of paint cups, the working hand, and every indispensable changed point in one continuous quiet frame throughout closing each cup with a fitted lid. Show each fitted lid visibly seated flush on its own cup and every cup remaining closed, then hold after the hands withdraw."
+    },
+    {
+      "coordinate": "50/12",
+      "profile": "porcelain brush-rack closing",
+      "profileIndex": 49,
+      "ordinal": 12,
+      "tupleIndex": 11,
+      "episodeObject": "a wooden banding wheel",
+      "mechanism": "turning it to the resting mark",
+      "currentEvidenceLens": "Follow the wooden banding wheel from its starting position through turning it to the resting mark in a single steady view. Keep the wheel’s wood detail and the final detail (to the resting mark) visible; hold when the wooden banding wheel reaches at the resting mark and remains motionless after release.",
+      "failureTypes": [
+        "grammar"
+      ],
+      "reason": "The generated completion uses the invalid construction “reaches at”.",
+      "recommendedEvidenceLens": "Keep the wooden banding wheel, the working hand, and every indispensable changed point in one continuous quiet frame throughout turning it to the resting mark. Show the complete movement from its starting position to the destination or orientation named in the action, followed by a stable released endpoint, then hold after the hands withdraw."
+    }
+  ],
+  "collisionGroups": [
+    {
+      "id": "C01",
+      "normalizedCore": "linen desk blotter smoothed under a closed record",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "30/6",
+          "profile": "canal lockhouse ledger closing",
+          "ordinal": 6,
+          "current": {
+            "episodeObject": "a linen desk blotter",
+            "mechanism": "smoothing it beneath the closed ledger"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a linen desk blotter",
+            "mechanism": "smoothing it beneath the closed ledger"
+          }
+        },
+        {
+          "coordinate": "48/8",
+          "profile": "coastal weather-log copying",
+          "ordinal": 8,
+          "current": {
+            "episodeObject": "a linen desk blotter",
+            "mechanism": "smoothing it below the closed log"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a cork weather-log weight",
+            "mechanism": "centering it over the closed log ties without covering the final entry"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C02",
+      "normalizedCore": "folded map/chart placed inside the same desk drawer",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "30/3",
+          "profile": "canal lockhouse ledger closing",
+          "ordinal": 3,
+          "current": {
+            "episodeObject": "a folded lock map",
+            "mechanism": "placing it inside the desk drawer"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a folded lock map",
+            "mechanism": "placing it inside the desk drawer"
+          }
+        },
+        {
+          "coordinate": "48/4",
+          "profile": "coastal weather-log copying",
+          "ordinal": 4,
+          "current": {
+            "episodeObject": "a folded cloud chart",
+            "mechanism": "placing it inside the desk drawer"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a cloud-chart ribbon",
+            "mechanism": "looping it once around the folded cloud chart before shelving it upright"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C03",
+      "normalizedCore": "measuring tool returned or slid into a narrow/felt sleeve",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "20/17",
+          "profile": "letterpress type return",
+          "ordinal": 17,
+          "current": {
+            "episodeObject": "a type-high gauge",
+            "mechanism": "sliding it into its felt sleeve"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a type-high gauge",
+            "mechanism": "sliding it into its felt sleeve"
+          }
+        },
+        {
+          "coordinate": "35/14",
+          "profile": "calligrapher's desk closing",
+          "ordinal": 14,
+          "current": {
+            "episodeObject": "a brass ruler",
+            "mechanism": "returning it to its narrow sleeve"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "an ink-line straightedge",
+            "mechanism": "wiping one dry ink fleck from its edge above the scrap cloth"
+          }
+        },
+        {
+          "coordinate": "36/11",
+          "profile": "paper studio sheet pressing",
+          "ordinal": 11,
+          "current": {
+            "episodeObject": "a brass sheet gauge",
+            "mechanism": "sliding it into its felt case"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a deckle-width gauge",
+            "mechanism": "comparing its center notch with the dried sheet edge"
+          }
+        },
+        {
+          "coordinate": "48/11",
+          "profile": "coastal weather-log copying",
+          "ordinal": 11,
+          "current": {
+            "episodeObject": "a brass ruler",
+            "mechanism": "sliding it into its felt sleeve"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a tide-line divider",
+            "mechanism": "setting its two points against the chart’s high- and low-water marks"
+          }
+        },
+        {
+          "coordinate": "50/9",
+          "profile": "porcelain brush-rack closing",
+          "ordinal": 9,
+          "current": {
+            "episodeObject": "a brass brush gauge",
+            "mechanism": "returning it to its felt sleeve"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a brush-spacing template",
+            "mechanism": "placing it behind the cleaned rack to check the open grooves"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C04",
+      "normalizedCore": "needle case with needles returned to cloth slots",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "6/4",
+          "profile": "snowy cottage mending",
+          "ordinal": 4,
+          "current": {
+            "episodeObject": "a bone needle case",
+            "mechanism": "returning each blunt needle to its cloth slot"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a bone needle case",
+            "mechanism": "returning each blunt needle to its cloth slot"
+          }
+        },
+        {
+          "coordinate": "41/12",
+          "profile": "puppet-theater costume mending",
+          "ordinal": 12,
+          "current": {
+            "episodeObject": "a blunt needle case",
+            "mechanism": "returning needles to cloth slots"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a paper threader sleeve",
+            "mechanism": "sliding the blunt threader behind its stitched label"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C05",
+      "normalizedCore": "letter placed behind a street label/card in pigeonholes",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "12/5",
+          "profile": "village letter delivery",
+          "ordinal": 5,
+          "current": {
+            "episodeObject": "a wooden sorting pigeonhole",
+            "mechanism": "placing one letter behind its street label"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a wooden sorting pigeonhole",
+            "mechanism": "placing one letter behind its street label"
+          }
+        },
+        {
+          "coordinate": "28/10",
+          "profile": "small-town post office stamp sorting",
+          "ordinal": 10,
+          "current": {
+            "episodeObject": "a row of pigeonholes",
+            "mechanism": "placing the last letter behind its street card"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a route-sorting rail",
+            "mechanism": "clipping the last letter beneath its district tab"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C06",
+      "normalizedCore": "dust brush sweeping one empty shelf",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "3/8",
+          "profile": "library book return",
+          "ordinal": 8,
+          "current": {
+            "episodeObject": "a dusting brush",
+            "mechanism": "sweeping one empty shelf from back edge to front"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a dusting brush",
+            "mechanism": "sweeping one empty shelf from back edge to front"
+          }
+        },
+        {
+          "coordinate": "49/8",
+          "profile": "woodland visitor-guide filing",
+          "ordinal": 8,
+          "current": {
+            "episodeObject": "a soft dust brush",
+            "mechanism": "sweeping one empty display shelf"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a brochure-rack groove brush",
+            "mechanism": "clearing one dry leaf fragment from the lowest rack groove"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C07",
+      "normalizedCore": "morning door sign slid into a bracket/holder",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "32/19",
+          "profile": "railway waiting-room tidying",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a wooden door sign",
+            "mechanism": "sliding the morning sign into the outer door bracket"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a wooden door sign",
+            "mechanism": "sliding the morning sign into the outer door bracket"
+          }
+        },
+        {
+          "coordinate": "46/20",
+          "profile": "florist's night bouquet wrapping",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a door sign",
+            "mechanism": "sliding the morning door sign into the latch-side holder"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a reversible shop token",
+            "mechanism": "turning its painted face from closed to morning"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C08",
+      "normalizedCore": "window-covering slats tilted until contents fall dark/in shade",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "36/20",
+          "profile": "paper studio sheet pressing",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a window shade",
+            "mechanism": "tilting the window-shade slats until the paper racks fall dark"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a window shade",
+            "mechanism": "tilting the window-shade slats until the paper racks fall dark"
+          }
+        },
+        {
+          "coordinate": "47/19",
+          "profile": "spice-shop jar labeling",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a reed window blind",
+            "mechanism": "tilting the reed blind slats until the spice jars fall into shade"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a spice-jar shade card",
+            "mechanism": "comparing two jar-label colors beneath the lowered counter lamp"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C09",
+      "normalizedCore": "book row aligned by spines on a shelf",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "3/3",
+          "profile": "library book return",
+          "ordinal": 3,
+          "current": {
+            "episodeObject": "a stack of poetry books",
+            "mechanism": "aligning their spines on the lower shelf"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a stack of poetry books",
+            "mechanism": "aligning their spines on the lower shelf"
+          }
+        },
+        {
+          "coordinate": "31/4",
+          "profile": "houseboat cabin shelf settling",
+          "ordinal": 4,
+          "current": {
+            "episodeObject": "a row of paperback books",
+            "mechanism": "aligning their spines on the shelf"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a cabin bookend",
+            "mechanism": "easing it against the last paperback until the row stands upright"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C10",
+      "normalizedCore": "empty canvas sack/bag folded flat",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "28/8",
+          "profile": "small-town post office stamp sorting",
+          "ordinal": 8,
+          "current": {
+            "episodeObject": "a canvas mail sack",
+            "mechanism": "folding the empty sack along its seam"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a canvas mail sack",
+            "mechanism": "folding the empty sack along its seam"
+          }
+        },
+        {
+          "coordinate": "29/9",
+          "profile": "village inn linen folding",
+          "ordinal": 9,
+          "current": {
+            "episodeObject": "a canvas laundry bag",
+            "mechanism": "folding the empty bag flat"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a laundry-bag drawcord",
+            "mechanism": "coiling it inside the side pocket after the bag is emptied"
+          }
+        },
+        {
+          "coordinate": "33/17",
+          "profile": "sleeper-car linen arranging",
+          "ordinal": 17,
+          "current": {
+            "episodeObject": "a canvas laundry sack",
+            "mechanism": "folding it flat in the service cupboard"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a linen-service hamper liner",
+            "mechanism": "tucking its clean rim evenly over the hamper edge"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C11",
+      "normalizedCore": "steady evening reading copied onto a record",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "22/7",
+          "profile": "museum textile cover round",
+          "ordinal": 7,
+          "current": {
+            "episodeObject": "a humidity card",
+            "mechanism": "copying the steady evening reading"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a humidity card",
+            "mechanism": "copying the steady evening reading"
+          }
+        },
+        {
+          "coordinate": "48/1",
+          "profile": "coastal weather-log copying",
+          "ordinal": 1,
+          "current": {
+            "episodeObject": "a paper weather log",
+            "mechanism": "copying the steady evening reading"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a tide-and-wind slate",
+            "mechanism": "drawing separate calm marks beside the two instrument readings"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C12",
+      "normalizedCore": "wool textile rolled beneath a paper band",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "29/17",
+          "profile": "village inn linen folding",
+          "ordinal": 17,
+          "current": {
+            "episodeObject": "a wool stair runner sample",
+            "mechanism": "rolling it beneath a paper band"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a wool stair runner sample",
+            "mechanism": "rolling it beneath a paper band"
+          }
+        },
+        {
+          "coordinate": "33/2",
+          "profile": "sleeper-car linen arranging",
+          "ordinal": 2,
+          "current": {
+            "episodeObject": "a wool travel blanket",
+            "mechanism": "rolling it beneath a paper band"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a berth blanket strap",
+            "mechanism": "threading it through the shelf buckle around the rolled blanket"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C13",
+      "normalizedCore": "cotton soft good folded inside the lower cupboard",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "38/8",
+          "profile": "cobbler's lace sorting",
+          "ordinal": 8,
+          "current": {
+            "episodeObject": "a cotton boot tree bag",
+            "mechanism": "folding it inside the lower cupboard"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a cotton boot tree bag",
+            "mechanism": "folding it inside the lower cupboard"
+          }
+        },
+        {
+          "coordinate": "47/13",
+          "profile": "spice-shop jar labeling",
+          "ordinal": 13,
+          "current": {
+            "episodeObject": "a cotton apron",
+            "mechanism": "folding it inside the lower cupboard"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a spice-apron hanging loop",
+            "mechanism": "hanging it from the inner cupboard peg"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C14",
+      "normalizedCore": "pressing cloth folded/draped over a cooling rail",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "19/11",
+          "profile": "quilt-room patch arranging",
+          "ordinal": 11,
+          "current": {
+            "episodeObject": "a linen pressing cloth",
+            "mechanism": "draping the pressing cloth across the cooling rail"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a linen pressing cloth",
+            "mechanism": "draping the pressing cloth across the cooling rail"
+          }
+        },
+        {
+          "coordinate": "40/11",
+          "profile": "tailor's button-card sorting",
+          "ordinal": 11,
+          "current": {
+            "episodeObject": "a cotton pressing cloth",
+            "mechanism": "folding the cotton pressing cloth over the cooled stand rail"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a sleeve-board cover",
+            "mechanism": "smoothing it across the cool curved board until no ridge remains"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C15",
+      "normalizedCore": "map tie wrapped around a closed map/route packet",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "9/2",
+          "profile": "riverside map folding",
+          "ordinal": 2,
+          "current": {
+            "episodeObject": "a ribbon map tie",
+            "mechanism": "wrapping the ribbon once around the closed route packet"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a ribbon map tie",
+            "mechanism": "wrapping the ribbon once around the closed route packet"
+          }
+        },
+        {
+          "coordinate": "49/4",
+          "profile": "woodland visitor-guide filing",
+          "ordinal": 4,
+          "current": {
+            "episodeObject": "a cotton map tie",
+            "mechanism": "wrapping it around the closed trail map"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a trail-map corner band",
+            "mechanism": "tucking its two ends beneath opposite map corners"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C16",
+      "normalizedCore": "lavender sachet placed between stored linens",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "11/10",
+          "profile": "observatory blanket folding",
+          "ordinal": 10,
+          "current": {
+            "episodeObject": "a lavender linen sachet",
+            "mechanism": "placing it between two stored blankets"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a lavender linen sachet",
+            "mechanism": "placing it between two stored blankets"
+          }
+        },
+        {
+          "coordinate": "29/7",
+          "profile": "village inn linen folding",
+          "ordinal": 7,
+          "current": {
+            "episodeObject": "a lavender sachet",
+            "mechanism": "placing it between fresh linens"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a cedar linen token",
+            "mechanism": "placing it on top of the folded sheet stack beside its shelf label"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C17",
+      "normalizedCore": "stool slid beneath a work/reading table",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "3/7",
+          "profile": "library book return",
+          "ordinal": 7,
+          "current": {
+            "episodeObject": "a library step stool",
+            "mechanism": "sliding the stool beneath the nearest reading table"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a library step stool",
+            "mechanism": "sliding the stool beneath the nearest reading table"
+          }
+        },
+        {
+          "coordinate": "21/19",
+          "profile": "pottery studio brush washing",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a pottery stool",
+            "mechanism": "sliding it beneath the painting table"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a potter’s stool cushion",
+            "mechanism": "turning its clean face upward on the stool"
+          }
+        },
+        {
+          "coordinate": "25/19",
+          "profile": "map-room pencil tending",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a padded clerk's stool",
+            "mechanism": "sliding it beneath the long table"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a clerk’s foot rail",
+            "mechanism": "folding it flat against the map desk"
+          }
+        },
+        {
+          "coordinate": "41/18",
+          "profile": "puppet-theater costume mending",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a padded sewing stool",
+            "mechanism": "sliding it beneath the wardrobe table"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a sewing-stool drawer",
+            "mechanism": "sliding the thread tray fully inside its felt-lined cavity"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C18",
+      "normalizedCore": "curtain rings or rollers slid to an end stop",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "3/20",
+          "profile": "library book return",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a reading-room curtain",
+            "mechanism": "sliding the final curtain ring to the rail end stop"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a reading-room curtain",
+            "mechanism": "sliding the final curtain ring to the rail end stop"
+          }
+        },
+        {
+          "coordinate": "26/19",
+          "profile": "observatory lens-cover round",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a dome curtain",
+            "mechanism": "sliding the dome curtain rollers to the service-alcove stop"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a dome-curtain hand cord",
+            "mechanism": "coiling it once on the service cleat after the curtain rests"
+          }
+        },
+        {
+          "coordinate": "43/20",
+          "profile": "music-library score shelving",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a heavy curtain",
+            "mechanism": "sliding the heavy curtain rings to the rehearsal-window stop"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a rehearsal-curtain tieback",
+            "mechanism": "fastening it around the gathered curtain edge"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C19",
+      "normalizedCore": "window shade/blind lowered across a context-substituted view",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "4/20",
+          "profile": "candle maker's last pour",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a workshop window shade",
+            "mechanism": "lowering the shade after every flame is out"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a workshop window shade",
+            "mechanism": "lowering the shade after every flame is out"
+          }
+        },
+        {
+          "coordinate": "10/19",
+          "profile": "bakery's early dough",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a bakery window shade",
+            "mechanism": "lowering the shade while the dough rests"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a bakery transom curtain",
+            "mechanism": "drawing its two panels together above the resting dough"
+          }
+        },
+        {
+          "coordinate": "13/10",
+          "profile": "teashop closing ritual",
+          "ordinal": 10,
+          "current": {
+            "episodeObject": "a reed window blind",
+            "mechanism": "lowering it over the moonlit glass"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a tea-window paper screen",
+            "mechanism": "sliding it sideways into its night track"
+          }
+        },
+        {
+          "coordinate": "17/20",
+          "profile": "bookbinder's paste-brush cleanup",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a window shade cord",
+            "mechanism": "lowering the shade over the closed press"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a press-room shutter latch",
+            "mechanism": "turning it until the wooden shutter sits closed"
+          }
+        },
+        {
+          "coordinate": "28/19",
+          "profile": "small-town post office stamp sorting",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a green window blind",
+            "mechanism": "lowering it across the empty lobby"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a lobby-curtain hem weight",
+            "mechanism": "centering it along the lowered curtain edge"
+          }
+        },
+        {
+          "coordinate": "35/17",
+          "profile": "calligrapher's desk closing",
+          "ordinal": 17,
+          "current": {
+            "episodeObject": "a bamboo blind cord",
+            "mechanism": "lowering the blind across the window"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a calligraphy window screen",
+            "mechanism": "folding its hinged panels across the window"
+          }
+        },
+        {
+          "coordinate": "38/20",
+          "profile": "cobbler's lace sorting",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a window shade",
+            "mechanism": "lowering it across the displayed shoes"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a shoe-display curtain tie",
+            "mechanism": "releasing it so the two curtain panels meet"
+          }
+        },
+        {
+          "coordinate": "46/19",
+          "profile": "florist's night bouquet wrapping",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a shop-window shade",
+            "mechanism": "lowering it across the arranged flowers"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a florist window screen",
+            "mechanism": "unfolding its paper panels in front of the bouquets"
+          }
+        },
+        {
+          "coordinate": "49/19",
+          "profile": "woodland visitor-guide filing",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a green window shade",
+            "mechanism": "lowering it across the forest view"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a visitor-room shutter",
+            "mechanism": "swinging it inward until the forest reflection disappears"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C20",
+      "normalizedCore": "lamp shade/hood turned toward or away from a context noun",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "5/7",
+          "profile": "quiet ferry crossing",
+          "ordinal": 7,
+          "current": {
+            "episodeObject": "a cabin lantern shade",
+            "mechanism": "turning the shade toward the table rather than the windows"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a cabin lantern shade",
+            "mechanism": "turning the shade toward the table rather than the windows"
+          }
+        },
+        {
+          "coordinate": "22/19",
+          "profile": "museum textile cover round",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a low lamp shade",
+            "mechanism": "turning it away from the resting textiles"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a gallery lamp setting card",
+            "mechanism": "sliding it beneath the lamp to confirm the low-light mark"
+          }
+        },
+        {
+          "coordinate": "25/20",
+          "profile": "map-room pencil tending",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a green lamp shade",
+            "mechanism": "turning it toward the closed pencil rack"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a pencil-rack lamp baffle",
+            "mechanism": "lowering its small flap until the rack edge falls dim"
+          }
+        },
+        {
+          "coordinate": "26/7",
+          "profile": "observatory lens-cover round",
+          "ordinal": 7,
+          "current": {
+            "episodeObject": "a red lamp shade",
+            "mechanism": "turning it toward the floor before covering it"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a red lamp chimney cap",
+            "mechanism": "seating it on the cooled lamp after the lens is covered"
+          }
+        },
+        {
+          "coordinate": "27/14",
+          "profile": "planetarium seat-card arranging",
+          "ordinal": 14,
+          "current": {
+            "episodeObject": "a domed lamp cover",
+            "mechanism": "turning it away from the screen"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a projection-room lamp hood",
+            "mechanism": "lowering its rim until no light reaches the screen"
+          }
+        },
+        {
+          "coordinate": "30/18",
+          "profile": "canal lockhouse ledger closing",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a green lamp shade",
+            "mechanism": "turning the green lamp shade toward the ledger"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a ledger-lamp reflector",
+            "mechanism": "polishing one dull patch while the closed ledger stays visible"
+          }
+        },
+        {
+          "coordinate": "45/15",
+          "profile": "piano-room music-roll filing",
+          "ordinal": 15,
+          "current": {
+            "episodeObject": "a brass lamp key",
+            "mechanism": "turning the shade toward the floor"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a piano-lamp pull chain",
+            "mechanism": "drawing it once until the light narrows across the floor"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C21",
+      "normalizedCore": "door latch/door closed after the profile’s last task",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "2/20",
+          "profile": "moonlit garden watering",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a garden gate latch",
+            "mechanism": "closing the wooden latch after the final bed is watered"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a garden gate latch",
+            "mechanism": "closing the wooden latch after the final bed is watered"
+          }
+        },
+        {
+          "coordinate": "15/20",
+          "profile": "greenhouse seed tending",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a glasshouse door latch",
+            "mechanism": "closing it after the final bench is tended"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a glasshouse threshold brush",
+            "mechanism": "clearing the final dry soil line from the threshold"
+          }
+        },
+        {
+          "coordinate": "24/20",
+          "profile": "seed archive packet counting",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "an archive door latch",
+            "mechanism": "closing it after the cabinets are settled"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "an archive key tally card",
+            "mechanism": "marking the final cabinet key as returned"
+          }
+        },
+        {
+          "coordinate": "30/20",
+          "profile": "canal lockhouse ledger closing",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a lockhouse door latch",
+            "mechanism": "closing it after the office is settled"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a lockhouse doorstop",
+            "mechanism": "placing it on the inner shelf after the door closes"
+          }
+        },
+        {
+          "coordinate": "34/20",
+          "profile": "tea garden stone brushing",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a cedar garden door",
+            "mechanism": "closing it after the path is settled"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a cedar door pull",
+            "mechanism": "wiping one dry hand mark from its face"
+          }
+        },
+        {
+          "coordinate": "45/20",
+          "profile": "piano-room music-roll filing",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a room door latch",
+            "mechanism": "closing it after the piano rests"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a piano-room door plate",
+            "mechanism": "aligning the quiet-room card beneath its clip"
+          }
+        },
+        {
+          "coordinate": "48/20",
+          "profile": "coastal weather-log copying",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a station door latch",
+            "mechanism": "closing it after the instruments rest"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a station entry mat",
+            "mechanism": "straightening its edge after the instruments settle"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C22",
+      "normalizedCore": "ledger marks/notes the profile’s final completed unit",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "6/14",
+          "profile": "snowy cottage mending",
+          "ordinal": 14,
+          "current": {
+            "episodeObject": "a mending ledger",
+            "mechanism": "noting the completed blanket patch in pencil"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a mending ledger",
+            "mechanism": "noting the completed blanket patch in pencil"
+          }
+        },
+        {
+          "coordinate": "11/20",
+          "profile": "observatory blanket folding",
+          "ordinal": 20,
+          "current": {
+            "episodeObject": "a blanket-room ledger",
+            "mechanism": "marking the final folded stack"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a wool-stack height card",
+            "mechanism": "aligning it beside the folded stack to compare the top edge"
+          }
+        },
+        {
+          "coordinate": "16/18",
+          "profile": "clockmaker's workshop closing",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a wall-clock ledger",
+            "mechanism": "noting the last completed winding"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a clockwork winding token",
+            "mechanism": "moving it from pending to rested on the pegboard"
+          }
+        },
+        {
+          "coordinate": "18/19",
+          "profile": "weaver's moonlit thread winding",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a weaving ledger",
+            "mechanism": "noting the completed color band"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a woven color-band sample",
+            "mechanism": "filing it behind the matching dye tab"
+          }
+        },
+        {
+          "coordinate": "20/19",
+          "profile": "letterpress type return",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a print-room ledger",
+            "mechanism": "marking the edition complete in pencil"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a printed edition seal",
+            "mechanism": "pressing it gently onto the completed edition wrapper"
+          }
+        },
+        {
+          "coordinate": "21/18",
+          "profile": "pottery studio brush washing",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a studio ledger",
+            "mechanism": "noting the final washed color cup"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a washed-cup drying rail",
+            "mechanism": "placing the final color cup in its labeled ring"
+          }
+        },
+        {
+          "coordinate": "23/18",
+          "profile": "herbarium specimen filing",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a herbarium ledger",
+            "mechanism": "marking the final accession complete"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "an accession-number ribbon",
+            "mechanism": "tying it loosely around the closed specimen folder"
+          }
+        },
+        {
+          "coordinate": "26/18",
+          "profile": "observatory lens-cover round",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "an instrument ledger",
+            "mechanism": "marking the final cover secured"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a telescope-cover pegboard",
+            "mechanism": "turning the final cover token to secured"
+          }
+        },
+        {
+          "coordinate": "27/18",
+          "profile": "planetarium seat-card arranging",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a planetarium ledger",
+            "mechanism": "noting the last row checked"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a final-row seat card",
+            "mechanism": "sliding it beneath the checked-row clip"
+          }
+        },
+        {
+          "coordinate": "33/19",
+          "profile": "sleeper-car linen arranging",
+          "ordinal": 19,
+          "current": {
+            "episodeObject": "a carriage ledger",
+            "mechanism": "noting the last linen set"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a berth linen tag",
+            "mechanism": "fastening it to the completed linen stack"
+          }
+        },
+        {
+          "coordinate": "36/18",
+          "profile": "paper studio sheet pressing",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a paper studio ledger",
+            "mechanism": "marking the batch fully dry"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a dry-sheet sample strip",
+            "mechanism": "placing it inside the batch envelope"
+          }
+        },
+        {
+          "coordinate": "37/18",
+          "profile": "basket maker reed bundling",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a basket ledger",
+            "mechanism": "noting the final tied bundle"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a tied-bundle shelf token",
+            "mechanism": "hanging it from the finished reed bundle"
+          }
+        },
+        {
+          "coordinate": "41/16",
+          "profile": "puppet-theater costume mending",
+          "ordinal": 16,
+          "current": {
+            "episodeObject": "a costume ledger",
+            "mechanism": "marking the repaired cape complete"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a repaired-cape hanger card",
+            "mechanism": "clipping it to the costume hanger"
+          }
+        },
+        {
+          "coordinate": "46/14",
+          "profile": "florist's night bouquet wrapping",
+          "ordinal": 14,
+          "current": {
+            "episodeObject": "a florist ledger",
+            "mechanism": "noting the final wrapped bouquet"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a wrapped-bouquet counter token",
+            "mechanism": "moving it into the ready-vase row"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C23",
+      "normalizedCore": "ledger/notebook closed beneath a blotter, tally, or completion card",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "17/17",
+          "profile": "bookbinder's paste-brush cleanup",
+          "ordinal": 17,
+          "current": {
+            "episodeObject": "a clothbound notebook",
+            "mechanism": "closing it beneath a soft blotter"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a clothbound notebook",
+            "mechanism": "closing it beneath a soft blotter"
+          }
+        },
+        {
+          "coordinate": "13/18",
+          "profile": "teashop closing ritual",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a tea-room ledger",
+            "mechanism": "closing the tea-room ledger beneath the final pot tally"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a final pot tally",
+            "mechanism": "filing it in the tea-room ledger pocket"
+          }
+        },
+        {
+          "coordinate": "28/18",
+          "profile": "small-town post office stamp sorting",
+          "ordinal": 18,
+          "current": {
+            "episodeObject": "a post-room ledger",
+            "mechanism": "closing the post-room ledger beneath its blotting sheet"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a post-room blotting sheet",
+            "mechanism": "smoothing it across the final wet stamp entry"
+          }
+        },
+        {
+          "coordinate": "30/1",
+          "profile": "canal lockhouse ledger closing",
+          "ordinal": 1,
+          "current": {
+            "episodeObject": "a canal passage ledger",
+            "mechanism": "closing the canal-passage ledger beneath the final-entry blotter"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a canal-entry ribbon",
+            "mechanism": "tying it around the closed passage ledger"
+          }
+        },
+        {
+          "coordinate": "42/17",
+          "profile": "dollhouse repair bench",
+          "ordinal": 17,
+          "current": {
+            "episodeObject": "a miniature repair ledger",
+            "mechanism": "closing the miniature repair ledger beneath the chair-restoration card"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a chair-restoration card",
+            "mechanism": "sliding it into the miniature repair-ledger pocket"
+          }
+        },
+        {
+          "coordinate": "45/17",
+          "profile": "piano-room music-roll filing",
+          "ordinal": 17,
+          "current": {
+            "episodeObject": "a piano-room ledger",
+            "mechanism": "closing the piano-room ledger beneath the filed-roll blotter"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a roll-cabinet tally clip",
+            "mechanism": "fastening it to the final filed-roll line"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C24",
+      "normalizedCore": "inventory card ticked for the final profile item",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "28/12",
+          "profile": "small-town post office stamp sorting",
+          "ordinal": 12,
+          "current": {
+            "episodeObject": "a stamp inventory card",
+            "mechanism": "ticking the final sheet in pencil"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a stamp inventory card",
+            "mechanism": "ticking the final sheet in pencil"
+          }
+        },
+        {
+          "coordinate": "29/14",
+          "profile": "village inn linen folding",
+          "ordinal": 14,
+          "current": {
+            "episodeObject": "a linen inventory card",
+            "mechanism": "ticking the final shelf count"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a linen shelf-count bead row",
+            "mechanism": "sliding the last bead to the completed side"
+          }
+        },
+        {
+          "coordinate": "47/12",
+          "profile": "spice-shop jar labeling",
+          "ordinal": 12,
+          "current": {
+            "episodeObject": "a spice inventory card",
+            "mechanism": "ticking the final sealed jar"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a sealed-jar shelf token",
+            "mechanism": "placing it behind the final jar label"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C25",
+      "normalizedCore": "apron paired with brushing context debris into a receptacle",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "4/11",
+          "profile": "candle maker's last pour",
+          "ordinal": 11,
+          "current": {
+            "episodeObject": "a linen apron",
+            "mechanism": "brushing wax crumbs into the scrap bowl"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a linen apron",
+            "mechanism": "brushing wax crumbs into the scrap bowl"
+          }
+        },
+        {
+          "coordinate": "21/8",
+          "profile": "pottery studio brush washing",
+          "ordinal": 8,
+          "current": {
+            "episodeObject": "a cotton apron",
+            "mechanism": "brushing dry clay crumbs into the reclaim tray"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a reclaim-tray scraper",
+            "mechanism": "drawing the dry clay crumbs into the tray"
+          }
+        },
+        {
+          "coordinate": "36/10",
+          "profile": "paper studio sheet pressing",
+          "ordinal": 10,
+          "current": {
+            "episodeObject": "a cotton apron",
+            "mechanism": "brushing fibers into the reclaim basket"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a fiber-catch brush",
+            "mechanism": "sweeping loose fibers from the bench into the reclaim basket"
+          }
+        },
+        {
+          "coordinate": "37/11",
+          "profile": "basket maker reed bundling",
+          "ordinal": 11,
+          "current": {
+            "episodeObject": "a cotton apron",
+            "mechanism": "brushing reed curls into a basket"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a reed-curl scoop",
+            "mechanism": "lifting the curls into the offcut basket"
+          }
+        },
+        {
+          "coordinate": "50/6",
+          "profile": "porcelain brush-rack closing",
+          "ordinal": 6,
+          "current": {
+            "episodeObject": "a cotton apron",
+            "mechanism": "brushing dry powder into a tray"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a powder-bench brush",
+            "mechanism": "sweeping the dry pigment powder into the cleanup tray"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C26",
+      "normalizedCore": "cloth rolled around a cardboard core/tube",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "17/4",
+          "profile": "bookbinder's paste-brush cleanup",
+          "ordinal": 4,
+          "current": {
+            "episodeObject": "a linen binding cloth",
+            "mechanism": "rolling it around a cardboard core"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a linen binding cloth",
+            "mechanism": "rolling it around a cardboard core"
+          }
+        },
+        {
+          "coordinate": "33/12",
+          "profile": "sleeper-car linen arranging",
+          "ordinal": 12,
+          "current": {
+            "episodeObject": "a checked tray cloth",
+            "mechanism": "rolling it around a cardboard tube"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a tray-cloth storage sleeve",
+            "mechanism": "sliding the folded checked cloth inside"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C27",
+      "normalizedCore": "measuring tape rolled from one marked or tipped end",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "18/12",
+          "profile": "weaver's moonlit thread winding",
+          "ordinal": 12,
+          "current": {
+            "episodeObject": "a cotton measuring tape",
+            "mechanism": "rolling it from its numbered end"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a cotton measuring tape",
+            "mechanism": "rolling it from its numbered end"
+          }
+        },
+        {
+          "coordinate": "40/7",
+          "profile": "tailor's button-card sorting",
+          "ordinal": 7,
+          "current": {
+            "episodeObject": "a linen measuring tape",
+            "mechanism": "rolling it from the brass tip"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a hem-measure ribbon",
+            "mechanism": "threading its brass tip through the card slot"
+          }
+        }
+      ]
+    },
+    {
+      "id": "C28",
+      "normalizedCore": "wool blanket folded across padded seating",
+      "rationale": "After articles, materials, decorative/profile modifiers, number, and conservative object/action synonyms are removed, these coordinates retain the same object class, action path, and completion beat.",
+      "coordinates": [
+        {
+          "coordinate": "5/9",
+          "profile": "quiet ferry crossing",
+          "ordinal": 9,
+          "current": {
+            "episodeObject": "a wool passenger blanket",
+            "mechanism": "folding the blanket across the back bench"
+          },
+          "recommendationAction": "retain_anchor",
+          "recommended": {
+            "episodeObject": "a wool passenger blanket",
+            "mechanism": "folding the blanket across the back bench"
+          }
+        },
+        {
+          "coordinate": "11/1",
+          "profile": "observatory blanket folding",
+          "ordinal": 1,
+          "current": {
+            "episodeObject": "a folded wool blanket",
+            "mechanism": "folding it across the padded chair"
+          },
+          "recommendationAction": "rewrite",
+          "recommended": {
+            "episodeObject": "a blanket-corner strap",
+            "mechanism": "fastening it around the folded wool blanket on the chair"
+          }
+        }
+      ]
+    }
+  ]
+}

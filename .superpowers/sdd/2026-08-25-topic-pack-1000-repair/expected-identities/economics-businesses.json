@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.topic.economics-businesses",
+  "item_id": "com.storystudio.topic.economics-businesses",
+  "version": "1.0.1",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "topic-pack",
+  "source_path": "content-packs/free-starters/topic/economics-businesses-v1.0.1",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.topic.economics-businesses",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.topic.economics-businesses",
+      "status": "proposed"
+    }
+  }
+}

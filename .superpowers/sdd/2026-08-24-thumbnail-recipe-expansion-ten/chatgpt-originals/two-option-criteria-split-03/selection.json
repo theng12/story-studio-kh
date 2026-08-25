@@ -1,0 +1,18 @@
+{
+  "job_id": "two-option-criteria-split-03",
+  "prompt_sha256": "3ddf39266374f4f8812855502b3e7802533ba9ac6a0ce0ea2e40fa19bda8fecf",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "a943dc0be132d832e90c7ee86c24b8e0c93a72d35c2b5d479daec4ac35fdb5e3",
+  "bytes": 1626936,
+  "format": "png",
+  "dimensions": { "width": 1671, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGB decoded successfully" },
+  "attempt_count": 2,
+  "rejection_reasons": ["Attempt 1 used a black title-panel treatment."],
+  "exact_title_transcription": "LIGHT OR\nDARK FOR\nFOCUS?",
+  "headline_line_count_verdict": "PASS: three lines with exact line breaks and wording",
+  "recipe_invariant_verdict": "PASS: two same-angle desk-lamp conditions are equally presented around a neutral center cue.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)"
+}

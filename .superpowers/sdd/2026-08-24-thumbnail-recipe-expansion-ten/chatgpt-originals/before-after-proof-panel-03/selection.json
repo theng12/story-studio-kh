@@ -1,0 +1,17 @@
+{
+  "job_id": "before-after-proof-panel-03",
+  "prompt_sha256": "0b50392a28e76b86e774724ef24aee3ca3206ea1db606adc572b4da62f3dd808",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "94e8792ebea5577505a8fcbafbdef427004d48e69891d3363eb0a207a08f8574",
+  "bytes": 2169431,
+  "format": "png",
+  "dimensions": { "width": 1671, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGB decoded successfully" },
+  "attempt_count": 1,
+  "exact_title_transcription": "FROM ROUGH\nTO READY\nTO USE",
+  "headline_line_count_verdict": "PASS: three lines with exact line breaks and wording",
+  "recipe_invariant_verdict": "PASS: the wooden stool changes from unfinished to finished and usable across a clear left-to-right seam.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)"
+}

@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "numbered-lineup-01",
+  "prompt_sha256": "3c61d78f01da405636698974c7713df3e7a73a8e22506eb8a2baa3f4ba5241b2",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "948d1cbbf54885e41ab644a51a631657b53c946d732ca18e824939c215737d01",
+  "selected_file_bytes": 1909000,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 2,
+  "exact_title_transcription": "5 KINDS OF CLOUDS",
+  "line_count_verdict": "PASS — exact one unbroken line.",
+  "recipe_invariant_verdict": "PASS — five distinct cloud forms in one continuous sky scene, with native numerals 1–5 and no labels or rank.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

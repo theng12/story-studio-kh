@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+  "item_id": "com.storystudio.topic.human-behavior-social-dynamics",
+  "version": "1.0.1",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "topic-pack",
+  "source_path": "content-packs/free-starters/topic/human-behavior-social-dynamics-v1.0.1",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.topic.human-behavior-social-dynamics",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.topic.human-behavior-social-dynamics",
+      "status": "proposed"
+    }
+  }
+}

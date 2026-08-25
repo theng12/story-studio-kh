@@ -1,0 +1,140 @@
+{
+  "expected_revision": 22,
+  "coordinator": {
+    "task": "thumbnail-recipe-expansion-ten",
+    "branch": "codex/content-expansion-portfolio"
+  },
+  "proposal_ref": "docs/superpowers/specs/2026-08-24-thumbnail-recipe-expansion-ten-design.md",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
+      "item_id": "com.storystudio.thumbnail.before-after-proof-panel",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.before-after-proof-panel", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.before-after-proof-panel", "status": "proposed" } }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
+      "item_id": "com.storystudio.thumbnail.two-option-criteria-split",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.two-option-criteria-split", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.two-option-criteria-split", "status": "proposed" } }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
+      "item_id": "com.storystudio.thumbnail.reaction-evidence-inset",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.reaction-evidence-inset", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.reaction-evidence-inset", "status": "proposed" } }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
+      "item_id": "com.storystudio.thumbnail.cutaway-exploded-object",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.cutaway-exploded-object", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.cutaway-exploded-object", "status": "proposed" } }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
+      "item_id": "com.storystudio.thumbnail.hero-payoff-companion",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.hero-payoff-companion", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.hero-payoff-companion", "status": "proposed" } }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
+      "item_id": "com.storystudio.thumbnail.iconic-result-closeup",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.iconic-result-closeup", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.iconic-result-closeup", "status": "proposed" } }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
+      "item_id": "com.storystudio.thumbnail.scale-journey",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.scale-journey", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.scale-journey", "status": "proposed" } }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
+      "item_id": "com.storystudio.thumbnail.numbered-lineup",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.numbered-lineup", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.numbered-lineup", "status": "proposed" } }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
+      "item_id": "com.storystudio.thumbnail.macro-mystery-detail",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.macro-mystery-detail", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.macro-mystery-detail", "status": "proposed" } }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
+      "item_id": "com.storystudio.thumbnail.hands-on-pov-moment",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": { "family": { "id": "com.storystudio.family.thumbnail.hands-on-pov-moment", "status": "proposed" }, "sku": { "id": "com.storystudio.sku.thumbnail.hands-on-pov-moment", "status": "proposed" } }
+    }
+  ]
+}

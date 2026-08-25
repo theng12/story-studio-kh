@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "macro-mystery-detail-01",
+  "prompt_sha256": "b34c6872228e24b27ededb6969c81fdbbdb847ff2422d48f7a34e6109b5e774f",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "44a59d9fd7380f3fcf34d7455785f608e1289ad6168c3b69da93342469723dd1",
+  "selected_file_bytes": 2115087,
+  "format": "png",
+  "dimensions": { "width": 1671, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 1,
+  "exact_title_transcription": "WHAT IS THIS?",
+  "line_count_verdict": "PASS — exact one unbroken line.",
+  "recipe_invariant_verdict": "PASS — extreme sunflower-seed macro is honestly contextualized by a yellow petal at the edge, with no inset or reaction host.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

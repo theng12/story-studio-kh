@@ -1,0 +1,17 @@
+{
+  "job_id": "before-after-proof-panel-02",
+  "prompt_sha256": "baf7cdc1b3c85c711ae59bceb2289a6908bc4a22d4d2fe69b3374c06af4a797d",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "180c55e74dd66d76b880cd9a5b5a1f963c97060b51ed91cf0edcd0ee09efd226",
+  "bytes": 1831804,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode": { "verdict": "PASS", "tool": "sips", "detail": "PNG RGB decoded successfully" },
+  "attempt_count": 1,
+  "exact_title_transcription": "A DULL ROOM\nBECOMES CALM",
+  "headline_line_count_verdict": "PASS: two lines with exact line break and wording",
+  "recipe_invariant_verdict": "PASS: the same frontal room changes from cluttered/dim to tidy/daylit across a clear left-to-right seam.",
+  "originality_no_reference_declaration": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z (C2PA manifest)"
+}

@@ -1,0 +1,3244 @@
+{
+  "schema": "story-studio-returned-preview-evidence-v1",
+  "status": "accepted",
+  "batch": {
+    "path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/preview-batch.json",
+    "sha256": "3c86a096c1956c627df0407167bd45b7ca768a59003029506ade5ac058357674",
+    "job_count": 30
+  },
+  "registry": {
+    "path": "content-packs/authoring-registry.json",
+    "revision": 23,
+    "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+    "records_verified": 10,
+    "status": "reserved"
+  },
+  "conversion": {
+    "tool": "sharp",
+    "operation": "whole-image PNG to WebP only",
+    "resize": {
+      "width": 1672,
+      "height": 941,
+      "fit": "fill",
+      "kernel": "lanczos3"
+    },
+    "webp": {
+      "lossless": true,
+      "effort": 6
+    },
+    "prohibited": [
+      "crop",
+      "mask",
+      "overlay",
+      "title replacement",
+      "inpainting",
+      "region edit",
+      "compositing",
+      "creative repair"
+    ]
+  },
+  "accepted": [
+    {
+      "status": "accepted",
+      "draft_job_id": "before-after-proof-panel-01",
+      "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel/assets/before-after-proof-panel-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "afddc196f4b7c0ed60d8a0d15cf73fd75a1bfb26ae1f87b6b340910c7ca11b9e",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/before-after-proof-panel-01/selected.png",
+      "original_sha256": "28cf0c657abe429d2bb893b1276d673b6c682e9962894c5d69772f1acef31185",
+      "original_bytes": 1973300,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "3d3c9ae8012bd4ead1b39263affb0812d51f2440bbe95914da05ed8cd26c97dc",
+      "converted_bytes": 1454390,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "FROM SEED TO SPROUT",
+      "headline_line_count": 1,
+      "headline_line_count_verdict": "PASS: one line, exact wording",
+      "recipe_invariant_verdict": "PASS: same seed tray changes from bare soil to healthy sprouts across a clear left-to-right seam.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "before-after-proof-panel-02",
+      "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel/assets/before-after-proof-panel-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "baf7cdc1b3c85c711ae59bceb2289a6908bc4a22d4d2fe69b3374c06af4a797d",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/before-after-proof-panel-02/selected.png",
+      "original_sha256": "180c55e74dd66d76b880cd9a5b5a1f963c97060b51ed91cf0edcd0ee09efd226",
+      "original_bytes": 1831804,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "8bbf609fe1f9197fb828bb4a907ff4eaf49e0ac814a9e367fa59a57b16bfa25a",
+      "converted_bytes": 1328912,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "A DULL ROOM\nBECOMES CALM",
+      "headline_line_count": 2,
+      "headline_line_count_verdict": "PASS: two lines with exact line break and wording",
+      "recipe_invariant_verdict": "PASS: the same frontal room changes from cluttered/dim to tidy/daylit across a clear left-to-right seam.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "before-after-proof-panel-03",
+      "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel/assets/before-after-proof-panel-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "0b50392a28e76b86e774724ef24aee3ca3206ea1db606adc572b4da62f3dd808",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/before-after-proof-panel-03/selected.png",
+      "original_sha256": "94e8792ebea5577505a8fcbafbdef427004d48e69891d3363eb0a207a08f8574",
+      "original_bytes": 2169431,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "45200e51c5d2ae56f0ea2533c86604748238ee78317013d17acf4adeffc48710",
+      "converted_bytes": 1527708,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "FROM ROUGH\nTO READY\nTO USE",
+      "headline_line_count": 3,
+      "headline_line_count_verdict": "PASS: three lines with exact line breaks and wording",
+      "recipe_invariant_verdict": "PASS: the wooden stool changes from unfinished to finished and usable across a clear left-to-right seam.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "two-option-criteria-split-01",
+      "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split/assets/two-option-criteria-split-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "6a19caeaa8fd436338d12c778f68ef2bdcbb8a39036a66616b3b7252949087eb",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/two-option-criteria-split-01/selected.png",
+      "original_sha256": "9b2e49ace8bbd84fc055cc96a138e6057df40b10b935d31ae9cc51fb5fd92b07",
+      "original_bytes": 2408743,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "843922cfcc8af23640fb13b1377aaef4cd20f9ffd21957c638984483b7503c88",
+      "converted_bytes": 1673998,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "PAPER OR DIGITAL?",
+      "headline_line_count": 1,
+      "headline_line_count_verdict": "PASS: one line, exact wording; selected replacement contains no other legible words.",
+      "recipe_invariant_verdict": "PASS: equivalent present-time paper and a blank unbranded e-ink-like object have equal visual weight across a central divide; no recognizable device UI appears.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "two-option-criteria-split-02",
+      "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split/assets/two-option-criteria-split-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "0c8f80e5d5a223fefc632d3121dcbf3fe9318316d836ec8bb229b7f0050ade36",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/two-option-criteria-split-02/selected.png",
+      "original_sha256": "a1bec8992db1196a3b5b6d583b1e1aef21c4b00803c9c52078bbc2e163e4d19a",
+      "original_bytes": 2070413,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "0973d72df3972b9b83a708c2652d9e6bc82a661f045218b84b3d14e8f66dcdc7",
+      "converted_bytes": 1518140,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "QUIET SPACE\nOR BUSY SPACE?",
+      "headline_line_count": 2,
+      "headline_line_count_verdict": "PASS: two lines with exact line break and wording",
+      "recipe_invariant_verdict": "PASS: two equally weighted present-time chair-nook alternatives are separated by a central divide, with no winner implied.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "two-option-criteria-split-03",
+      "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split/assets/two-option-criteria-split-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "3ddf39266374f4f8812855502b3e7802533ba9ac6a0ce0ea2e40fa19bda8fecf",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/two-option-criteria-split-03/selected.png",
+      "original_sha256": "a943dc0be132d832e90c7ee86c24b8e0c93a72d35c2b5d479daec4ac35fdb5e3",
+      "original_bytes": 1626936,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "b4ca3d8aa3e27eaa0ac9dbfe51f363d5accf6a7af0a318f2f883e9ceb4f279bc",
+      "converted_bytes": 1208114,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "LIGHT OR\nDARK FOR\nFOCUS?",
+      "headline_line_count": 3,
+      "headline_line_count_verdict": "PASS: three lines with exact line breaks and wording",
+      "recipe_invariant_verdict": "PASS: two same-angle desk-lamp conditions are equally presented around a neutral center cue.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "reaction-evidence-inset-01",
+      "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset/assets/reaction-evidence-inset-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "d08d27f31131e43886deeef8015c4859a0c4989d1ff4bf70fae87aadc691f83f",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/reaction-evidence-inset-01/selected.png",
+      "original_sha256": "0c98c5a4ea46a8480c7051e50ce7725830832a2c8e715e161fb58805673b3beb",
+      "original_bytes": 2198154,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "c753af88415b5ff76875dfca653c7abba0a40e7abfdf5ee768a53b73a52955a2",
+      "converted_bytes": 1548674,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "THAT'S THE CLUE",
+      "headline_line_count": 1,
+      "headline_line_count_verdict": "PASS: one line, exact wording, comfortably inside the frame",
+      "recipe_invariant_verdict": "PASS: profile researcher gaze and pointing gesture connect to one native circular leaf-vein evidence window.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "reaction-evidence-inset-02",
+      "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset/assets/reaction-evidence-inset-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "4a4b4aa3491ae65b872662603a5dcb4d6c9ee93bcf8f2ec2aa8b1b88a02f5ee0",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/reaction-evidence-inset-02/selected.png",
+      "original_sha256": "def3c974fdd9daa6b8281d041c8d95e12525f92a1730e1c5d1b8044223429a8d",
+      "original_bytes": 1991601,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "5a9e3f9242329ec2422cf2ff4c96331805689157cba04caa9732318c52501a55",
+      "converted_bytes": 1409264,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "THE TINY DETAIL\nCHANGES EVERYTHING",
+      "headline_line_count": 2,
+      "headline_line_count_verdict": "PASS: two lines with exact line break and wording",
+      "recipe_invariant_verdict": "PASS: the baker's pointing gesture connects to one native rounded close-detail window showing risen dough texture.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "reaction-evidence-inset-03",
+      "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset/assets/reaction-evidence-inset-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "05143b4461bb8550602cd8901f559616e1ff5c6b2c958ea2b7b75fb8b60ecb01",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/reaction-evidence-inset-03/selected.png",
+      "original_sha256": "b37490d2edd19e55b0ddb5a758541d71cf6b84298ba993009bd7fe2cd515dce8",
+      "original_bytes": 3031047,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "d37b5687c12583d30eb446bd4e621fb01bee286ee488cce205bd8bb8633870ef",
+      "converted_bytes": 2131478,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "ONE SMALL\nSIGN TELLS\nTHE STORY",
+      "headline_line_count": 3,
+      "headline_line_count_verdict": "PASS: three lines with exact line breaks and wording, rendered directly against upper scene space.",
+      "recipe_invariant_verdict": "PASS: a generic mechanic gesture connects to one native rounded close-detail window containing an unbranded worn bicycle chain link in a single full-frame workshop scene.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "cutaway-exploded-object-01",
+      "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object/assets/cutaway-exploded-object-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z (C2PA manifest)",
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "26db7ee6136be4d3211abf7736b1b6eab019a991645cd46062ae5c96ac872b66",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/cutaway-exploded-object-01/selected.png",
+      "original_sha256": "ed5c34f069a58483d59d9d14b31bd58cd4d3bb53c6422fa4b326ec16d1b7f728",
+      "original_bytes": 2012012,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "c3ce800a9858c4248bb70c0fa83450f3e0afa32ef9175d504ed1c2f84aca2a15",
+      "converted_bytes": 1441708,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "INSIDE A SEED",
+      "headline_line_count": 1,
+      "headline_line_count_verdict": "PASS: one line, exact wording",
+      "recipe_invariant_verdict": "PASS: a single central botanical seed shows shell, stored food, and embryo separated in ordered depth without labels or callout-board treatment.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "cutaway-exploded-object-02",
+      "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object/assets/cutaway-exploded-object-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "a4d361eb62a84391e76ff13ce233ce8637495e5fb5933749e96360cd872e2f35",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/cutaway-exploded-object-02/selected.png",
+      "original_sha256": "7f6e89379c02397062bd86871b6b0d739bcd6bb11ac05563846ae9e75f6fdcf5",
+      "original_bytes": 1986151,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "7f6039e524471a188e44506d65f2cd1ff8dc8dc8230435bb2416524aa4937705",
+      "converted_bytes": 1439994,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "HOW A THERMOS\nKEEPS HEAT",
+      "headline_line_count": 2,
+      "recipe_invariant_verdict": "PASS (one central thermos clearly exposes ordered outer wall, vacuum gap, inner wall, and warm liquid; upper-left title space is clear)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "cutaway-exploded-object-03",
+      "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object/assets/cutaway-exploded-object-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "9b6220f11f7b9b90b7046636fee97cfc1acdd73ffb27a939fdb291d61e4a06fc",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/cutaway-exploded-object-03/selected.png",
+      "original_sha256": "f7363e63f841a87dc6539d9a722a7237f28fe019530c8feae48070afa24caf3f",
+      "original_bytes": 2092324,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "d906f47b11b4d97ef3a320d2b430aaa384380f9dfb59a6ec4ad891c02ed91acc",
+      "converted_bytes": 1478404,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "THE LAYERS\nTHAT MAKE\nA ROOF WORK",
+      "headline_line_count": 3,
+      "recipe_invariant_verdict": "PASS (one isometric roof section clearly exposes ordered shingles, membrane, insulation, and rafters; title space is upper-left)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "hero-payoff-companion-01",
+      "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion/assets/hero-payoff-companion-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "81ef046118600471009a5f2eeb16e2fe2eb2df7fe3516ca354243b052e40e5eb",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/hero-payoff-companion-01/selected.png",
+      "original_sha256": "32061c1c2370fa15e48bfdccf4c98862d61b34eb6295455123cca7073244b99d",
+      "original_bytes": 2274220,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "1d051308f1b7ce553f0c4ebddc4a3e850352d19c0d0acfd97d3f7958c41c430a",
+      "converted_bytes": 1616678,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "THE FIRST HARVEST",
+      "headline_line_count": 1,
+      "recipe_invariant_verdict": "PASS (generic kneeling gardener and a full basket of tomatoes are distinct, related anchors; posture/contact makes the payoff clear)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "hero-payoff-companion-02",
+      "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion/assets/hero-payoff-companion-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "edf2db1001bd3bd8e89490aaa5ff8e0851b0286e8e02ad3dc71e9497036127fb",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/hero-payoff-companion-02/selected.png",
+      "original_sha256": "0217ee0ddde2879c87e6fa7d60f9578c089a061b14adee2f61b9dc53e2e131d9",
+      "original_bytes": 1884789,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "0d52d8c01a687965766b732ecda324341c9dd76019b3f1b289cdc5461071c57b",
+      "converted_bytes": 1380408,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "A BETTER WAY\nTO ORGANIZE",
+      "headline_line_count": 2,
+      "recipe_invariant_verdict": "PASS (generic maker and separate finished wood wall organizer are distinct, related anchors; presenting gesture makes the payoff clear)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "hero-payoff-companion-03",
+      "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion/assets/hero-payoff-companion-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "bfbf83b72634a74b7e79a1b9764516ae2abea5ffb9798db81445dd7c76850c1d",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/hero-payoff-companion-03/selected.png",
+      "original_sha256": "12ec6a8e45ef0acf120f7e28662853d765c4f01974d5e4855dbffae09d2722a3",
+      "original_bytes": 2169402,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "bf1e1e805ba5b9bf8240f8d6b365a035620a0edf6a869bb4952f23f236b1e4d3",
+      "converted_bytes": 1574720,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "THE PLAN\nFINALLY BECOMES\nREAL",
+      "headline_line_count": 3,
+      "recipe_invariant_verdict": "PASS (generic young adult and one completed unbranded birdhouse are distinct, related anchors; gaze/posture makes the payoff clear)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "iconic-result-closeup-01",
+      "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup/assets/iconic-result-closeup-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "031713b92bfa73b5937b15028607c23292ba5f284539df2fa559c678c73ca299",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/iconic-result-closeup-01/selected.png",
+      "original_sha256": "c0ae4932e4b66909829ee9d41745425f1b06c6f0fe5d372e3436b11a86736974",
+      "original_bytes": 2471624,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "f2d72d26cfb386301ae74673e44497ca30ca89103c773e164ceefcca22236576",
+      "converted_bytes": 1801744,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "PERFECTLY PROOFED",
+      "headline_line_count": 1,
+      "recipe_invariant_verdict": "PASS (one detailed finished scored loaf fills most of the frame; bakery context is subordinate and there is no reaction host)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "iconic-result-closeup-02",
+      "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup/assets/iconic-result-closeup-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "65746a7949941087e8c243b38bec5d360dc183a4babd4cfddb88df32ecde0959",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/iconic-result-closeup-02/selected.png",
+      "original_sha256": "8f38437b19b595082a7d8f479615e2e3af7975ae3690b2e2f1570fdeedb5babb",
+      "original_bytes": 2841778,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "a639fa00693c45a06043df9a0a2cbe0cfd96fd7a4e0eda7e5865119c9a8c6a86",
+      "converted_bytes": 1993524,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "THE FINISHED\nGARDEN BED",
+      "headline_line_count": 2,
+      "recipe_invariant_verdict": "PASS (one completed raised garden bed fills the frame at a slightly elevated close angle; morning-dew detail is clear and no host appears)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "iconic-result-closeup-03",
+      "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup/assets/iconic-result-closeup-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "7a5e8ff866057f261b7f71a76ab2298d10018e44e2c0e95420d694b738fafdd0",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/iconic-result-closeup-03/selected.png",
+      "original_sha256": "970c5dd76116e6f68634de9aca7ff63dac4af9b411dff96c2f9916af266e7e90",
+      "original_bytes": 1936323,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "e8b1bd981ca9744ac108eb93f1a43c2ad4135e65d6b9174e75f51f3e435c4ca6",
+      "converted_bytes": 1343932,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "SMALL SPACE\nBIG CALM\nRESULT",
+      "headline_line_count": 3,
+      "recipe_invariant_verdict": "PASS (one finished compact reading corner fills the frame; context is minimal, no people appear, and title is in a clean upper corner)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "scale-journey-01",
+      "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey/assets/scale-journey-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "c2b49f6330caa439c68d8d81688e3736bd60d9a917d5f76b82575658d0441bb5",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/scale-journey-01/selected.png",
+      "original_sha256": "6948eb7ece83bec59406886b52c5f24f79d2aa0f2cd72ba7257372fa99043872",
+      "original_bytes": 2306910,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "7d9086cefe9f7fce2ddb9a4e1d6a8c39b94e4b7086c6075d04d357cbe8c20deb",
+      "converted_bytes": 1820716,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "FROM DOT TO FOREST",
+      "headline_line_count": 1,
+      "recipe_invariant_verdict": "PASS (exactly three related forms—seedling, young tree, mature canopy—progress continuously through one receding hill scene, with no numbered peers)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "scale-journey-02",
+      "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey/assets/scale-journey-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": null,
+      "reference_images": [],
+      "no_reference_no_compositing_attestation": "PASS — completely original generation; no reference images supplied or used.",
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "379bf4a33b1d29f1a15ede95f4259a4bd8241c4c463aa1e9b6b4da0de6d553e6",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/scale-journey-02/selected.png",
+      "original_sha256": "4c62b241147a00df11aa2113774d82f408e1abb7cc129c6d3db54ceb50d56f4a",
+      "original_bytes": 2056131,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "59b22f0e39725ee6e08bf9f865ceb46f1bbddcbd1c85c22d41b9a3396cc612e5",
+      "converted_bytes": 1482468,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "TINY STEPS\nADD UP",
+      "headline_line_count": 2,
+      "recipe_invariant_verdict": "PASS (exactly three related forms—pebble, hand-sized stone, boulder—progress continuously along one riverbank, with no numbered peers)",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": false
+      }
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "scale-journey-03",
+      "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey/assets/scale-journey-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "09a92925e9f08d9a04fb3b3359860ddc82127bb48afb39656817bde95f96d5a6",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/scale-journey-03/selected.png",
+      "original_sha256": "cecce979f25df3f5c65fc05dc2be89b6e0ac74a8a265ba291e3371408a5be0c2",
+      "original_bytes": 1940737,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "cdffb91a058b4a3570da92c444d36c35444774ae2e89a2211dc8d19d491e60d7",
+      "converted_bytes": 1405508,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "SEE THE\nWHOLE SCALE\nAT ONCE",
+      "headline_line_count": 3,
+      "recipe_invariant_verdict": "PASS — exactly three clay bowls progress through continuous diagonal studio depth; no numbered peers or navigation claim.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "numbered-lineup-01",
+      "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup/assets/numbered-lineup-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "3c61d78f01da405636698974c7713df3e7a73a8e22506eb8a2baa3f4ba5241b2",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/numbered-lineup-01/selected.png",
+      "original_sha256": "948d1cbbf54885e41ab644a51a631657b53c946d732ca18e824939c215737d01",
+      "original_bytes": 1909000,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "5695fada263f543f2dec229adb5a89e79412398c968882da2ccb995acd400c5a",
+      "converted_bytes": 1459370,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "5 KINDS OF CLOUDS",
+      "headline_line_count": 1,
+      "recipe_invariant_verdict": "PASS — five distinct cloud forms in one continuous sky scene, with native numerals 1–5 and no labels or rank.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "numbered-lineup-02",
+      "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup/assets/numbered-lineup-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "282c5ff0a3d6046c0f0c89f01ad633476ded2cf891214a8e96182d2abc56c4de",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/numbered-lineup-02/selected.png",
+      "original_sha256": "0f68466c8a42cb12858c731511be99c4ff726227ddee47c7a6ec566df64dfb29",
+      "original_bytes": 3133201,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "07b3b1f969d36bc555a1b41e881d5c48a1c8525ed35765dc6b21417d4ea209d2",
+      "converted_bytes": 2262186,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "3 TOOLS\nFOR CLEAN CUTS",
+      "headline_line_count": 2,
+      "recipe_invariant_verdict": "PASS — three unbranded garden cutting tools are an equal-status overhead lineup with correct native numerals 1–3.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "numbered-lineup-03",
+      "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup/assets/numbered-lineup-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "45e52a06b4b8880f30e06ee077298d73f9720dbe4d575383f01f90d5d97629fb",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/numbered-lineup-03/selected.png",
+      "original_sha256": "986fdaf39fb3d07190df11fdb0e8f8482a308b6c09bd7e261362460607ce3b9d",
+      "original_bytes": 2234339,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "1c481e52f1c39432f20926100e098bb8aad0497d6f0a8c6e56fd85ddb99f6bdc",
+      "converted_bytes": 1672988,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "FOUR WAYS\nTO START\nA COMPOST PILE",
+      "headline_line_count": 3,
+      "recipe_invariant_verdict": "PASS — four compost starter materials are equal-status visible entries with correct native numerals 1–4.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "macro-mystery-detail-01",
+      "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail/assets/macro-mystery-detail-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "b34c6872228e24b27ededb6969c81fdbbdb847ff2422d48f7a34e6109b5e774f",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/macro-mystery-detail-01/selected.png",
+      "original_sha256": "44a59d9fd7380f3fcf34d7455785f608e1289ad6168c3b69da93342469723dd1",
+      "original_bytes": 2115087,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "e1113000e914850b44ac482baa8b90a9f759a3054d612d1eb0e863664a7d96fa",
+      "converted_bytes": 1511698,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "WHAT IS THIS?",
+      "headline_line_count": 1,
+      "recipe_invariant_verdict": "PASS — extreme sunflower-seed macro is honestly contextualized by a yellow petal at the edge, with no inset or reaction host.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "macro-mystery-detail-02",
+      "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail/assets/macro-mystery-detail-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "7e6560b51b2ff5fe8a3d2eb11bc7bfb49d7eb671c54241c7e0fa74574a8dd55b",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/macro-mystery-detail-02/selected.png",
+      "original_sha256": "33d68a3ddcbeb4e3fe4b9877d9704536107102d8ff7e486b1f6eada8f11ec067",
+      "original_bytes": 2614781,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "da16f97615dcc545e45348f7573842ce0e706799aaeb66db35c3c1bf9f13b69f",
+      "converted_bytes": 1897020,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "LOOK CLOSER\nAT THIS LEAF",
+      "headline_line_count": 2,
+      "recipe_invariant_verdict": "PASS — macro leaf surface, dew, and branching veins have an honest small leaf clue at the far edge; no inset or reaction host.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "macro-mystery-detail-03",
+      "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail/assets/macro-mystery-detail-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "411f17be75916006c28c8f9b694f72b31c14232a25d252a96419cdd665eeb350",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/macro-mystery-detail-03/selected.png",
+      "original_sha256": "7fd46109544f1cba6c61173789ce915d14cde6bd41d6a0cc306baefea7a0bf51",
+      "original_bytes": 2944718,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "7e7ca9d146bc60361cc2425b5cc0eb6abd3ea52cd8f70dc4fa535c991c86da6e",
+      "converted_bytes": 2184276,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "THIS ISN'T\nA LANDSCAPE\nIT'S BREAD",
+      "headline_line_count": 3,
+      "recipe_invariant_verdict": "PASS — craggy bread-crust macro is honestly contextualized by the visible partial loaf edge; no false reveal or inset.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "hands-on-pov-moment-01",
+      "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment/assets/hands-on-pov-moment-1.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "41be5fc39608d79e14732abbe5e986b4f8db1e48bfb1c0a60faa6ab14e3a86df",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/hands-on-pov-moment-01/selected.png",
+      "original_sha256": "a0b163a21a56dc630329b5bd837b84f66c5fd8a70d86cfbff77f3cf8816c4590",
+      "original_bytes": 2015758,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "de2974dd88ea35458309ec25fb01413040d1f7c4919a7b89406f450382a8f454",
+      "converted_bytes": 1446666,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "PLANT IT RIGHT",
+      "headline_line_count": 1,
+      "recipe_invariant_verdict": "PASS — two anatomically coherent first-person gloved hands place one seedling into prepared soil, with the garden row visible ahead.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "hands-on-pov-moment-02",
+      "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment/assets/hands-on-pov-moment-2.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "0eafa4e9da86d8c021ad01547cfa006d5a0b9103672eee25344aefb3d800fcc7",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/hands-on-pov-moment-02/selected.png",
+      "original_sha256": "1e31ec8a480003e228f5b721290c045fc4601d4f8af2c729bbab7d1f2e38562b",
+      "original_bytes": 2109711,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "ac208662b418dcfa9213d64545dd8117aa80829d0359aeab5baf9c57ed2de17b",
+      "converted_bytes": 1499292,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "MAKE THE FIRST\nCLEAN CUT",
+      "headline_line_count": 2,
+      "recipe_invariant_verdict": "PASS — coherent hands use a simple hand saw to carefully trim a small wooden piece in a well-lit workshop; no portrait, extra hands, or artifact remains.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    },
+    {
+      "status": "accepted",
+      "draft_job_id": "hands-on-pov-moment-03",
+      "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
+      "target_source_asset": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment/assets/hands-on-pov-moment-3.webp",
+      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
+      "tool_provenance": "built-in ChatGPT image generation",
+      "backend_provider": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "backend_model": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; never claim gpt-image-2"
+      },
+      "fleet_worker": {
+        "value": "not applicable",
+        "reason": "this Mac never registered or executed as a fleet worker"
+      },
+      "provider_job_request_id": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool; local draft_job_id and prompt_sha256 are the correlation keys"
+      },
+      "seed": {
+        "value": "unavailable",
+        "reason": "not exposed by the built-in tool"
+      },
+      "cost_receipt": {
+        "value": "not applicable",
+        "reason": "no Studio Hub credits were charged and no external paid API/CLI call was made"
+      },
+      "generated_timestamp": "2026-08-24T00:00:00Z",
+      "reference_images": [],
+      "rights_basis": "OpenAI output terms basis; owner responsible for use; non-exclusive/similarity caveat applies",
+      "rights_sources": [
+        {
+          "url": "https://openai.com/policies/terms-of-use/",
+          "accessed": "2026-08-24",
+          "limitation": "Output may not be unique and the user remains responsible for use and appropriateness."
+        },
+        {
+          "url": "https://help.openai.com/en/articles/8912793",
+          "accessed": "2026-08-24",
+          "limitation": "C2PA and SynthID indicate OpenAI-tool origin but do not independently establish accuracy, ownership, or context."
+        }
+      ],
+      "c2pa_openai_string_check": "PASS: untouched PNG contains C2PA and OpenAI strings",
+      "prompt_sha256": "57d1a5180345383f3db166bd93b432d3afc4298948f64fb0e7618649fee9fd55",
+      "original_path": ".superpowers/sdd/2026-08-24-thumbnail-recipe-expansion-ten/chatgpt-originals/hands-on-pov-moment-03/selected.png",
+      "original_sha256": "e95c6f9f5fd44756a86fe9387649009cb13bb4a6c09a4d2a442605fa24dbd115",
+      "original_bytes": 2065348,
+      "original_format": "png",
+      "original_dimensions": {
+        "width": 1671,
+        "height": 941
+      },
+      "original_decode": "PASS: Sharp failOn error decoded PNG",
+      "converted_sha256": "9d5872336d64a3bbb4e80fce1d828412fb68cf9dfae3322682b90ebad5e24891",
+      "converted_bytes": 1401886,
+      "converted_format": "webp",
+      "converted_dimensions": {
+        "width": 1672,
+        "height": 941
+      },
+      "converted_decode": "PASS: Sharp failOn error decoded WebP",
+      "exact_title_transcription": "TURN A\nCORNER INTO\nA READING NOOK",
+      "headline_line_count": 3,
+      "recipe_invariant_verdict": "PASS — two coherent first-person hands position a lamp beside a chair and blank book; the indigo-and-amber reading corner is clear and unbranded.",
+      "review_references": [
+        "chatgpt-final-diversity-review.md",
+        "chatgpt-wave-a-independent-review.md",
+        "chatgpt-wave-b-independent-review.md",
+        "chatgpt-wave-c-independent-review.md"
+      ],
+      "conversion": {
+        "tool": "sharp",
+        "operation": "whole-image PNG to WebP only",
+        "resize": {
+          "width": 1672,
+          "height": 941,
+          "fit": "fill",
+          "kernel": "lanczos3"
+        },
+        "webp": {
+          "lossless": true,
+          "effort": 6
+        },
+        "prohibited": [
+          "crop",
+          "mask",
+          "overlay",
+          "title replacement",
+          "inpainting",
+          "region edit",
+          "compositing",
+          "creative repair"
+        ],
+        "paired_output_byte_identity": "PASS"
+      },
+      "prompt_hash_validation": {
+        "status": "PASS",
+        "algorithm": "SHA-256 over UTF-8 exact submitted prompt",
+        "terminating_newline": true
+      },
+      "no_reference_no_compositing_attestation": "Generated as a completely original asset with no reference images, masking, or compositing inputs."
+    }
+  ],
+  "blocked": [],
+  "summary": {
+    "accepted_assets": 30,
+    "blocked_assets": 0,
+    "eligible_recipe_sets": 10,
+    "blocked_recipe_sets": 0,
+    "independent_review_eligibility": "30/30 PASS",
+    "current_replacement_hashes": [
+      "9b2e49ace8bbd84fc055cc96a138e6057df40b10b935d31ae9cc51fb5fd92b07",
+      "b37490d2edd19e55b0ddb5a758541d71cf6b84298ba993009bd7fe2cd515dce8"
+    ]
+  }
+}

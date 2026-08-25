@@ -1,0 +1,22 @@
+{
+  "pack_id": "com.storystudio.pack.topic.everyday-calm",
+  "item_id": "com.storystudio.topic.everyday-calm",
+  "version": "1.0.1",
+  "publisher_id": "com.storystudio",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "min_app_version_status": "release-bound",
+  "kind": "topic-pack",
+  "source_path": "content-packs/free-starters/topic/everyday-calm-v1.0.1",
+  "status": "reserved",
+  "dependencies": [],
+  "stocking_proposal": {
+    "family": {
+      "id": "com.storystudio.family.topic.everyday-calm",
+      "status": "proposed"
+    },
+    "sku": {
+      "id": "com.storystudio.sku.topic.everyday-calm",
+      "status": "proposed"
+    }
+  }
+}

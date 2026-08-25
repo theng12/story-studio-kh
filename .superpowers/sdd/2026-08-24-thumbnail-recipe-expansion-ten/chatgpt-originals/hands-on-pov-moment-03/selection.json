@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "hands-on-pov-moment-03",
+  "prompt_sha256": "57d1a5180345383f3db166bd93b432d3afc4298948f64fb0e7618649fee9fd55",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "e95c6f9f5fd44756a86fe9387649009cb13bb4a6c09a4d2a442605fa24dbd115",
+  "selected_file_bytes": 2065348,
+  "format": "png",
+  "dimensions": { "width": 1671, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 3,
+  "exact_title_transcription": "TURN A\nCORNER INTO\nA READING NOOK",
+  "line_count_verdict": "PASS — exact three lines with the approved breaks.",
+  "recipe_invariant_verdict": "PASS — two coherent first-person hands position a lamp beside a chair and blank book; the indigo-and-amber reading corner is clear and unbranded.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "hands-on-pov-moment-02",
+  "prompt_sha256": "0eafa4e9da86d8c021ad01547cfa006d5a0b9103672eee25344aefb3d800fcc7",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "1e31ec8a480003e228f5b721290c045fc4601d4f8af2c729bbab7d1f2e38562b",
+  "selected_file_bytes": 2109711,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 3,
+  "exact_title_transcription": "MAKE THE FIRST\nCLEAN CUT",
+  "line_count_verdict": "PASS — exact two lines with the approved break.",
+  "recipe_invariant_verdict": "PASS — coherent hands use a simple hand saw to carefully trim a small wooden piece in a well-lit workshop; no portrait, extra hands, or artifact remains.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

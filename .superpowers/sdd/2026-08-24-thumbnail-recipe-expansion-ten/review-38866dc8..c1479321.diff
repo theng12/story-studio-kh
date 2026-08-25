@@ -1,0 +1,635 @@
+# Review package: 38866dc80412925aa0ed88afbbca6c85ab533326..c1479321792dafc672af5458d44641d19baa887b
+
+## Commits
+c1479321 chore(content-packs): reserve ten thumbnail recipes
+
+## Files changed
+ content-packs/authoring-registry.json              | 466 ++++++++++++++++++++-
+ .../__tests__/authoring-registry.test.mjs          |  53 ++-
+ 2 files changed, 515 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/content-packs/authoring-registry.json b/content-packs/authoring-registry.json
+index 7a91df33..23f052c4 100644
+--- a/content-packs/authoring-registry.json
++++ b/content-packs/authoring-registry.json
+@@ -1,12 +1,12 @@
+ {
+-  "revision": 22,
++  "revision": 23,
+   "batches": [
+     {
+       "revision": 2,
+       "receipt_ref": "authoring:796cd98f44cfda76d08559f0d07229aaa598d4792a79ba1e2b58f15745172aaa",
+       "request": {
+         "expected_revision": 1,
+         "coordinator": {
+           "task": "author-capi-psychology-components",
+           "branch": "codex/capi-psychology-components"
+         },
+@@ -795,20 +795,254 @@
+                 "status": "proposed"
+               },
+               "sku": {
+                 "id": "com.storystudio.sku.thumbnail.route-map-one-promise",
+                 "status": "proposed"
+               }
+             }
+           }
+         ]
+       }
++    },
++    {
++      "revision": 23,
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "request": {
++        "expected_revision": 22,
++        "coordinator": {
++          "task": "thumbnail-recipe-expansion-ten",
++          "branch": "codex/content-expansion-portfolio"
++        },
++        "proposal_ref": "docs/superpowers/specs/2026-08-24-thumbnail-recipe-expansion-ten-design.md",
++        "records": [
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
++            "item_id": "com.storystudio.thumbnail.before-after-proof-panel",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.before-after-proof-panel",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.before-after-proof-panel",
++                "status": "proposed"
++              }
++            }
++          },
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
++            "item_id": "com.storystudio.thumbnail.two-option-criteria-split",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.two-option-criteria-split",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.two-option-criteria-split",
++                "status": "proposed"
++              }
++            }
++          },
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
++            "item_id": "com.storystudio.thumbnail.reaction-evidence-inset",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.reaction-evidence-inset",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.reaction-evidence-inset",
++                "status": "proposed"
++              }
++            }
++          },
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
++            "item_id": "com.storystudio.thumbnail.cutaway-exploded-object",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.cutaway-exploded-object",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.cutaway-exploded-object",
++                "status": "proposed"
++              }
++            }
++          },
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
++            "item_id": "com.storystudio.thumbnail.hero-payoff-companion",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.hero-payoff-companion",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.hero-payoff-companion",
++                "status": "proposed"
++              }
++            }
++          },
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
++            "item_id": "com.storystudio.thumbnail.iconic-result-closeup",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.iconic-result-closeup",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.iconic-result-closeup",
++                "status": "proposed"
++              }
++            }
++          },
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
++            "item_id": "com.storystudio.thumbnail.scale-journey",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.scale-journey",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.scale-journey",
++                "status": "proposed"
++              }
++            }
++          },
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
++            "item_id": "com.storystudio.thumbnail.numbered-lineup",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.numbered-lineup",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.numbered-lineup",
++                "status": "proposed"
++              }
++            }
++          },
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
++            "item_id": "com.storystudio.thumbnail.macro-mystery-detail",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.macro-mystery-detail",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.macro-mystery-detail",
++                "status": "proposed"
++              }
++            }
++          },
++          {
++            "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
++            "item_id": "com.storystudio.thumbnail.hands-on-pov-moment",
++            "version": "1.0.0",
++            "publisher_id": "com.storystudio",
++            "min_app_version": "{{MIN_APP_VERSION}}",
++            "min_app_version_status": "release-bound",
++            "kind": "thumbnail-recipe",
++            "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment",
++            "status": "reserved",
++            "dependencies": [],
++            "stocking_proposal": {
++              "family": {
++                "id": "com.storystudio.family.thumbnail.hands-on-pov-moment",
++                "status": "proposed"
++              },
++              "sku": {
++                "id": "com.storystudio.sku.thumbnail.hands-on-pov-moment",
++                "status": "proposed"
++              }
++            }
++          }
++        ]
++      }
+     }
+   ],
+   "transitions": [
+     {
+       "revision": 6,
+       "transition_ref": "lifecycle:bf1305d8fe717c2928b3a9b45f6b8ab16ffc09008554f4f578d16c3a00f19729",
+       "request": {
+         "expected_revision": 5,
+         "coordinator": {
+           "task": "Task 1: Reserve and author five same-lineage kit successors",
+@@ -3236,13 +3470,243 @@
+       "stocking_proposal": {
+         "family": {
+           "id": "com.storystudio.family.thumbnail.route-map-one-promise",
+           "status": "proposed"
+         },
+         "sku": {
+           "id": "com.storystudio.sku.thumbnail.route-map-one-promise",
+           "status": "proposed"
+         }
+       }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.before-after-proof-panel",
++      "item_id": "com.storystudio.thumbnail.before-after-proof-panel",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.before-after-proof-panel",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.before-after-proof-panel",
++          "status": "proposed"
++        }
++      }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.two-option-criteria-split",
++      "item_id": "com.storystudio.thumbnail.two-option-criteria-split",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.two-option-criteria-split",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.two-option-criteria-split",
++          "status": "proposed"
++        }
++      }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.reaction-evidence-inset",
++      "item_id": "com.storystudio.thumbnail.reaction-evidence-inset",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.reaction-evidence-inset",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.reaction-evidence-inset",
++          "status": "proposed"
++        }
++      }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.cutaway-exploded-object",
++      "item_id": "com.storystudio.thumbnail.cutaway-exploded-object",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.cutaway-exploded-object",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.cutaway-exploded-object",
++          "status": "proposed"
++        }
++      }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.hero-payoff-companion",
++      "item_id": "com.storystudio.thumbnail.hero-payoff-companion",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.hero-payoff-companion",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.hero-payoff-companion",
++          "status": "proposed"
++        }
++      }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.iconic-result-closeup",
++      "item_id": "com.storystudio.thumbnail.iconic-result-closeup",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.iconic-result-closeup",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.iconic-result-closeup",
++          "status": "proposed"
++        }
++      }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.scale-journey",
++      "item_id": "com.storystudio.thumbnail.scale-journey",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.scale-journey",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.scale-journey",
++          "status": "proposed"
++        }
++      }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.numbered-lineup",
++      "item_id": "com.storystudio.thumbnail.numbered-lineup",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.numbered-lineup",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.numbered-lineup",
++          "status": "proposed"
++        }
++      }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.macro-mystery-detail",
++      "item_id": "com.storystudio.thumbnail.macro-mystery-detail",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.macro-mystery-detail",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.macro-mystery-detail",
++          "status": "proposed"
++        }
++      }
++    },
++    {
++      "receipt_ref": "authoring:d2031e6ceca4f929929176891710d15dfd0b36080d490ac6150e111608fd3378",
++      "pack_id": "com.storystudio.pack.thumbnail.hands-on-pov-moment",
++      "item_id": "com.storystudio.thumbnail.hands-on-pov-moment",
++      "version": "1.0.0",
++      "publisher_id": "com.storystudio",
++      "min_app_version": "{{MIN_APP_VERSION}}",
++      "min_app_version_status": "release-bound",
++      "kind": "thumbnail-recipe",
++      "source_path": "content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment",
++      "status": "reserved",
++      "dependencies": [],
++      "stocking_proposal": {
++        "family": {
++          "id": "com.storystudio.family.thumbnail.hands-on-pov-moment",
++          "status": "proposed"
++        },
++        "sku": {
++          "id": "com.storystudio.sku.thumbnail.hands-on-pov-moment",
++          "status": "proposed"
++        }
++      }
+     }
+   ]
+ }
+diff --git a/scripts/content-packs/__tests__/authoring-registry.test.mjs b/scripts/content-packs/__tests__/authoring-registry.test.mjs
+index b9462618..0c397161 100644
+--- a/scripts/content-packs/__tests__/authoring-registry.test.mjs
++++ b/scripts/content-packs/__tests__/authoring-registry.test.mjs
+@@ -32,20 +32,68 @@ test('reconciles the strict 69-pack authored registry against source manifests',
+   const { validateAuthoringRegistry } = await import(registryModule)
+   const result = await validateAuthoringRegistry({ registryPath, repositoryRoot })
+ 
+   const authored = result.records.filter((record) => record.status === 'authored')
+   assert.equal(result.revision, JSON.parse(await readFile(registryPath, 'utf8')).revision)
+   assert.equal(authored.length, 69)
+   assert.equal(authored.filter((record) => record.item_id).length, 52)
+   assert.equal(authored.filter((record) => record.bundle_id).length, 17)
+ })
+ 
++test('reserves the exact ten thumbnail recipe expansion identities as one proposed batch', async () => {
++  const registry = JSON.parse(await readFile(registryPath, 'utf8'))
++  const expected = [
++    ['before-after-proof-panel', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/before-after-proof-panel'],
++    ['two-option-criteria-split', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/two-option-criteria-split'],
++    ['reaction-evidence-inset', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/reaction-evidence-inset'],
++    ['cutaway-exploded-object', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/cutaway-exploded-object'],
++    ['hero-payoff-companion', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/hero-payoff-companion'],
++    ['iconic-result-closeup', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/iconic-result-closeup'],
++    ['scale-journey', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/scale-journey'],
++    ['numbered-lineup', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/numbered-lineup'],
++    ['macro-mystery-detail', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/macro-mystery-detail'],
++    ['hands-on-pov-moment', 'content-packs/thumbnail-recipe-expansion-ten/thumbnail/hands-on-pov-moment'],
++  ]
++  const sourcePaths = new Set(expected.map(([, sourcePath]) => sourcePath))
++  const records = registry.records.filter((record) => sourcePaths.has(record.source_path))
++  const batches = registry.batches.filter((batch) => batch.request.coordinator.task === 'thumbnail-recipe-expansion-ten')
++
++  assert.equal(records.length, 10)
++  assert.equal(batches.length, 1)
++  assert.equal(batches[0].revision, 23)
++  assert.equal(new Set(records.map((record) => record.receipt_ref)).size, 1)
++  assert.equal(records[0].receipt_ref, batches[0].receipt_ref)
++  assert.deepEqual(
++    new Set(registry.records.filter((record) => record.receipt_ref === batches[0].receipt_ref).map((record) => record.source_path)),
++    sourcePaths,
++  )
++  for (const [slug, source_path] of expected) {
++    assert.deepEqual(records.find((record) => record.source_path === source_path), {
++      receipt_ref: records[0].receipt_ref,
++      pack_id: `com.storystudio.pack.thumbnail.${slug}`,
++      item_id: `com.storystudio.thumbnail.${slug}`,
++      version: '1.0.0',
++      publisher_id: 'com.storystudio',
++      min_app_version: '{{MIN_APP_VERSION}}',
++      min_app_version_status: 'release-bound',
++      kind: 'thumbnail-recipe',
++      source_path,
++      status: 'reserved',
++      dependencies: [],
++      stocking_proposal: {
++        family: { id: `com.storystudio.family.thumbnail.${slug}`, status: 'proposed' },
++        sku: { id: `com.storystudio.sku.thumbnail.${slug}`, status: 'proposed' },
++      },
++    })
++  }
++})
++
+ test('rejects unknown, duplicate, and GenStudio-owned registry fields before source reconciliation', async (t) => {
+   const { validateAuthoringRegistry } = await import(registryModule)
+   const root = await temporaryRepository()
+   t.after(() => rm(root, { recursive: true, force: true }))
+   const copy = join(root, 'content-packs', 'authoring-registry.json')
+   const registry = JSON.parse(await readFile(copy, 'utf8'))
+ 
+   registry.records[0].product_id = 'genstudio-product-id'
+   await writeFile(copy, JSON.stringify(registry), 'utf8')
+   await assert.rejects(
+@@ -641,31 +689,30 @@ test('persists the exact Wave 2 reusable-primitives batch without cross-lineage
+     verifyAuthoringReceipt,
+   })
+ })
+ 
+ test('keeps Wave 2 reservation evidence valid after an unrelated later registry revision', async (t) => {
+   const { reserveAuthoringBatch, validateAuthoringRegistry, verifyAuthoringReceipt } = await import(registryModule)
+   const root = await temporaryRepository()
+   t.after(() => rm(root, { recursive: true, force: true }))
+   const copy = join(root, 'content-packs', 'authoring-registry.json')
+   const initial = await registrySnapshot(copy)
+-  assert.equal(initial.revision, 22)
+ 
+   const unrelated = await reserveAuthoringBatch({
+     registryPath: copy,
+     repositoryRoot: root,
+     request: reservationRequest(initial.revision),
+   })
+-  assert.equal(unrelated.revision, 23)
++  assert.equal(unrelated.revision, initial.revision + 1)
+ 
+   const validated = await validateAuthoringRegistry({ registryPath: copy, repositoryRoot: root })
+-  assert.equal(validated.revision, 23)
++  assert.equal(validated.revision, unrelated.revision)
+   await assertWave2ReusablePrimitivesReservation({
+     registry: JSON.parse(await readFile(copy, 'utf8')),
+     candidateRegistryPath: copy,
+     candidateRepositoryRoot: root,
+     validateAuthoringRegistry,
+     verifyAuthoringReceipt,
+   })
+ })
+ 
+ test('offers a leaf-facing verify-receipt CLI with revision, receipt, and expected identity', async (t) => {

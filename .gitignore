@@ -59,3 +59,18 @@ test-results.txt
 
 # graphify knowledge-graph output (generated, may be large)
 graphify-out/
+
+# Spec-and-evidence directories are SOURCE, never local scratch.
+#
+# `.git/info/exclude` on the machine these were authored on carried a
+# `.superpowers/sdd/` line. That file is local-only and is never committed, so
+# the rule was invisible to every other checkout — and it silently swallowed the
+# evidence fixtures two backend suites read at runtime. `topic-pack-1000-successors`
+# and `thumbnail-recipe-expansion-ten-source` were consequently red for EVERYONE,
+# on every branch, with nothing in the repository to explain why.
+#
+# A `.gitignore` pattern outranks `$GIT_DIR/info/exclude`, so this negation
+# disarms that rule wherever it is still present, and does so in a file that
+# actually travels with the repository.
+!.superpowers/
+!.superpowers/**

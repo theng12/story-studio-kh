@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "numbered-lineup-02",
+  "prompt_sha256": "282c5ff0a3d6046c0f0c89f01ad633476ded2cf891214a8e96182d2abc56c4de",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "0f68466c8a42cb12858c731511be99c4ff726227ddee47c7a6ec566df64dfb29",
+  "selected_file_bytes": 3133201,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 2,
+  "exact_title_transcription": "3 TOOLS\nFOR CLEAN CUTS",
+  "line_count_verdict": "PASS — exact two lines with the approved break.",
+  "recipe_invariant_verdict": "PASS — three unbranded garden cutting tools are an equal-status overhead lineup with correct native numerals 1–3.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

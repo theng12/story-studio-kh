@@ -1,0 +1,18 @@
+{
+  "draft_job_id": "macro-mystery-detail-02",
+  "prompt_sha256": "7e6560b51b2ff5fe8a3d2eb11bc7bfb49d7eb671c54241c7e0fa74574a8dd55b",
+  "selected_file": "selected.png",
+  "selected_file_sha256": "33d68a3ddcbeb4e3fe4b9877d9704536107102d8ff7e486b1f6eada8f11ec067",
+  "selected_file_bytes": 2614781,
+  "format": "png",
+  "dimensions": { "width": 1672, "height": 941 },
+  "decode_verified": true,
+  "attempt_count": 1,
+  "exact_title_transcription": "LOOK CLOSER\nAT THIS LEAF",
+  "line_count_verdict": "PASS — exact two lines with the approved break.",
+  "recipe_invariant_verdict": "PASS — macro leaf surface, dew, and branching veins have an honest small leaf clue at the far edge; no inset or reaction host.",
+  "originality_and_references": "Original built-in generation; no reference images, masking, or compositing were supplied or used.",
+  "tool_provenance": "built-in ChatGPT image generation",
+  "generated_timestamp_exposed": "2026-08-24T00:00:00Z",
+  "selected_bytes_preserved_unchanged": true
+}

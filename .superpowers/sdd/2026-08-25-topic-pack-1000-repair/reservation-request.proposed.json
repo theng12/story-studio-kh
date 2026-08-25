@@ -1,0 +1,266 @@
+{
+  "expected_revision": 33,
+  "coordinator": {
+    "task": "topic-pack-1000-repair",
+    "branch": "codex/content-expansion-portfolio"
+  },
+  "proposal_ref": ".superpowers/sdd/2026-08-25-topic-pack-1000-repair/owner-decision-groundwork.md",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+      "item_id": "com.storystudio.topic.ancient-humans-survival",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/ancient-humans-survival-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.ancient-humans-survival", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.ancient-humans-survival", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
+      "item_id": "com.storystudio.topic.deep-time-earth-systems",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/deep-time-earth-systems-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.deep-time-earth-systems", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.deep-time-earth-systems", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.economics-businesses",
+      "item_id": "com.storystudio.topic.economics-businesses",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/economics-businesses-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.economics-businesses", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.economics-businesses", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.everyday-calm",
+      "item_id": "com.storystudio.topic.everyday-calm",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/everyday-calm-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.everyday-calm", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.everyday-calm", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.habits-momentum",
+      "item_id": "com.storystudio.topic.habits-momentum",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/habits-momentum-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.habits-momentum", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.habits-momentum", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+      "item_id": "com.storystudio.topic.historical-wars-treaties-world-order",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.historical-wars-treaties-world-order", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.historical-wars-treaties-world-order", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+      "item_id": "com.storystudio.topic.human-behavior-social-dynamics",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/human-behavior-social-dynamics-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.human-behavior-social-dynamics", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.human-behavior-social-dynamics", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.natural-world-animals",
+      "item_id": "com.storystudio.topic.natural-world-animals",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/natural-world-animals-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.natural-world-animals", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.natural-world-animals", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.night-journeys",
+      "item_id": "com.storystudio.topic.night-journeys",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/night-journeys-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.night-journeys", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.night-journeys", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+      "item_id": "com.storystudio.topic.pov-historical-occupations",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/pov-historical-occupations-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.pov-historical-occupations", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.pov-historical-occupations", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+      "item_id": "com.storystudio.topic.audience-question-seeder",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/reusable-primitives/topic/audience-question-seeder-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.audience-question-seeder", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.audience-question-seeder", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction",
+      "item_id": "com.storystudio.topic.archival-ledger.empires-trade-extraction",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/empires-trade-extraction-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.archival-ledger.empires-trade-extraction", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.archival-ledger.empires-trade-extraction", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power",
+      "item_id": "com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/infrastructure-commodities-corporate-power-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.archival-ledger.infrastructure-commodities-corporate-power", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.archival-ledger.infrastructure-commodities-corporate-power", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions",
+      "item_id": "com.storystudio.topic.archival-ledger.money-debt-financial-institutions",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/money-debt-financial-institutions-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.archival-ledger.money-debt-financial-institutions", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+      "item_id": "com.storystudio.topic.archival-ledger.states-revolutions-collapse",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/states-revolutions-collapse-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.archival-ledger.states-revolutions-collapse", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.archival-ledger.states-revolutions-collapse", "status": "proposed" }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+      "item_id": "com.storystudio.topic.archival-ledger.wars-treaties-world-order",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/archival-ledger/topic/wars-treaties-world-order-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": { "id": "com.storystudio.family.topic.archival-ledger.wars-treaties-world-order", "status": "proposed" },
+        "sku": { "id": "com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order", "status": "proposed" }
+      }
+    }
+  ]
+}
