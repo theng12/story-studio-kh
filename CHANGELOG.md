@@ -4,6 +4,16 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.68 — 2026-08-26
+
+- **The app stopped writing its own name into your scripts.** Every narration file it built opened with a line naming the app and the episode number, and that line is the first thing a model reads when it works out what the episode *is*. That is why descriptions came back saying "In this episode of Story Studio" and carrying #StoryStudio — nothing you wrote put it there, the app did. The line is no longer written, and it is stripped out of files already sitting on your disk as they are read, so old episodes stop causing it too. What this does **not** do is go back and rewrite metadata you have already generated: descriptions and tags saved before today stay exactly as they were saved, deliberately, because they are yours to keep or change. Anything already uploaded has to be corrected in YouTube itself.
+- **Audio is split up according to the voice you picked, not the one you used last time.** It had been reading the model from the episode's previous run, so changing voice and regenerating gave you sections sized for the old one. There was also a leftover 4,800-character limit and a table of chunk sizes for three voice engines that are no longer used at all. All of it is gone. The only boundary left is the published limit of the model actually in use.
+- **The Introduction uses your script's model.** In a batch run it was quietly falling back to whichever model happened to be listed first, which is not the one you chose. It now uses the model set on your script, and if it cannot work out which one that is, it stops and asks you to pick rather than choosing for you.
+- **Two lettering styles were describing the wrong thing.** "Script" and "Handwritten" live in the list that sets a finish — gold, ink, and so on — but their wording described letter shapes, so choosing either one quietly overrode the letterform you had already picked. They now describe only their finish, and read as Golden Shimmer and Inked Finish.
+- **All 35 built-in lettering swatches ship inside the app.** Every one shows a real sample in the picker the moment you open it. The inked finish was redrawn as well: its texture used to flatten into a plain grey square once shrunk to picker size, so the one style whose whole point is visible grain was the one you could not see.
+- **Errors no longer show internal file paths.** A pack that fails to verify or install now names the pack and what went wrong; where it lives on disk stays in the log, where it belongs.
+- **Machine-specific and identifying details have been removed throughout.**
+
 ## v1.4.67 — 2026-08-25
 
 - **The Story registry is reconciled.** Historical authored and reserved content-pack identities, exact receipt-bound dependencies, and the six lettering transitions now share one validated canonical ledger.
