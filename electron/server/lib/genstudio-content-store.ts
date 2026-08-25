@@ -18,8 +18,13 @@ const CONTENT_STORE_PAYLOAD_TYPES = new Set([
   DOWNLOAD_TYPE, QUOTE_TYPE, RECEIPT_TYPE, RESTORE_TYPE,
 ])
 const DANGEROUS_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
+// Every kind GenStudio may put on the wire. This list is the WIRE CONTRACT, and
+// it is not the same list as the frontend's — 1.4.62 taught four frontend files
+// about `font_pack` and left this one alone, so the first catalogue containing a
+// font pack threw here and took all 82 products down with it. One unknown kind
+// kills the whole parse, so a kind added in GenStudio must be added HERE first.
 const PRODUCT_KINDS = new Set<GenStudioContentProductKind>([
-  'series_formula', 'topic_pack', 'visual_style', 'thumbnail_recipe', 'niche_bundle',
+  'series_formula', 'topic_pack', 'visual_style', 'thumbnail_recipe', 'font_pack', 'niche_bundle',
 ])
 const numberSources = new WeakMap<object, Map<string, string>>()
 
@@ -28,6 +33,7 @@ export type GenStudioContentProductKind =
   | 'topic_pack'
   | 'visual_style'
   | 'thumbnail_recipe'
+  | 'font_pack'
   | 'niche_bundle'
 
 export interface CanonicalJsonObject {
