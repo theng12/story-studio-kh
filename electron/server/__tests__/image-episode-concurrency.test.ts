@@ -74,6 +74,36 @@ describe('every kind of fleet work is pipelined, not just images', () => {
     }
   })
 
+  test('the reason scene_image_generate is excluded sits WHERE THE SET IS EDITED', async () => {
+    // Proposed as a missing entry twice now (2026-08-23, 2026-08-26), both times
+    // on the premise that "Generate all missing" fans out one job per scene.
+    // It does not. The reason lived only down here in the test file, twenty
+    // lines below the assertion each reader actually opened, so it was missed
+    // both times. It now lives beside the declaration as well — because that is
+    // the line someone is looking at when they decide to add a type.
+    const body = await read('services/job-queue.ts')
+    const preamble = body.slice(0, body.indexOf('const IMAGE_EPISODE_TYPES'))
+    const reason = preamble.slice(preamble.lastIndexOf('/**'))
+    assert.match(reason, /scene_image_generate/,
+      'the exclusion must be explained next to the set, not only in this file')
+    assert.match(reason, /generate-missing/,
+      'the explanation must name the route whose behaviour the decision rests on')
+  })
+
+  test('the bulk path enqueues ONE render, which is why the small type stays out', async () => {
+    // The load-bearing fact. If "Generate all missing" ever goes back to
+    // queueing a job per scene, `scene_image_generate` becomes the largest
+    // fan-out in the app and its own lane becomes the 2026-08-23 bug again.
+    // This is the assertion that makes that change impossible to land quietly.
+    const routes = await read('routes/scene-review.ts')
+    const handler = routes.slice(routes.indexOf("/generate-missing'"))
+    const body = handler.slice(0, handler.indexOf("/generate-missing-clips'"))
+    assert.match(body, /enqueueContinuityRender\(/,
+      'generate-missing must batch into one continuity_render, not one job per scene')
+    assert.doesNotMatch(body, /type: 'scene_image_generate'[^,]*,\s*\n\s*episode_id/,
+      'generate-missing must not enqueue per-scene scene_image_generate jobs')
+  })
+
   test('the three kinds have SEPARATE budgets, so one cannot starve another', async () => {
     // A fifty-episode image batch must not block a single narration job behind
     // it. Audio and image do not compete for the same fleet capability.

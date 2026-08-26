@@ -116,6 +116,21 @@ What follows from this:
 - When you add a gate, be explicit about what it *cannot* catch. `check:model-drift` catches
   hardcoded catalogue values and nothing about rendering.
 
+## Running Part Of The Backend Suite
+
+- `npm run test:backend` runs all ~327 backend files and is the release gate.
+  Do not narrow it when you are verifying a release.
+- While ITERATING, run only what you are working on:
+  `node scripts/testing/run-backend-tests.mjs --only <substring>`
+  The substring matches the test file's name, and `--only` may be repeated to
+  select several. One file typically finishes in under a second; the full suite
+  does not finish in an hour when two agents are competing for the machine.
+- A filtered run prints a loud `PARTIAL RUN` banner before and after the results,
+  naming the patterns and counting the skipped files. **If you see that banner,
+  the release gate did not run** — never quote a filtered run as a green suite.
+- An `--only` that matches nothing FAILS, and so does a run whose summary reports
+  zero tests. A suite reporting no tests is a failure, not a pass.
+
 ## Mandatory Release Integrity
 
 - Every shipped Story Studio change—including fixes, reliability work, UI/API

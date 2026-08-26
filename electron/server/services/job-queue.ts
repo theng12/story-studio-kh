@@ -1045,6 +1045,33 @@ const AUDIO_EPISODE_GROUP = 'audio_episode'
  * budget rather than sharing Scene Review's — a stated trade, and the reason
  * both numbers are his to set.
  */
+/**
+ * WHY `scene_image_generate` IS NOT HERE — verified 2026-08-26, second time.
+ *
+ * It has now been proposed twice that this type is missing by oversight, on the
+ * grounds that "Generate all missing" fans out one job per scene and so it is
+ * the biggest offender in the app. IT DOES NOT, and the reason belongs here
+ * rather than only in the test file, because HERE is where the next person
+ * edits the set and the reason has to be in front of them when they do.
+ *
+ * MEASURED, not assumed:
+ *   • `POST /scene-review/:ep/generate-missing` enqueues ONE `continuity_render`
+ *     covering every missing scene — see routes/scene-review.ts. That type is
+ *     already in this set, so the bulk path is already pipelined at the owner's
+ *     setting. The UI even says so: "Queued one render for N missing scenes".
+ *   • `POST /scene-review/:ep/generate-image` enqueues exactly ONE scene, from
+ *     the per-scene regenerate button. One job, one image, no fan-out.
+ *
+ * So this type is the app's SMALLEST unit of image work, not its largest, and
+ * it keeps its own lane deliberately: a one-image repair must never queue
+ * behind three bulk renders of a hundred images each. Sharing the budget would
+ * make the cheapest, most interactive request in the app wait on the most
+ * expensive ones — and buy nothing, because a job that is one image cannot be
+ * "batched" any harder than it already is.
+ *
+ * If `generate-missing` is ever changed back to enqueue per-scene jobs, this
+ * decision must be revisited — and the test below fails loudly if it is.
+ */
 const IMAGE_EPISODE_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'image_pool_generate', 'continuity_render',
 ])
