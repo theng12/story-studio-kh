@@ -55,6 +55,24 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, /NO_PRESET_STEPS = new Set<StepId>\(\['introduction-only'\]\)/)
   })
 
+  test('the page and the backend agree on which steps need no preset', () => {
+    // These two lists are copies of each other, and the page's own comment
+    // says so. If they drift, the page hides a preset picker for a step the
+    // backend then refuses the entire batch over — "No active preset for X".
+    const backend = readFileSync(
+      fileURLToPath(new URL('../../electron/server/routes/pipeline.ts', import.meta.url)), 'utf8')
+    const ids = (src: string, decl: RegExp): string[] => {
+      const match = decl.exec(src)
+      assert.ok(match, 'the NO_PRESET_STEPS declaration must still exist')
+      return [...match![1].matchAll(/'([a-z_-]+)'/g)].map(m => m[1]).sort()
+    }
+    assert.deepEqual(
+      ids(pipeline, /NO_PRESET_STEPS = new Set<StepId>\(\[([^\]]*)\]?\)/),
+      ids(backend, /NO_PRESET_STEPS = new Set<BatchStep>\(\[([^\]]*)\]?\)/),
+      'a step that needs no preset must be exempt on BOTH sides',
+    )
+  })
+
   test('shows fixed ten-episode pages with pagination in the top toolbar', () => {
     assert.match(pipeline, /const EPISODES_PER_PAGE = 10/)
     assert.match(pipeline, /slice\(start, start \+ EPISODES_PER_PAGE\)/)

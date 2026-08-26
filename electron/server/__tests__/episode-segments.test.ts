@@ -334,6 +334,16 @@ describe('an unattended batch follows the channel, not a checkbox', () => {
     assert.deepEqual(steps, ['audio', 'audio_merge'])
   })
 
+  test('the added step cannot fail the batch by demanding a preset', async () => {
+    // The step is added automatically now, so if it still required a saved
+    // `introduction` preset a channel that had never made one would not just
+    // skip the opening — the WHOLE batch would be refused. Its recipe is a
+    // channel setting, so it needs no preset and must not be able to ask.
+    const { NO_PRESET_STEP_IDS } = await import('../routes/pipeline.js')
+    assert.ok(NO_PRESET_STEP_IDS.includes('introduction-only'),
+      'introduction-only must be exempt from the "no active preset" check')
+  })
+
   test('asking for it explicitly does not queue it twice', async () => {
     await seedProject('explicit-request')
     await segments.saveChannelSegment('explicit-request', INTRODUCTION_SEGMENT_ID, { enabled: true })

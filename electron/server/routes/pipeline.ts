@@ -134,7 +134,15 @@ export function jobTypeForStep(step: BatchStep): JobType {
 }
 
 // Steps that run with the generator's own defaults — no saved preset required.
-const NO_PRESET_STEPS = new Set<BatchStep>()
+// v1.4.73 — the Introduction needs no preset, and must not be able to demand
+// one. Its recipe is a channel setting read by the generator, and the step is
+// now added automatically for a channel that opens with one — so a missing
+// preset here would not merely skip the opening, it would fail the WHOLE batch
+// with "No active preset for introduction-only" for every channel that had
+// never saved one. Mirrored by NO_PRESET_STEPS in pipeline.vue.
+const NO_PRESET_STEPS = new Set<BatchStep>(['introduction-only'])
+/** Read-only view for tests and for the page that mirrors this list. */
+export const NO_PRESET_STEP_IDS: readonly BatchStep[] = [...NO_PRESET_STEPS]
 
 // Per-step preset-storage keys. Matches the configKey used by each
 // generator page's usePresets() call. If the user hasn't applied a
