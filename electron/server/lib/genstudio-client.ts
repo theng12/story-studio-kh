@@ -1246,6 +1246,41 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
   discount: boolean
   /** Published verbatim, or null when this product carries no such notice. */
   discount_disclaimer: string | null
+  // ── Published retirement schedule ─────────────────────────────────────
+  // GenStudio records when a product stops being sellable and what replaces
+  // it, and publishes the whole schedule on every catalogue row. Story Studio
+  // read none of it, so the only thing it could ever say about a retirement
+  // was said AFTER the fact — "this model is retired or unavailable" — at the
+  // moment the customer's saved choice had already stopped working.
+  //
+  // Every field here is READ. Story Studio never computes a retirement date,
+  // never decides when a warning starts, and never names a successor: those
+  // are GenStudio's calls, and a second copy of them here would go stale the
+  // day GenStudio moved a date.
+  /** GenStudio has opened the warning window for this product. The window's
+   *  length is GenStudio's decision, not this app's — read the flag, never
+   *  re-derive it from the dates below. */
+  deprecation_warning: boolean
+  /** When that window opened. Null when it has not, or on an older GenStudio. */
+  deprecation_warning_at: string | null
+  /** GenStudio's internal target for taking the product out of service. */
+  scheduled_retirement_at: string | null
+  /** When the ORIGINAL provider shuts the model down. Deliberately later than
+   *  `retires_at`: GenStudio withdraws first so a customer meets an absence
+   *  rather than a failure. Carried, never shown — the customer's date is
+   *  `retires_at`, and showing two dates would only invite the wrong one to be
+   *  planned against. */
+  upstream_shutdown_at: string | null
+  /** The moment the product stops being available to customers. This is the
+   *  date a customer needs, and it is deliberately not the same as the
+   *  provider's own shutdown: GenStudio withdraws first, on purpose, so a
+   *  customer meets an absence rather than a failure. */
+  retires_at: string | null
+  /** The product GenStudio records as this one's successor, as a catalogue id.
+   *  Resolve it to a display name against the same catalogue before showing
+   *  it — an id is not a thing to put in front of a customer. Null when
+   *  GenStudio records no successor. */
+  replacement_model_id: string | null
   input_modalities: Array<'text' | 'image'>
   supports_vision: boolean
   max_input_images: number
@@ -3929,6 +3964,20 @@ export async function listChatModelsSnapshot(
     // simply carries no notice — which is the truth, not a default.
     discount: value?.discount === true,
     discount_disclaimer: optionalText(value?.discount_disclaimer) ?? null,
+    // Retirement schedule, read exactly as published. Same contract as the
+    // disclosure above: an older GenStudio that publishes none of this carries
+    // no retirement, which is the truth rather than a default. Story Studio
+    // never opens a warning window of its own, and never invents a date — a
+    // date this app made up is a promise GenStudio has not made, and the
+    // customer cannot tell it apart from a real one.
+    deprecation_warning: value?.deprecation_warning === true,
+    deprecation_warning_at: readReportedTimestamp(value?.deprecation_warning_at),
+    scheduled_retirement_at: readReportedTimestamp(value?.scheduled_retirement_at),
+    upstream_shutdown_at: readReportedTimestamp(value?.upstream_shutdown_at),
+    retires_at: readReportedTimestamp(value?.retires_at),
+    // A catalogue id, carried through untouched. It is resolved to a display
+    // name at the point of display, against this same catalogue.
+    replacement_model_id: nullableText(value?.replacement_model_id),
     input_modalities: Array.isArray(value?.input_modalities)
       ? value.input_modalities.filter((item: unknown): item is 'text' | 'image' => item === 'text' || item === 'image')
       : ['text'],

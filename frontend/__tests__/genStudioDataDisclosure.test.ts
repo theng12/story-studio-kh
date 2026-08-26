@@ -77,8 +77,11 @@ test('the notice is body text and is never hidden behind a hover or a toggle', (
 })
 
 test('a model carrying a notice is flagged in the list before anything is opened', () => {
-  assert.match(source, /badges: model\.discount === true/)
-  assert.match(source, /label: 'Data notice'/)
+  // Matched on the CONDITION, not on the surrounding syntax. This assertion
+  // used to read `badges: model.discount === true` and broke the moment a
+  // second badge was added beside this one — a legitimate refactor failing a
+  // test that was only ever checking punctuation.
+  assert.match(source, /model\.discount === true\n?\s*\?\s*\[\{ label: 'Data notice'/)
 })
 
 test('the wording is never authored here — only the published field is read', () => {

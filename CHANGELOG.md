@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.71 — 2026-08-26
+
+- **The app now warns you *before* a model disappears, not after.** GenStudio decides in advance when it will stop selling a model, records the date, and publishes it alongside every model in the list — it has been doing this the whole time. Story Studio read straight past it. The only thing the app could say about a retirement was said afterwards, at the moment a model you had chosen months ago stopped answering: "retired or unavailable, choose a replacement". A countdown that had been running quietly for weeks reached nobody. Models being retired are now flagged in the picker so you can spot them while browsing, and while one is chosen the app tells you underneath, in plain readable text, the date it stops being available **and how far away that is** — because a bare date just makes you do the sums. It says nothing about what to switch to: that is your choice, and the app has always promised not to make it for you. The same flag now appears in the other two places you pick a model as well — the thumbnail reference reader and the web-research list.
+- **A channel you set up months ago gets the same warning.** The picker only helps someone who happens to open it, and there is no reason to reopen it before the date passes — which is exactly how this bites. Every model a channel has saved, wherever it was saved, is now checked against the same published dates, and anything being retired shows up under "Action needed" with its date and its countdown, soonest first. It clears itself as soon as you move that stage onto another model.
+- **Six pieces of information the app was throwing away now arrive intact.** This was the third time in a row that GenStudio published something honest and Story Studio dropped it on the floor — after the credit balance, then the data notice. The full list of what else is being discarded has been written down, so the next one is found by looking rather than by a customer noticing.
+
+---
+
 ## v1.4.70 — 2026-08-26
 
 - **"GenStudio Unavailable" no longer appears while the app is working.** The little balance panel in the corner asked GenStudio for your credits once, waited eight seconds, and if that one request was slow or came back wrong it wiped the number and announced the whole service was unavailable — next to a narration job that was generating perfectly normally. Everything else in the app already knew better: the model catalogue and job submission both try again, and both fall back on the last good answer during a short interruption. That balance check was the only part that did not. It does now, and there are three honest answers instead of two: your current credits, your last known credits marked with how old they are, or — only after the retries have genuinely failed and there is nothing left worth showing — Unavailable.

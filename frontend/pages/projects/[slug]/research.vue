@@ -535,6 +535,7 @@ import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection
 import type { GenStudioCostTier } from '~/utils/genstudio-cost-tier'
 import { resolveResearchModelForRun, type ResearchMode } from '~/utils/research-model-selection'
 import { describeWebResearchRate } from '~/utils/genstudio-credit-cost'
+import { describeModelRetirement, isRetiring } from '~/utils/genstudio-model-retirement'
 import {
   MODEL_KNOWLEDGE_CLAIM_NOTE,
   MODEL_KNOWLEDGE_NOTICE,
@@ -687,6 +688,11 @@ interface WebResearchModel {
    *  still types; absent means unpublished, which states nothing. */
   returns_citations?: boolean
   cost_tier?: GenStudioCostTier
+  /** GenStudio's published retirement. Optional so an older backend response
+   *  still types; absent means no retirement is published, which is a state,
+   *  not a default. */
+  deprecation_warning?: boolean
+  retires_at?: string | null
 }
 const webModels = ref<WebResearchModel[]>([])
 const webModeAvailable = ref(false)
@@ -739,6 +745,9 @@ const selectedWebModel = computed<WebResearchModel | null>(() =>
  * plausible number, and never rendered as free or as unlimited.
  */
 const webModelMenuOptions = computed(() => webModels.value.map((model) => {
+  // This route publishes the name as `display_name`; the retirement vocabulary
+  // reads `label`, the way the language catalogue delivers it.
+  const retirement = { ...model, label: model.display_name }
   const facts: string[] = []
   const rate = describeWebResearchRate(model)
   if (typeof model.max_web_searches === 'number' && model.max_web_searches > 0) {
@@ -754,6 +763,12 @@ const webModelMenuOptions = computed(() => webModels.value.map((model) => {
     badges: [
       ...(model.returns_citations ? [{ label: 'Cites sources', tone: 'info' as const }] : []),
       ...(model.supports_domain_filters ? [{ label: 'Domain filters', tone: 'neutral' as const }] : []),
+      // Published retirement, stated here for the same reason as everywhere
+      // else: this list is a place a research run gets committed to a product,
+      // and a model chosen here is saved into the episode's own record.
+      ...(isRetiring(retirement)
+        ? [{ label: 'Retiring', tone: 'warning' as const, title: describeModelRetirement(retirement) }]
+        : []),
     ],
     costTier: model.cost_tier,
   }

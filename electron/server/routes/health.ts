@@ -143,6 +143,20 @@ router.get('/models', async (_req, res) => {
       // because a softened copy would change what the customer agreed to.
       discount: model.discount,
       discount_disclaimer: model.discount_disclaimer,
+      // GenStudio's published retirement schedule, forwarded whole. This
+      // whitelist is why it never reached the picker: the fields arrived on
+      // every catalogue row and were dropped here, so the only retirement the
+      // app could describe was one that had already happened.
+      //
+      // `retires_at` is the date the customer needs — the moment the product
+      // stops being available to them — and `replacement_model_id` is resolved
+      // to a display name in the picker, never shown as an id.
+      deprecation_warning: model.deprecation_warning,
+      deprecation_warning_at: model.deprecation_warning_at,
+      scheduled_retirement_at: model.scheduled_retirement_at,
+      upstream_shutdown_at: model.upstream_shutdown_at,
+      retires_at: model.retires_at,
+      replacement_model_id: model.replacement_model_id,
     }))
     res.json(models)
   } catch (error: any) {

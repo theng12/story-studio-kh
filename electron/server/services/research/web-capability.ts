@@ -119,6 +119,13 @@ export interface WebResearchModelOption {
    *  model gives back, rather than the reader having to infer it from the fact
    *  that the model appears in this list at all. */
   returns_citations: boolean
+  /** GenStudio's published retirement flag and the date the product stops
+   *  being available. Carried for the same reason every other picker carries
+   *  them: this is a third place a customer commits to a chat product, and a
+   *  payload that states the price but not the withdrawal date is how the
+   *  first two went unnoticed. */
+  deprecation_warning: boolean
+  retires_at: string | null
 }
 
 export function toWebResearchModelOption(model: GenStudioChatModel): WebResearchModelOption {
@@ -130,6 +137,8 @@ export function toWebResearchModelOption(model: GenStudioChatModel): WebResearch
     max_web_searches: model.max_web_searches,
     supports_domain_filters: model.supports_domain_filters === true,
     returns_citations: model.returns_citations === true,
+    deprecation_warning: model.deprecation_warning === true,
+    retires_at: model.retires_at ?? null,
   }
 }
 

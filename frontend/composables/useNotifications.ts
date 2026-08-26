@@ -12,8 +12,9 @@
  *                      the badge; "Mark all read" advances it.
  *
  *   - **Action needed** setup / readiness gaps that risk a wasted render:
- *                      no upload destination, no usable AI model key, FFmpeg
- *                      missing (auto-checked here), plus items pages push in
+ *                      no upload destination, no usable AI model key, a model
+ *                      the channel already uses being retired, FFmpeg missing
+ *                      (auto-checked here), plus items pages push in
  *                      via `report()` (asset-audit gaps, partial scan, stale
  *                      data). Each is dismissible; a dismissal survives
  *                      client-side navigations but clears on app relaunch
@@ -28,13 +29,14 @@
 import { ref, readonly, computed } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs, type Job } from './useJobs.js'
+import { retiringConfiguredModels, type ChannelCatalogRow } from '../utils/genstudio-model-retirement.js'
 
 export type NotifSeverity = 'blocking' | 'warning' | 'info'
 export type NotifTab = 'activity' | 'action'
 
 /** A readiness / setup gap surfaced in the "Action needed" tab. Either
- *  auto-checked here (upload / apikeys / ffmpeg) or pushed by a page via
- *  `report()` (asset-audit, partial-scan, load-error). */
+ *  auto-checked here (upload / apikeys / model-retirement / ffmpeg) or pushed
+ *  by a page via `report()` (asset-audit, partial-scan, load-error). */
 export interface ActionItem {
   /** Stable, unique within a slug. Dismissals + de-dupe key off this. */
   key: string
@@ -169,10 +171,10 @@ function removeItem(slug: string, key: string): void {
 }
 
 /**
- * Run the auto setup checks for a slug and reconcile the upload/apikeys/ffmpeg
- * items. Page-pushed items (via report) are left untouched. Fail-quiet: a
- * failed probe leaves that item in its prior state rather than firing a false
- * "missing" alert.
+ * Run the auto setup checks for a slug and reconcile the
+ * upload/apikeys/model-retirement/ffmpeg items. Page-pushed items (via report)
+ * are left untouched. Fail-quiet: a failed probe leaves that item in its prior
+ * state rather than firing a false "missing" alert.
  */
 async function refreshReadiness(slug: string): Promise<void> {
   if (!slug || slug === 'undefined' || typeof window === 'undefined') return
@@ -199,8 +201,12 @@ async function refreshReadiness(slug: string): Promise<void> {
     } catch { /* unknown — leave prior state, no false alarm */ }
 
     // 2. AI model keys — if NOTHING is usable, every generator fails. Hard blocker.
+    //    The same catalogue read also answers check 2b below, so it is fetched
+    //    once and both checks share it.
+    let catalog: ChannelCatalogRow[] = []
     try {
-      const models = await get<Array<{ available: boolean }>>(`/models?project=${slug}`)
+      const models = await get<Array<{ available: boolean } & ChannelCatalogRow>>(`/models?project=${slug}`)
+      if (Array.isArray(models)) catalog = models
       const anyUsable = Array.isArray(models) && models.some(m => m.available)
       if (!anyUsable && Array.isArray(models)) {
         setItem(slug, {
@@ -212,6 +218,43 @@ async function refreshReadiness(slug: string): Promise<void> {
         })
       } else {
         removeItem(slug, 'apikeys')
+      }
+    } catch { /* leave prior state */ }
+
+    // 2b. A model this channel is ALREADY configured to use is being retired.
+    //
+    //     This is where a retirement actually costs something. The picker warns
+    //     whoever is choosing a model right now; a channel set up months ago is
+    //     nobody's current choice, and its owner has no reason to reopen the
+    //     picker before the date passes. GenStudio has published the countdown
+    //     on every catalogue row the whole time — the app simply never looked.
+    //
+    //     A warning rather than a blocker, at every stage of the countdown: the
+    //     model still works today, and the fix is to pick another one before it
+    //     stops. Once the date has passed the sentence switches to the past
+    //     tense on its own and the existing `apikeys` check takes over as the
+    //     blocker, because by then the product is simply unavailable.
+    try {
+      if (catalog.length) {
+        const config = await get<Record<string, unknown>>(`/projects/${slug}/settings/config`)
+        const retiring = retiringConfiguredModels(config, catalog)
+        if (retiring.length) {
+          setItem(slug, {
+            key: 'model-retirement',
+            severity: 'warning',
+            // Counted, never pluralised by hand into a wrong sentence.
+            title: retiring.length === 1
+              ? `${retiring[0].label} is being retired`
+              : `${retiring.length} models this channel uses are being retired`,
+            // GenStudio's dates, one line each, in the order they fall due,
+            // then what to do about them once — not after every line.
+            detail: `${retiring.map(model => model.notice).join(' ')} `
+              + `Open the stage${retiring.length === 1 ? '' : 's'} using `
+              + `${retiring.length === 1 ? 'it' : 'them'} and pick another model.`,
+          })
+        } else {
+          removeItem(slug, 'model-retirement')
+        }
       }
     } catch { /* leave prior state */ }
 

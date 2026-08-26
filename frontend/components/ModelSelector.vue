@@ -22,6 +22,12 @@
          choosing. It disappears for a model without a notice, so it never
          becomes furniture people learn to scroll past. -->
     <p v-if="selectedDataDisclosure" class="data-disclosure">{{ selectedDataDisclosure }}</p>
+    <!-- Shown for as long as a retiring model stays selected. The date alone
+         would make the reader work out how much time is left, so the sentence
+         carries both. Same treatment as the notice above: body text, in the
+         flow, never a tooltip and never truncated — a warning nobody can read
+         at a glance is the warning that was already there. -->
+    <p v-if="selectedRetirementNotice" class="retirement-notice">{{ selectedRetirementNotice }}</p>
   </div>
 </template>
 
@@ -34,6 +40,7 @@ import {
 import { invalidateModelCatalogCache } from '../composables/useApi.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 import { describeChatRate } from '../utils/genstudio-credit-cost.js'
+import { describeModelRetirement, isRetiring } from '../utils/genstudio-model-retirement.js'
 
 interface LlmModelRow {
   id: string
@@ -69,6 +76,24 @@ interface LlmModelRow {
    */
   discount?: boolean
   discount_disclaimer?: string | null
+  /**
+   * GenStudio's published retirement schedule. `deprecation_warning` is its own
+   * flag for "the warning window is open" — this app reads it rather than
+   * deciding for itself how much notice a customer gets — and `retires_at` is
+   * the moment the product stops being available to them.
+   */
+  deprecation_warning?: boolean
+  deprecation_warning_at?: string | null
+  scheduled_retirement_at?: string | null
+  retires_at?: string | null
+  /**
+   * Carried through the client and the /api/models whitelist, and deliberately
+   * unused here. The picker promises it "will not switch products
+   * automatically"; naming one successor would quietly steer the choice it
+   * promises to leave alone. Plumbing it anyway means a change of mind is a UI
+   * change, not a transport change.
+   */
+  replacement_model_id?: string | null
 }
 
 const props = defineProps<{
@@ -118,14 +143,33 @@ const menuOptions = computed(() => {
       // Scannable in the list, before anything is opened. The sentence itself
       // is rendered in full beneath the selector once the model is chosen — a
       // badge is a signpost, never the disclosure.
-      badges: model.discount === true
-        ? [{ label: 'Data notice', tone: 'warning' as const, title: model.discount_disclaimer || 'This model carries a data notice from GenStudio.' }]
-        : [],
+      badges: [
+        ...(model.discount === true
+          ? [{ label: 'Data notice', tone: 'warning' as const, title: model.discount_disclaimer || 'This model carries a data notice from GenStudio.' }]
+          : []),
+        // Visible while scanning the list, before any row is opened. The date
+        // and the countdown ride along as the title; the full sentence is
+        // rendered beneath the selector once the model is chosen.
+        ...(isRetiring(model)
+          ? [{ label: 'Retiring', tone: 'warning' as const, title: describeModelRetirement(model) }]
+          : []),
+      ],
       costTier: model.cost_tier,
     }
   })
   return rows
 })
+
+/**
+ * What GenStudio has published about the selected model's retirement, or ''.
+ *
+ * Every value in the sentence comes off the catalogue row; the only thing
+ * computed here is the distance between GenStudio's date and today, which is
+ * the arithmetic this exists to spare the reader.
+ */
+const selectedRetirementNotice = computed(() => describeModelRetirement(
+  allModels.value.find(model => model.id === props.modelValue),
+))
 
 /** GenStudio's own sentence for the selected model, or '' when it publishes none. */
 const selectedDataDisclosure = computed(() => {
@@ -216,6 +260,25 @@ defineExpose({ reloadCatalog })
  * never truncated: four sentences must fit at any selector width.
  */
 .data-disclosure {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--warning, #d97706);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-md);
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+/*
+ * Body text, for the same reason the notice above is. This is the only warning
+ * a customer gets before a model they chose months ago stops answering, and the
+ * usual treatment for such a thing — muted micro-copy under a form control — is
+ * indistinguishable from a hint nobody needs to read. It wraps and is never
+ * clamped, so the date and the countdown both survive a narrow selector.
+ */
+.retirement-notice {
   margin: 8px 0 0;
   padding: 8px 10px;
   border-left: 2px solid var(--warning, #d97706);

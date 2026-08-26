@@ -72,6 +72,12 @@ router.get('/projects/:slug/thumbnail-reference/vision-models', async (req, res)
       price_version: model.price_version,
       max_input_images: model.max_input_images, accepted_image_mime_types: model.accepted_image_mime_types,
       max_image_bytes: model.max_image_bytes, max_image_dimension: model.max_image_dimension,
+      // Published retirement, same as the language picker. This menu is a
+      // second place a customer commits to a chat product, and a whitelist
+      // that forwards prices but not the withdrawal date is how the first one
+      // went unnoticed for weeks.
+      deprecation_warning: model.deprecation_warning,
+      retires_at: model.retires_at,
     }))
     res.json({ models })
   } catch (error: any) {
