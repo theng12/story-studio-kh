@@ -76,7 +76,11 @@
 
       <div class="steps-grid mt-2">
         <template v-for="entry in chainEntries" :key="entry.kind === 'step' ? entry.id : entry.key">
-          <!-- Batchable step → checkbox tile (enqueued by Run Batch). -->
+          <!-- Batchable step → checkbox tile (enqueued by Run Batch).
+               v1.4.73 — "you cannot change this here" and "this will not run"
+               are different facts. The Introduction is locked either way, so
+               the greyed-out styling is applied only when it will NOT run;
+               otherwise the tile would say the wrong one of the two. -->
           <label
             v-if="entry.kind === 'step'"
             class="step-tile"
@@ -84,7 +88,7 @@
               selected: stepChecked[entry.id],
               missing: stepChecked[entry.id] && !presetNameFor(entry.id) && !noPresetStep(entry.id),
               costly: entry.costly,
-              disabled: stepDisabled(entry.id),
+              disabled: stepDisabled(entry.id) && !stepChecked[entry.id],
             }"
             :title="stepDisabledReason(entry.id)"
           >
@@ -616,8 +620,9 @@ interface StepMeta {
   label: string
   icon: string
   link: string
-  presetList: string
-  presetActive: string
+  /** Absent for a step in NO_PRESET_STEPS, which has no preset to pick. */
+  presetList?: string
+  presetActive?: string
   /** If true, unchecked by default — user must opt in. For cost-sensitive steps. */
   costly?: boolean
   /** Human-readable warning rendered on the step tile when costly. */
