@@ -852,6 +852,25 @@ const queues: Record<JobType, QueueState> = {
   // per-chapter refactor added `chapter-only` for targeted regens.
   'script-only': { pending: [], running: false, executor: null },
   'introduction-only': { pending: [], running: false, executor: null },
+  // ── DO NOT GIVE `chapter-only` A PARALLEL LANE ──────────────────────────
+  //
+  // Its dedup is deliberately narrowed by `chapter_number` (routes/scripts.ts),
+  // so several DIFFERENT chapters of one episode can sit in this queue at once.
+  // routes/scripts.ts says they "run back-to-back" — that is true only because
+  // this is a single-slot lane. `chapter-only` is in no group set, so `groupOf`
+  // returns the type name and `pump` takes the `q.running` branch: exactly one
+  // runs process-wide.
+  //
+  // Every one of them calls `assembleUnifiedNarration` (lib/narration-assembly.ts),
+  // which rewrites ONE shared narration document for the episode from scratch and
+  // contains zero mutual exclusion — verified 2026-08-26: `withLock` appears 0
+  // times in that file, and there is no mutex, semaphore or in-flight map either.
+  // Two of these running at once would interleave over that one document.
+  //
+  // So: putting this type in LLM_TYPES (or any other shared-budget group) to make
+  // chapter regens faster is a data-loss change, not a throughput change. Lock
+  // narration assembly first, then revisit. This has now been proposed twice for
+  // the wrong reason, because the reason lived somewhere nobody reads.
   'chapter-only': { pending: [], running: false, executor: null },
   // v1.0.72+ outline-first chunked flow. outline_only is a small LLM call
   // (one batch); expand_chapters is the heavier multi-batch expansion.

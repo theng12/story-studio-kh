@@ -14,6 +14,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
@@ -389,12 +390,19 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res)
     const scene = plan.scenes.find(s => s.id === sceneId)
     if (!scene) return res.status(404).json({ detail: `Scene ${sceneId} not found in scene_plan.json` })
 
-    scene.visual_prompt = visualPrompt
-    // If the Visual Recipe composed this prompt, keep the raw in sync so a later
-    // re-compose starts from the user's edit, not the stale planner original.
-    if (scene.visual_prompt_raw) scene.visual_prompt_raw = visualPrompt
-    scene.approved = false  // image is now stale vs the edited prompt
-    await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    await withLock(sidecarPath, async () => {
+      // Re-read under the lock: the plan was read before the checks above, and a
+      // job or another request may have written the file since.
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const target = fresh.scenes.find(item => item.id === sceneId)
+      if (!target) throw new Error(`Scene ${sceneId} not found in scene_plan.json`)
+      target.visual_prompt = visualPrompt
+      // If the Visual Recipe composed this prompt, keep the raw in sync so a later
+      // re-compose starts from the user's edit, not the stale planner original.
+      if (target.visual_prompt_raw) target.visual_prompt_raw = visualPrompt
+      target.approved = false  // image is now stale vs the edited prompt
+      await writeJsonAtomic(sidecarPath, fresh)
+    })
     await invalidateScenePlanStatus(slug, episodeId)
     res.json({ ok: true, scene_id: sceneId, visual_prompt: visualPrompt })
   } catch (e: any) {
@@ -471,17 +479,26 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
       }
     }
 
-    const repaired = repairPlanCoverageWithSubtitleCues({
-      scenes: plan.scenes,
-      cues,
-      audioDurationSec: audioDur,
-      threshold_sec: 20,
-      min_sec: minSec,
-      max_sec: maxSec,
+    // Everything above is preparation that does not touch the plan (ffprobe, SRT
+    // parsing, pacing config) and is deliberately OUTSIDE the lock. Only the
+    // read-transform-write below needs mutual exclusion, so it is all it holds.
+    const repaired = await withLock(sidecarPath, async () => {
+      // Re-read under the lock: the plan was read before the checks above, and a
+      // job or another request may have written the file since.
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const result = repairPlanCoverageWithSubtitleCues({
+        scenes: fresh.scenes,
+        cues,
+        audioDurationSec: audioDur,
+        threshold_sec: 20,
+        min_sec: minSec,
+        max_sec: maxSec,
+      })
+      fresh.scenes = result.scenes
+      fresh.total_duration_sec = audioDur
+      await writeJsonAtomic(sidecarPath, fresh)
+      return result
     })
-    plan.scenes = repaired.scenes
-    plan.total_duration_sec = audioDur
-    await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
     await invalidateScenePlanStatus(slug, episodeId)
     res.json({
       ok: true,
@@ -548,22 +565,32 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
       }
     }
 
-    const repaired = repairOverlongScenesDeterministically({
-      scenes: plan.scenes || [],
-      cues,
-      threshold_sec: maxSec,
-      min_sec: minSec,
-      max_sec: maxSec,
+    // Prep (SRT parse, pacing config) stays outside the lock; only the
+    // read-transform-write is serialised.
+    const repaired = await withLock(planPath, async () => {
+      // Re-read under the lock: the plan was read before the checks above, and a
+      // job or another request may have written the file since.
+      const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      const result = repairOverlongScenesDeterministically({
+        scenes: fresh.scenes || [],
+        cues,
+        threshold_sec: maxSec,
+        min_sec: minSec,
+        max_sec: maxSec,
+      })
+      // Nothing to repair — leave the file untouched and let the caller answer 400.
+      if (!result.repairedCount) return result
+      fresh.scenes = result.scenes
+      fresh.generated_at = new Date().toISOString()
+      fresh.planning_stage = 'timeline'
+      await writeJsonAtomic(planPath, fresh)
+      return result
     })
     if (!repaired.repairedCount) {
       return res.status(400).json({
         detail: `No scenes exceed the selected ${maxSec}-second pacing cap. If subtitles were just restored, stitch them again before retrying.`,
       })
     }
-    plan.scenes = repaired.scenes
-    plan.generated_at = new Date().toISOString()
-    plan.planning_stage = 'timeline'
-    await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
     await invalidateScenePlanStatus(slug, episodeId)
     res.json({
       ok: true,
@@ -620,13 +647,25 @@ router.post('/projects/:slug/scene-plan/:episodeId/reconcile-timings', async (re
       }
     }
 
-    const before = computePlanCoverage(plan.scenes, audioDur || cues[cues.length - 1]!.end_sec)
-    const r = reconcilePlanToSubtitles(plan.scenes, cues, audioDur || undefined)
-    plan.scenes = r.scenes
-    plan.total_duration_sec = audioDur || cues[cues.length - 1]!.end_sec
-    await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    // Prep (transcript parse, ffprobe) is outside the lock; the read-transform-write
+    // is inside it, and the reported before/after coverage is measured on the same
+    // document that was actually saved.
+    const { before, r, after } = await withLock(sidecarPath, async () => {
+      // Re-read under the lock: the plan was read before the checks above, and a
+      // job or another request may have written the file since.
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const coverageBefore = computePlanCoverage(fresh.scenes, audioDur || cues[cues.length - 1]!.end_sec)
+      const result = reconcilePlanToSubtitles(fresh.scenes, cues, audioDur || undefined)
+      fresh.scenes = result.scenes
+      fresh.total_duration_sec = audioDur || cues[cues.length - 1]!.end_sec
+      await writeJsonAtomic(sidecarPath, fresh)
+      return {
+        before: coverageBefore,
+        r: result,
+        after: computePlanCoverage(fresh.scenes, fresh.total_duration_sec),
+      }
+    })
     await invalidateScenePlanStatus(slug, episodeId)
-    const after = computePlanCoverage(plan.scenes, plan.total_duration_sec)
     res.json({
       ok: true,
       matched: r.matchedCount,
@@ -665,8 +704,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-motion-prompt', async (re
     const scene = plan.scenes.find(s => s.id === sceneId)
     if (!scene) return res.status(404).json({ detail: `Scene ${sceneId} not found in scene_plan.json` })
 
-    scene.motion_prompt = motionPrompt
-    await fs.writeFile(sidecarPath, JSON.stringify(plan, null, 2), 'utf-8')
+    await withLock(sidecarPath, async () => {
+      // Re-read under the lock: the plan was read before the checks above, and a
+      // job or another request may have written the file since.
+      const fresh = JSON.parse(await fs.readFile(sidecarPath, 'utf-8')) as ScenePlan
+      const target = fresh.scenes.find(item => item.id === sceneId)
+      if (!target) throw new Error(`Scene ${sceneId} not found in scene_plan.json`)
+      target.motion_prompt = motionPrompt
+      await writeJsonAtomic(sidecarPath, fresh)
+    })
     await invalidateScenePlanStatus(slug, episodeId)
     res.json({ ok: true, scene_id: sceneId, motion_prompt: motionPrompt })
   } catch (e: any) {
@@ -777,7 +823,14 @@ router.get('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
       try {
         scenePlan = JSON.parse(await fs.readFile(scenePlanPath, 'utf-8')) as ScenePlan
         if (clearLegacyPlannerFallbackReasons(scenePlan.scenes)) {
-          await fs.writeFile(scenePlanPath, JSON.stringify(scenePlan, null, 2), 'utf-8')
+          // A read path that writes. Same rule applies: re-read under the lock and
+          // strip the legacy reasons from THAT copy, or this GET can quietly undo a
+          // write a running job made between its own read and this migration.
+          scenePlan = await withLock(scenePlanPath, async () => {
+            const fresh = JSON.parse(await fs.readFile(scenePlanPath, 'utf-8')) as ScenePlan
+            if (clearLegacyPlannerFallbackReasons(fresh.scenes)) await writeJsonAtomic(scenePlanPath, fresh)
+            return fresh
+          })
         }
       } catch { /* ignore */ }
     }
@@ -897,7 +950,9 @@ router.put('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     await fs.mkdir(path.dirname(sidecarPath), { recursive: true })
-    await fs.writeFile(sidecarPath, JSON.stringify(body, null, 2), 'utf-8')
+    // A deliberate whole-document replacement from the client, not a
+    // read-modify-write — locked so it cannot land in the middle of one.
+    await withLock(sidecarPath, () => writeJsonAtomic(sidecarPath, body))
     await invalidateScenePlanStatus(slug, episodeId)
     res.json({ ok: true, sidecar_path: sidecarPath })
   } catch (e: any) {

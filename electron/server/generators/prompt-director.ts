@@ -15,11 +15,52 @@
  * The layout itself is anchored at render time by the composition template
  * image (img2img-references/composition.png); this pass writes the matching
  * prompt text so the two reinforce each other.
+ *
+ * ── WHY THIS IS NOT PART OF `scene_plan_run` (asked 2026-08-26, answered here
+ *    so it does not have to be re-derived) ────────────────────────────────────
+ *
+ * Both jobs are triggered from the Scene Plan page and both write
+ * scene_plan.json, which makes "why aren't they one job?" the obvious question.
+ * They are one artifact but not one stage, and the evidence says keep them apart:
+ *
+ *  - DIRECTION OF DEPENDENCE. This job REQUIRES a plan that already has visual
+ *    prompts (see the two guards below). It cannot run first, and the planner
+ *    cannot depend on it. It is a layer over the planner's output, which is how
+ *    it was introduced: "a decoupled layer on top of the existing planner →
+ *    render flow, so nothing about plain rendering changes when it's off".
+ *
+ *  - THE FIELD OVERLAP IS TINY. This job writes exactly three scene fields:
+ *    visual_prompt, visual_prompt_raw, emotion — and no top-level ScenePlan
+ *    field at all. The planner owns everything else (timings, transcript,
+ *    motion_prompt, motion_mode, creative_strategy, scene_type, and every
+ *    top-level field). They are not two features fighting over one document.
+ *
+ *  - RE-APPLYING WITHOUT RE-PLANNING IS THE POINT. The composition always comes
+ *    from visual_prompt_raw, so the recipe is idempotent and revertible: tweak
+ *    the directive, press it again, or revert to the planner's prompts. The
+ *    button even relabels itself "↻ Re-apply recipe". Folding this into the
+ *    planner would mean re-planning to re-compose, which is the one thing the
+ *    design exists to avoid — and the planner's timeline stage discards composed
+ *    prompts wholesale, so it is the destructive direction, not the cheap one.
+ *
+ *  - THE PRECONDITIONS ARE DISJOINT, NEITHER A SUBSET. This job needs
+ *    continuity.json with recipe.enabled + a directive, and no subtitles and no
+ *    GenStudio catalogue model. The planner needs a complete stitched subtitle
+ *    timeline and a GenStudio model that can hold a JSON contract, and never
+ *    reads `recipe` at all.
+ *
+ * MERGING WOULD ALSO NOT HAVE CLOSED THE RACE THIS COMMENT SITS BESIDE.
+ * scene_plan.json has many writers, not two: five Scene Review routes, seven
+ * Scene Plan routes and the revert-recipe route all read-modify-write it from
+ * HTTP requests while any job is mid-flight. One merged job would still race
+ * the Approve button. Mutual exclusion on the path is the fix; the job split is
+ * a separate, and correct, design decision.
  */
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { callAi } from '../lib/ai-client.js'
 import { isGenStudioInsufficientCredits } from '../lib/genstudio-client.js'
 import { promptDirectorOutputContract } from '../lib/story-output-contracts.js'
@@ -166,6 +207,8 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
     : `Applying Visual Recipe to ${workable.length} scene(s) — guide: ${guideName}, emotion: ${recipe.emotion_mode}.`)
 
   const byId = new Map<string, ScenePlanEntry>(plan.scenes.map(s => [s.id, s]))
+  /** Composed results awaiting the locked write. Keyed by stable scene id. */
+  const composedById = new Map<string, { prompt: string; emotion?: string }>()
   let composed = 0
   let failed = 0
   const failedIds = new Set<string>()
@@ -216,22 +259,12 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
       const results = new Map(parsed.scenes.map(r => [r.id, r]))
       for (const src of slice) {
         const r = results.get(src.id)
-        const target = byId.get(src.id)
-        if (!target) continue
+        if (!byId.has(src.id)) continue
         if (!r?.prompt?.trim()) { failed++; failedIds.add(src.id); continue }
-        // Preserve the planner's original as the raw source on first run.
-        if (!target.visual_prompt_raw) target.visual_prompt_raw = target.visual_prompt
-        target.visual_prompt = r.prompt.trim()
-        // Scene mode has no character → no emotion. Guide mode: locked emotion
-        // stays; fixed mode forces the recipe emotion; else take the LLM's choice.
-        if (!sceneMode && !(target.emotion_locked && target.emotion?.trim())) {
-          if (recipe!.emotion_mode === 'fixed' && recipe!.fixed_emotion.trim()) {
-            target.emotion = recipe!.fixed_emotion.trim()
-          } else if (r.emotion?.trim()) {
-            target.emotion = r.emotion.trim()
-          }
-        }
-        composed++
+        // Recorded, not applied. The plan read at the top of this job is minutes
+        // stale by now, so the mutation is replayed against a fresh copy under
+        // the lock below rather than written back from this snapshot.
+        composedById.set(src.id, { prompt: r.prompt.trim(), emotion: r.emotion?.trim() || undefined })
       }
     } else {
       failed += slice.length
@@ -239,10 +272,50 @@ export async function runPromptDirectorJob(job: Job): Promise<void> {
     }
 
     job.progress = Math.round(((b + 1) / totalBatches) * 100)
-    job.output_lines.push(`Batch ${b + 1}/${totalBatches} done — ${composed} composed so far.`)
+    job.output_lines.push(`Batch ${b + 1}/${totalBatches} done — ${composedById.size} composed so far.`)
   }
 
-  await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+  // ── The write is a locked replay, not a snapshot flush (v1.4.70) ────────
+  //
+  // `plan` above was read before the first LLM batch and is minutes old by the
+  // time the last one returns. Writing it back whole would silently discard
+  // every change any other writer made to this episode in that window — a
+  // Scene Review approval, a rendered image's checkpoint, a Scene Plan repair.
+  //
+  // An atomic write does NOT prevent that. `writeJsonAtomic` only guarantees a
+  // reader never sees half a file; the lost update here is a complete, valid
+  // document that happens to be missing someone else's field. Mutual exclusion
+  // is the separate property, and `withLock` is what supplies it — exactly as
+  // services/scene-prompt-checkpoint.ts and services/scene-media-checkpoint.ts
+  // already do against this same path.
+  //
+  // Re-reading INSIDE the lock is the load-bearing half. Locking only the write
+  // would still persist the stale snapshot, just without a concurrent writer
+  // interleaved into it.
+  await withLock(planPath, async () => {
+    const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    for (const [sceneId, result] of composedById) {
+      const target = fresh.scenes.find(scene => scene.id === sceneId)
+      // Deleted while this job was composing — same tolerance the pre-lock code
+      // had for a scene missing from its snapshot.
+      if (!target) continue
+      // Preserve the planner's original as the raw source on first run.
+      if (!target.visual_prompt_raw) target.visual_prompt_raw = target.visual_prompt
+      target.visual_prompt = result.prompt
+      // Scene mode has no character → no emotion. Guide mode: locked emotion
+      // stays; fixed mode forces the recipe emotion; else take the LLM's choice.
+      // Read from `fresh`, so an emotion the user locked mid-run is honoured.
+      if (!sceneMode && !(target.emotion_locked && target.emotion?.trim())) {
+        if (recipe!.emotion_mode === 'fixed' && recipe!.fixed_emotion.trim()) {
+          target.emotion = recipe!.fixed_emotion.trim()
+        } else if (result.emotion) {
+          target.emotion = result.emotion
+        }
+      }
+      composed++
+    }
+    await writeJsonAtomic(planPath, fresh)
+  })
   job.progress = 100
   requireJobCompletion(job, {
     label: 'Prompt Director', expected: workable.length, completed: workable.length - failedIds.size,

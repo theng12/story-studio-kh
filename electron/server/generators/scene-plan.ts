@@ -55,7 +55,7 @@ import { assertSubtitleTimelineComplete } from '../services/scene-timeline-integ
 import { resolveTranscriptSrt, describeTranscriptCorrection } from '../services/subtitle-correction.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import { auditScenePromptCompletion, checkpointScenePrompt } from '../services/scene-prompt-checkpoint.js'
-import { writeJsonAtomic } from '../lib/atomic-store.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import {
   clearLegacyPlannerFallbackReasons,
   inspectScenePromptIntegrity,
@@ -786,7 +786,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         opening_source: 'measured',
       }
       await fs.mkdir(path.dirname(outPath), { recursive: true })
-      await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+      // A deliberate whole-file REPLACEMENT, not a read-modify-write — but still
+      // locked, so a concurrent read-modify-write cannot interleave and write the
+      // old timeline back over the new one.
+      await withLock(outPath, () => writeJsonAtomic(outPath, plan))
       job.output_dir = paths.episode_dir
       job.output_lines.push(
         `Timeline ready: ${scenes.length} cue-aligned scene(s), starting at ${openingReserved.toFixed(1)}s. No LLM was used.`,
@@ -808,58 +811,74 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     }
 
     if (!existsSync(outPath)) throw new Error('Create the scene timeline first.')
-    const plan = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
-    const timelineCleanup = removeNonRenderableScenes(plan.scenes)
-    if (timelineCleanup.removed_ids.length) {
-      plan.scenes = timelineCleanup.scenes
-      await writeJsonAtomic(outPath, plan)
-      job.output_lines.push(
-        `Timeline cleanup: removed ${timelineCleanup.removed_ids.length} non-renderable zero-duration scene(s)`
-        + (timelineCleanup.removed_prompt_ids.length
-          ? ` and discarded ${timelineCleanup.removed_prompt_ids.length} unusable prompt checkpoint(s).`
-          : '.'),
-      )
-    }
-    clearLegacyPlannerFallbackReasons(plan.scenes)
-    // Preserve a useful timeline timestamp when an older empty-prompt plan is
-    // resumed. Once generated_at starts advancing with prompt saves it can no
-    // longer be used as the timeline build time.
-    if (!plan.timeline_built_at && plan.scenes.every(scene => !scene.visual_prompt?.trim())) {
-      plan.timeline_built_at = plan.generated_at
-    }
     const isMotion = stage === 'motion'
-    if (formulaMotionProfile && plan.motion_profile?.id !== formulaMotionProfile.id) {
-      plan.motion_profile = structuredClone(formulaMotionProfile)
-      for (const scene of plan.scenes) delete scene.motion_mode
-    }
-    if (isMotion && plan.motion_profile) {
-      const assigned = assignSceneMotionProfile(plan.scenes, plan.motion_profile, { preserveExisting: true })
-      if (assigned.changed) await writeJsonAtomic(outPath, plan)
-      job.output_lines.push(
-        `Motion profile ${plan.motion_profile.label}: ${assigned.modes.still} still · ${assigned.modes.gentle} gentle · ${assigned.modes.limited} limited. Still scenes keep their approved image and are not sent to image-to-video.`,
-      )
-    }
-    // Creative interpretation is selected once per plan, then assigned across
-    // the full episode before any packs leave this Mac. This keeps variety
-    // stable across prompt batches without introducing a second LLM pass.
-    const creativeDirection = !isMotion
-      ? normalizeCreativeDirection(plan.creative_direction || params.creative_direction)
-      : plan.creative_direction
-    if (!isMotion) {
-      plan.creative_direction = assignCreativeStrategies(
-        plan.scenes,
-        creativeDirection,
-        `${job.project_slug}:${episode_id}`,
-        true,
-      )
-      await writeJsonAtomic(outPath, plan)
-      const profile = plan.creative_direction.profile === 'custom'
-        ? 'Custom'
-        : CREATIVE_PROFILES[plan.creative_direction.profile].label
-      job.output_lines.push(
-        `Creative direction: ${profile} (${plan.creative_direction.intensity}/4) - strategies assigned across ${plan.scenes.length} scene(s) before packing.`,
-      )
-    }
+    // ── Read + the whole-plan rewrites that follow it are ONE locked unit ──
+    //
+    // This block reads the plan once and then writes the WHOLE document back
+    // up to three times. Split across the lock boundary, each of those writes
+    // republishes this snapshot over anything a concurrent writer committed in
+    // between — a Scene Review approval, a rendered image's checkpoint, Prompt
+    // Director. `writeJsonAtomic` cannot prevent that: it only guarantees no
+    // reader sees half a file, while the loss here is a complete, valid document
+    // that is simply missing someone else's field.
+    //
+    // The body is synchronous apart from the writes themselves, so the lock is
+    // held briefly and cannot re-enter itself. Every prompt written after this
+    // point already goes through the locked `checkpointScenePrompt`.
+    const { plan, creativeDirection } = await withLock(outPath, async () => {
+      const plan = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+      const timelineCleanup = removeNonRenderableScenes(plan.scenes)
+      if (timelineCleanup.removed_ids.length) {
+        plan.scenes = timelineCleanup.scenes
+        await writeJsonAtomic(outPath, plan)
+        job.output_lines.push(
+          `Timeline cleanup: removed ${timelineCleanup.removed_ids.length} non-renderable zero-duration scene(s)`
+          + (timelineCleanup.removed_prompt_ids.length
+            ? ` and discarded ${timelineCleanup.removed_prompt_ids.length} unusable prompt checkpoint(s).`
+            : '.'),
+        )
+      }
+      clearLegacyPlannerFallbackReasons(plan.scenes)
+      // Preserve a useful timeline timestamp when an older empty-prompt plan is
+      // resumed. Once generated_at starts advancing with prompt saves it can no
+      // longer be used as the timeline build time.
+      if (!plan.timeline_built_at && plan.scenes.every(scene => !scene.visual_prompt?.trim())) {
+        plan.timeline_built_at = plan.generated_at
+      }
+      if (formulaMotionProfile && plan.motion_profile?.id !== formulaMotionProfile.id) {
+        plan.motion_profile = structuredClone(formulaMotionProfile)
+        for (const scene of plan.scenes) delete scene.motion_mode
+      }
+      if (isMotion && plan.motion_profile) {
+        const assigned = assignSceneMotionProfile(plan.scenes, plan.motion_profile, { preserveExisting: true })
+        if (assigned.changed) await writeJsonAtomic(outPath, plan)
+        job.output_lines.push(
+          `Motion profile ${plan.motion_profile.label}: ${assigned.modes.still} still · ${assigned.modes.gentle} gentle · ${assigned.modes.limited} limited. Still scenes keep their approved image and are not sent to image-to-video.`,
+        )
+      }
+      // Creative interpretation is selected once per plan, then assigned across
+      // the full episode before any packs leave this Mac. This keeps variety
+      // stable across prompt batches without introducing a second LLM pass.
+      const creativeDirection = !isMotion
+        ? normalizeCreativeDirection(plan.creative_direction || params.creative_direction)
+        : plan.creative_direction
+      if (!isMotion) {
+        plan.creative_direction = assignCreativeStrategies(
+          plan.scenes,
+          creativeDirection,
+          `${job.project_slug}:${episode_id}`,
+          true,
+        )
+        await writeJsonAtomic(outPath, plan)
+        const profile = plan.creative_direction.profile === 'custom'
+          ? 'Custom'
+          : CREATIVE_PROFILES[plan.creative_direction.profile].label
+        job.output_lines.push(
+          `Creative direction: ${profile} (${plan.creative_direction.intensity}/4) - strategies assigned across ${plan.scenes.length} scene(s) before packing.`,
+        )
+      }
+      return { plan, creativeDirection }
+    })
     const duplicateVisualIds = new Set(inspectScenePromptIntegrity(plan.scenes).duplicate_ids)
     const pending = plan.scenes
       .map((scene, index) => ({ scene, index }))
@@ -1324,14 +1343,23 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     // prompt right now), but we also clear `visual_prompt_raw` so future
     // recipe compositions see a fresh starting point — otherwise the recipe
     // would re-compose from the old raw and overwrite the user's new prompt.
-    target.visual_prompt = newPrompt
-    if (target.visual_prompt_raw) {
-      target.visual_prompt_raw = newPrompt
-    }
-    clearLegacyPlannerFallbackReasons([target])
-    existing.generated_at = new Date().toISOString()
+    // The read above is separated from this write by a full LLM round-trip, so
+    // the snapshot is stale by the time the answer lands. Re-read under the lock
+    // and apply only this scene's change, instead of republishing the snapshot
+    // over whatever else was written to the episode meanwhile.
     await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    await withLock(outPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+      const scene = fresh.scenes.find(item => item.id === params.regenerate_prompt_scene_id)
+      if (!scene) throw new Error(`Scene ${params.regenerate_prompt_scene_id} was removed while its prompt was being regenerated.`)
+      scene.visual_prompt = newPrompt
+      if (scene.visual_prompt_raw) {
+        scene.visual_prompt_raw = newPrompt
+      }
+      clearLegacyPlannerFallbackReasons([scene])
+      fresh.generated_at = new Date().toISOString()
+      await writeJsonAtomic(outPath, fresh)
+    })
     job.output_dir = paths.episode_dir
     job.progress = 100
     const rewriteLength = readPromptLength(newPrompt, promptCharCap)
@@ -1377,10 +1405,19 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     if (!newMotion || !newMotion.trim()) {
       throw new Error('Model returned an empty motion prompt. Try a stronger model or fill it in manually.')
     }
-    target.motion_prompt = newMotion
-    existing.generated_at = new Date().toISOString()
+    // The read above is separated from this write by a full LLM round-trip, so
+    // the snapshot is stale by the time the answer lands. Re-read under the lock
+    // and apply only this scene's change, instead of republishing the snapshot
+    // over whatever else was written to the episode meanwhile.
     await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    await withLock(outPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+      const scene = fresh.scenes.find(item => item.id === params.regenerate_motion_prompt_scene_id)
+      if (!scene) throw new Error(`Scene ${params.regenerate_motion_prompt_scene_id} was removed while its motion prompt was being regenerated.`)
+      scene.motion_prompt = newMotion
+      fresh.generated_at = new Date().toISOString()
+      await writeJsonAtomic(outPath, fresh)
+    })
     job.output_dir = paths.episode_dir
     job.progress = 100
     job.output_lines.push(`✓ Motion prompt regenerated (${newMotion.length} chars). Other scenes untouched.`)
@@ -1431,15 +1468,28 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     })
     const newScenes = replanned.scenes
     if (!newScenes.length) throw new Error('Re-plan produced no scenes for that range.')
-    // Splice in place of the target; renumber; everything else (incl image_path) is preserved.
-    existing.scenes.splice(targetIdx, 1, ...newScenes)
-    existing.scenes.forEach((s, i) => { s.scene_index = i + 1 })
-    existing.generated_at = new Date().toISOString()
+    // The read above is separated from this write by a full LLM round-trip, so
+    // the snapshot is stale by the time the answer lands. Re-read under the lock
+    // and apply only this scene's change, instead of republishing the snapshot
+    // over whatever else was written to the episode meanwhile.
+    // The splice targets the scene's stable ID in the FRESH plan, not the index
+    // captured before the re-plan: another writer may have added or removed
+    // scenes since, which would make the old index point at the wrong one.
     await fs.mkdir(path.dirname(outPath), { recursive: true })
-    await fs.writeFile(outPath, JSON.stringify(existing, null, 2), 'utf-8')
+    const totalScenes = await withLock(outPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(outPath, 'utf-8')) as ScenePlan
+      const freshIdx = fresh.scenes.findIndex(item => item.id === params.replan_scene_id)
+      if (freshIdx < 0) throw new Error(`Scene ${params.replan_scene_id} was removed while it was being re-planned.`)
+      // Splice in place of the target; renumber; everything else (incl image_path) is preserved.
+      fresh.scenes.splice(freshIdx, 1, ...newScenes)
+      fresh.scenes.forEach((s, i) => { s.scene_index = i + 1 })
+      fresh.generated_at = new Date().toISOString()
+      await writeJsonAtomic(outPath, fresh)
+      return fresh.scenes.length
+    })
     job.output_dir = paths.episode_dir
     job.progress = 100
-    job.output_lines.push(`Replaced 1 scene with ${newScenes.length} — total now ${existing.scenes.length} scene(s). Done.`)
+    job.output_lines.push(`Replaced 1 scene with ${newScenes.length} — total now ${totalScenes} scene(s). Done.`)
     return
   }
 
@@ -1623,7 +1673,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   // disk instead of being lost with it. Same partial-progress protection the
   // visual planner's chunking gives.
   await fs.mkdir(path.dirname(outPath), { recursive: true })
-  await fs.writeFile(outPath, JSON.stringify(plan, null, 2), 'utf-8')
+  // As above: the legacy planner produces a whole new plan rather than editing
+  // the one on disk, so this replaces the file — under the lock, so it cannot be
+  // interleaved with someone else's read-modify-write.
+  await withLock(outPath, () => writeJsonAtomic(outPath, plan))
   const visualIntegrity = inspectScenePromptIntegrity(plan.scenes)
   requireJobCompletion(job, {
     label: 'Scene planning visual prompts',
