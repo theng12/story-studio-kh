@@ -164,8 +164,8 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
  * pinned at 50.
  */
 /**
- * How many writing jobs may run at once — ideas, outlines, chapters, metadata,
- * image prompts and scene plans all share this one lane.
+ * How many writing jobs may run at once — ideas, research, outlines, chapters,
+ * metadata, image prompts and scene plans all share this one lane.
  *
  * WHY IT IS 8 (v1.4.27). The owner: *"LLM is fast and slow depending on what
  * they are so we can't let it burst. it must be queue behind one another but we
@@ -182,7 +182,7 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
  *     limit of 50 actually bought.
  *
  * THE KNOWN TRADE, stated because it is the owner's own concern applied one
- * level down: these six job types share ONE lane, so with 8 slots a burst of
+ * level down: these seven job types share ONE lane, so with 8 slots a burst of
  * slow scene plans can delay fast metadata. At 50 that never bit. If it starts
  * to, the fix is a limit per type rather than a bigger shared number — raising
  * this back toward 50 would only restore the 20-minute queue.
