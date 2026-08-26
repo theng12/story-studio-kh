@@ -966,11 +966,23 @@ router.delete('/projects/:slug/scene-plan/:episodeId', async (req, res) => {
   try {
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const sidecarPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
-    try {
-      await fs.unlink(sidecarPath)
-    } catch (e: any) {
-      if (e?.code !== 'ENOENT') throw e
-    }
+    // Deleting is a writer too. v1.4.72 serialised every writer of this file
+    // and this one was missed, because it removes the document rather than
+    // editing it — which reads like the one case that cannot lose an update.
+    // It is in fact the worst of them: a job holding the lock mid
+    // read-modify-write recreates the file on its way out (writeJsonAtomic
+    // does mkdir -p and never checks for existence), so an unlocked unlink
+    // lands in the gap and the plan the user just deleted comes back — minus
+    // whatever that job did not know about. The user reloads and sees a plan
+    // they deleted. Taking the same lock makes the delete wait for the job to
+    // finish, so the file is gone and stays gone.
+    await withLock(sidecarPath, async () => {
+      try {
+        await fs.unlink(sidecarPath)
+      } catch (e: any) {
+        if (e?.code !== 'ENOENT') throw e
+      }
+    })
     await invalidateScenePlanStatus(slug, episodeId)
     res.json({ ok: true })
   } catch (e: any) {
