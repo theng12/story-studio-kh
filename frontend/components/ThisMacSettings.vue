@@ -327,7 +327,7 @@ const throughputFields: ThroughputField[] = [
   {
     key: 'llmJobs',
     label: 'Writing jobs at once',
-    help: 'Ideas, outlines, chapters, metadata, image prompts and scene plans share this. '
+    help: 'Ideas, research, outlines, chapters, metadata, image prompts and scene plans share this. '
       + 'GenStudio itself accepts 12, so past that the queue just moves out of sight.',
     choices: [
       { value: 4, label: '4 — cautious' },

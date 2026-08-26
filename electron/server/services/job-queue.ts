@@ -1047,8 +1047,20 @@ function fleetEpisodeTypesFor(group: string): ReadonlySet<JobType> {
   if (group === AUDIO_EPISODE_GROUP) return AUDIO_EPISODE_TYPES
   return IMAGE_EPISODE_TYPES
 }
+// `research_run` was missing from this set for a long time — an omission, not
+// a policy. The release that introduced this group (v1.0.335) names the text types
+// it covered and the four lanes it deliberately kept serial; research is in
+// neither list, and nothing in the code or history ever gave it a reason to be
+// alone. Outside this set `groupOf` falls through to the type's own name and
+// `groupLimit` returns 1, so fifty-one queued research jobs ran strictly one at
+// a time however high the owner set "Writing jobs at once".
+//
+// It belongs in the SHARED budget rather than a lane of its own: research is an
+// ordinary GenStudio-bound text call, and a second lane would make the real
+// number of concurrent writing jobs one nobody chose.
 const LLM_TYPES: ReadonlySet<JobType> = new Set<JobType>([
   'idea_campaign', 'outline_only', 'expand_chapters', 'metadata', 'image_prompts', 'scene_plan_run',
+  'research_run',
 ])
 function usesLocalTextFleet(job: Job | undefined): boolean {
   if (!job || !LLM_TYPES.has(job.type)) return false
