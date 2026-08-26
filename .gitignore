@@ -74,3 +74,16 @@ graphify-out/
 # actually travels with the repository.
 !.superpowers/
 !.superpowers/**
+
+# ...but that negation is deliberately broad, so it also re-includes anything
+# else a dev tool drops in there — including the shapes we removed on
+# 2026-08-25 (a live 64-char bearer token at `.superpowers/brainstorm/.last-token`).
+# Re-exclude those by shape. A later rule wins, so these must stay AFTER the
+# negation above. Verified with `git check-ignore -v`, not assumed.
+.superpowers/**/.DS_Store
+.superpowers/**/.last-token
+.superpowers/**/.last-port
+.superpowers/**/*.token
+.superpowers/**/*.secret
+.superpowers/**/.env
+.superpowers/**/.env.*
