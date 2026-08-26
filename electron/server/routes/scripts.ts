@@ -560,12 +560,46 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
     return res.status(409).json({ detail: `Introduction generation already queued/running for ${req.body.episode_id}` })
   }
 
+  // v1.4.73 — the caller names an episode; the server works out the rest.
+  //
+  // The Introduction page has no model picker and no title field, because the
+  // opening is written with the model already chosen for the script and belongs
+  // to an episode the app can already name. Asking a caller for either would
+  // let it supply a different one, which is exactly how a batch run and a
+  // button ended up writing different openings.
+  let title = typeof req.body.title === 'string' ? req.body.title.trim() : ''
+  if (!title) {
+    try {
+      const { getIdeas } = await import('../services/idea-manager.js')
+      const wanted = String(req.body.episode_id).toUpperCase()
+      const idea = (await getIdeas(slug)).find(i => (i.episode_code || '').toUpperCase() === wanted)
+      title = idea?.title || ''
+    } catch { /* an unnamed episode still resolves by code below */ }
+  }
+
+  let model = typeof req.body.model === 'string' ? req.body.model.trim() : ''
+  if (!model) {
+    // Never substitute a catalogue default here. An invented model is
+    // indistinguishable to the reader from one he chose, and it would write
+    // the opening on a different product from its own chapters — the defect
+    // fixed in v1.4.68. Refuse, and say what to do.
+    const { resolveScriptSideChatModel } = await import('./pipeline.js')
+    model = resolveScriptSideChatModel(config as Record<string, unknown>) || ''
+    if (!model) {
+      return res.status(400).json({
+        detail: 'The channel opening is written with the Script Generator\'s language model, and no saved '
+          + 'script preset carries one. Open Script Generator, choose a model under Main settings, save '
+          + 'the script preset, then try again. No model was substituted.',
+      })
+    }
+  }
+
   const job = await jq.enqueue({
     project_slug: slug,
     type: 'introduction-only',
     episode_id: req.body.episode_id,
-    title: req.body.title,
-    params: req.body,
+    title,
+    params: { ...req.body, title, model },
   })
   res.status(201).json(job)
 })

@@ -478,10 +478,22 @@ export const GenerateScriptOnlySchema = z.object({
 }).passthrough()
 export type GenerateScriptOnlyBody = z.infer<typeof GenerateScriptOnlySchema>
 
+// v1.4.73 — `title` and `model` became optional, and the recipe fields became
+// vestigial.
+//
+// The Introduction page asks for an opening by naming an episode and nothing
+// else: HOW the channel opens is a channel setting the server reads, and WHICH
+// model writes it is the model already chosen for the script. A caller that
+// had to supply either could supply a different one, which is precisely how a
+// batch and a button ended up writing different openings.
+//
+// The recipe fields are still accepted so an existing integration keeps
+// working; supplying one overrides the channel's own value for that one run.
+// The server never invents a model — it refuses and says so.
 export const GenerateIntroductionOnlySchema = z.object({
   episode_id: EpisodeId,
-  title: z.string().min(1).max(300),
-  model: z.string().min(1),
+  title: z.string().max(300).optional(),
+  model: z.string().optional(),
   host_name: z.string().optional(),
   word_target: z.number().int().positive().optional(),
   custom_opening: z.string().optional(),
