@@ -103,6 +103,10 @@ export async function getChannelSegments(slug: string): Promise<ChannelSegments>
     segments[INTRODUCTION_SEGMENT_ID].enabled = true
     segments[INTRODUCTION_SEGMENT_ID].inferred_at = new Date().toISOString()
   }
+  // Best-effort: a channel whose config cannot be written still gets the right
+  // answer this time round, and infers it again next time. It must never
+  // pretend to have saved, which is why the write result is not ignored below
+  // where a person pressed Save.
   await pm.updateConfig(slug, { [SEGMENTS_CONFIG_KEY]: segments } as never)
   return segments
 }
@@ -125,7 +129,12 @@ export async function saveChannelSegment(
   delete merged.inferred_at
   const next = { ...current, [segmentId]: merged }
   const normalized = normalizeChannelSegments(next, await formatIntroDefaults(slug))
-  await pm.updateConfig(slug, { [SEGMENTS_CONFIG_KEY]: normalized } as never)
+  // `updateConfig` answers false for a project it cannot write — no config
+  // file, no project directory. Ignoring that would report a successful save
+  // to somebody who then watches the setting revert, which is the shape of
+  // almost every defect found in this app. Say it out loud instead.
+  const written = await pm.updateConfig(slug, { [SEGMENTS_CONFIG_KEY]: normalized } as never)
+  if (!written) throw new Error(`Could not save the Introduction settings for '${slug}': its settings file could not be written.`)
   return normalized
 }
 

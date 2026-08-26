@@ -23,14 +23,36 @@ describe('Pipeline stage selection', () => {
     assert.match(pipeline, />Clear<\/button>/)
   })
 
-  test('treats Introduction as optional while retaining its Script dependency', () => {
-    assert.match(
-      pipeline,
-      /id: 'introduction-only',[^\n]*label: 'Introduction \(optional\)'[^\n]*optional: true/,
-    )
-    assert.match(pipeline, /if \(stepId === 'introduction-only'\) return !stepChecked\['script-only'\]/)
-    assert.match(pipeline, /if \(!on\) stepChecked\['introduction-only'\] = false/)
-    assert.match(pipeline, /Optional Research, Introduction, and paid Motion Clips stay off/)
+  test('the Introduction follows the channel rather than a box that can be forgotten', () => {
+    // v1.4.73 — this used to be a normal optional checkbox, and four episodes
+    // reached paid audio with no opening because it happened not to be ticked
+    // on the run that wrote them. The server adds the step for a channel that
+    // opens with one (`applyChannelSegmentIntent`), so a live checkbox the run
+    // ignores would be worse than none: the tile states the rule instead.
+    assert.match(pipeline, /id: 'introduction-only',[^\n]*label: 'Introduction'[^\n]*optional: true/)
+    assert.match(pipeline, /if \(stepId === 'introduction-only'\) return true/,
+      'it is never hand-toggled here any more')
+    assert.match(pipeline, /stepChecked\['introduction-only'\] = !!stepChecked\['script-only'\] && channelIntroEnabled\.value/,
+      'it is derived from the channel setting and the Script step, in one place')
+    assert.match(pipeline, /Runs automatically — this channel opens with an Introduction/)
+    assert.match(pipeline, /An Introduction is not a choice here — it follows what the channel says/,
+      'the "required stages" shortcut must not still describe it as staying off')
+  })
+
+  test('the page says a run will produce openings BEFORE it is started', () => {
+    // The behaviour change is the point of v1.4.73, but a surprise is still a
+    // surprise. This has to be visible at selection time, not in the receipt.
+    assert.match(pipeline, /Every episode in this run will also get an Introduction/)
+    assert.match(pipeline, /v-if="channelIntroEnabled && stepChecked\['script-only'\]"/)
+  })
+
+  test('the Introduction step points at the page that owns it, and has no preset', () => {
+    // A preset is a snapshot of a moment; how a channel opens belongs to the
+    // channel. Leaving a preset pool here is how a batch and the page ended up
+    // writing different openings.
+    assert.match(pipeline, /id: 'introduction-only',[^\n]*link: '\/introduction'/)
+    assert.doesNotMatch(pipeline, /id: 'introduction-only',[^\n]*presetList/)
+    assert.match(pipeline, /NO_PRESET_STEPS = new Set<StepId>\(\['introduction-only'\]\)/)
   })
 
   test('shows fixed ten-episode pages with pagination in the top toolbar', () => {

@@ -55,7 +55,7 @@
           <button
             type="button"
             class="btn btn-sm btn-secondary"
-            title="Select every required stage in the current production chain. Optional Research, Introduction, and paid Motion Clips stay off."
+            title="Select every required stage in the current production chain. Optional Research and paid Motion Clips stay off. An Introduction is not a choice here — it follows what the channel says."
             @click="selectRequiredSteps"
           >Required stages</button>
           <button

@@ -76,6 +76,15 @@
           small part of what an episode costs to write. It is read aloud as part of the same narration
           the episode already pays to voice, so it adds no separate audio charge.
         </p>
+        <!-- The opening deliberately has no model picker of its own. Saying
+             which model writes it turns "I cannot choose one anywhere" into an
+             answer, without adding a second control that could disagree. -->
+        <p class="intro-model-note">
+          The opening is written by the same language model as the chapters it introduces — the one
+          chosen under Main settings in the
+          <NuxtLink :to="`/projects/${slug}/scripts`">Script Generator</NuxtLink>. There is no separate
+          model to pick here, and nothing here will substitute one.
+        </p>
       </div>
       <label class="intro-switch">
         <input v-model="segment.enabled" type="checkbox" :disabled="saving" />
@@ -190,7 +199,6 @@
       v-if="segment.enabled && episodeId"
       :project-slug="slug"
       :episode-id="episodeId"
-      :title="''"
       :refresh-key="previewRefreshKey"
     />
   </div>
@@ -370,7 +378,8 @@ onMounted(load)
 .intro-command h2,
 .intro-recipe h2 { margin: .25rem 0; font-size: 1.1rem; }
 .intro-command p { margin: 0 0 .5rem; color: var(--text-muted); max-width: 52rem; }
-.intro-cost-note { margin-bottom: 0 !important; }
+.intro-cost-note { margin-bottom: .5rem !important; }
+.intro-model-note { margin-bottom: 0 !important; }
 .section-kicker { color: var(--accent-gold); text-transform: uppercase; letter-spacing: .09em; font-size: .75rem; font-weight: 700; }
 .intro-switch { display: flex; gap: .55rem; align-items: center; font-weight: 700; white-space: nowrap; }
 .intro-switch input { width: 1.2rem; height: 1.2rem; accent-color: var(--accent-gold); }

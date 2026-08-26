@@ -63,6 +63,10 @@ async function seedProject(slug: string, meta: Record<string, unknown> = {}): Pr
     path.join(dir, 'project.json'),
     JSON.stringify({ slug, name: slug, episode_prefix: 'EP', output_root: './episodes', ...meta }),
   )
+  // A real project always has one — `createProject` writes it — and
+  // `updateConfig` refuses to write settings for a project that has not got
+  // one. A fixture without it tests a state that cannot occur.
+  await fs.writeFile(path.join(dir, 'config.json'), JSON.stringify({}))
   return dir
 }
 
@@ -232,6 +236,19 @@ describe('intent survives a context reload', () => {
     await seedEpisodeWithOpening(dir, 'EP0001')
     await segments.saveChannelSegment('channel-that-stopped', INTRODUCTION_SEGMENT_ID, { enabled: false })
     assert.equal(await segments.channelWantsIntroduction('channel-that-stopped'), false)
+  })
+
+  test('a save that could not be written says so instead of reporting success', async () => {
+    // `updateConfig` answers false for a project it cannot write. Ignoring
+    // that would tell somebody their setting was saved and then quietly show
+    // them the old value again — the shape of most defects found in this app.
+    const dir = path.join(pm.projectsRoot(), 'no-config-file')
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(path.join(dir, 'project.json'), JSON.stringify({ slug: 'no-config-file', name: 'x' }))
+    await assert.rejects(
+      () => segments.saveChannelSegment('no-config-file', INTRODUCTION_SEGMENT_ID, { enabled: true }),
+      /could not be written/i,
+    )
   })
 
   test('saving clears the "this was only inferred" mark, whichever way it is left', async () => {
