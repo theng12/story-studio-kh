@@ -577,10 +577,13 @@ export function resolveStepParams(
   step: BatchStep,
   episodeId: string,
   title: string,
-  preset: StoredPreset,
+  preset: StoredPreset | undefined,
   format?: Format | null,
 ): Record<string, any> {
-  const data = preset.data || preset
+  // v1.4.73 — a step in NO_PRESET_STEPS reaches here with nothing, because it
+  // genuinely has no preset to pick. Reading `.data` off `undefined` threw an
+  // "Internal server error" for the whole batch.
+  const data = (preset?.data || preset || {}) as Record<string, any>
   if (step === 'broll') {
     const form = data.form || data
     if (form.selection_mode === 'manual') {

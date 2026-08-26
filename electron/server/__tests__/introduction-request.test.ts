@@ -102,3 +102,78 @@ describe('asking for a channel opening', () => {
     assert.equal(await queuedJob(slug, 'EP0003'), undefined, 'nothing may be queued')
   })
 })
+
+// ── The unattended run, end to end ───────────────────────────────────────
+
+describe('an unattended batch on a channel that opens with an Introduction', () => {
+  /** A channel with a script model, an accepted episode, and openings on. */
+  async function seedRunnableChannel(name: string, openingsOn: boolean): Promise<{ slug: string; episodeId: string }> {
+    const project = await pm.createProject({ name })
+    await pm.updateConfig(project.slug, {
+      script_presets: [{ id: 'sp1', name: 'default', type: 'script', data: { form: { model: 'the-owners-chosen-model' } } }],
+      script_last_preset_script: 'sp1',
+    } as never)
+    const im = await import('../services/idea-manager.js')
+    const ideas = await im.addIdeas(project.slug, [{
+      title: 'Test episode', logline: '', themes: [], suggested_chapters: 5,
+      suggested_length: '20 min', mood: 'calm',
+    }], 'test-model')
+    await im.acceptIdea(project.slug, ideas[0].id)
+    const accepted = await im.getIdeas(project.slug, 'accepted')
+
+    const segments = await import('../services/channel-segments.js')
+    await segments.saveChannelSegment(project.slug, 'introduction', { enabled: openingsOn })
+    return { slug: project.slug, episodeId: accepted[0].episode_code! }
+  }
+
+  test('an opening is planned although the run asked only for the Script', async () => {
+    // THE proof. Nothing here ticks an Introduction box, because there is no
+    // longer a box to tick: the run follows what the channel has said. Four
+    // episodes reached paid audio with no opening because the old box was not
+    // ticked on the run that wrote them.
+    const { slug, episodeId } = await seedRunnableChannel('Batch With Opening', true)
+    const res = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['script-only'] })
+    assert.ok([200, 201].includes(res.status), `run-batch was refused: ${JSON.stringify(res.body)}`)
+
+    // The run reports the work it accepted. A batch chains its stages — the
+    // opening's own job is created once the chapters it introduces exist — so
+    // what is observable here, and what the runner acts on, is the step list.
+    assert.deepEqual(res.body.steps, ['script-only', 'introduction-only'],
+      'the request asked only for the Script; the channel supplied the rest')
+    assert.ok(res.body.total_jobs_planned > 2,
+      'and the opening is counted in the work this run will do')
+  })
+
+  test('a channel that does not use openings is left exactly as it was', async () => {
+    const { slug, episodeId } = await seedRunnableChannel('Batch Without Opening', false)
+    const res = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['script-only'] })
+    assert.ok([200, 201].includes(res.status), `run-batch was refused: ${JSON.stringify(res.body)}`)
+
+    assert.deepEqual(res.body.steps, ['script-only'],
+      'silence about openings must never become spending on them')
+    const jobs = await jq.getJobs(slug)
+    assert.equal(
+      jobs.filter((j: any) => j.type === 'introduction-only' && j.episode_id === episodeId).length,
+      0,
+    )
+  })
+
+  test('the run is not refused for want of an Introduction preset', async () => {
+    // The step is added automatically, so if it still demanded a saved preset
+    // a channel that had never made one would have its ENTIRE batch refused —
+    // not merely go without an opening. Neither channel above saves one.
+    const { slug, episodeId } = await seedRunnableChannel('No Intro Preset', true)
+    const res = await request(app)
+      .post(`/api/projects/${slug}/pipeline/preflight`)
+      .send({ episode_ids: [episodeId], steps: ['script-only'] })
+    assert.equal(res.body.ok, true, `preflight failed: ${JSON.stringify(res.body.issues)}`)
+    assert.ok(
+      !(res.body.issues || []).some((i: any) => i.step === 'introduction-only'),
+      'the opening needs no preset, and must not be able to ask for one',
+    )
+  })
+})
