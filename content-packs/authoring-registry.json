@@ -1,5 +1,5 @@
 {
-  "revision": 54,
+  "revision": 57,
   "batches": [
     {
       "revision": 2,
@@ -2008,6 +2008,81 @@
           }
         ]
       }
+    },
+    {
+      "revision": 55,
+      "receipt_ref": "authoring:bf2ec651bbb68755b8af01bc104190128cdd5a1cf181ea8fb16976cb411858a7",
+      "request": {
+        "expected_revision": 54,
+        "coordinator": {
+          "task": "replace-habits-momentum-padded-topic-pack",
+          "branch": "feat/replace-habits-momentum"
+        },
+        "proposal_ref": "owner verdict 2026-08-27: habits-momentum 1.0.1 reaches 1,000 by template and must be replaced before the kit ships",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.habits-momentum",
+            "item_id": "com.storystudio.topic.habits-momentum",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/free-starters/topic/habits-momentum-v1.0.2",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.habits-momentum",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.habits-momentum",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.build-momentum",
+            "bundle_id": "com.storystudio.bundle.build-momentum",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/build-momentum-v1.0.2",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.practical-motivation",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.habits-momentum",
+                "version": "1.0.2"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.flat-vector-explainer",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.annotated-business-board",
+                "version": "1.0.0"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.build-momentum",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.build-momentum",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -2703,6 +2778,40 @@
         "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
         "pack_id": "com.storystudio.pack.kit.business-explained",
         "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 56,
+      "transition_ref": "lifecycle:33592f9be535de732169f57b6245264eb7b46056ac62732775d78c6330154934",
+      "request": {
+        "expected_revision": 55,
+        "coordinator": {
+          "task": "replace-habits-momentum-padded-topic-pack",
+          "branch": "feat/replace-habits-momentum"
+        },
+        "receipt_ref": "authoring:bf2ec651bbb68755b8af01bc104190128cdd5a1cf181ea8fb16976cb411858a7",
+        "pack_id": "com.storystudio.pack.topic.habits-momentum",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 57,
+      "transition_ref": "lifecycle:7472445b1e9cfdf43ce7e1710c589988312697ee4d9cfc6c486d61599f3df574",
+      "request": {
+        "expected_revision": 56,
+        "coordinator": {
+          "task": "replace-habits-momentum-padded-topic-pack",
+          "branch": "feat/replace-habits-momentum"
+        },
+        "receipt_ref": "authoring:bf2ec651bbb68755b8af01bc104190128cdd5a1cf181ea8fb16976cb411858a7",
+        "pack_id": "com.storystudio.pack.kit.build-momentum",
+        "version": "1.0.2",
         "changes": {
           "status": "authored"
         }
@@ -6136,6 +6245,69 @@
         },
         "sku": {
           "id": "com.storystudio.sku.kit.business-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bf2ec651bbb68755b8af01bc104190128cdd5a1cf181ea8fb16976cb411858a7",
+      "pack_id": "com.storystudio.pack.topic.habits-momentum",
+      "item_id": "com.storystudio.topic.habits-momentum",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/habits-momentum-v1.0.2",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.habits-momentum",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.habits-momentum",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:bf2ec651bbb68755b8af01bc104190128cdd5a1cf181ea8fb16976cb411858a7",
+      "pack_id": "com.storystudio.pack.kit.build-momentum",
+      "bundle_id": "com.storystudio.bundle.build-momentum",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/build-momentum-v1.0.2",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.practical-motivation",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.habits-momentum",
+          "version": "1.0.2"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.flat-vector-explainer",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.annotated-business-board",
+          "version": "1.0.0"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.build-momentum",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.build-momentum",
           "status": "proposed"
         }
       }
