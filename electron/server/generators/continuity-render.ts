@@ -8,7 +8,9 @@
 
 import fs from 'fs/promises'
 import { existsSync } from 'fs'
+import { createHash } from 'crypto'
 import path from 'path'
+import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
 import { registry } from '../providers/registry.js'
 import { saveGenStudioImage } from '../lib/genstudio-artifacts.js'
 import { isDecodableImage } from '../lib/image-validation.js'
@@ -72,13 +74,97 @@ interface ContinuityCfg {
   anchor_character_ids: string[]
   style_bible: string
   negative_prompt: string
+  /**
+   * The Character Sheet's one live reference switch ("Use episode anchor").
+   *
+   * Read as an OR of the two names the sidecar has carried, exactly as the
+   * frontend's `normalizeContinuityConfig` reads it: the page writes
+   * `use_episode_sheet` AND mirrors it into `references.sheet`, and older
+   * episode files carry only the mirror. Reading one name would silently
+   * ignore the customer's choice on whichever files carry the other.
+   */
+  use_episode_reference: boolean
 }
 function defaultCfg(): ContinuityCfg {
   return {
     anchor_character_ids: [],
     style_bible: '',
     negative_prompt: '',
+    use_episode_reference: false,
   }
+}
+
+/**
+ * The per-episode reference images this generator may attach, in the order it
+ * prefers them. Exactly ONE is ever submitted.
+ *
+ * `composition.png` first: it is the explainer LAYOUT template that
+ * `generators/composition-template.ts` renders for this episode, and it exists
+ * only because somebody deliberately produced it for this purpose.
+ * `master.png` is the image the customer uploads by hand into the same folder
+ * from the Character Sheet, and is the fallback when no template was made.
+ */
+export const EPISODE_REFERENCE_DIRNAME = 'img2img-references'
+export const EPISODE_REFERENCE_FILENAMES = ['composition.png', 'master.png'] as const
+
+/** What one render batch decided to do about the episode reference. */
+export interface EpisodeReferencePlan {
+  /** The single reference to attach, or '' when this render stays text-only. */
+  sourcePath: string
+  /** A line for the job output whenever the switch was NOT honoured verbatim. */
+  note: string
+}
+
+/**
+ * Decide whether this render attaches the episode reference — and when it does
+ * not, say why out loud.
+ *
+ * Pure, and exported, so the honest-degrade behaviour is provable without
+ * driving a charged batch at a model that refuses references. The silence
+ * case is deliberate and is exactly one: the switch is OFF, so there is
+ * nothing to report. Every other "no reference was sent" outcome produces a
+ * note, because a feature that quietly does nothing is indistinguishable from
+ * a feature that is broken.
+ *
+ * @param availablePaths existing reference files, already in preference order.
+ * @param maxReferences the model's PUBLISHED `max_reference_images`. FLUX.2
+ *   Klein publishes 0 and must degrade to a text-only render, not fail.
+ */
+export function planEpisodeReference(input: {
+  enabled: boolean
+  availablePaths: string[]
+  supportsReferences: boolean
+  maxReferences: number
+  /**
+   * `providers/image/genstudio.ts` refuses a reference on a product that is
+   * not chargeable, in the same breath as one that publishes no support. Both
+   * refusals have to be anticipated HERE, because reaching the provider with a
+   * reference it will refuse does not degrade — it fails every scene in the
+   * batch.
+   */
+  chargeable: boolean
+  modelName: string
+}): EpisodeReferencePlan {
+  if (!input.enabled) return { sourcePath: '', note: '' }
+  const candidate = input.availablePaths[0]
+  if (!candidate) {
+    return {
+      sourcePath: '',
+      note: `Episode anchor is switched on, but no reference image exists at ${EPISODE_REFERENCE_DIRNAME}/ ` +
+        `(${EPISODE_REFERENCE_FILENAMES.join(' or ')}). Rendering from the prompt text only.`,
+    }
+  }
+  if (!input.supportsReferences || input.maxReferences < 1 || !input.chargeable) {
+    const reason = input.chargeable
+      ? `publishes no reference-image support (max_reference_images: ${Math.max(0, input.maxReferences)})`
+      : 'is not chargeable, and GenStudio accepts private reference images only on chargeable products'
+    return {
+      sourcePath: '',
+      note: `Episode anchor is switched on, but '${input.modelName}' ${reason}. ` +
+        'Rendering from the prompt text only — choose a reference-capable model to use the anchor.',
+    }
+  }
+  return { sourcePath: candidate, note: '' }
 }
 
 /** One scheduled re-ask for a scene, or `null` to fail it exactly as before. */
@@ -158,8 +244,15 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const scenes = [...plan.scenes].sort((a, b) => a.scene_index - b.scene_index)
   if (!scenes.length) throw new Error('scene_plan.json has no scenes.')
 
-  // Character Sheet contributes text context only. Reference-image execution
-  // is intentionally absent until GenStudio publishes that capability.
+  // v1.4.72+ — the Character Sheet contributes text context AND, when the
+  // customer switches it on, ONE reference image for every character scene.
+  //
+  // The comment that used to sit here said reference-image execution was
+  // "intentionally absent until GenStudio publishes that capability". GenStudio
+  // published it: ten of the eleven live image products accept references
+  // (`max_reference_images` 1 or 8), the client already maps the capability,
+  // and `providers/image/genstudio.ts` already uploads and submits them. The
+  // only thing missing was this generator asking for it.
   let cfg = defaultCfg()
   const continuityPath = path.join(paths.episode_dir, 'continuity.json')
   if (existsSync(continuityPath)) {
@@ -169,6 +262,9 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         anchor_character_ids: Array.isArray(raw?.anchor_character_ids) ? raw.anchor_character_ids : [],
         style_bible: typeof raw?.style_bible === 'string' ? raw.style_bible.trim() : '',
         negative_prompt: typeof raw?.negative_prompt === 'string' ? raw.negative_prompt.trim() : '',
+        use_episode_reference: raw?.use_episode_sheet === true
+          || raw?.references?.sheet === true
+          || raw?.references?.composition === true,
       }
     } catch { /* keep defaults */ }
   }
@@ -194,6 +290,72 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // request was sent. The value stays in continuity.json — a stored setting is
   // not this generator's to delete — it simply is not sent.
   const providerParams = { ...((modelConfig as any).provider_params || {}) }
+
+  // ── The one episode reference image ───────────────────────────────────
+  //
+  // Read from the LIVE catalogue entry the resolver just carried through —
+  // never inferred from the model's name, and never a hardcoded count. The
+  // owner's decision for this step is ONE reference, so the published
+  // `max_reference_images` is used as a can/cannot gate here rather than as a
+  // budget: FLUX.2 Klein publishes 0 and must degrade to a text-only render
+  // with the reason said out loud, not fail the batch and not silently
+  // pretend the switch did something.
+  const supportsReferences = modelConfig.supports_reference_images === true
+  const maxReferences = modelConfig.max_reference_images ?? (supportsReferences ? 1 : 0)
+  const referenceDir = path.join(paths.episode_dir, EPISODE_REFERENCE_DIRNAME)
+  const availableReferences = EPISODE_REFERENCE_FILENAMES
+    .map(name => path.join(referenceDir, name))
+    .filter(candidate => existsSync(candidate))
+  const referencePlan = planEpisodeReference({
+    enabled: cfg.use_episode_reference,
+    availablePaths: availableReferences,
+    supportsReferences,
+    maxReferences,
+    chargeable: modelConfig.chargeable !== false,
+    modelName: model,
+  })
+  if (referencePlan.note) job.output_lines.push(referencePlan.note)
+
+  // Fit it to the model's published pixel ceiling BEFORE anything is charged.
+  // Every reference-capable product publishes 1024px while the default 1K
+  // output row is 1280x720, so an app-generated composition template is always
+  // over the line; see lib/reference-image-fit.ts for why resizing it is this
+  // app's job and not the owner's.
+  let episodeReferencePaths: string[] = []
+  if (referencePlan.sourcePath) {
+    const fitted = await fitReferenceImage(
+      referencePlan.sourcePath,
+      modelConfig.reference_image_max_dimension,
+      path.join(referenceDir, FITTED_REFERENCE_DIRNAME),
+    )
+    episodeReferencePaths = [fitted.path]
+    job.output_lines.push(
+      `Episode reference: ${path.basename(referencePlan.sourcePath)} attached to every character scene` +
+      (fitted.resized
+        ? ` — resized ${fitted.from!.width}x${fitted.from!.height} → ${fitted.to!.width}x${fitted.to!.height} ` +
+          `to fit ${model}'s published ${modelConfig.reference_image_max_dimension}px reference limit.`
+        : '.'),
+    )
+  }
+  /**
+   * A stable identity for WHICH reference is on this request.
+   *
+   * The local task manifest reconnects to a saved GenStudio job when the
+   * scope + prompt hash match, and neither of those moves when the customer
+   * switches the episode anchor on. Without this, flipping the switch and
+   * re-rendering would reclaim the previous TEXT-ONLY job "for free" and hand
+   * back the old image while the log claimed a reference had been applied.
+   *
+   * Derived from the submitted file's CONTENT, so a regenerated composition
+   * template is correctly a different render, while re-running the same batch
+   * twice still reconnects instead of paying twice. Empty when nothing is
+   * attached — which keeps the hash and the idempotency identity byte-identical
+   * to what every already-rendered episode recorded, so this change cannot
+   * invalidate a single existing manifest entry.
+   */
+  const referenceIdentity = episodeReferencePaths.length
+    ? createHash('sha256').update(await fs.readFile(episodeReferencePaths[0]!)).digest('hex').slice(0, 16)
+    : ''
 
   // Anchor character descriptions reinforce identity as text.
   const characterDescs: Array<{ name: string; description: string }> = []
@@ -330,7 +492,32 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   const buildScenePromptContext = (scene: ScenePlanEntry): {
     params: typeof providerParams
     includeCharacter: boolean
-  } => ({ params: providerParams, includeCharacter: isCharacterScene(scene) })
+    referenceImagePaths: string[]
+  } => ({
+    params: providerParams,
+    includeCharacter: isCharacterScene(scene),
+    // "Drops the guide's descriptors AND its reference images" is the whole
+    // rule, so the episode reference obeys it too. The composition template is
+    // a layout with the guide character standing in it; attaching it to a
+    // cutaway would put that character back into the very frames v1.0.336
+    // exists to keep them out of.
+    //
+    // `isCharacterScene` is deliberately called twice rather than hoisted into
+    // a local. It is a pure two-comparison predicate, and the literal spelling
+    // `includeCharacter: isCharacterScene(scene)` is what the tripwire in
+    // __tests__/no-negative-prompts.test.ts matches on. That guard is the only
+    // thing keeping the anchored character out of cutaways; tidying the line
+    // and then widening the guard's regex to suit would quietly retire it.
+    referenceImagePaths: isCharacterScene(scene) ? episodeReferencePaths : [],
+  })
+  if (episodeReferencePaths.length) {
+    const cutaways = scenes.filter(scene => !isCharacterScene(scene)).length
+    if (cutaways) {
+      job.output_lines.push(
+        `${cutaways} non-character scene(s) render without the episode reference, as they do without the character text.`,
+      )
+    }
+  }
 
   const concurrency = resolveGenStudioLocalFanout(
       scenes.length,
@@ -446,6 +633,12 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           const outPath = path.join(outDir, `${scene.id}.png`)
           const sref = buildScenePromptContext(scene)
           const finalPrompt = composePrompt(scene.visual_prompt, sref.includeCharacter)
+          // Empty for a text-only scene, which is what keeps this scene's
+          // recorded hash and idempotency identity identical to the ones every
+          // already-rendered episode holds on disk.
+          const sceneReferenceTag = sref.referenceImagePaths.length ? referenceIdentity : ''
+          const hashRequest = (scope: string): string =>
+            hashInput(sceneReferenceTag ? `${scope}\n${finalPrompt}\nref:${sceneReferenceTag}` : `${scope}\n${finalPrompt}`)
           const filename = `${scene.id}.png`
           const providerId = imageProvider.meta.providerId || imageProvider.meta.id
           // v1.4.27 — attempts for THIS scene. Only a busy fleet earns another
@@ -480,7 +673,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
               // derived deterministically from the dead job id — never a clock.
               const retryScope = resolveImageRetryScope(manifestEntry, baseScope)
               let requestScope = retryScope.scope
-              const expectedInputHash = hashInput(`${requestScope}\n${finalPrompt}`)
+              const expectedInputHash = hashRequest(requestScope)
               // Reconnect ONLY to a saved job that belongs to this exact request
               // AND has not already settled. Hash equality alone once let a
               // six-day-old failed job satisfy every future Retry.
@@ -518,7 +711,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
               }
               const inputHash = requestScope === retryScope.scope
                 ? expectedInputHash
-                : hashInput(`${requestScope}\n${finalPrompt}`)
+                : hashRequest(requestScope)
               attemptScope = requestScope
               attemptHash = inputHash
               // Reuse the prepared entry's timestamp so a replayed submission
@@ -560,11 +753,13 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                   aspectRatio,
                   modelId: modelConfig.api_model || model,
                   providerParams: sref.params,
+                  ...(sref.referenceImagePaths.length ? { referenceImagePaths: sref.referenceImagePaths } : {}),
                   ...(outputOption
                     ? { resolution: outputOption.resolution }
                     : { width: renderWidth, height: renderHeight }),
                   seed: params.seed,
-                  idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`,
+                  idempotencyIdentity: `${job.project_slug}:${episode_id}:scene:${scene.id}:image:${requestScope}`
+                    + (sceneReferenceTag ? `:ref:${sceneReferenceTag}` : ''),
                   isCancelled: () => jq.isCancelled(job.job_id),
                   onJobAccepted: async (taskId, idempotencyKey) => {
                     acceptedTaskId = taskId

@@ -226,6 +226,11 @@ export function buildImageModelConfig(
     ...(model.min_reference_images === undefined
       ? {}
       : { min_reference_images: model.min_reference_images }),
+    // Copied verbatim like every sibling: absent stays absent, so a model that
+    // publishes no pixel ceiling gets no locally-invented one.
+    ...(model.reference_image_max_dimension === undefined
+      ? {}
+      : { reference_image_max_dimension: model.reference_image_max_dimension }),
     ...(model.supports_image_to_image === undefined
       ? {}
       : { supports_image_to_image: model.supports_image_to_image }),
