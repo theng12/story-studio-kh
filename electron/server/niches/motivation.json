@@ -5,6 +5,31 @@
   "tagline": "Show up. Even when it's quiet.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 100,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open on the thing they already know they are avoiding — second person, one sentence"
+      },
+      {
+        "id": "personal_check_in",
+        "custom_text": "say briefly what made you want to say this; earned, not performed"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "name the cost this episode is about, not the reward"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one quiet line — never \"smash that button\""
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over without a countdown and without a crescendo"
+      }
+    ]
+  },
   "exampleTopics": [
     "Why Discipline Beats Motivation",
     "Show Up on the Hardest Day",

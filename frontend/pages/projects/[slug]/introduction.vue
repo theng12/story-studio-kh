@@ -113,6 +113,22 @@
             This belongs to the channel, not to a saved preset and not to one episode. The words are
             written fresh for each episode; what you set here is the shape they follow.
           </p>
+          <!--
+            Where this recipe came from.
+
+            The audit's finding, applied to the recipe: a value the app worked
+            out and a value somebody chose look identical on screen and are not
+            the same kind of thing. Every channel that predates v1.4.74 is
+            handed its Formula's opening rather than the old sleep-shaped seven,
+            and it must not be presented as though its owner picked it.
+
+            Three states, not two, because "edited but not saved" is a real
+            state and saying "this is your own opening" before Save would be
+            the same lie in the other direction.
+          -->
+          <p class="recipe-provenance" :data-state="provenanceState">
+            {{ provenanceLine }}
+          </p>
         </div>
         <button class="btn btn-primary" :disabled="saving || !dirty" @click="save">
           {{ saving ? 'Saving…' : 'Save' }}
@@ -307,6 +323,10 @@ type SegmentsResponse = {
   /** What each standard beat produces. Served by the API; never copied here. */
   beat_library: BeatDefinition[]
   opening_profile: { id: string; label: string; description: string } | null
+  /** Is the recipe above the Formula's, or an edit of this channel's own? */
+  opening_follows_formula?: boolean
+  /** The Formula's name, so the page can say which one it is following. */
+  formula_name?: string
   word_target_min: number
   word_target_max: number
 }
@@ -325,7 +345,21 @@ const newBeatLabel = ref('')
 const expanded = ref<Set<string>>(new Set())
 const previewRefreshKey = ref(0)
 const openingProfile = ref<SegmentsResponse['opening_profile']>(null)
-const wordTargetMin = ref(100)
+const followsFormula = ref(false)
+const formulaName = ref('')
+/**
+ * The recipe exactly as the server last sent it.
+ *
+ * `dirty` cannot stand in for this: it is set by a deep watch that also fires
+ * when the on/off switch is flipped, and flipping the switch does not make an
+ * opening this channel's own. This is compared against the recipe alone.
+ */
+const loadedRecipeShape = ref('')
+// Replaced by the server's own bounds on load; these are only what the first
+// paint uses. Kept in step with WORD_TARGET_MIN/MAX in lib/episode-segments.ts,
+// where the floor dropped to 50 in v1.4.74 so a listicle's short opening stops
+// being silently doubled.
+const wordTargetMin = ref(50)
 const wordTargetMax = ref(600)
 
 const beatLibrary = ref<BeatDefinition[]>([])
@@ -346,6 +380,32 @@ const enabledBeats = computed(() => segment.recipe.beats.filter(b => b.enabled))
  */
 const heroDescription = computed(() => openingProfile.value?.description
   || 'A spoken opening before the story begins. Some channels use one every episode; some never do.')
+
+function recipeShape(r: Recipe): string {
+  return JSON.stringify([r.word_target, r.beats.map(b => [b.id, b.enabled !== false, (b.custom_text || '').trim()])])
+}
+const recipeTouched = computed(() => !loading.value
+  && !!loadedRecipeShape.value
+  && recipeShape(segment.recipe) !== loadedRecipeShape.value)
+
+const provenanceState = computed<'edited' | 'formula' | 'own'>(() => {
+  if (recipeTouched.value) return 'edited'
+  return followsFormula.value ? 'formula' : 'own'
+})
+const provenanceLine = computed(() => {
+  const named = formulaName.value ? `the ${formulaName.value} Formula` : 'this channel\u2019s Formula'
+  if (provenanceState.value === 'edited') {
+    return 'Edited, and not saved yet. Press Save and this becomes this channel\u2019s own opening,'
+      + ' kept exactly as you leave it.'
+  }
+  if (provenanceState.value === 'formula') {
+    return `Following the opening that comes with ${named} \u2014 nobody here chose these beats or this`
+      + ' length, they came with the Formula. Change anything and this channel keeps your version'
+      + ' from then on.'
+  }
+  return `This channel\u2019s own opening. It no longer matches what ${named} ships, so it is left`
+    + ' exactly as it is.'
+})
 
 const actionStatus = computed(() => {
   if (!segment.enabled) return 'Turn the Introduction on for this channel first.'
@@ -441,9 +501,12 @@ async function load(): Promise<void> {
       segment.recipe = introduction.recipe
       segment.inferred_at = introduction.inferred_at
       modelMode.value = introduction.recipe.model?.trim() ? 'own' : 'script'
+      loadedRecipeShape.value = recipeShape(introduction.recipe)
     }
     beatLibrary.value = Array.isArray(data.beat_library) ? data.beat_library : []
     openingProfile.value = data.opening_profile
+    followsFormula.value = data.opening_follows_formula === true
+    formulaName.value = data.formula_name || ''
     if (data.word_target_min) wordTargetMin.value = data.word_target_min
     if (data.word_target_max) wordTargetMax.value = data.word_target_max
   } catch (cause: any) {
@@ -457,7 +520,7 @@ async function load(): Promise<void> {
 async function save(): Promise<void> {
   saving.value = true
   try {
-    const data = await put<{ segments: Record<string, Segment> }>(
+    const data = await put<{ segments: Record<string, Segment>; opening_follows_formula?: boolean }>(
       `/projects/${slug.value}/segments/introduction`,
       { enabled: segment.enabled, recipe: segment.recipe },
     )
@@ -467,6 +530,12 @@ async function save(): Promise<void> {
       segment.recipe = saved.recipe
       segment.inferred_at = saved.inferred_at
       modelMode.value = saved.recipe.model?.trim() ? 'own' : 'script'
+      loadedRecipeShape.value = recipeShape(saved.recipe)
+      // Saving may have just turned "following the Formula" into "this
+      // channel's own". The answer comes back WITH the save: the server owns
+      // that rule, and a page that worked it out separately would be a second
+      // copy of it, free to disagree.
+      followsFormula.value = data.opening_follows_formula === true
     }
     dirty.value = false
     success(segment.enabled
@@ -564,6 +633,20 @@ onMounted(async () => {
 
 .recipe-heading { display: flex; justify-content: space-between; align-items: start; gap: 1.5rem; margin-bottom: 1.25rem; }
 .recipe-heading p { margin: .25rem 0 0; color: var(--text-muted); max-width: 48rem; }
+/* Where the recipe came from. Quiet, but always present — it is a fact about
+   the settings below, not a notification. */
+.recipe-provenance {
+  margin: .6rem 0 0 !important;
+  padding: .45rem .7rem;
+  border-radius: 6px;
+  font-size: .82rem;
+  line-height: 1.45;
+  border-left: 3px solid var(--border);
+  background: var(--surface-2, rgba(127, 127, 127, .08));
+}
+.recipe-provenance[data-state="formula"] { border-left-color: var(--accent, #6aa9ff); }
+.recipe-provenance[data-state="edited"] { border-left-color: var(--warning, #d99a2b); }
+
 .recipe-fields { display: grid; grid-template-columns: repeat(2, minmax(14rem, 1fr)); gap: .8rem; margin-bottom: 1.5rem; }
 .recipe-field { display: grid; align-content: start; gap: .4rem; min-width: 0; }
 .recipe-field-wide { grid-column: 1 / -1; }

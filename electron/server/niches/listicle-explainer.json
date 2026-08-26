@@ -5,6 +5,31 @@
   "tagline": "A smart friend explaining the weird stuff over coffee.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 70,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open on the strangest single item on the list, without saying which number it is"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "hello and your name, in one line — smart friend, not presenter"
+      },
+      {
+        "id": "episode_roadmap",
+        "custom_text": "say how many there are and which way you are counting"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one line, no hype"
+      },
+      {
+        "id": "transition",
+        "custom_text": "go straight into number one"
+      }
+    ]
+  },
   "kind": "series-formula",
   "compatibleTopicPackIds": [
     "economics-businesses",

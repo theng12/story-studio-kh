@@ -217,6 +217,42 @@ const pageTemplate = pageDescriptor.template?.content ?? ''
 assert.ok(pageTemplate, 'introduction.vue must have a template')
 
 /**
+ * The page's OWN provenance computeds, compiled out of the real script block.
+ *
+ * Not re-typed here: the wording, the three-state rule, and the "the {Formula}
+ * Formula" phrasing all come from `introduction.vue` itself, so a page that
+ * stops distinguishing a Formula's opening from an owner's edit fails these
+ * tests instead of passing them against a copy.
+ */
+function loadProvenance(): (s: { touched: boolean; follows: boolean; formula: string })
+  => { state: string; line: string } {
+  const pageScript = pageDescriptor.scriptSetup?.content ?? ''
+  assert.ok(pageScript, 'introduction.vue must have a <script setup>')
+  const start = pageScript.indexOf('const provenanceState = computed')
+  assert.notEqual(start, -1, 'introduction.vue must still define provenanceState')
+  const end = pageScript.indexOf('const actionStatus = computed', start)
+  assert.notEqual(end, -1, 'introduction.vue must still define actionStatus after it')
+  const body = pageScript.slice(start, end)
+  const js = ts.transpileModule(`
+    const computed = (fn) => ({ get value() { return fn() } })
+    const recipeTouched = { value: false }
+    const followsFormula = { value: false }
+    const formulaName = { value: '' }
+    ${body}
+    return (s) => {
+      recipeTouched.value = s.touched
+      followsFormula.value = s.follows
+      formulaName.value = s.formula
+      return { state: provenanceState.value, line: provenanceLine.value }
+    }
+  `, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+  // eslint-disable-next-line no-new-func
+  return new Function(js)()
+}
+const provenanceFor = loadProvenance()
+
+
+/**
  * The real beat catalogue, read out of the server's own module.
  *
  * The page renders explanations that the API serves; this is that same list,
@@ -250,6 +286,10 @@ async function renderPage(state: Record<string, unknown>): Promise<string> {
       wordTargetMin: 100,
       wordTargetMax: 600,
       heroDescription: 'A spoken opening before the story begins.',
+      // Defaults only; the provenance tests below drive these from the page's
+      // OWN computeds, lifted out of the real script block.
+      provenanceState: 'formula',
+      provenanceLine: '',
       actionStatus: '',
       segment: { enabled: false, recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats, model: '' } },
       ...dataState,
@@ -434,5 +474,79 @@ describe('the Introduction page renders whether or not the channel uses one', ()
     // It folds into the narration the episode already pays to voice. Saying
     // otherwise would make a ~2% change look like a second bill.
     assert.match(strip(await renderPage({})), /no separate audio charge/)
+  })
+})
+
+/**
+ * The page says whether an opening was INFERRED or CHOSEN — proven by
+ * rendering, with the page's own computeds driving it.
+ *
+ * v1.4.74. Every channel that predates this release is handed its Formula's
+ * opening rather than the old sleep-shaped seven, so most channels' beats came
+ * from nobody. The audit's finding, applied to the recipe: a value the app
+ * worked out and a value somebody chose look identical on screen and are not
+ * the same kind of thing. `inferred_at` already does this for the on/off
+ * switch; this is the recipe's half.
+ */
+describe('the page distinguishes a Formula\u2019s opening from the owner\u2019s own', () => {
+  function stateFor(s: { touched: boolean; follows: boolean; formula: string }) {
+    return provenanceFor(s)
+  }
+
+  test('following the Formula: it says so, and NAMES the Formula', async () => {
+    const p = stateFor({ touched: false, follows: true, formula: 'Business Economics' })
+    assert.equal(p.state, 'formula')
+    const html = await renderPage({ provenanceState: p.state, provenanceLine: p.line })
+    const text = strip(html)
+    assert.match(text, /Following the opening that comes with the Business Economics Formula/,
+      'the page must name what the channel is following, not just that it follows something')
+    assert.match(text, /nobody here chose these beats/,
+      'and must not present a Formula default as somebody\u2019s decision')
+    assert.match(html, /data-state="formula"/)
+  })
+
+  test('the owner\u2019s own edit: it says that instead, and does not claim a Formula', async () => {
+    const p = stateFor({ touched: false, follows: false, formula: 'Business Economics' })
+    assert.equal(p.state, 'own')
+    const html = await renderPage({ provenanceState: p.state, provenanceLine: p.line })
+    const text = strip(html)
+    assert.match(text, /This channel\u2019s own opening/)
+    assert.match(text, /no longer matches what the Business Economics Formula ships/)
+    assert.doesNotMatch(text, /nobody here chose/, 'the two states must not both render')
+    assert.match(html, /data-state="own"/)
+  })
+
+  test('edited but unsaved is its own state, not silently one of the other two', async () => {
+    // Saying "this is your own opening" before Save is the same lie in the
+    // other direction, and `dirty` cannot stand in for it — a deep watch fires
+    // when the on/off switch is flipped too, and flipping it does not make an
+    // opening this channel's own.
+    const p = stateFor({ touched: true, follows: true, formula: 'Business Economics' })
+    assert.equal(p.state, 'edited')
+    const html = await renderPage({ provenanceState: p.state, provenanceLine: p.line })
+    const text = strip(html)
+    assert.match(text, /Edited, and not saved yet/)
+    assert.doesNotMatch(text, /nobody here chose/)
+    assert.match(html, /data-state="edited"/)
+  })
+
+  test('MUTATION \u2014 the three states really are three different sentences', async () => {
+    // Each assertion above would also pass against a page that rendered one
+    // fixed sentence and a changing attribute. This is the check that the
+    // WORDS differ, which is the part a person reads.
+    const lines = new Set([
+      stateFor({ touched: false, follows: true, formula: 'Sleep Stories' }).line,
+      stateFor({ touched: false, follows: false, formula: 'Sleep Stories' }).line,
+      stateFor({ touched: true, follows: true, formula: 'Sleep Stories' }).line,
+    ])
+    assert.equal(lines.size, 3, 'inferred, chosen and unsaved must read differently')
+    for (const line of lines) assert.ok(line.trim().length > 40, `too terse to be an explanation: "${line}"`)
+  })
+
+  test('a channel with no Formula is still described, without an empty name', async () => {
+    const p = stateFor({ touched: false, follows: true, formula: '' })
+    assert.doesNotMatch(p.line, /\s{2,}/, 'a missing Formula name must not leave a gap in the sentence')
+    assert.match(p.line, /this channel\u2019s Formula/,
+      'it falls back to naming it generically rather than rendering "the  Formula"')
   })
 })

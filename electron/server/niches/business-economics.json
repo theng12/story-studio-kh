@@ -5,6 +5,39 @@
   "tagline": "What it really costs to own the business.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 140,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open on the money question — what this business actually costs to own, or where the profit really comes from"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "greet and give your name in one line; sound like an operator, never like a coach"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "say what the viewer will be able to see by the end that they cannot see now"
+      },
+      {
+        "id": "episode_roadmap",
+        "custom_text": "name the path — where the revenue comes from, where it goes, what breaks, who the model rewards"
+      },
+      {
+        "id": "not_advice_note",
+        "custom_text": "one plain line that this is how the machine works, not investment advice"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one line, non-promotional"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter by naming the business"
+      }
+    ]
+  },
   "kind": "series-formula",
   "defaultThumbnailTemplateId": "annotated-business-board",
   "defaultTopicPackIds": [

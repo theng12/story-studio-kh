@@ -574,12 +574,33 @@ export function applyNicheToFormat(format: Format, niche: Niche): Format {
         ? niche.defaultNarratorStyleId!
         : nicheNarrators[0].id)
     : format.script.defaultNarratorStyleId
+  // v1.4.74 — the Formula owns its opening too.
+  //
+  // This line is the whole of the Introduction fix. `format.script.introDefaults`
+  // has been read since v1.0.71 by both `defaultSegmentRecipe()` and
+  // `generateIntroductionOnly()`, and it was NEVER SET: `canonicalFormatId()`
+  // folds every project onto `continuity-chain`, and that one format file ships
+  // no `introDefaults`. So the override branch existed, was tested, and could
+  // not run — every channel got a sleep-shaped seven-beat opening, breathing
+  // exercise included, whether it was a bedtime story or a business explainer.
+  //
+  // The Formula was always the right owner. It already supplies the script
+  // persona, the closing hint, the narrator voices and the chapter counts
+  // through this same function; an opening is the same kind of fact about a
+  // channel. Nothing new had to be built to carry it — only this assignment.
+  //
+  // Formula wins outright when it declares one, rather than merging field by
+  // field. A half-Formula opening (its beats, the shell's word count) is an
+  // opening nobody wrote.
   const baseScript: Format['script'] = {
     ...format.script,
     systemPromptRole: scriptSystemPromptRole,
     closingHint: niche.scriptClosingHint || format.script.closingHint,
     narratorStyles: nicheNarrators ? nicheNarrators.slice() : format.script.narratorStyles,
     defaultNarratorStyleId: nicheDefaultNarratorId,
+    introDefaults: niche.introDefaults
+      ? { ...niche.introDefaults, beats: niche.introDefaults.beats?.slice() }
+      : format.script.introDefaults,
   }
 
   if (niche_structure) {

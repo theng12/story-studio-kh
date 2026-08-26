@@ -5,6 +5,35 @@
   "tagline": "A quiet story to drift off to.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 350,
+    "beats": [
+      {
+        "id": "welcome",
+        "custom_text": "a gentle greeting and your name, slowly — no energy in it at all"
+      },
+      {
+        "id": "story_teaser",
+        "custom_text": "one or two soft sentences about where tonight goes; never a hook, never a spoiler"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "a gentle question they can answer in the comments before they drift"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one soft line, said now rather than later — after the breathing it would only wake them"
+      },
+      {
+        "id": "relaxation",
+        "custom_text": "lead three slow breaths, paced by the length of the sentences themselves"
+      },
+      {
+        "id": "transition",
+        "custom_text": "invite them to close their eyes as the story begins"
+      }
+    ]
+  },
   "openingProfile": {
     "id": "sleep-landing",
     "label": "Sleep landing",

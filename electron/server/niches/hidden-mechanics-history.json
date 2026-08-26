@@ -6,6 +6,39 @@
   "tagline": "The forces beneath the familiar story.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 150,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "state the familiar explanation for this outcome in one sentence — the version everybody already knows"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "greet and give your name in one line"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "say which forces beneath that familiar story the episode reconstructs"
+      },
+      {
+        "id": "episode_roadmap",
+        "custom_text": "name the conditions, institutions and choices the episode works through, in order"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "say what is documented, what is inferred and which readings still compete — before the argument, not after it"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one line, unsensational"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter"
+      }
+    ]
+  },
   "kind": "series-formula",
   "formulaFamily": "Evidence & systems",
   "defaultTopicPackIds": [

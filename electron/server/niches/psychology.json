@@ -5,6 +5,39 @@
   "tagline": "Why your brain does that — and what to do about it.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 120,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open on the behaviour itself, described precisely enough that they recognise doing it"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "greet warmly and give your name"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "name the mechanism the episode explains, and the one thing they can try afterwards"
+      },
+      {
+        "id": "not_advice_note",
+        "custom_text": "one plain line that this explains, and does not diagnose anybody"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "ask when they last caught themselves doing it"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one warm line"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter"
+      }
+    ]
+  },
   "kind": "series-formula",
   "defaultTopicPackIds": [
     "human-behavior-social-dynamics"

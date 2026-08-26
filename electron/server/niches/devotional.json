@@ -5,6 +5,27 @@
   "tagline": "A verse. A thought. A breath.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 90,
+    "beats": [
+      {
+        "id": "scripture_reading",
+        "custom_text": "read the passage aloud first, unhurried, before any greeting"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "a short warm greeting and your name — a few words, not a paragraph"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "name the one thought from this passage the reflection carries"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the reflection gently"
+      }
+    ]
+  },
   "kind": "series-formula",
   "defaultTopicPackIds": [
     "pastoral-daily-reflection"

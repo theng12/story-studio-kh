@@ -5,6 +5,39 @@
   "tagline": "Everything we forgot. Briefly remembered.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 120,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open on the surprising specific from the record — a line in a letter, an inventory, a bill — that makes this worth telling"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "greet warmly and give your name; the tone is a friend who actually read the sources"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "say who and when, and what this episode gets to that the usual telling skips"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "name where this comes from, and say plainly where the record simply stops"
+      },
+      {
+        "id": "community_question",
+        "custom_text": "ask what they thought they already knew about this — you will read the answers"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one dry line"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter with a date"
+      }
+    ]
+  },
   "exampleTopics": [
     "The Real Reason the Library of Alexandria Burned",
     "What Pompeii's Final Day Actually Looked Like",

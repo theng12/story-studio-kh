@@ -5,6 +5,35 @@
   "tagline": "Here's exactly what I'd do.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 80,
+    "beats": [
+      {
+        "id": "premise_setup",
+        "custom_text": "set the premise in one line — the constraint, the amount, the deadline"
+      },
+      {
+        "id": "personal_check_in",
+        "custom_text": "say where you are standing and what you are holding as you start; keep it physical"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "promise specifics — the actual steps, not the mindset"
+      },
+      {
+        "id": "not_advice_note",
+        "custom_text": "one line that this is what you would do, not advice for anybody else’s situation"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one line at the end of the opening, never at the start"
+      },
+      {
+        "id": "transition",
+        "custom_text": "stop talking about it and start doing it"
+      }
+    ]
+  },
   "kind": "series-formula",
   "compatibleTopicPackIds": [
     "economics-businesses"

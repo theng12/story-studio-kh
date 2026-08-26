@@ -2,6 +2,23 @@
   "id": "music-mix",
   "name": "Music Mix",
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 50,
+    "beats": [
+      {
+        "id": "welcome",
+        "custom_text": "a few words and the channel name, and nothing else"
+      },
+      {
+        "id": "listening_note",
+        "custom_text": "say what this mix is for, how long it runs, and that this is the last you will hear a voice"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one line, and then stop talking"
+      }
+    ]
+  },
   "builtin": true,
   "tagline": "One world. Many hours.",
   "description": "A long-form music channel. There is no script and no narration: the episode is a mix built from the channel's own music library, under one looping background. Pick ONE world and keep it — the picture is the brand, and a channel that changes worlds is a playlist nobody recognises. Vary the setting, colour and weather instead; every video gets its own background.",

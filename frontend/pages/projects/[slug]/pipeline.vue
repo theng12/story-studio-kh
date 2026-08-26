@@ -898,9 +898,12 @@ const checkedStepCount = computed(() => checkedStepsOrdered.value.length)
 // scripts.vue split into scriptPresets + introPresets), but older projects
 // still carry the untyped `script_last_preset` key from pre-typing saves.
 // Mirrors the fallback chain in electron/server/routes/pipeline.ts.
+// v1.4.74 — `introduction-only` is gone from both this map and TYPE_FOR_STEP
+// below. It is in NO_PRESET_STEPS, so its preset dropdown is never rendered
+// and neither lookup can run; leaving them there described a preset pool the
+// Introduction deliberately does not have.
 const LEGACY_ACTIVE_KEY: Partial<Record<StepId, string>> = {
   'script-only': 'script_last_preset',
-  'introduction-only': 'script_last_preset',
   // v1.0.363 — typed-preset steps: untyped pointer as the legacy fallback.
   scene_plan: 'scene_plan_last_preset',
   motion_review: 'motion_review_last_preset',
@@ -917,7 +920,6 @@ const TYPE_FOR_STEP: Partial<Record<StepId, string>> = {
   research: 'research',
   broll: 'broll',
   'script-only': 'script',
-  'introduction-only': 'introduction',
   // v1.0.363 — match each page's usePresets({ presetType }).
   scene_plan: 'scene-plan',
   contextual_cues: 'contextual-cues',
@@ -953,8 +955,8 @@ function activePresetIdFor(stepId: StepMeta['id']): string {
   const activeId: string = cfg?.[meta.presetActive] || ''
   if (activeId && list.some(x => x.id === activeId)) return activeId
 
-  // 2. Legacy untyped active pointer (script-only / introduction-only
-  //    fall back to `script_last_preset` for pre-typing saves).
+  // 2. Legacy untyped active pointer (script-only falls back to
+  //    `script_last_preset` for pre-typing saves).
   const legacyKey = LEGACY_ACTIVE_KEY[stepId]
   if (legacyKey) {
     const legacy: string = cfg?.[legacyKey] || ''
@@ -974,9 +976,9 @@ function activePresetIdFor(stepId: StepMeta['id']): string {
 }
 
 /** Filter the step's preset pool to options that make sense for this step.
- *  Steps with a typed pool (script-only, introduction-only) hide presets
- *  belonging to the OTHER type. Untyped legacy presets are kept since they
- *  predate the typing convention and the legacy fallback above resolves them. */
+ *  Steps with a typed pool (script-only) hide presets belonging to the OTHER
+ *  type. Untyped legacy presets are kept since they predate the typing
+ *  convention and the legacy fallback above resolves them. */
 function presetsForStep(stepId: StepMeta['id']): Array<{ id: string; name: string; type?: string }> {
   const meta = stepsMeta.find(s => s.id === stepId)!
   const list = listForStep(meta)

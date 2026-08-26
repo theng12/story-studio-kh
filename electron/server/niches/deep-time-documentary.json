@@ -6,6 +6,39 @@
   "tagline": "The long, quiet history of a changing planet.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 200,
+    "beats": [
+      {
+        "id": "what_youll_learn",
+        "custom_text": "name the change this documentary follows, and the span of time it happens across"
+      },
+      {
+        "id": "why_it_matters",
+        "custom_text": "say what understanding it changes about the living planet — quietly, without urgency"
+      },
+      {
+        "id": "episode_roadmap",
+        "custom_text": "name the stages the documentary moves through, in order"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "say what is observed, what is inferred, and what is still argued over"
+      },
+      {
+        "id": "listening_note",
+        "custom_text": "note that this is long and unhurried, and works as well half-attended as watched"
+      },
+      {
+        "id": "settle_in",
+        "custom_text": "invite them to settle in; the pace will not change from here"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter at the same unhurried pace"
+      }
+    ]
+  },
   "kind": "series-formula",
   "formulaFamily": "Evidence & systems",
   "productionKit": {

@@ -5,6 +5,27 @@
   "tagline": "Notice. Breathe. Begin again.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 90,
+    "beats": [
+      {
+        "id": "practice_frame",
+        "custom_text": "name the practice and how long it takes, and say it works sitting or lying down"
+      },
+      {
+        "id": "settle_in",
+        "custom_text": "invite them to get comfortable and let their surroundings stop mattering"
+      },
+      {
+        "id": "relaxation",
+        "custom_text": "two or three unhurried breaths, paced by the length of the sentences themselves"
+      },
+      {
+        "id": "transition",
+        "custom_text": "begin the practice without announcing that you are beginning it"
+      }
+    ]
+  },
   "exampleTopics": [
     "A 3-Minute Morning Reset",
     "Box Breathing for Anxious Mornings",
