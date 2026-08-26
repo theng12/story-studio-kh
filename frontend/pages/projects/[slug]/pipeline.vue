@@ -1226,6 +1226,13 @@ const selectAllTitle = computed(() => filterMode.value === 'missing-only'
 function isStepDoneForEpisode(stepId: StepId, status: Record<string, boolean> | undefined): boolean {
   const s = status || {}
   switch (stepId) {
+    // Research is done once EVIDENCE EXISTS, exactly as the backend skips on
+    // it. Claim triage (`research_reviewed`) is separate editorial state and
+    // deliberately does NOT gate this pill — an explicitly selected Research
+    // stage auto-triages what it finds, so pending claims are not work the
+    // Pipeline still has to do. `pillTitle` carries that second fact in words.
+    case 'research':           return !!s.research
+    case 'broll':              return !!s.video_assembly
     case 'script-only':        return !!s.script
     case 'introduction-only':  return !!s.introduction
     case 'image_prompts':      return !!s.thumb_prompts
@@ -1345,6 +1352,8 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
   // Map step IDs back to the underlying status field(s). If any input
   // field for the step is overridden, the pill carries the (manual) hint.
   switch (stepId) {
+    case 'research':          return 'research' in ov
+    case 'broll':             return 'video_assembly' in ov
     case 'script-only':       return 'script' in ov
     case 'introduction-only': return 'introduction' in ov
     case 'image_prompts':     return 'thumb_prompts' in ov
@@ -1364,13 +1373,35 @@ function isStepManualForEpisode(stepId: StepId, ep: Episode): boolean {
   return false
 }
 
+/**
+ * Research answers TWO questions that one tick cannot carry:
+ *   `research`          — evidence exists (what the pill and the Production
+ *                          Board's Research column both show)
+ *   `research_reviewed` — no claim is left pending
+ * A done pill that stayed silent about the second one is how "20 researched"
+ * hid seven episodes whose claims nobody had decided on. The pill still means
+ * "evidence exists" — the triage state rides in the tooltip instead of
+ * being folded into the tick, which would destroy the distinction.
+ */
+function researchNote(status: Record<string, boolean> | undefined): string {
+  const s = status || {}
+  if (!s.research) return ''
+  if (!s.research_reviewed) return ' — claims still to review'
+  // 'human' | 'pipeline-auto'. Never let an unattended auto-accept read as a
+  // person having sat down and read the claims.
+  const by = (s as Record<string, unknown>).research_reviewed_by
+  const who = by === 'pipeline-auto' ? 'claims auto-accepted by the Pipeline, not read by a person' : 'claims reviewed'
+  return s.research_has_usable_claims ? ` — ${who}` : ` — ${who}, none kept`
+}
+
 function pillTitle(step: StepMeta, ep: Episode): string {
   const done = isStepDoneForEpisode(step.id, ep.status)
   const manual = isStepManualForEpisode(step.id, ep)
   const status = done ? '✓ done' : 'missing'
-  if (ep.marked_done) return `${step.label} — ${status} (whole episode marked done manually)`
-  if (manual) return `${step.label} — ${status} (manual override)`
-  return `${step.label} — ${status}`
+  const note = step.id === 'research' ? researchNote(ep.status) : ''
+  if (ep.marked_done) return `${step.label} — ${status}${note} (whole episode marked done manually)`
+  if (manual) return `${step.label} — ${status}${note} (manual override)`
+  return `${step.label} — ${status}${note}`
 }
 
 // Asset import dialog launch state. importEpisode === null when closed;
