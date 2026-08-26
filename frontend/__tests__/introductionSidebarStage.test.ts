@@ -208,3 +208,123 @@ describe('the Script page no longer keeps its own answer', () => {
     }
   })
 })
+
+// ── The page itself, rendered ────────────────────────────────────────────
+
+const pageDescriptor = parse(readFileSync(
+  fileURLToPath(new URL('../pages/projects/[slug]/introduction.vue', import.meta.url)), 'utf8')).descriptor
+const pageTemplate = pageDescriptor.template?.content ?? ''
+assert.ok(pageTemplate, 'introduction.vue must have a template')
+
+/** Render the real page template with its surrounding components stubbed. */
+async function renderPage(state: Record<string, unknown>): Promise<string> {
+  const beats = [
+    { id: 'welcome', label: 'Welcome & host intro', enabled: true },
+    { id: 'patreon', label: 'Patreon / membership mention', enabled: false },
+  ]
+  const app = createSSRApp({
+    template: pageTemplate,
+    data: () => ({
+      slug: 'dozing-knight',
+      episodeId: '',
+      saving: false,
+      generating: false,
+      dirty: false,
+      newBeatLabel: '',
+      expanded: new Set<string>(),
+      previewRefreshKey: 0,
+      wordTargetMin: 100,
+      wordTargetMax: 600,
+      heroDescription: 'A spoken opening before the story begins.',
+      actionStatus: '',
+      segment: { enabled: false, recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats } },
+      ...state,
+    }),
+    computed: {
+      recipe(this: any) { return this.segment.recipe },
+      enabledBeats(this: any) { return this.segment.recipe.beats.filter((b: any) => b.enabled) },
+    },
+    methods: new Proxy({}, { get: () => () => '', has: () => true }) as any,
+  })
+  app.config.warnHandler = () => {}
+  app.component('NuxtLink', { props: ['to'], template: '<a :href="to"><slot /></a>' })
+  app.component('WorkspaceHero', {
+    props: ['eyebrow', 'title', 'description'],
+    template: '<header><span>{{ eyebrow }}</span><h1>{{ title }}</h1><p>{{ description }}</p><slot name="aside" /></header>',
+  })
+  app.component('WorkspaceNotice', {
+    props: ['tone', 'title'],
+    template: '<aside :data-tone="tone"><strong>{{ title }}</strong><div><slot /></div><slot name="actions" /></aside>',
+  })
+  app.component('TopActionBar', { template: '<div class="top-action-bar" />' })
+  app.component('IntroductionPreview', { template: '<div class="intro-preview" />' })
+  return await renderToString(app)
+}
+
+const strip = (html: string) => html.replace(/<[^>]*>/g, ' ')
+  .replace(/&quot;/g, '"').replace(/&#39;|&#x27;/g, "'").replace(/&amp;/g, '&')
+  .replace(/\s+/g, ' ').trim()
+
+describe('the Introduction page renders whether or not the channel uses one', () => {
+  test('switched OFF, the page still renders and says so', async () => {
+    // "Visible even when `enabled` is false, showing its state." If the page
+    // were blank until switched on, the hiding place would just have moved.
+    const html = await renderPage({})
+    assert.ok(html.length > 2000, `the page must render its settings while off; got ${html.length} characters`)
+    const text = strip(html)
+    assert.match(text, /Introduction/)
+    assert.match(text, /Off for this channel/, 'the state is stated, not merely absent')
+    assert.match(text, /Introduction is off/, 'and explained')
+    assert.match(text, /begin at chapter one/, 'saying what happens instead')
+    // The whole recipe is editable while off, so it can be set up in advance.
+    assert.match(text, /Host or narrator name/)
+    assert.match(text, /Welcome & host intro/)
+  })
+
+  test('switched ON, it states that every episode will get one', async () => {
+    const html = await renderPage({
+      segment: {
+        enabled: true,
+        recipe: {
+          host_name: 'Luna',
+          word_target: 350,
+          custom_opening_line: '',
+          beats: [{ id: 'welcome', label: 'Welcome & host intro', enabled: true }],
+        },
+      },
+    })
+    const text = strip(html)
+    assert.match(text, /On for this channel/)
+    assert.match(text, /Every episode this channel writes will get an opening/)
+    assert.match(text, /unattended batch runs/, 'because that is the behaviour change')
+  })
+
+  test('an inferred setting says it was inferred, and asks', async () => {
+    // Deciding `enabled` for an existing channel is the one real risk in this
+    // change. It is inferred from what the channel has already made, and the
+    // page must never present a guess as a decision.
+    const html = await renderPage({
+      segment: {
+        enabled: true,
+        inferred_at: '2026-08-26T00:00:00.000Z',
+        recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats: [] },
+      },
+    })
+    const text = strip(html)
+    assert.match(text, /worked out from your existing episodes/)
+    assert.match(text, /not something you chose/)
+    assert.match(text, /press Save/, 'and there is a way to settle it')
+  })
+
+  test('the page answers "which model writes this" without growing a picker', async () => {
+    const text = strip(await renderPage({}))
+    assert.match(text, /same language model as the chapters/)
+    assert.match(text, /no separate model to pick here/)
+  })
+
+  test('it never claims the opening costs a separate audio charge', async () => {
+    // It folds into the narration the episode already pays to voice. Saying
+    // otherwise would make a ~2% change look like a second bill.
+    assert.match(strip(await renderPage({})), /no separate audio charge/)
+  })
+})
