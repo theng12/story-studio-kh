@@ -1,12 +1,16 @@
 /**
  * Portable manifest I/O.
  *
- * One file, one purpose: write `.story-studio-project.json` at the root of
- * a project's `output_root` every time metadata changes. That file travels
- * with the folder when the user syncs via iCloud / Google Drive / OneDrive,
- * so "Import from folder" on another machine can recognise the project,
- * reuse its `project_id` (relocate vs. fresh import), and line up episode
- * codes against the folder layout.
+ * One file, one purpose: build the project's structural manifest and cache it
+ * beside `project.json` every time metadata changes. It travels with the
+ * folder when the user syncs via iCloud / Google Drive / OneDrive, carrying a
+ * stable `project_id` so the same channel copied onto another Mac is
+ * recognisable as the same channel rather than a new one.
+ *
+ * It used to be written into the episodes folder as well, and read back by an
+ * "Import from folder" flow that registered a project living at an arbitrary
+ * path. Both are gone with the episodes folder becoming fixed — see
+ * `resolveOutputRoot()` in project-manager.ts.
  *
  * Schema:
  *   - v2 (current): slim — just structural metadata + last_edited.
@@ -28,8 +32,6 @@
  */
 
 import { randomUUID } from 'crypto'
-import { existsSync } from 'fs'
-import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { writeAtomic } from '../lib/sync-safe.js'
@@ -37,8 +39,6 @@ import type {
   PortableManifest,
   ProjectMeta,
 } from '../models/types.js'
-
-const MANIFEST_FILENAME = '.story-studio-project.json'
 
 /**
  * Compose the manifest from the project's ProjectMeta. Pure — does not
@@ -65,62 +65,18 @@ export function buildManifest(
   }
 }
 
-/** Write the manifest to the project's output_root. */
-export async function writeManifest(outputRoot: string, manifest: PortableManifest): Promise<void> {
-  const dest = path.join(outputRoot, MANIFEST_FILENAME)
-  await writeAtomic(dest, JSON.stringify(manifest, null, 2))
-}
-
-/** Mirror the manifest to userData so offline machines can still show metadata. */
+/** Write the manifest beside project.json so the folder carries its identity. */
 export async function writeManifestCache(projectDir: string, manifest: PortableManifest): Promise<void> {
   const dest = path.join(projectDir, 'cache', 'manifest.json')
   await writeAtomic(dest, JSON.stringify(manifest, null, 2))
 }
 
-/**
- * Read the manifest at a given output_root. Accepts both v1 (legacy, with
- * preset bag) and v2. Returns null if the file is missing, unreadable, or
- * doesn't have the minimum structural fields we need.
- *
- * v1 → v2 normalisation: we keep only the structural fields + last_edited.
- * `presets`, `production_standards`, `required_named_roots`, and
- * `youtube_channel_url` are silently dropped. A later `syncManifest` will
- * overwrite the file with a clean v2 shape.
- */
-export async function readManifest(outputRoot: string): Promise<PortableManifest | null> {
-  const src = path.join(outputRoot, MANIFEST_FILENAME)
-  if (!existsSync(src)) return null
-  try {
-    const raw = await fs.readFile(src, 'utf-8')
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed.project_id !== 'string') return null
-    const sv = parsed.schema_version
-    if (sv !== 1 && sv !== 2) return null
-
-    const normalized: PortableManifest = {
-      schema_version: 2,
-      project_id: parsed.project_id,
-      slug: typeof parsed.slug === 'string' ? parsed.slug : '',
-      name: typeof parsed.name === 'string' ? parsed.name : '',
-      episode_prefix: typeof parsed.episode_prefix === 'string' ? parsed.episode_prefix : 'EP',
-      episode_digits: typeof parsed.episode_digits === 'number' ? parsed.episode_digits : 4,
-      season_size: typeof parsed.season_size === 'number' ? parsed.season_size : 10,
-      season_prefix: typeof parsed.season_prefix === 'string' ? parsed.season_prefix : 'Season',
-      folder_template: typeof parsed.folder_template === 'string'
-        ? parsed.folder_template
-        : '{season_prefix} {season_num}/{code} - {title}/',
-      subfolder_names: (parsed.subfolder_names && typeof parsed.subfolder_names === 'object')
-        ? parsed.subfolder_names
-        : {} as any,
-      last_edited: (parsed.last_edited && typeof parsed.last_edited === 'object')
-        ? parsed.last_edited
-        : { machine_label: 'unknown', at: new Date(0).toISOString() },
-    }
-    return normalized
-  } catch {
-    return null
-  }
-}
+// (Removed: writeManifest / readManifest.) Both existed only for the portable
+// manifest written INTO a project's episodes folder when that folder sat
+// OUTSIDE the project directory, and for the external-folder import that read
+// it back. Episodes always live at `<projectDir>/episodes` now, so no project
+// can be external, the import feature is gone, and `writeManifestCache` above
+// writes the only manifest that remains.
 
 /**
  * Human-friendly label for the current machine. Used in `last_edited.machine_label`
@@ -133,5 +89,5 @@ export function getMachineLabel(): string {
 // (Removed: getManifestStatus + ManifestStatus. They powered the legacy
 // manifest-polling UI ("another machine just edited this project") which
 // is gone — cloud sync now happens at the OS level via Settings →
-// Storage. The manifest itself is still WRITTEN on every project
-// mutation as a project_id identity marker for cross-machine import.)
+// Storage. The manifest cache is still WRITTEN on every project
+// mutation as a project_id identity marker.)

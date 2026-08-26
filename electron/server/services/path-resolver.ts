@@ -10,8 +10,8 @@
  * All resolvers are pure string ops — no filesystem calls — so they stay
  * cheap enough to run inside hot paths (every preset field touches them).
  *
- *   resolveAssetPath(portable, outputRoot) → absolute
- *   toPortablePath(absolute, outputRoot)   → portable when possible, else absolute
+ *   resolveAssetPath(portable, episodesDirAbs) → absolute
+ *   toPortablePath(absolute, episodesDirAbs) → portable when possible, else absolute
  *
  * Back-compat guarantee: an absolute path passed to `resolveAssetPath`
  * returns unchanged. Existing presets keep working even before the user
@@ -70,7 +70,21 @@ export function resolveAssetPath(p: string, projectOutputRoot?: string): string 
   let base: string
   if (name === 'PROJECT') {
     if (!projectOutputRoot) {
-      throw new Error(`Cannot resolve ${p}: PROJECT variable requires an output_root context.`)
+      throw new Error(`Cannot resolve ${p}: PROJECT variable requires an episodes-folder context.`)
+    }
+    // The base must be ABSOLUTE, and saying so out loud is the point.
+    // Every caller used to hand this the stored `project.output_root`, which
+    // was the relative string './episodes'; `path.join('./episodes', rel)`
+    // returns another relative path, resolved against whatever the process
+    // cwd happens to be. Nothing threw, so a `${PROJECT}/…` preset simply
+    // pointed at a file that was not there — while `toPortablePath()` below,
+    // which DOES gate on isAbsolute, quietly declined to produce portable
+    // paths at all. A check on one side and not the other is how a feature
+    // manages to be broken in both directions without a single error.
+    if (!path.isAbsolute(projectOutputRoot)) {
+      throw new Error(
+        `Cannot resolve ${p}: the episodes folder must be an absolute path, got "${projectOutputRoot}".`,
+      )
     }
     base = projectOutputRoot
   } else if (name === 'ASSET') {

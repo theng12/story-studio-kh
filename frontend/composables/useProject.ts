@@ -14,7 +14,7 @@
 // Explicit Vue + composable imports so this module is usable from plain
 // node:test (no Nuxt auto-import context). Nuxt's auto-imports remain
 // additive inside .vue files.
-import { ref, readonly } from 'vue'
+import { ref, readonly, computed } from 'vue'
 import { useApi } from './useApi.js'
 import { projectSlug } from '~/utils/project-slug'
 import type {
@@ -31,6 +31,19 @@ const currentProject = ref<ProjectMeta | null>(null)
 const currentConfig = ref<ProjectConfig | null>(null)
 const currentSlug = ref<string | null>(null)
 const loading = ref(false)
+
+/**
+ * The ABSOLUTE episodes folder for the loaded project — the base a
+ * `${PROJECT}/…` portable path resolves against.
+ *
+ * One computed, in one place, because the alternative was every page reading
+ * `project.value?.output_root` — the RELATIVE './episodes' that used to be
+ * stored in project.json — and handing it to the path resolver, where it
+ * silently produced a path relative to the process cwd. Nine call sites made
+ * that mistake; the stored field is gone now, and this is what they should
+ * have been reading all along.
+ */
+const currentEpisodesRoot = computed(() => currentProject.value?.output_root_resolved || '')
 
 function resetState() {
   currentProject.value = null
@@ -92,6 +105,7 @@ export function useProject() {
   return {
     project: currentProject,
     config: currentConfig,
+    episodesRoot: currentEpisodesRoot,
     slug: readonly(currentSlug),
     loading,
     loadProject,

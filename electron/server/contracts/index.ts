@@ -41,7 +41,10 @@ export const CreateProjectSchema = z.object({
   episode_digits: z.number().int().min(1).max(8).optional(),
   season_prefix: z.string().max(40).optional(),
   season_size: z.number().int().min(1).max(1000).optional(),
-  output_root: z.string().optional(),
+  // (Removed: output_root.) Episodes always live in the channel's own folder,
+  // so there is no folder to choose. `.strict()` means an old client that
+  // still sends the key now gets a 400 rather than having it silently
+  // ignored — the honest answer, and the create form never sent it.
   portable: z.boolean().optional(),
   // Accepted only so older clients can still submit a create request. New
   // channels always start on the continuity workflow; changing format is a
@@ -69,7 +72,7 @@ export const UpdateProjectSchema = z.object({
   season_prefix: z.string().max(40).optional(),
   folder_template: z.string().optional(),
   subfolder_names: z.record(z.string(), z.string()).optional(),
-  output_root: z.string().optional(),
+  // (Removed: output_root.) See CreateProjectSchema above.
   portable: z.boolean().optional(),
   youtube_channel_url: z.string().optional(),
   // Format primitive (Phase 1): selects the base format profile this project
@@ -85,7 +88,7 @@ export const UpdateProjectSchema = z.object({
   // use neutral prompts. Empty/absent = 'format' (current behavior).
   content_mode: z.enum(['format', 'freeform']).optional(),
   // Level B (opt-in) external media root — a portable ${NAME} token or absolute
-  // path. Empty string clears it (back to everything under output_root).
+  // path. Empty string clears it (back to everything under the episodes folder).
   media_root: z.string().max(512).optional(),
 }).strict()
 export type UpdateProjectBody = z.infer<typeof UpdateProjectSchema>
@@ -287,8 +290,21 @@ export interface ProjectMetaResponse {
   season_prefix: string
   folder_template: string
   subfolder_names: Record<string, string>
-  output_root: string
   created_at: string
+  /**
+   * COMPUTED by `GET /projects/:slug`, not stored: the ABSOLUTE path to this
+   * channel's episodes folder (`<projectDir>/episodes`).
+   *
+   * Declared here because the route has always returned it and the frontend
+   * had to reach for it through an `as any` cast — which is how every
+   * `${PROJECT}` call site ended up passing the RELATIVE `output_root` field
+   * instead and silently never resolving. Undeclared response fields are how
+   * the wrong one gets picked.
+   */
+  output_root_resolved?: string
+  /** COMPUTED: whether that folder exists on disk right now. `false` is an
+   *  accusation the UI must show, never repair by creating the folder. */
+  output_root_exists?: boolean
   project_id?: string
   format_id?: string
   niche_id?: string

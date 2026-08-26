@@ -10,6 +10,7 @@
  *   - .DS_Store-only target is treated as effectively empty (not blocked)
  *   - empty source produces a warning but doesn't error
  *   - previewMigration returns the same file/byte tally
+ *   - a project's episodes travel with it (they are inside its own folder)
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'
@@ -95,57 +96,41 @@ describe('projects-storage-mover', () => {
     assert.equal(r.source_path, pm.projectsRoot())
     assert.equal(r.files, seeded.files)
     assert.equal(r.bytes, seeded.bytes)
-    // No external output_roots in the basic seed → asset breakdown zero.
-    assert.equal(r.asset_files, 0)
-    assert.equal(r.asset_bytes, 0)
-    assert.equal(r.projects_with_external_assets, 0)
   })
 
-  test('bulk move co-locates external output_root assets + rewrites project.json', async () => {
-    // Seed one project whose project.json has an absolute `output_root`
-    // pointing at an external folder (the user's actual setup before
-    // 2026-04-29). The migration should copy the metadata to the new
-    // target AND copy the external asset folder into <newProjectDir>/
-    // episodes/, then rewrite the new project.json to './episodes'.
-    const projectDir = path.join(pm.projectsRoot(), 'external-proj')
-    await fs.mkdir(projectDir, { recursive: true })
-    const externalDir = path.join(tmp.dir, 'external-storage', 'external-proj-assets')
-    await fs.mkdir(externalDir, { recursive: true })
+  test('a project’s episodes travel with it, because they are inside it', async () => {
+    // This replaces a test for the co-location phase, which copied a project’s
+    // episodes in from an external folder named by `output_root` and rewrote
+    // the field. Episodes always live at `<projectDir>/episodes` now, so the
+    // wholesale copy carries them and there is no second phase. What still has
+    // to hold is that they actually arrive — and that a stale `output_root`
+    // left in a project.json is neither honoured nor rewritten on the way.
+    const projectDir = path.join(pm.projectsRoot(), 'legacy-proj')
+    await fs.mkdir(path.join(projectDir, 'episodes', 'audio'), { recursive: true })
     await fs.writeFile(
       path.join(projectDir, 'project.json'),
-      JSON.stringify({ slug: 'external-proj', output_root: externalDir }),
+      JSON.stringify({ slug: 'legacy-proj', output_root: '/Volumes/Gone/assets' }),
     )
     await fs.writeFile(path.join(projectDir, 'config.json'), '{}')
-    // Seed external assets — the bytes that should follow the move.
-    await fs.mkdir(path.join(externalDir, 'audio'), { recursive: true })
-    await fs.writeFile(path.join(externalDir, 'audio', 'narration.mp3'), 'fake-audio')
-    await fs.writeFile(path.join(externalDir, 'final.mp4'), 'fake-video')
+    await fs.writeFile(path.join(projectDir, 'episodes', 'final.mp4'), 'fake-video')
+    await fs.writeFile(path.join(projectDir, 'episodes', 'audio', 'narration.mp3'), 'fake-audio')
 
     const target = path.join(tmp.dir, 'co-locate-target')
-    const r = await mover.migrateProjectsTo(target)
+    await mover.migrateProjectsTo(target)
 
-    // Metadata moved.
-    assert.ok(existsSync(path.join(target, 'external-proj', 'project.json')))
-    // Assets co-located inside the new project dir's episodes/ folder.
-    assert.ok(
-      existsSync(path.join(target, 'external-proj', 'episodes', 'final.mp4')),
-      'external asset copied into co-located episodes folder',
-    )
-    assert.ok(
-      existsSync(path.join(target, 'external-proj', 'episodes', 'audio', 'narration.mp3')),
-      'nested asset copied',
-    )
-    // project.json rewritten to relative './episodes'.
+    assert.ok(existsSync(path.join(target, 'legacy-proj', 'project.json')))
+    assert.ok(existsSync(path.join(target, 'legacy-proj', 'episodes', 'final.mp4')))
+    assert.ok(existsSync(path.join(target, 'legacy-proj', 'episodes', 'audio', 'narration.mp3')))
+
+    // Untouched, deliberately: the field is inert, and quietly rewriting a
+    // person's project.json to tidy up after ourselves is its own defect.
     const newMeta = JSON.parse(
-      await fs.readFile(path.join(target, 'external-proj', 'project.json'), 'utf-8'),
+      await fs.readFile(path.join(target, 'legacy-proj', 'project.json'), 'utf-8'),
     )
-    assert.equal(newMeta.output_root, './episodes')
-    // Source preserved at the original external location (copy + keep).
-    assert.ok(existsSync(externalDir), 'external source kept in place')
-    // Result reports the asset bytes separately.
-    assert.equal(r.assets_copied_files, 2)
-    assert.ok(r.assets_copied_bytes > 0)
-    assert.deepEqual(r.per_project_asset_warnings, [], 'no per-project warnings on the happy path')
+    assert.equal(newMeta.output_root, '/Volumes/Gone/assets')
+
+    // Copy + keep, unchanged.
+    assert.ok(existsSync(path.join(projectDir, 'episodes', 'final.mp4')), 'source kept in place')
   })
 
   test('refuses target == source (no-op)', async () => {

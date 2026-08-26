@@ -4427,16 +4427,13 @@ watch(artStyleSelection, async (next, prev) => {
 // form field. Cloud sync is now app-wide via Settings → Storage; the
 // per-project mode toggle is dead.)
 
-// Absolute path to the episodes folder — only present when output_root was picked.
-// Relative output_root means the project still lives in the hidden userData folder
-// and should be migrated via the auto-migration dialog.
-const projectLocation = computed(() => {
-  const p = project.value as any
-  const root = p?.output_root
-  if (!root || typeof root !== 'string') return ''
-  // Only absolute paths are real locations on disk — relative means unmigrated.
-  return root.startsWith('/') || /^[A-Za-z]:\\/.test(root) ? root : ''
-})
+// Absolute path to the episodes folder, for the read-only "Reveal in Finder"
+// row. Read from the resolved path the backend computes, not from a stored
+// setting — there is no longer one, and there is no form here that could
+// change it. The old version read the RELATIVE './episodes' and then filtered
+// it back out for not looking absolute, so this row was blank for every real
+// project.
+const projectLocation = computed(() => project.value?.output_root_resolved || '')
 
 async function revealInFinder() {
   if (!projectLocation.value) return

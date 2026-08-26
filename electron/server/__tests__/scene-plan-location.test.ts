@@ -50,7 +50,7 @@ async function seedEpisode(slug: string, code = 'EP0001'): Promise<{
   await fs.mkdir(episodeDir, { recursive: true })
   await fs.writeFile(
     path.join(projectDir, 'project.json'),
-    JSON.stringify({ slug, name: slug, output_root: './episodes' }, null, 2),
+    JSON.stringify({ slug, name: slug }, null, 2),
   )
   return {
     episodeDir,

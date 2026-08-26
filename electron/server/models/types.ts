@@ -86,14 +86,24 @@ export interface ProjectMeta {
   season_prefix: string
   folder_template: string
   subfolder_names: SubfolderNames
-  output_root: string
+  // (Removed: output_root.) A channel's episodes always live at
+  // `<projectDir>/episodes` — the channel's own folder — and that is now
+  // computed, never stored. The flexible version let a project name any
+  // folder it liked, which is how "Origin Field" came to point at
+  // `../Origin Field/episodes`: a folder that did not exist, so the channel
+  // rendered empty with nothing to explain it. A setting whose only observed
+  // value across every real project was the default, and whose one
+  // non-default use was a bug, is not a capability.
+  // See `resolveOutputRoot()` in services/project-manager.ts.
+  // Existing project.json files in the wild still carry the key; it is simply
+  // ignored — never read, never rewritten.
   /**
    * Optional (Level B, opt-in). When set — a portable Named-Root token like
    * `${MEDIA}` or an absolute path — the HEAVY media subfolders (scene images,
    * thumbnails, audio, merged audio, final video) are written under this root
-   * instead of `output_root`, while light artifacts stay in the iCloud project
-   * tree. Absent (the default) = everything under `output_root`, unchanged.
-   * See services/media-root.ts + docs/external-media-root-spec.md.
+   * instead of the episodes folder, while light artifacts stay in the iCloud
+   * project tree. Absent (the default) = everything under the episodes folder,
+   * unchanged. See services/media-root.ts + docs/external-media-root-spec.md.
    */
   media_root?: string
   created_at: string
@@ -1429,10 +1439,15 @@ export interface Character {
 }
 
 /**
- * Portable manifest (schema v2). Written as `.story-studio-project.json` at
- * the root of a project's `output_root` whenever project metadata changes.
- * Travels with the folder when the user syncs via iCloud / Google Drive /
- * OneDrive.
+ * Portable manifest (schema v2). Cached as `cache/manifest.json` inside the
+ * project folder whenever project metadata changes, so it travels with the
+ * folder when the user syncs via iCloud / Google Drive / OneDrive.
+ *
+ * It used to ALSO be written as `.story-studio-project.json` at the root of a
+ * project's episodes folder, but only when that folder sat outside the project
+ * directory. Episodes always live at `<projectDir>/episodes` now, so that
+ * write could never fire again and is gone; files of that name still exist on
+ * disk from older versions and are simply ignored.
  *
  * Schema v2 is intentionally small — just enough structure for another
  * machine to recognise the folder and line up episode codes with folder
@@ -1441,9 +1456,9 @@ export interface Character {
  * local app-owned list; machine paths and secrets are configured locally.
  * This keeps the manifest ≤1 KB and avoids conflicting configuration copies.
  *
- * Back-compat: `readManifest` still accepts v1 manifests (with preset bag)
- * and discards the extra payload silently on read. On next write the file
- * is upgraded in place.
+ * Back-compat note: v1 manifests (with the preset bag) may still exist on
+ * disk. The extra payload is not part of this type and is not carried
+ * forward; a v2 manifest is written from `ProjectMeta` every time.
  */
 export interface PortableManifest {
   schema_version: 2
@@ -1468,7 +1483,6 @@ export interface PortableManifest {
  */
 export interface Pointer {
   project_id: string
-  output_root: string
   last_seen_manifest_mtime?: number
 }
 
@@ -1502,7 +1516,9 @@ export interface CreateProjectRequest {
   episode_digits?: number
   season_prefix?: string
   season_size?: number
-  output_root?: string
+  // (Removed: output_root. A channel's episodes always live in the channel's
+  // own folder, so there is nothing for the create form to choose. See
+  // ProjectMeta above for why the choice was withdrawn.)
   // (Removed: portable. Legacy multi-machine flag — accepted on the
   // wire for back-compat with old clients but ignored by createProject.)
   portable?: boolean
@@ -1529,7 +1545,7 @@ export interface UpdateProjectRequest {
   season_prefix?: string
   folder_template?: string
   subfolder_names?: SubfolderNames
-  output_root?: string
+  // (Removed: output_root. Episodes are not relocatable — see ProjectMeta.)
   // (Removed: portable. Accepted on the wire for back-compat; updateProject
   // ignores it. Cloud sync is now configured app-wide via Storage tab.)
   portable?: boolean
@@ -1546,7 +1562,7 @@ export interface UpdateProjectRequest {
  *   'ready'       — project.json + config.json read successfully.
  *   'downloading' — project.json is an iCloud placeholder OR the read
  *                   timed out (30s). All metadata fields except `slug`
- *                   and `output_root` may be empty/absent. The home page
+ *                   and the episodes path may be empty/absent. The home page
  *                   renders these as greyed-out rows with a "Syncing
  *                   from iCloud" pill, and polls /api/projects every 5s
  *                   until they promote to 'ready'.
@@ -1568,18 +1584,23 @@ export interface ProjectSummary {
   // type so old client builds parsing the response don't break.)
   portable?: boolean
   /**
-   * Absolute path to where episode assets live. Resolved from
-   * `project.json.output_root` (relative paths are resolved against the
-   * project's userData dir). Always present — used by the home page to
-   * both show the location and decide whether to flag the project as
-   * needing relocation.
+   * ABSOLUTE path to where this channel's episodes live — always
+   * `<projectDir>/episodes`, COMPUTED by `resolveOutputRoot()` at the moment
+   * the list is built.
+   *
+   * This is not, and can no longer be, a setting. The stored
+   * `project.json.output_root` was deleted along with the ability to choose
+   * a folder; this field keeps its name only because it is what the home
+   * page has always read, and because there is no longer any stored value it
+   * could be confused with. Read it as "where the episodes are", never as
+   * "where someone said to put them" — nothing writes it back.
    */
   output_root?: string
   /**
-   * Whether `output_root` exists on disk right now. When `false` — e.g.
-   * the user moved the synced folder on another machine and opened this
-   * one before manually relocating — the home page surfaces a
-   * "Relocate…" affordance so generation doesn't fail silently later.
+   * Whether that folder exists on disk right now. Kept deliberately: the
+   * point of the deletion was to stop a channel pointing somewhere that is
+   * not there, NOT to stop saying so. When `false` the home page names the
+   * folder it looked for. Nothing creates the folder to make this true.
    */
   output_root_exists?: boolean
   /** iCloud sync state — see `ProjectSummaryStatus`. */

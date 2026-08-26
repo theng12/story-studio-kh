@@ -30,7 +30,6 @@
  */
 
 import fs from 'fs'
-import path from 'path'
 import * as pm from './project-manager.js'
 
 const COALESCE_MS = 250
@@ -122,23 +121,14 @@ function evictLRU(): void {
 async function startWatcherInner(slug: string): Promise<void> {
   if (watchers.has(slug)) return
 
-  let episodesDir: string
-  try {
-    // resolveEpisodePaths needs an episode code to compute its episode
-    // dir; we just want the project's episodes root, which is the
-    // grandparent of any episode_dir. Cheaper to compute via project.json.
-    const projectDir = pm.getProjectDir(slug)
-    if (!projectDir) return
-    // Read project.json to get output_root (relative or absolute).
-    const projectJsonPath = path.join(projectDir, 'project.json')
-    const raw = await fs.promises.readFile(projectJsonPath, 'utf-8')
-    const meta = JSON.parse(raw)
-    let outputRoot: string = meta.output_root || './episodes'
-    if (!path.isAbsolute(outputRoot)) outputRoot = path.join(projectDir, outputRoot)
-    episodesDir = outputRoot
-  } catch {
-    return
-  }
+  // resolveEpisodePaths needs an episode code to compute its episode dir; we
+  // just want the project's episodes root. That used to mean reading and
+  // parsing project.json for an `output_root`; it is now the one shared
+  // resolver, so this watcher can never watch a different folder from the one
+  // the generators write into.
+  const projectDir = pm.getProjectDir(slug)
+  if (!projectDir) return
+  const episodesDir = pm.resolveOutputRoot(projectDir).path
 
   // Sanity: the dir must exist before we can watch it.
   try {

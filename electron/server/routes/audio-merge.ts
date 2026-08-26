@@ -104,14 +104,18 @@ router.post('/projects/:slug/generate/audio-merge', async (req, res) => {
 // Serve audio file for preview playback
 router.get('/projects/:slug/audio-editor/preview-audio', async (req, res) => {
   const { slug } = req.params
-  const project = await pm.getProject(slug)
-  if (!project) return res.status(404).json({ detail: 'Project not found' })
+  const outputRoot = (await pm.getProjectOutputRoot(slug)) || undefined
+  if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
 
   const rawPath = req.query.path as string
   if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
   let filePath = rawPath
   try {
-    filePath = resolveAssetPath(rawPath, project.output_root)
+    // Absolute episodes dir — `${PROJECT}/…` must expand against the real
+    // folder. This used to pass the stored `project.output_root`, which was
+    // the RELATIVE './episodes', so a portable path silently expanded against
+    // the process cwd and the preview 404'd. Fixed with the field's removal.
+    filePath = resolveAssetPath(rawPath, outputRoot)
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
   }

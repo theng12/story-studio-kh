@@ -178,7 +178,7 @@
                 placeholder="/path/to/subtitles.srt"
                 :filters="[{ name: 'Subtitles', extensions: ['srt', 'vtt'] }]"
                 title="Choose a subtitle file"
-                :output-root="project?.output_root || ''"
+                :episodes-root="episodesRoot"
                 clearable
               />
               <button class="btn btn-sm btn-primary" :disabled="importing || !importPath" @click="importSrt">
@@ -390,7 +390,7 @@ const slug = computed(() => route.params.slug as string)
 const { get, post, del } = useApi()
 const { success, error: showError, info: showInfo } = useToast()
 const { jobs } = useJobs()
-const { project } = useProject()
+const { project, episodesRoot } = useProject()
 
 const episodeId = ref('')
 const status = ref<SubtitleStatus | null>(null)

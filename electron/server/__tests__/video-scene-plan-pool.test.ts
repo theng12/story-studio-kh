@@ -30,7 +30,6 @@ describe('Video Assembly authoritative Scene Plan pool', () => {
     await fs.writeFile(path.join(projectDir, 'project.json'), JSON.stringify({
       slug: SLUG,
       name: 'Mixed Scene Pool',
-      output_root: './episodes',
       episode_prefix: 'EP',
       season_size: 20,
       season_prefix: 'Season',

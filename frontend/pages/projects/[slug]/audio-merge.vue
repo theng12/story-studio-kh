@@ -762,7 +762,7 @@ const { get, post } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { audioMergeGenerating } = useGenerating()
-const { project, loadProject } = useProject()
+const { project, loadProject, episodesRoot } = useProject()
 
 // ── State ──
 const episodeId = ref('')
@@ -1126,7 +1126,7 @@ async function collapseToPortablePath(input: string): Promise<string> {
   try {
     const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
       path: raw,
-      output_root: project.value?.output_root,
+      output_root: episodesRoot.value,
       mode: 'portable',
     })
     return String(r?.output || raw)
@@ -1287,7 +1287,7 @@ async function runPresetPathCheck() {
     const result = await validatePresetPaths(
       currentMergeSnapshotForValidation(),
       AUDIO_MERGE_PATH_FIELDS,
-      { outputRoot: project.value?.output_root },
+      { episodesRoot: episodesRoot.value },
     )
     presetInvalidPaths.value = result.invalid
   } catch {

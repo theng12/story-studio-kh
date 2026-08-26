@@ -144,12 +144,15 @@ async function collectProjectDirs() {
   // 1) Local project dirs in PROJECTS_ROOT (or the override). Story Studio
   //    supports two layouts:
   //      • outer-marker  → `<root>/<name>/.story-studio-project.json` exists.
-  //                        This is the v1.0.x "wrapper" shape, used when the
-  //                        project has `output_root: './episodes'` relative.
+  //                        This is the v1.0.x "wrapper" shape, and the only
+  //                        one a project can have now that episodes always
+  //                        live at `<projectDir>/episodes`.
   //      • inner-marker  → no outer file; the project actually lives at
   //                        `<root>/<name>/episodes/.story-studio-project.json`.
-  //                        Single-marker projects where `<name>/episodes/` IS
-  //                        the project root (`output_root` set to that path).
+  //                        A legacy shape from when a project could name its
+  //                        own episodes folder and pointed it at itself. The
+  //                        folders still exist on disk, so the scan still
+  //                        covers them.
   //    We need both so the bug scan covers every project (on the machine
   //    that reported this, one project was outer-marker and the other 5
   //    were inner-marker).

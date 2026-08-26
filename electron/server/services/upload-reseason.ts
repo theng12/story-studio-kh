@@ -323,8 +323,8 @@ export async function applyReseason(slug: string, newSeasonSize: number): Promis
         await fs.rename(m.old_dir, m.new_dir)
       } catch (e: any) {
         if (e?.code === 'EXDEV') {
-          // Cross-filesystem fallback (rare for project tree, but
-          // user might have output_root pointed at a USB / NAS).
+          // Cross-filesystem fallback (rare for project tree, but the
+          // Library itself might sit on a USB / NAS).
           await copyDirRecursive(m.old_dir, m.new_dir)
           await fs.rm(m.old_dir, { recursive: true, force: true })
         } else if (e?.code === 'ENOTEMPTY' || e?.code === 'EEXIST' || e?.code === 'EISDIR') {

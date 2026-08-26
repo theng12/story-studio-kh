@@ -267,7 +267,6 @@ function projectFor(
     season_prefix: 'S',
     folder_template: '{code} - {title}',
     subfolder_names: {} as ProjectMeta['subfolder_names'],
-    output_root: tempData.dir,
     created_at: '2026-08-13T00:00:00.000Z',
     niche_id: nicheId,
     niche_overrides: overrides,

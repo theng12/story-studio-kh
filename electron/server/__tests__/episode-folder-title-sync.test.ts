@@ -37,7 +37,7 @@ async function makeProject(): Promise<void> {
     episode_prefix: 'TN', episode_digits: 4,
     season_size: 20, season_prefix: 'Season',
     folder_template: '{season_prefix} {season_num}/{code} - {title}/',
-    subfolder_names: {}, output_root: outputRoot,
+    subfolder_names: {}, 
     created_at: new Date().toISOString(),
   }))
   await fs.writeFile(path.join(projDir, 'config.json'), JSON.stringify({}))

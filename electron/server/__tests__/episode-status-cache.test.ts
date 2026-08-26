@@ -38,7 +38,6 @@ async function makeProject() {
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
     slug: SLUG,
     name: 'Cache Test',
-    output_root: outputRoot,
     episode_prefix: 'EP',
     season_size: 20,
     season_prefix: 'Season',

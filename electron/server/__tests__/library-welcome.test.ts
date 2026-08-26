@@ -37,7 +37,7 @@ async function seedChannel(root: string, slug: string, name: string) {
   await fs.writeFile(path.join(d, 'project.json'), JSON.stringify({
     slug, name, episode_prefix: 'TN', episode_digits: 4, season_size: 20,
     season_prefix: 'Season', folder_template: '{season_prefix} {season_num}/{code} - {title}/',
-    subfolder_names: {}, output_root: './episodes', created_at: new Date().toISOString(),
+    subfolder_names: {}, created_at: new Date().toISOString(),
   }))
   return d
 }

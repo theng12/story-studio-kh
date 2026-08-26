@@ -436,14 +436,18 @@ router.post('/projects/:slug/video-editor/overlays/open-folder', async (req, res
 // Serve an audio file for preview playback (music, background noise)
 router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
   const { slug } = req.params
-  const project = await pm.getProject(slug)
-  if (!project) return res.status(404).json({ detail: 'Project not found' })
+  const outputRoot = (await pm.getProjectOutputRoot(slug)) || undefined
+  if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
 
   const rawPath = req.query.path as string
   if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
   let filePath = rawPath
   try {
-    filePath = resolveAssetPath(rawPath, project.output_root)
+    // Absolute episodes dir — `${PROJECT}/…` must expand against the real
+    // folder. This used to pass the stored `project.output_root`, which was
+    // the RELATIVE './episodes', so a portable path silently expanded against
+    // the process cwd and the preview 404'd. Fixed with the field's removal.
+    filePath = resolveAssetPath(rawPath, outputRoot)
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
   }
@@ -496,13 +500,17 @@ router.get('/projects/:slug/video-editor/preview-audio', async (req, res) => {
 // support is required for looping MP4/MOV elements in Chromium.
 router.get('/projects/:slug/video-editor/preview-media', async (req, res) => {
   const { slug } = req.params
-  const project = await pm.getProject(slug)
-  if (!project) return res.status(404).json({ detail: 'Project not found' })
+  const outputRoot = (await pm.getProjectOutputRoot(slug)) || undefined
+  if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
   const rawPath = String(req.query.path || '')
   if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
   let filePath = rawPath
   try {
-    filePath = resolveAssetPath(rawPath, project.output_root)
+    // Absolute episodes dir — `${PROJECT}/…` must expand against the real
+    // folder. This used to pass the stored `project.output_root`, which was
+    // the RELATIVE './episodes', so a portable path silently expanded against
+    // the process cwd and the preview 404'd. Fixed with the field's removal.
+    filePath = resolveAssetPath(rawPath, outputRoot)
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
   }
@@ -540,14 +548,18 @@ router.get('/projects/:slug/video-editor/preview-media', async (req, res) => {
 // Serve an image file for preview (thumbnails, scene images, logos)
 router.get('/projects/:slug/video-editor/preview-image', async (req, res) => {
   const { slug } = req.params
-  const project = await pm.getProject(slug)
-  if (!project) return res.status(404).json({ detail: 'Project not found' })
+  const outputRoot = (await pm.getProjectOutputRoot(slug)) || undefined
+  if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
 
   const rawPath = req.query.path as string
   if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
   let filePath = rawPath
   try {
-    filePath = resolveAssetPath(rawPath, project.output_root)
+    // Absolute episodes dir — `${PROJECT}/…` must expand against the real
+    // folder. This used to pass the stored `project.output_root`, which was
+    // the RELATIVE './episodes', so a portable path silently expanded against
+    // the process cwd and the preview 404'd. Fixed with the field's removal.
+    filePath = resolveAssetPath(rawPath, outputRoot)
   } catch (e: any) {
     return res.status(400).json(humanizeBackendError(e, 'Could not resolve preview path'))
   }
@@ -1588,11 +1600,13 @@ router.get('/projects/:slug/video-editor/subtitle-preflight/:episodeId/fingerpri
   try {
     const rawPath = typeof req.query.path === 'string' ? req.query.path : ''
     if (!rawPath) return res.status(400).json({ detail: 'path query parameter required' })
-    const project = await pm.getProject(req.params.slug)
-    if (!project) return res.status(404).json({ detail: 'Project not found' })
+    const outputRoot = (await pm.getProjectOutputRoot(req.params.slug)) || undefined
+    if (!outputRoot) return res.status(404).json({ detail: 'Project not found' })
     let filePath = rawPath
     try {
-      filePath = resolveAssetPath(rawPath, project.output_root)
+      // See preview-audio above — absolute episodes dir, not the old
+      // relative `output_root` field.
+      filePath = resolveAssetPath(rawPath, outputRoot)
     } catch (e: any) {
       return res.status(400).json(humanizeBackendError(e, 'Could not resolve subtitle path'))
     }

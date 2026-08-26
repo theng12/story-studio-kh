@@ -268,6 +268,12 @@ router.post('/system/browse-dir', async (req, res) => {
 
 router.post('/system/validate-path', async (req, res) => {
   const inputPath = typeof req.body?.path === 'string' ? req.body.path.trim() : ''
+  // `output_root` on the wire is the caller's ABSOLUTE episodes folder — the
+  // base a `${PROJECT}/…` field resolves against. Callers used to send the
+  // stored, relative './episodes', which expanded to a cwd-relative path and
+  // then failed the isAbsolute check below, so real files came back "invalid".
+  // `resolveAssetPath` now refuses a relative base outright and the reason
+  // reaches the caller instead of being disguised as a bad path.
   const outputRoot = typeof req.body?.output_root === 'string' ? req.body.output_root : undefined
   const mustBeDir = req.body?.must_be_dir === true
   const mustExist = req.body?.must_exist !== false  // default true
@@ -422,7 +428,9 @@ router.post('/system/queue/resume', async (_req, res) => {
 // which needs no per-machine configuration and therefore has no routes.
 
 /**
- * Debug / preview helper. Accepts `{ path, output_root?, mode? }`.
+ * Debug / preview helper. Accepts `{ path, output_root?, mode? }`, where
+ * `output_root` is the caller's ABSOLUTE episodes folder (see
+ * /system/validate-path above).
  *   mode=resolve (default) — expand portable → absolute
  *   mode=portable           — collapse absolute → portable form
  * Returns `{ input, output, is_portable }`.

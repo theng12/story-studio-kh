@@ -17,7 +17,6 @@ describe('Image preview cache policy', () => {
     await fs.writeFile(path.join(projectDir, 'project.json'), JSON.stringify({
       slug: SLUG,
       name: 'Preview Cache',
-      output_root: './episodes',
     }))
   })
 

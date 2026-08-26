@@ -441,8 +441,8 @@ export async function inspectEpisodeFolder(slug: string, sourcePath: string): Pr
 
 export interface ImportOptions {
   source_path: string
-  // If true, copy the folder into output_root (safer — leaves original).
-  // If false and the folder is already inside output_root, adopt in place.
+  // If true, copy the folder into the episodes folder (safer — leaves
+  // original). If false and the folder is already inside it, adopt in place.
   copy_into_project?: boolean
   /**
    * Optional explicit episode code override. When set, this code is used

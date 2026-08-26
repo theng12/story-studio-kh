@@ -17,6 +17,5 @@
     "merged_audio": "{code} - 08 Audio Merge Output",
     "subtitles": "{code} - 09 Subtitles Output",
     "video": "{code} - 10 Video Assembly Output"
-  },
-  "output_root": "./episodes"
+  }
 }

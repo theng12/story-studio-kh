@@ -32,6 +32,7 @@ export function formatEpisodeCode(num: number, prefix: string = 'EP', digits: nu
 }
 
 export interface EpisodePaths {
+  /** ABSOLUTE — `<projectDir>/episodes`. Computed, never a stored setting. */
   output_root: string
   episode_dir: string
   script_dir: string
@@ -152,14 +153,12 @@ export async function resolveEpisodePaths(
   const epNum = episodeNumber(code, prefix)
   const seasonNum = Math.floor((epNum - 1) / seasonSize) + 1
 
-  let outputRoot = meta.output_root || './episodes'
-  if (!path.isAbsolute(outputRoot)) {
-    // Relative output_root resolves against the project's actual
-    // directory (linked or default) — not unconditionally against
-    // PROJECTS_ROOT — so iCloud-synced projects with output_root:
-    // './episodes' look in the right place.
-    outputRoot = path.join(projectDir, outputRoot)
-  }
+  // Episodes always live in the channel's own folder. Resolved against the
+  // project's ACTUAL directory (wherever the Library sits) rather than
+  // unconditionally against PROJECTS_ROOT, so an iCloud-synced project looks
+  // in the right place. Kept in step with `resolveOutputRoot()` in
+  // project-manager.ts — see there for why the folder is no longer a choice.
+  const outputRoot = path.join(projectDir, 'episodes')
 
   const episodeRel = folderTemplate
     .replace('{season_prefix}', seasonPrefix)
@@ -171,7 +170,7 @@ export async function resolveEpisodePaths(
 
   // Level B (opt-in): when `media_root` is set, HEAVY subfolders live under a
   // separate root (typically an external SSD, off iCloud) mirroring the same
-  // episodeRel; light subfolders stay under output_root. `mediaBase` falls back
+  // episodeRel; light subfolders stay under the episodes folder. `mediaBase` falls back
   // to `episodeDir` when media_root is absent or unresolvable here, so the
   // default path is byte-for-byte unchanged. See services/media-root.ts.
   const { resolveMediaBase } = await import('./media-root.js')
@@ -191,7 +190,7 @@ export async function resolveEpisodePaths(
   const videoName = (subfolder.video || d.video).replace('{code}', code)
   const videoAssetsName = (subfolder.video_assets || d.video_assets).replace('{code}', code)
 
-  // Light artifacts (always under output_root / iCloud).
+  // Light artifacts (always under the episodes folder / iCloud).
   const scriptDir = path.join(episodeDir, scriptName)
   const scenePromptsDir = path.join(episodeDir, scenePromptsName)
   const thumbPromptsDir = path.join(episodeDir, thumbPromptsName)

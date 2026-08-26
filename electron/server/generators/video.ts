@@ -1085,9 +1085,12 @@ export async function assertSubtitleFileBelongsToEpisode(
     // user-supplied path but has never listed `srt_path`, so a portable value
     // would reach the burn step as the literal string `${PROJECT}/…`, fail its
     // `existsSync` check, and the captions would vanish from the render without
-    // a word. Today that is masked only because this project's `output_root` is
-    // relative, which stops `toPortablePath` collapsing anything — an accident,
-    // not a guarantee.
+    // a word. This used to be masked by an accident: every caller handed
+    // `toPortablePath` the RELATIVE './episodes', which it refuses, so nothing
+    // was ever collapsed into `${PROJECT}/…` in the first place. That accident
+    // is gone — the episodes folder is absolute everywhere now — so this
+    // expansion is the only thing standing between a portable srt_path and a
+    // silently caption-less render.
     if (abs !== raw) req.subtitles!.srt_path = abs
     // Never silent in the other direction either. The job log used to print
     // "Burning in subtitles: EP0048_stitched.srt" for a correct render and a

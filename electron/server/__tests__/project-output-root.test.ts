@@ -1,30 +1,28 @@
 /**
- * v1.4.2 — a project whose episodes folder does not resolve says so.
+ * A channel's episodes live in the channel's folder. Full stop.
  *
- * ── The defect ──
+ * ── What this file used to be, and why it changed ──
  *
- * `listProjects` has computed `output_root_exists` via `existsSync` since long
- * before this release, and NOTHING read it — only the TypeScript declaration
- * referenced the field. So a project whose episode folder had moved rendered as
- * a perfectly normal card, opened to a perfectly normal page, and every episode
- * inside it silently vanished. The app had already worked out that the folder
- * was missing and threw the answer away.
+ * It exercised a stored `output_root` that could name any folder: relative,
+ * absolute, a sibling reached through `../`. That capability is gone. It was
+ * exercised by exactly one project in the wild — `origin-field`, pointing at
+ * `../Origin Field/episodes`, a folder that did not exist — and the result was
+ * a channel that opened completely empty with nothing on screen to explain it.
+ * Every other real project stored the default. A setting whose only non-default
+ * use was a bug is not a capability, so it was deleted rather than defended.
  *
- * That is the same shape as the silent lead-in zero fixed in 1.3.4: the system
- * knew, and spelled "I could not find it" identically to "nothing is there".
- * Two of the owner's real projects were in this state.
+ * The v1.4.2 reporting behaviour it was written alongside is NOT deleted, and
+ * that is the point of keeping a test here rather than removing the file:
  *
- * ── What is deliberately NOT here ──
+ *   - the folder's existence is still computed, and still reported honestly;
+ *   - both surfaces still resolve through ONE function, so the home page and
+ *     the project page cannot disagree about whether a channel is reachable;
+ *   - nothing repairs, adopts, or creates the folder to make a warning go away.
  *
- * There is no auto-repair, and no test asks for one. `origin-field`'s own
- * `./episodes` existed and was EMPTY while the correct target was a sibling
- * directory — anything that guessed a replacement path would have silently
- * adopted the empty folder and reported success. Warn, name the path, let a
- * person decide.
- *
- * Both surfaces resolve through ONE function, because a home page and a project
- * page that disagree about whether a project is reachable are worse than
- * neither saying anything.
+ * That last one is load-bearing. `origin-field`'s own `./episodes` existed and
+ * was EMPTY while the real episodes sat in a sibling directory, so anything
+ * that "helpfully" created or adopted a folder would have reported success over
+ * a channel with no episodes in it. Warn, name the path, let a person decide.
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test'
@@ -43,96 +41,99 @@ beforeEach(async () => {
 })
 after(async () => { await tmp?.cleanup() })
 
-/** A project whose `output_root` is whatever the caller wants to test. */
-async function seedProject(slug: string, outputRoot: string): Promise<string> {
+/**
+ * `extra` lets a test write a stale `output_root` into project.json — the shape
+ * every existing project on disk still has. It must make no difference.
+ */
+async function seedProject(slug: string, extra: Record<string, unknown> = {}): Promise<string> {
   const dir = path.join(pm.projectsRoot(), slug)
   await fs.mkdir(dir, { recursive: true })
   await fs.writeFile(
     path.join(dir, 'project.json'),
-    JSON.stringify({ slug, name: slug, episode_prefix: 'EP', output_root: outputRoot }),
+    JSON.stringify({ slug, name: slug, episode_prefix: 'EP', ...extra }),
   )
   return dir
 }
 
-describe('resolving a project’s episodes folder', () => {
-  test('a relative root resolves against the PROJECT dir, not the cwd', async () => {
-    const dir = await seedProject('rel', './episodes')
+describe('the episodes folder is fixed, not chosen', () => {
+  test('it is always `episodes` inside the project dir', async () => {
+    const dir = await seedProject('fixed')
     await fs.mkdir(path.join(dir, 'episodes'), { recursive: true })
-    const resolved = pm.resolveOutputRoot(dir, './episodes')
+    const resolved = pm.resolveOutputRoot(dir)
     assert.equal(resolved.path, path.join(dir, 'episodes'))
     assert.equal(resolved.exists, true)
   })
 
-  test('a relative root can point OUTSIDE the project dir and still work', async () => {
-    // This is the owner's `origin-field` shape: `../Origin Field/episodes`.
-    // The note that used to sit in `listProjects` claimed relative paths "live
-    // inside the project dir and are always present", which is how this case
-    // came to be treated as impossible.
-    const dir = await seedProject('sibling', '../Origin Field/episodes')
-    const target = path.join(pm.projectsRoot(), 'Origin Field', 'episodes')
-    await fs.mkdir(target, { recursive: true })
-    const resolved = pm.resolveOutputRoot(dir, '../Origin Field/episodes')
-    assert.equal(resolved.path, target)
-    assert.equal(resolved.exists, true)
+  test('a leftover `output_root` in project.json is ignored, not honoured', async () => {
+    // The Origin Field shape, still sitting in a real project.json somewhere.
+    // Reading it is what broke that channel; the folder it named is not even
+    // consulted now.
+    const dir = await seedProject('origin-field', { output_root: '../Origin Field/episodes' })
+    const stray = path.join(pm.projectsRoot(), 'Origin Field', 'episodes')
+    await fs.mkdir(stray, { recursive: true })
+    await fs.mkdir(path.join(dir, 'episodes'), { recursive: true })
+
+    assert.equal(pm.resolveOutputRoot(dir).path, path.join(dir, 'episodes'))
+    assert.equal(await pm.getProjectOutputRoot('origin-field'), path.join(dir, 'episodes'))
   })
 
-  test('a relative root CAN be missing — both forms break', async () => {
-    const dir = await seedProject('gone', './episodes')
-    assert.equal(pm.resolveOutputRoot(dir, './episodes').exists, false)
+  test('an absolute leftover is ignored too', async () => {
+    const dir = await seedProject('abs', { output_root: '/nowhere/at/all/episodes' })
+    assert.equal(pm.resolveOutputRoot(dir).path, path.join(dir, 'episodes'))
   })
 
-  test('an absolute root that no longer exists is reported missing', async () => {
-    const dir = await seedProject('abs', '/nowhere/at/all/episodes')
-    const resolved = pm.resolveOutputRoot(dir, '/nowhere/at/all/episodes')
-    assert.equal(resolved.path, '/nowhere/at/all/episodes')
-    assert.equal(resolved.exists, false)
+  test('the sync and async resolvers agree, always', async () => {
+    // `getProjectOutputRoot(slug)` has ~40 callers across the generators and
+    // `resolveOutputRoot(dir)` backs the two UI surfaces. They used to agree by
+    // both reading the same field carefully; now they agree by construction.
+    const dir = await seedProject('twins', { output_root: './somewhere-else' })
+    assert.equal(await pm.getProjectOutputRoot('twins'), pm.resolveOutputRoot(dir).path)
   })
 
-  test('an empty root falls back to `episodes` under the project dir', async () => {
-    const dir = await seedProject('blank', '')
-    assert.equal(pm.resolveOutputRoot(dir, '').path, path.join(dir, 'episodes'))
-    assert.equal(pm.resolveOutputRoot(dir, undefined).path, path.join(dir, 'episodes'))
+  test('an unreadable project.json cannot change the answer', async () => {
+    const dir = await seedProject('corrupt')
+    await fs.writeFile(path.join(dir, 'project.json'), '{ not json')
+    assert.equal(await pm.getProjectOutputRoot('corrupt'), path.join(dir, 'episodes'))
+  })
+
+  test('a project that is not there resolves to nothing, not to a guess', async () => {
+    assert.equal(await pm.getProjectOutputRoot('never-existed'), null)
   })
 })
 
-describe('a broken project reports itself rather than rendering clean', () => {
+describe('a missing folder is still reported honestly', () => {
   test('listProjects marks the missing folder and names the path it wanted', async () => {
-    const dir = await seedProject('broken', './episodes')
+    const dir = await seedProject('broken')
     const list = await pm.listProjects()
     const row = list.find(p => p.slug === 'broken')
     assert.ok(row, 'the project must still be listed — the record is fine, the folder is not')
-    assert.equal((row as any).output_root_exists, false)
+    assert.equal(row.output_root_exists, false)
     // The path is the whole point: a warning that does not say WHERE it looked
     // leaves the person with nothing to act on.
-    assert.equal((row as any).output_root, path.join(dir, 'episodes'))
+    assert.equal(row.output_root, path.join(dir, 'episodes'))
   })
 
   test('a healthy project is not accused', async () => {
-    const dir = await seedProject('healthy', './episodes')
+    const dir = await seedProject('healthy')
     await fs.mkdir(path.join(dir, 'episodes'), { recursive: true })
     const row = (await pm.listProjects()).find(p => p.slug === 'healthy')
-    assert.equal((row as any).output_root_exists, true)
+    assert.equal(row?.output_root_exists, true)
   })
 
   test('the home page and the project page cannot disagree', async () => {
-    // Both read through `resolveOutputRoot`. Before v1.4.2 only the list
-    // computed this at all, and it computed it inline.
-    const dir = await seedProject('split', './episodes')
+    const dir = await seedProject('split')
     const listed = (await pm.listProjects()).find(p => p.slug === 'split')
-    const direct = pm.resolveOutputRoot(dir, './episodes')
-    assert.equal((listed as any).output_root_exists, direct.exists)
-    assert.equal((listed as any).output_root, direct.path)
+    const direct = pm.resolveOutputRoot(dir)
+    assert.equal(listed?.output_root_exists, direct.exists)
+    assert.equal(listed?.output_root, direct.path)
   })
 
   test('nothing is repaired, moved, or created by looking', async () => {
-    // A check that fixes things is a check nobody can trust. `origin-field`
-    // proves why: its own `./episodes` existed and was empty while the real
-    // episodes were in a sibling folder, so a repair would have adopted the
-    // empty one and called it done.
-    const dir = await seedProject('untouched', './episodes')
+    const dir = await seedProject('untouched')
     const before = await fs.readdir(dir)
     await pm.listProjects()
-    pm.resolveOutputRoot(dir, './episodes')
+    pm.resolveOutputRoot(dir)
+    await pm.getProjectOutputRoot('untouched')
     assert.deepEqual(await fs.readdir(dir), before, 'inspecting a project must not change it')
     assert.equal(
       await fs.access(path.join(dir, 'episodes')).then(() => true, () => false),
@@ -142,45 +143,39 @@ describe('a broken project reports itself rather than rendering clean', () => {
   })
 })
 
-describe('storing an episodes folder portably', () => {
-  test('a folder inside the project dir is stored relative', () => {
-    const dir = path.join(pm.projectsRoot(), 'p')
-    assert.equal(pm.normalizeOutputRootForStorage(dir, path.join(dir, 'episodes')), './episodes')
+describe('nothing writes the folder back into project.json', () => {
+  test('a created project stores no episodes location at all', async () => {
+    const meta = await pm.createProject({ name: 'Fresh Channel' } as any)
+    const raw = JSON.parse(
+      await fs.readFile(path.join(pm.projectsRoot(), meta.slug, 'project.json'), 'utf-8'),
+    )
+    assert.equal('output_root' in raw, false, 'the deleted field must not come back')
+    assert.equal(
+      await pm.getProjectOutputRoot(meta.slug),
+      path.join(pm.projectsRoot(), meta.slug, 'episodes'),
+    )
   })
 
-  test('the project dir itself becomes `.`', () => {
-    // The shape an imported folder produces: the folder IS the episodes root.
-    const dir = path.join(pm.projectsRoot(), 'p')
-    assert.equal(pm.normalizeOutputRootForStorage(dir, dir), '.')
+  test('a channel named "Episodes" still gets its episodes folder', async () => {
+    // The slug is 'episodes', so the project dir is `<root>/episodes` — the
+    // one case an old guard in createProject skipped the mkdir for, aimed at a
+    // nested-import shape this function never produces. The resolver looks for
+    // `<projectDir>/episodes` unconditionally, so skipping it left that
+    // channel reporting "Folder missing" from the day it was made.
+    const meta = await pm.createProject({ name: 'Episodes' } as any)
+    assert.equal(meta.slug, 'episodes')
+    const row = (await pm.listProjects()).find(p => p.slug === 'episodes')
+    assert.equal(row?.output_root_exists, true)
+    assert.equal(row?.output_root, path.join(pm.projectsRoot(), 'episodes', 'episodes'))
   })
 
-  test('a sibling inside the projects root becomes a `../` path', () => {
-    // The owner's own `origin-field` shape, and it survives a move because the
-    // project and its episodes travel together.
-    const dir = path.join(pm.projectsRoot(), 'origin-field')
-    const target = path.join(pm.projectsRoot(), 'Origin Field', 'episodes')
-    assert.equal(pm.normalizeOutputRootForStorage(dir, target), '../Origin Field/episodes')
-  })
-
-  test('a folder OUTSIDE the projects root stays absolute', () => {
-    // Expressing an external volume as a chain of `../` would be fragile and
-    // would not survive the move either. Absolute is the honest answer.
-    const dir = path.join(pm.projectsRoot(), 'p')
-    assert.equal(pm.normalizeOutputRootForStorage(dir, '/Volumes/Big/episodes'), '/Volumes/Big/episodes')
-  })
-
-  test('an already-relative value is left exactly as it is', () => {
-    const dir = path.join(pm.projectsRoot(), 'p')
-    assert.equal(pm.normalizeOutputRootForStorage(dir, './episodes'), './episodes')
-    assert.equal(pm.normalizeOutputRootForStorage(dir, ''), './episodes')
-  })
-
-  test('what is stored round-trips back to the same folder', () => {
-    // The property that actually matters: normalising must not move anything.
-    const dir = path.join(pm.projectsRoot(), 'p')
-    for (const target of [path.join(dir, 'episodes'), path.join(pm.projectsRoot(), 'Other', 'episodes'), '/Volumes/Big/eps']) {
-      const stored = pm.normalizeOutputRootForStorage(dir, target)
-      assert.equal(pm.resolveOutputRoot(dir, stored).path, path.resolve(target))
-    }
+  test('a stale `output_root` on disk is left exactly as it is', async () => {
+    // Never rewrite a person's project.json to tidy up after ourselves — the
+    // field is inert, and silently mutating saved files is its own disease.
+    const dir = await seedProject('legacy', { output_root: '/Volumes/Big/episodes' })
+    await pm.listProjects()
+    await pm.getProjectOutputRoot('legacy')
+    const raw = JSON.parse(await fs.readFile(path.join(dir, 'project.json'), 'utf-8'))
+    assert.equal(raw.output_root, '/Volumes/Big/episodes')
   })
 })
