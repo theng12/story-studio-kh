@@ -23,15 +23,15 @@ const KIT_FLOORS: Array<[packId: string, floor: number, note?: string]> = [
   ['com.storystudio.pack.kit.human-behavior', PROMISED_IDEAS],
   ['com.storystudio.pack.kit.build-momentum', PROMISED_IDEAS],
   ['com.storystudio.pack.kit.sleep-journeys', PROMISED_IDEAS],
-  // Below: kits whose Topic Pack has no authored 1.0.1 successor yet. The number is what the
-  // kit actually delivers today. Raise it to PROMISED_IDEAS as each successor lands; never
+  ['com.storystudio.pack.kit.calm-mind', PROMISED_IDEAS],
+  ['com.storystudio.pack.kit.first-humans', PROMISED_IDEAS],
+  ['com.storystudio.pack.kit.a-life-as', PROMISED_IDEAS],
+  ['com.storystudio.pack.kit.history-explained', PROMISED_IDEAS],
+  ['com.storystudio.pack.kit.deep-time', PROMISED_IDEAS],
+  ['com.storystudio.pack.kit.business-explained', PROMISED_IDEAS],
+  // Below: kits still pinned to a starter-sized Topic Pack. The number is what the kit
+  // actually delivers today. Raise it to PROMISED_IDEAS as each successor lands; never
   // lower one, and never delete a row to make this test pass.
-  ['com.storystudio.pack.kit.calm-mind', 15, 'everyday-calm 1.0.1 not authored'],
-  ['com.storystudio.pack.kit.first-humans', 20, 'ancient-humans-survival 1.0.1 not authored'],
-  ['com.storystudio.pack.kit.a-life-as', 25, 'pov-historical-occupations 1.0.1 not authored'],
-  ['com.storystudio.pack.kit.history-explained', 25, 'historical-wars-treaties-world-order 1.0.1 not authored'],
-  ['com.storystudio.pack.kit.deep-time', 30, 'deep-time-earth-systems 1.0.1 not authored'],
-  ['com.storystudio.pack.kit.business-explained', 40, 'economics-businesses 1.0.1 not authored'],
   ['com.storystudio.pack.kit.symbolic-psychology-studio', 10, 'six-piece kit governed by its own wave plan'],
   ['com.storystudio.pack.kit.archival-ledger', 100, 'paid kit; its five Topic Pack successors are owner work in progress'],
 ]

@@ -1,5 +1,5 @@
 {
-  "revision": 47,
+  "revision": 54,
   "batches": [
     {
       "revision": 2,
@@ -1760,6 +1760,254 @@
           }
         ]
       }
+    },
+    {
+      "revision": 48,
+      "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+      "request": {
+        "expected_revision": 47,
+        "coordinator": {
+          "task": "channel-kit-idea-capacity-repin-wave-2",
+          "branch": "fix/kit-idea-capacity"
+        },
+        "proposal_ref": ".superpowers/sdd/2026-08-25-topic-pack-1000-repair/plan-research.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.kit.calm-mind",
+            "bundle_id": "com.storystudio.bundle.calm-mind",
+            "version": "1.0.2",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.2",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.everyday-calm",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.calm-mind",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.calm-mind",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.first-humans",
+            "bundle_id": "com.storystudio.bundle.first-humans",
+            "version": "1.0.4",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/first-humans-v1.0.4",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.ancient-humans",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.first-humans",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.first-humans",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.a-life-as",
+            "bundle_id": "com.storystudio.bundle.a-life-as",
+            "version": "1.0.4",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.4",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+                "version": "1.0.2"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.a-life-as",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.a-life-as",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.history-explained",
+            "bundle_id": "com.storystudio.bundle.history-explained",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/history-explained-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.history-explained",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.sepia-ink-wash",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+                "version": "1.0.0"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.history-explained",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.history-explained",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.deep-time",
+            "bundle_id": "com.storystudio.bundle.deep-time",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/deep-time-v1.0.3",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.paleo-documentary-tableau",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+                "version": "1.0.0"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.deep-time",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.deep-time",
+                "status": "proposed"
+              }
+            }
+          },
+          {
+            "pack_id": "com.storystudio.pack.kit.business-explained",
+            "bundle_id": "com.storystudio.bundle.business-explained",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/free-starters/kit/business-explained-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.economics-of",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.economics-businesses",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.hand-drawn-editorial-diagram",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.annotated-business-board",
+                "version": "1.0.0"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.business-explained",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.business-explained",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -2353,6 +2601,108 @@
         "receipt_ref": "authoring:fe77b00a7387c8a91de9a9a068383b547d9f2c0eef7d340b47b915d7ca8198ef",
         "pack_id": "com.storystudio.pack.kit.sleep-journeys",
         "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 49,
+      "transition_ref": "lifecycle:6381debeca418baaaeae9c681e0b54d76aed9fe8d191a3dfab6fe583b16fde60",
+      "request": {
+        "expected_revision": 48,
+        "coordinator": {
+          "task": "channel-kit-idea-capacity-repin-wave-2",
+          "branch": "fix/kit-idea-capacity"
+        },
+        "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+        "pack_id": "com.storystudio.pack.kit.calm-mind",
+        "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 50,
+      "transition_ref": "lifecycle:ac7c7e057f61eacc165efd5935ac2609d94ff3dbadf4904b4a52fd1b0febd336",
+      "request": {
+        "expected_revision": 49,
+        "coordinator": {
+          "task": "channel-kit-idea-capacity-repin-wave-2",
+          "branch": "fix/kit-idea-capacity"
+        },
+        "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+        "pack_id": "com.storystudio.pack.kit.first-humans",
+        "version": "1.0.4",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 51,
+      "transition_ref": "lifecycle:77585a8e7a9a4dfc19ab9bf1c77e82ea452ac9c0e1b2000ee4afeec768cac8d6",
+      "request": {
+        "expected_revision": 50,
+        "coordinator": {
+          "task": "channel-kit-idea-capacity-repin-wave-2",
+          "branch": "fix/kit-idea-capacity"
+        },
+        "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+        "pack_id": "com.storystudio.pack.kit.a-life-as",
+        "version": "1.0.4",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 52,
+      "transition_ref": "lifecycle:abe164f4bd24bd057384a70efcc6752314fa42e602c5fe4181fcc531d26db2a4",
+      "request": {
+        "expected_revision": 51,
+        "coordinator": {
+          "task": "channel-kit-idea-capacity-repin-wave-2",
+          "branch": "fix/kit-idea-capacity"
+        },
+        "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+        "pack_id": "com.storystudio.pack.kit.history-explained",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 53,
+      "transition_ref": "lifecycle:bb80363178e341e47b9a4440b695429b70af63af663871c719d1b0db12badf9a",
+      "request": {
+        "expected_revision": 52,
+        "coordinator": {
+          "task": "channel-kit-idea-capacity-repin-wave-2",
+          "branch": "fix/kit-idea-capacity"
+        },
+        "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+        "pack_id": "com.storystudio.pack.kit.deep-time",
+        "version": "1.0.3",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 54,
+      "transition_ref": "lifecycle:86aa43500987099779a8b3d71a490e851cd99ca64c4b2dd888a02f91bfbb8a14",
+      "request": {
+        "expected_revision": 53,
+        "coordinator": {
+          "task": "channel-kit-idea-capacity-repin-wave-2",
+          "branch": "fix/kit-idea-capacity"
+        },
+        "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+        "pack_id": "com.storystudio.pack.kit.business-explained",
+        "version": "1.0.1",
         "changes": {
           "status": "authored"
         }
@@ -5546,6 +5896,246 @@
         },
         "sku": {
           "id": "com.storystudio.sku.kit.sleep-journeys",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+      "pack_id": "com.storystudio.pack.kit.calm-mind",
+      "bundle_id": "com.storystudio.bundle.calm-mind",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/calm-mind-v1.0.2",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.everyday-calm",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.watercolor-storybook",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.centered-hero-headline",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.calm-mind",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.calm-mind",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+      "pack_id": "com.storystudio.pack.kit.first-humans",
+      "bundle_id": "com.storystudio.bundle.first-humans",
+      "version": "1.0.4",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/first-humans-v1.0.4",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.ancient-humans",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.prehistoric-discovery",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.first-humans",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.first-humans",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+      "pack_id": "com.storystudio.pack.kit.a-life-as",
+      "bundle_id": "com.storystudio.bundle.a-life-as",
+      "version": "1.0.4",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/a-life-as-v1.0.4",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.cinematic-photoreal",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.portrait-block-right",
+          "version": "1.0.2"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.a-life-as",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.a-life-as",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+      "pack_id": "com.storystudio.pack.kit.history-explained",
+      "bundle_id": "com.storystudio.bundle.history-explained",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/history-explained-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.history-explained",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.sepia-ink-wash",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+          "version": "1.0.0"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.history-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.history-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+      "pack_id": "com.storystudio.pack.kit.deep-time",
+      "bundle_id": "com.storystudio.bundle.deep-time",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/deep-time-v1.0.3",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.paleo-documentary-tableau",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+          "version": "1.0.0"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.deep-time",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.deep-time",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:7fc363ac598bb08729cf0864a83f8c56abc7037a4842d803712517bda1af73cf",
+      "pack_id": "com.storystudio.pack.kit.business-explained",
+      "bundle_id": "com.storystudio.bundle.business-explained",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/free-starters/kit/business-explained-v1.0.1",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.economics-of",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.economics-businesses",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.hand-drawn-editorial-diagram",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.annotated-business-board",
+          "version": "1.0.0"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.business-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.business-explained",
           "status": "proposed"
         }
       }

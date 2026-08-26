@@ -1,0 +1,65 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.kit.deep-time",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.3",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Repins the Topic Pack to 1.0.1 so the kit offers 1,000 unique episode ideas instead of a starter sample.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.kit.deep-time",
+    "family": "com.storystudio.family.kit.deep-time"
+  },
+  "dependencies": [
+    {
+      "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
+      "version": "1.0.1"
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
+      "version": "1.0.1"
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.paleo-documentary-tableau",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+      "version": "1.0.0"
+    }
+  ],
+  "bundles": [
+    {
+      "id": "com.storystudio.bundle.deep-time",
+      "kind": "channel-kit",
+      "name": "Deep Time",
+      "components": [
+        {
+          "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
+          "version": "1.0.1",
+          "item_id": "com.storystudio.formula.deep-time-documentary",
+          "kind": "series-formula"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
+          "version": "1.0.1",
+          "item_id": "com.storystudio.topic.deep-time-earth-systems",
+          "kind": "topic-pack"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.paleo-documentary-tableau",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.style.paleo-documentary-tableau",
+          "kind": "visual-style"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.thumbnail.documentary-label-tableau",
+          "kind": "thumbnail-recipe"
+        }
+      ]
+    }
+  ]
+}
