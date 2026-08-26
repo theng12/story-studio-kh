@@ -1,8 +1,13 @@
+import { genStudioProductAliases } from '../../electron/server/contracts/genstudio-product-identity'
+
 export type GenStudioModelKind = 'chat' | 'image' | 'video' | 'transcription' | 'tts'
 
 export interface GenStudioDisplayCatalogEntry {
   id: string
   display_name: string
+  /** Owner-defined public handle, e.g. `gpt-image-2`. */
+  customer_handle?: string | null
+  public_model_id?: string | null
   legacy_ids?: string[]
 }
 
@@ -49,7 +54,9 @@ export function buildGenStudioModelLabelEntries(
     for (const model of catalogs[kind] || []) {
       const label = plainGenStudioModelName(model.display_name)
       if (!model.id?.trim() || !label) continue
-      const ids = [model.id, ...(model.legacy_ids || [])]
+      // Every identifier the product answers to gets the same label, so a job
+      // row still reads "GPT Image 2" when its saved model is the old raw id.
+      const ids = genStudioProductAliases(model)
       for (const rawId of ids) {
         const id = rawId?.trim()
         if (!id) continue

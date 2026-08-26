@@ -1,6 +1,7 @@
 import type { ImageModelConfig, ImageOutputOption, ProjectConfig } from '../models/types.js'
 import { listImageModels, type GenStudioImageModel, type GenStudioImageOutputOption } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId } from './genstudio-model-migration.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
 /**
  * Every capability field is parsed exactly once, in the catalogue mapper in
@@ -290,7 +291,9 @@ export async function resolveImageModelConfig(
   if (!apiKey.trim()) {
     throw new Error('Add the GenStudio API key in Settings before generating images.')
   }
-  const model = (await listImageModels(apiKey)).find(item => item.id === resolvedModelId)
+  // Alias-aware: a saved raw id still resolves after GenStudio republishes the
+  // product under its customer handle.
+  const model = findGenStudioProduct(await listImageModels(apiKey), resolvedModelId)
   if (!model) return undefined
   return buildImageModelConfig(config, modelId, model)
 }

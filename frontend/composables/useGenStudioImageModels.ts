@@ -1,6 +1,7 @@
 import { useApi } from './useApi.js'
 import { createGenStudioCatalogCache } from './useGenStudioCatalogCache.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
+import { findGenStudioProduct } from '../../electron/server/contracts/genstudio-product-identity'
 
 /** One published `(resolution, aspect_ratio)` pair from the image catalog. */
 export interface GenStudioImageOutputOption {
@@ -55,6 +56,11 @@ export interface GenStudioImageModelInfo {
   max_prompt_characters?: number
   prompt_token_allowance?: number
   operations?: string[]
+  /** Owner-defined public handle, e.g. `gpt-image-2`. GenStudio republishes
+   *  image and video products under this name; a preset saved earlier holds
+   *  the raw id, so both name the same product. */
+  customer_handle?: string | null
+  public_model_id?: string | null
   legacy_ids?: string[]
   cost_tier?: GenStudioCostTier
   locked?: boolean
@@ -78,7 +84,7 @@ const cache = createGenStudioCatalogCache<GenStudioImageModelInfo[]>({
  */
 export function useGenStudioImageModels() {
   function find(modelId: string): GenStudioImageModelInfo | undefined {
-    return cache.data.value.find(model => model.id === modelId)
+    return findGenStudioProduct(cache.data.value, modelId)
   }
 
   return {

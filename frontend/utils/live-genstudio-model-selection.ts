@@ -1,4 +1,5 @@
 import { isCompleteTierCatalog, type GenStudioCostTier } from './genstudio-cost-tier.js'
+import { isGenStudioProduct } from '../../electron/server/contracts/genstudio-product-identity'
 
 /**
  * Resolve a saved text-model preference against GenStudio's live catalog.
@@ -14,6 +15,16 @@ export interface LiveGenStudioModel {
   lock_reason?: string | null
   disabled_reason?: string | null
   supports_vision?: boolean
+  /**
+   * Owner-defined public handle, e.g. `gpt-image-2`.
+   *
+   * GenStudio is republishing image and video products under their handle
+   * rather than their raw id. A saved preset holds the raw id, so both have to
+   * be treated as names for the same product — see
+   * `@shared/genstudio-product-identity`.
+   */
+  customer_handle?: string | null
+  public_model_id?: string | null
   legacy_ids?: readonly string[]
   cost_tier?: GenStudioCostTier
 }
@@ -53,7 +64,7 @@ export function selectLiveGenStudioModel<T extends LiveGenStudioModel>(
   if (exact && usable(exact)) return exact
 
   const migrated = saved
-    ? models.find(model => usable(model) && model.legacy_ids?.includes(saved))
+    ? models.find(model => usable(model) && isGenStudioProduct(model, saved))
     : undefined
   if (migrated) return migrated
 
@@ -100,7 +111,7 @@ export function describeGenStudioSelectionGap<T extends LiveGenStudioModel>(
   const exact = models.find(model => model.id === saved)
   if (exact && usable(exact)) return { kind: 'resolved' }
 
-  const migrated = models.find(model => usable(model) && model.legacy_ids?.includes(saved))
+  const migrated = models.find(model => usable(model) && isGenStudioProduct(model, saved))
   if (migrated) return { kind: 'migrated', from: saved, to: migrated.id }
 
   if (exact) return { kind: 'unavailable', savedModelId: saved, reason: exact.disabled_reason || undefined }

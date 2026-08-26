@@ -574,6 +574,7 @@ import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { resolveActiveSceneRenderJob } from '~/utils/scene-render-job-state'
 import { findOutputOption, publishedOutputOptions, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
+import { findGenStudioProduct } from '../../../../electron/server/contracts/genstudio-product-identity'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Scene Review')
@@ -741,7 +742,11 @@ const defaultAspectRatios = [
   { value: '9:16', label: 'Portrait' },
 ]
 const { models: genStudioImageModels, refresh: refreshGenStudioImageModels } = useGenStudioImageModels()
-const selectedGenStudioModel = computed(() => genStudioImageModels.value.find(model => model.id === form.value.model))
+// Alias-aware on purpose: this preset is remembered per-project in
+// localStorage and may hold an identifier from before GenStudio republished
+// the product under its customer handle. Resolving by id alone here is what
+// leaves the picker blank and the render guards unarmed.
+const selectedGenStudioModel = computed(() => findGenStudioProduct(genStudioImageModels.value, form.value.model))
 const aspectRatios = computed(() => {
   const ratios = selectedGenStudioModel.value?.aspect_ratios
   if (!ratios?.length) return defaultAspectRatios

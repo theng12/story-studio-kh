@@ -50,6 +50,11 @@ export interface GenStudioVideoModelInfo {
    *  Story Studio's assembly composes narration over the clip and drops any
    *  embedded track, so a `true` is disclosed at the point of choosing. */
   generates_audio?: boolean | null
+  /** Owner-defined public handle, e.g. `gpt-image-2`. GenStudio republishes
+   *  image and video products under this name; a preset saved earlier holds
+   *  the raw id, so both name the same product. */
+  customer_handle?: string | null
+  public_model_id?: string | null
   legacy_ids?: string[]
   cost_tier?: GenStudioCostTier
   locked?: boolean

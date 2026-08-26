@@ -16,6 +16,7 @@ import type { ImageGenerationRequest, ImageGenerationResult, ImageProvider } fro
 import { GenStudioApiError, generateImageWithGenStudio, listImageModels, uploadImageSourceWithGenStudio } from '../../lib/genstudio-client.js'
 import { assertDecodableImage } from '../../lib/image-validation.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../../services/genstudio-model-migration.js'
+import { findGenStudioProduct } from '../../contracts/genstudio-product-identity.js'
 import {
   publishedAvailabilityProblem,
   publishedSupportsReferenceImages,
@@ -31,8 +32,30 @@ const genstudioImageProvider: ImageProvider = {
     providerId: 'genstudio',
   },
 
+  /**
+   * GenStudio is identified by the PROVIDER the resolver stamped on the
+   * request, not by how the product happens to be named.
+   *
+   * `providerParams.provider` is the structural signal: `image-model-resolver`
+   * sets it whenever it resolves a product out of the GenStudio catalog, so it
+   * is true of every image request Story Studio actually builds — including
+   * one for a product published as `gpt-image-2`, which shares no prefix with
+   * anything.
+   *
+   * The name test below is kept ONLY to recognise legacy raw ids that reach
+   * here without provider params. DEBT, stated plainly: it cannot recognise a
+   * customer handle, and no string test can — a handle is owner-defined and is
+   * allowed to look like anything. It is safe today only because no production
+   * dispatch path consults this method: the registry has no
+   * `findImageProviderForModel`, and every image call site reaches the provider
+   * by id via `registry.getImageProvider('genstudio-image')`. If a future
+   * caller ever selects an image provider BY MODEL ID, this fallback must be
+   * replaced with a catalog lookup rather than extended with another prefix.
+   */
   supportsModel(modelId: string, providerParams: Record<string, any>): boolean {
-    return providerParams?.provider === 'genstudio-image' || modelId.startsWith('genstudio-image-')
+    if (providerParams?.provider === 'genstudio-image') return true
+    const value = typeof modelId === 'string' ? modelId.trim() : ''
+    return value.startsWith('genstudio-image-') || value.startsWith('genstudio-image:')
   },
 
   async generateImage(request: ImageGenerationRequest): Promise<ImageGenerationResult> {
@@ -40,7 +63,11 @@ const genstudioImageProvider: ImageProvider = {
     if (!modelId) throw new Error(unavailableLegacyModelMessage('image', request.modelId))
     // One cached, coalesced catalogue read serves every guard below, so a
     // 25-scene batch still performs a single GET.
-    const model = (await listImageModels(request.apiKey)).find(item => item.id === modelId)
+    // Resolved by ANY identifier the catalog publishes — id, customer handle,
+    // or a published legacy id. A preset saved before a product was renamed
+    // must still find its product here; failing at this line would mean
+    // failing after the owner already waited for the batch.
+    const model = findGenStudioProduct(await listImageModels(request.apiKey), modelId)
     if (!model) {
       throw new Error('The selected GenStudio image model is no longer available. Refresh the model picker and choose a current model.')
     }

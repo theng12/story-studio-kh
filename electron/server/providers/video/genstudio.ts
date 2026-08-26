@@ -13,6 +13,7 @@ import {
   variantsForGenStudioVideoOperation,
   type GenStudioVideoVariant,
 } from '../../lib/genstudio-client.js'
+import { findGenStudioProduct } from '../../contracts/genstudio-product-identity.js'
 
 const PREFIX = 'genstudio-video:'
 
@@ -36,7 +37,10 @@ async function resolveRequestedVariant(
   providerParams: Record<string, any> | undefined,
 ): Promise<GenStudioVideoVariant> {
   const catalog = await listVideoModels(apiKey)
-  const model = catalog.find(entry => entry.id === modelId)
+  // Resolved by ANY identifier the catalog publishes — id, customer handle, or
+  // a published legacy id — so a motion preset saved before a product was
+  // renamed still finds its product instead of failing at submit time.
+  const model = findGenStudioProduct(catalog, modelId)
   if (!model || !model.available || !supportsGenStudioVideoMode(model)) {
     throw new Error(
       `GenStudio does not currently publish an available image-to-video model with id "${modelId}".`,
@@ -82,6 +86,14 @@ const genstudioVideoProvider: VideoProvider = {
     providerId: 'genstudio',
   },
 
+  /**
+   * `providerParams.provider` is the structural signal. The `PREFIX` test is
+   * safe here for a reason that does NOT hold for images: `genstudio-video:` is
+   * a transport NAMESPACE that Story Studio itself prepends to whatever product
+   * id it resolved (see `generators/ai-video.ts`), not a fragment of the
+   * product's own name. `genstudio-video:veo-3-1` still matches, so renaming a
+   * product to a customer handle cannot break video selection.
+   */
   supportsModel(modelId: string, providerParams?: Record<string, any>): boolean {
     return modelId.startsWith(PREFIX) || providerParams?.provider === 'genstudio-video'
   },

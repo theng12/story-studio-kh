@@ -751,6 +751,48 @@ function parseGenStudioCatalogLock(value: unknown): GenStudioCatalogLock {
   }
 }
 
+/**
+ * Identifiers a published product answers to, beyond the one in `id`.
+ *
+ * GenStudio products carry a raw `public_model_id` AND an owner-defined
+ * `customer_handle`; the image and video listings are moving to publish the
+ * handle, and submit accepts either form. The catalog parsers below build
+ * explicit object literals, so ANY field not named here is silently dropped —
+ * which means without this, a handle GenStudio publishes would never reach the
+ * resolver and a preset holding the old raw id could never be matched to it.
+ *
+ * Parsed permissively and stored verbatim. Story Studio never invents an alias
+ * and never rewrites one; it only remembers what GenStudio said. Matching is
+ * done through `@shared/genstudio-product-identity`, never by hand.
+ */
+export interface GenStudioProductAliases {
+  /** Owner-defined public handle, e.g. `gpt-image-2`. */
+  customer_handle?: string
+  /** Raw product id, when the listing publishes the handle as `id`. */
+  public_model_id?: string
+  /** Superseded identifiers this product still answers to. */
+  legacy_ids?: string[]
+}
+
+function parseGenStudioProductAliases(value: unknown): GenStudioProductAliases {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const row = value as Record<string, unknown>
+  const text = (candidate: unknown): string | undefined =>
+    typeof candidate === 'string' && candidate.trim() ? candidate.trim() : undefined
+  const legacy = Array.isArray(row.legacy_ids)
+    ? row.legacy_ids
+      .filter((entry: unknown): entry is string => typeof entry === 'string' && !!entry.trim())
+      .map((entry: string) => entry.trim())
+    : []
+  const handle = text(row.customer_handle)
+  const rawId = text(row.public_model_id)
+  return {
+    ...(handle ? { customer_handle: handle } : {}),
+    ...(rawId ? { public_model_id: rawId } : {}),
+    ...(legacy.length ? { legacy_ids: legacy } : {}),
+  }
+}
+
 export interface GenStudioTranscriptionModel extends GenStudioCatalogLock {
   id: string
   display_name: string
@@ -824,7 +866,7 @@ export interface GenStudioImageOutputOption {
  * Nothing that GenStudio does not publish appears on this interface, so a
  * capability cannot be invented on the way through the transport.
  */
-export interface GenStudioImageModel extends GenStudioCatalogLock {
+export interface GenStudioImageModel extends GenStudioCatalogLock, GenStudioProductAliases {
   id: string
   display_name: string
   /** Published model creator/provider label. Absent until GenStudio supplies it. */
@@ -1153,7 +1195,7 @@ export interface GenStudioModelCapability {
   controls: Record<string, unknown>
 }
 
-export interface GenStudioChatModel extends GenStudioCatalogLock {
+export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProductAliases {
   id: string
   display_name: string
   /** Published model creator/provider label. Absent until GenStudio supplies it. */
@@ -1272,7 +1314,7 @@ export interface GenStudioVideoVariant {
   price_version: string
 }
 
-export interface GenStudioVideoModel extends GenStudioCatalogLock {
+export interface GenStudioVideoModel extends GenStudioCatalogLock, GenStudioProductAliases {
   id: string
   display_name: string
   description?: string
@@ -3781,6 +3823,7 @@ export async function listChatModelsSnapshot(
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid chat model catalog')
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
+    ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     provider_name: publishedText(value?.provider_name),
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
@@ -3883,6 +3926,7 @@ export async function listVideoModelsSnapshot(
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid video model catalog')
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
+    ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,
     available: value?.available === true,
@@ -5769,6 +5813,7 @@ export async function listImageModelsSnapshot(
     if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid image model catalog')
     return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
+    ...parseGenStudioProductAliases(value),
     display_name: typeof value?.display_name === 'string' ? value.display_name.trim() : '',
     provider_name: publishedText(value?.provider_name),
     description: typeof value?.description === 'string' ? value.description.trim() : undefined,

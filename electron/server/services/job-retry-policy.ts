@@ -155,15 +155,25 @@ export function resolveJobAutoRetryPolicy(
 
   if (IMAGE_MODEL_TYPES.has(job.type)) {
     const model = value(params, 'model')
-    if (model.startsWith('genstudio-image')) {
+    if (isLocalImageModel(model)) {
+      return localPolicy('Image Studio generation runs on the local fleet and preserves completed images.')
+    }
+    // Classified STRUCTURALLY, by elimination, not by what the product is
+    // called. Story Studio has exactly two image paths: the local Image Studio
+    // fleet (`imagestudio:`) and GenStudio. Anything that is not local is a
+    // charged GenStudio submission.
+    //
+    // This used to read `model.startsWith('genstudio-image')`, which silently
+    // stopped being true once GenStudio products began publishing customer
+    // handles — `gpt-image-2` shares no prefix with anything — and a paid
+    // GenStudio job would have fallen through to the generic reason below.
+    if (model) {
       return {
         ...MANUAL_ONLY,
         reason: 'Story Studio already retries free catalog/network reads and reconnects accepted GenStudio tasks. Whole-job replay stays manual so terminal paid work is never submitted twice.',
       }
     }
-    return isLocalImageModel(model)
-      ? localPolicy('Image Studio generation runs on the local fleet and preserves completed images.')
-      : MANUAL_ONLY
+    return MANUAL_ONLY
   }
 
   return MANUAL_ONLY

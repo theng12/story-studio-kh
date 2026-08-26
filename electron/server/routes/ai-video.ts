@@ -25,6 +25,7 @@ import { listVideoModels as listGenStudioVideoModels } from '../lib/genstudio-cl
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import { videoPromptsOutputContract } from '../lib/story-output-contracts.js'
 import { truncateChars } from '../lib/well-formed-text.js'
+import { findGenStudioProduct } from '../contracts/genstudio-product-identity.js'
 
 export const router = Router()
 
@@ -253,7 +254,9 @@ router.post('/projects/:slug/generate/video', async (req, res) => {
   if (!apiKey) return res.status(400).json({ detail: 'Add a GenStudio API key in Settings → This Mac.' })
   try {
     const catalog = await listGenStudioVideoModels(apiKey)
-    const entry = catalog.find(item => item.id === modelId)
+    // Alias-aware: a saved raw id still resolves after GenStudio republishes
+    // the product under its customer handle.
+    const entry = findGenStudioProduct(catalog, modelId)
     if (!entry?.available || entry.locked === true || !entry.modes.includes('image-to-video')) {
       return res.status(409).json({
         detail: `Saved video model "${selectedModelId}" is not currently available in the GenStudio catalog. Select an available image-to-video model.`,
