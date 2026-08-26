@@ -7,7 +7,7 @@ contact GenStudio, purchase content, activate a pack, or modify customer content
 ## Authoring registry
 
 `content-packs/authoring-registry.json` is the coordinator-owned, Git-tracked authority for Story
-Content Pack identities. It reconciles the 55 authored source packs and can reserve a complete
+Content Pack identities. It reconciles every authored source pack and can reserve a complete
 future batch before any leaf author creates source files. It records only Story pack, item or
 bundle, version, publisher, source, dependency, and family/SKU proposal facts—never GenStudio
 product/release/account identities, prices, shelves, signing, archives, or publication state.
