@@ -513,13 +513,29 @@ function cellMark(ep: any, col: BoardCol): string {
   if (cellBusy(ep, col)) return '…'
   return ep.status?.[col.field] === true ? '✓' : '○'
 }
+// The Research column's ✓ means "evidence exists" — the same field the
+// Pipeline's pill and the backend's skip logic read. It does NOT mean the
+// claims were triaged, which is a separate editorial fact (`research_reviewed`,
+// and `research_reviewed_by` for who did it). Folding triage into the tick
+// would make the column disagree with the Pipeline again; leaving it unsaid is
+// how a "20/150 researched" header hid seven un-triaged episodes. So it is
+// said here, beside the tick, rather than encoded in it.
+function researchNote(status: any): string {
+  if (!status?.research) return ''
+  if (!status.research_reviewed) return ' — claims still to review'
+  const who = status.research_reviewed_by === 'pipeline-auto'
+    ? 'claims auto-accepted by the Pipeline, not read by a person'
+    : 'claims reviewed'
+  return status.research_has_usable_claims ? ` — ${who}` : ` — ${who}, none kept`
+}
 function cellTitle(ep: any, col: BoardCol): string {
   const done = ep.status?.[col.field] === true
   const manual = isManual(ep, col.field)
   const state = done
     ? (manual ? 'done (marked by hand)' : 'done')
     : 'pending'
-  return `${ep.episode_code} · ${col.label}${col.optional ? ' (optional)' : ''}: ${state} — click to open`
+  const note = col.field === 'research' ? researchNote(ep.status) : ''
+  return `${ep.episode_code} · ${col.label}${col.optional ? ' (optional)' : ''}: ${state}${note} — click to open`
 }
 function doneCount(col: BoardCol): number {
   return columnDoneCounts.value[col.field] || 0

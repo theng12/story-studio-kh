@@ -54,3 +54,89 @@ test('"Exclude intro and title from effects" no longer promises to gate subtitle
   const condition = block.slice(0, block.indexOf('>'))
   assert.ok(!/subtitles\.enabled/.test(condition), 'subtitles must not reveal a control that ignores them')
 })
+
+// ── the Pipeline's step truth tables must not silently lose a step ──
+//
+// Both switches below carry a trailing `return false`, which defeats
+// TypeScript's exhaustiveness check: dropping a `case` compiles clean and
+// renders a permanently-grey pill. The backend's `isStepAlreadyDone` has no
+// such fallback, so it is the authority on which steps exist.
+
+const backend = readFileSync(
+  fileURLToPath(new URL('../../electron/server/routes/pipeline.ts', import.meta.url)), 'utf8')
+
+/** Slice a named function's body out of a source file. */
+function fnBody(src: string, name: string): string {
+  const start = src.indexOf(`function ${name}`)
+  assert.ok(start > -1, `${name} must exist`)
+  const end = src.indexOf('\n}', start)
+  assert.ok(end > start, `${name} must terminate`)
+  return src.slice(start, end)
+}
+
+/** The step ids a switch actually handles. */
+function casesIn(body: string): string[] {
+  return [...body.matchAll(/case '([a-z_-]+)':/g)].map(m => m[1]).sort()
+}
+
+const backendSteps = casesIn(fnBody(backend, 'isStepAlreadyDone'))
+
+test('every backend batch step has a done-pill rule on the Pipeline', () => {
+  const ui = casesIn(fnBody(pipeline, 'isStepDoneForEpisode'))
+  const missing = backendSteps.filter(s => !ui.includes(s))
+  assert.deepEqual(missing, [],
+    `these steps fall through to \`return false\`, so their pill reads "missing" on every episode forever: ${missing.join(', ')}`)
+})
+
+test('every backend batch step has a manual-override rule on the Pipeline', () => {
+  const ui = casesIn(fnBody(pipeline, 'isStepManualForEpisode'))
+  const missing = backendSteps.filter(s => !ui.includes(s))
+  assert.deepEqual(missing, [],
+    `these steps can never show the (manual override) hint: ${missing.join(', ')}`)
+})
+
+test('the Research pill reads the same field the backend skips on', () => {
+  // Backend: `case 'research': return status.research` — evidence exists.
+  // The Board's Research column reads `status.research` too (board.vue
+  // STEP_FIELD), so reading anything else here re-opens the disagreement
+  // where the Board counts 20 done and the Pipeline shows 20 blank.
+  const line = fnBody(pipeline, 'isStepDoneForEpisode')
+    .split('\n').find(l => l.includes("case 'research':"))
+  assert.ok(line, 'the Research row must exist in the truth table')
+  assert.match(line!, /s\.research\b/, 'Research is done once evidence exists')
+  assert.ok(!/research_reviewed/.test(line!),
+    'claim triage is separate editorial state — it must not gate the done pill')
+})
+
+test('the Research pill says when claims are still un-triaged', () => {
+  // `research` (evidence exists) and `research_reviewed` (no claim left
+  // pending) are different facts. One tick cannot carry both, so the
+  // tooltip carries the second one rather than the pill silently dropping it.
+  const note = fnBody(pipeline, 'researchNote')
+  assert.match(note, /research_reviewed\b/, 'the tooltip must distinguish triaged from un-triaged research')
+  assert.match(note, /claims still to review/i, 'and say so in words the owner can read')
+  assert.match(note, /research_reviewed_by/, 'and never imply a person read claims the Pipeline auto-accepted')
+  assert.match(note, /not read by a person/i, 'naming the auto-accept outright')
+  // ...and it has to actually reach the tooltip.
+  assert.match(fnBody(pipeline, 'pillTitle'), /researchNote\(/, 'pillTitle must use it')
+})
+
+test('the Production Board and the Pipeline agree on what a Research tick means', () => {
+  // The bug the owner reported: Board "20/150 researched", Pipeline all blank.
+  // Both must key the tick off `status.research` (evidence exists) — the field
+  // the backend also skips on — so the two views can never report different
+  // totals for the same episodes again.
+  const board = page('board.vue')
+  assert.match(board, /^\s*research: 'research',$/m,
+    'the Board column must map Research to status.research')
+  assert.match(fnBody(pipeline, 'isStepDoneForEpisode').split('\n').find(l => l.includes("case 'research':"))!,
+    /s\.research\b/, 'and the Pipeline pill must read the same field')
+
+  // Agreeing on the tick is only half of it. Triage is a real, separate fact,
+  // so BOTH views have to say it rather than let one tick imply it.
+  for (const [name, src] of [['board.vue', board], ['pipeline.vue', pipeline]] as const) {
+    const note = fnBody(src, 'researchNote')
+    assert.match(note, /claims still to review/i, `${name} must surface un-triaged claims`)
+    assert.match(note, /not read by a person/i, `${name} must not pass an auto-accept off as human review`)
+  }
+})
