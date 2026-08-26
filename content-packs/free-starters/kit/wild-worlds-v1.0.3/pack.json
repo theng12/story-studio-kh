@@ -1,0 +1,65 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.kit.wild-worlds",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.3",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Repins the Topic Pack to 1.0.1 so the kit offers 1,000 unique episode ideas instead of a starter sample.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.kit.wild-worlds",
+    "family": "com.storystudio.family.kit.wild-worlds"
+  },
+  "dependencies": [
+    {
+      "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+      "version": "1.0.1"
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.natural-world-animals",
+      "version": "1.0.1"
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.waxy-outline-cartoon",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.curiosity-question-cartoon",
+      "version": "1.0.0"
+    }
+  ],
+  "bundles": [
+    {
+      "id": "com.storystudio.bundle.wild-worlds",
+      "kind": "channel-kit",
+      "name": "Wild Worlds",
+      "components": [
+        {
+          "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+          "version": "1.0.1",
+          "item_id": "com.storystudio.formula.natural-world-explained",
+          "kind": "series-formula"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.natural-world-animals",
+          "version": "1.0.1",
+          "item_id": "com.storystudio.topic.natural-world-animals",
+          "kind": "topic-pack"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.waxy-outline-cartoon",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.style.waxy-outline-cartoon",
+          "kind": "visual-style"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.curiosity-question-cartoon",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.thumbnail.curiosity-question-cartoon",
+          "kind": "thumbnail-recipe"
+        }
+      ]
+    }
+  ]
+}
