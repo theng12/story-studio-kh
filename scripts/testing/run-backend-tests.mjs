@@ -44,6 +44,73 @@ async function snapshotTree(root) {
   return entries.join('\n')
 }
 
+/**
+ * `--only <substring>` — running PART of the suite, on purpose and out loud.
+ *
+ * WHY THIS EXISTS. The backend suite was one indivisible block: checking a
+ * single file meant running all of it. On 2026-08-26 two full suites competed
+ * for one machine — one was killed at sixty minutes having printed nothing, the
+ * other reported eleven failures that were not real. Hours went to that, and
+ * none of it was about the code under test.
+ *
+ * THE DEFAULT DOES NOT MOVE. No `--only` means every file, exactly as before.
+ * This is the release gate, and a gate that can be narrowed by accident is
+ * worse than a slow one. The filter is opt-in and applies to the full list.
+ *
+ * A FILTERED RUN MUST BE IMPOSSIBLE TO MISTAKE FOR A FULL ONE. Three times in
+ * one day a run reported success without covering what its reader assumed it
+ * had. A quiet filter is that same trap wearing a new face, so a partial run
+ * shouts its patterns, names what it selected, counts what it skipped, and says
+ * in as many words that it is not the release gate — before AND after the run,
+ * because the "after" is the line anyone scrolling to the summary will read.
+ *
+ * Repeatable: `--only a --only b` runs files matching EITHER. Matching is a
+ * plain case-insensitive substring test against the file's basename, so
+ * `--only image-episode` finds `image-episode-concurrency.test.ts` without
+ * anyone having to think about globs or regex escaping.
+ */
+function parseOnly(argv) {
+  const needles = []
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i]
+    if (arg === '--only') {
+      const value = argv[i + 1]
+      // A bare trailing `--only` is a typo, not a request to run everything.
+      // Silently widening to the full suite is precisely the accident the
+      // default is meant to be protected from, so refuse it.
+      if (!value || value.startsWith('--')) {
+        throw new Error('--only needs a value, e.g. --only image-episode')
+      }
+      needles.push(value)
+      i += 1
+    } else if (arg.startsWith('--only=')) {
+      const value = arg.slice('--only='.length)
+      if (!value) throw new Error('--only needs a value, e.g. --only=image-episode')
+      needles.push(value)
+    }
+  }
+  return needles
+}
+
+export function selectOnly(files, needles) {
+  if (needles.length === 0) return files
+  const lowered = needles.map(n => n.toLowerCase())
+  return files.filter(file => {
+    const name = path.basename(file).toLowerCase()
+    return lowered.some(needle => name.includes(needle))
+  })
+}
+
+function announcePartialRun(needles, selected, skipped, when) {
+  const patterns = needles.map(n => `"${n}"`).join(', ')
+  const names = selected.map(f => path.basename(f))
+  console.log('[test-harness] ==================== PARTIAL RUN ====================')
+  console.log(`[test-harness] --only ${patterns} — ${selected.length} file(s) SELECTED, ${skipped} file(s) SKIPPED`)
+  for (const name of names) console.log(`[test-harness]   • ${name}`)
+  console.log('[test-harness] THIS IS NOT THE RELEASE GATE. The full backend suite was NOT run.')
+  console.log(`[test-harness] ============== END PARTIAL RUN (${when}) ==============`)
+}
+
 async function backendTestFiles() {
   const testsRoot = path.join(ELECTRON_ROOT, 'server', '__tests__')
   return (await fs.readdir(testsRoot))
@@ -95,7 +162,20 @@ async function run() {
 
     const require = createRequire(import.meta.url)
     const tsxCli = require.resolve('tsx/cli')
-    const tests = process.argv.includes('--probe') ? [PROBE_PATH] : await backendTestFiles()
+    const onlyNeedles = parseOnly(process.argv)
+    const allTests = process.argv.includes('--probe') ? [PROBE_PATH] : await backendTestFiles()
+    const tests = selectOnly(allTests, onlyNeedles)
+    // Zero matched files is NOT a pass. It is the most convincing green light
+    // in the world and it means nothing ran, so it fails here, before the
+    // runner is even spawned and before anything can print a clean summary.
+    if (tests.length === 0) {
+      console.error(`[test-harness] --only ${onlyNeedles.map(n => `"${n}"`).join(', ')} `
+        + `matched no backend test files out of ${allTests.length}. Nothing ran, so this is a failure.`)
+      process.exitCode = 1
+      return
+    }
+    const skippedCount = allTests.length - tests.length
+    if (onlyNeedles.length > 0) announcePartialRun(onlyNeedles, tests, skippedCount, 'about to run')
     const childEnv = {
       ...process.env,
       HOME: fakeHome,
@@ -145,6 +225,11 @@ async function run() {
       exitCode = 1
     }
 
+    // Printed AGAIN after the results, because the line a reader scrolls to is
+    // the summary — and a partial pass sitting under a full-looking summary is
+    // exactly how a narrowed run gets mistaken for a green release gate.
+    if (onlyNeedles.length > 0) announcePartialRun(onlyNeedles, tests, skippedCount, 'finished')
+
     const after = await snapshotTree(configuredProjectsRoot)
     const unchanged = before === after
     console.log(`[test-harness] configured projects root byte-identical: ${unchanged}`)
@@ -178,7 +263,7 @@ async function run() {
  *
  * Returns a message when the run must be failed, or `null` when it is sound.
  */
-function assertSummaryAgrees(transcript, exitCode) {
+export function assertSummaryAgrees(transcript, exitCode) {
   // The TAP reporter writes `# fail 2`; the spec reporter writes `ℹ fail 2`.
   // Match either, and take the LAST occurrence — nested suites print their own.
   const readCount = (label) => {
@@ -191,6 +276,13 @@ function assertSummaryAgrees(transcript, exitCode) {
   if (tests === null || failed === null) {
     return 'the test run produced no summary, so it did not finish. Treating it as a failure '
       + `(reported exit code ${exitCode}).`
+  }
+  // A summary of all zeros is a run that started nothing. The previous agent
+  // had to apply this rule by hand; it lives in the harness now so nobody has
+  // to remember it. Zero tests is a failure, never a pass.
+  if (tests === 0) {
+    return 'the run reported a summary but no tests ran, so nothing was verified. '
+      + `Zero tests is a failure, not a pass (reported exit code ${exitCode}).`
   }
   if (failed > 0) {
     return `${failed} of ${tests} backend test(s) failed (reported exit code ${exitCode}).`
@@ -209,4 +301,8 @@ function assertSummaryAgrees(transcript, exitCode) {
   return null
 }
 
-await run()
+// Importing this module (a test reaching for `assertSummaryAgrees` or
+// `selectOnly`) must NOT launch the backend suite as a side effect.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await run()
+}
