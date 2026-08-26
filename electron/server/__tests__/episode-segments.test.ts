@@ -61,7 +61,7 @@ async function seedProject(slug: string, meta: Record<string, unknown> = {}): Pr
   await fs.mkdir(path.join(dir, 'episodes'), { recursive: true })
   await fs.writeFile(
     path.join(dir, 'project.json'),
-    JSON.stringify({ slug, name: slug, episode_prefix: 'EP', output_root: './episodes', ...meta }),
+    JSON.stringify({ slug, name: slug, episode_prefix: 'EP', ...meta }),
   )
   // A real project always has one — `createProject` writes it — and
   // `updateConfig` refuses to write settings for a project that has not got
