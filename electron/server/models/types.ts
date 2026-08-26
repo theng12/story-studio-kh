@@ -2194,7 +2194,7 @@ export const JOB_TYPES = [
   'research_run', 'scene_plan_run',
   'scene_image_generate', 'scene_clip_generate',
   'scene_clips_batch', 'continuity_render',
-  'prompt_director', 'composition_generate', 'expression_markup', 'contextual_cues',
+  'composition_generate', 'expression_markup', 'contextual_cues',
   'image_pool_generate',
   /** v1.4.37 — top up a channel's music library from one style brief. */
   'music_generate',
@@ -3845,39 +3845,6 @@ export interface ResearchRunOptions {
 // Sheet page and persisted to `<episode_dir>/continuity.json`. Consumed by the
 // density-paced scene planner (CC3) and the sequential renderer (CC4).
 
-/** v1.0.260 — "Visual Recipe": a composition spec the Prompt Director uses to
- *  rewrite every scene's planner prompt into an explainer layout — the actual
- *  subject framed as the centerpiece, with the guide character at the side
- *  pointing at it, expression matched to the beat. Lives in continuity.json
- *  (per-episode) and is savable as a preset for reuse across episodes. The
- *  layout itself is anchored at render time by the composition template image
- *  (img2img-references/composition.png) when references.composition is on. */
-export interface VisualRecipe {
-  /** Master switch — when off, the Director is a no-op and scenes render from
-   *  the planner's prompt as before. */
-  enabled: boolean
-  /** v1.0.263 — composition style:
-   *   'guide' — explainer: the subject is framed and a recurring GUIDE character
-   *             stands at the side pointing at it, expression per beat.
-   *   'scene' — scene-accurate: NO recurring character. Each scene depicts its
-   *             real subject; generic anonymous figures appear only when the
-   *             narration involves a person, otherwise none. (guide_character_id
-   *             + emotion fields are ignored in this mode.) */
-  mode: 'guide' | 'scene'
-  /** Natural-language composition directive (the framing, where the guide
-   *  stands, the look). Woven into every rewritten prompt. */
-  directive: string
-  /** Which anchor character plays the side "guide / explainer". Empty = first
-   *  anchor character. Ignored when mode is 'scene'. */
-  guide_character_id: string
-  /** 'auto' — the Director derives each scene's emotion from the narration
-   *  beat; 'fixed' — every scene uses `fixed_emotion`. Per-scene overrides
-   *  (ScenePlanEntry.emotion_locked) win over both. */
-  emotion_mode: 'auto' | 'fixed'
-  /** The single emotion used when emotion_mode is 'fixed'. */
-  fixed_emotion: string
-}
-
 export interface ContinuityConfig {
   schema_version: 1
   /** Project character IDs that anchor every scene's look in this episode.
@@ -3912,9 +3879,8 @@ export interface ContinuityConfig {
      *  attached to every scene alongside the subject references. */
     style?: boolean
     /** v1.0.260 — the composition template image (img2img-references/
-     *  composition.png): the explainer LAYOUT (subject framed centrepiece +
-     *  guide character at the side) every scene is structured against. Attached
-     *  as an img2img reference on every scene when on. */
+     *  composition.png): the LAYOUT every scene is structured against.
+     *  Attached as an img2img reference on every scene when on. */
     composition?: boolean
   }
   /** img2img denoise / strength (0..1). Lower = closer to the references
@@ -3930,10 +3896,6 @@ export interface ContinuityConfig {
    *  supports it (local ImageStudio today; cloud providers currently ignore
    *  it). Things to avoid: extra fingers, text/watermarks, etc. */
   negative_prompt?: string
-  /** v1.0.260 — explainer composition recipe (guide-at-side + framed subject).
-   *  Drives the Prompt Director; absent/disabled = scenes render from the bare
-   *  planner prompt as before. */
-  recipe?: VisualRecipe
   /** ISO8601 of the last save. */
   updated_at: string
 }
@@ -4024,12 +3986,6 @@ export interface ScenePlanEntry {
    *  the Scene Plan UI ("Topic shift to <X>", "Named entity intro:
    *  <Y>"). Optional. */
   boundary_reason?: string
-  /** v1.0.260 — the planner's ORIGINAL subject-only prompt, preserved when the
-   *  Prompt Director recomposes `visual_prompt` into the explainer layout
-   *  (subject-in-frame + guide-at-side). Lets the recipe be re-applied or
-   *  reverted idempotently. Absent on plans made before the recipe ran — treat
-   *  `visual_prompt` as the raw source in that case. */
-  visual_prompt_raw?: string
   /** v1.0.468 — image-to-video motion instruction for animating this scene's
    *  generated image into a short clip. Generated cohesively with
    *  `visual_prompt` (the planner sees the image prompt as context) and biased
@@ -4056,13 +4012,6 @@ export interface ScenePlanEntry {
    *  approve the clip or intentionally keep the still. Missing means a legacy
    *  pre-review clip and remains accepted for backward compatibility. */
   motion_choice?: 'pending' | 'clip' | 'still'
-  /** v1.0.260 — the guide character's expression for this scene (e.g. curiosity,
-   *  wonder, care, concern), auto-derived by the Prompt Director from the beat
-   *  and user-overridable in the Scene Plan / Scene Review UI. */
-  emotion?: string
-  /** v1.0.260 — true when the user hand-set `emotion`; the Director keeps that
-   *  value on the next apply instead of re-deriving it. */
-  emotion_locked?: boolean
   /** v1.0.336 — what this scene depicts (see SceneType). The continuity
    *  renderer uses it to decide whether the anchored guide character appears.
    *  Set by the planner; user-overridable in Scene Review. Absent on plans made

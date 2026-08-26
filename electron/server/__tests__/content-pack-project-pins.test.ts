@@ -411,7 +411,6 @@ describe('exact project Content Pack pins', () => {
     assert.deepEqual(await snapshotProjectContentPackProvenance(project.slug, 'audio', options), [])
     assert.deepEqual(await snapshotProjectContentPackProvenance(project.slug, 'research_run', options), [])
     assert.deepEqual(await snapshotProjectContentPackProvenance(project.slug, 'contextual_cues', options), [])
-    assert.deepEqual(await snapshotProjectContentPackProvenance(project.slug, 'prompt_director', options), [])
     await assert.rejects(snapshotProjectContentPackProvenance(project.slug, 'script-only', options), (error: unknown) => {
       assert.ok(error instanceof ContentPackMissingError)
       assert.equal(error.requirements[0]?.version, '9.9.9')
@@ -431,7 +430,7 @@ describe('exact project Content Pack pins', () => {
     }
     await fs.writeFile(projectPath, `${JSON.stringify(imported, null, 2)}\n`)
 
-    for (const jobType of ['thumb_images', 'thumb_images', 'continuity_render', 'prompt_director', 'composition_generate'] as const) {
+    for (const jobType of ['thumb_images', 'thumb_images', 'continuity_render', 'composition_generate'] as const) {
       assert.deepEqual(await snapshotProjectContentPackProvenance(project.slug, jobType, options), [])
     }
     await assert.rejects(

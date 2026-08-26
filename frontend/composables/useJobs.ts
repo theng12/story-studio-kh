@@ -61,7 +61,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   scene_image_generate: 'Scene image',
   scene_clips_batch: 'Motion clips',
   continuity_render: 'Continuity render',
-  prompt_director: 'Prompt director',
   composition_generate: 'Composition',
 }
 

@@ -176,8 +176,8 @@ export function storedPresetPacing(
  * Character Sheet says which of the two happened, because a rhythm that does
  * not move looks identical to a feature that does not work.
  *
- * Normalizing explicitly also keeps retired Visual Recipe/composition fields
- * in older presets from silently returning to newly saved continuity configs.
+ * Normalizing explicitly also keeps retired composition fields in older
+ * presets from silently returning to newly saved continuity configs.
  */
 export function applyContinuityPagePreset(
   current: ContinuityConfig,

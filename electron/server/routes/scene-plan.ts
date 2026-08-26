@@ -397,9 +397,6 @@ router.post('/projects/:slug/scene-plan/:episodeId/set-prompt', async (req, res)
       const target = fresh.scenes.find(item => item.id === sceneId)
       if (!target) throw new Error(`Scene ${sceneId} not found in scene_plan.json`)
       target.visual_prompt = visualPrompt
-      // If the Visual Recipe composed this prompt, keep the raw in sync so a later
-      // re-compose starts from the user's edit, not the stale planner original.
-      if (target.visual_prompt_raw) target.visual_prompt_raw = visualPrompt
       target.approved = false  // image is now stale vs the edited prompt
       await writeJsonAtomic(sidecarPath, fresh)
     })

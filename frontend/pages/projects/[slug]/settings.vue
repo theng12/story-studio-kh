@@ -263,7 +263,7 @@
           </label>
           <label class="cm-opt" :class="{ active: continuityMode === 'explainer-stills' }">
             <input v-model="continuityMode" type="radio" value="explainer-stills" />
-            <div><strong>Explainer boards</strong><div class="text-muted text-xs">Independent subject-led scenes, ready for an optional visual recipe or composition reference.</div></div>
+            <div><strong>Explainer boards</strong><div class="text-muted text-xs">Independent subject-led scenes, ready for an optional composition reference.</div></div>
           </label>
         </div>
       </div>

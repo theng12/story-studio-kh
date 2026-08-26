@@ -16,16 +16,12 @@
 
 import { Router } from 'express'
 import fs from 'fs/promises'
-import { existsSync } from 'fs'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
-import * as jq from '../services/job-queue.js'
-import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
-import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
+import { resolveEpisodePathsByCode } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
-import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import { DEFAULT_SCENE_PACING } from '../contracts/pacing.js'
-import type { ContinuityConfig, VisualRecipe, JobType, ScenePlan, ProjectMeta } from '../models/types.js'
+import type { ContinuityConfig, ProjectMeta } from '../models/types.js'
 import { truncateChars } from '../lib/well-formed-text.js'
 
 export const router = Router()
@@ -58,33 +54,7 @@ export function defaultContinuityConfig(mode: ContinuityMode = 'independent-stil
     denoise_strength: 0.5,
     style_bible: '',
     negative_prompt: '',
-    recipe: defaultVisualRecipe(),
     updated_at: '',
-  }
-}
-
-/** v1.0.260 — a fresh, disabled explainer recipe. */
-export function defaultVisualRecipe(): VisualRecipe {
-  return {
-    enabled: false,
-    mode: 'guide',
-    directive: '',
-    guide_character_id: '',
-    emotion_mode: 'auto',
-    fixed_emotion: '',
-  }
-}
-
-/** Coerce an untrusted recipe payload into a safe VisualRecipe (trim + cap). */
-function sanitizeRecipe(raw: any): VisualRecipe {
-  const r = (raw && typeof raw === 'object') ? raw : {}
-  return {
-    enabled: r.enabled === true,
-    mode: r.mode === 'scene' ? 'scene' : 'guide',
-    directive: typeof r.directive === 'string' ? truncateChars(r.directive.trim(), 2000) : '',
-    guide_character_id: typeof r.guide_character_id === 'string' ? r.guide_character_id.trim().slice(0, 200) : '',
-    emotion_mode: r.emotion_mode === 'fixed' ? 'fixed' : 'auto',
-    fixed_emotion: typeof r.fixed_emotion === 'string' ? truncateChars(r.fixed_emotion.trim(), 120) : '',
   }
 }
 
@@ -167,8 +137,6 @@ export function buildContinuityConfig(
     // a malformed client can't write an unbounded blob into the prompt.
     style_bible: typeof b.style_bible === 'string' ? truncateChars(b.style_bible.trim(), 2000) : '',
     negative_prompt: typeof b.negative_prompt === 'string' ? truncateChars(b.negative_prompt.trim(), 1000) : '',
-    // v1.0.260 — explainer composition recipe (drives the Prompt Director).
-    recipe: sanitizeRecipe(b.recipe),
     updated_at: new Date().toISOString(),
   }
 }
@@ -206,64 +174,5 @@ router.put('/projects/:slug/continuity/:episodeId', async (req, res) => {
     res.json({ ok: true, config })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save continuity config'))
-  }
-})
-
-// ── POST apply-recipe (v1.0.260) ──────────────────────────────────────
-// Enqueue the Prompt Director: rewrite every scene's prompt into the explainer
-// composition (guide-at-side + framed subject) per the saved Visual Recipe.
-router.post('/projects/:slug/continuity/:episodeId/apply-recipe', async (req, res) => {
-  const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-  const model = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
-  if (!model) return res.status(400).json({ detail: 'model is required' })
-
-  if (jq.isDuplicate(slug, episodeId, 'prompt_director' as JobType)) {
-    return res.status(409).json({ detail: `Visual Recipe is already being applied for ${episodeId}` })
-  }
-  const job = await jq.enqueue({
-    project_slug: slug,
-    type: 'prompt_director' as JobType,
-    episode_id: episodeId,
-    title: `Apply Visual Recipe — ${episodeId}`,
-    params: { episode_id: episodeId, model },
-  })
-  res.status(201).json(job)
-})
-
-// ── POST revert-recipe (v1.0.260) ─────────────────────────────────────
-// Restore each scene's planner prompt: visual_prompt ← visual_prompt_raw, and
-// clear the recipe's emotion + raw fields. Synchronous (no LLM). Idempotent.
-router.post('/projects/:slug/continuity/:episodeId/revert-recipe', async (req, res) => {
-  const { slug, episodeId } = req.params
-  if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-  try {
-    const paths = await resolveEpisodePathsByCode(slug, episodeId)
-    const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
-    if (!existsSync(planPath)) return res.status(404).json({ detail: 'No scene plan for this episode' })
-    // Read-modify-write of the same file Prompt Director and Scene Plan write.
-    // Locked and re-read inside, so a revert cannot republish a stale copy over
-    // a concurrent job's work — and vice versa.
-    const reverted = await withLock(planPath, async () => {
-      const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-      let count = 0
-      for (const s of plan.scenes) {
-        // Only undo scenes the recipe actually composed (those have a saved raw
-        // prompt). Leave never-composed scenes — and any emotion the user set on
-        // them — untouched, so revert can't wipe unrelated edits.
-        if (typeof s.visual_prompt_raw === 'string' && s.visual_prompt_raw.length) {
-          s.visual_prompt = s.visual_prompt_raw
-          delete s.visual_prompt_raw
-          delete s.emotion
-          delete s.emotion_locked
-          count++
-        }
-      }
-      await writeJsonAtomic(planPath, plan)
-      return count
-    })
-    res.json({ ok: true, reverted })
-  } catch (e: any) {
-    res.status(500).json(humanizeBackendError(e, 'Failed to revert recipe'))
   }
 })

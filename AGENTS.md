@@ -328,7 +328,7 @@ The announcement is `WorkspaceNotice`, built on 1.2.5's scene-rhythm pattern, an
 
 The test to apply when deciding whether a key belongs in a preset:
 
-- **Reusable look or configuration → include.** Style bible, negative prompt, recipe,
+- **Reusable look or configuration → include.** Style bible, negative prompt,
   transition type, duration, enabled state.
 - **Episode-specific state → exclude.** Anything naming or depending on one episode's files,
   images, or anchors.

@@ -69,7 +69,7 @@ function characterJsonPath(slug: string, characterId: string): string {
  * Unified-library fallback: when the project has no on-disk character with
  * this id, we look for a library character assigned to this project (its
  * `projects[]` includes `slug`). This keeps every consumer that calls
- * getCharacter (prompt-director, continuity-render, resolveCharacters →
+ * getCharacter (continuity-render, resolveCharacters →
  * episode/image-prompts) working for assigned-from-library characters with
  * no per-consumer change. See docs/character-unification-spec.md.
  */

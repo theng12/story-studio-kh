@@ -342,7 +342,6 @@ test('every long-form workflow declares a product-derived budget', () => {
     ['script chapter + intro', '../generators/episode.ts', /outputBudget: 'long'/],
     ['audio expression markup', '../services/audio-expression.ts', /outputBudget: 'maximum'/],
     ['scene planner windows', '../services/scene-planner.ts', /outputBudget: 'maximum'/],
-    ['prompt director', '../generators/prompt-director.ts', /outputBudget: 'maximum'/],
     ['format extraction', '../routes/projects.ts', /outputBudget: 'long'/],
     ['metadata description', '../generators/metadata.ts', /outputBudget: 'standard'/],
     ['idea campaign', '../generators/idea-campaign.ts', /outputBudget: \{ tier: 'long'/],
@@ -353,10 +352,10 @@ test('every long-form workflow declares a product-derived budget', () => {
   }
 })
 
-test('the two hardcoded 16,000-token guesses are gone', () => {
-  // They both ignored a larger product AND hard-failed the pre-network limit
+test('the hardcoded 16,000-token guess is gone', () => {
+  // It ignored a larger product AND hard-failed the pre-network limit
   // check against a product publishing less than 16,000.
-  for (const file of ['../generators/prompt-director.ts', '../services/scene-planner.ts']) {
+  for (const file of ['../services/scene-planner.ts']) {
     assert.doesNotMatch(source(file), /maxTokens: 16000/, `${file} still hardcodes 16,000`)
   }
 })

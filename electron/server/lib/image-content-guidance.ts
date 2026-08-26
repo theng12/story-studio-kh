@@ -32,7 +32,6 @@
  *   - services/scene-planner.ts      — buildScenePlannerPrompt (one-pass +
  *                                      windowed planner), generateVisualPromptOnly
  *   - generators/scene-plan.ts       — the packed visual-prompt writer
- *   - generators/prompt-director.ts  — the guide + scene Visual Recipe compositors
  *   - generators/image-prompts.ts    — thumbnail briefs
  *   - routes/image-prompts-edit.ts   — per-row regenerate / reword
  *
