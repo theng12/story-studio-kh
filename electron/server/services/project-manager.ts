@@ -22,7 +22,7 @@ import type {
   SafeProjectConfig, UpdateApiKeysRequest, UpdateConfigRequest, UpdateProjectRequest,
 } from '../models/types.js'
 import { resolveGenStudioModelId } from './genstudio-model-migration.js'
-import { buildManifest, writeManifest, writeManifestCache, getMachineLabel } from './manifest.js'
+import { buildManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
 import { getSoftDeletedSlugSet, forgetSoftDeletedProject } from './soft-delete.js'
 import { randomUUID } from 'crypto'
@@ -462,9 +462,9 @@ async function writeJson(filePath: string, data: any): Promise<void> {
 }
 
 /**
- * Mirror the project's structural metadata to a portable manifest at the
- * root of `output_root`. Called after every metadata change so the file
- * recognises this folder as a Story Studio project on another machine
+ * Mirror the project's structural metadata to a portable manifest cache.
+ * Called after every metadata change so another machine can recognise this
+ * folder as a Story Studio project
  * (and anchors a stable `project_id` for relocate detection). Best-effort:
  * a sync folder being offline must not break the save — we log and move on.
  *
@@ -475,8 +475,11 @@ async function writeJson(filePath: string, data: any): Promise<void> {
  * standards, no YouTube templates. Those are intentionally per-machine
  * (see `manifest.ts` and the PortableManifest doc comment).
  *
- * Skipped when `output_root` is relative (legacy userData-only project) —
- * the manifest is only useful for folders that actually leave userData.
+ * There used to be a second write, into the episodes folder itself, taken
+ * only when that folder sat OUTSIDE the project directory. Since episodes
+ * always live at `<projectDir>/episodes` no project can be external any
+ * more, so that branch could never fire and is gone; the cache beside
+ * `project.json` is the only manifest, and it travels with the folder.
  */
 async function syncManifest(slug: string): Promise<void> {
   try {
@@ -496,21 +499,9 @@ async function syncManifest(slug: string): Promise<void> {
       })
     }
 
-    const outputRootRaw = meta.output_root || './episodes'
-    const outputRoot = path.isAbsolute(outputRootRaw)
-      ? outputRootRaw
-      : path.join(projectDir, outputRootRaw)
-    const isExternal = path.isAbsolute(outputRootRaw)
+    const { path: outputRoot } = resolveOutputRoot(projectDir)
 
     const manifest = buildManifest(meta, outputRoot, getMachineLabel())
-
-    if (isExternal && existsSync(outputRoot)) {
-      try {
-        await writeManifest(outputRoot, manifest)
-      } catch (e: any) {
-        console.warn(`[projects] syncManifest: could not write manifest for ${slug}:`, e.message)
-      }
-    }
 
     try {
       await writeManifestCache(projectDir, manifest)
@@ -622,7 +613,9 @@ export async function listProjects(): Promise<ProjectSummary[]> {
           episode_prefix: '',
           created_at: '',
           has_api_keys: false,
-          output_root: cand.dir,
+          // Exact even here: project.json is unreadable, but the episodes
+          // folder no longer depends on anything inside it.
+          output_root: path.join(cand.dir, 'episodes'),
           status: 'downloading',
         }
       }
@@ -640,12 +633,12 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 
     const secrets = await readSecrets(slug)
 
-    // v1.4.1 corrected the note that used to sit here. It claimed relative
-    // paths "live inside the project dir and are always present", so only an
-    // absolute path could go missing. That is false: `../Origin Field/episodes`
-    // is relative and points OUTSIDE the project dir, and a relative path can
-    // name a folder that simply is not there. Both forms can break.
-    const { path: outputRootAbs, exists: outputRootExists } = resolveOutputRoot(cand.dir, meta.output_root)
+    // Still checked, deliberately. Removing the ability to CHOOSE the folder
+    // does not make the folder certain to be there — a half-synced iCloud
+    // project, or one whose `episodes/` was moved in Finder, is still missing
+    // it. The whole point of the Origin Field fix was that the app must say so
+    // rather than render an empty channel, so the existsSync stays.
+    const { path: outputRootAbs, exists: outputRootExists } = resolveOutputRoot(cand.dir)
 
     return {
       name: meta.name,
@@ -670,58 +663,34 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 }
 
 /**
- * Store an episodes folder as a RELATIVE path whenever that is possible.
+ * Where a project's episodes live, and whether that folder is there.
  *
- * ── Why (v1.4.2) ──
+ * Always `<projectDir>/episodes`. There is no stored setting behind this and
+ * no parameter to override it — that is the whole change.
  *
- * An absolute `output_root` hardcodes this Mac's username and volume. Move the
- * project to another Mac, or rename the home folder, and it points at nothing —
- * which is exactly how two of the owner's projects broke, and what made "can I
- * move my assets to a new Mac?" a hard question to answer.
+ * ── Why the flexible version went (the Origin Field defect) ──
  *
- * A relative root resolves against the project's OWN directory (see
- * `resolveOutputRoot`), so as long as the project and its episodes move
- * together the link survives the trip. That is why `./episodes` is the creation
- * default, and why the bulk storage migration already rewrites absolute roots
- * back to relative — this makes the import path agree with both instead of
- * being the one writer that always stored an absolute path.
- *
- * A folder genuinely OUTSIDE the projects root stays absolute: expressing an
- * external volume as a chain of `../` would be fragile and would not survive
- * the move either. Absolute is the honest answer there.
- */
-export function normalizeOutputRootForStorage(projectDir: string, target: string): string {
-  if (!target || !path.isAbsolute(target)) return target || './episodes'
-  const root = path.resolve(projectsRoot())
-  const abs = path.resolve(target)
-  // Only relativise within the projects root. `path.relative` will happily
-  // produce `../../../..` chains out to the filesystem root, which are portable
-  // in theory and meaningless in practice.
-  if (abs !== root && !abs.startsWith(root + path.sep)) return abs
-  const rel = path.relative(path.resolve(projectDir), abs)
-  if (!rel) return '.'
-  // Keep POSIX separators so the value reads the same on any machine.
-  const posix = rel.split(path.sep).join('/')
-  return posix.startsWith('.') ? posix : `./${posix}`
-}
-
-/**
- * Where a project's episodes actually live, and whether that folder is there.
+ * `project.json` used to carry an `output_root` that could be absolute or
+ * relative, and this function resolved it. One project stored
+ * `../Origin Field/episodes`, which resolved to a folder that did not exist,
+ * so the channel opened empty and nothing on screen explained why. Every one
+ * of the owner's real projects stored the default and nothing else, so the
+ * flexibility bought nobody anything and cost one broken channel. It is gone,
+ * along with the folder picker, the storage normaliser, and the external
+ * import path that only existed to serve it.
  *
  * One function, because the home page and the project page must not be able to
  * disagree about whether a project is reachable — the whole point of surfacing
- * this is that a person can trust it.
+ * this is that a person can trust it. `getProjectOutputRoot()` below is the
+ * async, slug-keyed twin for the ~40 callers that only have a slug; the two
+ * must always agree, and both now agree by construction rather than by
+ * reading the same field carefully.
  *
- * `output_root` may be absolute or relative; a relative one resolves against
- * the PROJECT DIR, which is why `./episodes` and `../Origin Field/episodes`
- * both work and both can be wrong.
+ * `exists` is computed and returned honestly. This never creates the folder:
+ * a missing episodes folder is a fact to report, not one to paper over.
  */
-export function resolveOutputRoot(
-  projectDir: string,
-  outputRoot: string | undefined | null,
-): { path: string; exists: boolean } {
-  const raw = outputRoot || ''
-  const abs = path.isAbsolute(raw) ? raw : path.join(projectDir, raw || 'episodes')
+export function resolveOutputRoot(projectDir: string): { path: string; exists: boolean } {
+  const abs = path.join(projectDir, 'episodes')
   return { path: abs, exists: existsSync(abs) }
 }
 
@@ -782,39 +751,12 @@ export async function createProject(
   // "this slug was hidden earlier" memory. Cheap idempotent call.
   await forgetSoftDeletedProject(slug).catch(() => { /* non-fatal */ })
 
-  // ── Resolve + validate output_root ─────────────────────────────────────
-  // If the user picked an absolute folder, scope it to {chosenFolder}/{ProjectName}
-  // so multiple projects don't collide. Verify we can write there before we
-  // create any project state — fail fast with a clear message otherwise.
-  let resolvedOutputRoot = req.output_root || './episodes'
-  if (path.isAbsolute(resolvedOutputRoot)) {
-    // Only append the project name if the user didn't already pick a folder
-    // ending with it (e.g., they picked `/Users/foo/Documents/MyProject`).
-    const tail = path.basename(resolvedOutputRoot)
-    if (tail !== req.name) {
-      resolvedOutputRoot = path.join(resolvedOutputRoot, req.name)
-    }
-    // Nest episodes under an `episodes/` subfolder so a custom-folder
-    // project has the SAME shape as a default-location one
-    // ({root}/episodes/Season…). Without this, Season folders land
-    // directly in the picked folder alongside project.json + cache — the
-    // inconsistency older custom-folder projects showed.
-    // Mirrors the './episodes' relative default. The basename guard avoids
-    // double-nesting if the user literally picked an `episodes` folder.
-    // Only affects NEW projects; existing output_root values are untouched.
-    if (path.basename(resolvedOutputRoot) !== 'episodes') {
-      resolvedOutputRoot = path.join(resolvedOutputRoot, 'episodes')
-    }
-    try {
-      await fs.mkdir(resolvedOutputRoot, { recursive: true })
-      // Write-access probe — surface permission issues up front.
-      const probe = path.join(resolvedOutputRoot, '.storystudio-probe')
-      await fs.writeFile(probe, '')
-      await fs.unlink(probe)
-    } catch (e: any) {
-      throw new Error(`Cannot write to chosen folder: ${e.message || e}`)
-    }
-  }
+  // (Removed: the resolve-and-validate block for a user-picked episodes
+  // folder — the scoping to {chosenFolder}/{ProjectName}, the `episodes/`
+  // nesting that made a picked folder match the default shape, and the
+  // write-access probe. A channel's episodes now always live at
+  // `<projectDir>/episodes`, created below, so there is nothing to resolve
+  // and nowhere else to probe.)
 
   // New channels always begin from the adaptive blank base. Do not honor a
   // template supplied by an older client: the former blank/sleep-story fork
@@ -842,7 +784,6 @@ export async function createProject(
     season_prefix: req.season_prefix || 'Season',
     folder_template: '{season_prefix} {season_num}/{code} - {title}/',
     subfolder_names: { ...DEFAULT_SUBFOLDER_NAMES },
-    output_root: resolvedOutputRoot,
     created_at: new Date().toISOString(),
     // New channels use the one continuity workflow. Existing projects retain
     // their persisted format, and Settings remains the explicit place to
@@ -903,14 +844,19 @@ export async function createProject(
     await fs.writeFile(standardsPath, '# Production Standards\n\nAdd your story generation guidelines here.\n')
   }
 
-  // Ensure episodes dir + jobs.json
-  // v1.0.326 — skip the alias mkdir when the projectDir is itself named
-  // 'episodes' (legacy nested-import shape). Otherwise we'd create the
-  // doubly-nested `<x>/episodes/episodes/` empty vestige a user found on an
-  // imported project. See import-project.ts for the matching guard.
-  if (path.basename(projectDir).toLowerCase() !== 'episodes') {
-    await fs.mkdir(path.join(projectDir, 'episodes'), { recursive: true })
-  }
+  // Ensure episodes dir + jobs.json.
+  //
+  // (Removed: the v1.0.326 guard that skipped this mkdir when the project dir
+  // was itself named 'episodes'.) It was aimed at the legacy nested-import
+  // shape, where the folder a person registered WAS the episodes root, and it
+  // was in the wrong function to do that — `createProject` always makes
+  // `<projectsRoot>/<slug>`, so the only thing the guard ever caught was a
+  // channel the person named "Episodes". That channel then never got its
+  // episodes folder, and now reports "Folder missing" forever, because
+  // `resolveOutputRoot` looks for `<projectDir>/episodes` unconditionally.
+  // The import path the guard was written for is gone; the folder every
+  // channel needs is not optional.
+  await fs.mkdir(path.join(projectDir, 'episodes'), { recursive: true })
   const jobsPath = path.join(projectDir, 'jobs.json')
   if (!existsSync(jobsPath)) await writeJson(jobsPath, { jobs: [] })
 
@@ -1516,22 +1462,18 @@ export function getProjectDir(slug: string): string | null {
 }
 
 /**
- * Resolve where a project's episode folders physically live.
- * - absolute `output_root` (user picked a custom location) is returned as-is
- * - relative `output_root` (default `./episodes`) is resolved against the project dir
- * Returns null if the project itself can't be located.
+ * Where a project's episode folders physically live, by slug — always
+ * `<projectDir>/episodes`. Returns null only when the project itself can't be
+ * located.
+ *
+ * The slug-keyed twin of `resolveOutputRoot()`; see that function for why
+ * there is nothing to read out of `project.json` any more. This kept its
+ * signature (and its ~40 callers) on purpose — only what it computes changed.
  */
 export async function getProjectOutputRoot(slug: string): Promise<string | null> {
   const projectDir = getProjectDir(slug)
   if (!projectDir) return null
-  try {
-    const raw = await fs.readFile(path.join(projectDir, 'project.json'), 'utf-8')
-    const meta = JSON.parse(raw)
-    const out = meta.output_root || './episodes'
-    return path.isAbsolute(out) ? out : path.join(projectDir, out)
-  } catch {
-    return path.join(projectDir, './episodes')
-  }
+  return resolveOutputRoot(projectDir).path
 }
 
 export async function getTemplates(): Promise<Array<{ id: string; name: string; description: string }>> {

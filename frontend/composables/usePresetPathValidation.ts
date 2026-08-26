@@ -108,12 +108,13 @@ export function usePresetPathValidation() {
   async function validateOne(
     p: string,
     mustBeDir: boolean,
-    outputRoot?: string,
+    episodesRoot?: string,
   ): Promise<{ valid: boolean; reason?: string }> {
     try {
       const r = await post<{ valid: boolean; reason?: string }>(`/system/validate-path`, {
         path: p,
-        output_root: outputRoot,
+        // Must be ABSOLUTE — see the note on `validate` below.
+        output_root: episodesRoot,
         must_be_dir: mustBeDir,
         must_exist: true,
       })
@@ -128,7 +129,14 @@ export function usePresetPathValidation() {
   async function validate(
     data: any,
     fields: PathFieldSpec[],
-    opts: { outputRoot?: string } = {},
+    /**
+     * `episodesRoot` is the ABSOLUTE episodes folder
+     * (`useProject().episodesRoot`), the base a `${PROJECT}/…` field resolves
+     * against. It used to be called `outputRoot`, and every caller fed it the
+     * stored, RELATIVE './episodes' — so the backend expanded portable paths
+     * against the process cwd and reported perfectly good files as invalid.
+     */
+    opts: { episodesRoot?: string } = {},
   ): Promise<ValidatePathsResult> {
     const checks: Array<Promise<void>> = []
     const valid: string[] = []
@@ -137,7 +145,7 @@ export function usePresetPathValidation() {
     for (const spec of fields) {
       for (const { index, value } of iterPathFields(data, spec)) {
         checks.push(
-          validateOne(value, spec.mustBeDir === true, opts.outputRoot).then(r => {
+          validateOne(value, spec.mustBeDir === true, opts.episodesRoot).then(r => {
             if (r.valid) valid.push(value)
             else invalid.push({
               key: spec.key,

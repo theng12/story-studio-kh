@@ -32,7 +32,7 @@ async function makeProject(slug: string) {
     slug, name: `Test ${slug}`,
     episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
     folder_template: '{season_prefix} {season_num}/{code} - {title}/',
-    subfolder_names: {}, output_root: 'episodes', created_at: new Date().toISOString(),
+    subfolder_names: {}, created_at: new Date().toISOString(),
   }))
 }
 

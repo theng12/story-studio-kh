@@ -51,7 +51,7 @@ async function makeProject(): Promise<void> {
     slug: SLUG, name: 'Importer Test',
     episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
     folder_template: '{season_prefix} {season_num}/{code} - {title}/',
-    subfolder_names: {}, output_root: outputRoot, created_at: new Date().toISOString(),
+    subfolder_names: {}, created_at: new Date().toISOString(),
   }))
   await fs.writeFile(path.join(projDir, 'ideas.json'), JSON.stringify({
     ideas: [{

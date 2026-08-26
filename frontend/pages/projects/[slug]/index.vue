@@ -265,9 +265,17 @@ const { project } = useProject()
 // explicit `false` counts: an older backend, or a response that predates the
 // field, must read as "unknown" and stay silent rather than accusing a healthy
 // project of having lost its folder.
-const outputRootMissing = computed(() => (project.value as any)?.output_root_exists === false)
-const outputRootPath = computed(() => (project.value as any)?.output_root_resolved
-  || (project.value as any)?.output_root || '')
+//
+// Kept deliberately through the removal of the choosable episodes folder.
+// Taking away the ability to point a channel somewhere wrong does not make the
+// folder certain to be there — a half-synced iCloud copy, or one moved in
+// Finder, still loses it — and the whole point of the Origin Field fix was
+// that the app says so instead of rendering an empty channel.
+const outputRootMissing = computed(() => project.value?.output_root_exists === false)
+// The resolved ABSOLUTE path. The `|| project.output_root` fallback that used
+// to sit here read the stored relative './episodes' and would have shown the
+// person a path that is not a location.
+const outputRootPath = computed(() => project.value?.output_root_resolved || '')
 const { get } = useApi()
 const { stats: jobStats, jobsStale } = useJobs()
 const {

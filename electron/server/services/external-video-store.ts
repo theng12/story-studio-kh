@@ -80,7 +80,7 @@ export async function getRetiredExternalRoot(): Promise<string> {
  * The season segment uses the project's `season_size` + `season_prefix`,
  * matching the project tree's folder template. We replicate the same
  * math here rather than calling `resolveEpisodePaths` because the
- * external root has its own `output_root` (not the project's). Keeps
+ * external root has its own base directory (not the project's). Keeps
  * cross-machine semantics clean — different machines can point at
  * different roots without the project json changing.
  */

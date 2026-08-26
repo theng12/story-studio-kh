@@ -31,7 +31,7 @@ async function makeProjectWithIdeas(): Promise<void> {
     slug: SLUG, name: 'Mark-Done Test',
     episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
     folder_template: '{season_prefix} {season_num}/{code} - {title}/',
-    subfolder_names: {}, output_root: 'episodes', created_at: new Date().toISOString(),
+    subfolder_names: {}, created_at: new Date().toISOString(),
   }))
   // 5 ideas: 3 imported (batch_id='imported'), 2 organic.
   await fs.writeFile(path.join(projDir, 'ideas.json'), JSON.stringify({

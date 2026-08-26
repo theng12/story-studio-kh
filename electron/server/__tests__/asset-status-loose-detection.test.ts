@@ -43,7 +43,7 @@ async function makeProject(): Promise<EpisodeDirs> {
     slug: SLUG, name: 'Loose Detection',
     episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season',
     folder_template: '{season_prefix} {season_num}/{code} - {title}/',
-    subfolder_names: {}, output_root: outputRoot, created_at: new Date().toISOString(),
+    subfolder_names: {}, created_at: new Date().toISOString(),
   }))
   // One accepted idea — required for the looser-detect path because it
   // resolves the episode dir via resolveEpisodePaths(slug, code, title).

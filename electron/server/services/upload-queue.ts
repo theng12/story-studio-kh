@@ -3,7 +3,7 @@
  * shorts) that live in a dedicated folder alongside the episodes but
  * flow through the same Upload Center UI.
  *
- * Folder: `{project.output_root}/Upload Queue/`
+ * Folder: `<projectDir>/episodes/Upload Queue/`
  * Each entry: a video file + an optional `.meta.json` sidecar carrying
  * title / description / tags. First-time scan registers new entries in
  * `config.upload_sequence` with the next available position.

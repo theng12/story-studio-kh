@@ -1185,7 +1185,7 @@ interface StylePresetMeta {
   source_reference?: string
   created_at: string
 }
-const { project, config, refreshConfig } = useProject()
+const { project, config, refreshConfig, episodesRoot } = useProject()
 
 // v1.0.83+: format-aware section label ("Chapter"/"Reason"/"Topic").
 // Watches the project meta so swapping format in Settings live-updates
@@ -2086,7 +2086,7 @@ async function collapseToPortablePath(input: string): Promise<string> {
   try {
     const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
       path: raw,
-      output_root: project.value?.output_root,
+      output_root: episodesRoot.value,
       mode: 'portable',
     })
     return String(r?.output || raw)

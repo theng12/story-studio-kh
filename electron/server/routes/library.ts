@@ -71,10 +71,13 @@ router.put('/library', async (req, res) => {
     const current = await getLibraryRoot()
     if (current && wantsMove) {
       // Reuse the mover that already exists rather than writing a second one:
-      // it copies every channel AND rewrites absolute `output_root` values on
-      // the way, which a plain settings write would not do. It deliberately
-      // leaves the old folder in place (`kept_old_at`) — deleting a person's
-      // library after copying it is not a decision this app gets to make.
+      // it copies every channel, verifies the file count, and reports what it
+      // did, which a plain settings write would not. (It used to rewrite
+      // absolute episode-folder paths on the way too; a channel's episodes now
+      // always sit inside its own folder, so the copy carries them and there
+      // is nothing to rewrite.) It deliberately leaves the old folder in place
+      // (`kept_old_at`) — deleting a person's library after copying it is not
+      // a decision this app gets to make.
       const { migrateProjectsTo } = await import('../services/projects-storage-mover.js')
       const moved = await migrateProjectsTo(target, {
         merge_into_existing: req.body?.merge_into_existing === true,

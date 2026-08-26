@@ -34,7 +34,18 @@ const props = defineProps<{
   buttonLabel?: string
   ariaLabel?: string
   clearable?: boolean
-  outputRoot?: string
+  /**
+   * ABSOLUTE path to the project's episodes folder, used to collapse a picked
+   * path into a portable `${PROJECT}/…` form. Renamed from `outputRoot`: every
+   * caller was passing the stored `output_root` field, which was the RELATIVE
+   * './episodes', and `toPortablePath` silently declines a non-absolute base —
+   * so Browse never produced a portable path and nobody saw an error. Pass
+   * `episodesRoot` from `useProject()`.
+   *
+   * Omit entirely to skip the round-trip. An empty string still calls, so
+   * `${ASSET}/…` collapsing keeps working when the project isn't loaded yet.
+   */
+  episodesRoot?: string
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -46,11 +57,11 @@ const picking = ref(false)
 async function collapseToPortablePath(input: string): Promise<string> {
   const raw = String(input || '').trim()
   if (!raw) return ''
-  if (typeof props.outputRoot === 'undefined') return raw
+  if (typeof props.episodesRoot === 'undefined') return raw
   try {
     const result = await post<{ output: string }>('/system/resolve-asset-path', {
       path: raw,
-      output_root: props.outputRoot || undefined,
+      output_root: props.episodesRoot || undefined,
       mode: 'portable',
     })
     return String(result?.output || raw)

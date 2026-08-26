@@ -39,10 +39,11 @@ export function isHeavySubfolder(key: string): boolean {
  *
  *   mediaRootRaw — the project's `media_root` (a `${NAME}` token or an absolute
  *                  path). Falsy/blank ⇒ null (opt-out, the default).
- *   episodeRel   — the same relative episode path used under output_root, so
- *                  the SSD layout mirrors iCloud exactly.
- *   outputRoot   — the project output_root (only used to expand a `${PROJECT}`
- *                  token, which would be unusual for a media root).
+ *   episodeRel   — the same relative episode path used under the episodes
+ *                  folder, so the SSD layout mirrors iCloud exactly.
+ *   outputRoot   — the project's ABSOLUTE episodes folder (only used to expand
+ *                  a `${PROJECT}` token, which would be unusual for a media
+ *                  root).
  *
  * Returns null rather than throwing when the token is undefined on this machine
  * (e.g. `${MEDIA}` not yet defined on a freshly-synced second Mac). That keeps

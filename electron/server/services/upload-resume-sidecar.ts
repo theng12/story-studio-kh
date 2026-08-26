@@ -9,7 +9,7 @@
  * us resume from Google's high-water mark instead.
  *
  * Storage location: `<userData>/projects/<slug>/uploads-in-progress/<episode_code>.json`
- *   — kept off the user's rendering tree (output_root) so the sidecar
+ *   — kept off the user's rendering tree (the episodes folder) so the sidecar
  *   doesn't clutter their Finder view of episode folders, and lives
  *   alongside other project state in userData.
  *

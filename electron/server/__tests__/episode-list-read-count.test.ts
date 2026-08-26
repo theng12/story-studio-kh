@@ -44,7 +44,6 @@ async function makeProject(scriptFolder = '{code} - 01 Script') {
   await fs.writeFile(projectJsonPath(), JSON.stringify({
     slug: SLUG,
     name: 'Read Count',
-    output_root: outputRoot,
     episode_prefix: 'EP',
     season_size: 20,
     season_prefix: 'Season',

@@ -124,7 +124,7 @@ function sanitize(name: string): string {
  * `cleanOrphanWorkTempDirs` so a hypothetical concurrent older build
  * mid-encode is never disturbed.
  *
- * @param outputRoots — absolute paths to project output_root directories
+ * @param outputRoots — absolute paths to project episodes directories
  *   (each contains `Season NNN/<code> - <title>/<code> - 10 Video
  *   Assembly Output/.tmp_<ts>/` and the matching 08 Audio Merge Output
  *   equivalent).

@@ -302,7 +302,7 @@ describe('Corrupt project.json handling (audit #4 / H2)', () => {
     // Regression guard for corrupt project metadata:
     // the old readJson swallowed parse errors and returned {}, so this
     // updateProject would merge-and-write `{ name: 'Renamed' }` as the
-    // entire file, wiping slug/project_id/output_root/episode_prefix.
+    // entire file, wiping slug/project_id/episode_prefix.
     const p = await pm.createProject({ name: 'Corruptible' })
     const metaPath = path.join(tempDir, 'projects', p.slug, 'project.json')
 

@@ -10,9 +10,16 @@ iCloud. This (a) stops episodes' 200–300 scene images (~300 MB+/episode) from
 bloating iCloud, and (b) puts the b-roll/image-pool materialized scenes on the
 SSD instead of duplicating into iCloud.
 
+> **Note (episodes-folder deletion).** This spec was written while a project
+> could store its own `output_root`. It no longer can: a channel's episodes
+> always live at `<projectDir>/episodes`, resolved by `resolveOutputRoot()` in
+> `services/project-manager.ts`. Read every "`output_root`" below as "the
+> channel's episodes folder" — a computed location, never a setting. The media
+> root itself is unaffected and remains a real, opt-in choice.
+
 **Hard requirement — fully opt-in.** Default behavior is UNCHANGED: with no
-media root configured, every subfolder stays under `output_root` exactly as
-today. A user who ships this app to others, or who wants everything on iCloud,
+media root configured, every subfolder stays under the episodes folder exactly
+as today. A user who ships this app to others, or who wants everything on iCloud,
 does nothing and sees no difference. This is supplementary, never required.
 
 ---
@@ -25,7 +32,7 @@ does nothing and sees no difference. This is supplementary, never required.
 ```jsonc
 {
   // ...existing fields...
-  "media_root": "${MEDIA}"   // absent (default) = no split; everything under output_root
+  "media_root": "${MEDIA}"   // absent (default) = no split; everything under the episodes folder
 }
 ```
 
@@ -55,7 +62,7 @@ The episode dir layout is **mirrored** under the media root using the same
 `folder_template` relative path, so resolution is symmetric:
 
 ```
-iCloud (output_root):   .../my-channel/episodes/Season 006/EP0110 - Title/EP0110 - 01 Script/
+iCloud (episodes):      .../my-channel/episodes/Season 006/EP0110 - Title/EP0110 - 01 Script/
 SSD    (media_root):    ${MEDIA}/my-channel/episodes/Season 006/EP0110 - Title/EP0110 - 05 Scene Images/
 ```
 
@@ -142,7 +149,7 @@ media back into iCloud would split one episode's media across two locations.
 A one-off, **per-project, reversible** tool — same care as the script importer:
 1. **Dry-run** lists every heavy subfolder it would move, total bytes, and any
    collisions/missing.
-2. Move heavy subfolders from `output_root/…/EP#### - …/{heavy}` → the mirrored
+2. Move heavy subfolders from `<episodes>/…/EP#### - …/{heavy}` → the mirrored
    path under `${MEDIA}`. Copy-then-verify-then-delete (never delete first;
    atomic per folder). Resumable.
 3. Rewrite portable paths in sidecars/presets that pointed into the moved

@@ -108,7 +108,7 @@ export async function renameEpisodeFolderForTitleChange(
   // Ensure the parent (Season NNN) exists; templates that introduce a new
   // season directory between titles need this to land. Atomic rename only
   // works on the same filesystem — fall back to recursive copy + rm on
-  // EXDEV (rare, but possible if output_root sits on a different volume).
+  // EXDEV (rare, but possible if the Library sits on a different volume).
   try {
     await fs.mkdir(path.dirname(newPaths.episode_dir), { recursive: true })
     try {

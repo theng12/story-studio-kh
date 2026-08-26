@@ -73,6 +73,16 @@ function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioC
     qualification_only: false,
     discount: false,
     discount_disclaimer: null,
+    // Added when v1.4.71 made the deprecation-window fields required on
+    // GenStudioChatModel without updating this fixture — the electron
+    // typecheck has been red on `main` since that release. Unrelated to the
+    // change this branch makes; fixed here only so the gate is usable.
+    deprecation_warning: false,
+    deprecation_warning_at: null,
+    scheduled_retirement_at: null,
+    upstream_shutdown_at: null,
+    retires_at: null,
+    replacement_model_id: null,
     context_window_tokens: 128_000,
     max_output_tokens: 8_192,
     max_structured_items_per_request: null,

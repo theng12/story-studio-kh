@@ -6,7 +6,6 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { validateBody } from '../lib/validate.js'
 import { CreateProjectSchema, UpdateProjectSchema } from '../schemas/index.js'
-import { importProjectFromFolder, inspectProjectFolder } from '../services/import-project.js'
 // (Manifest read/poll surface removed with the legacy sync flow. The
 // project-manager service still WRITES manifests on every mutation —
 // see syncManifest() — for cross-machine project_id identity.)
@@ -322,31 +321,12 @@ router.post('/projects', validateBody(CreateProjectSchema), async (req, res) => 
   }
 })
 
-// ── Portable-folder import (Stage 3) ──────────────────────────────────────
-// Peek at a folder's manifest without changing anything — used by the
-// Import dialog's "confirm" step so the user sees what they're about to
-// register before committing.
-router.post('/projects/import/inspect', async (req, res) => {
-  const sourcePath = typeof req.body?.source_path === 'string' ? req.body.source_path : ''
-  if (!sourcePath) return res.status(400).json({ detail: 'source_path required' })
-  const result = await inspectProjectFolder(sourcePath)
-  if (!result.ok) return res.status(400).json({ detail: result.detail })
-  res.json(result)
-})
-
-// Commit the import. Creates userData registration from the manifest, or
-// relocates the existing project when the project_id already matches.
-router.post('/projects/import', async (req, res) => {
-  const sourcePath = typeof req.body?.source_path === 'string' ? req.body.source_path : ''
-  if (!sourcePath) return res.status(400).json({ detail: 'source_path required' })
-  const adopt = typeof req.body?.adopt_as_slug === 'string' ? req.body.adopt_as_slug : undefined
-  try {
-    const result = await importProjectFromFolder(sourcePath, { adopt_as_slug: adopt })
-    res.status(result.action === 'imported' ? 201 : 200).json(result)
-  } catch (e: any) {
-    res.status(400).json(humanizeBackendError(e, 'Import failed'))
-  }
-})
+// (Removed: POST /projects/import/inspect and POST /projects/import, and the
+// whole services/import-project.ts they fronted. Their only purpose was to
+// register a project whose episodes lived at an arbitrary external path and
+// then write that path into `output_root` — the capability this change
+// deletes. Nothing in the app ever called them: the Library is a folder you
+// copy into, not a path you register.)
 
 router.get('/projects/:slug', async (req, res) => {
   const project = await pm.getProject(req.params.slug)
@@ -359,7 +339,7 @@ router.get('/projects/:slug', async (req, res) => {
   // answer away. Same shape as the silent lead-in zero — knowing and not
   // saying is its own defect.
   const dir = pm.getProjectDir(req.params.slug)
-  const resolved = dir ? pm.resolveOutputRoot(dir, (project as any).output_root) : null
+  const resolved = dir ? pm.resolveOutputRoot(dir) : null
   res.json({
     ...withoutRetiredResearchPolicy(project),
     ...(resolved ? { output_root_resolved: resolved.path, output_root_exists: resolved.exists } : {}),

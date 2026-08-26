@@ -111,8 +111,8 @@ export async function renameAcceptedEpisode(
       await fs.rename(oldPaths.episode_dir, newPaths.episode_dir)
     } catch (e: any) {
       if (e?.code === 'EXDEV') {
-        // Cross-device fallback (rare on macOS but possible if
-        // output_root is on a different volume).
+        // Cross-device fallback (rare on macOS but possible if the
+        // Library sits on a different volume).
         await copyDirRecursive(oldPaths.episode_dir, newPaths.episode_dir)
         await fs.rm(oldPaths.episode_dir, { recursive: true, force: true })
       } else {

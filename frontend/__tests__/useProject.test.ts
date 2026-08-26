@@ -41,7 +41,7 @@ let fetchCalls: string[] = []
 let defaultHandler: FetchHandler = (url) => {
   // Minimal happy-path shapes matching ProjectMeta / SafeProjectConfig.
   if (/settings\/config$/.test(url)) return { has_kie_key: false, has_fal_key: false, has_openai_key: false, has_anthropic_key: false, image_models: {}, voice_presets: [], audio_models: {}, image_pricing_last_updated: '', audio_pricing_last_updated: '' }
-  return { name: 'DefaultName', slug: 'default', episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season', folder_template: '', subfolder_names: {}, output_root: '', created_at: '' }
+  return { name: 'DefaultName', slug: 'default', episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season', folder_template: '', subfolder_names: {}, created_at: '' }
 }
 
 ;(globalThis as any).$fetch = async (url: string) => {
@@ -117,7 +117,7 @@ describe('useProject.loadProject()', () => {
     assert.equal(project.value, null, 'project cleared synchronously on slug change')
     assert.equal(config.value, null, 'config cleared synchronously on slug change')
 
-    d1.resolve({ name: 'Second', slug: 'second', episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season', folder_template: '', subfolder_names: {}, output_root: '', created_at: '' })
+    d1.resolve({ name: 'Second', slug: 'second', episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season', folder_template: '', subfolder_names: {}, created_at: '' })
     d2.resolve({ has_kie_key: false, has_fal_key: false, has_openai_key: false, has_anthropic_key: false, image_models: {}, voice_presets: [], audio_models: {}, image_pricing_last_updated: '', audio_pricing_last_updated: '' })
     await pending
 
@@ -135,7 +135,7 @@ describe('useProject.loadProject()', () => {
 
     // Immediately switch to B with fast responses — B finishes first.
     fetchQueue.push(
-      () => ({ name: 'B-name', slug: 'B', episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season', folder_template: '', subfolder_names: {}, output_root: '', created_at: '' }),
+      () => ({ name: 'B-name', slug: 'B', episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season', folder_template: '', subfolder_names: {}, created_at: '' }),
       () => ({ has_kie_key: false, has_fal_key: false, has_openai_key: false, has_anthropic_key: false, image_models: {}, voice_presets: [], audio_models: {}, image_pricing_last_updated: '', audio_pricing_last_updated: '' }),
     )
     await loadProject('B')
@@ -144,7 +144,7 @@ describe('useProject.loadProject()', () => {
     assert.equal(project.value?.name, 'B-name', 'project should be B')
 
     // NOW resolve A's responses — they arrive stale and must be discarded.
-    aMeta.resolve({ name: 'A-name', slug: 'A', episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season', folder_template: '', subfolder_names: {}, output_root: '', created_at: '' })
+    aMeta.resolve({ name: 'A-name', slug: 'A', episode_prefix: 'EP', episode_digits: 4, season_size: 20, season_prefix: 'Season', folder_template: '', subfolder_names: {}, created_at: '' })
     aConfig.resolve({ has_kie_key: true, has_fal_key: false, has_openai_key: false, has_anthropic_key: false, image_models: {}, voice_presets: [], audio_models: {}, image_pricing_last_updated: '', audio_pricing_last_updated: '' })
     await pA
 

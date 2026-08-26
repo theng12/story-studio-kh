@@ -21,7 +21,6 @@ async function makeProjectWithRenamedEpisode() {
   await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
     slug: SLUG,
     name: 'Sidecar Path Project',
-    output_root: outputRoot,
     episode_prefix: 'EP',
     season_size: 20,
     season_prefix: 'Season',

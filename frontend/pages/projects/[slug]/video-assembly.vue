@@ -334,7 +334,7 @@
               :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
               title="Choose an intro video"
               aria-label="Intro video path"
-              :output-root="vaProject?.output_root || ''"
+              :episodes-root="episodesRoot"
               clearable
             />
           </div>
@@ -364,7 +364,7 @@
               :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
               title="Choose an outro video"
               aria-label="Outro video path"
-              :output-root="vaProject?.output_root || ''"
+              :episodes-root="episodesRoot"
               clearable
             />
           </div>
@@ -428,7 +428,7 @@
             :filters="[{ name: 'Videos', extensions: ['mp4', 'mov', 'mkv', 'webm'] }]"
             title="Choose a timeline clip"
             :aria-label="`Timeline clip ${i + 1} path`"
-            :output-root="vaProject?.output_root || ''"
+            :episodes-root="episodesRoot"
             clearable
           />
 
@@ -442,7 +442,7 @@
               :filters="[{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp'] }]"
               title="Choose a still image for the static segment"
               :aria-label="`Timeline clip ${i + 1} image path`"
-              :output-root="vaProject?.output_root || ''"
+              :episodes-root="episodesRoot"
               clearable
             />
             <div class="flex gap-2 mt-1 items-center">
@@ -540,7 +540,7 @@
               :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
               title="Choose a title image"
               aria-label="Title image path"
-              :output-root="vaProject?.output_root || ''"
+              :episodes-root="episodesRoot"
               clearable
             />
           </div>
@@ -1085,7 +1085,7 @@
               :filters="[{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp'] }]"
               title="Choose a logo image"
               aria-label="Logo image path"
-              :output-root="vaProject?.output_root || ''"
+              :episodes-root="episodesRoot"
               clearable
             />
           </div>
@@ -1384,7 +1384,7 @@
               :filters="[{ name: 'Media', extensions: ['mp4', 'mov', 'mkv', 'webm', 'png', 'jpg', 'jpeg', 'webp'] }]"
               title="Choose a green screen source"
               aria-label="Green screen source path"
-              :output-root="vaProject?.output_root || ''"
+              :episodes-root="episodesRoot"
               clearable
             />
           </div>
@@ -2671,7 +2671,7 @@ const { videoAssemblyGenerating } = useGenerating()
 // rebind through this composable so a reasons-explainer project sees
 // "Per-scene reason assignments", a listicle project sees "Per-scene
 // topic assignments", etc. Reactive on project meta change.
-const { project: vaProject, config: vaConfig } = useProject()
+const { project: vaProject, config: vaConfig, episodesRoot } = useProject()
 const vaFormatId = ref<string>('scenes')
 watch(vaProject, (p) => {
   if (!p) return
@@ -4539,7 +4539,7 @@ async function runBundlePathCheck() {
     const result = await validateBundlePaths(
       currentBundleSnapshotForValidation(),
       BUNDLE_PATH_FIELDS,
-      { outputRoot: vaProject.value?.output_root },
+      { episodesRoot: episodesRoot.value },
     )
     bundleInvalidPaths.value = result.invalid
   } catch {
@@ -5403,7 +5403,7 @@ async function collapseToPortablePath(input: string): Promise<string> {
   try {
     const r = await post<{ output: string }>(`/system/resolve-asset-path`, {
       path: raw,
-      output_root: vaProject.value?.output_root,
+      output_root: episodesRoot.value,
       mode: 'portable',
     })
     return String(r?.output || raw)
