@@ -20,6 +20,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
 import { resolveEpisodePathsByCode, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
@@ -240,21 +241,27 @@ router.post('/projects/:slug/continuity/:episodeId/revert-recipe', async (req, r
     const paths = await resolveEpisodePathsByCode(slug, episodeId)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(404).json({ detail: 'No scene plan for this episode' })
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-    let reverted = 0
-    for (const s of plan.scenes) {
-      // Only undo scenes the recipe actually composed (those have a saved raw
-      // prompt). Leave never-composed scenes — and any emotion the user set on
-      // them — untouched, so revert can't wipe unrelated edits.
-      if (typeof s.visual_prompt_raw === 'string' && s.visual_prompt_raw.length) {
-        s.visual_prompt = s.visual_prompt_raw
-        delete s.visual_prompt_raw
-        delete s.emotion
-        delete s.emotion_locked
-        reverted++
+    // Read-modify-write of the same file Prompt Director and Scene Plan write.
+    // Locked and re-read inside, so a revert cannot republish a stale copy over
+    // a concurrent job's work — and vice versa.
+    const reverted = await withLock(planPath, async () => {
+      const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      let count = 0
+      for (const s of plan.scenes) {
+        // Only undo scenes the recipe actually composed (those have a saved raw
+        // prompt). Leave never-composed scenes — and any emotion the user set on
+        // them — untouched, so revert can't wipe unrelated edits.
+        if (typeof s.visual_prompt_raw === 'string' && s.visual_prompt_raw.length) {
+          s.visual_prompt = s.visual_prompt_raw
+          delete s.visual_prompt_raw
+          delete s.emotion
+          delete s.emotion_locked
+          count++
+        }
       }
-    }
-    await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+      await writeJsonAtomic(planPath, plan)
+      return count
+    })
     res.json({ ok: true, reverted })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to revert recipe'))

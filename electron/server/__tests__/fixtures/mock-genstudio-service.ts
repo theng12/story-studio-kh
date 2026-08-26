@@ -178,6 +178,16 @@ interface ContentArchiveResponseBarrier {
   release: () => void
 }
 
+/** Test-only gate that holds a job SUBMISSION response open until the test
+ *  releases it. `started` resolves once the submission has actually reached
+ *  the mock, which is the caller's proof that the generator under test is
+ *  parked on the network — no sleeping, no guessing. */
+interface SubmitResponseBarrier {
+  started: () => void
+  wait: Promise<void>
+  release: () => void
+}
+
 const FULL_SCOPES: MockGenStudioScope[] = [
   'models:read',
   'voices:read',
@@ -405,6 +415,7 @@ export class MockGenStudioService {
   private maxInFlightTtsSubmissions = 0
   private readonly ttsSubmissionBarriers = new Map<number, TtsSubmissionBarrier>()
   private nextContentArchiveResponseBarrier: ContentArchiveResponseBarrier | undefined
+  private nextSubmitResponseBarrier: SubmitResponseBarrier | undefined
 
   baseUrl = ''
 
@@ -459,6 +470,8 @@ export class MockGenStudioService {
     this.contentOwnedReleaseStates.clear()
     this.nextContentArchiveResponseBarrier?.release()
     this.nextContentArchiveResponseBarrier = undefined
+    this.nextSubmitResponseBarrier?.release()
+    this.nextSubmitResponseBarrier = undefined
     this.contentProducts = []
     this.contentShelves = null
     for (const operation of Object.keys(this.sequence) as MockGenStudioOperation[]) {
@@ -559,6 +572,19 @@ export class MockGenStudioService {
 
   setContentOwnedReleaseRefusal(entitlementFamily: string, status: 403 | 404): void {
     this.contentOwnedReleaseRefusals.set(entitlementFamily, status)
+  }
+
+  /** Hold the NEXT job submission's 202 until the test releases it. Same shape
+   *  as `pauseNextContentArchiveResponse`, for generators whose read-modify-write
+   *  window is bracketed by an LLM call. */
+  pauseNextSubmitResponse(): { started: Promise<void>; release: () => void } {
+    if (this.nextSubmitResponseBarrier) throw new Error('A mock GenStudio submission is already paused')
+    let signalStarted!: () => void
+    let release!: () => void
+    const started = new Promise<void>(resolve => { signalStarted = resolve })
+    const wait = new Promise<void>(resolve => { release = resolve })
+    this.nextSubmitResponseBarrier = { started: signalStarted, wait, release }
+    return { started, release }
   }
 
   pauseNextContentArchiveResponse(): { started: Promise<void>; release: () => void } {
@@ -1685,6 +1711,12 @@ export class MockGenStudioService {
             }
             if (job.scenario.submitDelayMs) {
               await new Promise(resolve => setTimeout(resolve, job.scenario.submitDelayMs))
+            }
+            const submitBarrier = this.nextSubmitResponseBarrier
+            if (submitBarrier) {
+              this.nextSubmitResponseBarrier = undefined
+              submitBarrier.started()
+              await submitBarrier.wait
             }
             json(response, 202, this.responseBody(job, replay))
           } finally {

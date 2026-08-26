@@ -20,6 +20,8 @@ import path from 'path'
 import { randomUUID } from 'crypto'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
+import { withLock, writeJsonAtomic } from '../lib/atomic-store.js'
+
 import { resolveEpisodePathsByCodeWithSidecar, resolveScenePlanPath } from '../services/utils.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { parseHttpByteRange } from '../lib/http-byte-range.js'
@@ -124,6 +126,14 @@ interface ReviewSceneAugmented {
   motion_choice?: 'pending' | 'clip' | 'still'
 }
 
+/** Guard failures raised from inside a `withLock` body, where an Express
+ *  `return res.status(...)` cannot short-circuit the handler. Mapped back to the
+ *  same status codes by the approval route's catch. */
+class SceneNotFound extends Error {
+  constructor(readonly sceneId: string) { super(`Scene ${sceneId} not found`) }
+}
+class BadApprovalRequest extends Error {}
+
 // ── GET /scene-review/:ep ─────────────────────────────────────────────
 router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
   const { slug, episodeId } = req.params
@@ -133,9 +143,16 @@ router.get('/projects/:slug/scene-review/:episodeId', async (req, res) => {
     if (!existsSync(planPath)) {
       return res.json({ scene_plan: null, scenes: [], audio_path: null, stats: null })
     }
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    let plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     if (clearLegacyPlannerFallbackReasons(plan.scenes)) {
-      await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+      // A read path that writes. Re-read under the lock and strip the legacy
+      // reasons from THAT copy, or this GET can silently undo whatever a running
+      // job wrote between its own read and this migration.
+      plan = await withLock(planPath, async () => {
+        const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+        if (clearLegacyPlannerFallbackReasons(fresh.scenes)) await writeJsonAtomic(planPath, fresh)
+        return fresh
+      })
     }
     const promptIntegrity = inspectScenePromptIntegrity(plan.scenes)
     const subtitleIntegrity = await readSubtitleTimelineIntegrity(paths.subtitles_dir, episodeId)
@@ -700,14 +717,21 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
     const outPath = path.join(outDir, `${sceneId}.png`)
     await fs.writeFile(outPath, buf.data)
 
-    scene.image_path = outPath
-    // v1.0.473 — stamp rendered_prompt = visual_prompt so an externally-ingested
-    // image (made FROM this prompt) isn't mis-flagged stale in Scene Review.
-    scene.rendered_prompt = scene.visual_prompt
-    scene.image_version = new Date().toISOString()
-    scene.motion_choice = 'pending'
-    scene.approved = false   // user re-approves after a manual swap
-    await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+    // The image file is on disk; stamping the plan is a read-modify-write and
+    // takes the same lock every other writer of this file takes.
+    await withLock(planPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      const target = fresh.scenes.find(item => item.id === sceneId)
+      if (!target) throw new Error(`scene ${sceneId} not found in scene_plan.json`)
+      target.image_path = outPath
+      // v1.0.473 — stamp rendered_prompt = visual_prompt so an externally-ingested
+      // image (made FROM this prompt) isn't mis-flagged stale in Scene Review.
+      target.rendered_prompt = target.visual_prompt
+      target.image_version = new Date().toISOString()
+      target.motion_choice = 'pending'
+      target.approved = false   // user re-approves after a manual swap
+      await writeJsonAtomic(planPath, fresh)
+    })
     res.json({ ok: true, scene_id: sceneId })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save uploaded scene image'))
@@ -760,15 +784,18 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-clip/:sceneId', clip
     // assembler keys off file existence, so the write above is what actually
     // makes the clip flow into the final video — this just keeps the UI honest.
     // Re-read to avoid racing a concurrent in-app clip job on the same plan.
-    const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
-    const target = fresh.scenes.find(s => s.id === sceneId)
-    if (target) {
+    // The re-read alone only NARROWED that window — without the lock another
+    // writer can still land between this read and the write below.
+    await withLock(planPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      const target = fresh.scenes.find(s => s.id === sceneId)
+      if (!target) return
       target.clip_path = outPath
       target.rendered_motion_prompt = target.motion_prompt
       target.clip_source_image_version = target.image_version
       target.motion_choice = 'pending'
-      await fs.writeFile(planPath, JSON.stringify(fresh, null, 2), 'utf-8')
-    }
+      await writeJsonAtomic(planPath, fresh)
+    })
     res.json({ ok: true, scene_id: sceneId, saved_as: path.basename(outPath), bytes: buf.length })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save uploaded clip'))
@@ -789,30 +816,37 @@ router.put('/projects/:slug/scene-review/:episodeId/motion-choice', async (req, 
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
     const clipsDir = await resolveVideoAssetsDir(slug, episodeId.toUpperCase(), paths.episode_dir)
-    const targets = body.all === true
-      ? plan.scenes
-      : plan.scenes.filter((scene) => scene.id === body.scene_id)
-    if (!targets.length) return res.status(404).json({ detail: 'Scene not found' })
-
-    let changed = 0
-    for (const scene of targets) {
-      if (choice === 'clip') {
-        const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
-        if (!existsSync(clipPath)) continue
-        const stale = (typeof scene.rendered_motion_prompt === 'string'
-          && scene.rendered_motion_prompt !== (scene.motion_prompt || ''))
-          || (typeof scene.image_version === 'string'
-            && scene.clip_source_image_version !== scene.image_version)
-        if (stale) continue
-      }
-      if (scene.motion_choice !== choice) {
-        scene.motion_choice = choice
-        changed++
-      }
+    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    if (!(body.all === true ? plan.scenes : plan.scenes.filter((scene) => scene.id === body.scene_id)).length) {
+      return res.status(404).json({ detail: 'Scene not found' })
     }
-    await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+
+    const changed = await withLock(planPath, async () => {
+      const fresh = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+      const targets = body.all === true
+        ? fresh.scenes
+        : fresh.scenes.filter((scene) => scene.id === body.scene_id)
+
+      let changed = 0
+      for (const scene of targets) {
+        if (choice === 'clip') {
+          const clipPath = path.join(clipsDir, `${scene.id}.mp4`)
+          if (!existsSync(clipPath)) continue
+          const stale = (typeof scene.rendered_motion_prompt === 'string'
+            && scene.rendered_motion_prompt !== (scene.motion_prompt || ''))
+            || (typeof scene.image_version === 'string'
+              && scene.clip_source_image_version !== scene.image_version)
+          if (stale) continue
+        }
+        if (scene.motion_choice !== choice) {
+          scene.motion_choice = choice
+          changed++
+        }
+      }
+      await writeJsonAtomic(planPath, fresh)
+      return changed
+    })
     res.json({ ok: true, changed })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save Motion Review decision'))
@@ -831,34 +865,40 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
     const paths = await resolveEpisodePathsByCodeWithSidecar(slug, episodeId, SCENE_PLAN_FILENAME)
     const planPath = await resolveScenePlanPath(slug, episodeId, paths.episode_dir)
     if (!existsSync(planPath)) return res.status(400).json({ detail: 'No scene_plan.json yet' })
-    const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
+    // The approve/deny sweep re-reads under the lock, and the stats reported back
+    // are computed from the document that was actually saved — not from a copy
+    // read before a concurrent render checkpoint landed.
+    const { plan, changed } = await withLock(planPath, async () => {
+      const plan = JSON.parse(await fs.readFile(planPath, 'utf-8')) as ScenePlan
 
-    let changed = 0
-    if (typeof body.all === 'boolean') {
-      // Bulk path. Only approve scenes that have an image on disk —
-      // approving a scene without an image is meaningless (the
-      // assembler in 1.0.145 will reject it).
-      const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
-      const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
-      for (const s of plan.scenes) {
-        const hasImage = existsSync(path.join(namedDir, `${s.id}.png`)) || existsSync(path.join(legacyDir, `${s.id}.png`))
-        const target = body.all && hasImage  // bulk-deny works regardless
-        const final = body.all ? target : false
-        if (s.approved !== final) {
-          s.approved = final
-          changed++
+      let changed = 0
+      if (typeof body.all === 'boolean') {
+        // Bulk path. Only approve scenes that have an image on disk —
+        // approving a scene without an image is meaningless (the
+        // assembler in 1.0.145 will reject it).
+        const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
+        const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
+        for (const s of plan.scenes) {
+          const hasImage = existsSync(path.join(namedDir, `${s.id}.png`)) || existsSync(path.join(legacyDir, `${s.id}.png`))
+          const target = body.all && hasImage  // bulk-deny works regardless
+          const final = body.all ? target : false
+          if (s.approved !== final) {
+            s.approved = final
+            changed++
+          }
         }
+      } else if (typeof body.scene_id === 'string') {
+        const target = plan.scenes.find(s => s.id === body.scene_id)
+        if (!target) throw new SceneNotFound(String(body.scene_id))
+        target.approved = !!body.approved
+        changed++
+      } else {
+        throw new BadApprovalRequest()
       }
-    } else if (typeof body.scene_id === 'string') {
-      const target = plan.scenes.find(s => s.id === body.scene_id)
-      if (!target) return res.status(404).json({ detail: `Scene ${body.scene_id} not found` })
-      target.approved = !!body.approved
-      changed++
-    } else {
-      return res.status(400).json({ detail: 'Either { scene_id, approved } or { all } is required' })
-    }
 
-    await fs.writeFile(planPath, JSON.stringify(plan, null, 2), 'utf-8')
+      await writeJsonAtomic(planPath, plan)
+      return { plan, changed }
+    })
     const namedDir = await resolveSceneImagesDir(slug, episodeId.toUpperCase(), paths.episode_dir)
     const legacyDir = path.join(paths.episode_dir, SCENE_IMAGES_SUBFOLDER)
     const imageReady = plan.scenes.map(s =>
@@ -884,6 +924,10 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
       },
     })
   } catch (e: any) {
+    if (e instanceof SceneNotFound) return res.status(404).json({ detail: `Scene ${e.sceneId} not found` })
+    if (e instanceof BadApprovalRequest) {
+      return res.status(400).json({ detail: 'Either { scene_id, approved } or { all } is required' })
+    }
     res.status(500).json(humanizeBackendError(e, 'Failed to update approval'))
   }
 })

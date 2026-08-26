@@ -215,6 +215,16 @@ export async function writeChapterFiles(
  * written and we return [] without erroring — caller decides whether
  * that's a problem).
  */
+/**
+ * NOT SAFE TO CALL CONCURRENTLY FOR ONE EPISODE. This rebuilds a single shared
+ * narration document from every chapter file and overwrites it. The write itself
+ * is atomic (buildNarrationDocx → sync-safe.writeAtomic), but nothing here
+ * serialises two overlapping calls, so the later one wins wholesale.
+ *
+ * Today that is safe only because its one caller, the `chapter-only` job type,
+ * runs in a single-slot queue lane. See the comment on that lane in
+ * services/job-queue.ts before making chapter regens run in parallel.
+ */
 export async function assembleUnifiedNarration(
   scriptDir: string,
   code: string,
