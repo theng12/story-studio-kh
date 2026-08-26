@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.everyday-calm",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.everyday-calm",
+    "family": "com.storystudio.family.topic.everyday-calm"
+  },
+  "changelog": "Expanded Everyday Calm to 50 everyday moments with 20 reviewed practices each (1,000 lifetime assignments)."
+}

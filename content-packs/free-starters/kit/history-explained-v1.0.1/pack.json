@@ -1,0 +1,65 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.kit.history-explained",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Repins the Topic Pack to 1.0.1 so the kit offers 1,000 unique episode ideas instead of a starter sample.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.kit.history-explained",
+    "family": "com.storystudio.family.kit.history-explained"
+  },
+  "dependencies": [
+    {
+      "pack_id": "com.storystudio.pack.formula.history-explained",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+      "version": "1.0.1"
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.sepia-ink-wash",
+      "version": "1.0.0"
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+      "version": "1.0.0"
+    }
+  ],
+  "bundles": [
+    {
+      "id": "com.storystudio.bundle.history-explained",
+      "kind": "channel-kit",
+      "name": "History Explained",
+      "components": [
+        {
+          "pack_id": "com.storystudio.pack.formula.history-explained",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.formula.history-explained",
+          "kind": "series-formula"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+          "version": "1.0.1",
+          "item_id": "com.storystudio.topic.historical-wars-treaties-world-order",
+          "kind": "topic-pack"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.sepia-ink-wash",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.style.sepia-ink-wash",
+          "kind": "visual-style"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+          "version": "1.0.0",
+          "item_id": "com.storystudio.thumbnail.documentary-label-tableau",
+          "kind": "thumbnail-recipe"
+        }
+      ]
+    }
+  ]
+}
