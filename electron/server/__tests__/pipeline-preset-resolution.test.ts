@@ -104,16 +104,24 @@ describe('findActivePreset — script-only / introduction-only', () => {
     assert.equal(r.missingReason, null)
   })
 
-  test('introduction-only resolves its own type', () => {
+  test('introduction-only resolves out of its OWN pool, never the script\u2019s', () => {
+    // This resolution is inert in practice: `introduction-only` sits in
+    // NO_PRESET_STEPS, so preflight never asks. It is kept correct anyway,
+    // because the failure mode if it were ever asked is silent — the old
+    // mapping pointed at `script_presets`, so a channel with a Script preset
+    // and no Introduction preset would have had a SCRIPT preset's fields
+    // handed to its opening and nothing would have said so.
     const config = {
-      script_presets: [
-        { id: 'p1', name: 'Chapter A', type: 'script' },
-        { id: 'p2', name: 'My intro', type: 'introduction' },
-      ],
+      script_presets: [{ id: 'p1', name: 'Chapter A', type: 'script' }],
+      introduction_presets: [{ id: 'p2', name: 'My intro', type: 'introduction' }],
       // No active pointers at all — type fallback is the only path.
     }
     const r = findActivePreset(config, 'introduction-only')
     assert.equal(r.preset?.id, 'p2')
+
+    const scriptOnly = { script_presets: [{ id: 'p1', name: 'Chapter A', type: 'script' }] }
+    assert.equal(findActivePreset(scriptOnly, 'introduction-only').preset, null,
+      'a Script preset is not an Introduction preset, whatever the pool is called')
   })
 
   test('returns missingReason when list has no matching-type preset', () => {

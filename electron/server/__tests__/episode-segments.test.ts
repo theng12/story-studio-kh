@@ -135,7 +135,7 @@ describe('a channel’s saved segments', () => {
           host_name: 'Luna',
           word_target: 420,
           custom_opening_line: 'Hello, and welcome back.',
-          beats: [{ id: 'welcome', label: 'Welcome', enabled: true, custom_text: 'greet warmly' }],
+          beats: [{ id: 'mine', label: 'Weekly riddle', enabled: true, custom_text: 'greet warmly' }],
         },
       },
     }
@@ -145,6 +145,20 @@ describe('a channel’s saved segments', () => {
     assert.equal(result.recipe.word_target, 420)
     assert.equal(result.recipe.custom_opening_line, 'Hello, and welcome back.')
     assert.deepEqual(result.recipe.beats, saved.introduction.recipe.beats)
+  })
+
+  test('a beat from the catalogue is renamed to the catalogue\u2019s spelling', () => {
+    // A beat now carries an explanation, and the explanation is looked up by
+    // id. Two names for `welcome` is how the page and the generator drifted
+    // apart before; the label is not a place a stale spelling may live.
+    // See introduction-recipe.test.ts for the rule itself.
+    const result = normalizeChannelSegments({
+      introduction: {
+        enabled: true,
+        recipe: { beats: [{ id: 'welcome', label: 'Welcome', enabled: true }] },
+      },
+    })[INTRODUCTION_SEGMENT_ID]
+    assert.equal(result.recipe.beats[0].label, 'Welcome & host intro')
   })
 })
 

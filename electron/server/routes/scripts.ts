@@ -560,13 +560,18 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
     return res.status(409).json({ detail: `Introduction generation already queued/running for ${req.body.episode_id}` })
   }
 
-  // v1.4.73 — the caller names an episode; the server works out the rest.
+  // The caller names an episode; the server works out the rest.
   //
-  // The Introduction page has no model picker and no title field, because the
-  // opening is written with the model already chosen for the script and belongs
-  // to an episode the app can already name. Asking a caller for either would
-  // let it supply a different one, which is exactly how a batch run and a
-  // button ended up writing different openings.
+  // Nothing about HOW the opening is written travels with the request. Its
+  // recipe — beats, wording, length, host, and now the model — is read from
+  // the channel, so the Introduction page's button, the Script page's chained
+  // run and an unattended batch all write from identical instructions. A batch
+  // and a button producing different openings is exactly the defect this
+  // shape exists to make impossible.
+  //
+  // The title is still resolved here rather than asked for, because the app
+  // already knows an accepted episode's title and a caller that supplied one
+  // could supply a different one.
   let title = typeof req.body.title === 'string' ? req.body.title.trim() : ''
   if (!title) {
     try {
@@ -577,19 +582,33 @@ router.post('/projects/:slug/generate/introduction-only', validateBody(GenerateI
     } catch { /* an unnamed episode still resolves by code below */ }
   }
 
-  let model = typeof req.body.model === 'string' ? req.body.model.trim() : ''
+  // Three sources, in this order, and the order is the whole design:
+  //
+  //   1. The channel's own choice, made on the Introduction page. An explicit
+  //      saved answer, so it wins — including over the model the Script page
+  //      sends along with a chained opening, which is not a deliberate
+  //      override but a leftover from when the opening had no setting.
+  //   2. A model named in this request.
+  //   3. The Script Generator's saved model — the behaviour every channel had
+  //      before the picker existed, and what a blank choice still means.
+  //
+  // And if none of those answer: refuse. Never substitute a catalogue default.
+  // An invented model is indistinguishable to the reader from one he chose,
+  // and it would write the opening on a different product from its own
+  // chapters — the defect fixed in v1.4.68.
+  const { getSegmentModel } = await import('../services/channel-segments.js')
+  const { INTRODUCTION_SEGMENT_ID } = await import('../lib/episode-segments.js')
+  let model = await getSegmentModel(slug, INTRODUCTION_SEGMENT_ID)
+  if (!model) model = typeof req.body.model === 'string' ? req.body.model.trim() : ''
   if (!model) {
-    // Never substitute a catalogue default here. An invented model is
-    // indistinguishable to the reader from one he chose, and it would write
-    // the opening on a different product from its own chapters — the defect
-    // fixed in v1.4.68. Refuse, and say what to do.
     const { resolveScriptSideChatModel } = await import('./pipeline.js')
     model = resolveScriptSideChatModel(config as Record<string, unknown>) || ''
     if (!model) {
       return res.status(400).json({
-        detail: 'The channel opening is written with the Script Generator\'s language model, and no saved '
-          + 'script preset carries one. Open Script Generator, choose a model under Main settings, save '
-          + 'the script preset, then try again. No model was substituted.',
+        detail: 'This channel\'s opening follows the Script Generator\'s language model, and no saved '
+          + 'script preset carries one. Either choose a model for the opening on the Introduction page, '
+          + 'or open Script Generator, choose a model under Main settings and save the script preset. '
+          + 'No model was substituted.',
       })
     }
   }

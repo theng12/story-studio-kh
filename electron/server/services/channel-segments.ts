@@ -139,6 +139,29 @@ export async function saveChannelSegment(
 }
 
 /**
+ * The language model this channel has CHOSEN for its openings, or ''.
+ *
+ * Empty means the channel has not chosen one, which is the default and which
+ * every existing channel is in. The caller then falls back to the Script
+ * Generator's model exactly as it did before the picker existed.
+ *
+ * A channel that HAS chosen wins over a model supplied with the request. That
+ * ordering is deliberate and is the opposite of the usual "most specific
+ * caller wins": the Script page sends its own on-screen model with every
+ * chained opening, not as a deliberate override but as a leftover from when
+ * the opening had no setting of its own. If that beat a saved choice, the
+ * picker the owner asked for would do nothing on the one path he uses most.
+ */
+export async function getSegmentModel(slug: string, segmentId: string): Promise<string> {
+  try {
+    const segments = await getChannelSegments(slug)
+    return (segments[segmentId]?.recipe?.model || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
  * Does this channel want an opening on everything it produces?
  *
  * The single question every generation path asks. Never reads a checkbox,

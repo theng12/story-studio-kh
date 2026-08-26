@@ -109,6 +109,26 @@ export const featureGuides: Record<string, FeatureGuide> = {
     ],
     tips: ['Research blocks completion only when the channel requires it (Settings → Channel).', 'Model knowledge is reliable on well-established facts but cites nothing, so check anything specific or recent. Web search records the sources it read for the run as a whole, not per claim.'],
   },
+  introduction: {
+    title: 'Introduction',
+    summary: 'Decide whether this channel opens with a spoken introduction, and set the recipe every episode\u2019s opening follows.',
+    workflow: [
+      'Turn the Introduction on or off for this channel \u2014 this is the only place that decision lives.',
+      'Set the host name, the length, and the beats the opening covers.',
+      'Choose an episode and write its opening once the chapters exist.',
+    ],
+    topics: [
+      { title: 'Channel setting', purpose: 'Decides whether every episode this channel writes gets an opening.', effect: 'Applies to this page and to unattended batch runs alike; there is no separate box on Pipeline.' },
+      { title: 'Beats', purpose: 'The ordered things the opening covers, each with a note saying what it produces.', effect: 'A beat switched off is left out of the instructions entirely rather than summarised.' },
+      { title: 'Per-beat wording', purpose: 'Says in this channel\u2019s own words what a beat should cover.' },
+      { title: 'Model', purpose: 'Chooses the language model that writes the opening.', effect: 'Left on the default, it follows whatever the Script Generator is set to.' },
+      { title: 'Presets', purpose: 'Saves the recipe so the same opening shape can be reused on another channel.', effect: 'A preset never carries the on/off setting, so applying one cannot start spending on a channel.' },
+    ],
+    tips: [
+      'The opening introduces the chapters, so the script has to exist before one can be written.',
+      'A beat that suits one kind of channel says so \u2014 the breathing exercise belongs to sleep channels, not to explainer or history ones.',
+    ],
+  },
   scripts: {
     title: 'Script Generator',
     summary: 'Create an outline, expand every approved chapter, and optionally write an introduction with explicit completeness checks.',
@@ -475,6 +495,7 @@ const suffixToGuide: Record<string, string> = {
   pipeline: 'pipeline',
   board: 'board',
   research: 'research',
+  introduction: 'introduction',
   scripts: 'scripts',
   metadata: 'metadata',
   'image-prompts': 'thumbnail-prompts',

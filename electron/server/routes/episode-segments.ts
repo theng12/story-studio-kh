@@ -12,6 +12,7 @@ import {
   hasEverProducedSegment,
 } from '../services/channel-segments.js'
 import {
+  BEAT_LIBRARY,
   SEGMENT_KINDS,
   WORD_TARGET_MAX,
   WORD_TARGET_MIN,
@@ -45,6 +46,11 @@ router.get('/projects/:slug/segments', async (req, res) => {
     res.json({
       segments,
       kinds: Object.values(SEGMENT_KINDS),
+      // What each beat actually produces, so the page can say so instead of
+      // showing seven labels and trusting the reader to guess. It travels with
+      // the answer for the same reason `kinds` does: the page keeps no copy,
+      // so an explanation improved here is improved everywhere at once.
+      beat_library: Object.values(BEAT_LIBRARY),
       opening_profile: openingProfile,
       word_target_min: WORD_TARGET_MIN,
       word_target_max: WORD_TARGET_MAX,

@@ -169,7 +169,12 @@ const PRESET_KEYS: Record<BatchStep, { list: string | string[]; activeKeys: stri
   // key for old presets saved before typing existed. Order matters:
   // typed first wins.
   'script-only':       { list: 'script_presets',           activeKeys: ['script_last_preset_script', 'script_last_preset'] },
-  'introduction-only': { list: 'script_presets',           activeKeys: ['script_last_preset_introduction', 'script_last_preset'] },
+  // Inert while `introduction-only` sits in NO_PRESET_STEPS above: the step
+  // never asks for a preset, because its recipe is a channel setting. It is
+  // kept, and kept CORRECT, so that removing it from that set could never hand
+  // the opening a Script preset's fields — which is what the old
+  // `script_presets` entry here would have done.
+  'introduction-only': { list: 'introduction_presets',     activeKeys: ['introduction_last_preset_introduction'] },
   // Thumbnail prompts remain separate from Scene Plan visual prompts.
   image_prompts:       { list: 'thumbnail_prompts_presets', activeKeys: ['thumbnail_prompts_last_preset'] },
   thumb_images:        { list: 'thumbnail_generator_presets', activeKeys: ['thumbnail_generator_last_preset'] },
@@ -211,13 +216,22 @@ interface BatchPreflight {
   freeBytes: number
   /**
    * The language model the SCRIPT is written with, read from the active
-   * `script` preset. The channel opening has no model control of its own —
-   * on the Script Generator it is written with whatever model the chapters
-   * use (scripts.vue `submitIntroduction` sends `form.model`) — so this is
-   * the operator's actual selection for `introduction-only`. Null when no
-   * script preset carries one; the batch then says so instead of guessing.
+   * `script` preset. This is what a channel opening is written with when the
+   * channel has not chosen a model of its own — the behaviour every channel
+   * had before the Introduction page gained a picker, and what a blank choice
+   * still means. Null when no script preset carries one; the batch then says
+   * so instead of guessing.
    */
   scriptSideChatModel: string | null
+  /**
+   * The model this channel has CHOSEN for its openings on the Introduction
+   * page, or null when it has not chosen one — which is the default, and
+   * which means "follow the Script Generator" exactly as before the picker
+   * existed. Resolved once per batch rather than per episode: it is a channel
+   * setting, and reading it in the per-episode loop would be the same answer
+   * fetched N times.
+   */
+  introductionChatModel: string | null
 }
 
 const STEP_PREREQUISITES: Partial<Record<BatchStep, BatchStep[]>> = {
@@ -402,27 +416,28 @@ async function preflightBatch(
 
   if (force) warnings.push('Force re-run is enabled; completed outputs may be replaced and provider costs may repeat.')
 
-  const scriptSideChatModel = steps.includes('introduction-only')
-    ? resolveScriptSideChatModel(config)
-    : null
+  const wantsIntroduction = steps.includes('introduction-only')
+  const scriptSideChatModel = wantsIntroduction ? resolveScriptSideChatModel(config) : null
+  let introductionChatModel: string | null = null
+  if (wantsIntroduction) {
+    const { getSegmentModel } = await import('../services/channel-segments.js')
+    const { INTRODUCTION_SEGMENT_ID } = await import('../lib/episode-segments.js')
+    introductionChatModel = (await getSegmentModel(slug, INTRODUCTION_SEGMENT_ID)) || null
+  }
 
   return {
     ok: issues.length === 0, issues, warnings, presetByStep, ideaByCode,
-    effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel,
+    effectiveFormat, estimatedBytes, freeBytes, scriptSideChatModel, introductionChatModel,
   }
 }
 
 /**
- * The language model a batched channel opening must be written with.
+ * The language model a batched channel opening falls back to.
  *
- * The opening has NO model control of its own, by design — there is one
- * language-model picker on the Script Generator and the opening shares it
- * (scripts.vue's `submitIntroduction` sends `form.model`). The typed
- * `introduction` preset therefore stores only the opening's own settings
- * (host name, word target, opening line, beats) and has never carried a
- * model. Read the operator's real selection from the active `script`
- * preset instead, so a batched opening is written by the same product as
- * its chapters rather than by a catalogue default he never chose.
+ * A channel that has not chosen a model for its opening follows the Script
+ * Generator, so read the operator's real selection from the active `script`
+ * preset. A batched opening is then written by the same product as its
+ * chapters rather than by a catalogue default he never chose.
  *
  * Returns null when no script preset carries a model. The caller must then
  * SAY SO rather than substitute one: an invented model is indistinguishable
@@ -1412,11 +1427,11 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   // failure never falls back to a hardcoded id — affected steps are
   // individually skipped below with a clear reason.
   //
-  // `introduction-only` is deliberately NOT in this list. The opening has no
-  // model control of its own, so a catalogue default here is not a fallback
-  // for a missing preference — it silently overrides the model the operator
-  // chose for the script, which is the model the opening is written with
-  // everywhere else. It reads `preflight.scriptSideChatModel` instead.
+  // `introduction-only` is deliberately NOT in this list. Its model comes from
+  // the channel's own choice or, failing that, from the Script Generator. A
+  // catalogue default here would not be a fallback for a missing preference —
+  // it would silently override a model the operator did choose. It reads
+  // `preflight.introductionChatModel` / `preflight.scriptSideChatModel`.
   let batchDefaultChatModel: string | null = null
   if (steps.includes('metadata')) {
     const apiKey = await getApiKey('genstudio').catch(() => '')
@@ -1561,21 +1576,27 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       if (step === 'motion_review' && pipelineMotionParams) {
         Object.assign(params, pipelineMotionParams)
       }
-      if (step === 'introduction-only' && !params.model) {
-        // The opening is written with the script's model. Never substitute a
-        // catalogue default here: the operator cannot tell an invented model
-        // from one he picked, and this step would quietly run on a different
-        // product from every other step in the same batch.
-        if (!preflight.scriptSideChatModel) {
+      if (step === 'introduction-only') {
+        // Same three sources, same order, as `POST /generate/introduction-only`:
+        // the channel's own saved choice, then anything carried on this step,
+        // then the Script Generator's model. Never a catalogue default — the
+        // operator cannot tell an invented model from one he picked, and this
+        // step would quietly run on a different product from every other step
+        // in the same batch.
+        const resolved = preflight.introductionChatModel
+          || params.model
+          || preflight.scriptSideChatModel
+        if (!resolved) {
           skipped.push({
             episode_id: episodeId,
-            reason: 'introduction-only: the channel opening is written with the Script Generator\'s language model, ' +
-              'and no active script preset carries one. Open Script Generator, choose a model under Main settings, ' +
-              'save the script preset, then run this step again. No model was substituted.',
+            reason: 'introduction-only: this channel\'s opening follows the Script Generator\'s language ' +
+              'model, and no active script preset carries one. Either choose a model for the opening on the ' +
+              'Introduction page, or open Script Generator, choose a model under Main settings and save the ' +
+              'script preset. No model was substituted.',
           })
           continue
         }
-        params.model = preflight.scriptSideChatModel
+        params.model = resolved
       }
       if (step === 'metadata' && !params.model) {
         if (!batchDefaultChatModel) {

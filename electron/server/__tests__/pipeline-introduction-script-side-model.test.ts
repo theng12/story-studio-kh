@@ -2,13 +2,15 @@
  * A batched channel opening must be written with the model the operator
  * chose for the script — never with a catalogue default.
  *
- * The bug this pins: the typed `introduction` preset stores only the
- * opening's own settings (host name, word target, opening line, beats). It
- * has never held a model, because the opening has no model picker of its
- * own — on the Script Generator it is written with `form.model`, the same
- * selection as the chapters. `resolveStepParams('introduction-only', …)`
- * therefore always produced `model: ''`, and run-batch filled the gap from
- * GenStudio's live catalogue default (the first Economy-tier product).
+ * The bug this pins: `resolveStepParams('introduction-only', …)` produced
+ * `model: ''`, and run-batch filled the gap from GenStudio's live catalogue
+ * default (the first Economy-tier product).
+ *
+ * The channel may now choose a model of its own on the Introduction page, and
+ * that choice is tried first. A blank choice — every channel that has never
+ * opened the picker — still means the script's model, which is what this file
+ * has always been about. The catalogue default remains out of bounds either
+ * way.
  *
  * The operator saw every other step in the same batch run on the model he
  * picked and the Introduction alone run on something else, with nothing on
@@ -85,16 +87,27 @@ describe('resolveScriptSideChatModel — the opening inherits the script’s mod
 })
 
 describe('run-batch wires introduction-only to the script-side model, not the catalogue default', () => {
-  test('the introduction branch uses preflight.scriptSideChatModel and skips when it is absent', async () => {
+  test('the introduction branch resolves the channel, then the script, and never the catalogue', async () => {
     const source = await fs.readFile(PIPELINE_SOURCE, 'utf8')
-    const start = source.indexOf("if (step === 'introduction-only' && !params.model)")
+    // `lastIndexOf`: `resolveStepParams` opens an identically-worded branch
+    // earlier in the file, and slicing from that one would swallow the whole
+    // batch-default block in between and make this test unfalsifiable.
+    const start = source.lastIndexOf("if (step === 'introduction-only') {")
     assert.notEqual(start, -1, 'introduction-only model branch not found in run-batch')
     // Stop at the next branch so the metadata fallback below is not read as
     // part of the opening's.
     const end = source.indexOf("if (step === 'metadata' && !params.model)", start)
-    assert.ok(end > start, "the metadata branch must follow the introduction branch")
+    assert.ok(end > start, 'the metadata branch must follow the introduction branch')
     const branch = source.slice(start, end)
+    // The channel's own choice comes first — that is the picker the owner
+    // asked for, and the Script page sends its on-screen model with every
+    // chained opening, so a saved choice has to outrank it.
+    assert.match(branch, /preflight\.introductionChatModel/)
     assert.match(branch, /preflight\.scriptSideChatModel/)
+    assert.ok(
+      branch.indexOf('introductionChatModel') < branch.indexOf('scriptSideChatModel'),
+      'the channel\u2019s own choice must be tried before the script\u2019s model',
+    )
     assert.doesNotMatch(branch, /batchDefaultChatModel/,
       'the opening must not fall back to the live-catalogue default — that is a silent substitution')
     assert.match(branch, /No model was substituted/)

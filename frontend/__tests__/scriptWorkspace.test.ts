@@ -40,16 +40,25 @@ describe('Script Generator workspace', () => {
     assert.equal(scripts.match(/<ModelSelector/g)?.length, 1)
   })
 
-  test('the Introduction page answers "which model writes the opening?"', () => {
-    // The opening deliberately has no picker of its own — it shares the
-    // script's. Saying which model that is turns "I cannot pick a model
-    // anywhere" into an answer, without adding a second control that could
-    // disagree with the first. That answer moved with the control.
+  test('the Introduction page owns the opening\u2019s model choice, not this one', () => {
+    // REVERSES the v1.4.73 rule that used to be asserted here.
+    //
+    // The opening shipped with no picker at all, on the reasoning that one
+    // language-model choice is easier to trust than two that can disagree.
+    // The owner overruled it: "what is the model picker not added. i don't
+    // care if it's the same model or a different model writing it."
+    //
+    // So the choice exists on the Introduction page, and the DEFAULT is still
+    // the shared one — a blank saved model means "follow the Script
+    // Generator", which is what every channel already had. The Script page
+    // still keeps exactly one picker: this is not a second control here.
     const page = readFileSync(
       fileURLToPath(new URL('../pages/projects/[slug]/introduction.vue', import.meta.url)), 'utf8')
-    assert.match(page, /the same language model as the chapters/)
-    assert.match(page, /no separate\s+model to pick here/)
-    assert.doesNotMatch(page, /<ModelSelector/, 'and it must not grow a second picker')
+    assert.match(page, /<ModelSelector/, 'the owner asked for the picker; it must exist')
+    assert.match(page, /The same one as the chapters/,
+      'and the shared model must still be offered as the default choice')
+    assert.equal(scripts.match(/<ModelSelector/g)?.length, 1,
+      'the Script Generator still has exactly one picker of its own')
   })
 
   test('has one review-first creation action instead of a competing one-click script chain', () => {

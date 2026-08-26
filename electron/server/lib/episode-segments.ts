@@ -78,6 +78,23 @@ export interface SegmentRecipe {
   word_target: number
   custom_opening_line: string
   beats: SegmentBeat[]
+  /**
+   * The language model that writes this segment.
+   *
+   * BLANK IS A REAL VALUE and it is the default: it means "whatever the Script
+   * Generator is set to", which is what every existing channel already gets.
+   * So a channel that has never opened the picker keeps the behaviour it has
+   * today, and nothing here can quietly switch a channel onto a product its
+   * owner never chose.
+   *
+   * v1.4.73 shipped with no picker at all, reasoning that one language-model
+   * choice was easier to trust than two that could disagree. The owner's
+   * answer to that was: "what is the model picker not added. i don't care if
+   * it's the same model or a different model writing it." The choice is his,
+   * so the choice exists; the shared default is what keeps it from becoming a
+   * second setting nobody set.
+   */
+  model: string
 }
 
 /** What a channel has decided about one segment. */
@@ -99,22 +116,130 @@ export const WORD_TARGET_MAX = 600
 export const WORD_TARGET_DEFAULT = 350
 
 /**
+ * What every known beat actually produces, in words.
+ *
+ * The page used to draw seven labels and explain none of them. "Community
+ * question" is not self-explanatory to somebody who has never run a channel,
+ * and a control nobody understands is a control nobody uses — the same failure
+ * as hiding it, arrived at differently.
+ *
+ * The explanation lives HERE rather than in the page, for three reasons. It is
+ * one copy, so the page and any future segment page cannot drift apart. It is
+ * not written into every channel's saved settings, so improving a sentence
+ * improves it everywhere instead of only for channels created afterwards. And
+ * it survives a beat being removed and added back: the page restores the beat
+ * BY ID from this catalogue, so its explanation comes back with it.
+ *
+ * `example` is what the per-beat wording box offers as a placeholder — a
+ * concrete illustration of the kind of thing to type there.
+ *
+ * `defaultFor` is the note attached to a beat that is not general-purpose.
+ * It is deliberately descriptive rather than enforcing: nothing here decides
+ * what a channel may use. See the Introduction redo proposal for where
+ * format-supplied beat sets belong.
+ */
+export interface BeatDefinition {
+  id: string
+  label: string
+  /** What this beat writes, said plainly. Rendered under the label. */
+  description: string
+  /** Placeholder for this beat's own wording box. */
+  example: string
+  /** Present when the beat suits one kind of channel rather than all of them. */
+  suitsNote?: string
+}
+
+export const BEAT_LIBRARY: Record<string, BeatDefinition> = {
+  welcome: {
+    id: 'welcome',
+    label: 'Welcome & host intro',
+    description: 'The host says hello and gives their name, so a listener knows who is talking '
+      + 'before the story starts. Leave the host name blank above and this becomes a greeting '
+      + 'with no name in it.',
+    example: 'greet the audience warmly and introduce yourself by name',
+  },
+  story_teaser: {
+    id: 'story_teaser',
+    label: 'Story teaser',
+    description: 'A sentence or two about where this episode goes, without giving away how it '
+      + 'ends. It is written from this episode\u2019s own chapters, so it is different every time.',
+    example: 'hint at tonight\u2019s setting without spoiling the ending',
+  },
+  community_question: {
+    id: 'community_question',
+    label: 'Community question',
+    description: 'A question put to the audience to answer in the comments. Its job is to get '
+      + 'comments \u2014 that is the signal YouTube reads as an engaged audience.',
+    example: 'ask listeners to share their favourite winter comfort food',
+  },
+  patreon: {
+    id: 'patreon',
+    label: 'Patreon / membership mention',
+    description: 'A short mention of a paid membership and what somebody gets for joining. '
+      + 'Off unless this channel actually has one \u2014 an opening that offers a membership '
+      + 'that does not exist reads as a mistake.',
+    example: 'mention what the membership tier includes',
+  },
+  subscribe_cta: {
+    id: 'subscribe_cta',
+    label: 'Subscribe CTA',
+    description: 'The ask to subscribe. One line in the host\u2019s own voice rather than a '
+      + 'read-out advert, so it does not break the tone of what follows.',
+    example: 'invite viewers to subscribe if they want more of these',
+  },
+  relaxation: {
+    id: 'relaxation',
+    label: 'Relaxation / breathing exercise',
+    description: 'The host leads a few slow breaths before the story begins, to settle a '
+      + 'listener who is going to sleep to it.',
+    suitsNote: 'Suits sleep and calm channels. On an explainer, history or business channel '
+      + 'it will sound out of place \u2014 switch it off.',
+    example: 'lead three slow breaths before the story starts',
+  },
+  transition: {
+    id: 'transition',
+    label: 'Transition into story',
+    description: 'The handover line that ends the opening and hands over to chapter one, so '
+      + 'the two do not collide mid-sentence.',
+    example: 'invite them to close their eyes as the story begins',
+  },
+}
+
+/**
  * The beats an opening covers when the channel has not said otherwise.
  *
  * This is the list the Script page has shown since v1.0.71, kept identical so
  * an existing channel's opening does not change shape the day it gains a page.
  * The backend's own fallback had drifted to a six-item list missing the
  * membership beat; both now read from here, so they cannot disagree again.
+ *
+ * Built from `BEAT_LIBRARY` so a label can never be spelt two ways.
+ *
+ * KNOWN AND UNRESOLVED: this list is the same for every channel, and it is
+ * sleep-shaped \u2014 `relaxation` belongs to one kind of channel out of the many
+ * this app now serves. The mechanism that was supposed to fix that
+ * (`format.script.introDefaults`) is unreachable: `canonicalFormatId()` folds
+ * every channel onto one format, and that format ships no `introDefaults`. So
+ * every channel gets these seven regardless of what it is. The redo proposal
+ * covers where per-format beat sets should come from; it is not fixed here.
  */
-export const DEFAULT_INTRODUCTION_BEATS: ReadonlyArray<SegmentBeat> = Object.freeze([
-  { id: 'welcome', label: 'Welcome & host intro', enabled: true },
-  { id: 'story_teaser', label: 'Story teaser', enabled: true },
-  { id: 'community_question', label: 'Community question', enabled: true },
-  { id: 'patreon', label: 'Patreon / membership mention', enabled: false },
-  { id: 'subscribe_cta', label: 'Subscribe CTA', enabled: true },
-  { id: 'relaxation', label: 'Relaxation / breathing exercise', enabled: true },
-  { id: 'transition', label: 'Transition into story', enabled: true },
+const DEFAULT_BEAT_STATE: ReadonlyArray<readonly [string, boolean]> = Object.freeze([
+  ['welcome', true],
+  ['story_teaser', true],
+  ['community_question', true],
+  ['patreon', false],
+  ['subscribe_cta', true],
+  ['relaxation', true],
+  ['transition', true],
 ])
+
+export const DEFAULT_INTRODUCTION_BEATS: ReadonlyArray<SegmentBeat> = Object.freeze(
+  DEFAULT_BEAT_STATE.map(([id, enabled]) => Object.freeze({
+    id,
+    label: BEAT_LIBRARY[id].label,
+    enabled,
+  })),
+) as ReadonlyArray<SegmentBeat>
 
 /** Defaults a format ships for its openings, if it ships any. */
 export interface FormatIntroDefaults {
@@ -154,6 +279,8 @@ export function defaultSegmentRecipe(
     word_target: clampWordTarget(formatIntroDefaults?.wordTarget, WORD_TARGET_DEFAULT),
     custom_opening_line: '',
     beats,
+    // Blank on purpose: follow the Script Generator until somebody says otherwise.
+    model: '',
   }
 }
 
@@ -161,14 +288,21 @@ function normalizeBeats(raw: unknown, fallback: SegmentBeat[]): SegmentBeat[] {
   if (!Array.isArray(raw)) return fallback
   const beats = raw
     .filter((b): b is Record<string, unknown> => !!b && typeof b === 'object')
-    .map((b, i) => ({
-      id: typeof b.id === 'string' && b.id.trim() ? b.id.trim() : `beat-${i}`,
-      label: typeof b.label === 'string' ? b.label : '',
-      enabled: b.enabled !== false,
-      ...(typeof b.custom_text === 'string' && b.custom_text.trim()
-        ? { custom_text: b.custom_text }
-        : {}),
-    }))
+    .map((b, i) => {
+      const id = typeof b.id === 'string' && b.id.trim() ? b.id.trim() : `beat-${i}`
+      // A beat from the catalogue is named by the catalogue, whatever spelling
+      // an older config, a hand edit or a saved preset happens to carry. There
+      // is one name for "Subscribe CTA" and this is where it comes from.
+      const known = BEAT_LIBRARY[id]
+      return {
+        id,
+        label: known ? known.label : (typeof b.label === 'string' ? b.label : ''),
+        enabled: b.enabled !== false,
+        ...(typeof b.custom_text === 'string' && b.custom_text.trim()
+          ? { custom_text: b.custom_text }
+          : {}),
+      }
+    })
     .filter(b => b.label.trim().length > 0)
   return beats.length ? beats : fallback
 }
@@ -207,6 +341,7 @@ export function normalizeChannelSegments(
           ? recipe.custom_opening_line
           : defaults.custom_opening_line,
         beats: normalizeBeats(recipe.beats, defaults.beats),
+        model: typeof recipe.model === 'string' ? recipe.model.trim() : defaults.model,
       },
       ...(typeof stored.inferred_at === 'string' && stored.inferred_at
         ? { inferred_at: stored.inferred_at }
