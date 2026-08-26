@@ -146,3 +146,105 @@ export function walkFiles(root) {
   visit(root)
   return files
 }
+
+// ── Packaged runtime dependency closure ─────────────────────────────────────
+// v1.4.69. v1.4.68 shipped an app.asar with 72 node_modules entries and no
+// express, because it was packaged from a worktree whose node_modules was a
+// SYMLINK that electron-builder did not follow. Every structural check passed
+// — signature, Info.plist, asar layout, DMG mounting — and the app still died
+// on launch with ERR_MODULE_NOT_FOUND. Nothing asserted that the code the app
+// imports was actually in the package.
+//
+// This walks the real dependency closure declared by the packaged
+// package.json, resolving each name the way Node does (nearest node_modules
+// first, then up the tree). It is derived entirely from the manifests, so it
+// cannot rot the way a hardcoded file count or package allowlist would: add a
+// dependency and it is covered on the next build with no edit here.
+
+/**
+ * Resolve `name` as Node would from a package living at `fromDir`
+ * (a package-root-relative path such as '' or 'node_modules/a').
+ * Returns the resolved directory, or null when nothing satisfies it.
+ */
+export function resolvePackagedDependency(name, fromDir, hasEntry) {
+  const bases = []
+  let cursor = fromDir.replace(/^\/+|\/+$/g, '')
+  bases.push(cursor)
+  while (cursor) {
+    const idx = cursor.lastIndexOf('node_modules')
+    if (idx < 0) break
+    cursor = cursor.slice(0, idx).replace(/\/+$/, '')
+    bases.push(cursor)
+  }
+  for (const base of bases) {
+    const dir = base ? `${base}/node_modules/${name}` : `node_modules/${name}`
+    if (hasEntry(`${dir}/package.json`)) return dir
+  }
+  return null
+}
+
+/**
+ * Breadth-first walk of the production dependency closure.
+ *
+ * @param rootManifest  parsed package.json of the packaged app
+ * @param hasEntry      (packageRelativePath) => boolean
+ * @param readManifest  (packageDir) => parsed package.json | null
+ * @returns { missing: [{ name, requiredBy }], resolved: Set<string> }
+ */
+export function packagedDependencyClosure(rootManifest, hasEntry, readManifest) {
+  const missing = []
+  const resolved = new Set()
+  const seen = new Set()
+  const queue = []
+
+  const enqueue = (manifest, fromDir, requiredBy) => {
+    for (const name of Object.keys(manifest?.dependencies || {})) {
+      const key = `${fromDir}::${name}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      queue.push({ name, fromDir, requiredBy })
+    }
+  }
+
+  enqueue(rootManifest, '', rootManifest?.name || 'package.json')
+
+  while (queue.length) {
+    const { name, fromDir, requiredBy } = queue.shift()
+    const dir = resolvePackagedDependency(name, fromDir, hasEntry)
+    if (!dir) {
+      missing.push({ name, requiredBy })
+      continue
+    }
+    if (resolved.has(dir)) continue
+    resolved.add(dir)
+    enqueue(readManifest(dir), dir, name)
+  }
+
+  return { missing, resolved }
+}
+
+/**
+ * Refuse to package from a tree electron-builder cannot read dependencies
+ * from. v1.4.68 was built in a scratch worktree whose node_modules was a
+ * symlink; `node_modules/**` matched almost nothing, and the failure only
+ * surfaced when the owner double-clicked the finished DMG. Catch it before
+ * the twenty-minute build instead of after it.
+ */
+export function packagingTreeErrors(root) {
+  const nodeModules = path.join(root, 'node_modules')
+  let stat
+  try {
+    stat = fs.lstatSync(nodeModules)
+  } catch {
+    return [`node_modules is missing at ${nodeModules} — run \`npm ci\` before packaging`]
+  }
+  if (stat.isSymbolicLink()) {
+    return [
+      `node_modules at ${nodeModules} is a symlink. electron-builder does not follow it, so the packaged `
+        + 'app would carry no runtime dependencies and would die at launch with ERR_MODULE_NOT_FOUND '
+        + '(this is exactly what shipped as v1.4.68). Package from a checkout with a real node_modules directory.',
+    ]
+  }
+  if (!stat.isDirectory()) return [`node_modules at ${nodeModules} is not a directory`]
+  return []
+}

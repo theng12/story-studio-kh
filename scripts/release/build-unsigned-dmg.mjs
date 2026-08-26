@@ -5,7 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { expandArtifactName } from './release-utils.mjs'
+import { expandArtifactName, packagingTreeErrors } from './release-utils.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(scriptDir, '..', '..')
@@ -29,6 +29,13 @@ function runNpm(args) {
   const result = spawnSync('npm', args, { cwd: root, stdio: 'inherit', env: process.env })
   if (result.error) throw result.error
   if (result.status !== 0) throw new Error(`npm ${args.join(' ')} exited ${result.status}`)
+}
+
+const treeErrors = packagingTreeErrors(root)
+if (treeErrors.length) {
+  console.error('Cannot package from this tree:')
+  for (const error of treeErrors) console.error(`- ${error}`)
+  process.exit(1)
 }
 
 runNpm(['run', 'fetch:ffmpeg'])

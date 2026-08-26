@@ -5,7 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-import { expandArtifactName } from './release-utils.mjs'
+import { expandArtifactName, packagingTreeErrors } from './release-utils.mjs'
 import { notarytoolCredentialArgs, publicReleaseCredentialErrors } from './public-release-credentials.mjs'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
@@ -32,6 +32,11 @@ if (process.platform !== 'darwin' || process.arch !== 'arm64') {
 const credentialErrors = publicReleaseCredentialErrors()
 if (credentialErrors.length) {
   throw new Error(`Public release credentials are incomplete:\n- ${credentialErrors.join('\n- ')}`)
+}
+
+const treeErrors = packagingTreeErrors(root)
+if (treeErrors.length) {
+  throw new Error(`Cannot package from this tree:\n- ${treeErrors.join('\n- ')}`)
 }
 
 run('npm', ['run', 'fetch:ffmpeg'])

@@ -1,5 +1,8 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {
   compareVersions,
   contentStoreAssetErrors,
@@ -7,6 +10,9 @@ import {
   forbiddenPackageEntry,
   parseChangelog,
   remoteStartupReferences,
+  packagedDependencyClosure,
+  packagingTreeErrors,
+  resolvePackagedDependency,
   validateServiceBaseUrl,
 } from '../release-utils.mjs'
 
@@ -84,5 +90,84 @@ describe('release utility contracts', () => {
     assert.match(validateServiceBaseUrl('http://api.example.com'), /HTTPS/)
     assert.match(validateServiceBaseUrl('https://api.example.com/v1'), /without a path/)
     assert.match(validateServiceBaseUrl('file:///Users/dev/server'), /HTTP/)
+  })
+})
+
+// v1.4.69 — v1.4.68 shipped an app.asar with no express in it and every
+// existing check passed. These pin the two guards that now make that
+// impossible, so neither can be quietly weakened later.
+describe('packaged runtime dependency guard', () => {
+  const closureOf = (entries, manifests) => {
+    const set = new Set(entries)
+    return packagedDependencyClosure(
+      manifests[''],
+      (relative) => set.has(relative),
+      (dir) => manifests[dir] || null,
+    )
+  }
+
+  test('rejects the exact v1.4.68 shape: a manifest whose dependencies are absent', () => {
+    const { missing, resolved } = closureOf(
+      ['package.json', 'electron/dist/server/app.js', 'node_modules/argparse/package.json'],
+      { '': { name: 'story-studio-kh', dependencies: { express: '^5.0.0', sharp: '^0.34.0' } } },
+    )
+    assert.equal(resolved.size, 0)
+    assert.deepEqual(missing.map((entry) => entry.name).sort(), ['express', 'sharp'])
+    assert.equal(missing[0].requiredBy, 'story-studio-kh')
+  })
+
+  test('accepts a complete tree and follows it transitively', () => {
+    const manifests = {
+      '': { name: 'story-studio-kh', dependencies: { express: '^5.0.0' } },
+      'node_modules/express': { name: 'express', dependencies: { 'body-parser': '^2.0.0' } },
+      'node_modules/body-parser': { name: 'body-parser', dependencies: {} },
+    }
+    const { missing, resolved } = closureOf(
+      ['node_modules/express/package.json', 'node_modules/body-parser/package.json'],
+      manifests,
+    )
+    assert.deepEqual(missing, [])
+    assert.equal(resolved.size, 2)
+  })
+
+  test('a dependency of a dependency going missing still fails the build', () => {
+    const manifests = {
+      '': { name: 'story-studio-kh', dependencies: { express: '^5.0.0' } },
+      'node_modules/express': { name: 'express', dependencies: { 'body-parser': '^2.0.0' } },
+    }
+    const { missing } = closureOf(['node_modules/express/package.json'], manifests)
+    assert.deepEqual(missing, [{ name: 'body-parser', requiredBy: 'express' }])
+  })
+
+  test('resolves nested copies the way Node does, nearest first then upward', () => {
+    const set = new Set([
+      'node_modules/a/node_modules/debug/package.json',
+      'node_modules/debug/package.json',
+    ])
+    const has = (relative) => set.has(relative)
+    assert.equal(resolvePackagedDependency('debug', 'node_modules/a', has), 'node_modules/a/node_modules/debug')
+    assert.equal(resolvePackagedDependency('debug', 'node_modules/b', has), 'node_modules/debug')
+    assert.equal(resolvePackagedDependency('nope', 'node_modules/a', has), null)
+  })
+})
+
+describe('packaging tree guard', () => {
+  test('refuses a symlinked node_modules, which electron-builder will not follow', () => {
+    const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'packaging-tree-'))
+    try {
+      const real = path.join(sandbox, 'real')
+      const worktree = path.join(sandbox, 'worktree')
+      fs.mkdirSync(path.join(real, 'node_modules'), { recursive: true })
+      fs.mkdirSync(worktree)
+      fs.symlinkSync(path.join(real, 'node_modules'), path.join(worktree, 'node_modules'))
+
+      assert.deepEqual(packagingTreeErrors(real), [])
+      const errors = packagingTreeErrors(worktree)
+      assert.equal(errors.length, 1)
+      assert.match(errors[0], /symlink/)
+      assert.match(packagingTreeErrors(sandbox)[0], /missing/)
+    } finally {
+      fs.rmSync(sandbox, { recursive: true, force: true })
+    }
   })
 })

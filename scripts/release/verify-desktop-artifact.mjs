@@ -7,6 +7,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { packagedDependencyFailures } from './verify-packaged-dependencies.mjs'
+import { smokeLaunch } from './smoke-launch-artifact.mjs'
 import {
   expandArtifactName,
   contentStoreAssetErrors,
@@ -79,6 +81,8 @@ if (!fs.existsSync(appPath)) fail(`packaged app is missing: ${appPath}`)
 if (!fs.existsSync(dmgPath)) fail(`DMG is missing: ${dmgPath}`)
 
 let signatureKind = 'unavailable'
+let packagedDependencyCount = 0
+let launchResult = null
 if (fs.existsSync(appPath)) {
   if (plistValue('CFBundleIdentifier') !== contract.appId) fail('Info.plist: bundle identifier differs from release contract')
   if (plistValue('CFBundleShortVersionString') !== pkg.version) fail('Info.plist: short version differs from package.json')
@@ -144,6 +148,17 @@ if (fs.existsSync(appPath)) {
       fail(`could not inspect packaged offline frontend: ${error.message}`)
     }
 
+    // v1.4.69 — the check that would have stopped v1.4.68. Everything above
+    // this point is structure; none of it notices that the app's runtime
+    // dependency tree was never packaged, which is what actually shipped.
+    const unpackedRoot = `${asarPath}.unpacked`
+    const dependencyResult = packagedDependencyFailures(
+      asarPath,
+      fs.existsSync(unpackedRoot) ? unpackedRoot : null,
+    )
+    for (const failure of dependencyResult.failures) fail(failure)
+    packagedDependencyCount = dependencyResult.resolvedCount
+
     const textExt = new Set(['.js', '.cjs', '.mjs', '.json', '.html', '.css', '.txt', '.xml', '.yml', '.yaml'])
     const forbiddenContent = [root, path.join(os.homedir(), 'pinokio'), path.join(os.homedir(), '.pinokio')]
     for (const entry of entries) {
@@ -195,6 +210,20 @@ if (fs.existsSync(dmgPath) && process.platform === 'darwin') {
   }
 }
 
+// v1.4.69 — the launch itself. Structure, signature and mounting all passed
+// on a v1.4.68 that could not start; only running it catches that class. The
+// backend is embedded in the Electron main process, so an answer on
+// /api/health proves the main process resolved its imports and finished boot.
+// It runs in a throwaway user-data dir, so it neither touches real projects
+// nor collides with a copy of the app the developer already has open.
+const skipLaunch = process.argv.includes('--skip-launch')
+if (!failures.length && fs.existsSync(appPath) && process.platform === 'darwin' && !skipLaunch) {
+  launchResult = await smokeLaunch(appPath, { timeoutMs: Number(argValue('--launch-timeout') || 180_000) })
+  if (!launchResult.ok) {
+    for (const error of launchResult.errors) fail(`packaged app does not run: ${error}`)
+  }
+}
+
 if (failures.length) {
   console.error('Desktop artifact verification failed:')
   for (const failure of failures) console.error(`- ${failure}`)
@@ -207,5 +236,11 @@ console.log(`Desktop artifact verified: ${dmgPath}`)
 console.log(`  app: ${contract.appId} v${pkg.version} (${contract.architectures.join(', ')})`)
 console.log(`  signature: ${signatureKind} (no Developer ID)`)
 console.log(`  DMG mounted read-only: ${dmgMounted ? 'yes' : 'no'}`)
+console.log(`  runtime dependency closure inside app.asar: ${packagedDependencyCount} packages`)
+console.log(
+  launchResult
+    ? `  launch smoke test: booted and served /api/health on port ${launchResult.port} in ${launchResult.ms}ms`
+    : `  launch smoke test: SKIPPED${skipLaunch ? ' (--skip-launch)' : ''}`,
+)
 console.log(`  bytes: ${size}`)
 console.log(`  sha256: ${digest}`)

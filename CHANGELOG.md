@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.69 — 2026-08-26
+
+- **This is v1.4.68, rebuilt so that it starts.** The v1.4.68 download would not open at all. It was packaged from a folder where the app's supporting libraries were only a shortcut to somewhere else rather than the real thing, so the packager skipped them and the finished app had nothing to run on. Every fix listed under v1.4.68 below is in this build, unchanged — only the packaging was wrong.
+- **A build that cannot start can no longer be released.** The release check confirmed the app was correctly signed, correctly named and correctly structured, but never that it actually runs, which is exactly how a dead build got through. It now opens the packaged app for real and waits for the app's own internal service to answer before the build is allowed to pass, and it separately confirms every library the app needs is genuinely inside the package.
+
 ## v1.4.68 — 2026-08-26
 
 - **The app stopped writing its own name into your scripts.** Every narration file it built opened with a line naming the app and the episode number, and that line is the first thing a model reads when it works out what the episode *is*. That is why descriptions came back saying "In this episode of Story Studio" and carrying #StoryStudio — nothing you wrote put it there, the app did. The line is no longer written, and it is stripped out of files already sitting on your disk as they are read, so old episodes stop causing it too. What this does **not** do is go back and rewrite metadata you have already generated: descriptions and tags saved before today stay exactly as they were saved, deliberately, because they are yours to keep or change. Anything already uploaded has to be corrected in YouTube itself.
