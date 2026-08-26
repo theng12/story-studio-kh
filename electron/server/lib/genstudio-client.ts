@@ -97,6 +97,8 @@ const CATALOG_RETRY_ATTEMPTS = 3
 const CATALOG_REQUEST_TIMEOUT_MS = 8_000
 const CATALOG_FRESH_MS = 5 * 60_000
 const CATALOG_STALE_MS = 30 * 60_000
+/** How long a last-known account overview stays showable, clearly marked stale. */
+const ACCOUNT_OVERVIEW_STALE_MS = 30 * 60_000
 export const GENSTUDIO_LONG_JOB_TIMEOUT_MS = 4 * 60 * 60_000
 export const GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS = 30_000
 export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
@@ -1229,6 +1231,21 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
   minimum_credits: number
   price_version: string
   cost_tier?: GenStudioCostTier
+  /**
+   * GenStudio offers some products at a reduced price in exchange for a data
+   * arrangement, and publishes both the flag and the exact sentence describing
+   * it. This is NOT `sale_disclaimer`, which is a price-promotion notice on a
+   * different catalogue and means something else entirely.
+   *
+   * The wording is never copied into this app. GenStudio keeps one constant
+   * shared between its picker and its terms page, pinned by a test, precisely
+   * because softening a word — dropping "by us", or "training" becoming
+   * "improving" — changes what a customer was told they agreed to. A second
+   * copy here would be a second source of truth, and it would drift.
+   */
+  discount: boolean
+  /** Published verbatim, or null when this product carries no such notice. */
+  discount_disclaimer: string | null
   input_modalities: Array<'text' | 'image'>
   supports_vision: boolean
   max_input_images: number
@@ -3212,6 +3229,21 @@ export interface GenStudioCatalogSnapshot<T> {
   ageMs: number
 }
 
+/**
+ * The account overview plus how current the copy is. `freshness` is only ever
+ * `live` or `stale` here: the overview always revalidates, so it is never
+ * served from an unexpired freshness window the way a catalogue can be.
+ */
+export interface GenStudioAccountOverviewSnapshot {
+  value: GenStudioAccountOverview
+  freshness: GenStudioCatalogFreshness
+  /** True while the value is only usable because a refresh failed. */
+  stale: boolean
+  /** When the copy was actually loaded from GenStudio. */
+  loadedAt: string
+  ageMs: number
+}
+
 const CATALOG_LABEL: Record<GenStudioCatalogKind, string> = {
   capabilities: 'capability',
   voices: 'voice',
@@ -3254,13 +3286,14 @@ export class GenStudioCatalogUnavailableError extends Error {
 const catalogCache = new Map<string, CatalogCacheEntry<unknown>>()
 const catalogRefreshes = new Map<string, Promise<unknown>>()
 
-function catalogCacheKey(kind: GenStudioCatalogKind, baseUrl: string, apiKey: string): string {
+function catalogCacheKey(kind: GenStudioCatalogKind | 'account-overview', baseUrl: string, apiKey: string): string {
   return `${kind}:${createHash('sha256').update(`${baseUrl}\0${apiKey}`).digest('hex')}`
 }
 
 /**
- * Forget every cached catalogue. Use when the account key changes — a snapshot
- * loaded under a different key must never authorise a submission.
+ * Forget every cached GenStudio read, catalogues and the account overview
+ * alike. Use when the account key changes — a snapshot loaded under a different
+ * key must never authorise a submission, nor be shown as this account's balance.
  */
 export function clearGenStudioCatalogCache(): void {
   catalogCache.clear()
@@ -3274,7 +3307,16 @@ export function invalidateGenStudioCatalogFreshness(): void {
   for (const entry of catalogCache.values()) entry.freshUntil = 0
 }
 
-async function fetchCatalogJson(url: string, apiKey: string): Promise<unknown> {
+/**
+ * One retrying JSON read for every GenStudio surface that is free, idempotent
+ * and safe to re-request. `unreachable` names the surface, so a caller that is
+ * not a catalogue does not report a catalogue failure.
+ */
+async function fetchRetryingJson(
+  url: string,
+  apiKey: string,
+  unreachable = 'GenStudio KH model catalog could not be reached after automatic reconnect attempts.',
+): Promise<unknown> {
   let lastError: unknown
   for (let attempt = 1; attempt <= CATALOG_RETRY_ATTEMPTS; attempt++) {
     try {
@@ -3290,10 +3332,7 @@ async function fetchCatalogJson(url: string, apiKey: string): Promise<unknown> {
       await new Promise(resolve => setTimeout(resolve, 300 * (2 ** (attempt - 1))))
     }
   }
-  throw new Error(
-    'GenStudio KH model catalog could not be reached after automatic reconnect attempts.',
-    { cause: lastError },
-  )
+  throw new Error(unreachable, { cause: lastError })
 }
 
 function catalogSnapshot<T>(
@@ -3327,9 +3366,41 @@ async function cachedCatalogSnapshot<T>(
   key: string,
   load: () => Promise<T>,
 ): Promise<GenStudioCatalogSnapshot<T>> {
+  const { entry, freshness, now } = await cachedRemoteSnapshot(
+    key,
+    load,
+    CATALOG_FRESH_MS,
+    CATALOG_STALE_MS,
+    (ageMs, cause) => new GenStudioCatalogUnavailableError(kind, ageMs, cause),
+  )
+  return catalogSnapshot(kind, entry, freshness, now)
+}
+
+/**
+ * The cache-with-stale-fallback every GenStudio read shares.
+ *
+ * One in-flight refresh is shared across concurrent callers; a successful load
+ * always wins; a failed refresh falls back to the last copy while it is still
+ * inside `staleMs`, and only when there is no usable copy left does the
+ * caller's own `unavailable` error escape. Authentication and scope failures
+ * never fall back — a key that lost its entitlement must not keep being served
+ * data it is no longer allowed to see.
+ *
+ * `freshMs` of 0 means "always revalidate, but survive a blip": every call
+ * attempts a live read and the cached copy exists only as a stale fallback.
+ * That is what a moving number like a credit balance wants, where serving a
+ * cached value on the happy path would show the balance lagging real spend.
+ */
+async function cachedRemoteSnapshot<T>(
+  key: string,
+  load: () => Promise<T>,
+  freshMs: number,
+  staleMs: number,
+  unavailable: (ageMs: number | null, cause: unknown) => Error,
+): Promise<{ entry: CatalogCacheEntry<T>; freshness: GenStudioCatalogFreshness; now: number }> {
   const now = Date.now()
   const cached = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
-  if (cached && cached.freshUntil > now) return catalogSnapshot(kind, cached, 'fresh', now)
+  if (cached && cached.freshUntil > now) return { entry: cached, freshness: 'fresh', now }
 
   let refresh = catalogRefreshes.get(key) as Promise<T> | undefined
   if (!refresh) {
@@ -3338,8 +3409,8 @@ async function cachedCatalogSnapshot<T>(
       catalogCache.set(key, {
         value,
         loadedAt,
-        freshUntil: loadedAt + CATALOG_FRESH_MS,
-        staleUntil: loadedAt + CATALOG_STALE_MS,
+        freshUntil: loadedAt + freshMs,
+        staleUntil: loadedAt + staleMs,
       })
       return value
     }).finally(() => {
@@ -3350,19 +3421,16 @@ async function cachedCatalogSnapshot<T>(
 
   try {
     await refresh
-    const loaded = catalogCache.get(key) as CatalogCacheEntry<T>
-    return catalogSnapshot(kind, loaded, 'live', Date.now())
+    return { entry: catalogCache.get(key) as CatalogCacheEntry<T>, freshness: 'live', now: Date.now() }
   } catch (error) {
     // Never serve account data the key is not (or no longer) entitled to.
     if (error instanceof GenStudioApiError && (error.status === 401 || error.status === 403)) throw error
     const settledAt = Date.now()
     const fallback = catalogCache.get(key) as CatalogCacheEntry<T> | undefined
-    if (fallback && fallback.staleUntil > settledAt) return catalogSnapshot(kind, fallback, 'stale', settledAt)
-    throw new GenStudioCatalogUnavailableError(
-      kind,
-      fallback ? Math.max(0, settledAt - fallback.loadedAt) : null,
-      error,
-    )
+    if (fallback && fallback.staleUntil > settledAt) {
+      return { entry: fallback, freshness: 'stale', now: settledAt }
+    }
+    throw unavailable(fallback ? Math.max(0, settledAt - fallback.loadedAt) : null, error)
   }
 }
 
@@ -3402,7 +3470,7 @@ export async function listVoicesSnapshot(
   if (options.search?.trim()) query.set('search', options.search.trim())
   const suffix = query.size ? `?${query.toString()}` : ''
   return cachedCatalogSnapshot('voices', catalogCacheKey('voices', `${baseUrl}${suffix}`, apiKey), async () => {
-  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/voices${suffix}`, apiKey)
+  const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/voices${suffix}`, apiKey)
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice catalog')
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
@@ -3451,7 +3519,7 @@ export async function listTtsModelsSnapshot(
 ): Promise<GenStudioCatalogSnapshot<GenStudioTtsModel[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('tts-models', catalogCacheKey('tts-models', baseUrl, apiKey), async () => {
-    const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/tts/models`, apiKey)
+    const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/tts/models`, apiKey)
     if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid voice model catalog')
     return payload.flatMap((value: any): GenStudioTtsModel[] => {
       const id = typeof value?.id === 'string' ? value.id.trim() : ''
@@ -3505,7 +3573,7 @@ export async function listMusicModelsSnapshot(
 ): Promise<GenStudioCatalogSnapshot<GenStudioMusicModel[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('music', catalogCacheKey('music', baseUrl, apiKey), async () => {
-    const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/music/models`, apiKey)
+    const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/music/models`, apiKey)
     if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid music model catalog')
     return payload.flatMap((value: any): GenStudioMusicModel[] => {
       const id = typeof value?.id === 'string' ? value.id.trim() : ''
@@ -3605,7 +3673,7 @@ export async function listGenStudioVoiceLibrary(
   if (options.search?.trim()) query.set('search', options.search.trim())
   if (Number.isFinite(options.page) && (options.page as number) > 0) query.set('page', String(Math.floor(options.page as number)))
   const suffix = query.size ? `?${query.toString()}` : ''
-  const payload: any = await fetchCatalogJson(`${apiBase(baseUrl)}${voiceLibraryPath(library)}${suffix}`, apiKey)
+  const payload: any = await fetchRetryingJson(`${apiBase(baseUrl)}${voiceLibraryPath(library)}${suffix}`, apiKey)
   if (!payload || !Array.isArray(payload.voices)) {
     throw new Error('GenStudio KH returned an invalid voice library page')
   }
@@ -3772,7 +3840,7 @@ export async function listModelCapabilitiesSnapshot(
 ): Promise<GenStudioCatalogSnapshot<GenStudioModelCapability[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('capabilities', catalogCacheKey('capabilities', baseUrl, apiKey), async () => {
-  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/models`, apiKey)
+  const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/models`, apiKey)
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid capability catalog')
   const modalities = new Set(['audio', 'image', 'text', 'video'])
   const operations = new Set(['voice.tts', 'audio.transcription', 'image.generation', 'chat.response', 'video.generation'])
@@ -3819,7 +3887,7 @@ export async function listChatModelsSnapshot(
 ): Promise<GenStudioCatalogSnapshot<GenStudioChatModel[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('chat', catalogCacheKey('chat', baseUrl, apiKey), async () => {
-  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/chat/models`, apiKey)
+  const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/chat/models`, apiKey)
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid chat model catalog')
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
@@ -3857,6 +3925,10 @@ export async function listChatModelsSnapshot(
       : 0,
     price_version: typeof value?.price_version === 'string' ? value.price_version.trim() : '',
     ...(parseGenStudioCostTier(value?.cost_tier) ? { cost_tier: parseGenStudioCostTier(value?.cost_tier) } : {}),
+    // Read, never authored. An older GenStudio that publishes neither field
+    // simply carries no notice — which is the truth, not a default.
+    discount: value?.discount === true,
+    discount_disclaimer: optionalText(value?.discount_disclaimer) ?? null,
     input_modalities: Array.isArray(value?.input_modalities)
       ? value.input_modalities.filter((item: unknown): item is 'text' | 'image' => item === 'text' || item === 'image')
       : ['text'],
@@ -3922,7 +3994,7 @@ export async function listVideoModelsSnapshot(
 ): Promise<GenStudioCatalogSnapshot<GenStudioVideoModel[]>> {
   const baseUrl = await getGenStudioUrl()
   return cachedCatalogSnapshot('video', catalogCacheKey('video', baseUrl, apiKey), async () => {
-  const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/videos/models`, apiKey)
+  const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/videos/models`, apiKey)
   if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid video model catalog')
   return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',
@@ -4516,14 +4588,83 @@ export async function generateMusicWithGenStudio(
 
 async function readAccountJson<T>(apiKey: string, pathName: string): Promise<T> {
   const baseUrl = await getGenStudioUrl()
-  return readJson(await fetch(`${apiBase(baseUrl)}${pathName}`, {
-    headers: authorization(apiKey),
-    signal: AbortSignal.timeout(8_000),
-  })) as Promise<T>
+  return await fetchRetryingJson(
+    `${apiBase(baseUrl)}${pathName}`,
+    apiKey,
+    'GenStudio KH account data could not be reached after automatic reconnect attempts.',
+  ) as T
+}
+
+/**
+ * The account overview could not be refreshed AND no copy remains inside the
+ * staleness window — the only state in which a usage surface may honestly say
+ * the account is unreachable. A single slow or 502 response is NOT this: it is
+ * retried, and then answered from the last known copy marked stale.
+ */
+export class GenStudioAccountUnavailableError extends Error {
+  /** Age of the last cached copy, when there was one at all. */
+  readonly ageMs: number | null
+
+  constructor(ageMs: number | null, cause?: unknown) {
+    super(
+      'The GenStudio KH account overview could not be refreshed'
+      + `${ageMs == null
+        ? ' and Story Studio has no cached copy'
+        : ` and the cached copy is ${Math.round(ageMs / 60_000)} minute(s) old, beyond the `
+          + `${Math.round(ACCOUNT_OVERVIEW_STALE_MS / 60_000)}-minute staleness limit`}. `
+      + 'Balance and capacity are not shown rather than guessed. Work already running is '
+      + 'unaffected. Check your connection, then Retry.',
+      cause === undefined ? undefined : { cause },
+    )
+    this.name = 'GenStudioAccountUnavailableError'
+    this.ageMs = ageMs
+  }
+}
+
+/**
+ * Lightweight authoritative account status used by the usage surfaces, with the
+ * freshness of the copy being returned.
+ *
+ * This read is on the SAME resilient path as every catalogue: retried, shared
+ * across concurrent callers, and backed by the last known copy during a short
+ * interruption. It used to be the one bare `fetch` in this client, so a single
+ * 8-second timeout emptied the balance and the header badge announced the whole
+ * service was unavailable while jobs carried on generating normally.
+ *
+ * The freshness window is 0 on purpose: a balance moves as work is billed, so
+ * every call revalidates and the cache exists only as the stale fallback.
+ *
+ * Admission control deliberately does NOT come through here — it reads the
+ * overview raw (see `genStudioAdmission`), because deciding whether there is
+ * capacity to spend is not a display and must never be settled from a cached
+ * copy.
+ */
+export async function getGenStudioAccountOverviewSnapshot(
+  apiKey: string,
+): Promise<GenStudioAccountOverviewSnapshot> {
+  const baseUrl = await getGenStudioUrl()
+  const { entry, freshness, now } = await cachedRemoteSnapshot(
+    catalogCacheKey('account-overview', baseUrl, apiKey),
+    () => readAccountOverview(apiKey),
+    0,
+    ACCOUNT_OVERVIEW_STALE_MS,
+    (ageMs, cause) => new GenStudioAccountUnavailableError(ageMs, cause),
+  )
+  return {
+    value: entry.value,
+    freshness,
+    stale: freshness === 'stale',
+    loadedAt: new Date(entry.loadedAt).toISOString(),
+    ageMs: Math.max(0, now - entry.loadedAt),
+  }
 }
 
 /** Lightweight authoritative account status used by the usage surfaces. */
 export async function getGenStudioAccountOverview(apiKey: string): Promise<GenStudioAccountOverview> {
+  return (await getGenStudioAccountOverviewSnapshot(apiKey)).value
+}
+
+async function readAccountOverview(apiKey: string): Promise<GenStudioAccountOverview> {
   const {
     app_links,
     credit_balance,
@@ -4573,21 +4714,46 @@ export async function getGenStudioAccountOverview(apiKey: string): Promise<GenSt
 /** Authoritative balance and settlement data; never reconstructed locally. */
 export async function getGenStudioAccountSnapshot(apiKey: string): Promise<{
   overview: GenStudioAccountOverview
+  /** How current `overview` is, so the usage surfaces can say so. */
+  overview_freshness: Omit<GenStudioAccountOverviewSnapshot, 'value'>
   jobs: { items: GenStudioCustomerJob[]; page: number; page_size: number; total: number; total_pages: number }
   credit_activity: { items: GenStudioCreditActivity[]; page: number; page_size: number; total: number; total_pages: number }
+  /** Set when settlement history could not be read; the balance above still stands. */
+  history_error?: string
 }> {
   // Prove the key has account access before starting the two larger paginated
   // reads. An invalid or under-scoped key therefore produces one clear
   // failure instead of three concurrent rejected requests.
-  const overview = await getGenStudioAccountOverview(apiKey)
+  const { value: overview, ...overviewFreshness } = await getGenStudioAccountOverviewSnapshot(apiKey)
   // GenStudio accepts a fixed page-size set. Keep this explicit so Story
   // Studio cannot drift back to an otherwise reasonable but invalid value.
   const accountPageSize = 20
+  // The header badge polls this endpoint for one number — the balance — and the
+  // account overview above has already produced it. Settlement history is a
+  // separate, much larger read, and letting its failure collapse the whole
+  // response is another way a perfectly readable account reports itself
+  // unavailable. History that could not be read is reported AS SUCH, never as
+  // an empty history, which the usage page would otherwise render as "none".
+  let historyError = ''
+  const readHistory = async <T>(pathName: string): Promise<T> => {
+    try {
+      return await readAccountJson<T>(apiKey, pathName)
+    } catch (error) {
+      if (!historyError) historyError = error instanceof Error ? error.message : String(error)
+      return { items: [], page: 1, page_size: accountPageSize, total: 0, total_pages: 0 } as T
+    }
+  }
   const [jobs, creditActivity] = await Promise.all([
-    readAccountJson<any>(apiKey, `/v1/account/jobs?page=1&page_size=${accountPageSize}`),
-    readAccountJson<any>(apiKey, `/v1/account/credit-activity?page=1&page_size=${accountPageSize}`),
+    readHistory<any>(`/v1/account/jobs?page=1&page_size=${accountPageSize}`),
+    readHistory<any>(`/v1/account/credit-activity?page=1&page_size=${accountPageSize}`),
   ])
-  return { overview, jobs, credit_activity: creditActivity }
+  return {
+    overview,
+    overview_freshness: overviewFreshness,
+    jobs,
+    credit_activity: creditActivity,
+    ...(historyError ? { history_error: historyError } : {}),
+  }
 }
 
 /**
@@ -5733,7 +5899,7 @@ export async function listTranscriptionModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   const key = catalogCacheKey('transcription', baseUrl, apiKey)
   return cachedCatalogSnapshot('transcription', key, async () => {
-    const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/transcription/models`, apiKey)
+    const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/transcription/models`, apiKey)
     if (!Array.isArray(payload)) {
       throw new Error('GenStudio KH returned an invalid transcription model catalog')
     }
@@ -5809,7 +5975,7 @@ export async function listImageModelsSnapshot(
   const baseUrl = await getGenStudioUrl()
   const key = catalogCacheKey('image', baseUrl, apiKey)
   return cachedCatalogSnapshot('image', key, async () => {
-    const payload = await fetchCatalogJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey)
+    const payload = await fetchRetryingJson(`${apiBase(baseUrl)}/v1/image/models`, apiKey)
     if (!Array.isArray(payload)) throw new Error('GenStudio KH returned an invalid image model catalog')
     return payload.map((value: any) => ({
     id: typeof value?.id === 'string' ? value.id.trim() : '',

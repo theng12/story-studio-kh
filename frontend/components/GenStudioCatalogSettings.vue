@@ -106,6 +106,7 @@
 </template>
 
 <script setup lang="ts">
+import { formatGenStudioAge } from '~/utils/genstudio-freshness'
 import { createGenStudioCatalogCache, GENSTUDIO_CATALOG_FRESH_MS, GENSTUDIO_CATALOG_STALE_CEILING_MS } from '../composables/useGenStudioCatalogCache.js'
 import { useGenStudioTranscriptionCatalog } from '../composables/useGenStudioTranscription.js'
 import { costTierLabel, type GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
@@ -265,14 +266,9 @@ const anyStale = computed(() => freshnessEntries.value.some(entry => entry.isSta
 const staleSections = computed(() => freshnessEntries.value.filter(entry => entry.isStale && !entry.isExpired).map(entry => entry.label))
 const expiredSections = computed(() => freshnessEntries.value.filter(entry => entry.isExpired).map(entry => entry.label))
 
+/** Shared with the header badge and the generator pages, so age reads the same everywhere. */
 function formatCatalogAge(lastFetchedAt: number | null): string {
-  if (lastFetchedAt === null) return 'never fetched'
-  const minutes = Math.max(0, Math.round((Date.now() - lastFetchedAt) / 60_000))
-  if (minutes < 1) return 'just now'
-  if (minutes === 1) return '1 minute ago'
-  if (minutes < 60) return `${minutes} minutes ago`
-  const hours = Math.round(minutes / 60)
-  return hours === 1 ? '1 hour ago' : `${hours} hours ago`
+  return formatGenStudioAge(lastFetchedAt)
 }
 
 function freshnessBadge(entry: { isStale: boolean; isExpired: boolean; lastFetchedAt: number | null }): { label: string; tone: 'warning' | 'error' } | null {

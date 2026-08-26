@@ -71,6 +71,8 @@ function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioC
     display_name: 'Research Product 1',
     available: true,
     qualification_only: false,
+    discount: false,
+    discount_disclaimer: null,
     context_window_tokens: 128_000,
     max_output_tokens: 8_192,
     max_structured_items_per_request: null,

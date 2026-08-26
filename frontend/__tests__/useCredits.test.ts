@@ -7,8 +7,8 @@
  *      GenStudio usage snapshot.
  *   2. `startPolling()` fires an immediate fetch without project context and
  *      shares one interval across shell consumers.
- *   3. A fetch error clears the displayed number so stale credits are never
- *      presented as authoritative.
+ *   3. A fetch error does NOT empty the displayed number. It is marked stale
+ *      instead, and only a definitive failure clears it — see below.
  *   4. Slow balance reads are shared instead of overlapping.
  *
  * `$fetch` is a Nuxt global stubbed before the module loads.
@@ -81,20 +81,69 @@ describe('useCredits.fetchHealth()', () => {
     ])
   })
 
-  test('a fetch error clears stale credits and exposes an actionable error', async () => {
+  /**
+   * The defect this replaces: any failed poll emptied the balance, and the
+   * header announced `GenStudio Unavailable` beside a narration job that was
+   * generating perfectly well. The server already retries and already falls
+   * back to its own last known copy before it reports failure at all, so a
+   * failed poll is not evidence the account is unreachable.
+   */
+  test('a transient fetch error keeps the balance, marked stale, and still surfaces the error', async () => {
     fetchHandler = (url) => {
       if (url === '/api/app-settings/api-keys') return configuredKey
       if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
       throw new Error(`unexpected ${url}`)
     }
-    const { fetchHealth, genstudioCredits, usageError } = useCredits()
+    const { fetchHealth, genstudioCredits, genstudioCreditsStale, usageError } = useCredits()
     await fetchHealth()
     assert.equal(genstudioCredits.value, 250)
+    assert.equal(genstudioCreditsStale.value, false)
 
     fetchHandler = () => { throw new Error('network down') }
     await fetchHealth()
-    assert.equal(genstudioCredits.value, null)
-    assert.match(usageError.value, /network down/)
+    assert.equal(genstudioCredits.value, 250, 'the balance stays; it is real, just not new')
+    assert.equal(genstudioCreditsStale.value, true, 'and it is marked so the strip can say so')
+    assert.match(usageError.value, /network down/, 'the reason stays available in the tooltip')
+  })
+
+  test('a stale server answer is marked stale without any error at all', async () => {
+    fetchHandler = (url) => {
+      if (url === '/api/app-settings/api-keys') return configuredKey
+      if (url === '/api/app-settings/genstudio/usage') {
+        // The server retried, failed, and answered from its own kept copy.
+        return { ...authoritativeUsage, overview_freshness: { stale: true, ageMs: 4 * 60_000 } }
+      }
+      throw new Error(`unexpected ${url}`)
+    }
+    const { fetchHealth, genstudioCredits, genstudioCreditsStale, genstudioCreditsLoadedAt, usageError } = useCredits()
+    await fetchHealth()
+    assert.equal(genstudioCredits.value, 250)
+    assert.equal(genstudioCreditsStale.value, true)
+    assert.equal(usageError.value, '', 'a stale 200 is not an error')
+    assert.ok(
+      Date.now() - (genstudioCreditsLoadedAt.value as number) >= 4 * 60_000 - 1_000,
+      'the age reported by the server is carried, not restarted at zero',
+    )
+  })
+
+  test('a key that can no longer read the account does report unavailable', async () => {
+    fetchHandler = (url) => {
+      if (url === '/api/app-settings/api-keys') return configuredKey
+      if (url === '/api/app-settings/genstudio/usage') return authoritativeUsage
+      throw new Error(`unexpected ${url}`)
+    }
+    const { fetchHealth, genstudioCredits, genstudioCreditsStale } = useCredits()
+    await fetchHealth()
+    assert.equal(genstudioCredits.value, 250)
+
+    // Definitive, not transient: this key is not entitled to the balance, so
+    // the last one we saw is not ours to keep showing.
+    fetchHandler = () => {
+      throw Object.assign(new Error('scope'), { data: { code: 'GENSTUDIO_USAGE_SCOPE_UNAVAILABLE' } })
+    }
+    await fetchHealth()
+    assert.equal(genstudioCredits.value, null, 'this is what Unavailable is for')
+    assert.equal(genstudioCreditsStale.value, false)
   })
 })
 

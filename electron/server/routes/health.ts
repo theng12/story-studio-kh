@@ -138,6 +138,11 @@ router.get('/models', async (_req, res) => {
       output_credits_per_million_tokens: model.output_credits_per_million_tokens,
       minimum_credits: model.minimum_credits,
       price_version: model.price_version,
+      // GenStudio's data disclosure, forwarded verbatim. The picker shows the
+      // sentence GenStudio publishes; Story Studio never writes one of its own,
+      // because a softened copy would change what the customer agreed to.
+      discount: model.discount,
+      discount_disclaimer: model.discount_disclaimer,
     }))
     res.json(models)
   } catch (error: any) {

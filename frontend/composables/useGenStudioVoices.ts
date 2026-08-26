@@ -212,6 +212,14 @@ export function useGenStudioVoices() {
   const modelsLoading = ref(false)
   const modelsError = ref('')
   const modelsLoaded = ref(false)
+  /**
+   * Freshness of the rows above, as the server reported it. The generator page
+   * shows these prices and character limits as fact, so it must be able to say
+   * when they came from a copy the server kept through a service interruption
+   * rather than from a live read.
+   */
+  const modelsStale = ref(false)
+  const modelsLoadedAt = ref<number | null>(null)
 
   const voices = ref<GenStudioVoice[]>([])
   const voicesLoading = ref(false)
@@ -225,11 +233,18 @@ export function useGenStudioVoices() {
     modelsLoading.value = true
     modelsError.value = ''
     try {
-      const data = await get<{ models?: GenStudioTtsModel[] }>('/app-settings/genstudio/tts-models', { cache: 'no-store' })
+      const data = await get<{
+        models?: GenStudioTtsModel[]
+        freshness?: { stale?: boolean; ageMs?: number }
+      }>('/app-settings/genstudio/tts-models', { cache: 'no-store' })
       models.value = Array.isArray(data.models) ? data.models : []
+      modelsStale.value = data.freshness?.stale === true
+      modelsLoadedAt.value = Date.now() - (Number.isFinite(data.freshness?.ageMs) ? data.freshness!.ageMs as number : 0)
       modelsLoaded.value = true
     } catch (error: any) {
       models.value = []
+      modelsStale.value = false
+      modelsLoadedAt.value = null
       modelsError.value = error?.data?.detail || error?.message || 'The GenStudio KH voice model catalogue is unavailable.'
     } finally {
       modelsLoading.value = false
@@ -391,6 +406,8 @@ export function useGenStudioVoices() {
     modelsLoading,
     modelsError,
     modelsLoaded,
+    modelsStale,
+    modelsLoadedAt,
     voices,
     voicesLoading,
     voicesError,

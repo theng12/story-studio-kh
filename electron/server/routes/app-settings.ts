@@ -30,7 +30,7 @@ import {
   listTranscriptionModels as listGenStudioTranscriptionModels,
   listVideoModels as listGenStudioVideoModels,
   listVoices as listGenStudioVoices,
-  listTtsModels as listGenStudioTtsModels,
+  listTtsModelsSnapshot,
   setGenStudioVoiceSaved,
   listGenStudioVoiceLibrary,
   addGenStudioVoiceLibraryVoice,
@@ -478,8 +478,13 @@ router.get('/app-settings/genstudio/tts-models', async (_req, res) => {
     const apiKey = await requireGenStudioKey(res)
     if (!apiKey) return
     const { resolveTtsRequestBudget } = await import('../services/tts-request-plan.js')
-    const models = await listGenStudioTtsModels(apiKey)
+    // The snapshot rather than the bare list: the generator page states these
+    // prices and character limits as fact, so it has to be able to say when the
+    // copy behind them is one the server kept through a service interruption.
+    const snapshot = await listTtsModelsSnapshot(apiKey)
+    const models = snapshot.value
     res.json({
+      freshness: { stale: snapshot.stale, ageMs: snapshot.ageMs, loadedAt: snapshot.loadedAt },
       // Every field on a row is GenStudio's except `planned_request_characters`,
       // which is Story Studio's own planning budget for that row — the enforced
       // boundary, so the page can state it without re-deriving the policy that

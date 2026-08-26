@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.70 — 2026-08-26
+
+- **"GenStudio Unavailable" no longer appears while the app is working.** The little balance panel in the corner asked GenStudio for your credits once, waited eight seconds, and if that one request was slow or came back wrong it wiped the number and announced the whole service was unavailable — next to a narration job that was generating perfectly normally. Everything else in the app already knew better: the model catalogue and job submission both try again, and both fall back on the last good answer during a short interruption. That balance check was the only part that did not. It does now, and there are three honest answers instead of two: your current credits, your last known credits marked with how old they are, or — only after the retries have genuinely failed and there is nothing left worth showing — Unavailable.
+- **GenStudio's data notice is now actually shown to you.** Some language models are offered at a reduced price on the understanding that what you send them may be kept and may be used for training. GenStudio publishes that notice on every model it applies to — and Story Studio was reading right past it. Since language models are only ever chosen inside this app, that meant nobody ever saw it: you could pick one of those models today without being told. Models carrying a notice are now flagged in the list so you can spot them while browsing, and the full wording appears underneath the picker, in ordinary readable text, for as long as such a model is the one you have chosen. It vanishes when you pick a model without one. There is no box to tick — the notice ends by saying not to use those models if you do not agree, so choosing one is the agreement, and there is nothing extra to click past.
+- **Prices and limits say when they might be out of date.** The app keeps using catalogue figures for up to half an hour after a failed refresh, which is the right thing to do, but until now only the Settings page ever admitted it. The Audio Generator shows the rate per request, the minimum charge and the characters-per-request limit as plain fact, with nothing to say whether they were read a second ago or twenty minutes ago. A quiet "Last known · 12 minutes ago" now sits beside those figures whenever they came from a kept copy, and nothing at all appears when they are current. Settings, the balance panel and the generator all word it the same way.
+
+---
+
 ## v1.4.69 — 2026-08-26
 
 - **This is v1.4.68, rebuilt so that it starts.** The v1.4.68 download would not open at all. It was packaged from a folder where the app's supporting libraries were only a shortcut to somewhere else rather than the real thing, so the packager skipped them and the finished app had nothing to run on. Every fix listed under v1.4.68 below is in this build, unchanged — only the packaging was wrong.

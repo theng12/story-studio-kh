@@ -58,8 +58,9 @@
 
       <section class="card">
         <h2>Recent jobs</h2>
-        <p v-if="!snapshot.jobs.items.length" class="empty">No GenStudio jobs reported.</p>
-        <div v-else class="table-wrap">
+        <p v-if="snapshot.history_error" class="empty">Settlement history could not be read just now — the balance above is unaffected. Retry to load it.</p>
+        <p v-else-if="!snapshot.jobs.items.length" class="empty">No GenStudio jobs reported.</p>
+        <div v-if="!snapshot.history_error && snapshot.jobs.items.length" class="table-wrap">
           <table>
             <thead><tr><th>Job</th><th>Operation</th><th>State</th><th class="num">Reserved credits</th><th class="num">Settled credits</th><th class="num">Returned credits</th></tr></thead>
             <tbody>
@@ -81,8 +82,9 @@
 
       <section class="card">
         <h2>Credit activity</h2>
-        <p v-if="!snapshot.credit_activity.items.length" class="empty">No credit activity reported.</p>
-        <ul v-else class="activity">
+        <p v-if="snapshot.history_error" class="empty">Credit activity could not be read just now — the balance above is unaffected. Retry to load it.</p>
+        <p v-else-if="!snapshot.credit_activity.items.length" class="empty">No credit activity reported.</p>
+        <ul v-if="!snapshot.history_error && snapshot.credit_activity.items.length" class="activity">
           <li v-for="entry in snapshot.credit_activity.items" :key="entry.id">
             <span :class="['activity-kind', entry.kind]">{{ entry.kind }}</span>
             <span><strong>{{ entry.description }}</strong><small>{{ formatDate(entry.created_at) }} · {{ entry.reason_code }}</small></span>
@@ -112,6 +114,8 @@ interface Snapshot {
   }
   jobs: { items: Array<{ id: string; operation: string; state: string; model_id: string; reserved_credits: number; settled_credits: number; released_credits: number }> }
   credit_activity: { items: Array<{ id: string; kind: 'credit' | 'charge' | 'return'; description: string; credits: number; reason_code: string; created_at: string }> }
+  /** Set when the two history reads failed; the balance above still stands. */
+  history_error?: string
 }
 
 interface ServiceTier {

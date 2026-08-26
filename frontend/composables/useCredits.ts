@@ -1,10 +1,19 @@
 /** GenStudio-authoritative credit polling. No local rate calculations. */
 import { ref, readonly } from 'vue'
 import { useApi } from './useApi.js'
+import { keepStandingAfterFailedRefresh } from '../utils/genstudio-freshness.js'
 
 export const DEFAULT_CREDIT_POLL_MS = 30_000
 
 const genstudioCredits = ref<number | null>(null)
+/**
+ * When the balance on screen was actually loaded FROM GenStudio — not when this
+ * app last asked. The server answers a failed refresh from its own last known
+ * copy and reports that copy's age, so the two add up to one honest number.
+ */
+const genstudioCreditsLoadedAt = ref<number | null>(null)
+/** True while the balance is only on screen because a refresh failed. */
+const genstudioCreditsStale = ref(false)
 export interface GenStudioServiceTier {
   code: string
   display_name: string
@@ -34,6 +43,15 @@ let creditInterval: ReturnType<typeof setInterval> | null = null
 const pollingConsumers = new Set<symbol>()
 let creditRequest: Promise<void> | null = null
 
+function forgetStanding(): void {
+  genstudioCredits.value = null
+  genstudioCreditsLoadedAt.value = null
+  genstudioCreditsStale.value = false
+  genstudioTier.value = null
+  genstudioActiveLanes.value = null
+  genstudioLaneLimit.value = null
+}
+
 export function useCredits() {
   const { get } = useApi()
 
@@ -45,19 +63,25 @@ export function useCredits() {
         const keys = await get<{ providers: Array<{ providerId: string; hasKey: boolean }> }>('/app-settings/api-keys')
         genstudioConfigured.value = keys.providers.some(row => row.providerId === 'genstudio' && row.hasKey)
         if (!genstudioConfigured.value) {
-          genstudioCredits.value = null
-          genstudioTier.value = null
-          genstudioActiveLanes.value = null
-          genstudioLaneLimit.value = null
+          forgetStanding()
           usageError.value = 'GenStudio API key is not configured.'
           return
         }
-        const usage = await get<{ overview: {
-          credit_balance: number
-          paid_active_jobs?: number
-          paid_concurrency_limit?: number
-          service_tier?: GenStudioServiceTierStanding
-        } }>('/app-settings/genstudio/usage')
+        const usage = await get<{
+          overview: {
+            credit_balance: number
+            paid_active_jobs?: number
+            paid_concurrency_limit?: number
+            service_tier?: GenStudioServiceTierStanding
+          }
+          overview_freshness?: { stale?: boolean; ageMs?: number }
+        }>('/app-settings/genstudio/usage')
+        // The server retries before it answers, and falls back to its own last
+        // known copy rather than failing. A 200 that is marked stale is still a
+        // real balance — it is just not one refreshed during this call.
+        const freshness = usage.overview_freshness
+        genstudioCreditsStale.value = freshness?.stale === true
+        genstudioCreditsLoadedAt.value = Date.now() - (Number.isFinite(freshness?.ageMs) ? freshness!.ageMs as number : 0)
         genstudioCredits.value = usage.overview.credit_balance
         genstudioTier.value = usage.overview.service_tier || null
         genstudioActiveLanes.value = Number.isInteger(usage.overview.paid_active_jobs)
@@ -68,11 +92,18 @@ export function useCredits() {
           : null
         usageError.value = ''
       } catch (error: any) {
-        genstudioCredits.value = null
-        genstudioTier.value = null
-        genstudioActiveLanes.value = null
-        genstudioLaneLimit.value = null
         usageError.value = error?.data?.detail || error?.message || 'Authoritative GenStudio credit balance unavailable.'
+        // A failed poll is not proof the account is unreachable, and saying so
+        // next to a job that is generating normally is what made the header
+        // cry wolf. Keep the last known standing and mark it stale; drop to
+        // "Unavailable" only when the key lost its entitlement (definitive, and
+        // the server never serves stale data across that) or the copy we hold
+        // has aged past the point where showing it would be misleading.
+        if (!keepStandingAfterFailedRefresh(genstudioCredits.value, genstudioCreditsLoadedAt.value, error?.data?.code)) {
+          forgetStanding()
+          return
+        }
+        genstudioCreditsStale.value = true
       } finally {
         isRefreshing.value = false
       }
@@ -118,6 +149,8 @@ export function useCredits() {
 
   return {
     genstudioCredits: readonly(genstudioCredits),
+    genstudioCreditsLoadedAt: readonly(genstudioCreditsLoadedAt),
+    genstudioCreditsStale: readonly(genstudioCreditsStale),
     genstudioTier: readonly(genstudioTier),
     genstudioActiveLanes: readonly(genstudioActiveLanes),
     genstudioLaneLimit: readonly(genstudioLaneLimit),

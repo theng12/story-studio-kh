@@ -92,6 +92,7 @@
             <span :title="modelRate.title">{{ modelRate.text }}</span>,
             minimum {{ formatCredits(selectedTtsModel.minimum_credits) }} per request.
             <template v-if="selectedTtsModel.supports_voice_cloning"> Supports voice cloning.</template>
+            <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
           </p>
         </div>
       </div>
@@ -214,7 +215,10 @@
            GenStudio's own quotes — ONE PER TTS JOB this narration will actually
            be submitted as — listed and added up. Never an estimate. -->
       <div v-if="selectedTtsModel" class="form-group mb-2">
-        <label>Cost <span class="field-hint">— GenStudio's figures</span></label>
+        <label>
+          Cost <span class="field-hint">— GenStudio's figures</span>
+          <em v-if="ttsCatalogStaleNote" class="freshness-badge">{{ ttsCatalogStaleNote }}</em>
+        </label>
         <div class="chunk-display" :title="quotedCost ? quotedCost.title : modelRate.title">
           <span class="chunk-value">
             <template v-if="quotedCost">
@@ -416,6 +420,7 @@ import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
 import { selectLiveGenStudioModel } from '~/utils/live-genstudio-model-selection'
 import { genStudioModelLockReason } from '~/utils/live-genstudio-model-selection'
 import { CREDIT_BASIS_LABEL, describeVoiceRate, describeQuotedTotal, formatCredits } from '~/utils/genstudio-credit-cost'
+import { genstudioStaleNote } from '~/utils/genstudio-freshness'
 import {
   defaultTtsControlValues,
   resolveTtsControlValues,
@@ -432,9 +437,19 @@ const {
   models: ttsModels,
   modelsLoading: ttsModelsLoading,
   modelsError: ttsModelsError,
+  modelsStale: ttsModelsStale,
+  modelsLoadedAt: ttsModelsLoadedAt,
   loadModels: loadTtsModels,
   quoteNarration,
 } = useGenStudioVoices()
+
+/**
+ * Every published figure on this page — the rate, the minimum, the per-request
+ * character limit — comes from the model rows above, and the server may be
+ * serving a copy it kept through a service interruption. Empty while those rows
+ * are current, so nothing is rendered on the happy path.
+ */
+const ttsCatalogStaleNote = computed(() => genstudioStaleNote(ttsModelsStale.value, ttsModelsLoadedAt.value))
 
 /**
  * The voice-model picker. Every line comes from `GET /v1/tts/models`: the
@@ -1319,4 +1334,15 @@ async function queueAudio(sectionOverride?: string) {
 }
 
 .slider { width: 100%; accent-color: var(--accent); }
+
+/* Staleness marker: a muted aside beside the figure it qualifies, never a
+   banner. Matches the catalog settings page so old data reads the same
+   everywhere it is shown. */
+.freshness-badge {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-style: normal;
+  font-size: var(--font-xs);
+  font-weight: 400;
+}
 </style>

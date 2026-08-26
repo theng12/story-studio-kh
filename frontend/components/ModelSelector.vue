@@ -16,6 +16,12 @@
       @update:model-value="selectModel"
     />
     <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
+    <!-- Rendered in full, always, while a model carrying it is selected. Not a
+         tooltip, not collapsed, not truncated: choosing the model IS the
+         consent act, so the words have to be readable at the moment of
+         choosing. It disappears for a model without a notice, so it never
+         becomes furniture people learn to scroll past. -->
+    <p v-if="selectedDataDisclosure" class="data-disclosure">{{ selectedDataDisclosure }}</p>
   </div>
 </template>
 
@@ -54,6 +60,15 @@ interface LlmModelRow {
   output_credits_per_million_tokens?: number | null
   minimum_credits?: number | null
   price_version?: string | null
+  /**
+   * GenStudio offers some products at a reduced price in exchange for a data
+   * arrangement. NOT `sale_disclaimer`, which is a price promotion and means
+   * something else. The sentence is published per model and rendered verbatim;
+   * Story Studio never writes its own copy of it, because softening a word
+   * would change what the customer was told they agreed to.
+   */
+  discount?: boolean
+  discount_disclaimer?: string | null
 }
 
 const props = defineProps<{
@@ -100,11 +115,22 @@ const menuOptions = computed(() => {
       description: model.disabled_reason || model.hint || '',
       disabled: isDisabled(model),
       disabledReason: genStudioModelLockReason(model) || model.disabled_reason || (props.requireVision && !model.supports_vision ? 'This GenStudio model does not publish image-input support.' : ''),
-      badges: [],
+      // Scannable in the list, before anything is opened. The sentence itself
+      // is rendered in full beneath the selector once the model is chosen — a
+      // badge is a signpost, never the disclosure.
+      badges: model.discount === true
+        ? [{ label: 'Data notice', tone: 'warning' as const, title: model.discount_disclaimer || 'This model carries a data notice from GenStudio.' }]
+        : [],
       costTier: model.cost_tier,
     }
   })
   return rows
+})
+
+/** GenStudio's own sentence for the selected model, or '' when it publishes none. */
+const selectedDataDisclosure = computed(() => {
+  const selected = allModels.value.find(model => model.id === props.modelValue)
+  return selected?.discount === true ? (selected.discount_disclaimer || '') : ''
 })
 
 function selectModel(value: string): void {
@@ -181,4 +207,23 @@ defineExpose({ reloadCatalog })
 <style scoped>
 .loading { margin-left: 8px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; }
 .catalog-message { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
+
+/*
+ * Body text, deliberately. This is the only place a customer is told what
+ * happens to data they send to a reduced-price model, so it is set at the same
+ * size as the rest of the form rather than as muted micro-copy — the usual
+ * treatment for a notice nobody is expected to read. It wraps freely and is
+ * never truncated: four sentences must fit at any selector width.
+ */
+.data-disclosure {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--warning, #d97706);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-md);
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
 </style>
