@@ -66,11 +66,12 @@
       </div>
     </section>
 
-    <!-- The writing flow is intentionally only Outline → Script. The optional
-         channel opening is configured inline on Outline, where it belongs. -->
+    <!-- v1.4.73 — the writing flow here is Outline → Script, and only that.
+         The channel opening is its own optional stage in the sidebar; the
+         comment that used to sit here claimed the opposite. -->
     <!-- v1.0.117+ — Tabs split out from the one long page that
-         previously stacked outline form, intro section, and chapter
-         list one above the other. ?tab= keeps the URL honest so deep
+         previously stacked outline form and chapter list one above the
+         other. ?tab= keeps the URL honest so deep
          links + back/forward + refresh land on the same view.
          Default is 'outline' because that's the natural starting point of a
          fresh episode. -->
@@ -91,7 +92,7 @@
       </button>
     </div>
 
-    <!-- Basics and optional Opening live on Outline.
+    <!-- Basics live on Outline.
          Hidden on Script tab so chapter regen has the whole pane to
          itself. Title / pattern / character / normalize stay visible
          on the first two tabs so the user always sees what episode
@@ -130,135 +131,12 @@
         </div>
       </div>
 
-      <!-- Opening is an optional channel-branding layer in the outline flow.
-           It is generated only after the approved chapters exist, but its
-           intent and reusable settings stay visible before outlining. -->
-      <div v-if="openingProfile" class="intro-section opening-section mt-2">
-        <div class="intro-header">
-          <label class="toggle-label">
-            <input type="checkbox" v-model="intro.enabled" />
-            <h3>Include {{ openingProfile.label }}</h3>
-          </label>
-          <div v-if="intro.enabled" class="opening-head-actions">
-            <span class="text-muted text-sm">~{{ intro.word_target }} words</span>
-            <button type="button" class="link-btn" @click="openingConfigOpen = !openingConfigOpen">
-              {{ openingConfigOpen ? 'Hide settings' : 'Configure opening' }}
-            </button>
-          </div>
-        </div>
-        <p class="text-muted text-sm" style="margin: 2px 0 12px;">
-          {{ openingProfile.description }} It is generated after chapters are complete, so it can
-          introduce the actual episode rather than a generic promise.
-        </p>
-        <!-- The opening has no model of its own — it is written by the model
-             chosen for the chapters, here and in Pipeline alike. Say which one
-             that is, so the absence of a picker reads as an answer rather than
-             a missing control. -->
-        <p v-if="intro.enabled" class="opening-model-note">
-          Written by
-          <strong>{{ selectedChatModel?.display_name || form.model || 'no model selected yet' }}</strong>
-          — the same language model as the chapters. Change it under
-          <em>Main settings</em> below.
-        </p>
-        <div v-if="intro.enabled && openingConfigOpen" class="intro-body">
-          <!-- Intro-specific preset picker (separate pool from script presets) -->
-          <PresetPicker
-            label="Opening preset"
-            hint="Snapshots just host name, word target, opening line, and beat list — not the chapter settings."
-            :presets="introPresets.presets.value"
-            :active-id="introPresets.activeId.value"
-            @update:active-id="introPresets.setActive"
-            @apply="onApplyIntroPreset"
-            @overwrite="onOverwriteIntroPreset"
-            @save-as="onSaveAsIntroPreset"
-            @rename="onRenameIntroPreset"
-            @delete="onDeleteIntroPreset"
-          />
-          <div class="grid-2">
-            <div class="form-group">
-              <label>Host / Narrator Name</label>
-              <input v-model="intro.host_name" class="input" placeholder="e.g. Vincent, Luna, your own name…" />
-              <span class="text-muted text-xs">Leave blank to let the AI skip the host name.</span>
-            </div>
-            <div class="form-group">
-              <label>Intro Word Target</label>
-              <input v-model.number="intro.word_target" class="input" type="number" min="100" max="600" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Custom Opening Line (optional)</label>
-            <input v-model="intro.custom_opening" class="input" placeholder="Hello, and welcome back..." />
-          </div>
-          <label class="section-helper-label">
-            Reorder, toggle each on/off, and click ▸ to add specific wording for any beat. Disabled beats are skipped entirely, not summarised.
-          </label>
-          <div class="intro-beats">
-            <div v-for="(beat, i) in introBeats" :key="beat.id" class="beat-card">
-              <div class="beat-row">
-                <div class="beat-controls">
-                  <button class="btn-icon" @click="moveBeat(i, -1)" :disabled="i === 0" title="Move up">▲</button>
-                  <button class="btn-icon" @click="moveBeat(i, 1)" :disabled="i === introBeats.length - 1" title="Move down">▼</button>
-                </div>
-                <label class="toggle-label beat-label">
-                  <input type="checkbox" v-model="beat.enabled" />
-                  <span>{{ beat.label }}</span>
-                </label>
-                <button
-                  class="btn-icon"
-                  :class="{ 'has-custom': !!beat.customText?.trim() }"
-                  :title="beat.customText?.trim() ? 'Custom wording set — click to edit' : 'Add specific wording for this beat'"
-                  @click="beat.expanded = !beat.expanded"
-                >
-                  {{ beat.expanded ? '▾' : '▸' }}
-                </button>
-                <button class="btn-icon danger" v-if="beat.custom" @click="introBeats.splice(i, 1)" title="Remove">✕</button>
-              </div>
-              <div v-if="beat.expanded" class="beat-detail">
-                <textarea
-                  v-model="beat.customText"
-                  class="textarea beat-textarea"
-                  :placeholder="`Optional — specific wording or points you want this beat to cover. Example for '${beat.label}': ${beatPlaceholder(beat.id)}`"
-                />
-                <p class="text-muted text-xs hint-line">
-                  Leave blank to let the AI write from the beat label only. Filled-in text is passed to the LLM as "specifically cover: {your text}".
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Inline add-section row (replaces the broken window.prompt call). -->
-          <div class="beat-add-row mt-1">
-            <input
-              v-model="newBeatLabel"
-              class="input input-sm"
-              placeholder="Custom section name (e.g. 'Sponsor mention', 'Weekly riddle')"
-              @keydown.enter.prevent="addCustomBeat"
-            />
-            <button class="btn btn-sm btn-secondary" :disabled="!newBeatLabel.trim()" @click="addCustomBeat">
-              + Add Custom Section
-            </button>
-          </div>
-          <button
-            class="btn btn-sm btn-primary mt-3"
-            :disabled="!scriptGenerated || submitting"
-            @click="() => submitIntroduction()"
-            :title="!scriptGenerated ? 'Generate the script first to enable introduction generation' : ''"
-          >
-            <LoadingSpinner v-if="submitting" size="sm" />
-            Generate opening
-          </button>
-          <div v-if="intro.enabled && !scriptGenerated" class="intro-needs-script mt-2">
-            ⓘ Generate the chapters first. The opening uses their content as context.
-          </div>
-        </div>
-        <IntroductionPreview
-          v-if="intro.enabled && scriptGenerated && panelsReady && form.episode_id"
-          :project-slug="slug"
-          :episode-id="form.episode_id"
-          :title="form.title"
-          :refresh-key="previewRefreshKey"
-        />
-      </div>
+      <!-- v1.4.73 — the channel opening moved OUT of this tab and onto its
+           own page. It was a checkbox here that forgot itself on every
+           context reload, drawn only for channels whose niche declared an
+           opening profile — one niche of twenty-one. Sidebar → Introduction.
+           Do not bring a copy of it back here: there must be exactly one
+           place the channel says whether it opens with one. -->
 
       <!-- v1.0.117+ — Main settings (duration, model, narrator style),
            format context, niche overlay, recency, word counts, and the
@@ -565,7 +443,7 @@
           <strong>{{ form.chapters }}</strong> {{ sectionLabel.plural }}
           × <strong>{{ form.words_per_chapter.toLocaleString() }}</strong> words/{{ sectionLabel.singular }}
           = <strong>{{ form.total_words.toLocaleString() }}</strong> story body
-          <template v-if="intro.enabled"> + <strong>~{{ intro.word_target }}</strong> intro</template>
+          <template v-if="channelIntroEnabled"> + <strong>~{{ channelIntroWordTarget }}</strong> intro</template>
           = <strong class="text-accent">~{{ totalOutput.toLocaleString() }} total (~{{ estimatedTotalDuration }} min)</strong>
         </div>
         <p class="sizing-scale text-muted">
@@ -924,7 +802,6 @@ const durationSelect = ref('45')
 const showStyleDesc = ref(false)
 const customStyleText = ref('')
 const narratorOverrideOpen = ref(false)
-const openingConfigOpen = ref(false)
 
 const customStyles = ref<Array<{ id: string; name: string; description: string }>>([])
 
@@ -1118,7 +995,6 @@ interface NicheContext {
 }
 const nicheContext = ref<NicheContext | null>(null)
 const showNicheOverlayDetail = ref(false)
-const openingProfile = computed(() => nicheContext.value?.openingProfile || null)
 const activeEpisodeProfile = computed(() => {
   const axisValue = selectedEpisode.value?.idea_dimensions?.['episode-profile']
     || selectedEpisode.value?.episode_profile
@@ -1346,52 +1222,58 @@ watch(() => form.style, (s) => {
   }
 })
 
-const intro = reactive({
-  // v1.0.537 — OFF by default (an intro is a per-format opt-in; a preset that
-  // uses one carries enabled:true). Presets snapshot this, so applying a
-  // "Sleep Story" preset turns it on. This flag now DRIVES generation (the
-  // 1-click chain + the auto-after-chapters watcher), not just tab visibility.
-  enabled: false,
-  host_name: '',
-  word_target: 350,
-  custom_opening: '',
-})
-
-// Openings are owned by the selected Formula. If a project changes from Sleep
-// Story to a direct-start Formula, clear the dormant flag so no old preset can
-// silently add a branded welcome to an unrelated episode.
-watch(openingProfile, (profile) => {
-  if (profile) return
-  intro.enabled = false
-  openingConfigOpen.value = false
-}, { immediate: true })
+/**
+ * v1.4.73 — whether this channel opens with an Introduction is READ, never
+ * held here.
+ *
+ * What stood here was a page-local `reactive` that initialised `enabled` to
+ * false, plus a watcher that forced it back to false every time the niche
+ * context reloaded. Those two together WERE the defect: the page invented a
+ * home for the answer because the answer had no home, and then reset it.
+ * Intent now lives on the channel (Sidebar → Introduction) and this page only
+ * asks what it says. Do not reintroduce local intro state here.
+ */
+const channelIntroEnabled = ref(false)
+const channelIntroWordTarget = ref(0)
+async function loadChannelIntroduction(): Promise<void> {
+  try {
+    const data = await get<{ segments?: Record<string, { enabled: boolean; recipe: { word_target: number } }> }>(
+      `/projects/${slug.value}/segments`)
+    const introduction = data.segments?.introduction
+    channelIntroEnabled.value = introduction?.enabled === true
+    channelIntroWordTarget.value = introduction?.recipe?.word_target || 0
+  } catch {
+    // Unreadable settings must not make this page claim the channel opens
+    // with something. The Introduction page is where that is fixed.
+    channelIntroEnabled.value = false
+  }
+}
+onMounted(loadChannelIntroduction)
 
 // ── Presets ─────────────────────────────────────────────────────────────
 // Two typed pools sharing the 'script' configKey:
 //   - scriptPresets  → just chapter settings (form + custom style text)
-//   - introPresets   → just intro settings (intro + beats)
-// Legacy presets saved before typing are untyped and appear in both pickers
-// as 'all'. Applying one still restores both halves because apply() reads
-// whichever fields are present in `data`.
+// Legacy presets saved before typing are untyped; applying one still
+// restores whichever fields are present in `data`.
+//
+// v1.4.73 — the opening's recipe is NOT preset state any more. A preset is a
+// snapshot of a moment; how this channel opens is a property of the channel.
+// Keeping it here meant an unattended batch wrote whatever shape was captured
+// the last time somebody pressed Save while the page showed something else.
+// It lives on the channel now — Sidebar → Introduction.
 const scriptPresets = usePresets<any>({
   slug: slug.value,
   configKey: 'script',
   presetType: 'script',
-  // Snapshot captures EVERY user-tunable field on this page so reloading the
-  // preset restores the visible form 1:1 — including the Introduction
-  // enabled toggle + beat list. Earlier the snapshot omitted `intro`, so
-  // unchecking Introduction + saving the preset never persisted that bit and
-  // reloads landed back on `intro.enabled = true` from the hardcoded default.
+  // Snapshot captures every chapter-writing field on this page so reloading
+  // the preset restores the visible form 1:1. `intro` / `introBeats` on an
+  // older saved preset are simply ignored — see the note above.
   snapshot: () => ({
     form: { ...form },
     customStyleText: customStyleText.value,
-    intro: { ...intro },
-    introBeats: introBeats.value.map(b => ({ ...b })),
   }),
   apply: (data) => {
     if (data.form) Object.assign(form, data.form)
-    if (data.intro) Object.assign(intro, data.intro)
-    if (Array.isArray(data.introBeats)) introBeats.value = data.introBeats.map((b: any) => ({ ...b }))
     if (typeof data.customStyleText === 'string') customStyleText.value = data.customStyleText
     // A saved script preset is explicit sizing intent. Without this flag,
     // the next episode-selected event replaced values such as 3 × 1,000
@@ -1400,39 +1282,6 @@ const scriptPresets = usePresets<any>({
   },
 })
 
-/**
- * v1.0.71+: format-aware seeding of intro defaults BEFORE preset.load().
- * Sleep-story projects keep the 350-word, multi-beat shape (welcome /
- * teaser / community / CTA / breathing / transition). Listicle /
- * explainer projects get a short host-personality intro by default
- * (~50 words, no breathing exercise). Saved presets still override
- * because preset.load() runs after this — only fresh projects with
- * no intro preset see the new defaults.
- */
-async function applyIntroFormatDefaultsIfNoPreset() {
-  try {
-    const f = await get<any>(`/projects/${slug.value}/effective-format`)
-    const ip = f?.script?.introDefaults
-    if (!ip) return
-    if (typeof ip.wordTarget === 'number' && ip.wordTarget > 0) {
-      intro.word_target = ip.wordTarget
-    }
-    if (Array.isArray(ip.beats) && ip.beats.length) {
-      // Replace the default beat list with the format's. Each format-supplied
-      // beat becomes an editable IntroBeat row (custom: false so it can be
-      // disabled but not deleted, mirroring the legacy hardcoded beats'
-      // semantics).
-      introBeats.value = (ip.beats as string[]).map((label, i) => ({
-        id: `fmt-${i}`,
-        label,
-        enabled: true,
-      }))
-    }
-  } catch {
-    // Format endpoint unavailable / project missing — keep the legacy
-    // hardcoded defaults. Non-fatal.
-  }
-}
 
 /**
  * v1.0.72+: format-aware seeding of chapter count + length + word-count
@@ -1587,7 +1436,6 @@ onMounted(async () => {
   // Live language catalogue, so the published rate below the model selector
   // is the selected product's own and never a remembered constant.
   void refreshGenStudioChatModels()
-  await applyIntroFormatDefaultsIfNoPreset()
   await applyScriptFormatDefaultsIfNoPreset()
   await scriptPresets.load()
   // v1.0.106+ — load the recency state for the avoidance strip. After
@@ -1596,60 +1444,10 @@ onMounted(async () => {
   await loadRecencyState()
 })
 
-interface IntroBeat {
-  id: string
-  label: string
-  enabled: boolean
-  custom?: boolean
-  /** Per-beat free-form direction for the LLM — threaded into the prompt */
-  /** as "specifically cover: {customText}". Blank = let the AI write from */
-  /** the label only (previous behaviour). */
-  customText?: string
-  /** Transient UI flag — does NOT persist across reloads. */
-  expanded?: boolean
-}
-
-const introBeats = ref<IntroBeat[]>([
-  { id: 'welcome', label: 'Welcome & host intro', enabled: true },
-  { id: 'story_teaser', label: 'Story teaser', enabled: true },
-  { id: 'community_question', label: 'Community question', enabled: true },
-  { id: 'patreon', label: 'Patreon / membership mention', enabled: false },
-  { id: 'subscribe_cta', label: 'Subscribe CTA', enabled: true },
-  { id: 'relaxation', label: 'Relaxation / breathing exercise', enabled: true },
-  { id: 'transition', label: 'Transition into story', enabled: true },
-])
-
-// Suggestive placeholders per known beat id — help users understand what
-// kind of detail is useful to supply.
-const BEAT_PLACEHOLDERS: Record<string, string> = {
-  welcome: 'greet the audience and introduce yourself as Luna',
-  story_teaser: "hint at tonight's setting (a misty forest) without spoiling the ending",
-  community_question: 'ask listeners to share their favourite winter comfort food',
-  patreon: 'mention the $5 tier gets a monthly bonus episode',
-  subscribe_cta: 'invite viewers to subscribe and ring the bell icon',
-  relaxation: 'lead a 3-breath relaxation with a 4-count inhale / 7-count hold / 8-count exhale',
-  transition: 'transition by dimming the lights and inviting them to close their eyes',
-}
-function beatPlaceholder(id: string): string {
-  return BEAT_PLACEHOLDERS[id] || 'specific points, phrasing, or tone you want for this beat'
-}
-
-const newBeatLabel = ref('')
-
-const introPresets = usePresets<any>({
-  slug: slug.value,
-  configKey: 'script',
-  presetType: 'introduction',
-  snapshot: () => ({
-    intro: { ...intro },
-    introBeats: introBeats.value.map(b => ({ ...b })),
-  }),
-  apply: (data) => {
-    if (data.intro) Object.assign(intro, data.intro)
-    if (Array.isArray(data.introBeats)) introBeats.value = data.introBeats
-  },
-})
-onMounted(() => introPresets.load())
+// v1.4.73 — the beat list, its placeholders and the separate "introduction"
+// preset pool all lived here. They are the opening's recipe, which now
+// belongs to the channel and is edited on its own page. Nothing on this page
+// describes how an opening is written any more.
 
 // Custom narrator styles live on the project (not on any preset) — they're
 // a user-defined pool the Style dropdown picks from. Presets are the source
@@ -1803,29 +1601,8 @@ watch(cachedEpisodeList, (list) => {
   if (fresh) selectedEpisode.value = fresh
 })
 
-function moveBeat(index: number, direction: number) {
-  const newIndex = index + direction
-  if (newIndex < 0 || newIndex >= introBeats.value.length) return
-  const arr = introBeats.value
-  const a = arr[index]
-  const b = arr[newIndex]
-  if (!a || !b) return
-  arr[index] = b
-  arr[newIndex] = a
-}
-
-function addCustomBeat() {
-  // Previously used window.prompt() which is blocked in Electron renderers
-  // (hence the "doesn't work" test feedback). Inline input + Enter is the
-  // clean fix.
-  const label = newBeatLabel.value.trim()
-  if (!label) return
-  introBeats.value.push({ id: `custom-${Date.now()}`, label, enabled: true, custom: true, expanded: true })
-  newBeatLabel.value = ''
-}
-
 const totalOutput = computed(() =>
-  form.total_words + (intro.enabled ? intro.word_target : 0)
+  form.total_words + (channelIntroEnabled.value ? channelIntroWordTarget.value : 0)
 )
 const estimatedDuration = computed(() =>
   Math.round(form.total_words / wordsPerMinute.value)
@@ -2062,7 +1839,7 @@ async function submitOutline(): Promise<boolean> {
   }
   // When enabled, the channel opening is generated only after the approved
   // outline has become completed chapters; it never has to be toggled again.
-  autoIntroAfterScript.value = intro.enabled
+  autoIntroAfterScript.value = channelIntroEnabled.value
 
   // v1.0.71: chunked-mode pre-flight. When the target wordcount exceeds
   // ~10k words, expansion will issue MULTIPLE LLM calls (one per batch).
@@ -2140,51 +1917,18 @@ function waitForJob(jobId: string, timeoutMs = 10 * 60 * 1000): Promise<boolean>
   })
 }
 
-// Intro preset picker handlers (kept separate from script preset handlers
-// so each section's "Apply / Save / Save as / Delete" only mutates its own
-// half of the form).
-async function onApplyIntroPreset() {
-  introPresets.applyActive()
-  success('Introduction preset applied')
-}
-async function onOverwriteIntroPreset() {
-  await introPresets.overwrite()
-  success('Introduction preset saved')
-}
-async function onSaveAsIntroPreset(name: string) {
-  await introPresets.saveAs(name)
-  success(`Saved introduction preset "${name}"`)
-}
-// v1.0.284 — rename the active intro preset in place. The PresetPicker's
-// rename modal pre-validates that the new name differs from the current,
-// so this handler is a thin wrapper around the composable + a toast.
-async function onRenameIntroPreset(name: string) {
-  await introPresets.rename(name)
-  success(`Renamed introduction preset to "${name}"`)
-}
-async function onDeleteIntroPreset() {
-  await introPresets.remove()
-  success('Introduction preset deleted')
-}
-
 async function submitIntroduction(opts: { confirm?: boolean } = { confirm: true }): Promise<boolean> {
   // Generate introduction only (requires script to exist on disk).
   // `opts.confirm` lets generateAll() skip the confirmation dialog for the
   // intro stage — the user already approved the combined run up front.
+  //
+  // v1.4.73 — nothing about HOW the opening is written is sent. The channel's
+  // recipe is read on the server, so this chained run, the Introduction page's
+  // own button and an unattended batch all write from identical instructions.
   const params = {
     episode_id: form.episode_id,
     title: form.title,
     model: form.model,
-    host_name: intro.host_name,
-    word_target: intro.word_target,
-    custom_opening: intro.custom_opening,
-    // Inline per-beat customText into the label so the backend prompt loop
-    // doesn't need its own contract change. Format: "Label — specifically
-    // cover: <text>". Blank customText falls back to just the label.
-    beats: introBeats.value.filter(b => b.enabled).map(b => {
-      const t = (b.customText || '').trim()
-      return t ? `${b.label} — specifically cover: ${t}` : b.label
-    }),
   }
   if (opts.confirm !== false && !await confirmGeneration(slug.value, 'introduction', params)) return false
 
@@ -2216,7 +1960,7 @@ const pageReadyForAutoIntro = ref(false)
 // trigger this on a page load for an older completed episode.
 watch(scriptGenerated, (now, prev) => {
   if (!pageReadyForAutoIntro.value) return
-  if (now && !prev && autoIntroAfterScript.value && intro.enabled && !introDone.value && !submitting.value) {
+  if (now && !prev && autoIntroAfterScript.value && channelIntroEnabled.value && !introDone.value && !submitting.value) {
     autoIntroAfterScript.value = false
     success('Channel opening auto-generating…')
     void submitIntroduction({ confirm: false })
@@ -2258,18 +2002,9 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
 }
 
 /* Beat detail textarea — compact, monospace-friendly. */
-.beat-textarea { min-height: 54px; font-size: 12px; }
 
 /* Banner shown when intro is enabled but the script hasn't been generated
  * yet. The amber border-left echoes "warning" without using the toast colour. */
-.intro-needs-script {
-  font-size: 12px;
-  color: var(--text-secondary);
-  padding: 8px;
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-sm);
-  border-left: 3px solid var(--warning);
-}
 
 /* Custom-style picker — the "Style description" mini-form that appears
  * when the user picks "+ Write custom style…". */
@@ -2737,66 +2472,20 @@ watch(() => selectedEpisode.value?.episode_id, () => { autoIntroAfterScript.valu
 }
 
 /* Introduction section */
-.intro-section {
-  background: var(--bg-tertiary);
-  border-radius: var(--radius-md);
-  padding: 16px;
-}
 
 /* Names the language model the opening will be written with. The opening
  * deliberately has no picker of its own — this line is the answer to
  * "where do I choose the model for this?", not a second control. */
-.opening-model-note {
-  margin: 0 0 12px;
-  color: var(--text-muted);
-  font-size: var(--font-xs);
-  line-height: 1.4;
-}
-.opening-model-note strong { color: var(--text-primary); }
 
-.intro-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
 
-.intro-header h3 { font-size: 14px; margin: 0; }
 
-.intro-body {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
 
-.intro-beats {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
 
-.beat-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  overflow: hidden;
-}
 
-.beat-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-}
 
-.beat-card .beat-row { border: none; border-radius: 0; background: transparent; padding: 6px 10px; }
 .beat-detail { padding: 2px 10px 10px; border-top: 1px dashed var(--border); }
 .btn-icon.has-custom { color: var(--accent); }
 
-.beat-add-row { display: flex; gap: 6px; align-items: center; }
-.beat-add-row .input { flex: 1; }
 
 .beat-controls {
   display: flex;

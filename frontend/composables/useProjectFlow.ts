@@ -8,12 +8,14 @@ import { useRoute } from 'vue-router'
  * format's `visualSource` (the same value that already gates the sidebar):
  *
  *   timestamp-driven (narration-synced):
- *     Ideas → Research → Script → Thumbnail Prompts → Thumbnails →
+ *     Ideas → Research → Introduction → Script → Thumbnail Prompts →
+ *     Thumbnails →
  *     Audio → Audio Assembly → Subtitles → YouTube Finalizer →
  *     Scene Plan → Scene Review → Video Assembly
  *
  *   continuity-chain (continuity-chain):
- *     Ideas → Research → Script → Thumbnail Prompts → Thumbnails →
+ *     Ideas → Research → Introduction → Script → Thumbnail Prompts →
+ *     Thumbnails →
  *     Audio → Audio Assembly → Subtitles → YouTube Finalizer →
  *     Character Sheet → Scene Plan → Scene Review → Video Assembly
  *     (like timestamp-driven, plus a Character Sheet step; scenes render
@@ -75,6 +77,13 @@ export interface FlowStep {
 const STEP = {
   ideas:        { key: 'ideas',        label: 'Ideas',          icon: '✨', path: '/ideas', phase: 'story' },
   research:     { key: 'research',     label: 'Research',       icon: '🔍', path: '/research', phase: 'story', optional: true },
+  // v1.4.73 — the Introduction. `optional` because some channels open with a
+  // host and some open on the story itself, and until now there was nowhere at
+  // all to say which: the control was a per-session checkbox on the Outline
+  // tab, gated on a niche field only one niche declares. It is shown to every
+  // channel whether or not it is switched on, because a stage nobody can see
+  // is a stage nobody knows to switch on.
+  introduction: { key: 'introduction', label: 'Introduction', icon: '👋', path: '/introduction', phase: 'story', optional: true },
   script:       { key: 'script',       label: 'Script',         icon: '📝', path: '/scripts', phase: 'story' },
   metadata:     { key: 'metadata',     label: 'YouTube Finalizer', icon: '📋', path: '/metadata', phase: 'media' },
   thumbPrompts: { key: 'thumb-prompts', label: 'Thumbnail Prompts', icon: '💭', path: '/image-prompts', phase: 'media', tab: 'thumbnails' },
@@ -95,14 +104,14 @@ const STEP = {
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
 } satisfies Record<string, FlowStep>
 const FLOW_TIMESTAMP: FlowStep[] = [
-  STEP.ideas, STEP.research, STEP.script,
+  STEP.ideas, STEP.research, STEP.introduction, STEP.script,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
   STEP.scenePlan, STEP.contextualCues, STEP.soundDesign, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 const FLOW_CONTINUITY: FlowStep[] = [
-  STEP.ideas, STEP.research, STEP.script,
+  STEP.ideas, STEP.research, STEP.introduction, STEP.script,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
@@ -113,7 +122,7 @@ const FLOW_CONTINUITY: FlowStep[] = [
 // blocking; use or skip). Differs from continuity only in the render (no
 // img2img character-lock) + default pacing.
 const FLOW_NARRATED_SCENES: FlowStep[] = [
-  STEP.ideas, STEP.research, STEP.script,
+  STEP.ideas, STEP.research, STEP.introduction, STEP.script,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,

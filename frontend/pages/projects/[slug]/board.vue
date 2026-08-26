@@ -366,6 +366,12 @@ function onImported() {
 //
 const STEP_FIELD: Record<string, string> = {
   research: 'research',
+  // v1.4.73 — `status.introduction` has been returned per episode all along
+  // and rendered nowhere: no badge, no count, no filter. That is how four
+  // episodes reached paid audio with no opening without anyone noticing. It
+  // is a column now, and because the Introduction step is optional it never
+  // blocks an episode from reading as done.
+  introduction: 'introduction',
   script: 'script',
   metadata: 'metadata',
   'thumb-prompts': 'thumb_prompts',

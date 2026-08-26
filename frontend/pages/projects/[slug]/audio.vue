@@ -65,6 +65,21 @@
       </template>
     </WorkspaceNotice>
 
+    <WorkspaceNotice
+      v-if="openingMissing"
+      tone="warning"
+      title="This channel opens with an Introduction, and this episode has not got one"
+    >
+      Narrating it now produces an episode that starts at chapter one. The opening is read as part of
+      this same narration, so adding it afterwards means voicing this episode again. Writing it first
+      costs a few hundred words.
+      <template #actions>
+        <NuxtLink :to="`/projects/${slug}/introduction`" class="btn btn-secondary btn-sm">
+          Write the opening first
+        </NuxtLink>
+      </template>
+    </WorkspaceNotice>
+
     <div class="card mt-3">
       <div class="grid-2">
         <div class="form-group">
@@ -858,11 +873,40 @@ watch(() => form.episode_id, (newEp, oldEp) => {
 // episode.status.script (refetched whenever a script-only job finishes).
 // v1.0.78 — pull `refetch` too so the inline "Rescan from disk" handler
 // can re-pull the episode's status after wiping the project cache.
-const { scriptReady, statusKnown, refetch: refetchEpisodeStatus } = useEpisodeStatus(
+const { selectedEpisode, scriptReady, statusKnown, refetch: refetchEpisodeStatus } = useEpisodeStatus(
   computed(() => form.episode_id),
   slug,
-  { refetchOnJobTypes: ['script-only'] },
+  { refetchOnJobTypes: ['script-only', 'introduction-only'] },
 )
+
+/**
+ * v1.4.73 — say it BEFORE the money is spent, not after.
+ *
+ * Four episodes were voiced with no opening on a channel that opens with one,
+ * and nothing anywhere said so: the episode list has carried
+ * `status.introduction` all along and rendered it nowhere. Narrating an
+ * episode is the last cheap moment to notice, because after it the opening
+ * costs a re-narration of the piece it belongs to.
+ *
+ * This warns; it does not block. An episode may legitimately be voiced without
+ * one, and a gate that cannot be overruled is how people learn to ignore
+ * gates. It never fires for a channel that does not use openings.
+ */
+const channelIntroEnabled = ref(false)
+onMounted(async () => {
+  try {
+    const data = await get<{ segments?: Record<string, { enabled: boolean }> }>(
+      `/projects/${slug.value}/segments`)
+    channelIntroEnabled.value = data.segments?.introduction?.enabled === true
+  } catch {
+    channelIntroEnabled.value = false
+  }
+})
+const openingMissing = computed(() => channelIntroEnabled.value
+  && statusKnown.value
+  && !!form.episode_id
+  && scriptReady.value
+  && !selectedEpisode.value?.status?.introduction)
 // v1.0.296 — gate copy distinguishes "still checking" from "confirmed missing".
 const scriptGateReason = computed(() => {
   if (!form.episode_id || scriptReady.value) return ''

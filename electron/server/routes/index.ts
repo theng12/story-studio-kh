@@ -51,6 +51,7 @@ import { router as scenePlanRouter } from './scene-plan.js'
 import { router as sceneReviewRouter } from './scene-review.js'
 import { router as contextualCuesRouter } from './contextual-cues.js'
 import { router as soundDesignRouter } from './sound-design.js'
+import { router as episodeSegmentsRouter } from './episode-segments.js'
 import { router as continuityRouter } from './continuity.js'
 import { requireProject } from './middleware.js'
 
@@ -71,6 +72,7 @@ export function mountRoutes(app: Express): void {
   app.use('/api', audioRouter)
   app.use('/api', videoAssemblyRouter)
   app.use('/api', soundDesignRouter)
+  app.use('/api', episodeSegmentsRouter)
   app.use('/api', aiVideoRouter)
   app.use('/api', audioMergeRouter)
   app.use('/api', ideasRouter)

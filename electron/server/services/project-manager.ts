@@ -1304,6 +1304,18 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     intro_standards: raw.intro_standards || '',
     standards_presets: raw.standards_presets || [],
     intro_presets: raw.intro_presets || [],
+    // v1.4.73 — what this channel has decided about its episode segments (the
+    // opening, and whatever positioned segments follow it later). This echo is
+    // load-bearing for exactly the reason the long comment above describes:
+    // `updateConfig` writes it to disk through the passthrough, but this
+    // response is an allow-list, so without an entry here the saved value
+    // would be invisible on the next read and the channel would look as though
+    // it had never been asked. Left undefined when the channel has never been
+    // asked, which is a different fact from "answered no" — see
+    // services/channel-segments.ts.
+    episode_segments: ((raw as any).episode_segments && typeof (raw as any).episode_segments === 'object')
+      ? (raw as any).episode_segments
+      : undefined,
   }
 
   // Pass through every project-side-only key the UI uses:

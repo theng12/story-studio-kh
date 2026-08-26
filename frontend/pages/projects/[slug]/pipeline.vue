@@ -120,11 +120,11 @@
               <!-- v1.0.363 — preset-free step (e.g. Timestamp final render): runs
                    on the generator's export defaults, configurable on its page. -->
               <div v-else class="step-preset" @click.stop>
-                <span class="step-preset-none">Runs with built-in export defaults.</span>
+                <span class="step-preset-none">{{ noPresetNote(entry.id) }}</span>
                 <NuxtLink
                   :to="`/projects/${slug}${entry.link}`"
                   class="preset-link"
-                  title="Open the page to tune the final-render settings (resolution, subtitles, music)."
+                  title="Open the page that owns these settings."
                 >Tune →</NuxtLink>
               </div>
               <div v-if="stepDisabled(entry.id)" class="step-warning">{{ stepDisabledReason(entry.id) }}</div>
@@ -154,6 +154,21 @@
         Showing the <strong>{{ chainLabel }}</strong> chain.
         <span v-if="hasExternalNodes">Steps marked “↗” run from their own page (not part of Run Batch) — they're shown here so the full order is visible.</span>
       </p>
+
+      <!-- v1.4.73 — say what a run will produce BEFORE it starts.
+           This behaviour is new: a channel that opens with an Introduction now
+           gets one on every episode a batch writes, where before it depended on
+           somebody ticking a box. That is the point of the change, but a
+           surprise is still a surprise. -->
+      <WorkspaceNotice
+        v-if="channelIntroEnabled && stepChecked['script-only']"
+        tone="info"
+        title="Every episode in this run will also get an Introduction"
+      >
+        This channel is set to open with one, so it is written automatically alongside the chapters —
+        there is nothing to tick. It adds a few hundred words per episode and no separate audio charge.
+        Change it under <NuxtLink :to="`/projects/${slug}/introduction`">Introduction</NuxtLink>.
+      </WorkspaceNotice>
 
       <WorkspaceNotice v-if="preflightSummary" tone="success" title="Preflight passed">
         {{ preflightSummary }}
@@ -657,7 +672,9 @@ const stepsMeta: StepMeta[] = [
   { id: 'research',          label: 'Research (optional)', icon: '🔍', link: '/research',      presetList: 'research_presets',        presetActive: 'research_last_preset_research', optional: true },
   { id: 'broll',             label: 'B-Roll Pick + Assemble', icon: '🎞', link: '/broll',      presetList: 'broll_presets',           presetActive: 'broll_last_preset_broll' },
   { id: 'script-only',       label: 'Script (chapters)', icon: '📝', link: '/scripts',        presetList: 'script_presets',          presetActive: 'script_last_preset_script' },
-  { id: 'introduction-only', label: 'Introduction (optional)', icon: '🎙', link: '/scripts', presetList: 'script_presets', presetActive: 'script_last_preset_introduction', optional: true },
+  // v1.4.73 — no preset pool: the opening's recipe belongs to the channel, and
+  // the link points at the page that owns it rather than back at the Script page.
+  { id: 'introduction-only', label: 'Introduction', icon: '👋', link: '/introduction', optional: true },
   { id: 'image_prompts',     label: 'Thumbnail Prompts', icon: '🖼', link: '/image-prompts?tab=thumbnails', presetList: 'thumbnail_prompts_presets', presetActive: 'thumbnail_prompts_last_preset' },
   // Pipeline image generation is fully split: Thumbnail Images and Scene
   // Images are separate steps with separate preset pools.
@@ -681,8 +698,15 @@ const stepById = (id: StepId): StepMeta => stepsMeta.find(s => s.id === id)!
 // preset). Their tiles show a "no preset needed" note instead of the preset
 // dropdown, and they're exempt from the "no active preset" blocking check.
 // Mirrors NO_PRESET_STEPS in electron/server/routes/pipeline.ts.
-const NO_PRESET_STEPS = new Set<StepId>()
+// v1.4.73 — the Introduction joins them: its recipe is a channel setting, so
+// there is no preset to pick and never should be one.
+const NO_PRESET_STEPS = new Set<StepId>(['introduction-only'])
 function noPresetStep(id: StepId): boolean { return NO_PRESET_STEPS.has(id) }
+function noPresetNote(id: StepId): string {
+  return id === 'introduction-only'
+    ? 'Written from this channel\'s own Introduction settings.'
+    : 'Runs with built-in export defaults.'
+}
 
 // ── Per-format chains ───────────────────────────────────────────────────
 // Each entry is either a batchable StepId (rendered as a checkbox tile) or
@@ -787,8 +811,29 @@ const stepChecked = reactive<Record<StepId, boolean>>({
   video_assembly: false,
 })
 
+const channelIntroEnabled = ref(false)
+async function loadChannelIntroduction(): Promise<void> {
+  try {
+    const data = await get<{ segments?: Record<string, { enabled: boolean }> }>(
+      `/projects/${slug.value}/segments`)
+    channelIntroEnabled.value = data.segments?.introduction?.enabled === true
+  } catch {
+    channelIntroEnabled.value = false
+  }
+}
+onMounted(loadChannelIntroduction)
+
 function clearSelectedSteps(): void {
   for (const step of stepsMeta) stepChecked[step.id] = false
+}
+
+/**
+ * The Introduction is not a selection — it is what the channel already said.
+ * Every bulk helper ends here so no shortcut can leave it disagreeing with
+ * the channel setting the run will actually follow.
+ */
+function syncDerivedSteps(): void {
+  stepChecked['introduction-only'] = !!stepChecked['script-only'] && channelIntroEnabled.value
 }
 
 function selectRequiredSteps(): void {
@@ -796,28 +841,45 @@ function selectRequiredSteps(): void {
   for (const step of visibleSteps.value) {
     if (!step.optional) stepChecked[step.id] = true
   }
+  syncDerivedSteps()
 }
 
 function selectAllSteps(): void {
   clearSelectedSteps()
   for (const step of visibleSteps.value) stepChecked[step.id] = true
+  syncDerivedSteps()
 }
 
-// Intro depends on script context. If the user unchecks Script (chapters),
-// auto-uncheck Introduction so the batch never queues an intro step that
-// has no chapter context to read. The user can re-enable both together.
-watch(() => stepChecked['script-only'], (on) => {
-  if (!on) stepChecked['introduction-only'] = false
-})
+/**
+ * v1.4.73 — the opening is no longer a box that can be forgotten.
+ *
+ * A channel that says it opens with an Introduction gets one on every episode
+ * a batch writes; the server adds the step whether or not this page asked for
+ * it (see `applyChannelSegmentIntent` in routes/pipeline.ts). This page shows
+ * that rather than pretending there is still a choice here — leaving a live
+ * checkbox that the run ignores would be worse than having no checkbox at all.
+ *
+ * Four episodes reached paid audio with no opening because this box happened
+ * not to be ticked on the run that wrote them. Where it is decided is the
+ * Introduction page, and it is decided once.
+ */
+// Intro depends on script context: it introduces chapters, so it cannot run
+// without them. It therefore follows the Script step exactly — on when the
+// channel wants an opening and chapters are being written, off otherwise.
+watch([() => stepChecked['script-only'], channelIntroEnabled], syncDerivedSteps, { immediate: true })
 function stepDisabled(stepId: StepId): boolean {
-  if (stepId === 'introduction-only') return !stepChecked['script-only']
+  if (stepId === 'introduction-only') return true
   return false
 }
 function stepDisabledReason(stepId: StepId): string {
-  if (stepId === 'introduction-only' && !stepChecked['script-only']) {
-    return 'Introduction needs the Script (chapters) step — enable that first.'
+  if (stepId !== 'introduction-only') return ''
+  if (!channelIntroEnabled.value) {
+    return 'This channel does not open with an Introduction. Turn it on under Introduction in the sidebar.'
   }
-  return ''
+  if (!stepChecked['script-only']) {
+    return 'Runs automatically with the Script step, because the opening introduces the chapters.'
+  }
+  return 'Runs automatically — this channel opens with an Introduction.'
 }
 
 // Only batchable steps that (a) belong to the active format's chain AND

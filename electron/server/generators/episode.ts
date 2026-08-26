@@ -1012,30 +1012,33 @@ export async function generateIntroductionOnly(job: Job): Promise<void> {
     customStyleText = req.custom_style_text
   }
 
-  // v1.0.71+: format-aware intro defaults. Sleep-story formats keep the
-  // 350-word multi-beat shape (welcome / story teaser / community / CTA /
-  // breathing / transition); listicle / explainer formats opt into a
-  // short host-personality intro via Format.script.introDefaults
-  // (typically ~50 words, no breathing exercise). Per-request fields
-  // still win when present — this only fills in what the caller didn't
-  // provide.
+  // v1.0.71+ kept format-aware intro defaults here; a format may still ship
+  // its own opening shape (a listicle channel wants ~50 words and no
+  // breathing exercise) and `fmtIntro` below is still how its example text
+  // reaches the prompt.
+  //
+  // v1.4.73 — the CHANNEL's recipe is the default, not a per-call guess.
+  //
+  // This used to assemble its own fallback beat list here, which had quietly
+  // drifted out of step with the one the Script page showed: the page offered
+  // seven beats, this offered six and had lost the membership mention
+  // entirely. So an opening written from the page and an opening written by
+  // an unattended batch were written from different instructions. Both now
+  // come from `lib/episode-segments.ts` by way of the channel's saved recipe,
+  // which itself defaults from the format where the format ships one.
+  //
+  // Per-request fields still win, so a one-off override from an API call
+  // behaves exactly as it did — this only changes what fills in the blanks.
   const fmtIntro = format.script.introDefaults
-  const fallbackBeats = fmtIntro?.beats?.length ? fmtIntro.beats : [
-    'Welcome & host intro',
-    'Story teaser',
-    'Community question',
-    'Subscribe CTA',
-    'Relaxation / breathing exercise',
-    'Transition into story',
-  ]
-  const fallbackWordTarget = (typeof fmtIntro?.wordTarget === 'number' && fmtIntro.wordTarget > 0)
-    ? fmtIntro.wordTarget : 350
+  const { getChannelSegments } = await import('../services/channel-segments.js')
+  const { beatLinesForPrompt, INTRODUCTION_SEGMENT_ID } = await import('../lib/episode-segments.js')
+  const channelRecipe = (await getChannelSegments(project_slug))[INTRODUCTION_SEGMENT_ID].recipe
   const introSettings: IntroSettings = {
     enabled: true,
-    host_name: req.host_name || '',
-    word_target: req.word_target || fallbackWordTarget,
-    custom_opening: req.custom_opening || '',
-    beats: req.beats || fallbackBeats,
+    host_name: req.host_name || channelRecipe.host_name || '',
+    word_target: req.word_target || channelRecipe.word_target,
+    custom_opening: req.custom_opening || channelRecipe.custom_opening_line || '',
+    beats: req.beats?.length ? req.beats : beatLinesForPrompt(channelRecipe),
   }
 
   const paths = await resolveEpisodePaths(project_slug, episode_id, title)

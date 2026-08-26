@@ -624,27 +624,25 @@ export function resolveStepParams(
     }
   }
   if (step === 'introduction-only') {
-    // Typed `introduction` preset (see scripts.vue introPresets):
-    //   { intro: { host_name, word_target, custom_opening, enabled },
-    //     introBeats: [{ id, label, enabled, custom? }, ...] }
-    // The introduction-only endpoint expects a flat shape with the model
-    // pulled from script-side context. Older presets can omit model — this
-    // mapper is a pure/sync preset→params transform with no catalog access,
-    // so it never invents a literal external model id here. An empty model
-    // is resolved against GenStudio's live catalog by the async batch
-    // runner (see resolveDefaultChatModel in routes/pipeline.ts's
-    // run-batch handler) immediately before the job is enqueued.
-    const intro = data.intro || {}
+    // v1.4.73 — the opening's recipe is no longer read from a preset here.
+    //
+    // A preset is a snapshot of a moment; the opening is a property of the
+    // CHANNEL. Keeping the host name and the beat list in a saved preset meant
+    // an unattended batch wrote whatever shape happened to be captured the
+    // last time somebody pressed Save, while the Introduction page showed
+    // something else. The generator now reads the channel's own recipe
+    // (see generators/episode.ts and services/channel-segments.ts), so a batch
+    // and a button produce the same opening.
+    //
+    // What is still passed is what genuinely belongs to this run: which
+    // episode, its title, and the language model. Older presets can omit the
+    // model — this mapper is a pure/sync transform with no catalog access, so
+    // it never invents a model id. An empty model is filled from the script's
+    // own model by the run-batch handler, or the step is skipped with a reason.
     return {
       episode_id: episodeId,
       title: title || '',
       model: typeof data.model === 'string' ? data.model.trim() : '',
-      host_name: intro.host_name,
-      word_target: intro.word_target,
-      custom_opening: intro.custom_opening,
-      beats: Array.isArray(data.introBeats)
-        ? data.introBeats.filter((b: any) => b.enabled).map((b: any) => b.label)
-        : [],
     }
   }
   if (step === 'image_prompts') {
@@ -1312,12 +1310,41 @@ function parseBatchRequest(body: any): { episodeIds: string[]; steps: BatchStep[
   return { episodeIds, steps, force: body?.force === true }
 }
 
+/**
+ * v1.4.73 — an unattended run follows the channel's intent, not a checkbox.
+ *
+ * A channel that says it opens with an Introduction gets one on every episode
+ * this batch writes. It used to be a separate box that had to be ticked on
+ * every run, sitting next to the Script box, and forgetting to tick it is how
+ * four episodes reached paid audio with no opening at all.
+ *
+ * Deliberately narrow: it attaches to a run that WRITES THE SCRIPT, because
+ * that is the run that produces the episode. A batch re-rendering audio for
+ * finished episodes is not producing episodes and must not silently grow an
+ * extra language-model call. The opening also has to come after the chapters
+ * it introduces, which is why it is inserted directly behind them rather than
+ * appended.
+ *
+ * The same function serves preflight and the run itself, so what the page is
+ * told a run will produce is what the run produces.
+ */
+export async function applyChannelSegmentIntent(slug: string, steps: BatchStep[]): Promise<BatchStep[]> {
+  if (!steps.includes('script-only')) return steps
+  if (steps.includes('introduction-only')) return steps
+  const { channelWantsIntroduction } = await import('../services/channel-segments.js')
+  if (!await channelWantsIntroduction(slug)) return steps
+  const out = [...steps]
+  out.splice(out.indexOf('script-only') + 1, 0, 'introduction-only')
+  return out
+}
+
 router.post('/projects/:slug/pipeline/preflight', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
-  const { episodeIds, steps, force } = parseBatchRequest(req.body)
+  const { episodeIds, steps: requestedSteps, force } = parseBatchRequest(req.body)
   if (!episodeIds.length) return res.status(400).json({ detail: 'episode_ids must be a non-empty array' })
-  if (!steps.length) return res.status(400).json({ detail: 'steps must include at least one valid pipeline step' })
+  if (!requestedSteps.length) return res.status(400).json({ detail: 'steps must include at least one valid pipeline step' })
+  const steps = await applyChannelSegmentIntent(slug, requestedSteps)
   try {
     const result = await preflightBatch(slug, episodeIds, steps, force)
     res.status(result.ok ? 200 : 422).json({
@@ -1338,12 +1365,13 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
   const { slug } = req.params
   if (!await pm.getProject(slug)) return res.status(404).json({ detail: 'Project not found' })
 
-  const { episodeIds: episode_ids, steps, force } = parseBatchRequest(req.body)
+  const { episodeIds: episode_ids, steps: requestedSteps, force } = parseBatchRequest(req.body)
   // `force: true` disables per-step idempotency skipping — every selected
   // step runs even if its output already exists. Default is to skip done
   // steps so the batch doesn't silently burn tokens on regeneration.
   if (!episode_ids.length) return res.status(400).json({ detail: 'episode_ids must be a non-empty array' })
-  if (!steps.length) return res.status(400).json({ detail: 'steps must include at least one of ' + VALID_STEPS.join(', ') })
+  if (!requestedSteps.length) return res.status(400).json({ detail: 'steps must include at least one of ' + VALID_STEPS.join(', ') })
+  const steps = await applyChannelSegmentIntent(slug, requestedSteps)
 
   const preflight = await preflightBatch(slug, episode_ids, steps, force)
   if (!preflight.ok) {

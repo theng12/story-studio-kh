@@ -35,6 +35,7 @@ import {
   buildMergedAudioOpeningRecord,
   type MergedAudioIntroRecord,
 } from '../services/merged-audio-opening.js'
+import { segmentPositionForFilename } from '../lib/episode-segments.js'
 
 // ── Run FFmpeg and capture stderr (needed for loudnorm measurement) ────────
 
@@ -289,12 +290,28 @@ async function applyLoudnorm(
  * `_part10` slotted between `_part1` and `_part2` — exactly the visible bug on
  * a 23-part Chapter 04. A BARE chapter file (no `_partN`) sorts before any of
  * its parts so the merge picks it up first when both exist.
+ *
+ * v1.4.73 — the "Introduction first" half of that order is no longer a name
+ * this function knows; it is a position the segment itself declares.
  */
 export function compareChapterFilenames(a: string, b: string): number {
-  const aIsIntro = /intro/i.test(a)
-  const bIsIntro = /intro/i.test(b)
-  if (aIsIntro && !bIsIntro) return -1
-  if (!aIsIntro && bIsIntro) return 1
+  // v1.4.73 — placement is a POSITION now, not a special-cased name.
+  //
+  // This used to say "a filename containing the letters intro plays first",
+  // which was the only notion the merge had of where anything sits. That rule
+  // could only ever describe one thing. A segment now declares where it sits
+  // relative to the chapter body (see lib/episode-segments.ts), so a sign-off
+  // that belongs after the last chapter can be added later without another
+  // special case here. Only the Introduction is registered today, at a
+  // position before chapter one, so the running order is unchanged.
+  const aPos = segmentPositionForFilename(a)
+  const bPos = segmentPositionForFilename(b)
+  if (aPos !== null && bPos !== null) {
+    if (aPos !== bPos) return aPos - bPos
+    return a.localeCompare(b, undefined, { numeric: true })
+  }
+  if (aPos !== null) return aPos < 0 ? -1 : 1
+  if (bPos !== null) return bPos < 0 ? 1 : -1
   const aNum = a.match(/chapter[_\s]*(\d+)/i)
   const bNum = b.match(/chapter[_\s]*(\d+)/i)
   if (aNum && bNum) {

@@ -73,6 +73,15 @@ function qualifiedModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioC
     qualification_only: false,
     discount: false,
     discount_disclaimer: null,
+    // v1.4.71 added GenStudio's retirement fields as required ones; these
+    // fixtures predate them, which left `npm run typecheck` red on main. A
+    // test model is not being retired and has no successor.
+    deprecation_warning: false,
+    deprecation_warning_at: null,
+    scheduled_retirement_at: null,
+    upstream_shutdown_at: null,
+    retires_at: null,
+    replacement_model_id: null,
     context_window_tokens: 128_000,
     max_output_tokens: 8_192,
     max_structured_items_per_request: null,
