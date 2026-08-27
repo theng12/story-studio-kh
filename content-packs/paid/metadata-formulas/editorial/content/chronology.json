@@ -1,0 +1,83 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.chronology",
+  "name": "Chronology",
+  "description": "The episode's subject laid out in time. Era or date markers become the headers and each carries a short paragraph, so a reader sees the arc of the story before pressing play. Distinct from a chapter list: these mark the subject's timeline, not the video's.",
+  "architecture": "Dated era markers as headers, a short paragraph under each.",
+  "description_plan": {
+    "max_chars": 3000,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "frame",
+        "instruction": "One paragraph naming the span of time this episode covers and why that span is the right frame for the story. No heading of its own.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 240
+      },
+      {
+        "id": "early",
+        "instruction": "Describe the earliest period the episode covers, in one short paragraph. Begin the paragraph with the period or date it concerns, taken from the story context.",
+        "header": {
+          "render": true,
+          "text": "Beginnings"
+        },
+        "target_chars": 300
+      },
+      {
+        "id": "turn",
+        "instruction": "Describe the middle period — the point where the situation changes. One short paragraph, again opening with its period or date.",
+        "header": {
+          "render": true,
+          "text": "The turn"
+        },
+        "target_chars": 300
+      },
+      {
+        "id": "aftermath",
+        "instruction": "Describe what followed and where things stood by the end of the episode's span. One short paragraph.",
+        "header": {
+          "render": true,
+          "text": "What followed"
+        },
+        "target_chars": 300
+      },
+      {
+        "id": "standing",
+        "instruction": "Two or three sentences on what remains of this today, or what is still unsettled about it. If the story context does not support a present-day link, describe the unresolved questions instead.",
+        "header": {
+          "render": true,
+          "text": "Where it stands now"
+        },
+        "target_chars": 240
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 90,
+    "guidance": "Name the subject and its period. A date or era in the title is welcome. Avoid framing the past as a secret or a thing they hid from you."
+  },
+  "tag_plan": {
+    "count": 22,
+    "guidance": "for this chronological episode, mixing the subject, the period, and the place"
+  },
+  "tone": {
+    "constraints": [
+      "Dates and periods come from the story context and are never invented.",
+      "Describe each period in its own terms before judging it.",
+      "No present-day moralising that replaces explanation."
+    ]
+  }
+}

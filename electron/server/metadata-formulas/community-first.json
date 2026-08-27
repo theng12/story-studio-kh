@@ -1,0 +1,80 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.community-first",
+  "name": "Community First",
+  "description": "Speaks to the regulars before the newcomers. Opens by answering the last episode's comments, puts a question to the audience early, and only then gets to what this episode is. The links and support block is a real section rather than a footer.",
+  "architecture": "Greets returning viewers, asks a question, then the episode, then links.",
+  "description_plan": {
+    "max_chars": 2600,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "welcome_back",
+        "instruction": "Two or three sentences addressed to viewers who have watched before, connecting this episode to the running thread of the channel. Do not recap a specific previous episode by name unless the story context names one.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 240
+      },
+      {
+        "id": "question",
+        "instruction": "One question to the audience that this episode gives them something to say about. It must be answerable in a comment in one line, and must not be a yes or no question.",
+        "header": {
+          "render": true,
+          "text": "Tell me in the comments"
+        },
+        "target_chars": 140
+      },
+      {
+        "id": "episode",
+        "instruction": "Describe this episode: what it covers, why it is worth the time. Write it as though continuing a conversation already in progress rather than introducing yourself.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 520
+      },
+      {
+        "id": "links",
+        "instruction": "Leave this section empty. The channel's own links, playlists and support destinations are inserted from the publishing profile, so write nothing here.",
+        "header": {
+          "render": true,
+          "text": "Where else to find this"
+        }
+      },
+      {
+        "id": "thanks",
+        "instruction": "One sentence thanking the people who watch to the end. No request attached to it.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 100
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 90,
+    "guidance": "Written as though to someone who already subscribes. May reference the series or the running thread. Avoid explaining the premise of the channel in the title."
+  },
+  "tag_plan": {
+    "count": 18,
+    "guidance": "for this community-facing episode, mixing the channel's own recurring terms with the episode subject"
+  },
+  "tone": {
+    "constraints": [
+      "Address returning viewers before explaining anything to newcomers.",
+      "Ask exactly one question of the audience, and make it answerable in one line.",
+      "Never stack multiple calls to action in the same paragraph."
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.metadata-formula.editorial",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of the Editorial Description Formulas pack: six description architectures \u2014 problem and fix, chronology, questions and answers, quote-led, numbered index, and a signed note.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.metadata-formula.editorial",
+    "family": "com.storystudio.family.metadata-formula.editorial"
+  }
+}

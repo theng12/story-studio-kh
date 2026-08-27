@@ -1,0 +1,64 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.numbered-index",
+  "name": "Numbered Index",
+  "description": "A numbered index of everything covered, one line each, then a single paragraph of framing. Scannable in two seconds. Unlike a chapter list it carries no timestamps, so it suits episodes that are not cleanly chaptered.",
+  "architecture": "A numbered one-line index of what is covered, then one framing paragraph.",
+  "description_plan": {
+    "max_chars": 2000,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "index",
+        "instruction": "List what the episode covers as a numbered index, one item per line, each beginning with its number and a full stop. Each line is a fragment under ten words naming a thing covered — not a sentence and not a teaser. Use as many lines as the episode's material genuinely supports.",
+        "header": {
+          "render": true,
+          "text": "In this episode"
+        },
+        "target_chars": 480
+      },
+      {
+        "id": "framing",
+        "instruction": "One paragraph explaining what connects the items above and why they are in this order. This is the only prose in the description, so make it carry the reason somebody should watch.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 420
+      },
+      {
+        "id": "scope",
+        "instruction": "Two sentences saying plainly what this episode does not cover, so nobody arrives expecting the wrong thing. If the story context gives no basis for this, write one sentence naming who the episode is for instead.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 180
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 4,
+    "max_length": 80,
+    "guidance": "A count and a subject, where the episode's material supports a count. Never promise a number the index does not reach."
+  },
+  "tag_plan": {
+    "count": 20,
+    "guidance": "for this indexed episode, drawing from each item in the index as well as the overall subject"
+  },
+  "tone": {
+    "constraints": [
+      "Every index line names something the episode genuinely covers.",
+      "Index lines are fragments, never sentences and never teasers.",
+      "State what is out of scope rather than letting somebody assume it."
+    ]
+  }
+}

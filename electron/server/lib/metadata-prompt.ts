@@ -94,6 +94,12 @@ export function buildDescriptionPrompt(
     if (parts.length > 0) nicheVoiceBlock = `\n\n${parts.join('\n\n')}\n`
   }
 
+  // A description shape may state what goes between sections. Only when it
+  // says nothing does the long-standing rule below apply, so a shape asking for
+  // no dividers is no longer contradicted by the very next line of its prompt.
+  const separatorLine = descShape?.separatorRule
+    || 'Use separator lines (──────) between major sections.'
+
   return `Generate a YouTube description for a story episode.
 
 Episode: ${episode_id} — ${title}
@@ -104,7 +110,7 @@ ${storyContext}${nicheVoiceBlock}
 Include these sections IN THIS ORDER:
 ${sectionInstructions}
 
-Use separator lines (──────) between major sections.
+${separatorLine}
 Total length must not exceed ${maxChars} characters.
 Output ONLY the description text, ready to copy-paste. No meta-commentary.`
 }

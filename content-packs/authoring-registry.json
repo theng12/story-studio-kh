@@ -1,5 +1,5 @@
 {
-  "revision": 64,
+  "revision": 66,
   "batches": [
     {
       "revision": 2,
@@ -2229,6 +2229,49 @@
           }
         ]
       }
+    },
+    {
+      "revision": 65,
+      "receipt_ref": "authoring:e17e8774f99bd489a52de625334e6b5ac74890a400c73eca4d52f50d8c0df9a7",
+      "request": {
+        "expected_revision": 64,
+        "coordinator": {
+          "task": "metadata-formulas",
+          "branch": "feat/metadata-formulas-2026-08-27"
+        },
+        "proposal_ref": "metadata-formula:editorial-v1",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.editorial",
+            "item_ids": [
+              "com.storystudio.metadata-formula.chronology",
+              "com.storystudio.metadata-formula.numbered-index",
+              "com.storystudio.metadata-formula.problem-and-fix",
+              "com.storystudio.metadata-formula.questions-and-answers",
+              "com.storystudio.metadata-formula.quote-led",
+              "com.storystudio.metadata-formula.signed-note"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/paid/metadata-formulas/editorial",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.editorial",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.editorial",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -3060,6 +3103,23 @@
         "receipt_ref": "authoring:d3ff9c69d0660487f3fe6d7ba1dc686b77024d978b40d5e8809248039a5edd89",
         "pack_id": "com.storystudio.pack.kit.build-momentum",
         "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 66,
+      "transition_ref": "lifecycle:5230e5b34a0cb15d8eba437375cb14c482fd0f59f8cf408ad061704e2c4d52d4",
+      "request": {
+        "expected_revision": 65,
+        "coordinator": {
+          "task": "metadata-formulas",
+          "branch": "feat/metadata-formulas-2026-08-27"
+        },
+        "receipt_ref": "authoring:e17e8774f99bd489a52de625334e6b5ac74890a400c73eca4d52f50d8c0df9a7",
+        "pack_id": "com.storystudio.pack.metadata-formula.editorial",
+        "version": "1.0.0",
         "changes": {
           "status": "authored"
         }
@@ -6694,6 +6754,36 @@
         },
         "sku": {
           "id": "com.storystudio.sku.kit.build-momentum",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:e17e8774f99bd489a52de625334e6b5ac74890a400c73eca4d52f50d8c0df9a7",
+      "pack_id": "com.storystudio.pack.metadata-formula.editorial",
+      "item_ids": [
+        "com.storystudio.metadata-formula.chronology",
+        "com.storystudio.metadata-formula.numbered-index",
+        "com.storystudio.metadata-formula.problem-and-fix",
+        "com.storystudio.metadata-formula.questions-and-answers",
+        "com.storystudio.metadata-formula.quote-led",
+        "com.storystudio.metadata-formula.signed-note"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/paid/metadata-formulas/editorial",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.editorial",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.editorial",
           "status": "proposed"
         }
       }

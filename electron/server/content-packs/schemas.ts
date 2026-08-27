@@ -11,6 +11,7 @@ import {
   SCENE_MOTION_CATEGORIES,
 } from '../contracts/scene-effects.js'
 import { parseSceneMotionDocument, parseSceneOverlayDocument } from '../contracts/scene-effects-schema.js'
+import { BUILT_IN_METADATA_FORMULA_IDS } from '../contracts/metadata-formulas.js'
 import { BUILT_IN_SUBTITLE_PRESETS } from '../contracts/subtitle-presets.js'
 import {
   BUILT_IN_FOOTAGE_MOTIONS,
@@ -165,6 +166,16 @@ export const ContentPackItemKindSchema = z.enum([
   // nothing else. No font files: the image model draws the letters, by the
   // owner's ruling.
   'lettering-style',
+  // 2026-08-27 — the YouTube description's ARCHITECTURE, on the same principle:
+  // a shape is a DESCRIPTION the generator interprets. The owner's ask was
+  // plain — "there's no meta data formulas that we can pick from. it's all
+  // build from scratch and a lot of people can't afford to spend time figure
+  // that out." A formula ships ordered sections, each with its own
+  // instruction, its own header decision and its own length; plus title
+  // shaping, tag guidance and tone. No prose lives in the app: every word a
+  // formula contributes is a field on this document, so the owner can change
+  // any of it without a release.
+  'metadata-formula',
 ])
 
 const baseDocument = {
@@ -339,6 +350,86 @@ const LetteringStyleDocumentPackSchema = z.object({
   preview_assets: z.array(rasterAssetPath).min(1).max(4),
 }).strict()
 
+/**
+ * One section of a description formula.
+ *
+ * `id` is INTERNAL — a key for the section, never viewer-facing text. Whether
+ * the reader sees a heading at all is `header.render`, and what it says is
+ * `header.text`; a formula that wants an unheaded paragraph says so and the
+ * generated description carries no label for it.
+ */
+const MetadataFormulaSectionSchema = z.object({
+  id: localSlug,
+  /** What this section must contain, in the formula author's own words. */
+  instruction: safeText(800),
+  header: z.object({
+    render: z.boolean(),
+    /** The exact line the reader sees. Required when `render` is true. */
+    text: safeText(80).optional(),
+  }).strict(),
+  /** Rough length for this section's body. Omitted = the model judges it. */
+  target_chars: z.number().int().min(40).max(2000).optional(),
+}).strict().refine(
+  section => !section.header.render || !!section.header.text,
+  { path: ['header', 'text'], message: 'a section that renders a header must state the exact header text' },
+)
+
+/**
+ * A metadata formula: the whole architecture of an episode's YouTube write-up.
+ *
+ * Distinct from `metadata_profile` on a series formula, which only picks which
+ * of the app's thirteen built-in section TYPES appear. That could not express a
+ * different SHAPE — only a different subset of one shape. This kind can, which
+ * is what makes formulas worth selling in packs.
+ *
+ * A built-in formula is one of these documents too, validated by this very
+ * schema, which is what keeps the eventual cutover to signed-packs-only a
+ * deletion rather than a migration. Because they share one id namespace, the
+ * refinement below is what stops a pack claiming a shipped formula's id.
+ */
+export const MetadataFormulaDocumentSchema = z.object({
+  kind: z.literal('metadata-formula'),
+  ...baseDocument,
+  /** One line naming the shape, for the picker: what makes this one different. */
+  architecture: safeText(200),
+  description_plan: z.object({
+    max_chars: z.number().int().min(200).max(5000),
+    /** What goes between sections. The owner's choice, not an engineer's. */
+    separator: z.enum(['rule', 'blank-line', 'none']),
+    sections: z.array(MetadataFormulaSectionSchema).min(1).max(12).superRefine((sections, ctx) => {
+      // Section ids key the generated plan, so two sections sharing one id
+      // would make the formula ambiguous about which instruction produced
+      // which text.
+      const seen = new Set<string>()
+      sections.forEach((section, index) => {
+        if (seen.has(section.id)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [index, 'id'],
+            message: `duplicate section id "${section.id}" — every section in a formula needs its own id`,
+          })
+        }
+        seen.add(section.id)
+      })
+    }),
+  }).strict(),
+  title_plan: z.object({
+    mode: z.enum(['use_idea_title', 'paraphrase']),
+    count: z.number().int().min(1).max(10),
+    max_length: z.number().int().min(20).max(200),
+    /** The tone/shape instruction for titles, replacing the format's default. */
+    guidance: safeText(600),
+  }).strict(),
+  tag_plan: z.object({
+    count: z.number().int().min(1).max(50),
+    guidance: safeText(600),
+  }).strict(),
+  /** Voice rules surfaced at the top of the description prompt. */
+  tone: z.object({
+    constraints: z.array(safeText(200)).min(1).max(8),
+  }).strict(),
+}).strict()
+
 const SubtitleStyleDocumentPackSchema = z.object({
   kind: z.literal('subtitle-style'),
   ...baseDocument,
@@ -464,7 +555,22 @@ export const ContentPackDocumentSchema = z.discriminatedUnion('kind', [
   SceneEffectDocumentPackSchema,
   OverlayDocumentPackSchema,
   LetteringStyleDocumentPackSchema,
+  MetadataFormulaDocumentSchema,
 ]).superRefine((document, ctx) => {
+  if (document.kind === 'metadata-formula') {
+    // A built-in formula and a bought one are the same kind of document in the
+    // same id namespace, so a pack could otherwise claim a shipped formula's id
+    // and silently win a lookup. It is refused here instead, exactly as the
+    // engine kinds refuse it.
+    if ((BUILT_IN_METADATA_FORMULA_IDS as readonly string[]).includes(document.id)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['id'],
+        message: `id collides with the built-in metadata formula "${document.id}" — a Content Pack adds to the library and may never replace or shadow a built-in`,
+      })
+    }
+    return
+  }
   if (document.kind === 'subtitle-style' || document.kind === 'scene-effect'
     || document.kind === 'overlay' || document.kind === 'lettering-style') {
     // A pack ADDS to the library. It never replaces a built-in, and it never

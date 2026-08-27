@@ -1,0 +1,75 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.problem-and-fix",
+  "name": "Problem and Fix",
+  "description": "Four headed blocks that argue rather than describe: the problem, what it costs, what the episode proposes, and what backs that up. For channels whose episodes make a case instead of telling a story.",
+  "architecture": "Problem, cost, proposal, evidence — four headed blocks that argue a case.",
+  "description_plan": {
+    "max_chars": 2400,
+    "separator": "rule",
+    "sections": [
+      {
+        "id": "problem",
+        "instruction": "State the problem this episode is about in two or three sentences. Concrete and specific. Do not soften it and do not gesture at the solution yet.",
+        "header": {
+          "render": true,
+          "text": "The problem"
+        },
+        "target_chars": 260
+      },
+      {
+        "id": "cost",
+        "instruction": "Say what this problem costs — in time, money, risk, or missed outcomes — using whatever the story context actually supports. If the context gives no figures, describe the cost qualitatively rather than inventing numbers.",
+        "header": {
+          "render": true,
+          "text": "What it costs"
+        },
+        "target_chars": 260
+      },
+      {
+        "id": "proposal",
+        "instruction": "Describe what the episode proposes or explains as the way through. Say what it is, not merely that the episode covers it.",
+        "header": {
+          "render": true,
+          "text": "What the episode argues"
+        },
+        "target_chars": 380
+      },
+      {
+        "id": "evidence",
+        "instruction": "Name the kinds of evidence the episode leans on, in one short paragraph. If the story context names specific studies, cases or figures, refer to them by what they are rather than restating their conclusions.",
+        "header": {
+          "render": true,
+          "text": "What backs it up"
+        },
+        "target_chars": 300
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 4,
+    "max_length": 85,
+    "guidance": "State the claim, not the topic. A title here reads like a position somebody could disagree with."
+  },
+  "tag_plan": {
+    "count": 20,
+    "guidance": "for this argument-led episode, favouring the terms somebody uses when they already have this problem"
+  },
+  "tone": {
+    "constraints": [
+      "Every claim in the description must be one the episode supports.",
+      "No rhetorical questions — this formula asserts rather than teases.",
+      "Never invent a statistic, a study, or a figure."
+    ]
+  }
+}
