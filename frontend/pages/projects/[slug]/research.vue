@@ -537,6 +537,12 @@ import { resolveResearchModelForRun, type ResearchMode } from '~/utils/research-
 import { describeWebResearchRate } from '~/utils/genstudio-credit-cost'
 import { describeModelRetirement, isRetiring } from '~/utils/genstudio-model-retirement'
 import {
+  describeRelaxedQueueHint,
+  isRelaxedQueue,
+  queueClassGroupLabel,
+  type RelaxedQueueHint,
+} from '~/utils/genstudio-relaxed-queue'
+import {
   MODEL_KNOWLEDGE_CLAIM_NOTE,
   MODEL_KNOWLEDGE_NOTICE,
   researchRanAt,
@@ -693,6 +699,19 @@ interface WebResearchModel {
    *  not a default. */
   deprecation_warning?: boolean
   retires_at?: string | null
+  /**
+   * GenStudio's shelf, and the offer that shelf carries. Optional for the same
+   * reason the two above are: an older backend response still types, and
+   * absent means `direct` — one undivided list, which is what this menu has
+   * always shown.
+   *
+   * No struck-through price accompanies it here. Web research is charged per
+   * search and per request, and GenStudio publishes no undiscounted
+   * counterpart for either figure, so there is no "was" price to show and none
+   * is manufactured out of the per-token rates this page does not charge.
+   */
+  queue_class?: 'direct' | 'relaxed' | null
+  relaxed_queue_hint?: RelaxedQueueHint | null
 }
 const webModels = ref<WebResearchModel[]>([])
 const webModeAvailable = ref(false)
@@ -756,7 +775,8 @@ const webModelMenuOptions = computed(() => webModels.value.map((model) => {
   return {
     id: model.id,
     label: model.display_name,
-    group: 'GenStudio KH',
+    group: queueClassGroupLabel(model, 'GenStudio KH'),
+    groupNote: isRelaxedQueue(model) ? describeRelaxedQueueHint(model.relaxed_queue_hint) : '',
     meta: facts.join(' · '),
     price: rate.text,
     priceTitle: rate.title,

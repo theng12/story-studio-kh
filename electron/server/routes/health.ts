@@ -136,8 +136,22 @@ router.get('/models', async (_req, res) => {
       // these as rates because an LLM total is unknowable before generation.
       input_credits_per_million_tokens: model.input_credits_per_million_tokens,
       output_credits_per_million_tokens: model.output_credits_per_million_tokens,
+      // The undiscounted rates, when GenStudio is applying a sale to this
+      // account. Forwarded for the same reason the rates above are: the picker
+      // shows the price with the full price struck through, and it can only do
+      // that with both numbers. Null means no sale, and the picker then shows
+      // one price rather than a discount tag on no discount.
+      standard_input_credits_per_million_tokens: model.standard_input_credits_per_million_tokens,
+      standard_output_credits_per_million_tokens: model.standard_output_credits_per_million_tokens,
       minimum_credits: model.minimum_credits,
       price_version: model.price_version,
+      // Which shelf the product sells on, and the offer that shelf carries.
+      // This whitelist is why the retirement schedule never reached the picker
+      // for weeks — the fields arrived on every catalogue row and were dropped
+      // here. Both of these are grouping and copy the picker cannot reconstruct
+      // from anything else on the row, so they travel whole.
+      queue_class: model.queue_class,
+      relaxed_queue_hint: model.relaxed_queue_hint,
       // GenStudio's data disclosure, forwarded verbatim. The picker shows the
       // sentence GenStudio publishes; Story Studio never writes one of its own,
       // because a softened copy would change what the customer agreed to.

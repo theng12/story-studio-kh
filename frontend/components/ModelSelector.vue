@@ -40,6 +40,12 @@ import {
 import { invalidateModelCatalogCache } from '../composables/useApi.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
 import { describeChatRate } from '../utils/genstudio-credit-cost.js'
+import {
+  describeRelaxedQueueHint,
+  queueClassGroupLabel,
+  isRelaxedQueue,
+  type RelaxedQueueHint,
+} from '../utils/genstudio-relaxed-queue.js'
 import { describeModelRetirement, isRetiring } from '../utils/genstudio-model-retirement.js'
 
 interface LlmModelRow {
@@ -65,8 +71,27 @@ interface LlmModelRow {
   lock_reason?: string | null
   input_credits_per_million_tokens?: number | null
   output_credits_per_million_tokens?: number | null
+  /** The undiscounted rates, sent only while GenStudio is applying a sale to
+   *  this account. The pair above is what the account pays today; these are the
+   *  prices shown struck through beside them. */
+  standard_input_credits_per_million_tokens?: number | null
+  standard_output_credits_per_million_tokens?: number | null
   minimum_credits?: number | null
   price_version?: string | null
+  /**
+   * Which shelf GenStudio sells this product on. The ONLY thing this picker
+   * groups by — the words "(Relaxed Queue)" that appear inside some display
+   * names are copy the owner edits, and a menu that grouped by searching for
+   * the phrase would regroup itself the next time he reworded a product.
+   *
+   * Absent means `direct`, which is the truth for every product that predates
+   * the field: one undivided list, exactly as this menu looked before.
+   */
+  queue_class?: 'direct' | 'relaxed' | null
+  /** GenStudio's own note about the relaxed shelf — the discount it is running,
+   *  the top-up total that makes it permanent, and the sentence explaining it.
+   *  Rendered once under the section heading, and never authored here. */
+  relaxed_queue_hint?: RelaxedQueueHint | null
   /**
    * GenStudio offers some products at a reduced price in exchange for a data
    * arrangement. NOT `sale_disclaimer`, which is a price promotion and means
@@ -133,7 +158,14 @@ const menuOptions = computed(() => {
     return {
       id: model.id,
       label: model.label,
-      group: 'Language models',
+      // Two shelves, and `queue_class` decides which. A catalogue with no
+      // relaxed products yields one group with the heading it has always had.
+      group: queueClassGroupLabel(model, 'Language models'),
+      // Sent on every relaxed row, rendered once for the section — see
+      // `ModelMenu`'s `groupNote`. Empty for a direct row, and empty for a
+      // relaxed row on a GenStudio that publishes no hint, which shows the
+      // section with no note rather than a note this app made up.
+      groupNote: isRelaxedQueue(model) ? describeRelaxedQueueHint(model.relaxed_queue_hint) : '',
       provider: model.provider_name || '',
       price: rate.text,
       priceTitle: rate.title,

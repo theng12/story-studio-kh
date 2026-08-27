@@ -237,6 +237,14 @@ export function describeChatRate(model: {
   chargeable?: boolean
   input_credits_per_million_tokens?: number | null
   output_credits_per_million_tokens?: number | null
+  /**
+   * The undiscounted rates, published only while GenStudio is applying a sale
+   * to this account. Same "(was X)" treatment images and music already give a
+   * sale price — see `describeImageUnitCost` and `describeMusicUnitCost`.
+   * Chat carries two of them because chat prices two rates, not one.
+   */
+  standard_input_credits_per_million_tokens?: number | null
+  standard_output_credits_per_million_tokens?: number | null
   minimum_credits?: number | null
 } | null | undefined): CreditDisplay {
   if (!model) return unpublishedCost()
@@ -252,9 +260,20 @@ export function describeChatRate(model: {
   const output = publishedNumber(model.output_credits_per_million_tokens)
   if (input === null && output === null) return unpublishedCost(label)
 
+  // A sale is only a sale when the list price is genuinely higher than what is
+  // being charged — the rule music already applies. A `standard_` figure equal
+  // to (or below) the charge is the same price restated, and printing "(was 8
+  // credits)" beside 8 credits would be a discount tag on no discount.
+  const wasSuffix = (unit: number | null, standard: number | null | undefined): string => {
+    const listed = publishedNumber(standard)
+    return unit !== null && listed !== null && listed > unit ? ` (was ${formatCredits(listed)})` : ''
+  }
+  const inputWas = wasSuffix(input, model.standard_input_credits_per_million_tokens)
+  const outputWas = wasSuffix(output, model.standard_output_credits_per_million_tokens)
+
   const rates: string[] = []
-  if (input !== null) rates.push(`${formatCredits(input)} / 1M input tokens`)
-  if (output !== null) rates.push(`${formatCredits(output)} / 1M output tokens`)
+  if (input !== null) rates.push(`${formatCredits(input)}${inputWas} / 1M input tokens`)
+  if (output !== null) rates.push(`${formatCredits(output)}${outputWas} / 1M output tokens`)
   const minimum = publishedNumber(model.minimum_credits)
   const parts = [
     `GenStudio publishes ${rates.join(' and ')} for ${label}.`,
@@ -262,6 +281,10 @@ export function describeChatRate(model: {
     + 'which is not known until the model has written it, so Story Studio shows no up-front total. '
     + 'GenStudio reports the actual charge on the finished job.',
   ]
+  if (inputWas || outputWas) {
+    parts.splice(1, 0, 'The figures in brackets are the undiscounted prices GenStudio publishes for this product; '
+      + 'the rates above them are what this account is charged today.')
+  }
   if (minimum !== null && minimum > 0) parts.splice(1, 0, `A minimum of ${formatCredits(minimum)} applies per request.`)
   return {
     text: rates.join(' · '),

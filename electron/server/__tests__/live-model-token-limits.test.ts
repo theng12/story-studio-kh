@@ -176,6 +176,12 @@ function webModel(overrides: Partial<GenStudioChatModel> = {}): GenStudioChatMod
     qualification_only: false,
     discount: false,
     discount_disclaimer: null,
+    // The shelf a product sells on. `direct` here so this fixture is the
+    // ordinary, undivided catalogue every other assertion in this file assumes.
+    queue_class: 'direct',
+    relaxed_queue_hint: null,
+    standard_input_credits_per_million_tokens: null,
+    standard_output_credits_per_million_tokens: null,
     // Added when v1.4.71 made the deprecation-window fields required on
     // GenStudioChatModel without updating this fixture — the electron
     // typecheck has been red on `main` since that release. Unrelated to the

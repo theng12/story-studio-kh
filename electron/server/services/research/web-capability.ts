@@ -126,12 +126,26 @@ export interface WebResearchModelOption {
    *  first two went unnoticed. */
   deprecation_warning: boolean
   retires_at: string | null
+  /**
+   * Which shelf the product sells on, and the offer that shelf carries.
+   *
+   * Deliberately WITHOUT the standard/sale rate pair the language and vision
+   * pickers carry. Web research is priced per search and per request, and
+   * GenStudio publishes no undiscounted counterpart for either figure — so
+   * there is no "was" price here to strike through, and this picker shows the
+   * section and the hint without one rather than manufacturing a second
+   * number out of the per-token rates, which are not what this page charges.
+   */
+  queue_class: GenStudioChatModel['queue_class']
+  relaxed_queue_hint: GenStudioChatModel['relaxed_queue_hint']
 }
 
 export function toWebResearchModelOption(model: GenStudioChatModel): WebResearchModelOption {
   return {
     id: model.id,
     display_name: model.display_name,
+    queue_class: model.queue_class === 'relaxed' ? 'relaxed' : 'direct',
+    relaxed_queue_hint: model.relaxed_queue_hint ?? null,
     credits_per_search: model.web_search_credits_per_search,
     credits_per_request: model.web_research_credits_per_request,
     max_web_searches: model.max_web_searches,

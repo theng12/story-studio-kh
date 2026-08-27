@@ -91,6 +91,12 @@
         >
           <section v-for="group in groupedOptions" :key="group.label" class="model-menu-group" role="group" :aria-label="group.label">
             <h4>{{ group.label }}</h4>
+            <!-- Said ONCE for the whole section, never per row. The relaxed
+                 shelf's offer is the only thing in this dialog a customer
+                 genuinely has to read, and repeating it under every model is
+                 how it would become furniture they scroll past. Body-weight
+                 rather than muted micro-copy, and never truncated: it wraps. -->
+            <p v-if="group.note" class="model-menu-group-note">{{ group.note }}</p>
             <button
               v-for="option in group.items"
               :key="option.id"
@@ -151,6 +157,7 @@ import {
   visibleTierOptions,
   type GenStudioCostTier,
 } from '../utils/genstudio-cost-tier'
+import { groupMenuOptions } from '../utils/genstudio-relaxed-queue'
 
 interface ModelMenuBadge {
   label: string
@@ -162,6 +169,13 @@ interface ModelMenuOption {
   id: string
   label: string
   group?: string
+  /**
+   * A note about the SECTION this row sits in, carried on the row because that
+   * is how the catalogue publishes it — a bare list, with each row carrying the
+   * facts a client needs beside it. The first non-empty one in a section is
+   * rendered once under that section's heading; the rest are ignored.
+   */
+  groupNote?: string
   provider?: string
   meta?: string
   description?: string
@@ -262,15 +276,10 @@ const filteredOptions = computed(() => {
   return visibleTierOptions(matching, activeTier.value, searching.value)
 })
 const selectableOptionCount = computed(() => filteredOptions.value.filter(option => !option.disabled).length)
-const groupedOptions = computed(() => {
-  const groups = new Map<string, ModelMenuOption[]>()
-  for (const option of filteredOptions.value) {
-    const label = option.group || option.provider || 'Models'
-    if (!groups.has(label)) groups.set(label, [])
-    groups.get(label)!.push(option)
-  }
-  return Array.from(groups, ([label, items]) => ({ label, items }))
-})
+// Sectioning — including the rule that the relaxed shelf always comes last and
+// that its note is said once — lives in a pure function so it can be tested
+// against a catalogue rather than only inspected in a template.
+const groupedOptions = computed(() => groupMenuOptions(filteredOptions.value))
 
 async function toggle() {
   if (props.disabled || (props.loading && !props.options.length)) return
@@ -427,6 +436,25 @@ function onListKeydown(event: KeyboardEvent) {
 .model-menu-list { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 0 10px 12px; scrollbar-width: thin; }
 .model-menu-group { margin-top: 5px; }
 .model-menu-group h4 { margin: 0; padding: 7px 8px 5px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 750; letter-spacing: .1em; text-transform: uppercase; }
+/*
+ * Set at the list's own reading size rather than as muted micro-copy. This is
+ * where a customer is told a cheaper price exists and what earns it
+ * permanently, and the usual treatment for such a thing — small grey text
+ * under a heading — is indistinguishable from a hint nobody needs to read. It
+ * wraps freely and is never clamped, so several sentences survive a narrow
+ * dialog.
+ */
+.model-menu-group-note {
+  margin: 0 8px 6px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-accent);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
 .model-menu-option { display: flex; width: 100%; min-height: 48px; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 10px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .model-menu-option:hover:not(.disabled) { border-color: var(--border); background: var(--bg-tertiary); }
 .model-menu-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
