@@ -99,6 +99,17 @@ const SUCCESSORS = [
     family: 'com.storystudio.family.topic.archival-ledger.states-revolutions-collapse',
     sku: 'com.storystudio.sku.topic.archival-ledger.states-revolutions-collapse',
   },
+  {
+    kind: 'topic',
+    slug: 'wars-treaties-world-order-v1.0.1',
+    predecessorSlug: 'wars-treaties-world-order',
+    version: '1.0.1',
+    document: 'topic-pack.json',
+    packId: 'com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order',
+    itemId: 'com.storystudio.topic.archival-ledger.wars-treaties-world-order',
+    family: 'com.storystudio.family.topic.archival-ledger.wars-treaties-world-order',
+    sku: 'com.storystudio.sku.topic.archival-ledger.wars-treaties-world-order',
+  },
 ]
 
 const STOCKABLE = [...COMPONENTS, ...SUCCESSORS]
