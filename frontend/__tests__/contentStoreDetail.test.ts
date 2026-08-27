@@ -39,6 +39,9 @@ async function loadStorePage(): Promise<Component> {
     const ContentInstalledLibraryView = { render: () => null }
     const ContentPurchaseDialog = { props: ['visible', 'attempt'], emits: ['close', 'confirm'], setup: (props, { emit }) => () => props.visible ? h('div', { role: 'dialog' }, [h('button', { 'data-test': 'confirm-purchase', onClick: () => emit('confirm', props.attempt.quote_id) }, 'Confirm'), h('button', { 'data-test': 'purchase-done', onClick: () => emit('close') }, 'Done')]) : null }
     const filterCatalogProducts = (items, query) => query ? items.filter(item => String(item.title || '').toLowerCase().includes(String(query).toLowerCase())) : items
+    // Real implementation, not a simplification: the tab counts are asserted
+    // here, and a stub would let them agree with something nothing ships.
+    const installedPackCount = (packs) => new Set(packs.filter(pack => pack.active).map(pack => pack.packId)).size
     const orderShelfProducts = (items) => items
     const contentStoreErrorPresentation = (error) => ({ title: error.code, detail: error.detail, recovery: '' })
     // The real queue lives in ~/composables/useInstallQueue and is covered by

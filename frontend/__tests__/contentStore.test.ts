@@ -222,7 +222,7 @@ describe('useContentStore explicit commerce state machine', () => {
     ['CONTENT_PACK_ARCHIVE_UNAVAILABLE', 'This archive is not available'],
     ['CONTENT_PACK_DEPENDENCY_NOT_OWNED', 'This Content Pack cannot be installed'],
     ['CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'This Content Pack cannot be installed'],
-    ['CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'This Content Pack cannot be installed'],
+    ['CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', 'GenStudio has not attested to the versions this pack requires'],
     ['CONTENT_PACK_RECEIPT_MISSING', 'This Content Pack could not be verified'],
     ['CONTENT_PACK_REMOTE_IDENTITY_MISMATCH', 'This Content Pack could not be verified'],
     ['CONTENT_STORE_REQUEST_INVALID', 'This Content Store request is invalid'],
@@ -256,6 +256,29 @@ describe('useContentStore explicit commerce state machine', () => {
     assert.notEqual(presentation.title, 'The Content Store is unavailable')
     assert.match(presentation.detail, /\/v1\/content\/receipts/)
     assert.match(presentation.recovery, /Update Story Studio/)
+  })
+
+  /**
+   * A restore receipt is minted fresh on every call, so a refresh produces a
+   * byte-for-byte identical attestation and the identical refusal. Telling the
+   * customer to refresh is a remedy that is structurally incapable of working,
+   * and it reads as "try again" -- so they do, repeatedly, on a day the pack
+   * is not going to install.
+   */
+  test('never tells a closure mismatch to refresh, because refreshing re-mints the same receipt', () => {
+    const presentation = contentStoreErrorPresentation({
+      status: 409, code: 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH', detail: 'Exact local failure detail.',
+    })
+    assert.match(presentation.detail, /Exact local failure detail/)
+    // The exact false instruction it used to carry, and the reason it was false.
+    assert.doesNotMatch(presentation.recovery, /Refresh the owned release/)
+    assert.match(presentation.recovery, /will not clear this/i)
+    // And it no longer shares its wording with the three unrelated codes it
+    // was lumped in with, which do have a refresh worth trying.
+    assert.notEqual(
+      presentation.recovery,
+      contentStoreErrorPresentation({ status: 409, code: 'CONTENT_PACK_DEPENDENCY_NOT_OWNED', detail: 'x' }).recovery,
+    )
   })
 
   test('uses one generic recovery boundary for an unrecognized public code', () => {

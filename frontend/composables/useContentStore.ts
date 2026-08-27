@@ -314,8 +314,14 @@ export function contentStoreErrorPresentation(error: ContentStoreUiError): Conte
     case 'CONTENT_PACK_ARCHIVE_HASH_MISMATCH':
     case 'CONTENT_PACK_SCHEMA_INVALID':
     case 'CONTENT_PACK_ASSET_INVALID': return failure('This Content Pack could not be verified', 'Do not retry this archive; refresh for a safe published release.')
+    // Refreshing cannot clear this one. A restore receipt is minted fresh on
+    // every call, so a refresh produces a byte-for-byte identical attestation
+    // and the same refusal -- and the customer who is told to refresh does it
+    // repeatedly, believing the next one will differ. The mismatch is between
+    // this pack's required versions and what GenStudio's receipt attests to,
+    // and only GenStudio can change that.
+    case 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH': return failure('GenStudio has not attested to the versions this pack requires', 'Refreshing will not clear this. Install the newest release of this pack, or contact the publisher.')
     case 'CONTENT_PACK_DEPENDENCY_CYCLE':
-    case 'CONTENT_PACK_RECEIPT_CLOSURE_MISMATCH':
     case 'CONTENT_PACK_DEPENDENCY_NOT_OWNED':
     case 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED': return failure('This Content Pack cannot be installed', 'Refresh the owned release and its required dependencies before trying again.')
     case 'CONTENT_PACK_RECEIPT_MISSING':

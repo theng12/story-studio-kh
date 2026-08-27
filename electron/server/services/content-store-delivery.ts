@@ -339,11 +339,22 @@ function deliveryAttestation(
   }
 }
 
-/** Build the only pack-id mapping that 1.14 permits: signed root manifest + signed receipt pins. */
-async function bindRootClosure(
+/**
+ * Build the only pack-id mapping that 1.14 permits: signed root manifest +
+ * signed receipt pins.
+ *
+ * Exported for the same reason `restoreReceiptAttestsRelease` is: this is the
+ * decision that admits or refuses a kit's dependency, and it is worth testing
+ * on its own rather than only through an install that can fail for ten other
+ * reasons.
+ */
+export async function bindRootClosure(
   evidence: ContentPackDeliveryAttestation,
   dependencies: ReadonlyArray<{ pack_id: string; version: string }>,
-  context: DeliveryContext,
+  // Narrowed to what resolving an owned dependency actually needs. A full
+  // DeliveryContext would make this look like it consults the install
+  // transaction, and it does not.
+  context: OwnedReleaseLookupContext,
 ): Promise<ContentPackDeliveryAttestation> {
   if (evidence.subject === 'bundle-closure-member') {
     if (dependencies.length) throw new ContentStoreLocalError(409, 'CONTENT_PACK_NESTED_CLOSURE_UNSUPPORTED', 'GenStudio 1.14 receipt closure does not authorize nested bundle-member dependencies.')
@@ -352,6 +363,7 @@ async function bindRootClosure(
   const payload = JSON.parse(evidence.receipt_canonical_json) as {
     bundle_closure?: unknown[]
     releases?: unknown[]
+    owned_releases?: unknown[]
   }
   // v1.4.45 — a free upgrade is authorised by the RESTORE receipt, which
   // carries no `bundle_closure`: it is not a purchase, so nothing was pinned
@@ -363,7 +375,20 @@ async function bindRootClosure(
   // persisted attestation needs no new field to be read correctly.
   const restoreAttested = Array.isArray(payload.releases) && !Array.isArray(payload.bundle_closure)
   if (restoreAttested) {
-    const attested = payload.releases as Array<Record<string, unknown>>
+    // 2026-08-27 -- `releases` names one release per family, the CURRENT one, and
+    // that under-states a permanent per-family entitlement: an account that
+    // owns a family owns every release of it. Binding against the narrow list
+    // refused dependencies the account was fully entitled to -- kit 1.0.2
+    // pinning `topic@1.0.0` stopped installing the day the topic family
+    // shipped 1.0.1. `owned_releases` is the receipt's full statement of what
+    // is owned and fetchable; search it first and fall back to `releases`, so
+    // a receipt minted before GenStudio carried the wider key still verifies.
+    // The five-field match below is unchanged: only where the truth is looked
+    // up widened, never how exactly it must match.
+    const attested = [
+      ...(Array.isArray(payload.owned_releases) ? payload.owned_releases : []),
+      ...(payload.releases ?? []),
+    ] as Array<Record<string, unknown>>
     const closure_members = await Promise.all(dependencies.map(async (dependency, position) => {
       const owned = await resolveOwnedContentStoreDependency(context, dependency.pack_id, dependency.version)
       const pin = attested.find(row =>

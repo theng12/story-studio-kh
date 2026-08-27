@@ -39,7 +39,7 @@ import ContentInstalledLibraryView from '~/components/content-store/ContentInsta
 import ContentPurchaseDialog from '~/components/content-store/ContentPurchaseDialog.vue'
 import ContentBatchPurchaseDialog from '~/components/content-store/ContentBatchPurchaseDialog.vue'
 import { sumPublished, useBatchPurchase } from '~/composables/useBatchPurchase'
-import { filterCatalogProducts, orderShelfProducts, type ContentStoreKindFilter } from '~/content-store/catalog-presentation'
+import { filterCatalogProducts, installedPackCount, orderShelfProducts, type ContentStoreKindFilter } from '~/content-store/catalog-presentation'
 import { useInstallQueue } from '~/composables/useInstallQueue'
 import { contentStoreErrorPresentation, type ContentStoreProduct, type ContentStoreUiError, type PublicContentPurchaseAttempt } from '~/composables/useContentStore'
 
@@ -165,7 +165,9 @@ function closeDialog(): void {
   if (completed && purchasedId) selectedProductIds.value = selectedProductIds.value.filter(id => id !== purchasedId)
 }
 function clearFilters(): void { query.value = ''; price.value = 'all'; kind.value = 'all'; tag.value = ''; compatibleOnly.value = false }
-function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? discoverProducts.value.length : tab === 'owned' ? ownedProducts.value.length : tab === 'installed' ? installed.value.length : updateProducts.value.length }
+// Every tab counts PACKS. Installed counted version records, so it could read
+// higher than Owned -- see installedPackCount for why that number was wrong.
+function tabProductCount(tab: StoreTab): number { return tab === 'discover' ? discoverProducts.value.length : tab === 'owned' ? ownedProducts.value.length : tab === 'installed' ? installedPackCount(installed.value) : updateProducts.value.length }
 /**
  * Discover counts the published catalogue, which is a catalogue fact and true
  * whether or not ownership has been checked. Owned, Installed and Updates each
