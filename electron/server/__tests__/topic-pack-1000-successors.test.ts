@@ -162,8 +162,8 @@ const REVIEWED_ROWS: ReviewedRow[] = [
   },
 ]
 
-// Task 18 changes this to 'authored' only after all sixteen serialized transitions succeed.
-const EXPECTED_RECEIPT_STATUS: RegistryRecord['status'] = 'reserved'
+// Task 18 flipped this to 'authored' after all sixteen serialized transitions succeeded.
+const EXPECTED_RECEIPT_STATUS: RegistryRecord['status'] = 'authored'
 
 function sha256(value: Uint8Array): string {
   return createHash('sha256').update(value).digest('hex')
