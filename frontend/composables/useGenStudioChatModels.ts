@@ -20,6 +20,12 @@ export interface GenStudioChatModelInfo {
   max_output_tokens?: number
   input_credits_per_million_tokens?: number
   output_credits_per_million_tokens?: number
+  /** The undiscounted rates, published only while GenStudio is applying a sale
+   *  to this account. Carried so the rate line under a picker shows the same
+   *  struck-through price the picker row does — two surfaces disagreeing about
+   *  what a model costs is worse than neither mentioning the sale. */
+  standard_input_credits_per_million_tokens?: number | null
+  standard_output_credits_per_million_tokens?: number | null
   minimum_credits?: number
   price_version?: string
   locked?: boolean

@@ -1197,6 +1197,29 @@ export interface GenStudioModelCapability {
   controls: Record<string, unknown>
 }
 
+/**
+ * What GenStudio's relaxed shelf promises, published as three separate values.
+ *
+ * Two of them are numbers the owner moves and the third is wording he
+ * rewrites, so they arrive apart and are rendered apart. Story Studio must
+ * never interpolate the numbers into `message`: he may reword the sentence
+ * into a shape where they no longer fit, and a client that had spliced them
+ * in would then be showing a sentence he never wrote.
+ *
+ * Nothing here is ever authored locally. No percentage, no threshold and no
+ * copy of the sentence exists anywhere in this app — a hint GenStudio does not
+ * send is a hint that is not shown.
+ */
+export interface GenStudioRelaxedQueueHint {
+  /** Read off the LIVE sale, never declared, so it cannot advertise a
+   *  reduction the till would not give. */
+  discount_percent: number
+  /** Lifetime top-ups, in cents, that switch the lower price on permanently. */
+  unlock_threshold_cents: number
+  /** The owner's own copy, containing neither number. Rendered verbatim. */
+  message: string
+}
+
 export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProductAliases {
   id: string
   display_name: string
@@ -1246,6 +1269,34 @@ export interface GenStudioChatModel extends GenStudioCatalogLock, GenStudioProdu
   discount: boolean
   /** Published verbatim, or null when this product carries no such notice. */
   discount_disclaimer: string | null
+  // ── The shelf this product sells on ───────────────────────────────────
+  /**
+   * `relaxed` products are the same models sold cheaper for accepting a
+   * slower queue. This is the ONLY thing a picker may group by: the words
+   * "(Relaxed Queue)" inside a display name are copy the owner edits, so a
+   * catalogue that grouped by searching for the phrase would silently regroup
+   * itself the next time he reworded a product.
+   *
+   * Additive. A GenStudio that has never heard of the field reads `direct`
+   * for every product, which is the truth — one undivided catalogue, exactly
+   * as this app showed before — and never a guess.
+   */
+  queue_class: 'direct' | 'relaxed'
+  /** Sent on relaxed rows only, and only while one is genuinely on sale.
+   *  Null everywhere else, including on a GenStudio that predates the field.
+   *  See `GenStudioRelaxedQueueHint` — nothing in it is written locally. */
+  relaxed_queue_hint: GenStudioRelaxedQueueHint | null
+  /**
+   * The undiscounted per-million-token rates, present only while a sale is
+   * live AND this account is entitled to it. The two rate fields above are
+   * what THIS account pays, sale included — so these are the "was" prices and
+   * the fields above are the "now" prices.
+   *
+   * Null is a real answer meaning no sale is being applied, and the picker
+   * then shows one price rather than inventing a struck-through one.
+   */
+  standard_input_credits_per_million_tokens: number | null
+  standard_output_credits_per_million_tokens: number | null
   // ── Published retirement schedule ─────────────────────────────────────
   // GenStudio records when a product stops being sellable and what replaces
   // it, and publishes the whole schedule on every catalogue row. Story Studio
@@ -3917,6 +3968,29 @@ function readPublishedTokenLimit(preferred: unknown, deprecatedAlias: unknown): 
   return 0
 }
 
+/**
+ * Read GenStudio's relaxed-queue hint, or nothing at all.
+ *
+ * All three parts or none: a percentage with no threshold, or a threshold with
+ * no sentence, is a half-stated offer, and half an offer shown to a paying
+ * customer is worse than no offer shown. There is no fallback wording and no
+ * fallback number here on purpose — Story Studio does not know what the relaxed
+ * shelf costs or what it promises, and must never appear to.
+ */
+function parseRelaxedQueueHint(value: unknown): GenStudioRelaxedQueueHint | null {
+  if (!value || typeof value !== 'object') return null
+  const hint = value as Record<string, unknown>
+  const message = nullableText(hint.message)
+  if (!message) return null
+  if (!Number.isFinite(hint.discount_percent) || (hint.discount_percent as number) <= 0) return null
+  if (!Number.isInteger(hint.unlock_threshold_cents) || (hint.unlock_threshold_cents as number) < 0) return null
+  return {
+    discount_percent: hint.discount_percent as number,
+    unlock_threshold_cents: hint.unlock_threshold_cents as number,
+    message,
+  }
+}
+
 export async function listChatModelsSnapshot(
   apiKey: string,
 ): Promise<GenStudioCatalogSnapshot<GenStudioChatModel[]>> {
@@ -3964,6 +4038,22 @@ export async function listChatModelsSnapshot(
     // simply carries no notice — which is the truth, not a default.
     discount: value?.discount === true,
     discount_disclaimer: optionalText(value?.discount_disclaimer) ?? null,
+    // The shelf, and the offer that shelf carries. Read on exactly the same
+    // terms as the disclosure above: anything GenStudio does not publish is
+    // absent rather than defaulted. An unrecognised `queue_class` reads
+    // `direct` — the undivided catalogue this app has always shown — because
+    // inventing a new section for a value nobody here understands would put a
+    // heading in front of a customer that means nothing.
+    queue_class: (value?.queue_class === 'relaxed' ? 'relaxed' : 'direct') as GenStudioChatModel['queue_class'],
+    relaxed_queue_hint: parseRelaxedQueueHint(value?.relaxed_queue_hint),
+    // The "was" prices. `publishedCredits` returns undefined for anything that
+    // is not a real published figure, and null is the contract here: no sale
+    // is being applied to this account, so there is no second price to strike
+    // through and none is manufactured.
+    standard_input_credits_per_million_tokens:
+      publishedCredits(value?.standard_input_credits_per_million_tokens) ?? null,
+    standard_output_credits_per_million_tokens:
+      publishedCredits(value?.standard_output_credits_per_million_tokens) ?? null,
     // Retirement schedule, read exactly as published. Same contract as the
     // disclosure above: an older GenStudio that publishes none of this carries
     // no retirement, which is the truth rather than a default. Story Studio

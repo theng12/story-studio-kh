@@ -51,11 +51,18 @@ function loadModelMenu(): Promise<Component> {
     const code = `import { computed, nextTick, ref } from 'vue'\n${script.content.replace('export default', 'const __sfc__ =')}\n${template.code}\n__sfc__.render = render\nexport default __sfc__`
     const transformed = await transform(code, { loader: 'ts', format: 'esm' })
     const vueUrl = await import.meta.resolve('vue')
-    const tierPolicyUrl = new URL('../utils/genstudio-cost-tier.ts', import.meta.url).href
+    // The compiled module is imported from a `data:` URL, and a relative
+    // specifier has nothing to be relative TO from there — the loader throws
+    // `ERR_INVALID_URL` rather than reporting a missing file, which reads like
+    // a broken test rather than an unrewritten import. Every `../utils/…` the
+    // component imports is rewritten to an absolute file URL, so adding one to
+    // ModelMenu no longer requires editing this test to keep it loadable.
     const componentUrl = `data:text/javascript;base64,${Buffer.from(
       transformed.code
         .replaceAll('"vue"', JSON.stringify(vueUrl))
-        .replaceAll('"../utils/genstudio-cost-tier"', JSON.stringify(tierPolicyUrl)),
+        .replace(/"(\.\.\/utils\/[\w-]+)"/g, (_match, specifier: string) => (
+          JSON.stringify(new URL(`${specifier}.ts`, import.meta.url).href)
+        )),
     ).toString('base64')}`
     return (await import(componentUrl)).default
   })()

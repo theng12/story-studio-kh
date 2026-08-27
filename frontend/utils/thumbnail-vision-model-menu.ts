@@ -1,6 +1,12 @@
 import { describeChatRate } from './genstudio-credit-cost'
 import type { GenStudioCostTier } from './genstudio-cost-tier'
 import { describeModelRetirement, isRetiring } from './genstudio-model-retirement'
+import {
+  describeRelaxedQueueHint,
+  isRelaxedQueue,
+  queueClassGroupLabel,
+  type RelaxedQueueHint,
+} from './genstudio-relaxed-queue'
 
 /** The live, eligible row returned by the thumbnail-reference vision route. */
 export interface ThumbnailVisionModel {
@@ -13,9 +19,19 @@ export interface ThumbnailVisionModel {
   max_image_dimension: number
   input_credits_per_million_tokens?: number
   output_credits_per_million_tokens?: number
+  /** Undiscounted rates, present only while GenStudio applies a sale to this
+   *  account. Shown struck through beside what the account actually pays. */
+  standard_input_credits_per_million_tokens?: number | null
+  standard_output_credits_per_million_tokens?: number | null
   minimum_credits: number
   price_version: string
   cost_tier?: GenStudioCostTier
+  /** GenStudio's shelf, and the offer that shelf carries. Forwarded by the
+   *  vision route for the same reason the language catalogue forwards them:
+   *  this menu is a second place a customer commits to a chat product and
+   *  pays for it, so the cheaper shelf must exist here too. */
+  queue_class?: 'direct' | 'relaxed' | null
+  relaxed_queue_hint?: RelaxedQueueHint | null
   /** GenStudio's published retirement flag and withdrawal date. Forwarded by
    *  the vision route for the same reason the language catalogue forwards
    *  them: this menu is a second place a customer commits to a chat product. */
@@ -44,7 +60,8 @@ export function thumbnailVisionModelMenuOption(
   return {
     id: model.id,
     label: model.display_name,
-    group: 'GenStudio KH · Vision only',
+    group: queueClassGroupLabel(model, 'GenStudio KH · Vision only'),
+    groupNote: isRelaxedQueue(model) ? describeRelaxedQueueHint(model.relaxed_queue_hint) : '',
     meta: `${model.max_input_images} image · ${model.supported_detail_levels.join(', ')} detail`,
     price: rate.text,
     priceTitle: rate.title,

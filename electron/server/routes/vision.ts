@@ -68,8 +68,16 @@ router.get('/projects/:slug/thumbnail-reference/vision-models', async (req, res)
       cost_tier: model.cost_tier,
       input_credits_per_million_tokens: model.input_credits_per_million_tokens,
       output_credits_per_million_tokens: model.output_credits_per_million_tokens,
+      standard_input_credits_per_million_tokens: model.standard_input_credits_per_million_tokens,
+      standard_output_credits_per_million_tokens: model.standard_output_credits_per_million_tokens,
       minimum_credits: model.minimum_credits,
       price_version: model.price_version,
+      // The shelf and its offer, same as the language picker. This menu is a
+      // second place a customer commits to a chat product and pays for it, so
+      // a relaxed row must read as relaxed here too — otherwise the cheaper
+      // shelf exists on one screen and not on the next.
+      queue_class: model.queue_class,
+      relaxed_queue_hint: model.relaxed_queue_hint,
       max_input_images: model.max_input_images, accepted_image_mime_types: model.accepted_image_mime_types,
       max_image_bytes: model.max_image_bytes, max_image_dimension: model.max_image_dimension,
       // Published retirement, same as the language picker. This menu is a

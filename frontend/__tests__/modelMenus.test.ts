@@ -103,7 +103,12 @@ describe('shared model menus', () => {
   })
 
   test('customer model menus use only neutral modality and published provider groups', () => {
-    assert.match(modelSelector, /group: 'Language models'/)
+    // The modality name is still the heading for the direct catalogue. It is
+    // now reached through `queueClassGroupLabel`, which swaps it for the
+    // relaxed shelf's own heading when GenStudio says a product sells there —
+    // and returns this string unchanged for everything else, including every
+    // product published before `queue_class` existed.
+    assert.match(modelSelector, /queueClassGroupLabel\(model, 'Language models'\)/)
     assert.match(imagePicker, /group: 'Image models'/)
     assert.match(modelSurfaces.audio, /group: model\.provider_name \|\| 'Voice models'/)
     assert.match(imagePicker, /provider: model\.provider_name \|\| ''/)
