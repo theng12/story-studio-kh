@@ -1258,7 +1258,10 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
     // One read, one parse, total — for the whole list response. The cache
     // layer further short-circuits the whole compute when watched-folder
     // mtimes are unchanged (the common case during navigation).
-    const status = await episodeStatusCache.get(slug, code, ideas, projectFacts)
+    // getForList, not get: on a warm list this serves watcher-vouched entries
+    // without re-statting every episode's folders. The single-episode status
+    // route below stays on the strict get().
+    const status = await episodeStatusCache.getForList(slug, code, ideas, projectFacts)
     const {
       research: researchDone,
       scene_plan: scenePlanDone,

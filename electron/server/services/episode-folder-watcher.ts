@@ -53,6 +53,16 @@ interface WatcherState {
   watcher: fs.FSWatcher
   episodesDir: string
   pendingInvalidations: Map<string, NodeJS.Timeout>
+  /**
+   * When this watcher went live. The episode-status cache uses it as a
+   * trust boundary: an entry confirmed against disk AFTER this moment
+   * cannot have gone stale without this watcher firing, so the cache may
+   * serve it without re-statting its watched folders. Cleared the moment
+   * the watcher is closed, evicted, or errors — see `watcherTrustedSince`.
+   */
+  startedAt: number
+  /** Set false on an 'error' event: events may have stopped arriving. */
+  healthy: boolean
 }
 
 // Map iteration order is insertion order — we exploit that for LRU.
@@ -162,6 +172,8 @@ async function startWatcherInner(slug: string): Promise<void> {
     watcher,
     episodesDir,
     pendingInvalidations: new Map(),
+    startedAt: Date.now(),
+    healthy: true,
   }
   watchers.set(slug, state)
 
@@ -183,6 +195,10 @@ async function startWatcherInner(slug: string): Promise<void> {
     }
   })
   watcher.on('error', (e) => {
+    // An errored watcher may have stopped delivering events. Drop its trust
+    // marker so the episode-status cache goes back to re-statting every
+    // watched folder — slower, but never stale.
+    state.healthy = false
     if (process.env.NODE_ENV !== 'test') {
       console.warn('[episode-folder-watcher] error on', slug, ':', e?.message)
     }
@@ -217,8 +233,18 @@ export function stopAllWatchers(): void {
 function scheduleInvalidate(state: WatcherState, slug: string, code: string): void {
   const existing = state.pendingInvalidations.get(code)
   if (existing) clearTimeout(existing)
+  else if (onInvalidate) {
+    // Leading edge: invalidate on the FIRST event of a burst, not only
+    // COALESCE_MS after the last one. The cache may serve a watched entry
+    // without re-statting it, so a quarter-second of "changed on disk but
+    // not yet invalidated" would be a quarter-second of wrong status.
+    // Invalidation is a map delete — doing it twice per burst costs nothing.
+    onInvalidate(slug, code)
+  }
   const t = setTimeout(() => {
     state.pendingInvalidations.delete(code)
+    // Trailing edge: the burst has settled, so anything recomputed while it
+    // was still landing gets dropped once more.
     if (onInvalidate) onInvalidate(slug, code)
   }, COALESCE_MS)
   if (typeof t.unref === 'function') t.unref()
@@ -244,6 +270,24 @@ function extractEpisodeCode(relPath: string): string | null {
     if (m) return m[1]
   }
   return null
+}
+
+/**
+ * The moment a healthy watcher for `slug` went live, or null when this
+ * project has no trustworthy watcher (never started, unsupported platform,
+ * evicted by the LRU cap, closed, or errored).
+ *
+ * The episode-status cache treats this as a trust boundary: a cache entry
+ * last confirmed against disk at or after this timestamp cannot have gone
+ * stale unnoticed, because any change would have produced an event here.
+ * A null answer simply means "verify against disk yourself" — the caller's
+ * fallback is the pre-existing mtime check, so a broken or missing watcher
+ * degrades to the slower correct path, never to stale status.
+ */
+export function watcherTrustedSince(slug: string): number | null {
+  const state = watchers.get(slug)
+  if (!state || !state.healthy) return null
+  return state.startedAt
 }
 
 /** Test diagnostics. */
