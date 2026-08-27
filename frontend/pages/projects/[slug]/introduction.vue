@@ -118,7 +118,7 @@
 
             The audit's finding, applied to the recipe: a value the app worked
             out and a value somebody chose look identical on screen and are not
-            the same kind of thing. Every channel that predates v1.4.74 is
+            the same kind of thing. Every channel that predates v1.4.73 is
             handed its Formula's opening rather than the old sleep-shaped seven,
             and it must not be presented as though its owner picked it.
 
@@ -357,7 +357,7 @@ const formulaName = ref('')
 const loadedRecipeShape = ref('')
 // Replaced by the server's own bounds on load; these are only what the first
 // paint uses. Kept in step with WORD_TARGET_MIN/MAX in lib/episode-segments.ts,
-// where the floor dropped to 50 in v1.4.74 so a listicle's short opening stops
+// where the floor dropped to 50 in v1.4.73 so a listicle's short opening stops
 // being silently doubled.
 const wordTargetMin = ref(50)
 const wordTargetMax = ref(600)

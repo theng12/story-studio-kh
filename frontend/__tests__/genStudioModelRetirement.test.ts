@@ -380,7 +380,7 @@ test('the thumbnail vision menu flags a retiring model too', () => {
     price_version: 'v1',
     deprecation_warning: true,
     retires_at: WITHDRAWN,
-  })
+  }, { now: NOW })
   const badge = option.badges.find(entry => entry.label === 'Retiring')
   assert.ok(badge, 'the badge is offered alongside Vision and JSON')
   assert.ok(badge.title?.includes('Catalog Row A'), 'named by its display name')

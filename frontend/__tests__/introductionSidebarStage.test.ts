@@ -481,7 +481,7 @@ describe('the Introduction page renders whether or not the channel uses one', ()
  * The page says whether an opening was INFERRED or CHOSEN — proven by
  * rendering, with the page's own computeds driving it.
  *
- * v1.4.74. Every channel that predates this release is handed its Formula's
+ * v1.4.73. Every channel that predates this release is handed its Formula's
  * opening rather than the old sleep-shaped seven, so most channels' beats came
  * from nobody. The audit's finding, applied to the recipe: a value the app
  * worked out and a value somebody chose look identical on screen and are not

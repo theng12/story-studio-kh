@@ -35,7 +35,7 @@ export const router = Router()
  * all for a channel, which is why it was invisible on seven of ten of them.
  *
  * `opening_follows_formula` says whether the recipe being returned is the one
- * the Formula ships or an edit of the owner's own. Since v1.4.74 a channel
+ * the Formula ships or an edit of the owner's own. Since v1.4.73 a channel
  * that never touched its opening is handed its Formula's, so most channels'
  * beats did not come from anybody — the page must not present them as though
  * they did.

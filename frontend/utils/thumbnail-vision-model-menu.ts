@@ -23,7 +23,19 @@ export interface ThumbnailVisionModel {
   retires_at?: string | null
 }
 
-export function thumbnailVisionModelMenuOption(model: ThumbnailVisionModel) {
+/**
+ * `now` is injectable for the same reason `describeModelRetirement` takes it:
+ * the countdown is derived from the clock, so a test that cannot pin the
+ * instant is a test that starts failing the next day. It is an OPTIONS BAG, not
+ * a second positional parameter, because the only app caller is
+ * `thumbnailVisionModels.value.map(thumbnailVisionModelMenuOption)` and `map`
+ * hands its callback the array INDEX second — which a positional `now` would
+ * silently accept as an instant near the epoch.
+ */
+export function thumbnailVisionModelMenuOption(
+  model: ThumbnailVisionModel,
+  { now = Date.now() }: { now?: number } = {},
+) {
   const rate = describeChatRate(model)
   // This route publishes the name as `display_name`; the retirement vocabulary
   // reads `label`, the way the language catalogue delivers it. One adapter,
@@ -40,7 +52,7 @@ export function thumbnailVisionModelMenuOption(model: ThumbnailVisionModel) {
       { label: 'Vision', tone: 'info' as const },
       { label: 'JSON', tone: 'neutral' as const },
       ...(isRetiring(retirement)
-        ? [{ label: 'Retiring', tone: 'warning' as const, title: describeModelRetirement(retirement) }]
+        ? [{ label: 'Retiring', tone: 'warning' as const, title: describeModelRetirement(retirement, now) }]
         : []),
     ],
     costTier: model.cost_tier,

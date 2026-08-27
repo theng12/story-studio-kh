@@ -139,7 +139,7 @@ export interface ChannelSegment {
 export type ChannelSegments = Record<string, ChannelSegment>
 
 /**
- * The floor was 100 until v1.4.74, which quietly refused a shape the app
+ * The floor was 100 until v1.4.73, which quietly refused a shape the app
  * already documented: `introDefaults` has said "listicle ~50" since v1.0.71,
  * and `clampWordTarget` silently doubled it. A greeting-and-go opening on a
  * short explainer is a real want, not a mistake to be corrected, so the floor
@@ -238,7 +238,7 @@ export const BEAT_LIBRARY: Record<string, BeatDefinition> = {
     example: 'invite them to close their eyes as the story begins',
   },
 
-  // ── Beats added in v1.4.74, when openings stopped being sleep-shaped ─────
+  // ── Beats added in v1.4.73, when openings stopped being sleep-shaped ─────
   //
   // The seven above were authored for one kind of channel and then handed to
   // every kind. These are the beats the other twenty-one Formulas actually
@@ -373,7 +373,7 @@ export const BEAT_LIBRARY: Record<string, BeatDefinition> = {
  *
  * Built from `BEAT_LIBRARY` so a label can never be spelt two ways.
  *
- * RESOLVED in v1.4.74. This list used to be what EVERY channel got, and it is
+ * RESOLVED in v1.4.73. This list used to be what EVERY channel got, and it is
  * sleep-shaped — `relaxation` in front of a business explainer. The mechanism
  * meant to fix that was unreachable: `canonicalFormatId()` folds every channel
  * onto one format, and that format ships no `introDefaults`, so the branch
@@ -466,7 +466,7 @@ function resolveDeclaredBeat(declared: FormatIntroBeat, index: number): SegmentB
  * words and no breathing exercise, a prayer channel opens by inviting somebody
  * to pray — and it reaches here as `format.script.introDefaults`, which
  * `applyNicheToFormat()` copies off the Formula. The seven-beat default below
- * is what a channel gets when its Formula says nothing, which since v1.4.74 is
+ * is what a channel gets when its Formula says nothing, which since v1.4.73 is
  * no built-in Formula at all.
  *
  * A niche's `openingProfile` is deliberately NOT consulted here: it carries a
@@ -600,7 +600,7 @@ export function followsFormulaOpening(
 }
 
 /**
- * Is this the seven-beat opening every channel was given before v1.4.74?
+ * Is this the seven-beat opening every channel was given before v1.4.73?
  *
  * Every channel that predates Formula-supplied openings carries this exact
  * shape, whatever kind of channel it is, because it was the only shape there

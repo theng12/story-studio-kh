@@ -1245,7 +1245,9 @@ const thumbnailVisionModels = ref<ThumbnailVisionModel[]>([])
 const thumbnailVisionModel = ref('')
 const thumbnailVisionLoading = ref(false)
 const thumbnailVisionLoadError = ref('')
-const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.value.map(thumbnailVisionModelMenuOption))
+// Called through an arrow rather than passed to `map` directly: `map` hands its
+// callback the array index second, and the options bag is what carries `now`.
+const thumbnailVisionModelMenuOptions = computed(() => thumbnailVisionModels.value.map(model => thumbnailVisionModelMenuOption(model)))
 const selectedThumbnailVisionModel = computed(() => thumbnailVisionModels.value.find(model => model.id === thumbnailVisionModel.value) || null)
 
 // Session history

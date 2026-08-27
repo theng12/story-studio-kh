@@ -116,7 +116,7 @@ describe('a channel’s saved segments', () => {
   })
 
   test('a format that ships its own opening shape supplies the defaults', () => {
-    // v1.4.74 — 50 is now the floor rather than below it. `introDefaults` has
+    // v1.4.73 — 50 is now the floor rather than below it. `introDefaults` has
     // documented "listicle ~50" since v1.0.71 and the old floor of 100 quietly
     // doubled it, so the app refused a shape it advertised. A beat the
     // catalogue has no name for is still taken verbatim as its label.

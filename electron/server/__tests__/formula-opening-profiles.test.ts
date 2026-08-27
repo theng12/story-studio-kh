@@ -1,7 +1,7 @@
 /**
  * Every Formula opens in its own voice — PROVEN THROUGH THE REAL CHAIN.
  *
- * v1.4.74. `DEFAULT_INTRODUCTION_BEATS` was a fixed seven-item list handed to
+ * v1.4.73. `DEFAULT_INTRODUCTION_BEATS` was a fixed seven-item list handed to
  * EVERY channel, and it is sleep-shaped: a breathing exercise in front of a
  * business explainer, a subscribe push before a prayer. The branch meant to
  * override it could not run — `canonicalFormatId()` folds every project onto
@@ -143,7 +143,7 @@ describe('all twenty-two built-in Formulas ship an opening', () => {
     for (const id of await builtInFormulaIds()) {
       const { recipe } = await openingFor(id)
       assert.equal(matchesLegacyDefaultOpening(recipe), false,
-        `${id} still produces the pre-v1.4.74 default \u2014 its opening did not reach the recipe`)
+        `${id} still produces the pre-v1.4.73 default \u2014 its opening did not reach the recipe`)
       assert.equal(followsFormulaOpening(recipe, (await openingFor(id)).format.script.introDefaults), true,
         `${id}'s derived recipe must match its own Formula's declaration`)
     }
@@ -191,7 +191,7 @@ describe('a business channel and a sleep channel do not open the same way', () =
 
   test('MUTATION \u2014 remove the bridge\u2019s contribution and the two collapse into one opening', async () => {
     // Exactly the comparison above, with `format.script.introDefaults` taken
-    // away: this is the state every channel was in before v1.4.74. If the two
+    // away: this is the state every channel was in before v1.4.73. If the two
     // still differed here, the difference above would be coming from somewhere
     // other than the Formula and this whole file would be proving nothing.
     const businessUnbridged = defaultSegmentRecipe(INTRODUCTION_SEGMENT_ID, null)
@@ -220,7 +220,7 @@ describe('a business channel and a sleep channel do not open the same way', () =
 describe('a channel that was never asked is re-seeded; one that was edited is not', () => {
   test('an untouched channel is handed its Formula\u2019s opening', async () => {
     const project = await pm.createProject({ name: 'Untouched Money', niche_id: 'business-economics' })
-    // Exactly what every channel carries from before v1.4.74.
+    // Exactly what every channel carries from before v1.4.73.
     const legacy = normalizeChannelSegments({}, null)
     legacy[INTRODUCTION_SEGMENT_ID].enabled = true
     assert.equal(matchesLegacyDefaultOpening(legacy[INTRODUCTION_SEGMENT_ID].recipe), true)

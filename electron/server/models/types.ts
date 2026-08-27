@@ -476,7 +476,7 @@ export interface ScriptFormat {
      * Ordered list of beats the intro should hit. Each beat becomes a
      * numbered bullet in the prompt.
      *
-     * v1.4.74 — a beat may now be a `BEAT_LIBRARY` id, which brings the
+     * v1.4.73 — a beat may now be a `BEAT_LIBRARY` id, which brings the
      * catalogue's label and its on-screen explanation with it, or an object
      * pairing that id with the wording this channel wants it to cover. A bare
      * string the catalogue does not recognise keeps the original meaning: it
@@ -872,7 +872,7 @@ export interface Niche {
    * The opening this Formula actually writes — its length, and its ordered
    * beats.
    *
-   * v1.4.74. `applyNicheToFormat()` copies this onto
+   * v1.4.73. `applyNicheToFormat()` copies this onto
    * `format.script.introDefaults`, which is the field `defaultSegmentRecipe()`
    * has read since v1.0.71 and which nothing has ever set. A beat is either a
    * `BEAT_LIBRARY` id — in which case the page shows the catalogue's

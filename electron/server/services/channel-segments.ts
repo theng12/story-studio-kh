@@ -120,7 +120,7 @@ export async function getChannelSegments(slug: string): Promise<ChannelSegments>
  * Give a channel its Formula's opening, unless somebody has edited the one it
  * has.
  *
- * Every channel that predates v1.4.74 carries the same seven-beat opening —
+ * Every channel that predates v1.4.73 carries the same seven-beat opening —
  * not because it chose it, but because it was the only one there was, and it
  * is wrong for most of them. A history channel opens with a breathing
  * exercise today. So a channel still carrying that exact shape is given its

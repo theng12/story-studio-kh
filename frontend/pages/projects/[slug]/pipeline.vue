@@ -898,7 +898,7 @@ const checkedStepCount = computed(() => checkedStepsOrdered.value.length)
 // scripts.vue split into scriptPresets + introPresets), but older projects
 // still carry the untyped `script_last_preset` key from pre-typing saves.
 // Mirrors the fallback chain in electron/server/routes/pipeline.ts.
-// v1.4.74 — `introduction-only` is gone from both this map and TYPE_FOR_STEP
+// v1.4.73 — `introduction-only` is gone from both this map and TYPE_FOR_STEP
 // below. It is in NO_PRESET_STEPS, so its preset dropdown is never rendered
 // and neither lookup can run; leaving them there described a preset pool the
 // Introduction deliberately does not have.
