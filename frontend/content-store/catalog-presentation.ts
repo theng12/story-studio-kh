@@ -1,4 +1,5 @@
 import type {
+  ContentStoreInstalledPack,
   ContentStoreProduct,
   ContentStoreProductKind,
 } from '../composables/useContentStore'
@@ -182,4 +183,21 @@ export function filterCatalogProducts(
       typeof text === 'string' && text.toLocaleLowerCase().includes(normalizedQuery),
     )
   })
+}
+
+/**
+ * How many PACKS are installed -- which is what the Installed tab counts, and
+ * the only figure comparable to the pack counts beside it.
+ *
+ * It counted installed VERSION records, and retaining a superseded version is
+ * deliberate (see content-packs/installer.ts), so the tabs read
+ * "Installed 85 - Owned 82": more packs installed than owned, a state that
+ * cannot exist and that nobody can act on. The true figures were 82 owned and
+ * 64 installed. Counted on the active version because that is the one pack
+ * identity a retained history collapses to; retention itself is untouched.
+ */
+export function installedPackCount(
+  installed: readonly ContentStoreInstalledPack[],
+): number {
+  return new Set(installed.filter(pack => pack.active).map(pack => pack.packId)).size
 }

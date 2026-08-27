@@ -23,7 +23,7 @@ import {
   verifyContentStoreRestore,
   verifyContentStoreRestoreReceipt,
 } from '../lib/genstudio-content-store-trust.js'
-import { resolveOwnedContentStoreDependency } from '../services/content-store-delivery.js'
+import { bindRootClosure, resolveOwnedContentStoreDependency } from '../services/content-store-delivery.js'
 import { useTempDataDir } from './_helpers.js'
 
 const HASH = 'a'.repeat(64)
@@ -771,5 +771,77 @@ describe('GenStudio Content Store 1.6 delivery client', () => {
       /size|limit|bytes/i,
     )
     assert.ok(pulls <= 10, `bounded reader pulled ${pulls} chunks before stopping`)
+  })
+})
+
+describe('a restore receipt states the whole owned library, not only its newest row', () => {
+  const ORIGIN = 'http://127.0.0.1:8000'
+
+  /** The family's history: the current release, and an older one it still owns. */
+  function history() {
+    return ownedReleases({
+      current_release_id: 'crel_a',
+      releases: [
+        release({ release_id: 'crel_a', version: '1.0.0', archive_available: true,
+          state: 'published', published_at: '2026-08-14T10:00:00Z', current: true }),
+        release({ release_id: 'crel_old', version: '0.9.0', archive_available: true,
+          state: 'withdrawn', published_at: '2026-07-14T10:00:00Z', current: false }),
+      ],
+    })
+  }
+
+  function evidence(payload: Record<string, unknown>) {
+    return {
+      account_id: 'acct_a', product_id: 'cprod_kit', entitlement_family: 'com.storystudio.family.kit',
+      release_id: 'crel_kit', pack_id: 'com.storystudio.pack.kit', version: '1.0.3',
+      archive_sha256: 'b'.repeat(64), archive_bytes: 597, genstudio_origin: ORIGIN,
+      subject: 'receipt-root' as const, closure_members: [], key_id: KEY_ID,
+      receipt_canonical_json: JSON.stringify(payload), receipt_signature: signature(payload),
+    }
+  }
+
+  function attestedRow(overrides: Record<string, unknown> = {}) {
+    return {
+      entitlement_family: 'com.storystudio.test', release_id: 'crel_old', pack_id: 'com.storystudio.test',
+      version: '0.9.0', archive_sha256: HASH, archive_bytes: 18, min_story_version: '1.0.839',
+      ...overrides,
+    }
+  }
+
+  /**
+   * The kit pins `com.storystudio.test@0.9.0`. `releases` names one row per
+   * family -- the CURRENT release, 1.0.0 -- so binding against it alone
+   * refuses a version the account owns outright and can still download. That
+   * is how a repinned kit stopped installing the day its Topic Pack shipped a
+   * new release: not a missing entitlement, a receipt that declined to mention
+   * one. `owned_releases` is the wider, honest statement.
+   */
+  test('binds a dependency the account owns but which is no longer its family\u2019s current release', async () => {
+    globalThis.fetch = async () => Response.json(history())
+    const payload = restorePayload({ owned_releases: [attestedRow()] })
+
+    const bound = await bindRootClosure(
+      evidence(payload),
+      [{ pack_id: 'com.storystudio.test', version: '0.9.0' }],
+      { apiKey: 'gsk_test', receipts: parseContentStoreReceipts(receipts()), releaseHistories: new Map() },
+    )
+
+    assert.deepEqual(bound.closure_members, [{
+      position: 0, pack_id: 'com.storystudio.test', version: '0.9.0', product_id: 'cprod_a',
+      entitlement_family: 'com.storystudio.test', release_id: 'crel_old', archive_sha256: HASH,
+    }])
+  })
+
+  test('still refuses a dependency no attested row matches exactly', async () => {
+    globalThis.fetch = async () => Response.json(history())
+    // Every field of the wider list matches except the digest. Widening WHERE
+    // the truth is read from must never soften HOW exactly it has to match.
+    const payload = restorePayload({ owned_releases: [attestedRow({ archive_sha256: 'c'.repeat(64) })] })
+
+    await assert.rejects(bindRootClosure(
+      evidence(payload),
+      [{ pack_id: 'com.storystudio.test', version: '0.9.0' }],
+      { apiKey: 'gsk_test', receipts: parseContentStoreReceipts(receipts()), releaseHistories: new Map() },
+    ), /CLOSURE_MISMATCH|does not attest/i)
   })
 })

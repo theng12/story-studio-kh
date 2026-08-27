@@ -3,10 +3,12 @@ import { describe, test } from 'node:test'
 import type { ContentStoreProduct } from '../composables/useContentStore.js'
 import {
   filterCatalogProducts,
+  installedPackCount,
   orderShelfProducts,
   validateCatalogPresentationFixture,
   type CatalogPresentationFixture,
 } from '../content-store/catalog-presentation.js'
+import type { ContentStoreInstalledPack } from '../composables/useContentStore.js'
 
 function product(
   productId: string,
@@ -230,5 +232,42 @@ describe('Content Store catalog presentation boundary', () => {
       }),
       /100 shelves/i,
     )
+  })
+})
+
+describe('the Installed tab count', () => {
+  function installedVersion(
+    packId: string,
+    version: string,
+    active: boolean,
+  ): ContentStoreInstalledPack {
+    return {
+      packId, version, active, installState: 'installed_current', missingDependencies: [],
+      productId: `cprod-${packId}`, title: packId, kind: 'visual_style', ownedByActiveAccount: true,
+    }
+  }
+
+  /**
+   * Retaining a superseded version is deliberate, so counting version records
+   * made Installed climb past Owned -- "Installed 85 - Owned 82", which cannot
+   * be true and which nobody can act on. Every tab beside it counts packs.
+   */
+  test('counts packs, not the retained versions of them', () => {
+    const installed = [
+      installedVersion('com.a', '1.0.0', false),
+      installedVersion('com.a', '1.0.1', false),
+      installedVersion('com.a', '1.0.2', true),
+      installedVersion('com.b', '1.0.0', true),
+      installedVersion('com.c', '2.0.0', true),
+    ]
+    assert.equal(installed.length, 5, 'the retained history is still five records')
+    assert.equal(installedPackCount(installed), 3)
+  })
+
+  test('is zero when nothing is installed, and ignores a pack with no active version', () => {
+    assert.equal(installedPackCount([]), 0)
+    // Mid-install or mid-removal a pack can have retained bytes and no active
+    // version. It is not installed, and the tab must not say it is.
+    assert.equal(installedPackCount([installedVersion('com.a', '1.0.0', false)]), 0)
   })
 })

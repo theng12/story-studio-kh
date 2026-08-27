@@ -61,7 +61,16 @@ function readGenStudioRestoreReleases(
   }
   if (String(payload.typ || '') !== 'genstudio.content.restore.v1') return null
   if (!Array.isArray(payload.releases)) throw new Error('GenStudio restore receipt has no attested releases')
-  return payload.releases.filter((value): value is Record<string, unknown> =>
+  // 2026-08-27 -- must stay the same set the live install bound against. A live
+  // install resolves a dependency out of `owned_releases` (every owned,
+  // fetchable release) and falls back to `releases` (each family's current one
+  // only). Reading just `releases` here would re-verify persisted evidence
+  // against a narrower truth than the one that authorised it, so a reinstall
+  // from cached evidence would fail where the live install had succeeded.
+  return [
+    ...(Array.isArray(payload.owned_releases) ? payload.owned_releases : []),
+    ...payload.releases,
+  ].filter((value): value is Record<string, unknown> =>
     Boolean(value) && typeof value === 'object' && !Array.isArray(value))
 }
 

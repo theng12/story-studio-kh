@@ -197,4 +197,63 @@ describe('delivery-attested Content Pack archive boundary', () => {
       pack_id: 'com.leaf', version: '2.0.0', entitlement: { family: 'leaf-family' }, dependencies: [{ pack_id: 'com.bad', version: '1.0.0' }], delivery_profile: 'genstudio-store-receipt-v1',
     }, 'c'.repeat(64), 7, COMMERCE_KEY_BASE64), /nested|closure/i)
   })
+
+  /**
+   * The persisted mirror of the live install. A live install binds a
+   * dependency out of `owned_releases` -- every owned, fetchable release --
+   * and falls back to `releases`, which names only each family's current one.
+   * Re-verifying cached evidence against the narrower list would fail a
+   * reinstall that the original install had passed, on bytes that never
+   * changed. See services/content-store-delivery.ts bindRootClosure.
+   */
+  test('re-verifies persisted evidence against the same owned releases the install bound against', () => {
+    const attested = {
+      entitlement_family: 'topic-family', release_id: 'crel_topic_100', pack_id: 'com.topic',
+      version: '1.0.0', archive_sha256: 'd'.repeat(64), archive_bytes: 9, min_story_version: '1.0.0',
+    }
+    // `releases` names the family's CURRENT release, 1.0.1. The kit pins
+    // 1.0.0, which the account still owns -- and only `owned_releases` says so.
+    const receipt = {
+      typ: 'genstudio.content.restore.v1', key_id: COMMERCE_KEY_ID,
+      account_id: 'acct_test', content_account_id: 'acct_test',
+      entitlement_families: ['kit-family', 'topic-family'],
+      // One row per family: the kit itself (the install root, and its family's
+      // current release) and the Topic Pack's current release, 1.0.1.
+      releases: [{
+        entitlement_family: 'kit-family', release_id: 'crel_kit', pack_id: 'com.kit',
+        version: '1.0.3', archive_sha256: 'f'.repeat(64), archive_bytes: 597, min_story_version: '1.0.0',
+      }, { ...attested, release_id: 'crel_topic_101', version: '1.0.1', archive_sha256: 'e'.repeat(64) }],
+      owned_releases: [attested, { ...attested, release_id: 'crel_topic_101', version: '1.0.1', archive_sha256: 'e'.repeat(64) }],
+    }
+    const canonical = canonicalizeContentStoreObject(receipt).canonicalJson
+    const evidence = {
+      account_id: 'acct_test', product_id: 'kit-product', entitlement_family: 'kit-family',
+      release_id: 'crel_kit', pack_id: 'com.kit', version: '1.0.3',
+      archive_sha256: 'f'.repeat(64), archive_bytes: 597,
+      genstudio_origin: 'https://genstudio.example', subject: 'receipt-root' as const,
+      closure_members: [{
+        position: 0, pack_id: 'com.topic', version: '1.0.0', product_id: 'topic-product',
+        entitlement_family: 'topic-family', release_id: 'crel_topic_100', archive_sha256: 'd'.repeat(64),
+      }],
+      key_id: COMMERCE_KEY_ID, receipt_canonical_json: canonical,
+      receipt_signature: sign(null, Buffer.from(canonical), commerceKey.privateKey).toString('base64'),
+    }
+    const manifest = {
+      pack_id: 'com.kit', version: '1.0.3', entitlement: { family: 'kit-family' },
+      dependencies: [{ pack_id: 'com.topic', version: '1.0.0' }],
+      delivery_profile: 'genstudio-store-receipt-v1',
+    }
+
+    assert.doesNotThrow(() => verifyGenStudioDeliveryAttestation(
+      evidence, manifest, 'f'.repeat(64), 597, COMMERCE_KEY_BASE64))
+
+    // Widening WHERE the truth is read from must not soften HOW exactly it has
+    // to match: one wrong digest and the assignment is still refused.
+    const forged = { ...receipt, owned_releases: [{ ...attested, archive_sha256: '9'.repeat(64) }] }
+    const forgedCanonical = canonicalizeContentStoreObject(forged).canonicalJson
+    assert.throws(() => verifyGenStudioDeliveryAttestation({
+      ...evidence, receipt_canonical_json: forgedCanonical,
+      receipt_signature: sign(null, Buffer.from(forgedCanonical), commerceKey.privateKey).toString('base64'),
+    }, manifest, 'f'.repeat(64), 597, COMMERCE_KEY_BASE64), /attestation|bind|closure/i)
+  })
 })
