@@ -1,0 +1,887 @@
+{
+  "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+  "item_id": "com.storystudio.topic.audience-question-seeder",
+  "version": "1.0.1",
+  "source_document": "content-packs/reusable-primitives/topic/audience-question-seeder-v1.0.1/content/topic-pack.json",
+  "source_document_sha256": "99ee58ffa69d9059b8b5f7d70d3157ed6b0d464e0c25ae9273a4f23d01cef68a",
+  "review_date": "2026-08-28",
+  "method": "Independent-axis universality review. This pack has no coverage profiles: the planner pairs axis index k of episode_objects, time_place_scopes, mechanisms and evidence_lenses with every subject, so each material axis list must be coherent with all fifty subjects, not merely with some. Each verdict below asks one question: does every value in this axis remain a sensible reading for this subject? The axes are deliberately subject-independent - episode_objects names WHO is asking, time_place_scopes names WHAT CONSTRAINS them, and mechanisms names a bounded action the asker can take - so no value assumes a domain, a period, a place, or a profession. Verdicts were taken per subject-axis pair against the exact bound document above.",
+  "axis_semantics": {
+    "episode_objects": "audience context: who is asking the question",
+    "time_place_scopes": "constraint: what bounds the asker, not a time or a place in this pack",
+    "mechanisms": "actionability: the bounded, non-professional-advice next step available to the asker"
+  },
+  "subjects": [
+    "understand a mechanism",
+    "compare options",
+    "plan a bounded next step",
+    "identify a trade-off",
+    "check an exception",
+    "evaluate an observation",
+    "trace a cause to its source",
+    "estimate a realistic cost",
+    "forecast how long something takes",
+    "decide when to start",
+    "know when to stop",
+    "sequence steps in the right order",
+    "spot an early warning sign",
+    "distinguish a symptom from a cause",
+    "set a threshold for acting",
+    "size the risk of doing nothing",
+    "isolate the limiting factor",
+    "separate correlation from cause",
+    "judge whether a claim is testable",
+    "establish whether a decision can be revisited later",
+    "choose the cheapest reliable test",
+    "establish what is already well known",
+    "locate an authoritative source",
+    "tell which rules are mandatory and which are advisory",
+    "name who actually decides",
+    "confirm whether a stated condition applies",
+    "record a baseline before changing anything",
+    "spot a pattern behind a one-off",
+    "find what would change the answer",
+    "narrow a broad problem to one question",
+    "scope a smaller version of the problem",
+    "define what to measure",
+    "question whether a sample represents the whole",
+    "contrast precision with accuracy",
+    "notice what a number leaves out",
+    "verify that a result repeats",
+    "surface the assumption doing the most work",
+    "anticipate behaviour at the extremes",
+    "tell a hard limit from a soft preference",
+    "choose what to do while waiting",
+    "design a safe way to undo a change",
+    "map who else is affected",
+    "separate a recurring cost from a single upfront cost",
+    "prioritise what to keep and what to drop",
+    "test whether timing changes the answer",
+    "review what has changed since the previous attempt",
+    "check whether a fix creates a new problem",
+    "recognise a loophole dressed as an exception",
+    "settle what good enough looks like",
+    "rank which gap in knowledge to close first"
+  ],
+  "material_axes": {
+    "episode_objects": [
+      "first-time learner",
+      "busy caregiver",
+      "budget-conscious household",
+      "small-team operator",
+      "hobby beginner",
+      "returning learner",
+      "night-shift worker",
+      "full-time student",
+      "self-taught practitioner",
+      "rural resident with limited services",
+      "volunteer coordinator",
+      "someone supporting an ageing parent",
+      "new parent",
+      "someone recovering from a setback",
+      "shared-housing tenant",
+      "freelance sole trader",
+      "community group treasurer",
+      "person with limited mobility",
+      "speaker of a different first language",
+      "retiree on a fixed income"
+    ],
+    "time_place_scopes": [
+      "time",
+      "budget",
+      "access",
+      "safety",
+      "uncertainty",
+      "competing priorities",
+      "energy",
+      "attention",
+      "skill level",
+      "available equipment",
+      "physical space",
+      "reliable information",
+      "shared language",
+      "transport",
+      "privacy",
+      "permission",
+      "physical ability",
+      "weather and season",
+      "other people's schedules",
+      "how easily a choice can be undone"
+    ],
+    "mechanisms": [
+      "observe",
+      "ask a professional",
+      "compare criteria",
+      "run a reversible low-risk experiment",
+      "defer pending evidence",
+      "choose among stated options",
+      "read the official documentation",
+      "keep a simple record over time",
+      "consult someone who has already done it",
+      "try the smallest version first",
+      "check a second independent source",
+      "set a review date",
+      "request the criteria in writing",
+      "rule out the simplest explanation first",
+      "seek a second opinion",
+      "write down the decision and its reason",
+      "agree a stopping rule in advance",
+      "change one thing at a time",
+      "ask what would alter the recommendation",
+      "list what remains unknown before deciding"
+    ]
+  },
+  "verdicts": [
+    {
+      "subject": "understand a mechanism",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "understand a mechanism",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "understand a mechanism",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "compare options",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "compare options",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "compare options",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "plan a bounded next step",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "plan a bounded next step",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "plan a bounded next step",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "identify a trade-off",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "identify a trade-off",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "identify a trade-off",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "check an exception",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "check an exception",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "check an exception",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "evaluate an observation",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "evaluate an observation",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "evaluate an observation",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "trace a cause to its source",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "trace a cause to its source",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "trace a cause to its source",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "estimate a realistic cost",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "estimate a realistic cost",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "estimate a realistic cost",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "forecast how long something takes",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "forecast how long something takes",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "forecast how long something takes",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "decide when to start",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "decide when to start",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "decide when to start",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "know when to stop",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "know when to stop",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "know when to stop",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "sequence steps in the right order",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "sequence steps in the right order",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "sequence steps in the right order",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "spot an early warning sign",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "spot an early warning sign",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "spot an early warning sign",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "distinguish a symptom from a cause",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "distinguish a symptom from a cause",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "distinguish a symptom from a cause",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "set a threshold for acting",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "set a threshold for acting",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "set a threshold for acting",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "size the risk of doing nothing",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "size the risk of doing nothing",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "size the risk of doing nothing",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "isolate the limiting factor",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "isolate the limiting factor",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "isolate the limiting factor",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "separate correlation from cause",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "separate correlation from cause",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "separate correlation from cause",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "judge whether a claim is testable",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "judge whether a claim is testable",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "judge whether a claim is testable",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "establish whether a decision can be revisited later",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "establish whether a decision can be revisited later",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "establish whether a decision can be revisited later",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "choose the cheapest reliable test",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "choose the cheapest reliable test",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "choose the cheapest reliable test",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "establish what is already well known",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "establish what is already well known",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "establish what is already well known",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "locate an authoritative source",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "locate an authoritative source",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "locate an authoritative source",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "tell which rules are mandatory and which are advisory",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "tell which rules are mandatory and which are advisory",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "tell which rules are mandatory and which are advisory",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "name who actually decides",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "name who actually decides",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "name who actually decides",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "confirm whether a stated condition applies",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "confirm whether a stated condition applies",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "confirm whether a stated condition applies",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "record a baseline before changing anything",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "record a baseline before changing anything",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "record a baseline before changing anything",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "spot a pattern behind a one-off",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "spot a pattern behind a one-off",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "spot a pattern behind a one-off",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "find what would change the answer",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "find what would change the answer",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "find what would change the answer",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "narrow a broad problem to one question",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "narrow a broad problem to one question",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "narrow a broad problem to one question",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "scope a smaller version of the problem",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "scope a smaller version of the problem",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "scope a smaller version of the problem",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "define what to measure",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "define what to measure",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "define what to measure",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "question whether a sample represents the whole",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "question whether a sample represents the whole",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "question whether a sample represents the whole",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "contrast precision with accuracy",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "contrast precision with accuracy",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "contrast precision with accuracy",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "notice what a number leaves out",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "notice what a number leaves out",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "notice what a number leaves out",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "verify that a result repeats",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "verify that a result repeats",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "verify that a result repeats",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "surface the assumption doing the most work",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "surface the assumption doing the most work",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "surface the assumption doing the most work",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "anticipate behaviour at the extremes",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "anticipate behaviour at the extremes",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "anticipate behaviour at the extremes",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "tell a hard limit from a soft preference",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "tell a hard limit from a soft preference",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "tell a hard limit from a soft preference",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "choose what to do while waiting",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "choose what to do while waiting",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "choose what to do while waiting",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "design a safe way to undo a change",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "design a safe way to undo a change",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "design a safe way to undo a change",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "map who else is affected",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "map who else is affected",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "map who else is affected",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "separate a recurring cost from a single upfront cost",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "separate a recurring cost from a single upfront cost",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "separate a recurring cost from a single upfront cost",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "prioritise what to keep and what to drop",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "prioritise what to keep and what to drop",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "prioritise what to keep and what to drop",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "test whether timing changes the answer",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "test whether timing changes the answer",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "test whether timing changes the answer",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "review what has changed since the previous attempt",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "review what has changed since the previous attempt",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "review what has changed since the previous attempt",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "check whether a fix creates a new problem",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "check whether a fix creates a new problem",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "check whether a fix creates a new problem",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "recognise a loophole dressed as an exception",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "recognise a loophole dressed as an exception",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "recognise a loophole dressed as an exception",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "settle what good enough looks like",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "settle what good enough looks like",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "settle what good enough looks like",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "rank which gap in knowledge to close first",
+      "axis": "episode_objects",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "rank which gap in knowledge to close first",
+      "axis": "time_place_scopes",
+      "verdict": "accepted"
+    },
+    {
+      "subject": "rank which gap in knowledge to close first",
+      "axis": "mechanisms",
+      "verdict": "accepted"
+    }
+  ],
+  "rejected_values": []
+}
