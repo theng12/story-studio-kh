@@ -80,4 +80,13 @@ export const paidComponentRegistry = [
     family: 'com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions',
     sourceDirectory: 'topic/money-debt-financial-institutions-v1.0.1',
   },
+  {
+    packId: 'com.storystudio.pack.topic.archival-ledger.empires-trade-extraction',
+    itemId: 'com.storystudio.topic.archival-ledger.empires-trade-extraction',
+    kind: 'topic-pack',
+    version: '1.0.1',
+    sku: 'com.storystudio.sku.topic.archival-ledger.empires-trade-extraction',
+    family: 'com.storystudio.family.topic.archival-ledger.empires-trade-extraction',
+    sourceDirectory: 'topic/empires-trade-extraction-v1.0.1',
+  },
 ]

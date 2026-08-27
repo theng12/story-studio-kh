@@ -88,6 +88,17 @@ const SUCCESSORS = [
     family: 'com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions',
     sku: 'com.storystudio.sku.topic.archival-ledger.money-debt-financial-institutions',
   },
+  {
+    kind: 'topic',
+    slug: 'empires-trade-extraction-v1.0.1',
+    predecessorSlug: 'empires-trade-extraction',
+    version: '1.0.1',
+    document: 'topic-pack.json',
+    packId: 'com.storystudio.pack.topic.archival-ledger.empires-trade-extraction',
+    itemId: 'com.storystudio.topic.archival-ledger.empires-trade-extraction',
+    family: 'com.storystudio.family.topic.archival-ledger.empires-trade-extraction',
+    sku: 'com.storystudio.sku.topic.archival-ledger.empires-trade-extraction',
+  },
 ]
 
 const STOCKABLE = [...COMPONENTS, ...SUCCESSORS]

@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction",
+  "publisher_id": "com.storystudio",
+  "key_id": "com.storystudio.key.archival-ledger",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Expanded Empires, Trade & Extraction from 25 to 100 specific subjects with 20 reviewed extraction-and-exchange tuples each (2,000 lifetime assignments), every tuple anchored to a named period and place.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.archival-ledger.empires-trade-extraction",
+    "family": "com.storystudio.family.topic.archival-ledger.empires-trade-extraction"
+  }
+}
