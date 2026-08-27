@@ -1,0 +1,53 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.route-map-one-promise",
+  "name": "Route Map + One Promise",
+  "description": "A 16:9 symbolic route cover with one wayfinding anchor and a complete exact episode-title promise rendered directly in a dominant title-safe band.",
+  "layout": "hero",
+  "category": "Explainer",
+  "tags": [
+    "symbolic route",
+    "wayfinding",
+    "bounded promise",
+    "in-image title"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Use one symbolic route or wayfinding anchor that clearly connects a start to an end without claiming factual navigation. Reserve an uncluttered upper title-safe band for the complete exact episode title rendered directly by the selected image model. The route remains symbolic: the active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": [
+    "Use one symbolic route or wayfinding anchor between a clear start and end.",
+    "Reserve the upper third as an uncluttered title-safe band for the complete exact episode title.",
+    "Keep route markers symbolic rather than geographically or commercially factual.",
+    "Use the title band and route anchor as one immediate reading path without competing destinations."
+  ],
+  "required_elements": [
+    "One route or wayfinding anchor with a clear start and end",
+    "One qualified promise expressed as the complete exact episode title",
+    "One dominant uncluttered title-safe band"
+  ],
+  "avoid_elements": [
+    "Factual navigation, distances, boundaries, directions, or map accuracy claims",
+    "Business endorsements, listings, logos, booking details, or hours",
+    "Safety guarantees, local availability claims, or extra text",
+    "Watermarks, copied assets, copied trade dress, or post-render typography compositing",
+    "Misspelled, clipped, placeholder, or illegible title text"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Render the complete exact episode title directly in the upper title-safe band. Do not paraphrase, abbreviate, add extra text, or use post-render typography compositing. Use one, two, or three balanced lines only as required to preserve the exact title and small-screen readability.",
+  "default_text_style": "high contrast",
+  "default_font_style": "bold editorial",
+  "default_text_position": "top",
+  "headline_formats": [
+    "THE SIMPLE ROUTE TO {ACTIVITY}",
+    "ONE REALISTIC WAY TO {ACTIVITY}",
+    "A BETTER WAY TO {ACTIVITY}"
+  ],
+  "visual_style_guidance": "The recipe controls only the symbolic route anchor, bounded promise, and upper title-safe band. It does not create a factual map or constrain the active Visual Style's medium, palette, texture, lighting, or rendering details.",
+  "preview_assets": [
+    "assets/route-map-one-promise-1.png",
+    "assets/route-map-one-promise-2.png",
+    "assets/route-map-one-promise-3.png"
+  ],
+  "compatible_formula_ids": []
+}

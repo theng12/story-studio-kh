@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import sharp from 'sharp'
 
 import { contentPackDocumentToNiche } from '../content-packs/legacy-adapters.js'
 import { parseContentPackDocument } from '../content-packs/schemas.js'
@@ -274,18 +275,18 @@ function hasRecursiveKey(value: unknown, key: string): boolean {
 }
 
 test('Wave 2 source qualification is exactly three authored text leaves with no structured release summary', async () => {
-  const expected = new Map([
-    [QUESTION_LADDER_SOURCE, 'authored'],
-    [AUDIENCE_QUESTION_SEEDER_SOURCE, 'authored'],
-    [BEFORE_AFTER_TIMELINE_SOURCE, 'authored'],
-    [OBJECT_HERO_QUESTION_SOURCE, 'reserved'],
-    [ROUTE_MAP_ONE_PROMISE_SOURCE, 'reserved'],
+  const expected = new Map<string, { registryStatus: string, sourceExpected: boolean }>([
+    [QUESTION_LADDER_SOURCE, { registryStatus: 'authored', sourceExpected: true }],
+    [AUDIENCE_QUESTION_SEEDER_SOURCE, { registryStatus: 'authored', sourceExpected: true }],
+    [BEFORE_AFTER_TIMELINE_SOURCE, { registryStatus: 'authored', sourceExpected: true }],
+    [OBJECT_HERO_QUESTION_SOURCE, { registryStatus: 'reserved', sourceExpected: true }],
+    [ROUTE_MAP_ONE_PROMISE_SOURCE, { registryStatus: 'reserved', sourceExpected: true }],
   ])
-  for (const [sourcePath, status] of expected) {
+  for (const [sourcePath, { registryStatus, sourceExpected }] of expected) {
     const record = await registryRecord(sourcePath)
-    assert.equal(record.status, status)
+    assert.equal(record.status, registryStatus)
     const sourceRoot = path.join(ROOT, sourcePath)
-    if (status === 'reserved') {
+    if (!sourceExpected) {
       await assert.rejects(fs.access(sourceRoot))
       continue
     }
@@ -297,6 +298,194 @@ test('Wave 2 source qualification is exactly three authored text leaves with no 
     assert.equal(hasRecursiveKey(manifest, 'component_summary'), false)
     assert.equal(documents.some(document => hasRecursiveKey(document, 'component_summary')), false)
   }
+})
+
+test('Object Hero + Question is a receipt-bound exact-title PNG recipe with byte-level provenance', async () => {
+  const recipeRecord = await registryRecord(OBJECT_HERO_QUESTION_SOURCE)
+  const questionLadder = await registryRecord(QUESTION_LADDER_SOURCE)
+  const beforeAfterTimeline = await registryRecord(BEFORE_AFTER_TIMELINE_SOURCE)
+  assert.equal(recipeRecord.status, 'reserved')
+  assert.equal(recipeRecord.receipt_ref, questionLadder.receipt_ref)
+  assert.equal(recipeRecord.receipt_ref, beforeAfterTimeline.receipt_ref)
+
+  const sourceRoot = path.join(ROOT, recipeRecord.source_path)
+  const manifest = await readJson(path.join(sourceRoot, 'pack.json'))
+  const recipe = await readJson(path.join(sourceRoot, 'content', 'thumbnail-recipe.json'))
+  const parsed = parseContentPackDocument('thumbnail-recipe', recipe)
+  assert.equal(parsed.kind, 'thumbnail-recipe')
+  assert.deepEqual(manifest, {
+    pack_format: 1,
+    pack_id: recipeRecord.pack_id,
+    publisher_id: recipeRecord.publisher_id,
+    key_id: '{{KEY_ID}}',
+    version: recipeRecord.version,
+    min_app_version: recipeRecord.min_app_version,
+    lifecycle: 'active',
+    entitlement: {
+      sku: recipeRecord.stocking_proposal.sku.id,
+      family: recipeRecord.stocking_proposal.family.id,
+    },
+  })
+  assert.equal(recipe.id, recipeRecord.item_id)
+  assert.equal(recipe.layout, 'hero')
+  assert.equal(recipe.aspect_ratio, '16:9')
+  assert.equal(recipe.title_mode, 'ai')
+  assert.equal(recipe.headline_mode, 'episode-title')
+  assert.match(recipe.headline_guidance as string, /complete exact episode title.*do not paraphrase.*post-render/i)
+  assert.match((recipe.composition_rules as string[]).join(' '), /upper third.*title-safe|lower two-thirds.*object/i)
+  assert.match((recipe.required_elements as string[]).join(' '), /one concrete object|complete exact episode title/i)
+  assert.match((recipe.avoid_elements as string[]).join(' '), /collage|logo|watermark|post-render|illegible/i)
+  assert.deepEqual(recipe.headline_formats, [
+    'WHY DOES THIS {OBJECT} MATTER?',
+    'WHAT DOES THIS {OBJECT} CHANGE?',
+    'CAN A {OBJECT} WORK?',
+  ])
+  assert.deepEqual(recipe.compatible_formula_ids, [questionLadder.item_id, beforeAfterTimeline.item_id])
+
+  const previewAssets = recipe.preview_assets as string[]
+  assert.deepEqual(previewAssets, [
+    'assets/object-hero-question-1.png',
+    'assets/object-hero-question-2.png',
+    'assets/object-hero-question-3.png',
+  ])
+
+  const ledgerText = await fs.readFile(path.join(ROOT, 'content-packs', 'reusable-primitives', 'PREVIEW-PROVENANCE.md'), 'utf8')
+  const ledgerMatch = ledgerText.match(/<!-- preview-provenance-ledger:start -->\s*```json\s*([\s\S]*?)\s*```\s*<!-- preview-provenance-ledger:end -->/)
+  assert.ok(ledgerMatch, 'preview provenance ledger must expose a machine-verifiable JSON record')
+  const ledger = JSON.parse(ledgerMatch[1]!) as { records: Array<Record<string, unknown>> }
+  const records = ledger.records.filter(record => String(record.asset_path).startsWith('thumbnail/object-hero-question/'))
+  assert.equal(records.length, 3)
+
+  const expectedEvidence = new Map([
+    ['assets/object-hero-question-1.png', {
+      title: 'WHY DOES THIS WRENCH MATTER?', lineCount: 1, sha256: 'ea7bb1f244434db1c62e9027cc4fbae196ce820da6c3c2170545fc916131550a', byteSize: 1957419,
+    }],
+    ['assets/object-hero-question-2.png', {
+      title: 'WHAT DOES THIS ENERGY METER CHANGE?', lineCount: 2, sha256: '03a5755f22727eb85f5ed669d7b99e8f7d975ba4ab1aa471b7bcd664a56a202f', byteSize: 2172953,
+    }],
+    ['assets/object-hero-question-3.png', {
+      title: 'CAN A FIELD NOTEBOOK WORK?', lineCount: 3, sha256: '110f5f642fe6bcd544bc0087164e3b0223a5c232a267c4985b034cf743b82ae7', byteSize: 2336354,
+    }],
+  ])
+  const diversity = new Set<string>()
+  for (const [assetPath, expected] of expectedEvidence) {
+    const preview = await fs.readFile(path.join(sourceRoot, assetPath))
+    const metadata = await sharp(preview).metadata()
+    const { info } = await sharp(preview).raw().toBuffer({ resolveWithObject: true })
+    assert.equal(metadata.format, 'png')
+    assert.equal(info.width, 1672)
+    assert.equal(info.height, 941)
+    assert.equal(createHash('sha256').update(preview).digest('hex'), expected.sha256)
+    assert.equal(preview.length, expected.byteSize)
+
+    const record = records.find(candidate => candidate.asset_path === `thumbnail/object-hero-question/${assetPath}`)
+    assert.ok(record, `${assetPath} must have one provenance record`)
+    assert.equal(record.mime_type, 'image/png')
+    assert.equal(record.sha256, expected.sha256)
+    assert.equal(record.byte_size, expected.byteSize)
+    assert.deepEqual(record.dimensions, { width: 1672, height: 941 })
+    assert.equal(record.title_transcription, expected.title)
+    assert.equal(record.line_count, expected.lineCount)
+    assert.equal(record.origin, 'owner-supplied original generated with ChatGPT built-in image generation')
+    assert.match(String(record.rights_basis), /owner authorization/i)
+    assert.match(String(record.prompt), /unavailable/i)
+    const axes = ['subject', 'side_or_angle', 'distance', 'setting', 'palette_or_symbol']
+    assert.ok(axes.every(axis => typeof record[axis] === 'string' && String(record[axis]).length > 0))
+    diversity.add(axes.map(axis => String(record[axis])).join('|'))
+  }
+  assert.equal(diversity.size, 3, 'every preview must vary at least one of the five documented diversity axes')
+})
+
+test('Route Map + One Promise is a receipt-bound symbolic exact-title PNG recipe with byte-level provenance', async () => {
+  const recipeRecord = await registryRecord(ROUTE_MAP_ONE_PROMISE_SOURCE)
+  assert.equal(recipeRecord.status, 'reserved')
+
+  const sourceRoot = path.join(ROOT, recipeRecord.source_path)
+  const manifest = await readJson(path.join(sourceRoot, 'pack.json'))
+  const recipe = await readJson(path.join(sourceRoot, 'content', 'thumbnail-recipe.json'))
+  const parsed = parseContentPackDocument('thumbnail-recipe', recipe)
+  assert.equal(parsed.kind, 'thumbnail-recipe')
+  assert.deepEqual(manifest, {
+    pack_format: 1,
+    pack_id: recipeRecord.pack_id,
+    publisher_id: recipeRecord.publisher_id,
+    key_id: '{{KEY_ID}}',
+    version: recipeRecord.version,
+    min_app_version: recipeRecord.min_app_version,
+    lifecycle: 'active',
+    entitlement: {
+      sku: recipeRecord.stocking_proposal.sku.id,
+      family: recipeRecord.stocking_proposal.family.id,
+    },
+  })
+  assert.equal(recipe.id, recipeRecord.item_id)
+  assert.equal(recipe.layout, 'hero')
+  assert.equal(recipe.aspect_ratio, '16:9')
+  assert.equal(recipe.title_mode, 'ai')
+  assert.equal(recipe.headline_mode, 'episode-title')
+  assert.match(recipe.composition_guidance as string, /symbolic.*route|wayfinding.*anchor|start.*end/i)
+  assert.match(recipe.headline_guidance as string, /complete exact episode title.*do not paraphrase.*post-render/i)
+  assert.match((recipe.required_elements as string[]).join(' '), /one route.*anchor|start.*end|qualified promise/i)
+  assert.match((recipe.avoid_elements as string[]).join(' '), /navigation|distance|boundary|endorsement|logo|booking|hours|post-render/i)
+  assert.deepEqual(recipe.headline_formats, [
+    'THE SIMPLE ROUTE TO {ACTIVITY}',
+    'ONE REALISTIC WAY TO {ACTIVITY}',
+    'A BETTER WAY TO {ACTIVITY}',
+  ])
+  assert.deepEqual(recipe.compatible_formula_ids, [])
+
+  const previewAssets = recipe.preview_assets as string[]
+  assert.deepEqual(previewAssets, [
+    'assets/route-map-one-promise-1.png',
+    'assets/route-map-one-promise-2.png',
+    'assets/route-map-one-promise-3.png',
+  ])
+
+  const ledgerText = await fs.readFile(path.join(ROOT, 'content-packs', 'reusable-primitives', 'PREVIEW-PROVENANCE.md'), 'utf8')
+  const ledgerMatch = ledgerText.match(/<!-- preview-provenance-ledger:start -->\s*```json\s*([\s\S]*?)\s*```\s*<!-- preview-provenance-ledger:end -->/)
+  assert.ok(ledgerMatch, 'preview provenance ledger must expose a machine-verifiable JSON record')
+  const ledger = JSON.parse(ledgerMatch[1]!) as { records: Array<Record<string, unknown>> }
+  const records = ledger.records.filter(record => String(record.asset_path).startsWith('thumbnail/route-map-one-promise/'))
+  assert.equal(records.length, 3)
+
+  const expectedEvidence = new Map([
+    ['assets/route-map-one-promise-1.png', {
+      title: 'A BETTER WAY TO WALK THE PARK LOOP', lineCount: 1, sha256: '8be6f8a4027a9904268042e5106102bf119326c605f345afe46ce02ba7204905', byteSize: 2403617,
+    }],
+    ['assets/route-map-one-promise-2.png', {
+      title: 'THE SIMPLE ROUTE TO A NEIGHBORHOOD WALK', lineCount: 2, sha256: '0ed39e74bb7dca0e08eb9643ce2696291843b507c1c8ecd936fc08bb35d0ce9e', byteSize: 2151962,
+    }],
+    ['assets/route-map-one-promise-3.png', {
+      title: 'ONE REALISTIC WAY TO LEARN A NEW SKILL', lineCount: 3, sha256: '30e6757837a3edf1dc6753440eaabae3dbda0b6c8685e8d9b4936f4cd43fcaec', byteSize: 2374090,
+    }],
+  ])
+  const diversity = new Set<string>()
+  for (const [assetPath, expected] of expectedEvidence) {
+    const preview = await fs.readFile(path.join(sourceRoot, assetPath))
+    const metadata = await sharp(preview).metadata()
+    const { info } = await sharp(preview).raw().toBuffer({ resolveWithObject: true })
+    assert.equal(metadata.format, 'png')
+    assert.equal(info.width, 1672)
+    assert.equal(info.height, 941)
+    assert.equal(createHash('sha256').update(preview).digest('hex'), expected.sha256)
+    assert.equal(preview.length, expected.byteSize)
+
+    const record = records.find(candidate => candidate.asset_path === `thumbnail/route-map-one-promise/${assetPath}`)
+    assert.ok(record, `${assetPath} must have one provenance record`)
+    assert.equal(record.mime_type, 'image/png')
+    assert.equal(record.sha256, expected.sha256)
+    assert.equal(record.byte_size, expected.byteSize)
+    assert.deepEqual(record.dimensions, { width: 1672, height: 941 })
+    assert.equal(record.title_transcription, expected.title)
+    assert.equal(record.line_count, expected.lineCount)
+    assert.equal(record.origin, 'owner-supplied original generated with ChatGPT built-in image generation')
+    assert.match(String(record.rights_basis), /owner authorization/i)
+    assert.match(String(record.prompt), /unavailable/i)
+    const axes = ['subject', 'side_or_angle', 'distance', 'setting', 'palette_or_symbol']
+    assert.ok(axes.every(axis => typeof record[axis] === 'string' && String(record[axis]).length > 0))
+    diversity.add(axes.map(axis => String(record[axis])).join('|'))
+  }
+  assert.equal(diversity.size, 3, 'every preview must vary at least one of the five documented diversity axes')
 })
 
 test('Question Ladder Formula is receipt-bound and preserves its evidence-safe explanatory ladder', async () => {
