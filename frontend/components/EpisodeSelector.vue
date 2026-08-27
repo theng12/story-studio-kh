@@ -157,6 +157,7 @@ const {
   isLoading: loading,
   isRevalidating,
   error: loadError,
+  load,
   refresh,
   revalidateAfterMutation,
   rescan,
@@ -576,8 +577,16 @@ async function onSelect(code: string) {
 //  - Manual ↻ button calls refresh() which forces ?refresh=1
 //  - Shift+↻ calls rescan() which also wipes the on-disk cache (use
 //    after files appear on disk but the UI hasn't caught up).
+//
+// The dropdown's @focus handler. It must stay on the CACHED path: this
+// fires every time the select is tabbed into or clicked, and refresh()
+// sends ?refresh=1, which drops the whole project's status cache and
+// re-walks every episode folder. On a 300-episode project that turned
+// "tab into the dropdown" into a full rescan. load() serves the cached
+// list, revalidates quietly if it is older than a few seconds, and only
+// blocks when nothing is cached yet — which is all focus ever needed.
 async function loadEpisodes() {
-  await refresh()
+  await load()
 }
 
 async function onRefreshClick(e: MouseEvent) {

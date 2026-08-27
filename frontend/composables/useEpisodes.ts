@@ -18,8 +18,13 @@
  *   - TTL backstop (5 min): cache is treated as cold past that and the
  *     next mount fetches fresh, not just revalidates.
  *   - `invalidate(slug)` drops the entry; next mount refetches.
+ *   - `load()` is the cached read path: serves the cached list, revalidates
+ *     in the background when it is older than REVALIDATE_MIN_MS, and only
+ *     blocks when the slot is cold or past TTL. It NEVER sends `?refresh=1`,
+ *     so it is what passive UI events (a select gaining focus) must call.
  *   - `refresh()` forces a fresh fetch with `?refresh=1` (clears the
- *     backend cache for the project too).
+ *     backend cache for the project too). Reserved for the explicit
+ *     refresh button — on a 300-episode project it recomputes every row.
  *
  * Module-level state intentionally — Vue composables are called per
  * instance, but the underlying Map lives once per page load. All mounters
@@ -363,6 +368,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
       const t = slot.fetchedAt.value
       return t === 0 || (Date.now() - t) > TTL_MS
     }),
+    load,
     refresh,
     revalidate,
     revalidateAfterMutation,
