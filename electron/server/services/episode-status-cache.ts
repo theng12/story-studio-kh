@@ -33,13 +33,32 @@ import { resolveEpisodePathsByCodeWithSidecar, type ProjectFactsCache } from './
 import * as pm from './project-manager.js'
 import * as im from './idea-manager.js'
 import { writeJsonAtomic, readJsonOr, withLock } from '../lib/atomic-store.js'
-import { bindInvalidator, ensureProjectWatcher } from './episode-folder-watcher.js'
+import { bindInvalidator, ensureProjectWatcher, watcherTrustedSince } from './episode-folder-watcher.js'
 import { RESEARCH_JSON_FILENAME, researchFolderName } from '../lib/research-paths.js'
 
 // v12 — scene-image counts now travel with the cached status so `/episodes`
 // can report them without a second filesystem scan. Discard v11 rows.
 export const SCHEMA_VERSION = 12 as const
 const MAX_ENTRIES = 1000
+/**
+ * Watcher-backed reads (see `trusted()`): how long an entry may be served
+ * without re-statting its watched folders, and how many episodes of one
+ * project may be re-statted per window once entries do age out.
+ *
+ * These bound a warm list to a couple of hundred stats instead of one per
+ * episode per read, while still walking the whole project back to verified
+ * status on its own. That second half is not decoration: `fs.watch` with
+ * `recursive: true` can start successfully and then deliver nothing at all
+ * (measured on a sandboxed filesystem here, and network/virtualised volumes
+ * behave the same way), and it gives no signal when that happens. So the
+ * watcher is treated as an optimisation that is usually right, never as the
+ * only witness — 15 seconds is the longest a list may show a change nobody
+ * announced, and a 300-episode project re-verifies itself inside ~13
+ * seconds of ordinary use after that.
+ */
+const AUDIT_MAX_AGE_MS = 15_000
+const AUDIT_BUDGET = 24
+const AUDIT_WINDOW_MS = 1_000
 // Phase 3 — persistence
 const FLUSH_DEBOUNCE_MS = 5000
 const CACHE_FILENAME = 'episode-status.json'
@@ -86,6 +105,14 @@ export interface EpisodeStatusCacheEntry {
   status: EpisodeStatus
   computedAt: number
   /**
+   * When this entry was last confirmed to match disk — set at compute time
+   * and refreshed on every mtime-verified read. Compared against the
+   * project watcher's start time to decide whether the watched folders
+   * still need re-statting. Absent on entries written by older builds,
+   * which simply read as "never verified" and get statted once.
+   */
+  verifiedAt?: number
+  /**
    * Folders whose contents affect status. Re-statted on every read; if any
    * mtime advanced (or a folder appeared/disappeared), the entry is stale.
    * Stored as a flat record so JSON-persistable as-is in Phase 3.
@@ -102,6 +129,8 @@ interface CacheStats {
   invalidations: number
   diskHydrates: number
   diskFlushes: number
+  /** Hits served on the watcher's word, with no folder stats at all. */
+  watchedHits: number
   size: number
   inflight: number
 }
@@ -226,10 +255,18 @@ class EpisodeStatusCache {
     invalidations: 0,
     diskHydrates: 0,
     diskFlushes: 0,
+    watchedHits: 0,
   }
+  /** Slug whose entries must survive LRU eviction — the one being read. */
+  private activeSlug: string | null = null
+  /** Per-project re-stat allowance, so an audit sweep stays bounded. */
+  private auditBudget = new Map<string, { windowStart: number, used: number }>()
 
   /**
-   * Read or compute status for one episode.
+   * Read or compute status for one episode, always verifying the cached
+   * entry against disk. This is the strict path: every read re-stats the
+   * episode's watched folders, so a change made a millisecond ago — by this
+   * app, by Finder, by an iCloud delivery — is picked up immediately.
    *
    * Pass `ideas` (the project's accepted-ideas array) when calling in a
    * batch — saves a per-episode ideas.json read inside computeEpisodeStatus
@@ -244,7 +281,43 @@ class EpisodeStatusCache {
     // nothing and behaves exactly as before. See `ProjectFactsCache`.
     cache?: ProjectFactsCache,
   ): Promise<EpisodeStatus> {
+    return this.read(slug, code, ideas, cache, false)
+  }
+
+  /**
+   * The same read, for building the whole project's episode list.
+   *
+   * Difference: where a live folder watcher has been running since an entry
+   * was last confirmed against disk, this serves the entry WITHOUT
+   * re-statting it — the watcher would already have deleted it had anything
+   * changed. That is the whole point: verifying 302 unchanged episodes cost
+   * ~3,200 stats on every navigation, to learn nothing had changed.
+   *
+   * Single-episode reads deliberately do NOT take this path. A page that
+   * just wrote a file asks about one episode and must see disk truth with no
+   * dependence on event timing; a list is a summary of a project that is not
+   * being edited under the cursor, and it still re-verifies a rolling slice
+   * of episodes on every pass (see `trusted`).
+   */
+  async getForList(
+    slug: string,
+    code: string,
+    ideas?: Awaited<ReturnType<typeof im.getIdeas>>,
+    cache?: ProjectFactsCache,
+  ): Promise<EpisodeStatus> {
+    return this.read(slug, code, ideas, cache, true)
+  }
+
+  private async read(
+    slug: string,
+    code: string,
+    ideas: Awaited<ReturnType<typeof im.getIdeas>> | undefined,
+    cache: ProjectFactsCache | undefined,
+    trustWatcher: boolean,
+  ): Promise<EpisodeStatus> {
     const k = cacheKey(slug, code)
+    // The project being read is the one that must stay resident — see set().
+    this.activeSlug = slug
 
     // Lazy hydrate from disk on first access for a project. Cheap miss
     // (one fs.read) on first call per project per process; no-op afterwards.
@@ -261,10 +334,22 @@ class EpisodeStatusCache {
 
     const entry = this.entries.get(k)
     if (entry) {
+      if (trustWatcher && this.trusted(slug, entry)) {
+        // HIT with no filesystem work at all: this project has a live
+        // watcher that has been running since the entry was last confirmed,
+        // so any change would already have deleted it. This is what keeps a
+        // 300-episode list from doing 3,000 stats to learn nothing changed.
+        this.touch(k, entry)
+        this.stats.hits++
+        this.stats.watchedHits++
+        return entry.status
+      }
       const folders = Object.keys(entry.watchedMtimes)
       const current = await snapshotMtimes(folders)
       if (mtimesUnchanged(entry.watchedMtimes, current)) {
-        // HIT — touch to update LRU recency.
+        // HIT — touch to update LRU recency, and record that disk agreed
+        // just now so the watcher can vouch for it from here on.
+        entry.verifiedAt = Date.now()
         this.touch(k, entry)
         this.stats.hits++
         return entry.status
@@ -295,6 +380,9 @@ class EpisodeStatusCache {
       // write during compute means the next read will see STALE — correct.)
       const folders = await resolveWatchedFolders(slug, code, ideas, cache)
       const watchedMtimes = await snapshotMtimes(folders)
+      // The snapshot moment, not the post-compute moment: anything that
+      // lands during the compute must still count as "after verification".
+      const verifiedAt = Date.now()
 
       const status = await computeEpisodeStatus(slug, code, ideas, cache)
 
@@ -303,6 +391,7 @@ class EpisodeStatusCache {
         episode_code: code.toUpperCase(),
         status,
         computedAt: Date.now(),
+        verifiedAt,
         watchedMtimes,
         schemaVersion: SCHEMA_VERSION,
       }
@@ -350,6 +439,49 @@ class EpisodeStatusCache {
       if (this.inflight.get(k) === promise) this.inflight.delete(k)
     })
     return promise
+  }
+
+  /**
+   * May this entry be served without re-statting its watched folders?
+   *
+   * Only when a healthy watcher for the project has been running since the
+   * entry was last confirmed against disk — every change since then would
+   * have fired an event and deleted the entry. Three things deliberately
+   * refuse trust:
+   *
+   *   - No watcher (never started, unsupported platform, LRU-evicted,
+   *     closed, or errored) → verify against disk, exactly as before. A
+   *     broken watcher costs speed, never correctness.
+   *   - An entry last verified BEFORE the watcher went live — including
+   *     every entry hydrated from disk at startup — gets one real check.
+   *   - An entry older than AUDIT_MAX_AGE_MS is re-verified anyway, capped
+   *     at AUDIT_BUDGET episodes per project per AUDIT_WINDOW_MS. That is
+   *     the backstop for events the OS coalesced away or dropped: a warm
+   *     list stays cheap, yet the project walks itself back to fully
+   *     verified within a handful of requests without anyone asking.
+   */
+  private trusted(slug: string, entry: EpisodeStatusCacheEntry): boolean {
+    const since = watcherTrustedSince(slug)
+    if (since === null) return false
+    const verifiedAt = entry.verifiedAt ?? 0
+    if (verifiedAt < since) return false
+    if (Date.now() - verifiedAt < AUDIT_MAX_AGE_MS) return true
+    // Aged out: re-verify if this project's audit allowance permits, else
+    // serve it now and let a later request pick it up.
+    return !this.consumeAuditBudget(slug)
+  }
+
+  /** True when this project may spend one re-stat in the current window. */
+  private consumeAuditBudget(slug: string): boolean {
+    const now = Date.now()
+    let b = this.auditBudget.get(slug)
+    if (!b || now - b.windowStart > AUDIT_WINDOW_MS) {
+      b = { windowStart: now, used: 0 }
+      this.auditBudget.set(slug, b)
+    }
+    if (b.used >= AUDIT_BUDGET) return false
+    b.used++
+    return true
   }
 
   /** Drop a single episode's cached status. Next read recomputes. */
@@ -405,7 +537,9 @@ class EpisodeStatusCache {
     this.hydratePending.clear()
     for (const t of this.flushTimers.values()) clearTimeout(t)
     this.flushTimers.clear()
-    this.stats = { hits: 0, staleRecomputes: 0, misses: 0, inflightDedups: 0, invalidations: 0, diskHydrates: 0, diskFlushes: 0 }
+    this.auditBudget.clear()
+    this.activeSlug = null
+    this.stats = { hits: 0, staleRecomputes: 0, misses: 0, inflightDedups: 0, invalidations: 0, diskHydrates: 0, diskFlushes: 0, watchedHits: 0 }
   }
 
   /**
@@ -563,10 +697,33 @@ class EpisodeStatusCache {
     if (this.entries.has(k)) this.entries.delete(k)
     this.entries.set(k, entry)
     while (this.entries.size > MAX_ENTRIES) {
-      const oldest = this.entries.keys().next().value
-      if (oldest === undefined) break
-      this.entries.delete(oldest)
+      const victim = this.evictionVictim()
+      if (victim === undefined) break
+      this.entries.delete(victim)
     }
+  }
+
+  /**
+   * Which entry to drop when the cache is full.
+   *
+   * Plain LRU is wrong here: this machine holds ~1,557 persisted rows across
+   * 12 projects against a 1,000-entry cap, so hydrating a second project
+   * could evict the rows of the project the user is actually looking at —
+   * and every one of those evictions is a full recompute on their next
+   * click. So residency is project-aware: the least-recently-used entry
+   * that does NOT belong to the project currently being read is evicted
+   * first, and the active project is only touched once it is the sole
+   * occupant (a single project larger than the whole cap, where plain LRU
+   * is the only sensible answer).
+   */
+  private evictionVictim(): string | undefined {
+    const activePrefix = this.activeSlug ? `${this.activeSlug}::` : null
+    let lru: string | undefined
+    for (const k of this.entries.keys()) {
+      if (lru === undefined) lru = k
+      if (activePrefix === null || !k.startsWith(activePrefix)) return k
+    }
+    return lru
   }
 
   private touch(k: string, entry: EpisodeStatusCacheEntry): void {

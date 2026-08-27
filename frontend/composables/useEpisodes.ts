@@ -18,8 +18,13 @@
  *   - TTL backstop (5 min): cache is treated as cold past that and the
  *     next mount fetches fresh, not just revalidates.
  *   - `invalidate(slug)` drops the entry; next mount refetches.
+ *   - `load()` is the cached read path: serves the cached list, revalidates
+ *     in the background when it is older than REVALIDATE_MIN_MS, and only
+ *     blocks when the slot is cold or past TTL. It NEVER sends `?refresh=1`,
+ *     so it is what passive UI events (a select gaining focus) must call.
  *   - `refresh()` forces a fresh fetch with `?refresh=1` (clears the
- *     backend cache for the project too).
+ *     backend cache for the project too). Reserved for the explicit
+ *     refresh button — on a 300-episode project it recomputes every row.
  *
  * Module-level state intentionally — Vue composables are called per
  * instance, but the underlying Map lives once per page load. All mounters
@@ -103,8 +108,6 @@ interface SharedSlot {
   isRevalidating: Ref<boolean>
   error: Ref<unknown>
   fetchedAt: Ref<number>
-  /** Refcount of mounted consumers; used only for diagnostics. */
-  refCount: number
   /** In-flight fetch promise (shared by concurrent callers). */
   inflight: Promise<EpisodeRow[]> | null
   /** Monotonic request id so an older response cannot overwrite a mutation refresh. */
@@ -124,7 +127,6 @@ function getOrCreateSlot(slug: string): SharedSlot {
       isRevalidating: ref(false),
       error: ref<unknown>(null),
       fetchedAt: ref(0),
-      refCount: 0,
       inflight: null,
       requestSeq: 0,
     }
@@ -142,21 +144,6 @@ export function invalidateEpisodes(slug: string): void {
   // Don't blank slot.data — let consumers keep showing the previous list
   // until the next refetch lands. Clearing here would cause an empty-state
   // flash on every invalidation.
-}
-
-/** Diagnostics — current slot stats. */
-export function _episodesCacheStats() {
-  const out: Record<string, { count: number; ageMs: number; refs: number; inflight: boolean }> = {}
-  const now = Date.now()
-  for (const [slug, slot] of slots) {
-    out[slug] = {
-      count: slot.data.value.length,
-      ageMs: slot.fetchedAt.value ? now - slot.fetchedAt.value : -1,
-      refs: slot.refCount,
-      inflight: !!slot.inflight,
-    }
-  }
-  return out
 }
 
 interface UseEpisodesOptions {
@@ -304,11 +291,9 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
     invalidateEpisodes(slugRef.value)
   }
 
-  // Refcount + lifecycle — mostly diagnostic; the slot persists across
-  // unmounts so a remount immediately sees cached data.
+  // The slot persists across unmounts, so a remount immediately sees the
+  // cached list; mounting only has to kick the (cached) read.
   onMounted(() => {
-    const slot = currentSlot()
-    slot.refCount++
     void load()
   })
 
@@ -363,6 +348,7 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
       const t = slot.fetchedAt.value
       return t === 0 || (Date.now() - t) > TTL_MS
     }),
+    load,
     refresh,
     revalidate,
     revalidateAfterMutation,

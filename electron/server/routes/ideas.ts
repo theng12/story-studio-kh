@@ -1035,15 +1035,7 @@ router.patch('/projects/:slug/episodes/:code/mark-done', async (req, res) => {
   try {
     const updated = await im.markEpisodeDone(slug, code, done)
     if (!updated) return res.status(404).json({ detail: `No accepted idea matches episode '${code}'` })
-    // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
-  // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // a 302-episode project) and project.json several times over: hundreds of reads of two files
-  // that cannot change while one response is being built. See
-  // `ProjectFactsCache`.
-  const { createProjectFactsCache } = await import('../services/utils.js')
-  const projectFacts = createProjectFactsCache(slug)
-
-  const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     episodeStatusCache.invalidate(slug, code)
     res.json({ ok: true, episode_code: code, marked_done: updated.marked_done, marked_done_at: updated.marked_done_at })
   } catch (e: any) {
@@ -1062,15 +1054,7 @@ router.patch('/projects/:slug/episodes/:code/status-overrides', async (req, res)
   try {
     const updated = await im.setEpisodeStatusOverrides(slug, code, overrides as Record<string, boolean> | null)
     if (!updated) return res.status(404).json({ detail: `No accepted idea matches episode '${code}'` })
-    // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
-  // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // a 302-episode project) and project.json several times over: hundreds of reads of two files
-  // that cannot change while one response is being built. See
-  // `ProjectFactsCache`.
-  const { createProjectFactsCache } = await import('../services/utils.js')
-  const projectFacts = createProjectFactsCache(slug)
-
-  const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     episodeStatusCache.invalidate(slug, code)
     res.json({ ok: true, episode_code: code, status_overrides: updated.status_overrides ?? null })
   } catch (e: any) {
@@ -1089,15 +1073,7 @@ router.post('/projects/:slug/episodes/bulk-mark-done', async (req, res) => {
   }
   try {
     const result = await im.bulkMarkDone(slug, episode_codes, done)
-    // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
-  // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // a 302-episode project) and project.json several times over: hundreds of reads of two files
-  // that cannot change while one response is being built. See
-  // `ProjectFactsCache`.
-  const { createProjectFactsCache } = await import('../services/utils.js')
-  const projectFacts = createProjectFactsCache(slug)
-
-  const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     // Bulk hits enough entries that targeted invalidation is overkill — wipe
     // the project's cache entries in one call.
     episodeStatusCache.invalidateProject(slug)
@@ -1118,15 +1094,7 @@ router.post('/projects/:slug/episodes/bulk-mark-done-by-source', async (req, res
   }
   try {
     const result = await im.bulkMarkDoneBySource(slug, source, done)
-    // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
-  // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // a 302-episode project) and project.json several times over: hundreds of reads of two files
-  // that cannot change while one response is being built. See
-  // `ProjectFactsCache`.
-  const { createProjectFactsCache } = await import('../services/utils.js')
-  const projectFacts = createProjectFactsCache(slug)
-
-  const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
     episodeStatusCache.invalidateProject(slug)
     res.json({ ok: true, ...result })
   } catch (e: any) {
@@ -1146,14 +1114,6 @@ const inflightEpisodeLists = new Map<string, Promise<any[] | null>>()
 
 router.get('/projects/:slug/episodes', async (req, res) => {
   const { slug } = req.params
-
-  // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
-  // response. Without it every row re-read and re-parsed ideas.json (227 KB on
-  // a 302-episode project) and project.json several times over: hundreds of reads of two files
-  // that cannot change while one response is being built. See
-  // `ProjectFactsCache`.
-  const { createProjectFactsCache } = await import('../services/utils.js')
-  const projectFacts = createProjectFactsCache(slug)
 
   const { episodeStatusCache } = await import('../services/episode-status-cache.js')
 
@@ -1258,7 +1218,10 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
     // One read, one parse, total — for the whole list response. The cache
     // layer further short-circuits the whole compute when watched-folder
     // mtimes are unchanged (the common case during navigation).
-    const status = await episodeStatusCache.get(slug, code, ideas, projectFacts)
+    // getForList, not get: on a warm list this serves watcher-vouched entries
+    // without re-statting every episode's folders. The single-episode status
+    // route below stays on the strict get().
+    const status = await episodeStatusCache.getForList(slug, code, ideas, projectFacts)
     const {
       research: researchDone,
       scene_plan: scenePlanDone,
