@@ -57,6 +57,33 @@ export interface MetadataSectionDef {
   /** When false, the section produces no LLM instruction (e.g. deterministic
    *  sources). Default true. */
   prompted?: boolean
+  /**
+   * The ALL-CAPS token this section's instruction bullet starts with — the
+   * name the PROMPT uses to address the instruction.
+   *
+   * v1.4.75. It is declared here, rather than left implicit inside each
+   * `buildInstruction` template literal, because two things now need to know
+   * it and neither can guess it from `label`: the prompt tells the model these
+   * names are internal, and `stripInternalSectionLabels` cleans them out of
+   * text a model printed them into anyway. Four of them already disagreed with
+   * `label` ('Music Credit' addresses MUSIC, 'Hashtags (inside description)'
+   * addresses HASHTAGS, 'Metadata (legacy)' addresses METADATA TABLE, 'Hook /
+   * Intro Paragraph' addresses HOOK), so deriving it was never an option.
+   * `metadata-section-label-registry.test.ts` asserts every bullet really does
+   * begin with the token declared here.
+   */
+  promptLabel?: string
+  /**
+   * True when the instruction ALSO asks for a viewer-facing heading spelled
+   * the same way as `promptLabel` — so seeing that token in a description is
+   * the section working, not leaking, and it must never be stripped.
+   *
+   * The emoji in those headings is not a distinguisher: `applyEmojiPolicy`
+   * removes it from generated text by default, so the published heading is the
+   * bare word. `🎵 MUSIC` reaches the reader as `MUSIC`, which is character
+   * for character the internal name.
+   */
+  literalHeader?: boolean
   /** Returns the prompt instruction fragment ('' = contributes nothing). */
   buildInstruction(cfg: Record<string, any>, ctx: SectionContext, section: SectionShape): string
 }
@@ -73,6 +100,7 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'hook',
     label: 'Hook / Intro Paragraph',
+    promptLabel: 'HOOK',
     defaultConfig: { characters: 220, starting_format: '' },
     buildInstruction(cfg) {
       const charTarget = Number(cfg.characters) || (Number(cfg.sentences) ? Number(cfg.sentences) * 80 : 250)
@@ -87,6 +115,7 @@ const DEFS: MetadataSectionDef[] = [
     // Legacy monolithic section — kept for stale presets POSTed pre-migration.
     id: 'metadata',
     label: 'Metadata (legacy)',
+    promptLabel: 'METADATA TABLE',
     defaultConfig: {},
     buildInstruction(cfg) {
       let s = `\n- METADATA TABLE: Include a separator line, then:`
@@ -99,6 +128,7 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'narrator',
     label: 'Narrator Credit',
+    promptLabel: 'NARRATOR CREDIT',
     defaultConfig: { name: '' },
     buildInstruction(cfg) {
       const name = cfg.name || 'the narrator'
@@ -108,6 +138,9 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'music',
     label: 'Music Credit',
+    promptLabel: 'MUSIC',
+    // Asks for a literal "MUSIC" heading (the emoji is stripped downstream).
+    literalHeader: true,
     defaultConfig: { title: '', link: '', disclaimer: 'Music used with permission. See link above for full credit.' },
     buildInstruction(cfg) {
       if (!(cfg.title || cfg.link || cfg.disclaimer)) return ''
@@ -121,6 +154,7 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'channels',
     label: 'Channel Mentions',
+    promptLabel: 'CHANNEL MENTIONS',
     defaultConfig: { channels: [{ name: '', url: '', kind: 'own' }] },
     buildInstruction(cfg) {
       const channels = (cfg.channels || []).filter((c: any) => c.name || c.url)
@@ -142,6 +176,9 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'videos',
     label: 'Video Recommendations',
+    // The heading it asks for is "MORE VIDEOS:" — a different string, so the
+    // internal name is safe to strip.
+    promptLabel: 'VIDEO RECOMMENDATIONS',
     defaultConfig: { videos: [{ name: '', url: '' }] },
     buildInstruction(cfg) {
       const videos = (cfg.videos || []).filter((v: any) => v.name || v.url)
@@ -156,6 +193,9 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'playlists',
     label: 'Playlists',
+    promptLabel: 'PLAYLISTS',
+    // Asks for a literal "PLAYLISTS:" heading — same string as its own name.
+    literalHeader: true,
     defaultConfig: { playlists: [{ name: '', url: '' }] },
     buildInstruction(cfg) {
       const playlists = (cfg.playlists || []).filter((p: any) => p.name || p.url)
@@ -168,6 +208,7 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'cta',
     label: 'Subscribe / Like CTA',
+    promptLabel: 'SUBSCRIBE / LIKE CTA',
     defaultConfig: { custom_lines: [] },
     buildInstruction(cfg) {
       if (cfg.patreon_url || cfg.custom_text) {
@@ -188,6 +229,8 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'support',
     label: 'Support / Membership',
+    // The heading it asks for is "SUPPORT THE CHANNEL" — a different string.
+    promptLabel: 'SUPPORT / MEMBERSHIP',
     defaultConfig: { platforms: [] },
     buildInstruction(cfg) {
       const platforms = (cfg.platforms || []).filter((p: any) => p.url)
@@ -210,6 +253,7 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'affiliate',
     label: 'Affiliate Disclaimer',
+    promptLabel: 'AFFILIATE DISCLAIMER',
     defaultConfig: { text: 'As an Amazon Associate we earn from qualifying purchases.' },
     buildInstruction(cfg) {
       return `\n- AFFILIATE DISCLAIMER: Include: "${cfg.text || 'As an Amazon Associate we earn from qualifying purchases.'}"`
@@ -218,6 +262,9 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'ai-disclosure',
     label: 'AI Disclosure',
+    promptLabel: 'AI DISCLOSURE',
+    // Asks for a literal "AI DISCLOSURE:" heading — same string as its name.
+    literalHeader: true,
     defaultConfig: { text: 'Created with the help of AI tools and reviewed before publishing.' },
     buildInstruction(cfg) {
       return `\n- AI DISCLOSURE: Include "🤖 AI DISCLOSURE:" section with: "${cfg.text || 'Created with the help of AI tools and reviewed before publishing.'}"`
@@ -226,6 +273,7 @@ const DEFS: MetadataSectionDef[] = [
   {
     id: 'hashtags',
     label: 'Hashtags (inside description)',
+    promptLabel: 'HASHTAGS',
     defaultConfig: { count: 15 },
     buildInstruction(cfg, ctx) {
       const fmtHashtags = ctx.format?.metadata?.youtubeDescriptionStructure

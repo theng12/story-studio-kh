@@ -25,6 +25,10 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { formatMetadataTxt } from '../services/metadata-format.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+// Freshly generated text only. The `preserveExistingPackage` branch above is
+// the operator's own edited copy — it is cleaned where it is read, not
+// rewritten under him.
+import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
 import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
 import { metadataPlaceholderOutputContract } from '../lib/story-output-contracts.js'
 import { sourcesSectionEnabled } from '../lib/research-sources.js'
@@ -317,7 +321,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       // title, his custom section labels AND the niche's own voice rules — so
       // the prayer channel's deliberate single 🙏 survives, because the
       // instruction asking for it is right there in the source text.
-      description = await applyEmojiPolicy(descRaw.trim(), [descPrompt])
+      description = stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt]))
       job.output_lines.push(`  → ${description.length} chars`)
       // Post-generation: scan the description for matches against the
       // niche's regex and append to the recency log. Fail-soft — never

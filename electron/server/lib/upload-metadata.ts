@@ -20,6 +20,7 @@ import { resolveEpisodePaths, resolveEpisodePathsByCodeWithSidecar } from '../se
 import { parseMetadataTxt } from '../services/metadata-format.js'
 import type { VideoSnippet } from './youtube-client.js'
 import { truncateChars, toWellFormedText } from './well-formed-text.js'
+import { stripInternalSectionLabels } from './metadata-label-leak.js'
 
 export interface EpisodeMetadataForUpload {
   title: string
@@ -307,8 +308,19 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[],
   title = capLength(title.trim(), YT_TITLE_MAX, 'title', logs)
 
   // Description: strip control chars (keeping newlines/tabs for formatting),
-  // then cap length. YouTube auto-escapes `<>` here, so we leave them.
-  const description = capLength(stripControl(meta.description), YT_DESCRIPTION_MAX, 'description', logs)
+  // drop any internal section name the model published as a heading, then cap
+  // length. YouTube auto-escapes `<>` here, so we leave them.
+  //
+  // v1.4.75 — the label strip is here, at the last gate before the Data API,
+  // because a package saved before the prompt fix keeps its leaked `HOOK:` on
+  // disk forever: the Finalizer deliberately reuses a complete
+  // `existing_package` rather than respend credits, so there is no guarantee
+  // the description is ever regenerated. Cleaning on the way out costs nothing
+  // and needs no rewrite of his saved files.
+  const description = capLength(
+    stripInternalSectionLabels(stripControl(meta.description)),
+    YT_DESCRIPTION_MAX, 'description', logs,
+  )
 
   const tags = cleanTags(meta.tags, logs)
 
