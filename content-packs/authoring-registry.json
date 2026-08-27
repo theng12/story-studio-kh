@@ -1,5 +1,5 @@
 {
-  "revision": 80,
+  "revision": 82,
   "batches": [
     {
       "revision": 2,
@@ -2229,6 +2229,59 @@
           }
         ]
       }
+    },
+    {
+      "revision": 81,
+      "receipt_ref": "authoring:e8f16de4a974fcb2aff15a40eceb0690174d41b84073668fd877a7a6896453a2",
+      "request": {
+        "expected_revision": 80,
+        "coordinator": {
+          "task": "archival-ledger-kit-repin-1.0.3",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "proposal_ref": ".superpowers/sdd/2026-08-25-topic-pack-1000-repair/plan-research.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.kit.archival-ledger",
+            "bundle_id": "com.storystudio.bundle.archival-ledger",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger-v1.0.3",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.archival-ledger",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.archival-map-investigation",
+                "version": "1.0.0"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.archival-ledger",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.archival-ledger",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -3332,6 +3385,23 @@
         "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
         "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
         "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 82,
+      "transition_ref": "lifecycle:653de9f5ebad646fd16dff377a8d24c02a3e3e23983bd2a8d43a564a33cb5af1",
+      "request": {
+        "expected_revision": 81,
+        "coordinator": {
+          "task": "archival-ledger-kit-repin-1.0.3",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:e8f16de4a974fcb2aff15a40eceb0690174d41b84073668fd877a7a6896453a2",
+        "pack_id": "com.storystudio.pack.kit.archival-ledger",
+        "version": "1.0.3",
         "changes": {
           "status": "authored"
         }
@@ -6966,6 +7036,46 @@
         },
         "sku": {
           "id": "com.storystudio.sku.kit.build-momentum",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:e8f16de4a974fcb2aff15a40eceb0690174d41b84073668fd877a7a6896453a2",
+      "pack_id": "com.storystudio.pack.kit.archival-ledger",
+      "bundle_id": "com.storystudio.bundle.archival-ledger",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger-v1.0.3",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.archival-ledger",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.archival-map-investigation",
+          "version": "1.0.0"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.archival-ledger",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.archival-ledger",
           "status": "proposed"
         }
       }

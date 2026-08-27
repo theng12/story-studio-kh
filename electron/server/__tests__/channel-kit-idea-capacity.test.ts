@@ -29,28 +29,26 @@ const KIT_FLOORS: Array<[packId: string, floor: number, note?: string]> = [
   ['com.storystudio.pack.kit.history-explained', PROMISED_IDEAS],
   ['com.storystudio.pack.kit.deep-time', PROMISED_IDEAS],
   ['com.storystudio.pack.kit.business-explained', PROMISED_IDEAS],
+  // Measured at 1,000 rather than PROMISED_IDEAS because that is what it actually plans:
+  // states-revolutions-collapse 1.0.1 carries 100 subjects x 20 authored tuples, so its
+  // structural capacity is 2,000 and it saturates this test's 1,000 ceiling.
+  ['com.storystudio.pack.kit.archival-ledger', 1_000],
   // Below: kits still pinned to a starter-sized Topic Pack. The number is what the kit
   // actually delivers today. Raise it to PROMISED_IDEAS as each successor lands; never
   // lower one, and never delete a row to make this test pass.
   //
-  // 2026-08-27 — both were investigated and both are BLOCKED, not merely unstarted. A
-  // full-sized successor Topic Pack does sit in the registry for each, and repinning
-  // either kit to it is a two-line change, so it is worth writing down why that change
-  // must not be made yet:
+  // 2026-08-28 — archival-ledger is RESOLVED and has moved up into the block above. The
+  // 2026-08-27 note recorded it as blocked because the only full-sized successor then
+  // available was money-debt-financial-institutions 1.0.1, which reached 1,000 the padded
+  // way the owner rejected. The kit instead repinned at 1.0.3 to its own long-standing
+  // topic, states-revolutions-collapse 1.0.1, which measures 20 distinct settings on all
+  // 100 subjects and clears the anti-padding bar outright. The atomic-receipt objection is
+  // also gone: all sixteen successors advanced to `authored` together in one commit.
   //
-  //   archival-ledger  — money-debt-financial-institutions 1.0.1 plans 1,000 ideas, but
-  //     46 of its 100 subjects fall below the anti-padding scope-diversity floor of 19
-  //     (worst subject: 10 distinct settings across its 20 tuples). It reaches 1,000 the
-  //     way habits-momentum 1.0.1 did, which the owner rejected. It is also one of
-  //     sixteen successors bound to a single atomic coordinator receipt, so it cannot be
-  //     advanced to `authored` on its own. See topic-pack-anti-padding.test.ts and
-  //     topic-pack-1000-successors.test.ts, which both fail the moment the kit repins.
-  //
-  //   symbolic-psychology-studio — its 1.0.1 successor sources are held behind a returned
-  //     preview-evidence gate with `registry_transition_allowed: false`. See
-  //     symbolic-psychology-studio-wave-1-source.test.ts.
+  //   symbolic-psychology-studio — still blocked. Its 1.0.1 successor sources are held
+  //     behind a returned preview-evidence gate with `registry_transition_allowed: false`.
+  //     See symbolic-psychology-studio-wave-1-source.test.ts.
   ['com.storystudio.pack.kit.symbolic-psychology-studio', 10, 'six-piece kit governed by its own wave plan'],
-  ['com.storystudio.pack.kit.archival-ledger', 100, 'paid kit; its five Topic Pack successors are owner work in progress'],
 ]
 
 type Record_ = {
