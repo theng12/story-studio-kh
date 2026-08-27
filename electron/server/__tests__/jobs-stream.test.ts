@@ -34,23 +34,73 @@ interface SseFrame {
 }
 
 /**
- * Open an SSE subscription, collect frames for `waitMs`, then close the
- * connection and resolve. Returns everything received in the window, so
- * callers can trigger side-effects (enqueue, clear) inside the window and
+ * Open an SSE subscription, collect frames, then close the connection and
+ * resolve. Callers trigger side-effects (enqueue, clear) inside the window and
  * assert on the frames afterwards.
+ *
+ * WAIT FOR THE FRAME, NOT FOR A DURATION. Every test here used to collect for a
+ * flat 150-400ms chosen against an idle machine. In v1.4.73 the backend suite
+ * roughly tripled in length and disk traffic, and two different tests in this
+ * file failed on two different runs — "expected cleared frame; got: snapshot,
+ * update, update", then "should send exactly one snapshot: 0 !== 1". Both times
+ * the stream was working and the window had simply closed too early, which
+ * reads on the report as a broken endpoint.
+ *
+ * So `until` says what the test is waiting for. The window closes `graceMs`
+ * AFTER that becomes true — the grace is what still catches a SECOND snapshot,
+ * or an event that should never have arrived, so negative assertions keep their
+ * meaning. `SSE_HARD_CAP_MS` bounds a predicate that never comes true, and the
+ * assertion then fails on the frames actually received rather than on a hang.
  */
-function collectFrames(urlPath: string, waitMs: number): Promise<SseFrame[]> {
+const SSE_HARD_CAP_MS = 30_000
+
+function hasEvent(frames: SseFrame[], event: string): boolean {
+  return frames.some(frame => frame.event === event)
+}
+
+function hasEpisodeUpdate(frames: SseFrame[], episodeId: string): boolean {
+  return frames.some(frame => {
+    if (frame.event !== 'update') return false
+    try { return JSON.parse(frame.data).episode_id === episodeId } catch { return false }
+  })
+}
+
+function collectFrames(
+  urlPath: string,
+  graceMs: number,
+  until: (frames: SseFrame[]) => boolean = () => true,
+): Promise<SseFrame[]> {
   return new Promise((resolve, reject) => {
     const u = new URL(urlPath, baseUrl)
     const frames: SseFrame[] = []
+    let graceTimer: NodeJS.Timeout | undefined
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(graceTimer)
+      clearTimeout(hardCap)
+      req.destroy()
+      resolve(frames)
+    }
+    const hardCap = setTimeout(finish, SSE_HARD_CAP_MS)
+    const considerSatisfied = () => {
+      if (settled || graceTimer) return
+      if (!until(frames)) return
+      graceTimer = setTimeout(finish, graceMs)
+    }
     const req = http.request(
       { host: u.hostname, port: u.port, path: u.pathname + u.search, method: 'GET' },
       (res) => {
         if (res.statusCode !== 200) {
+          clearTimeout(hardCap)
           req.destroy()
           reject(new Error(`SSE responded ${res.statusCode}`))
           return
         }
+        // Lets the default predicate start its window at open, which is the
+        // old fixed-duration behaviour for any caller that wants it.
+        considerSatisfied()
         let buf = ''
         res.setEncoding('utf8')
         res.on('data', (chunk: string) => {
@@ -72,16 +122,13 @@ function collectFrames(urlPath: string, waitMs: number): Promise<SseFrame[]> {
             }
             frames.push({ event, data: dataLines.join('\n') })
           }
+          considerSatisfied()
         })
         res.on('error', reject)
       },
     )
-    req.on('error', reject)
+    req.on('error', (error) => { clearTimeout(hardCap); clearTimeout(graceTimer); reject(error) })
     req.end()
-    setTimeout(() => {
-      req.destroy()
-      resolve(frames)
-    }, waitMs)
   })
 }
 
@@ -120,7 +167,7 @@ after(async () => {
 describe('SSE /projects/:slug/jobs/stream', () => {
   test('sends exactly one snapshot frame on subscribe', async () => {
     const proj = await pm.createProject({ name: 'SSE_Snap' })
-    const frames = await collectFrames(`/api/projects/${proj.slug}/jobs/stream`, 150)
+    const frames = await collectFrames(`/api/projects/${proj.slug}/jobs/stream`, 150, f => hasEvent(f, 'snapshot'))
     const snapshots = frames.filter(f => f.event === 'snapshot')
     assert.equal(snapshots.length, 1, 'should send exactly one snapshot')
     const payload = JSON.parse(snapshots[0].data)
@@ -133,7 +180,7 @@ describe('SSE /projects/:slug/jobs/stream', () => {
     const proj = await pm.createProject({ name: 'SSE_Enqueue' })
 
     // Kick off the collection first, then enqueue a job inside the window.
-    const collection = collectFrames(`/api/projects/${proj.slug}/jobs/stream`, 400)
+    const collection = collectFrames(`/api/projects/${proj.slug}/jobs/stream`, 50, f => hasEpisodeUpdate(f, 'SSE_EP1'))
     // Let the snapshot flush before we enqueue so the `update` is clearly
     // attributable to our action.
     await new Promise((r) => setTimeout(r, 50))
@@ -158,7 +205,9 @@ describe('SSE /projects/:slug/jobs/stream', () => {
     const a = await pm.createProject({ name: 'SSE_Scope_A' })
     const b = await pm.createProject({ name: 'SSE_Scope_B' })
 
-    const collectionA = collectFrames(`/api/projects/${a.slug}/jobs/stream`, 300)
+    // A negative assertion: wait for A's own snapshot, then keep listening for a
+    // further 300ms, which is the window in which B's event would have leaked.
+    const collectionA = collectFrames(`/api/projects/${a.slug}/jobs/stream`, 300, f => hasEvent(f, 'snapshot'))
     await new Promise((r) => setTimeout(r, 50))
     // Enqueue on project B — A's subscriber must NOT see it.
     jq.enqueuePreparedForTest({
@@ -203,7 +252,7 @@ describe('SSE /projects/:slug/jobs/stream', () => {
       await new Promise((r) => setTimeout(r, 25))
     }
 
-    const collection = collectFrames(`/api/projects/${proj.slug}/jobs/stream`, 300)
+    const collection = collectFrames(`/api/projects/${proj.slug}/jobs/stream`, 50, f => hasEvent(f, 'cleared'))
     await new Promise((r) => setTimeout(r, 50))
     await jq.clearFinished(proj.slug)
     const frames = await collection
@@ -223,7 +272,7 @@ describe('SSE /jobs/all/stream', () => {
     jq.enqueuePreparedForTest({ project_slug: b.slug, type: 'script-only', episode_id: 'ALL_B1', title: '', params: {} })
     await new Promise((resolve) => setTimeout(resolve, 100))
 
-    const frames = await collectFrames('/api/jobs/all/stream', 200)
+    const frames = await collectFrames('/api/jobs/all/stream', 50, f => hasEvent(f, 'snapshot'))
     const snapshot = frames.find(frame => frame.event === 'snapshot')
     assert.ok(snapshot, 'universal stream should send a snapshot')
     const payload = JSON.parse(snapshot.data)
@@ -234,7 +283,7 @@ describe('SSE /jobs/all/stream', () => {
 
   test('receives updates from another project without resubscribing', async () => {
     const project = await pm.createProject({ name: 'SSE_All_Update' })
-    const collection = collectFrames('/api/jobs/all/stream', 350)
+    const collection = collectFrames('/api/jobs/all/stream', 50, f => hasEpisodeUpdate(f, 'ALL_LIVE_1'))
     await new Promise((resolve) => setTimeout(resolve, 50))
     jq.enqueuePreparedForTest({ project_slug: project.slug, type: 'script-only', episode_id: 'ALL_LIVE_1', title: '', params: {} })
     const frames = await collection
