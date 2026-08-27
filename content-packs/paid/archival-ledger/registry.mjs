@@ -80,4 +80,13 @@ export const paidComponentRegistry = [
     family: 'com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions',
     sourceDirectory: 'topic/money-debt-financial-institutions-v1.0.1',
   },
+  {
+    packId: 'com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power',
+    itemId: 'com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power',
+    kind: 'topic-pack',
+    version: '1.0.1',
+    sku: 'com.storystudio.sku.topic.archival-ledger.infrastructure-commodities-corporate-power',
+    family: 'com.storystudio.family.topic.archival-ledger.infrastructure-commodities-corporate-power',
+    sourceDirectory: 'topic/infrastructure-commodities-corporate-power-v1.0.1',
+  },
 ]

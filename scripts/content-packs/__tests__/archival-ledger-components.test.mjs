@@ -88,6 +88,17 @@ const SUCCESSORS = [
     family: 'com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions',
     sku: 'com.storystudio.sku.topic.archival-ledger.money-debt-financial-institutions',
   },
+  {
+    kind: 'topic',
+    slug: 'infrastructure-commodities-corporate-power-v1.0.1',
+    predecessorSlug: 'infrastructure-commodities-corporate-power',
+    version: '1.0.1',
+    document: 'topic-pack.json',
+    packId: 'com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power',
+    itemId: 'com.storystudio.topic.archival-ledger.infrastructure-commodities-corporate-power',
+    family: 'com.storystudio.family.topic.archival-ledger.infrastructure-commodities-corporate-power',
+    sku: 'com.storystudio.sku.topic.archival-ledger.infrastructure-commodities-corporate-power',
+  },
 ]
 
 const STOCKABLE = [...COMPONENTS, ...SUCCESSORS]
