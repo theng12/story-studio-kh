@@ -88,3 +88,64 @@ export async function fitReferenceImage(
     to: { width: output.width, height: output.height },
   }
 }
+
+/**
+ * The same fit, applied to bytes on their way to disk rather than to a file
+ * already stored.
+ *
+ * WHY A SECOND ENTRY POINT. `fitReferenceImage` above runs at SUBMIT time,
+ * where exactly one model is in scope and its published ceiling is known. That
+ * is the right place for an app-generated composition template. It is the
+ * wrong place for a photo the customer uploaded, because only one of the two
+ * generators ever called it: `generators/images.ts` — the Scene and Thumbnail
+ * generator, which submits master, per-scene, character, thumbnail and
+ * art-style references — never did. A phone photo is around 4000px on its long
+ * edge, every reference-capable product publishes a 1024px ceiling, so the
+ * upload succeeded and then every render using it failed with "resize it and
+ * retry" on an image the customer had no tool to resize.
+ *
+ * Fitting once at the upload boundary fixes every downstream path at the same
+ * time, and costs one decode per upload instead of one per submitted scene.
+ *
+ * The invented-limit rule still holds: `maxDimension` must be a figure
+ * GenStudio published (see `publishedReferenceCeiling`). Pass `undefined` when
+ * the catalogue could not be read and the bytes are stored exactly as sent —
+ * which is the behaviour this route had before, so an offline upload is never
+ * worse off than it was.
+ */
+export async function fitReferenceBuffer(
+  data: Buffer,
+  maxDimension: number | undefined,
+): Promise<{ data: Buffer; resized: boolean; from?: { width: number; height: number }; to?: { width: number; height: number } }> {
+  if (!Number.isInteger(maxDimension) || !maxDimension || maxDimension <= 0) {
+    return { data, resized: false }
+  }
+
+  let width: number | undefined
+  let height: number | undefined
+  try {
+    const metadata = await sharp(data, { failOn: 'error' }).metadata()
+    width = metadata.width
+    height = metadata.height
+  } catch {
+    // Not decodable as an image. Storing it unchanged keeps this route's old
+    // behaviour — the byte cap is its only gate — and leaves the real, precise
+    // "corrupt or incomplete" message to the decode check at submit time.
+    return { data, resized: false }
+  }
+  if (!width || !height || Math.max(width, height) <= maxDimension) {
+    return { data, resized: false, ...(width && height ? { from: { width, height } } : {}) }
+  }
+
+  const fitted = await sharp(data, { failOn: 'error' })
+    .resize({ width: maxDimension, height: maxDimension, fit: 'inside', withoutEnlargement: true })
+    .png()
+    .toBuffer({ resolveWithObject: true })
+
+  return {
+    data: fitted.data,
+    resized: true,
+    from: { width, height },
+    to: { width: fitted.info.width, height: fitted.info.height },
+  }
+}

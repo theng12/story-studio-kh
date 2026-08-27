@@ -27,6 +27,10 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { resolveEpisodeDir } from '../lib/folder-resolver.js'
+import { fitReferenceBuffer } from '../lib/reference-image-fit.js'
+import { publishedReferenceCeiling } from '../services/image-model-resolver.js'
+import { listImageModels } from '../lib/genstudio-client.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 import type { JobType } from '../models/types.js'
 
 export const router = Router()
@@ -36,10 +40,15 @@ export const router = Router()
  * portraits. It is NOT a statement about what any image model accepts.
  *
  * The pixel ceiling is a published, per-model figure
- * (`reference_image_max_dimension`) and is enforced where the selected model
- * is known: providers/image/genstudio.ts, before the reference is uploaded.
- * This route has no model in scope, so it must not pretend to be that check —
- * and a byte cap is not one anyway: a 9 MB 8000x8000 PNG passes here.
+ * (`reference_image_max_dimension`) and is still ENFORCED where the selected
+ * model is known: providers/image/genstudio.ts, before the reference is
+ * uploaded. A byte cap has never been that check and is not one now: a 9 MB
+ * 8000x8000 PNG passes this line.
+ *
+ * What this route does do, since 2026-08-27, is FIT an upload to the strictest
+ * ceiling the catalogue publishes (see `storeReference`). That is not the same
+ * thing as enforcing a per-model limit, and it invents nothing — with no
+ * catalogue in reach the bytes are stored exactly as sent.
  */
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024
 const MASTER_FILENAME = 'master.png'
@@ -89,6 +98,56 @@ function sceneFilename(n: number): string {
   return `scene-${String(n).padStart(2, '0')}.png`
 }
 
+/**
+ * Store an uploaded reference, downscaled to fit the catalogue's published
+ * reference ceiling.
+ *
+ * WHY HERE AND NOT IN EACH GENERATOR. A reference uploaded through these
+ * routes is submitted by several different paths — `generators/images.ts`
+ * (master, per-scene, character, thumbnail, art-style) and
+ * `generators/continuity-render.ts` (episode reference). Only the second one
+ * ever fitted its input, so a phone photo — around 4000px on its long edge,
+ * against a catalogue that publishes a 1024px reference ceiling — uploaded
+ * fine and then failed every render that used it, telling the customer to
+ * "resize it and retry" an image they had no tool to resize. Fitting once, on
+ * the way in, fixes every path at once and costs one decode per upload rather
+ * than one per submitted scene.
+ *
+ * The ceiling is read from the live catalogue, never invented (see
+ * `publishedReferenceCeiling`). When the catalogue cannot be read — no API
+ * key, offline, GenStudio down — the bytes are stored exactly as sent, which
+ * is precisely what this route did before, so an upload is never made worse by
+ * this being here. Submit-time fitting in continuity-render is untouched and
+ * still handles the app-generated composition template.
+ */
+async function storeReference(
+  dir: string,
+  filename: string,
+  data: Buffer,
+): Promise<{ size_bytes: number; resized: boolean; fitted_from?: string; fitted_to?: string }> {
+  let ceiling: number | undefined
+  try {
+    const apiKey = await getApiKey('genstudio')
+    // `listImageModels` is cached and request-coalesced, so repeated uploads
+    // in one session do not each pay for a catalogue fetch.
+    if (apiKey.trim()) ceiling = publishedReferenceCeiling(await listImageModels(apiKey))
+  } catch {
+    ceiling = undefined
+  }
+  const fitted = await fitReferenceBuffer(data, ceiling)
+  await fs.writeFile(path.join(dir, filename), fitted.data)
+  return {
+    size_bytes: fitted.data.length,
+    resized: fitted.resized,
+    ...(fitted.resized && fitted.from && fitted.to
+      ? {
+        fitted_from: `${fitted.from.width}x${fitted.from.height}`,
+        fitted_to: `${fitted.to.width}x${fitted.to.height}`,
+      }
+      : {}),
+  }
+}
+
 function fileUrl(slug: string, episodeId: string, filename: string): string {
   return `/api/projects/${slug}/episodes/${episodeId}/img2img-references/file/${encodeURIComponent(filename)}`
 }
@@ -103,12 +162,11 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/master', asy
     const buf = decodeUploadBuffer(req.body)
     if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
     const dir = await refsDir(slug, episodeId, titleParam, { create: true })
-    const target = path.join(dir, MASTER_FILENAME)
-    await fs.writeFile(target, buf.data)
+    const stored = await storeReference(dir, MASTER_FILENAME, buf.data)
     res.json({
       ok: true,
       url: fileUrl(slug, episodeId, MASTER_FILENAME),
-      size_bytes: buf.data.length,
+      ...stored,
     })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to save master reference' })
@@ -127,11 +185,11 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/thumbnail', 
     const buf = decodeUploadBuffer(req.body)
     if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
     const dir = await refsDir(slug, episodeId, titleParam, { create: true })
-    await fs.writeFile(path.join(dir, THUMBNAIL_FILENAME), buf.data)
+    const stored = await storeReference(dir, THUMBNAIL_FILENAME, buf.data)
     res.json({
       ok: true,
       url: fileUrl(slug, episodeId, THUMBNAIL_FILENAME),
-      size_bytes: buf.data.length,
+      ...stored,
     })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to save thumbnail reference' })
@@ -150,8 +208,8 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/style', asyn
     const buf = decodeUploadBuffer(req.body)
     if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
     const dir = await refsDir(slug, episodeId, titleParam, { create: true })
-    await fs.writeFile(path.join(dir, STYLE_FILENAME), buf.data)
-    res.json({ ok: true, url: fileUrl(slug, episodeId, STYLE_FILENAME), size_bytes: buf.data.length })
+    const stored = await storeReference(dir, STYLE_FILENAME, buf.data)
+    res.json({ ok: true, url: fileUrl(slug, episodeId, STYLE_FILENAME), ...stored })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to save style reference' })
   }
@@ -170,8 +228,8 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/composition'
     const buf = decodeUploadBuffer(req.body)
     if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
     const dir = await refsDir(slug, episodeId, titleParam, { create: true })
-    await fs.writeFile(path.join(dir, COMPOSITION_FILENAME), buf.data)
-    res.json({ ok: true, url: fileUrl(slug, episodeId, COMPOSITION_FILENAME), size_bytes: buf.data.length })
+    const stored = await storeReference(dir, COMPOSITION_FILENAME, buf.data)
+    res.json({ ok: true, url: fileUrl(slug, episodeId, COMPOSITION_FILENAME), ...stored })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to save composition template' })
   }
@@ -192,12 +250,12 @@ router.post('/projects/:slug/episodes/:episodeId/img2img-references/scene/:n', a
     if (!buf.ok) return res.status(buf.status).json({ detail: buf.detail })
     const dir = await refsDir(slug, episodeId, titleParam, { create: true })
     const filename = sceneFilename(n)
-    await fs.writeFile(path.join(dir, filename), buf.data)
+    const stored = await storeReference(dir, filename, buf.data)
     res.json({
       ok: true,
       number: n,
       url: fileUrl(slug, episodeId, filename),
-      size_bytes: buf.data.length,
+      ...stored,
     })
   } catch (e: any) {
     res.status(500).json({ detail: e?.message || 'Failed to save scene reference' })

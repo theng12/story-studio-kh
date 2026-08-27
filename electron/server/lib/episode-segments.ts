@@ -558,11 +558,6 @@ export function normalizeChannelSegments(
   return out
 }
 
-/** Does this channel want an opening on every episode it produces? */
-export function channelWantsSegment(segments: ChannelSegments, segmentId: string): boolean {
-  return segments[segmentId]?.enabled === true
-}
-
 /**
  * The comparable SHAPE of an opening: its length and its ordered beats.
  *

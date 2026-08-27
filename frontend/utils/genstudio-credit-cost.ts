@@ -437,3 +437,75 @@ export function describeActualCost(credits: number | null | undefined): CreditDi
     title: `GenStudio reported ${formatCredits(actual)} for this job. Reservations settle on the Usage page.`,
   }
 }
+
+export interface PricedMusicModel {
+  display_name?: string
+  credits_per_request?: number | null
+  /** Undiscounted list price. Present whether or not a sale is running. */
+  standard_credits?: number | null
+  /** Discounted price while the sale is on. */
+  sale_credits?: number | null
+  sale_ends_at?: string | null
+  sale_disclaimer?: string | null
+  outputs_per_request?: number | null
+}
+
+/**
+ * Per-song price for a music model, with the sale shown AS a sale.
+ *
+ * The owner's ruling, verbatim: "use the full price so the customer see the
+ * full price with a discount tag on it." Images have done this since the first
+ * promotion landed — `describeImageUnitCost` prints "4 credits / image (was 6
+ * credits)". Music published the same information under different field names
+ * (`standard_credits` / `sale_credits` / `sale_ends_at` / `sale_disclaimer`)
+ * and the backend has parsed all four correctly the whole time; the music page
+ * simply never showed a number at all, sale or otherwise. So a customer on a
+ * sale price could not tell it was a sale, and a customer paying list could
+ * not tell they had missed one.
+ *
+ * This deliberately mirrors the image function's SHAPE rather than inventing a
+ * second pattern: same `CreditDisplay` return, same "(was X)" suffix in `text`,
+ * same explanation folded into `title` for the native tooltip.
+ *
+ * The unit is "per song request" rather than "per song": `credits_per_request`
+ * is what GenStudio charges per submitted request, and some music products
+ * return more than one variation for that single charge. Calling it "per song"
+ * would understate what the customer gets and overstate what a song costs.
+ */
+export function describeMusicUnitCost(model: PricedMusicModel | null | undefined): CreditDisplay {
+  if (!model) return unpublishedCost()
+  const label = model.display_name || 'This model'
+
+  const unit = publishedNumber(model.credits_per_request)
+  if (unit === null) return unpublishedCost(label)
+
+  let text = `${formatCredits(unit)} / song request`
+  const parts = [`GenStudio publishes ${formatCredits(unit)} per song request for ${label}.`]
+
+  // A sale is only a sale when the list price is genuinely higher than what is
+  // being charged. `standard_credits` equal to the charge is just the list
+  // price restated, and printing "(was 50 credits)" beside 50 credits would be
+  // a discount tag on no discount.
+  const standard = publishedNumber(model.standard_credits)
+  const sale = publishedNumber(model.sale_credits)
+  if (standard !== null && standard > unit) {
+    text += ` (was ${formatCredits(standard)})`
+    const saving = sale !== null && sale === unit
+      ? `, on sale at ${formatCredits(sale)}`
+      : ''
+    parts.push(`The undiscounted price is ${formatCredits(standard)}${saving}.`)
+    const endsAt = model.sale_ends_at?.trim()
+    if (endsAt) {
+      const when = new Date(endsAt)
+      parts.push(Number.isNaN(when.getTime())
+        ? `The sale ends ${endsAt}.`
+        : `The sale ends ${when.toLocaleDateString()}.`)
+    }
+  }
+
+  const disclaimer = model.sale_disclaimer?.trim()
+  if (disclaimer) parts.push(disclaimer)
+
+  parts.push('GenStudio reports the charge it actually applied on the finished job.')
+  return { text, basis: 'rate', title: parts.join(' ') }
+}

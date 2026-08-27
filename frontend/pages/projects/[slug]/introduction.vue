@@ -288,6 +288,15 @@
       </div>
     </section>
 
+    <!-- "still running" and "it failed" are different answers, and the empty
+         preview panel cannot tell them apart on its own. -->
+    <p v-if="segment.enabled && episodeId && introductionInFlight" class="intro-job-status running">
+      Writing the opening… the preview updates itself when it finishes.
+    </p>
+    <p v-else-if="segment.enabled && episodeId && introFailure" class="intro-job-status failed">
+      {{ introFailure }}
+    </p>
+
     <IntroductionPreview
       v-if="segment.enabled && episodeId"
       :project-slug="slug"
@@ -303,6 +312,12 @@ import { useRoute } from 'vue-router'
 import { useApi } from '../../../composables/useApi.js'
 import { useToast } from '../../../composables/useToast.js'
 import { usePresets } from '../../../composables/usePresets.js'
+import { useJobs } from '../../../composables/useJobs.js'
+import {
+  introductionInFlight as introductionInFlightFor,
+  introductionJobSignal as introductionJobSignalFor,
+  settleIntroductionJobs,
+} from '../../../composables/useIntroductionJobWatch.js'
 
 definePageMeta({ layout: 'dashboard' })
 useAppTitle('Introduction')
@@ -560,8 +575,13 @@ async function generateForEpisode(): Promise<void> {
   generating.value = true
   try {
     await post(`/projects/${slug.value}/generate/introduction-only`, { episode_id: episodeId.value })
-    success('Queued. Watch it in Jobs.')
-    previewRefreshKey.value += 1
+    // No refresh-key bump here, deliberately. This POST only ENQUEUES — its
+    // own toast says so. Bumping now reloads the panel at the one moment
+    // there is nothing new on disk to find, and worse, replaces a previously
+    // good preview with "No introduction generated yet". The panel is
+    // refreshed by `introductionJobSignal` below, when the job actually ends.
+    introFailure.value = ''
+    success('Queued. The preview updates itself when it finishes.')
   } catch (cause: any) {
     showError(cause?.data?.detail
       || 'Could not queue the opening. The episode\'s chapters have to exist first.')
@@ -569,6 +589,64 @@ async function generateForEpisode(): Promise<void> {
     generating.value = false
   }
 }
+
+/**
+ * The preview fills itself in when the job finishes.
+ *
+ * THE DEFECT. `generateForEpisode` only enqueues a job, and the page bumped
+ * `previewRefreshKey` immediately afterwards. So `IntroductionPreview`
+ * reloaded at QUEUE time, correctly found nothing on disk, and then nothing
+ * ever bumped the key again — the panel sat on "No introduction generated
+ * yet" until the operator reloaded the page by hand. The owner's words: "i
+ * can't see the preview even after i click the refresh. it should be
+ * automatic without me click the refresh though."
+ *
+ * THE SIGNAL, NOT A TIMER. `useJobs()` is already streaming this project's
+ * queue over SSE from the dashboard layout, so completion is something the
+ * page can be TOLD about. No interval is added here: an idle Introduction page
+ * makes no requests of its own.
+ *
+ * NARROW WATCH, NOT `deep: true`. Watching the jobs array deeply fires on
+ * every `output_lines` push from a running job — hundreds of times a second —
+ * which is what froze the sidebar in v1.0.x. This derives a tiny string of the
+ * relevant job ids and statuses and watches THAT, so it fires once per real
+ * transition. Same shape as the script preview's watcher in scripts.vue.
+ *
+ * FAILURE IS A DIFFERENT ANSWER FROM "NOT YET". A failed generation used to
+ * be indistinguishable from one still running: both showed the empty panel
+ * forever. An errored job now says so, and keeps saying so until the next
+ * attempt, because the operator is hitting real provider failures and needs to
+ * know the difference between "wait" and "try again".
+ */
+const { jobs } = useJobs()
+const settledIntroJobs = new Set<string>()
+const introFailure = ref('')
+
+const introductionInFlight = computed(() =>
+  introductionInFlightFor(jobs.value, slug.value, episodeId.value))
+
+const introductionJobSignal = computed(() =>
+  introductionJobSignalFor(jobs.value, slug.value, episodeId.value))
+
+watch(introductionJobSignal, () => {
+  for (const transition of settleIntroductionJobs(jobs.value, slug.value, episodeId.value, settledIntroJobs)) {
+    if (transition.outcome === 'done') {
+      introFailure.value = ''
+      previewRefreshKey.value += 1
+      success('The opening is written.')
+    } else {
+      introFailure.value = transition.message || ''
+      showError(introFailure.value)
+    }
+  }
+})
+
+// A new episode is a clean slate: the previous episode's failure is not this
+// one's, and its preview must be re-read rather than inherited.
+watch(episodeId, () => {
+  introFailure.value = ''
+  previewRefreshKey.value += 1
+})
 
 watch(segment, () => { if (!loading.value) dirty.value = true }, { deep: true })
 
@@ -620,6 +698,10 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.intro-job-status { margin: 14px 0 0; padding: 9px 12px; border-radius: var(--radius-md); font-size: var(--font-xs); line-height: 1.45; }
+.intro-job-status.running { background: var(--accent-dim); color: var(--text-primary); }
+.intro-job-status.failed { background: color-mix(in srgb, var(--error) 11%, transparent); color: var(--error); }
+
 .intro-command,
 .intro-recipe { margin: 1rem 0; padding: 1.25rem 1.5rem; }
 .intro-command { display: grid; grid-template-columns: minmax(20rem, 1fr) auto; align-items: center; gap: 2rem; }

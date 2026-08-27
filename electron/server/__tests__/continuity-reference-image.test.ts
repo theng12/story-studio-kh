@@ -32,7 +32,8 @@ import {
   EPISODE_REFERENCE_FILENAMES,
   planEpisodeReference,
 } from '../generators/continuity-render.js'
-import { FITTED_REFERENCE_DIRNAME, fitReferenceImage } from '../lib/reference-image-fit.js'
+import { FITTED_REFERENCE_DIRNAME, fitReferenceBuffer, fitReferenceImage } from '../lib/reference-image-fit.js'
+import { publishedReferenceCeiling } from '../services/image-model-resolver.js'
 
 // ── The pure decision ────────────────────────────────────────────────────
 
@@ -144,6 +145,73 @@ test('a model publishing no ceiling gets no locally invented one', async () => {
   } finally {
     await temp.cleanup()
   }
+})
+
+// ── The upload boundary ──────────────────────────────────────────────────
+//
+// `fitReferenceImage` above runs at SUBMIT time, where one model is in scope.
+// Only `continuity-render.ts` ever called it. `generators/images.ts` — the
+// Scene and Thumbnail generator, which submits master, per-scene, character,
+// thumbnail and art-style references — never did, so a phone photo uploaded
+// fine and then failed every render that used it with "resize it and retry",
+// on an image the customer had no tool to resize. Fitting on the way IN fixes
+// every downstream path at once.
+
+test('a phone-sized photo is fitted on upload, so every generator gets a submittable file', async () => {
+  // A modern phone photo is about 4032x3024. The catalogue publishes 1024.
+  const source = await sharp({ create: { width: 4032, height: 3024, channels: 3, background: '#446688' } })
+    .png().toBuffer()
+  const fitted = await fitReferenceBuffer(source, 1024)
+  assert.equal(fitted.resized, true)
+  assert.deepEqual(fitted.from, { width: 4032, height: 3024 })
+  assert.deepEqual(fitted.to, { width: 1024, height: 768 }, 'aspect ratio is preserved inside the ceiling')
+  const meta = await sharp(fitted.data).metadata()
+  assert.equal(Math.max(meta.width!, meta.height!), 1024)
+})
+
+test('an upload already inside the ceiling is stored byte-for-byte', async () => {
+  const source = await sharp({ create: { width: 800, height: 450, channels: 3, background: '#224466' } })
+    .png().toBuffer()
+  const fitted = await fitReferenceBuffer(source, 1024)
+  assert.equal(fitted.resized, false)
+  assert.deepEqual(fitted.data, source, 're-encoding a file that already fits would change it for nothing')
+})
+
+test('no published ceiling means no locally invented one, and the bytes are stored as sent', async () => {
+  const source = await sharp({ create: { width: 4032, height: 3024, channels: 3, background: '#446688' } })
+    .png().toBuffer()
+  const fitted = await fitReferenceBuffer(source, undefined)
+  assert.equal(fitted.resized, false)
+  assert.deepEqual(fitted.data, source)
+})
+
+test('a payload that is not a decodable image is stored unchanged, not rejected here', async () => {
+  // The upload route's only gate is its byte cap; the precise "corrupt or
+  // incomplete" message belongs to the decode check at submit time. Throwing
+  // here would turn a fit into a new upload failure the route never had.
+  const junk = Buffer.from('not an image at all')
+  const fitted = await fitReferenceBuffer(junk, 1024)
+  assert.equal(fitted.resized, false)
+  assert.deepEqual(fitted.data, junk)
+})
+
+test('the upload ceiling is the strictest published one, so any model can consume the result', () => {
+  const models = [
+    { supports_reference_images: true, max_reference_images: 4, reference_image_max_dimension: 2048 },
+    { supports_reference_images: true, max_reference_images: 1, reference_image_max_dimension: 1024 },
+    // Publishes no ceiling: contributes nothing rather than a default.
+    { supports_reference_images: true, max_reference_images: 1 },
+    // Cannot take references at all: its ceiling is irrelevant here.
+    { supports_reference_images: false, max_reference_images: 0, reference_image_max_dimension: 256 },
+  ] as never[]
+  assert.equal(publishedReferenceCeiling(models), 1024,
+    'the maximum would store a file the stricter half of the catalogue rejects')
+  assert.equal(publishedReferenceCeiling([]), undefined)
+  assert.equal(
+    publishedReferenceCeiling([{ supports_reference_images: true, max_reference_images: 1 }] as never[]),
+    undefined,
+    'a catalogue that publishes no ceiling must not get one invented for it',
+  )
 })
 
 test('a corrupt reference fails with the app\'s own message, before any scene is submitted', async () => {

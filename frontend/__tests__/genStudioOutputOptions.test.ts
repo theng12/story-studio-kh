@@ -16,6 +16,7 @@ import {
   describeImageBatchEstimate,
   describeImageModelRate,
   describeImageUnitCost,
+  describeMusicUnitCost,
   describeQuotedCost,
   describeQuotedTotal,
   describeActualCost,
@@ -168,6 +169,47 @@ test('promotions show the discounted price alongside the undiscounted one', () =
   const display = describeImageUnitCost(promo, null)
   assert.match(display.text, /was 6 credits/)
   assert.match(display.title, /Launch week/)
+})
+
+/**
+ * Music sale pricing — the owner's ruling, verbatim: "use the full price so
+ * the customer see the full price with a discount tag on it."
+ *
+ * Music publishes the same idea images publish, under different field names.
+ * The backend has parsed all four of them correctly the whole time; nothing
+ * displayed any of it, so a sale was invisible in both directions. These
+ * assertions are deliberately the same shape as the image promotion test
+ * above, because the two are meant to render the same way.
+ */
+test('a music sale shows the full price with the discount tag, not the sale price alone', () => {
+  const onSale = {
+    display_name: 'Suno v5',
+    credits_per_request: 50,
+    standard_credits: 60,
+    sale_credits: 50,
+    sale_ends_at: '2026-09-01T00:00:00Z',
+    sale_disclaimer: 'Launch sale',
+  }
+  const display = describeMusicUnitCost(onSale)
+  assert.equal(display.basis, 'rate')
+  assert.match(display.text, /50 credits \/ song request/)
+  assert.match(display.text, /was 60 credits/, 'the full price has to be on screen, not only the sale price')
+  assert.match(display.title, /Launch sale/)
+  assert.match(display.title, /undiscounted price is 60 credits/)
+})
+
+test('no sale means no discount tag, and a list price equal to the charge is not a sale', () => {
+  const listOnly = { display_name: 'Suno v5', credits_per_request: 50, standard_credits: 50, sale_credits: null }
+  const display = describeMusicUnitCost(listOnly)
+  assert.equal(display.text, '50 credits / song request')
+  assert.doesNotMatch(display.text, /was/, 'a discount tag on no discount is a lie about the price')
+})
+
+test('an unpriced music model says so rather than showing a locally derived figure', () => {
+  const unpriced = describeMusicUnitCost({ display_name: 'Suno v5', credits_per_request: null })
+  assert.equal(unpriced.basis, 'unpublished')
+  assert.match(unpriced.text, /Price not reported/)
+  assert.equal(describeMusicUnitCost(null).basis, 'unpublished')
 })
 
 test('a reference-guided run uses its published effective I2I rate, not a surcharge', () => {

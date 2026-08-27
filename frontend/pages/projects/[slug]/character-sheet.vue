@@ -106,6 +106,63 @@
               <template #title>Drop an episode visual anchor</template>
               <template #hint>Paste, drop, or browse one image</template>
             </ReferenceDropzone>
+
+            <!-- Composition template. Restored 2026-08-27 at the owner's
+                 direction. The backend for this never went away — the route,
+                 the generator, the job type and the config flag all stayed
+                 live; only the control was missing, which made the whole
+                 feature unreachable. -->
+            <div class="cs-composition-block">
+              <div class="cs-field-head">
+                <strong>Composition template</strong>
+                <span v-if="compositionExists" class="cs-saved-badge">Saved</span>
+                <span v-else>Optional</span>
+              </div>
+              <p class="text-muted text-xs">The layout every scene is structured against. Drop one in, or describe it and have an image model draw it.</p>
+
+              <div v-if="compositionExists" class="cs-reference-card">
+                <a :href="compositionUrl" target="_blank" rel="noopener" class="cs-reference-preview" title="Open full-size composition template">
+                  <img :src="compositionUrl" alt="Composition template" />
+                </a>
+                <div class="cs-reference-actions">
+                  <ReferenceDropzone class="cs-reference-dropzone" :busy="uploadingComposition" @files="onCompositionFiles">
+                    <template #title>Replace image</template>
+                    <template #hint>Paste, drop, or browse</template>
+                  </ReferenceDropzone>
+                  <div class="cs-reference-action-row">
+                    <label class="cs-checkbox">
+                      <input v-model="config.references.composition" type="checkbox" />
+                      Use composition template
+                    </label>
+                    <a :href="compositionUrl" target="_blank" rel="noopener" class="cs-link text-xs">View full size</a>
+                    <button class="btn btn-ghost btn-sm" :disabled="uploadingComposition" @click="removeComposition">Remove</button>
+                  </div>
+                </div>
+              </div>
+              <ReferenceDropzone v-else class="cs-reference-dropzone cs-reference-dropzone-empty" :busy="uploadingComposition" @files="onCompositionFiles">
+                <template #title>Drop a composition template</template>
+                <template #hint>Paste, drop, or browse one image</template>
+              </ReferenceDropzone>
+
+              <details class="cs-composition-generate">
+                <summary>Or describe the layout and generate it</summary>
+                <textarea
+                  v-model="compositionPrompt"
+                  class="input mt-2"
+                  rows="3"
+                  placeholder="e.g. wide 16:9 frame, subject centred as the focal object, guide character standing at the right edge, plenty of clear space above for a caption"
+                ></textarea>
+                <ImageModelPicker v-model="compositionModel" :project-slug="slug" class="mt-2" />
+                <button
+                  class="btn btn-primary btn-sm mt-2"
+                  :disabled="!compositionPrompt.trim() || !compositionModel || generatingComposition"
+                  @click="generateComposition"
+                >
+                  {{ generatingComposition ? 'Starting…' : 'Generate template' }}
+                </button>
+                <p class="text-muted text-xs mt-1">Runs as a job — watch it on the Jobs page, then reload this page to see it.</p>
+              </details>
+            </div>
           </div>
         </div>
       </section>
@@ -435,6 +492,69 @@ async function onSheetFiles(files: File[]): Promise<void> {
   }
 }
 
+// ── Composition template (img2img-references/composition.png) ─────────
+const compositionExists = ref<boolean | null>(null)
+const compositionVersion = ref(0)
+const uploadingComposition = ref(false)
+const generatingComposition = ref(false)
+const compositionPrompt = ref('')
+const compositionModel = ref('')
+const compositionUrl = computed(() =>
+  `/api/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/file/composition.png?v=${compositionVersion.value}`,
+)
+
+async function onCompositionFiles(files: File[]): Promise<void> {
+  const file = files[0]
+  if (!file) return
+  uploadingComposition.value = true
+  try {
+    const data_base64 = await fileToBase64(file)
+    await post(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition`, {
+      filename: file.name,
+      data_base64,
+    })
+    compositionVersion.value++
+    compositionExists.value = true
+    // Uploading one is the customer saying they want it used. The flag is
+    // still theirs to turn back off with the checkbox beside the preview.
+    config.value.references.composition = true
+    success('Composition template uploaded')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to upload composition template')
+  } finally {
+    uploadingComposition.value = false
+  }
+}
+
+async function removeComposition(): Promise<void> {
+  if (!episodeId.value) return
+  try {
+    await del(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition`)
+    compositionExists.value = false
+    compositionVersion.value++
+    config.value.references.composition = false
+    success('Composition template removed')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to remove composition template')
+  }
+}
+
+async function generateComposition(): Promise<void> {
+  if (!episodeId.value || !compositionPrompt.value.trim() || !compositionModel.value) return
+  generatingComposition.value = true
+  try {
+    await post(`/projects/${slug.value}/episodes/${episodeId.value}/img2img-references/composition/generate`, {
+      prompt: compositionPrompt.value.trim(),
+      model: compositionModel.value,
+    })
+    success('Generating the composition template — watch it on the Jobs page')
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to start composition template generation')
+  } finally {
+    generatingComposition.value = false
+  }
+}
+
 async function removeSheet(): Promise<void> {
   if (!episodeId.value) return
   try {
@@ -451,14 +571,15 @@ async function removeSheet(): Promise<void> {
 // Authoritative existence check for the episode visual anchor. This avoids a
 // fragile hidden-image probe and keeps the compact preview truthful.
 async function loadRefs(): Promise<void> {
-  if (!episodeId.value) { masterExists.value = false; return }
+  if (!episodeId.value) { masterExists.value = false; compositionExists.value = false; return }
   try {
-    const r = await get<{ master?: { url: string } }>(
+    const r = await get<{ master?: { url: string }; composition?: { url: string } }>(
       `/projects/${slug.value}/episodes/${episodeId.value}/img2img-references`,
     )
     masterExists.value = !!r.master
+    compositionExists.value = !!r.composition
   } catch (e: any) {
-    if (!e?.__slugRace) masterExists.value = false
+    if (!e?.__slugRace) { masterExists.value = false; compositionExists.value = false }
   }
 }
 
@@ -466,6 +587,8 @@ async function loadRefs(): Promise<void> {
 watch(episodeId, () => {
   masterExists.value = null
   masterVersion.value++
+  compositionExists.value = null
+  compositionVersion.value++
   onPacingEdited()   // the last apply said nothing about the episode now open
   void loadCharacters()
   void loadConfig()
@@ -483,6 +606,10 @@ watch(episodeId, () => {
 .cs-kicker { color: var(--accent); font-size: var(--font-xs); font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .cs-anchor-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr); gap: 20px; margin-top: 16px; }
 .cs-anchor-characters, .cs-episode-anchor { min-width: 0; }
+.cs-composition-block { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.cs-composition-generate { margin-top: 12px; }
+.cs-composition-generate > summary { cursor: pointer; font-size: var(--font-xs); color: var(--text-muted); }
+.cs-composition-generate > summary:hover { color: var(--text-primary); }
 .cs-episode-anchor { padding-left: 20px; border-left: 1px solid var(--border); }
 .cs-field-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
 .cs-field-head > span { color: var(--text-muted); font-size: var(--font-xs); }

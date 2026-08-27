@@ -25,6 +25,29 @@ export function publishedSupportsReferenceImages(model: GenStudioImageModel): bo
   return model.operations?.some(op => op === 'image.edit' || op === 'image.to_image') === true
 }
 
+/**
+ * The largest reference edge that EVERY reference-capable product will accept,
+ * or undefined when the catalogue states no ceiling at all.
+ *
+ * Used at the upload boundary, where no single model is in scope yet: a
+ * reference stored at this size is submittable to whichever model the customer
+ * later picks. It is the MINIMUM of the published ceilings for that reason —
+ * the maximum would store a file the stricter half of the catalogue rejects,
+ * which is the failure this is here to remove.
+ *
+ * Nothing is invented. A model publishing no ceiling contributes none, and if
+ * no model publishes one this returns undefined and the caller stores the
+ * bytes untouched. When GenStudio raises its ceilings the app follows on the
+ * next catalogue read, with no constant to remember to edit.
+ */
+export function publishedReferenceCeiling(models: GenStudioImageModel[]): number | undefined {
+  const ceilings = models
+    .filter(publishedSupportsReferenceImages)
+    .map(model => model.reference_image_max_dimension)
+    .filter((value): value is number => Number.isInteger(value) && (value as number) > 0)
+  return ceilings.length ? Math.min(...ceilings) : undefined
+}
+
 /** Human-readable reason a model cannot be submitted right now, or ''. */
 export function publishedAvailabilityProblem(model: GenStudioImageModel): string {
   if (model.locked) {

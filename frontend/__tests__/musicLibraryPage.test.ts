@@ -27,6 +27,22 @@ describe('the page tells you what costs money', () => {
     assert.match(page, /Add songs <span class="cost-flag">costs credits<\/span>/)
   })
 
+  test('the paid action shows a real price, with a sale shown as a sale', () => {
+    // The section used to carry the static "costs credits" badge and no
+    // number at all, so a music sale was invisible: a customer on a
+    // discounted rate could not tell, and one paying list could not tell
+    // they had missed one. The badge stays — it marks WHICH action spends —
+    // and the figure now sits beside it.
+    assert.match(page, /describeMusicUnitCost/)
+    assert.match(page, /class="notice notice-cost"/)
+    assert.match(page, /musicCost\.text/)
+    assert.match(page, /app-settings\/genstudio\/music-models/,
+      'the price has to come from the published catalogue, never from a constant')
+    // Priced for the model the backend will actually charge for, and named,
+    // so the figure is never attached to an unnamed model.
+    assert.match(page, /musicModel\.display_name/)
+  })
+
   test('building a video is flagged free, because it is', () => {
     assert.match(page, /Build a video <span class="free-flag">free<\/span>/)
     assert.match(page, /Never buys anything/)

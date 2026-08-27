@@ -32,6 +32,23 @@ const KIT_FLOORS: Array<[packId: string, floor: number, note?: string]> = [
   // Below: kits still pinned to a starter-sized Topic Pack. The number is what the kit
   // actually delivers today. Raise it to PROMISED_IDEAS as each successor lands; never
   // lower one, and never delete a row to make this test pass.
+  //
+  // 2026-08-27 — both were investigated and both are BLOCKED, not merely unstarted. A
+  // full-sized successor Topic Pack does sit in the registry for each, and repinning
+  // either kit to it is a two-line change, so it is worth writing down why that change
+  // must not be made yet:
+  //
+  //   archival-ledger  — money-debt-financial-institutions 1.0.1 plans 1,000 ideas, but
+  //     46 of its 100 subjects fall below the anti-padding scope-diversity floor of 19
+  //     (worst subject: 10 distinct settings across its 20 tuples). It reaches 1,000 the
+  //     way habits-momentum 1.0.1 did, which the owner rejected. It is also one of
+  //     sixteen successors bound to a single atomic coordinator receipt, so it cannot be
+  //     advanced to `authored` on its own. See topic-pack-anti-padding.test.ts and
+  //     topic-pack-1000-successors.test.ts, which both fail the moment the kit repins.
+  //
+  //   symbolic-psychology-studio — its 1.0.1 successor sources are held behind a returned
+  //     preview-evidence gate with `registry_transition_allowed: false`. See
+  //     symbolic-psychology-studio-wave-1-source.test.ts.
   ['com.storystudio.pack.kit.symbolic-psychology-studio', 10, 'six-piece kit governed by its own wave plan'],
   ['com.storystudio.pack.kit.archival-ledger', 100, 'paid kit; its five Topic Pack successors are owner work in progress'],
 ]
@@ -124,6 +141,50 @@ test('every Channel Kit lineage keeps the idea capacity its newest version promi
     assert.ok(
       measured <= floor || floor === PROMISED_IDEAS,
       `${packId}@${kit.version} now plans ${measured} ideas; raise its floor toward ${PROMISED_IDEAS} rather than leaving the gap recorded as ${floor}`,
+    )
+  }
+})
+
+// The owner's rule, unchanged since the kits went on sale: a Channel Kit is exactly four
+// pieces at 1,200 credits — one Series Formula, one Topic Pack, one Visual Style, one
+// Thumbnail Recipe. Anything extra is split out and sold on its own at 300 credits; there
+// is no such thing as a five-piece Kit. Symbolic Psychology Studio 1.0.0 shipped six for
+// months without anything noticing, because the registry's own validator only checks that
+// each of the four kinds is PRESENT, never that nothing else rode along. This checks the
+// count and the shape, so the next surplus component is caught the day it is pinned.
+const KIT_PIECES = ['series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe'] as const
+
+// The one lineage that breaks the rule today, recorded at what it actually pins rather
+// than at what it should. Symbolic Psychology Studio 1.0.0 bundles two extra Visual
+// Styles; both are already registered as standalone packs with their own family and SKU,
+// so the repair is to drop them from the Kit's dependency closure — which is part of the
+// 1.0.1 wave held behind that lineage's preview-evidence gate. Never add a row here to
+// make a new kit pass; a five-piece Kit is the defect this test exists to catch.
+const EXTRA_PIECES: Record<string, readonly string[]> = {
+  'com.storystudio.pack.kit.symbolic-psychology-studio': ['visual-style', 'visual-style'],
+}
+
+test('every Channel Kit lineage ships exactly four pieces, one of each kind', async () => {
+  const registry = JSON.parse(await readFile(REGISTRY_PATH, 'utf8')) as { records: Record_[] }
+  const byIdentity = new Map(registry.records.map(record => [`${record.pack_id}@${record.version}`, record]))
+
+  const newest = new Map<string, Record_>()
+  for (const record of registry.records) {
+    if (record.kind !== 'channel-kit') continue
+    const current = newest.get(record.pack_id)
+    if (!current || newerVersion(record.version, current.version)) newest.set(record.pack_id, record)
+  }
+  assert.ok(newest.size > 0, 'the registry must hold at least one Channel Kit')
+
+  for (const [packId, kit] of newest) {
+    const kinds = kit.dependencies.map(dependency => byIdentity.get(`${dependency.pack_id}@${dependency.version}`)?.kind)
+    const allowed = [...KIT_PIECES, ...(EXTRA_PIECES[packId] ?? [])]
+    assert.deepEqual(
+      [...kinds].sort(),
+      allowed.sort(),
+      `${packId}@${kit.version} pins ${kinds.length} components (${kinds.join(', ')}); a Channel Kit is `
+      + 'exactly four pieces — one Formula, one Topic Pack, one Style, one Thumbnail Recipe. Sell the '
+      + 'surplus separately at 300 credits instead of bundling it.',
     )
   }
 })

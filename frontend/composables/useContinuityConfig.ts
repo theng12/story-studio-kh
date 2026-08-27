@@ -26,7 +26,26 @@ export interface ContinuityConfig {
     settled_min_sec?: number
     settled_max_sec?: number
   }
-  references: { prev_render: boolean; sheet: boolean; characters: boolean; style: boolean }
+  references: {
+    prev_render: boolean
+    sheet: boolean
+    characters: boolean
+    style: boolean
+    /**
+     * The composition template (`img2img-references/composition.png`) — the
+     * LAYOUT every scene is structured against, attached as an img2img
+     * reference on every scene when on.
+     *
+     * Restored 2026-08-27 at the owner's explicit direction ("composition UI,
+     * yeah we should restore it"). The backend never lost it: the type, the
+     * default, the POST normalizer, the generator and the generate/delete
+     * routes all stayed. Only this key was missing from the frontend shape,
+     * and because `normalizeContinuityConfig` rebuilds `references` field by
+     * field, its absence here silently dropped the flag on every load and
+     * every save — the whole feature was unreachable through one missing line.
+     */
+    composition: boolean
+  }
   denoise_strength: number
   style_bible?: string
   negative_prompt?: string
@@ -51,7 +70,7 @@ export function continuityDefaults(): ContinuityConfig {
     anchor_character_ids: [],
     use_episode_sheet: false,
     pacing: { ...DEFAULT_SCENE_PACING },
-    references: { prev_render: false, sheet: false, characters: false, style: false },
+    references: { prev_render: false, sheet: false, characters: false, style: false, composition: false },
     denoise_strength: 0.5,
     style_bible: '',
     negative_prompt: '',
@@ -75,6 +94,7 @@ export function normalizeContinuityConfig(value?: Partial<ContinuityConfig> | nu
       sheet: useEpisodeSheet,
       characters: anchorIds.length > 0,
       style: value?.references?.style ?? d.references.style,
+      composition: value?.references?.composition ?? d.references.composition,
     },
     denoise_strength: typeof value?.denoise_strength === 'number' ? value.denoise_strength : d.denoise_strength,
     style_bible: value?.style_bible || '',

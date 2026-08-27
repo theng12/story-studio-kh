@@ -31,7 +31,39 @@ describe('Character Sheet workspace', () => {
     assert.doesNotMatch(characterSheet, /Variation per scene/)
     assert.doesNotMatch(characterSheet, />5\. Visual Recipe</)
     assert.doesNotMatch(characterSheet, /config\.recipe/)
-    assert.doesNotMatch(characterSheet, /generateComposition|onCompositionFiles|removeComposition/)
+  })
+
+  /**
+   * Composition template — DELIBERATELY REVERSED on 2026-08-27.
+   *
+   * These three functions used to be asserted ABSENT by the test above. The
+   * owner asked for the feature back in as many words ("composition UI, yeah
+   * we should restore it"), and the backend had never actually gone away: the
+   * config flag, the POST normalizer, the generate and delete routes, the
+   * job type and `generators/composition-template.ts` all stayed live the
+   * whole time. What was missing was any control at all, plus the
+   * `composition` key in `normalizeContinuityConfig`'s rebuilt `references`
+   * object — and because that normalizer rebuilds field by field, one missing
+   * line silently dropped the flag on every load and every save.
+   *
+   * So the assertions are inverted rather than deleted: a flag that
+   * round-trips but has no control is not restored, and a control that exists
+   * while the normalizer drops the flag is not restored either. Both halves
+   * are checked here so neither can rot away again on its own.
+   */
+  test('reaches the composition template end to end — control, flag, and generate path', () => {
+    assert.match(characterSheet, /Composition template/)
+    assert.match(characterSheet, /onCompositionFiles/)
+    assert.match(characterSheet, /removeComposition/)
+    assert.match(characterSheet, /generateComposition/)
+    // The checkbox that makes the flag the customer's, not an upload's side effect.
+    assert.match(characterSheet, /v-model="config\.references\.composition"/)
+    // The generate path needs a model, so the picker has to be on the page too.
+    assert.match(characterSheet, /<ImageModelPicker v-model="compositionModel"/)
+    assert.match(characterSheet, /img2img-references\/composition\/generate/)
+    // The other half: the flag must survive a load and a save.
+    assert.match(continuityConfig, /composition: boolean/)
+    assert.match(continuityConfig, /composition: value\?\.references\?\.composition \?\? d\.references\.composition/)
   })
 
   test('uses built-in styles without project custom-style authoring', () => {
@@ -50,9 +82,8 @@ describe('Character Sheet workspace', () => {
     assert.match(continuityConfig, /const useEpisodeSheet = value\?\.use_episode_sheet === true \|\| value\?\.references\?\.sheet === true/)
   })
 
-  test('filters retired recipe and composition fields from saved configs and presets', () => {
+  test('filters the retired recipe field from saved configs and presets', () => {
     assert.match(continuityConfig, /export function normalizeContinuityConfig/)
-    assert.doesNotMatch(continuityConfig, /references: \{[^}]*composition:/s)
     assert.doesNotMatch(continuityConfig, /interface ContinuityConfig \{[^}]*recipe:/s)
   })
 

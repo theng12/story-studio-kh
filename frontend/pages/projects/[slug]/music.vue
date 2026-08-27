@@ -108,6 +108,18 @@
 
       <p v-if="genError" class="error-box mt-2">{{ genError }}</p>
 
+      <!-- The published price of the model this page will actually use, with
+           any sale shown AS a sale. Same shape the image picker uses. -->
+      <p
+        v-if="musicModel"
+        class="notice notice-cost"
+        :class="`basis-${musicCost.basis}`"
+        :title="musicCost.title"
+      >
+        {{ CREDIT_BASIS_LABEL[musicCost.basis] }}: {{ musicCost.text }}
+        <span class="text-muted">— {{ musicModel.display_name }}</span>
+      </p>
+
       <div class="ml-actions mt-2">
         <button class="btn btn-primary" :disabled="!brief.trim() || generating" @click="topUp">
           {{ generating ? 'Starting…' : `Add ${count} song(s)` }}
@@ -174,6 +186,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { CREDIT_BASIS_LABEL, describeMusicUnitCost, type PricedMusicModel } from '../../../utils/genstudio-credit-cost.js'
 
 const route = useRoute()
 const slug = computed(() => String(route.params.slug || ''))
@@ -217,6 +230,36 @@ const renderError = ref('')
 
 const unmeasured = computed(() =>
   (library.value?.tracks || []).filter(t => !t.duration_sec).length)
+
+/**
+ * The price of adding a song, shown before the customer spends anything.
+ *
+ * WHICH MODEL. This page sends no model id, and `generators/music-generate.ts`
+ * therefore falls back to the first entry of the published catalogue. So the
+ * first entry is the model the customer will actually be charged for, and it
+ * is the one priced here — the name is printed beside the figure so the price
+ * is never attached to an unnamed model.
+ *
+ * WHY A PRICE AT ALL. The section carried a static "costs credits" badge and
+ * no number, so a music sale was invisible: a customer paying a discounted
+ * rate could not tell it was discounted, and one paying list could not tell
+ * they had missed a sale. The owner's ruling is to show the full price with a
+ * discount tag on it, which is what `describeMusicUnitCost` renders.
+ */
+const musicModels = ref<PricedMusicModel[]>([])
+const musicModel = computed(() => musicModels.value[0] || null)
+const musicCost = computed(() => describeMusicUnitCost(musicModel.value))
+
+async function loadMusicModels() {
+  try {
+    const r = await get<{ models: PricedMusicModel[] }>('/app-settings/genstudio/music-models')
+    musicModels.value = Array.isArray(r.models) ? r.models : []
+  } catch {
+    // No key, offline, or GenStudio down. The page still works; it simply
+    // shows no price rather than inventing one.
+    musicModels.value = []
+  }
+}
 
 function formatClock(seconds: number): string {
   const s = Math.floor(seconds)
@@ -292,7 +335,7 @@ async function render() {
   } finally { rendering.value = false }
 }
 
-onMounted(() => { void load() })
+onMounted(() => { void load(); void loadMusicModels() })
 </script>
 
 <style scoped>
@@ -309,6 +352,12 @@ onMounted(() => { void load() })
   font-size: 12px; padding: 2px 8px; border-radius: 3px; margin-left: 8px; vertical-align: middle;
 }
 .cost-flag { background: rgba(220, 150, 60, .16); color: #c2803a; }
+/* Same shape as ImageModelPicker's price line, so a price reads the same
+   wherever in the app it appears. */
+.notice { margin: 10px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
+.notice-cost { color: var(--text); }
+.notice-cost.basis-unpublished { color: var(--warning, #d97706); }
+.notice-cost.basis-free { color: var(--success, #16a34a); }
 .free-flag { background: rgba(80, 160, 120, .16); color: #3f8f68; }
 .warn, .warn-inline { color: #c2803a; font-size: 13px; }
 .tracklist {
