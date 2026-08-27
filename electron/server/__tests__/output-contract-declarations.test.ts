@@ -37,12 +37,10 @@ import {
   ideaCampaignOutputContract,
   imagePoolPromptsOutputContract,
   metadataPlaceholderOutputContract,
-  promptDirectorOutputContract,
   singleImagePromptOutputContract,
 } from '../lib/story-output-contracts.js'
 import { parseExtractionResponse } from '../lib/metadata-template.js'
 import { parsePlannerJson } from '../services/scene-planner.js'
-import { parseDirectorJson } from '../generators/prompt-director.js'
 import { parseArray } from '../generators/idea-campaign.js'
 import { parseIdeas } from '../routes/ideas.js'
 import { parseSinglePromptResponse } from '../routes/image-prompts-edit.js'
@@ -100,12 +98,6 @@ describe('the JSON call sites declare their contract', () => {
       file: 'routes/projects.ts',
       anchor: "const raw = await callAiWithRetry(model, '', prompt, apiKeys, false, {",
       declares: 'outputContract: JSON_OBJECT_OUTPUT_CONTRACT',
-    },
-    {
-      what: '3 · prompt director',
-      file: 'generators/prompt-director.ts',
-      anchor: 'const raw = await callAi(model, system, buildUser(batch), apiKeys, false, {',
-      declares: 'outputContract: promptDirectorOutputContract(batch.map(item => item.id))',
     },
     {
       what: '4a · idea generation, first pass',
@@ -190,18 +182,6 @@ describe('each contract accepts its own payload and refuses prose', () => {
     assert.ok(throughContract({ id: 'my-format', name: 'My Format' }, JSON_OBJECT_OUTPUT_CONTRACT).includes('my-format'))
     assert.throws(() => validateStructuredOutput('[1, 2]', JSON_OBJECT_OUTPUT_CONTRACT), /one JSON object/)
     assert.throws(() => validateStructuredOutput('A format for calm history explainers.', JSON_OBJECT_OUTPUT_CONTRACT))
-  })
-
-  test('3 · prompt director names the ids of this batch', () => {
-    const contract = promptDirectorOutputContract(['s1', 's2'])
-    const raw = throughContract({ scenes: [{ id: 's2', prompt: 'rewritten', emotion: 'calm' }] }, contract)
-    assert.equal(parseDirectorJson(raw).scenes[0]?.id, 's2')
-    assert.throws(
-      () => validateStructuredOutput(JSON.stringify({ scenes: [{ id: 's9', prompt: 'x' }] }), contract),
-      /did not match/,
-      'an invented scene id is a rewrite that lands nowhere — it must be refused',
-    )
-    assert.throws(() => validateStructuredOutput('Scene one: a wide shot.', contract))
   })
 
   const IDEA = {

@@ -81,7 +81,6 @@ const TEXT_MODEL_TYPES = new Set<JobType>([
   'expand_chapters',
   'image_prompts',
   'metadata',
-  'prompt_director',
   'expression_markup',
   ])
 

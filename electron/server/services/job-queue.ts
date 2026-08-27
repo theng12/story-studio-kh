@@ -940,9 +940,6 @@ const queues: Record<JobType, QueueState> = {
   // scene_plan.json in order, each img2img-anchored to the previous render +
   // the character sheet/characters. One long serial job (resumable).
   continuity_render: { pending: [], running: false, executor: null },
-  // v1.0.260: Prompt Director — rewrites scene prompts into the explainer
-  // composition (guide-at-side + framed subject) per the Visual Recipe.
-  prompt_director: { pending: [], running: false, executor: null },
   // v1.0.260: generate the composition LAYOUT template image from a prompt.
   composition_generate: { pending: [], running: false, executor: null },
   // v1.0.386: Fish S2 expression "Tag all" — LLM markup over every section,

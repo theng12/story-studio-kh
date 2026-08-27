@@ -39,7 +39,6 @@ const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const CONSUMERS = [
   'services/scene-planner.ts',
   'generators/scene-plan.ts',
-  'generators/prompt-director.ts',
   'generators/image-prompts.ts',
   'routes/image-prompts-edit.ts',
 ]

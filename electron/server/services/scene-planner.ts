@@ -1255,7 +1255,6 @@ export function repairOverlongScenesDeterministically(opts: {
         ...scene,
         ...part,
         visual_prompt: '',
-        visual_prompt_raw: undefined,
         motion_prompt: undefined,
         approved: false,
         image_path: undefined,
@@ -1805,7 +1804,6 @@ export async function generateMotionPromptsForScenes(
  *   - Style prompt + custom instructions woven into every call
  *   - Previous N visual_prompts as context for the "what should look the
  *     same?" anchor
- *   - Visual Recipe (v1.0.292+) baking composition into the per-scene prompt
  *
  * v1.0.295 — Pass 2 is now WINDOWED-PARALLEL when the model is on LM Studio
  * with multiple endpoints. Concurrency = pool size; scenes within a chunk

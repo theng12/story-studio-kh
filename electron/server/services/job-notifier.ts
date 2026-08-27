@@ -205,7 +205,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   subtitles_transcribe: 'Subtitles', scene_plan_run: 'Scene plan',
   contextual_cues: 'Contextual cues',
   scene_image_generate: 'Scene image', scene_images_batch: 'Scene images (batch)', scene_clips_batch: 'Motion clips', continuity_render: 'Scene render',
-  prompt_director: 'Prompt director', composition_generate: 'Composition',
+  composition_generate: 'Composition',
   expression_markup: 'Expression markup',
   research_run: 'Research',
   broll_normalize: 'B-roll normalize', broll_assemble: 'B-roll assembly',

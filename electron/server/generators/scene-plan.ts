@@ -1329,7 +1329,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // lib/image-content-guidance.ts.
       reword: params.reword_prompt === true,
       reword_previous_prompt: params.reword_prompt === true
-        ? (target.visual_prompt_raw ?? target.visual_prompt ?? '')
+        ? (target.visual_prompt ?? '')
         : undefined,
       apiKeys: GENSTUDIO_ONLY_LEGACY_KEY_BAG,
       slug: job.project_slug,
@@ -1337,12 +1337,6 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     if (!newPrompt || !newPrompt.trim()) {
       throw new Error('Model returned an empty prompt. Try a stronger model or fill the prompt in manually.')
     }
-    // v1.0.260 — if Visual Recipe has composed a prompt into `visual_prompt`,
-    // the raw planner output lives in `visual_prompt_raw`. Updating only
-    // `visual_prompt` here is the right move (the user is asking for a new
-    // prompt right now), but we also clear `visual_prompt_raw` so future
-    // recipe compositions see a fresh starting point — otherwise the recipe
-    // would re-compose from the old raw and overwrite the user's new prompt.
     // The read above is separated from this write by a full LLM round-trip, so
     // the snapshot is stale by the time the answer lands. Re-read under the lock
     // and apply only this scene's change, instead of republishing the snapshot
@@ -1353,9 +1347,6 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       const scene = fresh.scenes.find(item => item.id === params.regenerate_prompt_scene_id)
       if (!scene) throw new Error(`Scene ${params.regenerate_prompt_scene_id} was removed while its prompt was being regenerated.`)
       scene.visual_prompt = newPrompt
-      if (scene.visual_prompt_raw) {
-        scene.visual_prompt_raw = newPrompt
-      }
       clearLegacyPlannerFallbackReasons([scene])
       fresh.generated_at = new Date().toISOString()
       await writeJsonAtomic(outPath, fresh)

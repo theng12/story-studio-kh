@@ -284,36 +284,6 @@ export const CONTEXTUAL_CUES_OUTPUT_CONTRACT: TextOutputContract = {
 }
 
 /**
- * Prompt Director rewrite batch.
- *
- * `id` is an enum of the ids actually sent in this batch: the caller matches
- * results back by id, so an invented id is silently dropped work. Item keys
- * beyond these are tolerated — the batch is matched by id, not by shape.
- */
-export function promptDirectorOutputContract(sceneIds: readonly string[]): TextOutputContract {
-  return localSchema('story_prompt_director', {
-    type: 'object',
-    properties: {
-      scenes: {
-        type: 'array',
-        maxItems: sceneIds.length,
-        items: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', enum: [...sceneIds] },
-            prompt: { type: 'string', minLength: 1, maxLength: 20_000 },
-            emotion: { type: 'string', maxLength: 200 },
-          },
-          required: ['id', 'prompt'],
-        },
-      },
-    },
-    required: ['scenes'],
-    additionalProperties: false,
-  })
-}
-
-/**
  * A generated idea batch.
  *
  * The array is WRAPPED in an object on purpose. A bare top-level array cannot

@@ -35,7 +35,6 @@ import { generateContextualCues } from '../generators/contextual-cues.js'
 import { generateSceneImageJob } from '../generators/scene-image.js'
 import { generateSceneClipJob, generateSceneClipsBatchJob } from '../generators/scene-clip.js'
 import { runContinuityRenderJob } from '../generators/continuity-render.js'
-import { runPromptDirectorJob } from '../generators/prompt-director.js'
 import { generateCompositionTemplateJob } from '../generators/composition-template.js'
 import { runExpressionMarkupJob } from '../services/audio-expression.js'
 import { generateIdeaCampaign } from '../generators/idea-campaign.js'
@@ -255,9 +254,6 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   registerExecutor('scene_clip_generate', guardMedia(generateSceneClipJob))
   registerExecutor('scene_clips_batch', guardMedia(generateSceneClipsBatchJob))
   registerExecutor('continuity_render', runContinuityRenderJob)
-  // v1.0.260 — Prompt Director: rewrites scene prompts into the explainer
-  // composition (guide-at-side + framed subject) per the Visual Recipe.
-  registerExecutor('prompt_director', runPromptDirectorJob)
   // v1.0.260 — generate the composition LAYOUT template image from a prompt.
   registerExecutor('composition_generate', generateCompositionTemplateJob)
   // v1.0.386 — Fish S2 expression "Tag all" — background LLM markup over every

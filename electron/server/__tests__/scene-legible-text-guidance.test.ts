@@ -212,13 +212,4 @@ describe('thumbnail path — never affected (the important regression)', () => {
     assert.ok(!src.includes('legibleTextGuidanceBlock'))
     assert.ok(!src.includes('avoid_legible_text'))
   })
-
-  test('generators/prompt-director.ts (Visual Recipe compositor) was left untouched', async () => {
-    // A separate, optional feature (continuity_mode) that rewrites a scene's
-    // visual_prompt wholesale after the base planner runs. Real but distinct
-    // from the "the stage: visual path" this change targets; flagged in the
-    // handoff report as a known gap rather than silently extended here.
-    const src = await fs.readFile(path.join(serverRoot, 'generators/prompt-director.ts'), 'utf-8')
-    assert.ok(!src.includes('legibleTextGuidanceBlock'))
-  })
 })
