@@ -274,13 +274,13 @@ function hasRecursiveKey(value: unknown, key: string): boolean {
   return Object.values(value).some(child => hasRecursiveKey(child, key))
 }
 
-test('Wave 2 source qualification is exactly three authored text leaves with no structured release summary', async () => {
+test('Wave 2 source qualification is exactly five authored leaves with no structured release summary', async () => {
   const expected = new Map<string, { registryStatus: string, sourceExpected: boolean }>([
     [QUESTION_LADDER_SOURCE, { registryStatus: 'authored', sourceExpected: true }],
     [AUDIENCE_QUESTION_SEEDER_SOURCE, { registryStatus: 'authored', sourceExpected: true }],
     [BEFORE_AFTER_TIMELINE_SOURCE, { registryStatus: 'authored', sourceExpected: true }],
-    [OBJECT_HERO_QUESTION_SOURCE, { registryStatus: 'reserved', sourceExpected: true }],
-    [ROUTE_MAP_ONE_PROMISE_SOURCE, { registryStatus: 'reserved', sourceExpected: true }],
+    [OBJECT_HERO_QUESTION_SOURCE, { registryStatus: 'authored', sourceExpected: true }],
+    [ROUTE_MAP_ONE_PROMISE_SOURCE, { registryStatus: 'authored', sourceExpected: true }],
   ])
   for (const [sourcePath, { registryStatus, sourceExpected }] of expected) {
     const record = await registryRecord(sourcePath)
@@ -304,7 +304,7 @@ test('Object Hero + Question is a receipt-bound exact-title PNG recipe with byte
   const recipeRecord = await registryRecord(OBJECT_HERO_QUESTION_SOURCE)
   const questionLadder = await registryRecord(QUESTION_LADDER_SOURCE)
   const beforeAfterTimeline = await registryRecord(BEFORE_AFTER_TIMELINE_SOURCE)
-  assert.equal(recipeRecord.status, 'reserved')
+  assert.equal(recipeRecord.status, 'authored')
   assert.equal(recipeRecord.receipt_ref, questionLadder.receipt_ref)
   assert.equal(recipeRecord.receipt_ref, beforeAfterTimeline.receipt_ref)
 
@@ -398,7 +398,7 @@ test('Object Hero + Question is a receipt-bound exact-title PNG recipe with byte
 
 test('Route Map + One Promise is a receipt-bound symbolic exact-title PNG recipe with byte-level provenance', async () => {
   const recipeRecord = await registryRecord(ROUTE_MAP_ONE_PROMISE_SOURCE)
-  assert.equal(recipeRecord.status, 'reserved')
+  assert.equal(recipeRecord.status, 'authored')
 
   const sourceRoot = path.join(ROOT, recipeRecord.source_path)
   const manifest = await readJson(path.join(sourceRoot, 'pack.json'))

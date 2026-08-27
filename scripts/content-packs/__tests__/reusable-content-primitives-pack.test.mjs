@@ -48,6 +48,9 @@ const completeReviews = [
   'copy',
   'commercial-boundary',
 ].map(review => ({ review, status: 'passed' }))
+const recipeReviews = [...completeReviews, 'visual', 'thumbnail'].map(review => typeof review === 'string'
+  ? { review, status: 'passed' }
+  : review)
 
 const absent = path => access(path).then(() => false, () => true)
 const digest = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -109,7 +112,7 @@ async function stageFixture(t, eligibleSlugs = textSlugs.slice(0, 2)) {
     delivery_profile: deliveryProfile,
     min_app_version: minAppVersion,
     receipt_ref: receiptRef,
-    reviews: structuredClone(completeReviews),
+    reviews: structuredClone(waveBindings[candidate.slug].pack_id.includes('.thumbnail.') ? recipeReviews : completeReviews),
     component_summary: structuredClone(summaries[candidate.slug]),
   }))
   const blockedEntries = allowedSlugs
@@ -125,6 +128,41 @@ async function stageFixture(t, eligibleSlugs = textSlugs.slice(0, 2)) {
     eligibleSlugs: [...eligibleSlugs],
     entries,
     blockedEntries,
+  }
+}
+
+async function successorFixture(t) {
+  const fixture = await stageFixture(t, ['object-hero-question', 'route-map-one-promise'])
+  const priorArtifactRoot = join(fixture.root, 'prior-three-leaf-delivery')
+  await mkdir(priorArtifactRoot)
+  const priorArtifactPhysical = await realpath(priorArtifactRoot)
+  const priorEntries = []
+  for (const slug of textSlugs) {
+    const relativeSource = waveLeaves.find(([candidate]) => candidate === slug)[1]
+    const candidate = await buildTwice(slug, relativeSource, priorArtifactRoot)
+    const absolutePath = join(priorArtifactPhysical, `${slug}.sspack`)
+    await rename(candidate.candidate_path, absolutePath)
+    priorEntries.push({
+      absolute_path: absolutePath,
+      bytes: candidate.bytes,
+      delivery_profile: deliveryProfile,
+      min_app_version: minAppVersion,
+      receipt_ref: receiptRef,
+      reviews: structuredClone(completeReviews),
+      sha256: candidate.sha256,
+      slug,
+    })
+  }
+  const priorLedgerPath = join(priorArtifactRoot, 'ledger.json')
+  await writeFile(priorLedgerPath, `${JSON.stringify({ schema_version: 1, entries: priorEntries })}\n`, { flag: 'wx' })
+  return {
+    ...fixture,
+    waveId: 'reusable-content-primitives-wave-two-recipe-completion',
+    completion: {
+      prior_artifact_root: priorArtifactRoot,
+      prior_ledger_path: priorLedgerPath,
+      prior_delivered_slugs: textSlugs,
+    },
   }
 }
 
@@ -193,6 +231,32 @@ test('stages an explicit partial set with exact final shapes and summary placeme
     assert.deepEqual(finalBytes, sourceBytes)
     await validateContentPack({ archivePath: entry.absolute_path, deliveryProfile })
   }
+})
+
+test('stages only the two recipe archives while proving the prior three-leaf delivery and full-wave completion', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  const fixture = await successorFixture(t)
+  const result = await stageHandoffArtifacts(fixture)
+  assert.deepEqual(result.archivePaths, fixture.eligibleSlugs.map(slug => join(fixture.artifactRoot, `${slug}.sspack`)))
+  const ledger = JSON.parse(await readFile(result.ledgerPath, 'utf8'))
+  const release = JSON.parse(await readFile(result.releaseHandoffPath, 'utf8'))
+  const receiver = JSON.parse(await readFile(result.receiverHandoffPath, 'utf8'))
+  const prior = {
+    artifact_root: await realpath(fixture.completion.prior_artifact_root),
+    ledger_path: fixture.completion.prior_ledger_path,
+    receipt_ref: receiptRef,
+    delivered_leaves: textSlugs,
+    validation: 'validated-existing-delivery',
+  }
+  assert.deepEqual(ledger.prior_validated_delivery, prior)
+  assert.deepEqual(release.prior_validated_delivery, prior)
+  assert.deepEqual(receiver.prior_validated_delivery, prior)
+  assert.deepEqual(release.wave_completion, { all_leaves: allowedSlugs, status: 'complete' })
+  assert.deepEqual(receiver.wave_completion, { all_leaves: allowedSlugs, status: 'complete' })
+  assert.equal(receiver.stocking_request, 'draft-stocking-only')
+  assert.equal(receiver.commercial_boundary, 'Component packs are draft and available through active Channel Kits; no standalone publication is authorized here.')
+  assert.deepEqual(receiver.successful_entries.map(entry => entry.slug), fixture.eligibleSlugs)
+  assert.equal(receiver.blocked_entries, undefined)
 })
 
 test('rejects malformed slug partitions before writing either destination', async (t) => {
