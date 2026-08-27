@@ -1,0 +1,21 @@
+{
+  "kind": "visual-style",
+  "schema_version": 1,
+  "id": "com.storystudio.style.studio-catalog-realism",
+  "name": "Studio Catalog Realism",
+  "description": "Crisp tabletop realism with neutral surfaces, honest materials, soft studio light, and carefully staged miniature scenes.",
+  "category": "Realistic",
+  "tags": [
+    "studio",
+    "catalog",
+    "diorama",
+    "product",
+    "miniature"
+  ],
+  "style_bible": "clean studio catalog photography, carefully staged physical miniature diorama aesthetic, neutral charcoal textured sweep, soft large-source overhead lighting, natural soft-edged shadows, accurate restrained color, crisp tactile materials, centered product-documentation composition, high depth of field, minimal styling, subtle commercial polish, honest documentary clarity, full subject visible with generous breathing room",
+  "negative_prompt": "logos, packaging, labels, barcodes, typography, watermark, dramatic cinematic lighting, fantasy digital painting, clutter, glossy CGI, floating objects, extreme shallow depth of field, harsh reflections, oversaturated colors",
+  "preview_assets": [
+    "assets/studio-catalog-realism.webp"
+  ],
+  "compatible_formula_ids": []
+}
