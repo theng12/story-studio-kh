@@ -336,9 +336,9 @@ test('Object Hero + Question is a receipt-bound exact-title PNG recipe with byte
   assert.match((recipe.required_elements as string[]).join(' '), /one concrete object|complete exact episode title/i)
   assert.match((recipe.avoid_elements as string[]).join(' '), /collage|logo|watermark|post-render|illegible/i)
   assert.deepEqual(recipe.headline_formats, [
-    'WHY DOES THIS {OBJECT} MATTER?',
-    'WHAT DOES THIS {OBJECT} CHANGE?',
-    'CAN A {OBJECT} WORK?',
+    'WHY DOES {SUBJECT} MATTER?',
+    'WHAT DOES {SUBJECT} CHANGE?',
+    'CAN {SUBJECT} WORK?',
   ])
   assert.deepEqual(recipe.compatible_formula_ids, [questionLadder.item_id, beforeAfterTimeline.item_id])
 
@@ -367,7 +367,9 @@ test('Object Hero + Question is a receipt-bound exact-title PNG recipe with byte
       title: 'CAN A FIELD NOTEBOOK WORK?', lineCount: 3, sha256: '110f5f642fe6bcd544bc0087164e3b0223a5c232a267c4985b034cf743b82ae7', byteSize: 2336354,
     }],
   ])
-  const diversity = new Set<string>()
+  const axes = ['subject', 'side_or_angle', 'distance', 'setting', 'palette_or_symbol'] as const
+  const diversity = new Map(axes.map(axis => [axis, new Set<string>()]))
+  const lineCounts = new Set<number>()
   for (const [assetPath, expected] of expectedEvidence) {
     const preview = await fs.readFile(path.join(sourceRoot, assetPath))
     const metadata = await sharp(preview).metadata()
@@ -389,11 +391,12 @@ test('Object Hero + Question is a receipt-bound exact-title PNG recipe with byte
     assert.equal(record.origin, 'owner-supplied original generated with ChatGPT built-in image generation')
     assert.match(String(record.rights_basis), /owner authorization/i)
     assert.match(String(record.prompt), /unavailable/i)
-    const axes = ['subject', 'side_or_angle', 'distance', 'setting', 'palette_or_symbol']
     assert.ok(axes.every(axis => typeof record[axis] === 'string' && String(record[axis]).length > 0))
-    diversity.add(axes.map(axis => String(record[axis])).join('|'))
+    for (const axis of axes) diversity.get(axis)!.add(String(record[axis]))
+    lineCounts.add(Number(record.line_count))
   }
-  assert.equal(diversity.size, 3, 'every preview must vary at least one of the five documented diversity axes')
+  for (const axis of axes) assert.equal(diversity.get(axis)!.size, 3, `${axis} must have three distinct values`)
+  assert.deepEqual([...lineCounts].sort((left, right) => left - right), [1, 2, 3])
 })
 
 test('Route Map + One Promise is a receipt-bound symbolic exact-title PNG recipe with byte-level provenance', async () => {
@@ -428,9 +431,9 @@ test('Route Map + One Promise is a receipt-bound symbolic exact-title PNG recipe
   assert.match((recipe.required_elements as string[]).join(' '), /one route.*anchor|start.*end|qualified promise/i)
   assert.match((recipe.avoid_elements as string[]).join(' '), /navigation|distance|boundary|endorsement|logo|booking|hours|post-render/i)
   assert.deepEqual(recipe.headline_formats, [
-    'THE SIMPLE ROUTE TO {ACTIVITY}',
-    'ONE REALISTIC WAY TO {ACTIVITY}',
-    'A BETTER WAY TO {ACTIVITY}',
+    'A BETTER WAY TO {SUBJECT}',
+    'THE SIMPLE ROUTE TO {SUBJECT}',
+    'ONE REALISTIC WAY TO {SUBJECT}',
   ])
   assert.deepEqual(recipe.compatible_formula_ids, [])
 
@@ -459,7 +462,9 @@ test('Route Map + One Promise is a receipt-bound symbolic exact-title PNG recipe
       title: 'ONE REALISTIC WAY TO LEARN A NEW SKILL', lineCount: 3, sha256: '30e6757837a3edf1dc6753440eaabae3dbda0b6c8685e8d9b4936f4cd43fcaec', byteSize: 2374090,
     }],
   ])
-  const diversity = new Set<string>()
+  const axes = ['subject', 'side_or_angle', 'distance', 'setting', 'palette_or_symbol'] as const
+  const diversity = new Map(axes.map(axis => [axis, new Set<string>()]))
+  const lineCounts = new Set<number>()
   for (const [assetPath, expected] of expectedEvidence) {
     const preview = await fs.readFile(path.join(sourceRoot, assetPath))
     const metadata = await sharp(preview).metadata()
@@ -481,11 +486,12 @@ test('Route Map + One Promise is a receipt-bound symbolic exact-title PNG recipe
     assert.equal(record.origin, 'owner-supplied original generated with ChatGPT built-in image generation')
     assert.match(String(record.rights_basis), /owner authorization/i)
     assert.match(String(record.prompt), /unavailable/i)
-    const axes = ['subject', 'side_or_angle', 'distance', 'setting', 'palette_or_symbol']
     assert.ok(axes.every(axis => typeof record[axis] === 'string' && String(record[axis]).length > 0))
-    diversity.add(axes.map(axis => String(record[axis])).join('|'))
+    for (const axis of axes) diversity.get(axis)!.add(String(record[axis]))
+    lineCounts.add(Number(record.line_count))
   }
-  assert.equal(diversity.size, 3, 'every preview must vary at least one of the five documented diversity axes')
+  for (const axis of axes) assert.equal(diversity.get(axis)!.size, 3, `${axis} must have three distinct values`)
+  assert.deepEqual([...lineCounts].sort((left, right) => left - right), [1, 2, 3])
 })
 
 test('Question Ladder Formula is receipt-bound and preserves its evidence-safe explanatory ladder', async () => {

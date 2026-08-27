@@ -38,9 +38,9 @@
   "default_font_style": "bold editorial",
   "default_text_position": "top",
   "headline_formats": [
-    "WHY DOES THIS {OBJECT} MATTER?",
-    "WHAT DOES THIS {OBJECT} CHANGE?",
-    "CAN A {OBJECT} WORK?"
+    "WHY DOES {SUBJECT} MATTER?",
+    "WHAT DOES {SUBJECT} CHANGE?",
+    "CAN {SUBJECT} WORK?"
   ],
   "visual_style_guidance": "The recipe controls only the one-object hierarchy and upper title-safe band. The active Visual Style remains authoritative for medium, palette, texture, lighting, and rendering details.",
   "preview_assets": [

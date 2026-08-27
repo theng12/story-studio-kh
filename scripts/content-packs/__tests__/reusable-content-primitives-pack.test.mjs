@@ -158,6 +158,7 @@ async function successorFixture(t) {
   return {
     ...fixture,
     waveId: 'reusable-content-primitives-wave-two-recipe-completion',
+    blockedEntries: [],
     completion: {
       prior_artifact_root: priorArtifactRoot,
       prior_ledger_path: priorLedgerPath,
@@ -257,6 +258,40 @@ test('stages only the two recipe archives while proving the prior three-leaf del
   assert.equal(receiver.commercial_boundary, 'Component packs are draft and available through active Channel Kits; no standalone publication is authorized here.')
   assert.deepEqual(receiver.successful_entries.map(entry => entry.slug), fixture.eligibleSlugs)
   assert.equal(receiver.blocked_entries, undefined)
+})
+
+test('rejects a completion successor unless it stages the exact ordered two-recipe set with no blocked entries', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  const fixture = await successorFixture(t)
+  fixture.eligibleSlugs = ['object-hero-question']
+  fixture.entries = fixture.entries.filter(entry => entry.slug === 'object-hero-question')
+  fixture.blockedEntries = [
+    'question-ladder', 'audience-question-seeder', 'before-after-timeline', 'route-map-one-promise',
+  ].map(slug => ({ slug, blocker: 'not staged' }))
+  await assert.rejects(stageHandoffArtifacts(fixture), /completion successor.*eligible|exact.*recipe|blocked/i)
+  assert.equal(await absent(fixture.artifactRoot), true)
+  assert.equal(await absent(fixture.receiverHandoffPath), true)
+})
+
+test('fails closed when a prior delivery archive changes after preflight or after release-handoff writing', async (t) => {
+  const { stageHandoffArtifacts } = await import(stagingModule)
+  for (const phase of ['staged-and-validated', 'handoff-finalized']) {
+    const fixture = await successorFixture(t)
+    const priorArchive = join(await realpath(fixture.completion.prior_artifact_root), 'question-ladder.sspack')
+    let mutated = false
+    await assert.rejects(stageHandoffArtifacts(fixture, {
+      async afterPhase(name, detail) {
+        const afterRelease = name === 'handoff-finalized' && detail.path.endsWith('release-handoff.json')
+        if ((name === phase || (phase === 'handoff-finalized' && afterRelease)) && !mutated) {
+          mutated = true
+          await appendFile(priorArchive, Buffer.from([1]))
+        }
+      },
+    }), error => error?.phase === 'failed-after-root' && /prior.*changed|prior.*delivery|prior.*digest|candidate byte count/i.test(error.message))
+    assert.equal(mutated, true)
+    assert.equal(await absent(fixture.receiverHandoffPath), true)
+    assert.equal(await absent(join(fixture.artifactRoot, 'failure.json')), false)
+  }
 })
 
 test('rejects malformed slug partitions before writing either destination', async (t) => {

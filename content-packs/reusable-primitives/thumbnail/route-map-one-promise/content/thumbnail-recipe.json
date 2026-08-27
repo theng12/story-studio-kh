@@ -39,9 +39,9 @@
   "default_font_style": "bold editorial",
   "default_text_position": "top",
   "headline_formats": [
-    "THE SIMPLE ROUTE TO {ACTIVITY}",
-    "ONE REALISTIC WAY TO {ACTIVITY}",
-    "A BETTER WAY TO {ACTIVITY}"
+    "A BETTER WAY TO {SUBJECT}",
+    "THE SIMPLE ROUTE TO {SUBJECT}",
+    "ONE REALISTIC WAY TO {SUBJECT}"
   ],
   "visual_style_guidance": "The recipe controls only the symbolic route anchor, bounded promise, and upper title-safe band. It does not create a factual map or constrain the active Visual Style's medium, palette, texture, lighting, or rendering details.",
   "preview_assets": [
