@@ -3096,7 +3096,7 @@
     "New York, 2004 to 2007",
     "New York, 2005 to 2007",
     "New York and London, 2005 to 2007",
-    "London and New York, 2005 to 2007",
+    "London, 2003 to 2005",
     "London and New York, 2006 and 2007",
     "New York, 2007 and 2008",
     "the United States, 2006 and 2007",
@@ -3157,7 +3157,7 @@
     "the province of Asia, about 100 BCE",
     "the province of Asia, about 90 BCE",
     "the province of Asia, about 70 BCE",
-    "the province of Cilicia, about 51 BCE",
+    "Salamis, on Cyprus, 51 and 50 BCE",
     "the province of Cilicia, 51 BCE",
     "the Roman provinces, first century BCE",
     "the Danube and Alpine customs districts, first century CE",
@@ -3218,7 +3218,7 @@
     "Frankish Europe, eighth century",
     "Frankish Europe, from about 794",
     "the Frankish lands, ninth century",
-    "the Frankish lands and England, ninth century",
+    "west Francia, 845 to 877",
     "northern France, ninth century",
     "the Frankish episcopal cities, ninth century",
     "the Frankish lands, late ninth century",
@@ -3236,7 +3236,7 @@
     "Fustat, eleventh century",
     "the Mediterranean trade, eleventh century",
     "Fustat and Aden, twelfth century",
-    "Egypt to Tunisia and Sicily, eleventh century",
+    "the flax-growing districts of Egypt, eleventh century",
     "the Mediterranean ports, eleventh century",
     "Egypt, Tunisia and Sicily, eleventh century",
     "the rabbinical court of Fustat, twelfth century",
@@ -3670,7 +3670,7 @@
     "London, 1890s",
     "London, the 1890s and 1900s",
     "London, the 1900s",
-    "London, the 1890s",
+    "London, 1891 and 1892",
     "modern scholarship on the London records, twentieth century",
     "Tokyo, 1871",
     "the former domains of Japan, 1871 to 1874",
@@ -14302,7 +14302,7 @@
         },
         {
           "episode_object": "a credit default swap written on a mortgage security",
-          "time_place_scope": "London and New York, 2005 to 2007",
+          "time_place_scope": "London, 2003 to 2005",
           "mechanism": "insurance written without reserves concentrates the risk it appears to spread",
           "evidence_lens": "swap exposure records compared with the writers' capital"
         },
@@ -14683,7 +14683,7 @@
         },
         {
           "episode_object": "a compound interest clause on a provincial debt",
-          "time_place_scope": "the province of Cilicia, about 51 BCE",
+          "time_place_scope": "Salamis, on Cyprus, 51 and 50 BCE",
           "mechanism": "compounding converts a temporary shortfall into a permanent obligation",
           "evidence_lens": "recorded rates compared with the legal maxima of the period"
         },
@@ -15064,7 +15064,7 @@
         },
         {
           "episode_object": "a tribute paid to Viking raiders in silver",
-          "time_place_scope": "the Frankish lands and England, ninth century",
+          "time_place_scope": "west Francia, 845 to 877",
           "mechanism": "paying off raiders exports the currency that pays them",
           "evidence_lens": "tribute records compared with Scandinavian hoard evidence"
         },
@@ -15177,7 +15177,7 @@
         },
         {
           "episode_object": "a consignment of flax shipped to a distant market",
-          "time_place_scope": "Egypt to Tunisia and Sicily, eleventh century",
+          "time_place_scope": "the flax-growing districts of Egypt, eleventh century",
           "mechanism": "goods sent on trust are credit in physical form",
           "evidence_lens": "shipment records compared with the settlement correspondence"
         },
@@ -17886,7 +17886,7 @@
         },
         {
           "episode_object": "a central bank reserve policy revised after the episode",
-          "time_place_scope": "London, the 1890s",
+          "time_place_scope": "London, 1891 and 1892",
           "mechanism": "a rescue that needed foreign help changes reserve policy",
           "evidence_lens": "the reserve levels compared before and after"
         },
