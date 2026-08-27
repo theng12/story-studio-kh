@@ -1817,6 +1817,19 @@ export interface ImageModelConfig {
   max_reference_images?: number
   /** Floor an image-to-image-only model requires before it will render. */
   min_reference_images?: number
+  /**
+   * Longest-edge pixel ceiling for a reference image. Absent = the model
+   * publishes none, so nothing local may impose one.
+   *
+   * Carried down to generators (not just the provider) because a generator can
+   * be submitting a reference IT produced: `generators/continuity-render.ts`
+   * attaches the episode's own composition template, which this app renders at
+   * the model's published OUTPUT size — larger, on every current product, than
+   * this reference ceiling. Knowing the number is what lets it fit its own
+   * artefact instead of failing the batch with advice to go and resize a file
+   * the customer never made.
+   */
+  reference_image_max_dimension?: number
   /** Explicit img2img declaration where a model separates it from references. */
   supports_image_to_image?: boolean
   /** Whether a deterministic seed is honoured. Absent = not published. */

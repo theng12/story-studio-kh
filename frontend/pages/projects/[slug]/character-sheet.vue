@@ -320,8 +320,14 @@ const episodeAnchorEnabled = computed({
   get: () => config.value.use_episode_sheet,
   set: (enabled: boolean) => {
     // Older continuity files carried two sheet switches. Keep both in sync so
-    // saved presets and future reference-capable renderers have one clear
-    // customer choice without breaking old episode data.
+    // saved presets and the renderer have one clear customer choice without
+    // breaking old episode data.
+    //
+    // This switch is no longer decorative. `generators/continuity-render.ts`
+    // reads it (as the same OR of both names) and, when it is on, attaches the
+    // episode's one reference image to every character scene of a Scene Review
+    // render — `img2img-references/composition.png` if a composition template
+    // was generated, otherwise the anchor uploaded here.
     config.value.use_episode_sheet = enabled
     config.value.references.sheet = enabled
   },
