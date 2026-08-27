@@ -180,8 +180,15 @@ describe('SSE /projects/:slug/jobs/stream', () => {
   test('emits a cleared frame when finished jobs are wiped', async () => {
     const proj = await pm.createProject({ name: 'SSE_Cleared' })
 
-    // Enqueue and wait for it to complete so clearFinished has something
-    // to purge. The no-op executor means the job reaches `done` in < 50 ms.
+    // Enqueue and wait for it to complete so clearFinished has something to
+    // purge. The no-op executor reaches `done` in well under 50ms on an idle
+    // machine, and this used to be a flat 100ms sleep on that basis. Under the
+    // v1.4.73 suite — roughly three times its former length, and far heavier on
+    // disk — 100ms was sometimes not enough, and then clearFinished had nothing
+    // to purge and emitted no `cleared` frame. The test read as "the stream is
+    // broken" when the stream was fine; the frames it did receive were
+    // `snapshot, update, update`. Wait for the CONDITION instead of guessing a
+    // duration, so the test measures what it is about.
     jq.enqueuePreparedForTest({
       project_slug: proj.slug,
       type: 'script-only',
@@ -189,7 +196,12 @@ describe('SSE /projects/:slug/jobs/stream', () => {
       title: 'to be cleared',
       params: {},
     })
-    await new Promise((r) => setTimeout(r, 100))
+    const settleBy = Date.now() + 30_000
+    while (Date.now() < settleBy) {
+      const jobs = await jq.getJobs(proj.slug)
+      if (jobs.length && jobs.every(job => job.status === 'done' || job.status === 'error')) break
+      await new Promise((r) => setTimeout(r, 25))
+    }
 
     const collection = collectFrames(`/api/projects/${proj.slug}/jobs/stream`, 300)
     await new Promise((r) => setTimeout(r, 50))

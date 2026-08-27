@@ -488,9 +488,17 @@ describe('Concurrent enqueues across different job types', () => {
     // 6 jobs × 5ms = ~30ms work per type. The dominating cost is the
     // jobs.json persist on every state transition (enqueue / start /
     // finish = 3 writes per job) — those serialize through withLock +
-    // atomic rename, and on a slow disk each can take 30-50ms. 3s is a
-    // safe upper bound for 12 jobs × 3 transitions in the worst case.
-    const deadline = Date.now() + 3000
+    // atomic rename, and on a slow disk each can take 30-50ms.
+    //
+    // This budget was 3s, and 3s stopped being safe in v1.4.73: the content-pack
+    // suites grew enough to triple the whole backend run, and under that much
+    // competing disk I/O twelve jobs did not all finish in time. What failed was
+    // ONLY the deadline — every job was present in jobs.json, so the assertion
+    // this test exists for ("race lost it") held; the statuses were simply
+    // `running` and `queued` rather than `done`. A generous cap costs nothing,
+    // because the loop breaks the moment the condition is met; a tight one turns
+    // a correctness test into a speed test and makes the release gate lie.
+    const deadline = Date.now() + 30_000
     while (Date.now() < deadline) {
       const inMem = await jq.getJobs(proj.slug)
       const ours = inMem.filter(j => enqueued.includes(j.job_id))
