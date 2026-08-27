@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Expanded Audience Question Seeder from 6 to 50 distinct question intents and each material axis from 6 to 20 universally coherent values, raising the sibling cap to 20 for 1,000 lifetime idea assignments. It remains an independent-axis Topic Pack that supplies question domains only.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.audience-question-seeder",
+    "family": "com.storystudio.family.topic.audience-question-seeder"
+  }
+}
