@@ -5,6 +5,35 @@
   "tagline": "Rooted in place. Surprisingly brutal.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 100,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open deadpan on the worst constraint this plant is stuck with"
+      },
+      {
+        "id": "premise_setup",
+        "custom_text": "name the species and frame the hardship as constraint, never as choice — plants do not decide"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "promise the specifics — defence chemistry, pollination, roots, whatever keeps it alive"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "one line that this is real botany"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one dry line"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to chapter one without a drumroll"
+      }
+    ]
+  },
   "exampleTopics": [
     "Venus Flytrap",
     "Corpse Flower",

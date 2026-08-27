@@ -5,6 +5,35 @@
   "tagline": "Open the text. Preach the text. Apply the text.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 110,
+    "beats": [
+      {
+        "id": "scripture_reading",
+        "custom_text": "read the passage aloud first, then let it sit for a beat"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "greet warmly and give your name; pastoral, with teaching authority"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "name the question this passage answers for the listener today"
+      },
+      {
+        "id": "episode_roadmap",
+        "custom_text": "say the shape: what it meant then, what it means now, what it asks of you"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one warm line; never a hype call"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter by returning to the text"
+      }
+    ]
+  },
   "exampleTopics": [
     "The Cost of Discipleship — Luke 14",
     "What James Means by 'Faith Without Works'",

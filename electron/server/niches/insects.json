@@ -5,6 +5,35 @@
   "tagline": "Six legs, no remorse, brutal lifecycle.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 100,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open deadpan on the single worst part of being born as this arthropod"
+      },
+      {
+        "id": "premise_setup",
+        "custom_text": "name the species and frame it as a life sentence rather than a life"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "promise the specifics — lifecycle, venom, hive politics, whatever applies here"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "one line that the pain rankings and the rest of it are real entomology"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one dry line"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to chapter one without a drumroll"
+      }
+    ]
+  },
   "exampleTopics": [
     "Bullet Ant",
     "Cow Killer (Velvet Ant)",

@@ -472,9 +472,24 @@ export interface ScriptFormat {
     /** Target word count for the introduction. Sleep-story default
      *  ~350; listicle ~50. */
     wordTarget?: number
-    /** Ordered list of beats the intro should hit. Each beat becomes
-     *  a numbered bullet in the prompt. */
-    beats?: string[]
+    /**
+     * Ordered list of beats the intro should hit. Each beat becomes a
+     * numbered bullet in the prompt.
+     *
+     * v1.4.74 — a beat may now be a `BEAT_LIBRARY` id, which brings the
+     * catalogue's label and its on-screen explanation with it, or an object
+     * pairing that id with the wording this channel wants it to cover. A bare
+     * string the catalogue does not recognise keeps the original meaning: it
+     * is the beat's label, verbatim. Nothing that already shipped changes
+     * shape.
+     *
+     * NOTHING WRITES THIS FIELD DIRECTLY. It is set by
+     * `applyNicheToFormat()` from the Formula's own `introDefaults`, because
+     * `canonicalFormatId()` folds every project onto one format file and a
+     * per-format opening therefore cannot vary by channel. See
+     * `services/format-loader.ts`.
+     */
+    beats?: Array<string | { id: string; custom_text?: string }>
     /** Optional one-paragraph example the LLM matches style to.
      *  Supports {host_name} and {channel_name} placeholders. */
     exampleText?: string
@@ -833,11 +848,53 @@ export interface Niche {
     closingPolicy?: string
   }
   /** Optional Formula-owned opening configuration. Its absence means scripts
-   * begin directly with the episode rather than exposing generic intro knobs. */
+   * begin directly with the episode rather than exposing generic intro knobs.
+   *
+   * WORDING ONLY. This is the label and sentence the Introduction page shows
+   * for the Formula's opening; it decides nothing. Until v1.4.73 its mere
+   * presence decided whether the opening controls were drawn at all, which is
+   * why twenty of twenty-two Formulas could not see the feature. The recipe
+   * itself is `introDefaults` below.
+   *
+   * Kept structurally identical to the signed content-pack contract's
+   * `openingProfile` (`contracts/index.ts`, `.strict()`), so a published
+   * Formula and a built-in one describe their opening the same way. That is
+   * also why the recipe is a SEPARATE field: widening this one would have
+   * meant changing a signed-pack schema, and a pack that predates the change
+   * would carry no recipe anyway. */
   openingProfile?: {
     id: string
     label: string
     description: string
+  }
+
+  /**
+   * The opening this Formula actually writes — its length, and its ordered
+   * beats.
+   *
+   * v1.4.74. `applyNicheToFormat()` copies this onto
+   * `format.script.introDefaults`, which is the field `defaultSegmentRecipe()`
+   * has read since v1.0.71 and which nothing has ever set. A beat is either a
+   * `BEAT_LIBRARY` id — in which case the page shows the catalogue's
+   * explanation for it — or, as an object, that id plus the wording this
+   * Formula wants it to cover.
+   *
+   * Absent means the channel falls back to `DEFAULT_INTRODUCTION_BEATS`, the
+   * long-form seven. No built-in Formula is in that position any more; a
+   * channel running no Formula at all still is.
+   *
+   * Not part of the signed content-pack contract, so a published Formula does
+   * not carry one. That is deliberate rather than an oversight: openings ship
+   * free with the built-in Formulas, and a default nobody can have without
+   * paying is not a default.
+   */
+  introDefaults?: {
+    /** Roughly how long the opening runs, in words. Clamped to 50–600. */
+    wordTarget?: number
+    /** Ordered beats: a catalogue id, or `{ id, custom_text }`. */
+    beats?: Array<string | { id: string; custom_text?: string }>
+    /** Style anchor baked into the prompt. `{host_name}` / `{channel_name}`. */
+    exampleText?: string
   }
   /** Formula-owned defaults for the YouTube publishing package. */
   metadataProfile?: NicheMetadataProfile

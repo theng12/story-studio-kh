@@ -5,6 +5,35 @@
   "tagline": "Live the whole ladder from inside the role.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 100,
+    "beats": [
+      {
+        "id": "premise_setup",
+        "custom_text": "put them in the role and the year in the first sentence — \"you are…\" — and stay there"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "name the ladder: where they start, and where it can end"
+      },
+      {
+        "id": "episode_roadmap",
+        "custom_text": "name the stages — recruitment, training, the daily work, rank, danger, the likely ending"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "one line that this is reconstructed from the real record, not a game"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one line, still in the second person"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over by starting their first day"
+      }
+    ]
+  },
   "kind": "series-formula",
   "defaultTopicPackIds": [
     "pov-law-enforcement",

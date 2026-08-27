@@ -20,6 +20,9 @@ import { getEffectiveFormat } from './format-loader.js'
 import { isIntroductionMarker } from './asset-status.js'
 import {
   INTRODUCTION_SEGMENT_ID,
+  defaultSegmentRecipe,
+  followsFormulaOpening,
+  matchesLegacyDefaultOpening,
   normalizeChannelSegments,
   type ChannelSegment,
   type ChannelSegments,
@@ -29,7 +32,7 @@ import {
 /** The config key these live under. Echoed by `getSafeConfig`; see below. */
 export const SEGMENTS_CONFIG_KEY = 'episode_segments'
 
-async function formatIntroDefaults(slug: string): Promise<FormatIntroDefaults | null> {
+export async function formatIntroDefaults(slug: string): Promise<FormatIntroDefaults | null> {
   try {
     const format = await getEffectiveFormat(slug)
     return (format?.script?.introDefaults as FormatIntroDefaults) || null
@@ -95,7 +98,9 @@ export async function getChannelSegments(slug: string): Promise<ChannelSegments>
   const raw = (config as Record<string, unknown>)?.[SEGMENTS_CONFIG_KEY]
   const defaults = await formatIntroDefaults(slug)
 
-  if (raw && typeof raw === 'object') return normalizeChannelSegments(raw, defaults)
+  if (raw && typeof raw === 'object') {
+    return reseedUntouchedOpening(normalizeChannelSegments(raw, defaults), defaults)
+  }
 
   const segments = normalizeChannelSegments({}, defaults)
   const everProduced = await hasEverProducedSegment(slug, INTRODUCTION_SEGMENT_ID)
@@ -109,6 +114,60 @@ export async function getChannelSegments(slug: string): Promise<ChannelSegments>
   // where a person pressed Save.
   await pm.updateConfig(slug, { [SEGMENTS_CONFIG_KEY]: segments } as never)
   return segments
+}
+
+/**
+ * Give a channel its Formula's opening, unless somebody has edited the one it
+ * has.
+ *
+ * Every channel that predates v1.4.74 carries the same seven-beat opening —
+ * not because it chose it, but because it was the only one there was, and it
+ * is wrong for most of them. A history channel opens with a breathing
+ * exercise today. So a channel still carrying that exact shape is given its
+ * Formula's, and a channel carrying anything else is left completely alone.
+ * Changing what somebody's channel says is not a thing to do on a hunch.
+ *
+ * NOT WRITTEN BACK, on purpose. Doing so would be a migration that has to be
+ * right first time; leaving it derived means the answer is recomputed from the
+ * Formula on every read, so improving a Formula's opening reaches every
+ * channel still following it instead of only the ones created afterwards. It
+ * is also why the page's "following your Formula" line cannot go stale — the
+ * same comparison produces both.
+ *
+ * The stored config keeps the older shape until the owner presses Save, at
+ * which point what he saw on screen is what is written. Nothing else reads
+ * that key, so there is nothing for the two to disagree in front of.
+ */
+function reseedUntouchedOpening(
+  segments: ChannelSegments,
+  defaults: FormatIntroDefaults | null,
+): ChannelSegments {
+  const intro = segments[INTRODUCTION_SEGMENT_ID]
+  if (!intro || !defaults?.beats?.length) return segments
+  if (!matchesLegacyDefaultOpening(intro.recipe)) return segments
+  const seeded = defaultSegmentRecipe(INTRODUCTION_SEGMENT_ID, defaults)
+  intro.recipe.word_target = seeded.word_target
+  intro.recipe.beats = seeded.beats
+  return segments
+}
+
+/**
+ * Is this channel's opening the one its Formula ships, or its own edit?
+ *
+ * The page says which, because the audit found that a value the app worked out
+ * and a value somebody chose look identical on screen and are not the same
+ * kind of thing at all — the same reason `inferred_at` exists for the on/off
+ * switch. This is the recipe's half of that.
+ */
+export async function openingFollowsFormula(slug: string): Promise<boolean> {
+  try {
+    const segments = await getChannelSegments(slug)
+    const recipe = segments[INTRODUCTION_SEGMENT_ID]?.recipe
+    if (!recipe) return false
+    return followsFormulaOpening(recipe, await formatIntroDefaults(slug))
+  } catch {
+    return false
+  }
 }
 
 /** Write one segment back. The page is the only caller. */
@@ -136,6 +195,29 @@ export async function saveChannelSegment(
   const written = await pm.updateConfig(slug, { [SEGMENTS_CONFIG_KEY]: normalized } as never)
   if (!written) throw new Error(`Could not save the Introduction settings for '${slug}': its settings file could not be written.`)
   return normalized
+}
+
+/**
+ * The language model this channel has CHOSEN for its openings, or ''.
+ *
+ * Empty means the channel has not chosen one, which is the default and which
+ * every existing channel is in. The caller then falls back to the Script
+ * Generator's model exactly as it did before the picker existed.
+ *
+ * A channel that HAS chosen wins over a model supplied with the request. That
+ * ordering is deliberate and is the opposite of the usual "most specific
+ * caller wins": the Script page sends its own on-screen model with every
+ * chained opening, not as a deliberate override but as a leftover from when
+ * the opening had no setting of its own. If that beat a saved choice, the
+ * picker the owner asked for would do nothing on the one path he uses most.
+ */
+export async function getSegmentModel(slug: string, segmentId: string): Promise<string> {
+  try {
+    const segments = await getChannelSegments(slug)
+    return (segments[segmentId]?.recipe?.model || '').trim()
+  } catch {
+    return ''
+  }
 }
 
 /**

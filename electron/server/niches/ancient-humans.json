@@ -5,6 +5,35 @@
   "tagline": "How people survived before comfort existed.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 120,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open on the practical survival problem this episode answers — something the viewer has felt a thin modern version of themselves"
+      },
+      {
+        "id": "welcome",
+        "custom_text": "greet and give your name in one line; the question has already started, do not restart it"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "say which part of prehistoric life this episode rebuilds, and roughly when and where"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "say what this rests on — bones, tools, sites, isotopes — and be plain where it is inference rather than record"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one line in the same grounded voice; never sell the mystery"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter by returning to the opening question"
+      }
+    ]
+  },
   "kind": "series-formula",
   "defaultTopicPackIds": [
     "ancient-humans-survival",

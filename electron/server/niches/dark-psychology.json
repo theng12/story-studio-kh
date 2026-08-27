@@ -5,6 +5,31 @@
   "tagline": "The hidden psychology of who we really are.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 130,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open on the pattern itself, in the second person, as something they will recognise having done"
+      },
+      {
+        "id": "question_to_sit_with",
+        "custom_text": "pose the question the essay circles — do not answer it here, and do not hint that you will"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "say quietly which layers of this the essay pulls apart"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one soft line that does not break the register"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to the first chapter without announcing that you are doing so"
+      }
+    ]
+  },
   "exampleTopics": [
     "The Psychology of Effortless Charm",
     "The Dark Side of Kindness",

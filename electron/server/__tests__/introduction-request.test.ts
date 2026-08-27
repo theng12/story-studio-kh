@@ -1,18 +1,28 @@
 /**
- * v1.4.73 — asking for an opening names an episode and nothing else.
+ * Asking for an opening names an episode. Everything else comes from the channel.
  *
- * The Introduction page has no model picker and no title field. That is a
- * deliberate absence, not a missing control: the opening is written with the
- * model already chosen for the chapters it introduces, and it belongs to an
- * episode the app can already name. A caller that had to supply either could
- * supply a DIFFERENT one, which is exactly how a batch run and a button ended
- * up producing different openings.
+ * A caller that had to supply the recipe could supply a DIFFERENT one, which is
+ * exactly how a batch run and a button ended up producing different openings.
  *
- * The load-bearing test here is the last one. When no model can be resolved,
- * the request is refused with an explanation. It must never quietly pick one:
- * that silent fallback shipped four openings written by a model the owner
- * never chose (fixed in v1.4.68), and the refusal is the floor under this
- * redesign rather than a redundant precaution.
+ * THE MODEL IS NOW PART OF THAT RECIPE. It shipped with no picker at all; the
+ * owner overruled that — "what is the model picker not added. i don't care if
+ * it's the same model or a different model writing it." So the channel may
+ * choose one, and three sources answer in a fixed order:
+ *
+ *   1. the channel's own saved choice
+ *   2. a model named on the request
+ *   3. the Script Generator's saved model — what a blank choice means, and
+ *      what every channel had before the picker existed
+ *
+ * (1) beating (2) is deliberate and is the opposite of the usual rule. The
+ * Script page sends its own on-screen model with every chained opening, not as
+ * a deliberate override but as a leftover; if that beat a saved choice, the
+ * picker would do nothing on the path he uses most.
+ *
+ * The load-bearing test remains the refusal. When nothing answers, the request
+ * is refused with an explanation and never quietly picks one: that silent
+ * fallback shipped four openings written by a model the owner never chose
+ * (fixed in v1.4.68).
  */
 
 import { test, describe, before, after } from 'node:test'
@@ -44,13 +54,23 @@ before(async () => {
 
 after(async () => { await cleanup() })
 
-async function seedChannel(name: string, scriptModel: string | null): Promise<string> {
+async function seedChannel(
+  name: string,
+  scriptModel: string | null,
+  openingModel?: string,
+): Promise<string> {
   const project = await pm.createProject({ name })
   if (scriptModel) {
     await pm.updateConfig(project.slug, {
       script_presets: [{ id: 'sp1', name: 'default', type: 'script', data: { form: { model: scriptModel } } }],
       script_last_preset_script: 'sp1',
     } as never)
+  }
+  if (openingModel !== undefined) {
+    const segments = await import('../services/channel-segments.js')
+    await segments.saveChannelSegment(project.slug, 'introduction', {
+      recipe: { model: openingModel } as never,
+    })
   }
   return project.slug
 }
@@ -85,6 +105,52 @@ describe('asking for a channel opening', () => {
     assert.equal(job.params.model, 'a-deliberate-override')
   })
 
+  test('the channel\u2019s own chosen model is used', async () => {
+    const slug = await seedChannel('Own Model', 'the-script-model', 'the-openings-own-model')
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: 'EP0010' })
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    const job = await queuedJob(slug, 'EP0010')
+    assert.equal(job.params.model, 'the-openings-own-model')
+  })
+
+  test('the channel\u2019s choice beats the model the Script page sends along', async () => {
+    // THE point of the picker. scripts.vue's chained run posts its own
+    // on-screen `form.model` with every opening — a leftover from when the
+    // opening had no setting of its own, not a deliberate override. If that
+    // won, the control the owner asked for would do nothing on the path he
+    // uses most, and he would have no way to tell.
+    const slug = await seedChannel('Own Model Wins', 'the-script-model', 'the-openings-own-model')
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: 'EP0011', model: 'the-script-pages-on-screen-model' })
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    const job = await queuedJob(slug, 'EP0011')
+    assert.equal(job.params.model, 'the-openings-own-model')
+  })
+
+  test('a channel that has chosen one needs no script preset at all', async () => {
+    // The refusal below exists because nothing could answer. Something can now.
+    const slug = await seedChannel('Own Model No Script', null, 'the-openings-own-model')
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: 'EP0012' })
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assert.equal((await queuedJob(slug, 'EP0012')).params.model, 'the-openings-own-model')
+  })
+
+  test('leaving the choice blank still follows the Script Generator', async () => {
+    // The default must not move. Every channel that has never opened the
+    // picker is in this state, and must keep the behaviour it has today.
+    const slug = await seedChannel('Blank Follows Script', 'the-script-model', '')
+    const res = await request(app)
+      .post(`/api/projects/${slug}/generate/introduction-only`)
+      .send({ episode_id: 'EP0013' })
+    assert.equal(res.status, 201, JSON.stringify(res.body))
+    assert.equal((await queuedJob(slug, 'EP0013')).params.model, 'the-script-model')
+  })
+
   test('no resolvable model is refused in words — never quietly substituted', async () => {
     // v1.4.68's defect: the batch path lost the model and fell back to the
     // first economy product alphabetically, so openings were quietly written
@@ -100,6 +166,37 @@ describe('asking for a channel opening', () => {
     assert.match(res.body.detail, /Script Generator/,
       'and name where to fix it')
     assert.equal(await queuedJob(slug, 'EP0003'), undefined, 'nothing may be queued')
+  })
+})
+
+describe('what the Introduction page is given to draw itself', () => {
+  test('the beat explanations are served, not written into the page', async () => {
+    // The page renders these; it keeps no copy. If this stops being sent, the
+    // page shows seven bare labels again — which is the whole complaint —
+    // and nothing in the page's own tests would notice, because they would
+    // still be rendering whatever the page was handed.
+    const slug = await seedChannel('Beat Library', 'a-model')
+    const res = await request(app).get(`/api/projects/${slug}/segments`)
+    assert.equal(res.status, 200)
+    const library = res.body.beat_library
+    assert.ok(Array.isArray(library) && library.length > 0, 'the catalogue must travel with the answer')
+
+    const { DEFAULT_INTRODUCTION_BEATS } = await import('../lib/episode-segments.js')
+    for (const beat of DEFAULT_INTRODUCTION_BEATS) {
+      const entry = library.find((b: any) => b.id === beat.id)
+      assert.ok(entry, `no explanation is served for "${beat.label}"`)
+      assert.ok(String(entry.description || '').trim().length > 30,
+        `"${beat.label}" is served without a real explanation`)
+      assert.ok(String(entry.example || '').trim().length > 0,
+        `"${beat.label}" is served without an example`)
+    }
+  })
+
+  test('a channel that has said nothing is offered a blank model choice', async () => {
+    const slug = await seedChannel('Blank Model Served', 'a-model')
+    const res = await request(app).get(`/api/projects/${slug}/segments`)
+    assert.equal(res.body.segments.introduction.recipe.model, '',
+      'blank is the default, and blank means "follow the Script Generator"')
   })
 })
 
@@ -174,6 +271,79 @@ describe('an unattended batch on a channel that opens with an Introduction', () 
     assert.ok(
       !(res.body.issues || []).some((i: any) => i.step === 'introduction-only'),
       'the opening needs no preset, and must not be able to ask for one',
+    )
+  })
+
+  test('and the run actually RUNS on a channel that has never saved one', async () => {
+    // Preflight saying `ok` is not the same as the batch going through, and
+    // this is the regression that must never come back: an automatically
+    // added step that demands a preset refuses the WHOLE batch on every
+    // channel that has never saved one, which was all of them.
+    const { slug, episodeId } = await seedRunnableChannel('No Intro Preset Runs', true)
+    const config = await pm.getConfig(slug) as Record<string, unknown>
+    assert.equal(config.introduction_presets, undefined,
+      'the premise: this channel has no Introduction preset of any kind')
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['script-only'] })
+    assert.ok([200, 201].includes(res.status), `run-batch was refused: ${JSON.stringify(res.body)}`)
+    assert.deepEqual(res.body.steps, ['script-only', 'introduction-only'])
+    assert.deepEqual(res.body.missing || [], [],
+      'nothing may be reported missing for a step that has no preset to miss')
+    assert.ok(
+      !(res.body.skipped || []).some((s: any) => String(s.reason || '').includes('preset')),
+      `no episode may be skipped for a preset: ${JSON.stringify(res.body.skipped)}`,
+    )
+    assert.ok(res.body.total_jobs_planned > 2, 'and the opening is real work this run will do')
+  })
+
+  test('saving an Introduction preset does not make the batch start needing one', async () => {
+    // Presets came back because the owner asked for them — "intro preset must
+    // be present. it's the most important thing." They fill the page's form
+    // in; they are NOT how a batch learns what to write. This pins the seam:
+    // a channel with a saved preset list and no active pointer runs exactly
+    // like one with nothing saved at all.
+    const { slug, episodeId } = await seedRunnableChannel('Intro Preset Saved', true)
+    await pm.updateConfig(slug, {
+      introduction_presets: [{
+        id: 'ip1',
+        name: 'House opening',
+        type: 'introduction',
+        data: { recipe: { host_name: 'Luna', word_target: 220, custom_opening_line: '', beats: [], model: '' } },
+      }],
+    } as never)
+
+    const res = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['script-only'] })
+    assert.ok([200, 201].includes(res.status), `run-batch was refused: ${JSON.stringify(res.body)}`)
+    assert.deepEqual(res.body.steps, ['script-only', 'introduction-only'])
+    assert.deepEqual(res.body.missing || [], [])
+  })
+
+  test('the opening is registered as a step that cannot demand a preset', async () => {
+    // The rule itself, not an effect of it. A future edit that drops the
+    // opening out of this set brings the whole regression back, and this is
+    // the line that stops it.
+    const { NO_PRESET_STEP_IDS } = await import('../routes/pipeline.js')
+    assert.ok(NO_PRESET_STEP_IDS.includes('introduction-only' as never),
+      'an automatically added step must never be able to require a preset')
+  })
+
+  test('a channel opening in a batch uses the model that channel chose', async () => {
+    const { slug, episodeId } = await seedRunnableChannel('Batch Own Model', true)
+    const segments = await import('../services/channel-segments.js')
+    await segments.saveChannelSegment(slug, 'introduction', {
+      recipe: { model: 'the-openings-own-model' } as never,
+    })
+    const res = await request(app)
+      .post(`/api/projects/${slug}/pipeline/run-batch`)
+      .send({ episode_ids: [episodeId], steps: ['script-only'] })
+    assert.ok([200, 201].includes(res.status), JSON.stringify(res.body))
+    assert.ok(
+      !(res.body.skipped || []).some((s: any) => String(s.reason || '').includes('introduction-only')),
+      `the opening must not be skipped: ${JSON.stringify(res.body.skipped)}`,
     )
   })
 })

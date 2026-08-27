@@ -5,6 +5,35 @@
   "tagline": "Born hunted, hungry, or weirdly built.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 100,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open deadpan on the single worst fact about being born as this animal"
+      },
+      {
+        "id": "premise_setup",
+        "custom_text": "name the species and frame it as a bad draw in the genetic lottery"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "promise the specifics — anatomy, lifecycle, and how the thing survives anyway"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "one line that the grim parts are real zoology, not exaggeration for the joke"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one dry line; no enthusiasm"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to chapter one without a drumroll"
+      }
+    ]
+  },
   "kind": "series-formula",
   "defaultTopicPackIds": [
     "natural-world-animals"

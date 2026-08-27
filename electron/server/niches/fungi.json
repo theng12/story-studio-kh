@@ -5,6 +5,35 @@
   "tagline": "Not a plant. Sometimes barely alive.",
   "builtin": true,
   "schemaVersion": 1,
+  "introDefaults": {
+    "wordTarget": 100,
+    "beats": [
+      {
+        "id": "hook",
+        "custom_text": "open deadpan on the most unsettling thing this fungus does to stay alive"
+      },
+      {
+        "id": "premise_setup",
+        "custom_text": "name the fungus and make clear it is a fungus — not a plant, not ever"
+      },
+      {
+        "id": "what_youll_learn",
+        "custom_text": "promise the specifics — fruiting body, spores, mycelium, and what it feeds on"
+      },
+      {
+        "id": "evidence_note",
+        "custom_text": "one line that this is real mycology, however alien it sounds"
+      },
+      {
+        "id": "subscribe_cta",
+        "custom_text": "one dry line"
+      },
+      {
+        "id": "transition",
+        "custom_text": "hand over to chapter one without a drumroll"
+      }
+    ]
+  },
   "exampleTopics": [
     "Hydnellum Peckii (Bleeding Tooth Fungus)",
     "Cordyceps",

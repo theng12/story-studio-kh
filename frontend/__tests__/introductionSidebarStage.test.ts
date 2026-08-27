@@ -216,12 +216,58 @@ const pageDescriptor = parse(readFileSync(
 const pageTemplate = pageDescriptor.template?.content ?? ''
 assert.ok(pageTemplate, 'introduction.vue must have a template')
 
+/**
+ * The page's OWN provenance computeds, compiled out of the real script block.
+ *
+ * Not re-typed here: the wording, the three-state rule, and the "the {Formula}
+ * Formula" phrasing all come from `introduction.vue` itself, so a page that
+ * stops distinguishing a Formula's opening from an owner's edit fails these
+ * tests instead of passing them against a copy.
+ */
+function loadProvenance(): (s: { touched: boolean; follows: boolean; formula: string })
+  => { state: string; line: string } {
+  const pageScript = pageDescriptor.scriptSetup?.content ?? ''
+  assert.ok(pageScript, 'introduction.vue must have a <script setup>')
+  const start = pageScript.indexOf('const provenanceState = computed')
+  assert.notEqual(start, -1, 'introduction.vue must still define provenanceState')
+  const end = pageScript.indexOf('const actionStatus = computed', start)
+  assert.notEqual(end, -1, 'introduction.vue must still define actionStatus after it')
+  const body = pageScript.slice(start, end)
+  const js = ts.transpileModule(`
+    const computed = (fn) => ({ get value() { return fn() } })
+    const recipeTouched = { value: false }
+    const followsFormula = { value: false }
+    const formulaName = { value: '' }
+    ${body}
+    return (s) => {
+      recipeTouched.value = s.touched
+      followsFormula.value = s.follows
+      formulaName.value = s.formula
+      return { state: provenanceState.value, line: provenanceLine.value }
+    }
+  `, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText
+  // eslint-disable-next-line no-new-func
+  return new Function(js)()
+}
+const provenanceFor = loadProvenance()
+
+
+/**
+ * The real beat catalogue, read out of the server's own module.
+ *
+ * The page renders explanations that the API serves; this is that same list,
+ * so the test cannot pass on wording invented here. If a beat loses its
+ * explanation on the server, the rendered assertions below stop finding it.
+ */
+const { BEAT_LIBRARY } = await import('../../electron/server/lib/episode-segments.js')
+
 /** Render the real page template with its surrounding components stubbed. */
 async function renderPage(state: Record<string, unknown>): Promise<string> {
   const beats = [
     { id: 'welcome', label: 'Welcome & host intro', enabled: true },
     { id: 'patreon', label: 'Patreon / membership mention', enabled: false },
   ]
+  const { methods: methodOverrides, ...dataState } = state as Record<string, any>
   const app = createSSRApp({
     template: pageTemplate,
     data: () => ({
@@ -231,23 +277,50 @@ async function renderPage(state: Record<string, unknown>): Promise<string> {
       generating: false,
       dirty: false,
       newBeatLabel: '',
+      restoreBeatId: '',
+      modelMode: 'script',
+      beatLibrary: Object.values(BEAT_LIBRARY),
+      introPresets: { presets: { value: [] }, activeId: { value: '' } },
       expanded: new Set<string>(),
       previewRefreshKey: 0,
       wordTargetMin: 100,
       wordTargetMax: 600,
       heroDescription: 'A spoken opening before the story begins.',
+      // Defaults only; the provenance tests below drive these from the page's
+      // OWN computeds, lifted out of the real script block.
+      provenanceState: 'formula',
+      provenanceLine: '',
       actionStatus: '',
-      segment: { enabled: false, recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats } },
-      ...state,
+      segment: { enabled: false, recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats, model: '' } },
+      ...dataState,
     }),
     computed: {
       recipe(this: any) { return this.segment.recipe },
       enabledBeats(this: any) { return this.segment.recipe.beats.filter((b: any) => b.enabled) },
+      usesScriptModel(this: any) { return this.modelMode === 'script' },
+      restorableBeats(this: any) {
+        const present = new Set(this.segment.recipe.beats.map((b: any) => b.id))
+        return this.beatLibrary.filter((b: any) => !present.has(b.id))
+      },
     },
-    methods: new Proxy({}, { get: () => () => '', has: () => true }) as any,
+    // The page's real per-beat readers, so what is rendered is the catalogue's
+    // own wording. Everything else the template calls is a no-op.
+    methods: new Proxy({
+      beatDescription(this: any, id: string) { return (BEAT_LIBRARY as any)[id]?.description || '' },
+      beatSuitsNote(this: any, id: string) { return (BEAT_LIBRARY as any)[id]?.suitsNote || '' },
+      beatPlaceholder(this: any, id: string) { return (BEAT_LIBRARY as any)[id]?.example || '' },
+      ...(methodOverrides || {}),
+    } as Record<string, unknown>, {
+      get: (target, key) => (key in target ? (target as any)[key] : () => ''),
+      has: () => true,
+    }) as any,
   })
   app.config.warnHandler = () => {}
   app.component('NuxtLink', { props: ['to'], template: '<a :href="to"><slot /></a>' })
+  app.component('ModelSelector', {
+    props: ['modelValue', 'projectSlug', 'label'],
+    template: '<div class="model-selector">{{ label }}: {{ modelValue }}</div>',
+  })
   app.component('WorkspaceHero', {
     props: ['eyebrow', 'title', 'description'],
     template: '<header><span>{{ eyebrow }}</span><h1>{{ title }}</h1><p>{{ description }}</p><slot name="aside" /></header>',
@@ -256,7 +329,12 @@ async function renderPage(state: Record<string, unknown>): Promise<string> {
     props: ['tone', 'title'],
     template: '<aside :data-tone="tone"><strong>{{ title }}</strong><div><slot /></div><slot name="actions" /></aside>',
   })
-  app.component('TopActionBar', { template: '<div class="top-action-bar" />' })
+  app.component('TopActionBar', {
+    props: ['presets'],
+    // Says whether the page handed it a preset pool at all, so the assertion
+    // below is about the wiring rather than about the toolbar's own markup.
+    template: '<div class="top-action-bar" :data-has-presets="presets ? \'yes\' : \'no\'" />',
+  })
   app.component('IntroductionPreview', { template: '<div class="intro-preview" />' })
   return await renderToString(app)
 }
@@ -316,15 +394,159 @@ describe('the Introduction page renders whether or not the channel uses one', ()
     assert.match(text, /press Save/, 'and there is a way to settle it')
   })
 
-  test('the page answers "which model writes this" without growing a picker', async () => {
-    const text = strip(await renderPage({}))
-    assert.match(text, /same language model as the chapters/)
-    assert.match(text, /no separate model to pick here/)
+  test('the model choice is offered, and defaults to the chapters\u2019 model', async () => {
+    // REVERSES the v1.4.73 rule. The opening shipped with no picker, on the
+    // reasoning that one language-model choice is easier to trust than two.
+    // The owner overruled it: "what is the model picker not added. i don't
+    // care if it's the same model or a different model writing it."
+    //
+    // The default must not move, though. A channel that has never been here
+    // has a blank saved model, which means "follow the Script Generator" —
+    // so on arrival the shared option is the selected one and NO picker is
+    // mounted. That matters: ModelSelector heals an empty value to the
+    // cheapest usable product the instant it mounts, so mounting it here
+    // would turn every untouched channel into one that had chosen.
+    const html = await renderPage({})
+    const text = strip(html)
+    assert.match(text, /Which model writes it/)
+    assert.match(text, /The same one as the chapters/)
+    assert.match(text, /A different model, chosen here/)
+    assert.ok(!html.includes('class="model-selector"'),
+      'no picker may be mounted while the channel is following the script\u2019s model')
+  })
+
+  test('choosing a different model mounts the same picker every other page uses', async () => {
+    const html = await renderPage({ modelMode: 'own' })
+    assert.ok(html.includes('class="model-selector"'), 'the picker appears once it is asked for')
+    assert.match(strip(html), /Model for this channel.s opening/)
+  })
+
+  test('every standard beat says what it produces, on screen, unopened', async () => {
+    // The owner's charge: "how can someone knows what's a welcome host intro
+    // is, a story teaser is, community question is? patreon? how?" Seven
+    // unexplained labels teaches no more than a hidden checkbox did — so the
+    // explanation is body text next to the beat, not a tooltip and not behind
+    // the disclosure arrow (`expanded` is empty in this render).
+    const beats = Object.values(BEAT_LIBRARY).map((b: any) => ({ id: b.id, label: b.label, enabled: true }))
+    const text = strip(await renderPage({
+      segment: { enabled: true, recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats, model: '' } },
+    }))
+    for (const beat of Object.values(BEAT_LIBRARY) as any[]) {
+      assert.ok(beat.description.trim().length > 0, `${beat.id} must carry an explanation at all`)
+      // Compare on a distinctive fragment: the full sentence contains curly
+      // punctuation that the strip above normalises.
+      const fragment = beat.description.split(/[.\u2014]/)[0].trim().slice(0, 40)
+      assert.ok(text.includes(fragment),
+        `the page must render what "${beat.label}" does; missing: ${fragment}`)
+    }
+  })
+
+  test('a beat that suits only one kind of channel says so', async () => {
+    // "our introduction is lacking and outdated completely" — the breathing
+    // exercise is a sleep beat sitting in a list every channel gets. It is not
+    // removed here, but a reader is told it is not general-purpose.
+    const beats = [{ id: 'relaxation', label: 'Relaxation / breathing exercise', enabled: true }]
+    const text = strip(await renderPage({
+      segment: { enabled: true, recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats, model: '' } },
+    }))
+    assert.match(text, /Suits sleep and calm channels/)
+  })
+
+  test('a removed standard beat can be put back by name, with its explanation', async () => {
+    // Before this, removing "Story teaser" and retyping the label produced a
+    // beat with a generated id whose explanation was gone for good.
+    const beats = [{ id: 'welcome', label: 'Welcome & host intro', enabled: true }]
+    const text = strip(await renderPage({
+      segment: { enabled: true, recipe: { host_name: '', word_target: 350, custom_opening_line: '', beats, model: '' } },
+    }))
+    assert.match(text, /Put a standard beat back/)
+    assert.match(text, /Story teaser/, 'the removed beat is offered back by its catalogue name')
+  })
+
+  test('the page carries a preset pool of its own', async () => {
+    // "intro preset must be present. it's the most important thing."
+    const html = await renderPage({})
+    assert.match(html, /data-has-presets="yes"/,
+      'the recipe must be saveable and reusable across channels')
   })
 
   test('it never claims the opening costs a separate audio charge', async () => {
     // It folds into the narration the episode already pays to voice. Saying
     // otherwise would make a ~2% change look like a second bill.
     assert.match(strip(await renderPage({})), /no separate audio charge/)
+  })
+})
+
+/**
+ * The page says whether an opening was INFERRED or CHOSEN — proven by
+ * rendering, with the page's own computeds driving it.
+ *
+ * v1.4.74. Every channel that predates this release is handed its Formula's
+ * opening rather than the old sleep-shaped seven, so most channels' beats came
+ * from nobody. The audit's finding, applied to the recipe: a value the app
+ * worked out and a value somebody chose look identical on screen and are not
+ * the same kind of thing. `inferred_at` already does this for the on/off
+ * switch; this is the recipe's half.
+ */
+describe('the page distinguishes a Formula\u2019s opening from the owner\u2019s own', () => {
+  function stateFor(s: { touched: boolean; follows: boolean; formula: string }) {
+    return provenanceFor(s)
+  }
+
+  test('following the Formula: it says so, and NAMES the Formula', async () => {
+    const p = stateFor({ touched: false, follows: true, formula: 'Business Economics' })
+    assert.equal(p.state, 'formula')
+    const html = await renderPage({ provenanceState: p.state, provenanceLine: p.line })
+    const text = strip(html)
+    assert.match(text, /Following the opening that comes with the Business Economics Formula/,
+      'the page must name what the channel is following, not just that it follows something')
+    assert.match(text, /nobody here chose these beats/,
+      'and must not present a Formula default as somebody\u2019s decision')
+    assert.match(html, /data-state="formula"/)
+  })
+
+  test('the owner\u2019s own edit: it says that instead, and does not claim a Formula', async () => {
+    const p = stateFor({ touched: false, follows: false, formula: 'Business Economics' })
+    assert.equal(p.state, 'own')
+    const html = await renderPage({ provenanceState: p.state, provenanceLine: p.line })
+    const text = strip(html)
+    assert.match(text, /This channel\u2019s own opening/)
+    assert.match(text, /no longer matches what the Business Economics Formula ships/)
+    assert.doesNotMatch(text, /nobody here chose/, 'the two states must not both render')
+    assert.match(html, /data-state="own"/)
+  })
+
+  test('edited but unsaved is its own state, not silently one of the other two', async () => {
+    // Saying "this is your own opening" before Save is the same lie in the
+    // other direction, and `dirty` cannot stand in for it — a deep watch fires
+    // when the on/off switch is flipped too, and flipping it does not make an
+    // opening this channel's own.
+    const p = stateFor({ touched: true, follows: true, formula: 'Business Economics' })
+    assert.equal(p.state, 'edited')
+    const html = await renderPage({ provenanceState: p.state, provenanceLine: p.line })
+    const text = strip(html)
+    assert.match(text, /Edited, and not saved yet/)
+    assert.doesNotMatch(text, /nobody here chose/)
+    assert.match(html, /data-state="edited"/)
+  })
+
+  test('MUTATION \u2014 the three states really are three different sentences', async () => {
+    // Each assertion above would also pass against a page that rendered one
+    // fixed sentence and a changing attribute. This is the check that the
+    // WORDS differ, which is the part a person reads.
+    const lines = new Set([
+      stateFor({ touched: false, follows: true, formula: 'Sleep Stories' }).line,
+      stateFor({ touched: false, follows: false, formula: 'Sleep Stories' }).line,
+      stateFor({ touched: true, follows: true, formula: 'Sleep Stories' }).line,
+    ])
+    assert.equal(lines.size, 3, 'inferred, chosen and unsaved must read differently')
+    for (const line of lines) assert.ok(line.trim().length > 40, `too terse to be an explanation: "${line}"`)
+  })
+
+  test('a channel with no Formula is still described, without an empty name', async () => {
+    const p = stateFor({ touched: false, follows: true, formula: '' })
+    assert.doesNotMatch(p.line, /\s{2,}/, 'a missing Formula name must not leave a gap in the sentence')
+    assert.match(p.line, /this channel\u2019s Formula/,
+      'it falls back to naming it generically rather than rendering "the  Formula"')
   })
 })

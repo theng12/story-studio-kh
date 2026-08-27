@@ -30,6 +30,7 @@ import path from 'path'
 import { useTempDataDir } from './_helpers.js'
 
 import {
+  BEAT_LIBRARY,
   DEFAULT_INTRODUCTION_BEATS,
   INTRODUCTION_SEGMENT_ID,
   SEGMENT_KINDS,
@@ -115,9 +116,28 @@ describe('a channel’s saved segments', () => {
   })
 
   test('a format that ships its own opening shape supplies the defaults', () => {
+    // v1.4.74 — 50 is now the floor rather than below it. `introDefaults` has
+    // documented "listicle ~50" since v1.0.71 and the old floor of 100 quietly
+    // doubled it, so the app refused a shape it advertised. A beat the
+    // catalogue has no name for is still taken verbatim as its label.
     const recipe = defaultSegmentRecipe(INTRODUCTION_SEGMENT_ID, { wordTarget: 50, beats: ['Hello', 'Get on with it'] })
-    assert.equal(recipe.word_target, 100, 'below the floor is clamped, never taken literally')
+    assert.equal(recipe.word_target, 50, 'a short opening is a real want, not a mistake to correct')
     assert.deepEqual(recipe.beats.map(b => b.label), ['Hello', 'Get on with it'])
+    const tooShort = defaultSegmentRecipe(INTRODUCTION_SEGMENT_ID, { wordTarget: 4, beats: ['Hello'] })
+    assert.equal(tooShort.word_target, WORD_TARGET_MIN, 'below the floor is still clamped, never taken literally')
+  })
+
+  test('a Formula may name a catalogue beat, and its explanation comes with it', () => {
+    // The other half of the line above: a string the catalogue KNOWS resolves
+    // to the catalogue's beat, so a Formula-supplied opening is as
+    // self-describing on the page as a hand-built one.
+    const recipe = defaultSegmentRecipe(INTRODUCTION_SEGMENT_ID, {
+      beats: ['hook', { id: 'not_advice_note', custom_text: 'one plain line, then move on' }],
+    })
+    assert.deepEqual(recipe.beats.map(b => b.id), ['hook', 'not_advice_note'])
+    assert.equal(recipe.beats[0].label, BEAT_LIBRARY.hook.label)
+    assert.equal(recipe.beats[1].custom_text, 'one plain line, then move on')
+    assert.equal(recipe.beats[0].custom_text, undefined, 'a bare id carries no wording of its own')
   })
 
   test('an absurd word target is clamped rather than obeyed', () => {
@@ -135,7 +155,7 @@ describe('a channel’s saved segments', () => {
           host_name: 'Luna',
           word_target: 420,
           custom_opening_line: 'Hello, and welcome back.',
-          beats: [{ id: 'welcome', label: 'Welcome', enabled: true, custom_text: 'greet warmly' }],
+          beats: [{ id: 'mine', label: 'Weekly riddle', enabled: true, custom_text: 'greet warmly' }],
         },
       },
     }
@@ -145,6 +165,20 @@ describe('a channel’s saved segments', () => {
     assert.equal(result.recipe.word_target, 420)
     assert.equal(result.recipe.custom_opening_line, 'Hello, and welcome back.')
     assert.deepEqual(result.recipe.beats, saved.introduction.recipe.beats)
+  })
+
+  test('a beat from the catalogue is renamed to the catalogue\u2019s spelling', () => {
+    // A beat now carries an explanation, and the explanation is looked up by
+    // id. Two names for `welcome` is how the page and the generator drifted
+    // apart before; the label is not a place a stale spelling may live.
+    // See introduction-recipe.test.ts for the rule itself.
+    const result = normalizeChannelSegments({
+      introduction: {
+        enabled: true,
+        recipe: { beats: [{ id: 'welcome', label: 'Welcome', enabled: true }] },
+      },
+    })[INTRODUCTION_SEGMENT_ID]
+    assert.equal(result.recipe.beats[0].label, 'Welcome & host intro')
   })
 })
 

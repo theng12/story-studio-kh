@@ -28,6 +28,10 @@ const reachableRoutes = [
   '/projects/example/pipeline',
   '/projects/example/board',
   '/projects/example/research',
+  // The Introduction became its own stage in v1.4.73 and was the one workspace
+  // in the app with no guide at all — the page whose whole complaint was that
+  // nobody could tell what it produced.
+  '/projects/example/introduction',
   '/projects/example/scripts',
   '/projects/example/metadata',
   '/projects/example/metadata-template',
