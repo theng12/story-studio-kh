@@ -88,6 +88,17 @@ const SUCCESSORS = [
     family: 'com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions',
     sku: 'com.storystudio.sku.topic.archival-ledger.money-debt-financial-institutions',
   },
+  {
+    kind: 'topic',
+    slug: 'states-revolutions-collapse-v1.0.1',
+    predecessorSlug: 'states-revolutions-collapse',
+    version: '1.0.1',
+    document: 'topic-pack.json',
+    packId: 'com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse',
+    itemId: 'com.storystudio.topic.archival-ledger.states-revolutions-collapse',
+    family: 'com.storystudio.family.topic.archival-ledger.states-revolutions-collapse',
+    sku: 'com.storystudio.sku.topic.archival-ledger.states-revolutions-collapse',
+  },
 ]
 
 const STOCKABLE = [...COMPONENTS, ...SUCCESSORS]

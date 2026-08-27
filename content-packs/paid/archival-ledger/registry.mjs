@@ -80,4 +80,13 @@ export const paidComponentRegistry = [
     family: 'com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions',
     sourceDirectory: 'topic/money-debt-financial-institutions-v1.0.1',
   },
+  {
+    packId: 'com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse',
+    itemId: 'com.storystudio.topic.archival-ledger.states-revolutions-collapse',
+    kind: 'topic-pack',
+    version: '1.0.1',
+    sku: 'com.storystudio.sku.topic.archival-ledger.states-revolutions-collapse',
+    family: 'com.storystudio.family.topic.archival-ledger.states-revolutions-collapse',
+    sourceDirectory: 'topic/states-revolutions-collapse-v1.0.1',
+  },
 ]
