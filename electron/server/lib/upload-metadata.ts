@@ -137,6 +137,14 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
     } catch { /* swallow */ }
   }
 
+  // v1.4.75 — the generator's own output, cleaned of any internal section name
+  // the model published as a heading. Deliberately BEFORE the override merge:
+  // everything below this line is text the operator wrote himself, and his
+  // words are not something to tidy. Upload Center reads this description
+  // directly as well as through `snippetFromMeta`, so the clean has to happen
+  // at the read, not only at the last gate.
+  description = stripInternalSectionLabels(description)
+
   // Per-platform overrides sidecar (optional).
   const overridesPath = path.join(paths.episode_dir, 'upload_metadata_overrides.json')
   if (existsSync(overridesPath)) {
@@ -311,12 +319,18 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[],
   // drop any internal section name the model published as a heading, then cap
   // length. YouTube auto-escapes `<>` here, so we leave them.
   //
-  // v1.4.75 — the label strip is here, at the last gate before the Data API,
-  // because a package saved before the prompt fix keeps its leaked `HOOK:` on
-  // disk forever: the Finalizer deliberately reuses a complete
-  // `existing_package` rather than respend credits, so there is no guarantee
-  // the description is ever regenerated. Cleaning on the way out costs nothing
-  // and needs no rewrite of his saved files.
+  // v1.4.75 — the last gate before the Data API. `resolveUploadMetadata`
+  // already cleaned the generator's output; this repeats it (the strip is
+  // idempotent) for callers that assemble a snippet from stored data by
+  // another route. A package saved before the prompt fix keeps its leaked
+  // `HOOK:` on disk forever — the Finalizer reuses a complete
+  // `existing_package` rather than respend credits, so nothing guarantees the
+  // description is ever regenerated.
+  //
+  // NOTE for whoever builds the per-platform description override UI: today
+  // nothing writes that field, so this only ever sees generated text. Once an
+  // operator can type a description here, move this strip so it runs before
+  // his override lands, the way the resolver already does.
   const description = capLength(
     stripInternalSectionLabels(stripControl(meta.description)),
     YT_DESCRIPTION_MAX, 'description', logs,
