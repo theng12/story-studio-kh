@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.habits-momentum",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.2",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.habits-momentum",
+    "family": "com.storystudio.family.topic.habits-momentum"
+  },
+  "changelog": "Replaces the 1.0.1 successor. Its 1,000 ideas were reached by template: every subject reused one setting and every mechanism carried a fixed tag. This version rewrites all fifty subjects and every tuple from the mechanics of the subject itself."
+}
