@@ -67,6 +67,31 @@ const COMPONENTS = [
   },
 ]
 
+// Versioned successors live BESIDE their predecessor rather than replacing it,
+// because a published version's bytes must never change. They are deliberately
+// not in COMPONENTS: every assertion there proves the eight componentized packs
+// still reproduce the retired reviewed monolith exactly, and a successor exists
+// precisely because its content is new. Folding one into COMPONENTS would not
+// "update a stale expectation", it would delete that proof — the subject total
+// would move from 125 to 225 and the monolith hash would stop matching.
+// Successors get their own shape checks below and are registered like any other
+// stockable source.
+const SUCCESSORS = [
+  {
+    kind: 'topic',
+    slug: 'money-debt-financial-institutions-v1.0.1',
+    predecessorSlug: 'money-debt-financial-institutions',
+    version: '1.0.1',
+    document: 'topic-pack.json',
+    packId: 'com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions',
+    itemId: 'com.storystudio.topic.archival-ledger.money-debt-financial-institutions',
+    family: 'com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions',
+    sku: 'com.storystudio.sku.topic.archival-ledger.money-debt-financial-institutions',
+  },
+]
+
+const STOCKABLE = [...COMPONENTS, ...SUCCESSORS]
+
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
   if (value && typeof value === 'object') return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`
@@ -128,7 +153,7 @@ async function readComponentSource(component) {
   return { component, directory, manifest, documents, document, assetNames, assets }
 }
 
-test('Archival Ledger has eight independently stockable component sources with exact reviewed content', async () => {
+test('Archival Ledger has eight component sources with exact reviewed content, and registers every versioned successor beside them', async () => {
   const componentSources = await Promise.all(COMPONENTS.map(readComponentSource))
   const reviewedMonolithDocuments = await Promise.all(COMPONENTS.map(component => readJson(
     new URL(`content/${component.document}`, REVIEWED_SOURCE),
@@ -176,7 +201,7 @@ test('Archival Ledger has eight independently stockable component sources with e
   }
 
   const { paidComponentRegistry } = await import(COMPONENT_REGISTRY)
-  assert.deepEqual(paidComponentRegistry, COMPONENTS.map(component => ({
+  assert.deepEqual(paidComponentRegistry, STOCKABLE.map(component => ({
     packId: component.packId,
     itemId: component.itemId,
     kind: ({ formula: 'series-formula', topic: 'topic-pack', style: 'visual-style', thumbnail: 'thumbnail-recipe' }[component.kind]),
@@ -230,7 +255,7 @@ test('legacy preview bytes have recorded provenance without an invented license 
   assert.match(evidence, /Neither those commits nor the available repository handoff evidence grants a\s+separate preview-asset license/i)
 })
 
-test('each Archival Ledger component source builds deterministically and validates with an ephemeral key', async () => {
+test('each Archival Ledger component source and successor builds deterministically and validates with an ephemeral key', async () => {
   const root = await mkdtemp(join(tmpdir(), 'archival-ledger-components-'))
   try {
     const { privateKey, publicKey } = generateKeyPairSync('ed25519')
@@ -239,7 +264,7 @@ test('each Archival Ledger component source builds deterministically and validat
     await writeFile(privateKeyPath, privateKey.export({ type: 'pkcs8', format: 'pem' }))
     await writeFile(publicKeyPath, publicKey.export({ type: 'spki', format: 'pem' }))
 
-    for (const component of COMPONENTS) {
+    for (const component of STOCKABLE) {
       const source = await readComponentSource(component)
       const firstPath = join(root, `${component.kind}-${component.slug}-first.sspack`)
       const secondPath = join(root, `${component.kind}-${component.slug}-second.sspack`)
@@ -268,5 +293,37 @@ test('each Archival Ledger component source builds deterministically and validat
     }
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('a versioned successor ships beside its predecessor rather than replacing it', async () => {
+  for (const successor of SUCCESSORS) {
+    const predecessor = COMPONENTS.find(component => component.slug === successor.predecessorSlug)
+    assert.ok(predecessor, `${successor.slug} must name a predecessor that is still published`)
+
+    const predecessorSource = await readComponentSource(predecessor)
+    const successorSource = await readComponentSource(successor)
+
+    // The predecessor is still on disk, still at its own version, still itself.
+    assert.equal(predecessorSource.manifest.version, predecessor.version)
+    assert.notEqual(successorSource.manifest.version, predecessorSource.manifest.version)
+    assert.equal(successorSource.directory.pathname === predecessorSource.directory.pathname, false)
+
+    // Same product, same entitlement, new version — not a different pack.
+    assert.equal(successorSource.manifest.pack_id, predecessorSource.manifest.pack_id)
+    assert.equal(successorSource.manifest.entitlement.sku, predecessorSource.manifest.entitlement.sku)
+    assert.equal(successorSource.manifest.entitlement.family, predecessorSource.manifest.entitlement.family)
+    assert.equal(successorSource.document.id, predecessorSource.document.id)
+    assert.equal(successorSource.document.kind, predecessorSource.document.kind)
+
+    // The successor carries the family's own publishing conventions.
+    assert.equal(successorSource.manifest.key_id, 'com.storystudio.key.archival-ledger')
+    assert.equal(successorSource.manifest.min_app_version, '{{MIN_APP_VERSION}}')
+    assert.equal(successorSource.manifest.lifecycle, 'active')
+    assert.equal(successorSource.documents.length, 1)
+
+    // A successor exists to carry more content than the version it succeeds.
+    assert.ok(successorSource.document.subjects.length > predecessorSource.document.subjects.length,
+      `${successor.slug} must not ship fewer subjects than ${predecessor.slug}`)
   }
 })

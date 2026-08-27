@@ -15,7 +15,7 @@ unregisterTsx()
 
 const FIXED_ARCHIVE_DATE = new Date('1980-01-01T00:00:00.000Z')
 const SOURCE_ROOT_ENTRIES = new Set(['pack.json', 'content', 'assets'])
-const MAX_SOURCE_JSON_BYTES = 1024 * 1024
+const MAX_SOURCE_JSON_BYTES = 4 * 1024 * 1024
 const MAX_SOURCE_RASTER_BYTES = 15 * 1024 * 1024
 const MIN_APP_VERSION_TOKEN = '{{MIN_APP_VERSION}}'
 const KEY_ID_TOKEN = '{{KEY_ID}}'

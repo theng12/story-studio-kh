@@ -12,6 +12,12 @@ const AUTHORING_RECEIPT = /^authoring:[a-f0-9]{64}$/
 const MAX_REGISTRY_BYTES = 8 * 1024 * 1024
 const MAX_REQUEST_BYTES = 1024 * 1024
 const MAX_MANIFEST_BYTES = 1024 * 1024
+// Content documents get their own, larger bound: a pack.json manifest should
+// never approach 1 MiB and stays tightly capped above, but a 100-subject Topic
+// Pack document is ~1.2 MB. 4 MiB matches DEFAULT_LIMITS.maxJsonBytes in
+// electron/server/content-packs/archive.ts, so a document the archive verifier
+// accepts is also a document this validator will register. Keep the two in step.
+const MAX_CONTENT_DOCUMENT_BYTES = 4 * 1024 * 1024
 const MAX_REGISTRY_RECORDS = 5_000
 const MAX_REQUEST_RECORDS = 100
 const MAX_DEPENDENCIES = 100
@@ -570,14 +576,14 @@ async function reconcileSources(records, repositoryRoot) {
         if (!jsonDocuments.length) fail(`authored source ${sourcePath} must contain at least one content document`)
         const found = []
         for (const entry of jsonDocuments) {
-          const document = await readBoundedJson(join(contentPath, entry.name), MAX_MANIFEST_BYTES, `content document ${sourcePath}`)
+          const document = await readBoundedJson(join(contentPath, entry.name), MAX_CONTENT_DOCUMENT_BYTES, `content document ${sourcePath}`)
           if (record.kind !== document.kind) fail(`component identity differs for ${sourcePath}`)
           found.push(document.id)
         }
         if (!same([...found].sort(), record.item_ids)) fail(`component identity differs for ${sourcePath}`)
       } else {
         if (jsonDocuments.length !== 1) fail(`authored source ${sourcePath} must contain exactly one content document`)
-        const document = await readBoundedJson(join(contentPath, jsonDocuments[0].name), MAX_MANIFEST_BYTES, `content document ${sourcePath}`)
+        const document = await readBoundedJson(join(contentPath, jsonDocuments[0].name), MAX_CONTENT_DOCUMENT_BYTES, `content document ${sourcePath}`)
         if (record.kind !== document.kind || record.item_id !== document.id) fail(`component identity differs for ${sourcePath}`)
       }
     }

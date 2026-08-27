@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions",
+  "publisher_id": "com.storystudio",
+  "key_id": "com.storystudio.key.archival-ledger",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "Expanded Money, Debt & Financial Institutions from 25 to 100 specific subjects with 20 reviewed financial tuples each (2,000 lifetime assignments), every tuple anchored to a named period and place.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.archival-ledger.money-debt-financial-institutions",
+    "family": "com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions"
+  }
+}

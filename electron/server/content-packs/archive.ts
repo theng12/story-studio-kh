@@ -26,7 +26,13 @@ const DEFAULT_LIMITS: ContentPackArchiveLimits = {
   maxArchiveBytes: 50 * MEBIBYTE,
   maxExpandedBytes: 100 * MEBIBYTE,
   maxEntries: 256,
-  maxJsonBytes: MEBIBYTE,
+  // 4 MiB, not 1: a 100-subject Topic Pack document is ~1.2 MB, and rasters were
+  // already allowed 15 MiB while JSON was capped at 1 MiB — an asymmetry nobody
+  // chose, it is just that no one had expected a large JSON. The caps that
+  // actually stop a decompression bomb are maxArchiveBytes, maxExpandedBytes and
+  // maxEntries above, and those are unchanged. Do not raise this to make a test
+  // pass; raise it only when a real document needs the room, and say why here.
+  maxJsonBytes: 4 * MEBIBYTE,
   maxRasterBytes: 15 * MEBIBYTE,
   maxRasterPixels: 100_000_000,
   maxSignatureBytes: 1024,

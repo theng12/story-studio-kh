@@ -71,4 +71,13 @@ export const paidComponentRegistry = [
     family: 'com.storystudio.family.thumbnail.archival-map-investigation',
     sourceDirectory: 'thumbnail/archival-map-investigation',
   },
+  {
+    packId: 'com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions',
+    itemId: 'com.storystudio.topic.archival-ledger.money-debt-financial-institutions',
+    kind: 'topic-pack',
+    version: '1.0.1',
+    sku: 'com.storystudio.sku.topic.archival-ledger.money-debt-financial-institutions',
+    family: 'com.storystudio.family.topic.archival-ledger.money-debt-financial-institutions',
+    sourceDirectory: 'topic/money-debt-financial-institutions-v1.0.1',
+  },
 ]
