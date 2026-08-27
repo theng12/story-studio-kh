@@ -762,7 +762,7 @@ const { get, post } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
 const { audioMergeGenerating } = useGenerating()
-const { project, loadProject, episodesRoot } = useProject()
+const { project, episodesRoot } = useProject()
 
 // ── State ──
 const episodeId = ref('')
@@ -844,7 +844,9 @@ function loadEpisodeDataDebounced() {
 }
 
 watch(() => episodeId.value, (v) => { if (v) loadEpisodeDataDebounced() }, { immediate: true })
-watch(slug, (s) => { if (s) void loadProject(s) }, { immediate: true })
+// No loadProject watcher here: useProject() is a module-level singleton and
+// the dashboard layout this page declares already loads the project on the
+// same slug. A second watcher only repeated the same two GETs on every visit.
 
 // A completed merge may advance the selected Music Pool track. Refresh its
 // panel and current pick without making the user leave the workspace.
