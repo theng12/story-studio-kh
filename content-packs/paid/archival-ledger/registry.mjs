@@ -98,4 +98,13 @@ export const paidComponentRegistry = [
     family: 'com.storystudio.family.topic.archival-ledger.wars-treaties-world-order',
     sourceDirectory: 'topic/wars-treaties-world-order-v1.0.1',
   },
+  {
+    packId: 'com.storystudio.pack.topic.archival-ledger.empires-trade-extraction',
+    itemId: 'com.storystudio.topic.archival-ledger.empires-trade-extraction',
+    kind: 'topic-pack',
+    version: '1.0.1',
+    sku: 'com.storystudio.sku.topic.archival-ledger.empires-trade-extraction',
+    family: 'com.storystudio.family.topic.archival-ledger.empires-trade-extraction',
+    sourceDirectory: 'topic/empires-trade-extraction-v1.0.1',
+  },
 ]
