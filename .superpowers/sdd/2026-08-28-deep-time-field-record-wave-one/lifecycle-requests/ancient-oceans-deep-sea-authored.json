@@ -1,0 +1,13 @@
+{
+  "expected_revision": 92,
+  "coordinator": {
+    "task": "deep-time-field-record-wave-one",
+    "branch": "content/deep-time-oceans-2026-08-28"
+  },
+  "receipt_ref": "authoring:2692b7a571bc9d38bd568336c4ca200089edd695a38bd90335a7328022167f6b",
+  "pack_id": "com.storystudio.pack.topic.deep-time-field-record.ancient-oceans-deep-sea",
+  "version": "1.0.0",
+  "changes": {
+    "status": "authored"
+  }
+}

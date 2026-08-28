@@ -9,8 +9,8 @@ Approved paid depth path for that lane: *"Enriched Prehistoric Life & Extinction
 & Deep Sea; Human Origins & Ancient Worlds; Speculative Earth Scenarios."*
 
 This proposal takes that path as the wave's scope — four Topic components — and authors the
-first of them. Packs two to four are scoped here and authored later, each against this same
-document plus the per-pack notes in "Wave sequencing" below.
+first two of them. Packs three and four are scoped here and authored later, each against this
+same document plus the per-pack notes in "Wave sequencing" below.
 
 ## 1. What the wave is
 
@@ -24,7 +24,7 @@ Four Topic components, each an independent catalog identity:
 | # | Component | Direction | Status |
 | --- | --- | --- | --- |
 | 1 | Prehistoric Life & Extinction (enriched) | Ancient ecosystems, evolutionary transitions, extinction mechanisms, and the specimens and sections that record them | **Authored in this wave** |
-| 2 | Ancient Oceans & Deep Sea | Ocean chemistry, reef systems, marine reptiles and fishes, anoxia and ventilation, the deep-sea record read from cores | Scoped; not authored |
+| 2 | Ancient Oceans & Deep Sea | Ocean chemistry and anoxia, currents and gateways, reefs as archives, sea-level cycles, the deep-sea record read from cores, and the instruments and expeditions that read them | **Authored in this wave** |
 | 3 | Human Origins & Ancient Worlds | Hominin fossils, sites, dating controversies, dispersal and the archaeological record of the deep past | Scoped; not authored |
 | 4 | Speculative Earth Scenarios | Counterfactual Earths built from real physical constraints and published model runs | Scoped; **evidence contract unresolved — see §8** |
 
@@ -55,7 +55,7 @@ different cover art.
 
 ## 3. Material content
 
-Pack 1 as authored:
+Both authored packs carry the same shape. Pack 1 as authored:
 
 * **100 named subjects**, spread across eight geological eras and nine evidence regions.
 * **20 authored whole tuples per subject** on the family's four axes —
@@ -88,6 +88,29 @@ mechanism and method? Subjects that could not were cut before authoring, not pad
 At 2,000 authored assignments and the Deep Time Documentary Formula's two episode lanes, a
 channel publishing three episodes a week has more than twelve years of non-repeating directions
 from this component alone.
+
+### Pack 2 as authored
+
+Pack 2 is the same 100 x 20 = 2,000 on the same four axes, in coverage-profile mode, and meets
+every structural commitment below at the same numbers. Its material is the ocean as a system
+rather than the organism: 100 subjects across ten bands, from Precambrian ocean chemistry to the
+instruments and expeditions that read the deep-sea record, spread over nine evidence regions.
+Its editorial content divides roughly into ocean chemistry and redox, gateways and circulation,
+reefs and carbonate platforms, sea-level cycles, the deep-sea sediment record, seafloor
+ecosystems and ichnology, and the expeditions, vessels and proxies that recover them.
+
+Two bars are stated differently for pack 2 because the subject matter differs, and both are
+declared rather than assumed:
+
+* **"Global and ocean basins" carries 39 subjects against pack 1's 20.** An ocean basin, a
+  gateway, a circulation mode and a global isotope excursion have no single onshore address.
+  The bar applied instead is the count of subjects that DO sit at a named regional address:
+  61 of 100, against a declared floor of 55.
+* **A process-heavy ceiling replaces pack 1's transition-subject ceiling.** Pack 1 counted
+  subjects naming an evolutionary transition rather than a locality and capped them at 15/100.
+  The same class here is the subject naming a process, a concept or an analytical method rather
+  than a named basin, section, event, instrument or expedition. Pack 2 spends 11 against a
+  ceiling of 12 — about one in ten.
 
 ### Structural commitments, each machine-checked
 
@@ -125,16 +148,24 @@ Each of the four Topic components is its own catalog identity and entitlement fa
 can be owned, updated, withdrawn or reviewed without the others. The wave is not a monolith and
 this proposal does not create a kit.
 
-**Pack 1's authoring identity is now reserved and the record is `authored`.** The reservation
-chains from the repaired ledger (`d0b741f0` re-mint plus the committed-ledger guard at
-`45ea6ae3`):
+**Both authored packs now hold a reserved identity promoted to `authored`.** Pack 1's
+reservation chains from the repaired ledger (`d0b741f0` re-mint plus the committed-ledger guard
+at `45ea6ae3`):
 
 | Event | Revision | Reference |
 | --- | --- | --- |
 | reserve `topic.deep-time-field-record.prehistoric-life-extinction@1.0.0` | 90 | `authoring:62e4f791...81e33ae` |
 | transition that record to `authored` | 91 | `lifecycle:1ba362ae...714f1661` |
 
-Registry after the wave: **revision 91, 139 records, 18 batches, 72 transitions.**
+Pack 2's reservation chains from pack 1's, one batch of its own, exactly as the proposal said
+packs 2 to 4 would be reserved:
+
+| Event | Revision | Reference |
+| --- | --- | --- |
+| reserve `topic.deep-time-field-record.ancient-oceans-deep-sea@1.0.0` | 92 | `authoring:2692b7a5...2167f6b` |
+| transition that record to `authored` | 93 | `lifecycle:d484def3...49465c0` |
+
+Registry after both packs: **revision 93, 140 records, 19 batches, 73 transitions.**
 
 The reserved strings are:
 
@@ -143,13 +174,18 @@ pack_id  com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-exti
 item_id  com.storystudio.topic.deep-time-field-record.prehistoric-life-extinction
 sku      com.storystudio.sku.topic.deep-time-field-record.prehistoric-life-extinction
 family   com.storystudio.family.topic.deep-time-field-record.prehistoric-life-extinction
+
+pack_id  com.storystudio.pack.topic.deep-time-field-record.ancient-oceans-deep-sea
+item_id  com.storystudio.topic.deep-time-field-record.ancient-oceans-deep-sea
+sku      com.storystudio.sku.topic.deep-time-field-record.ancient-oceans-deep-sea
+family   com.storystudio.family.topic.deep-time-field-record.ancient-oceans-deep-sea
 ```
 
 `stocking_proposal` holds the family and SKU at status `proposed`, which is what that field is
 for: GenStudio still assigns the eventual product, release and SKU identities after approval.
 An authoring reservation is not a catalog listing, and this document creates none.
 
-### Packs 2-4: identities NOT reserved, and why
+### Packs 3-4: identities NOT reserved, and why
 
 The sixteen-record `topic-pack-1000-repair` batch (revision 34) is the precedent for reserving a
 whole planned wave up front and promoting each record to `authored` as its source lands. That
@@ -163,9 +199,11 @@ overlap boundary for pack 2, two missing contracts for pack 3, and an explicit *
 three identities for components this document says are not ready would make the ledger assert a
 readiness the proposal denies.
 
-So pack 1 only. Packs 2-4 are reserved at their own authoring, one batch each, exactly as the
-symbolic-psychology wave reserved its leaves. Nothing is lost by waiting: reservation is cheap,
-and the identity strings are already written down above the line that reserves them.
+So one pack per batch. Pack 2 was reserved at its own authoring, in its own batch, exactly as
+this section said it would be — and only after its overlap boundary was resolved and gated, which
+was the reason it was held back. Packs 3 and 4 wait on the same terms. Nothing is lost by
+waiting: reservation is cheap, and the identity strings are already written down above the line
+that reserves them.
 
 ## 6. Proofable claim
 
@@ -182,11 +220,13 @@ authoring intention.
 | every assignment is an authored whole tuple | planner gate, tuple membership assertion per assignment |
 | works with the free Deep Time Documentary Formula | planner gate runs against that exact free Formula document |
 | the archive is reproducible | build twice, byte-identical, then validate the signature |
-| the gates can actually see defects | mutation test: six deliberate defects injected one at a time, each caught, clean document re-measured |
+| no pack authors another pack's subject | standalone gate plus the committed cross-pack overlap gate: normalised-subject identity, near-duplicate and shared-anchor comparison, a curated boundary-event vocabulary, and two categories held by exclusion |
+| the gates can actually see defects | mutation tests: eleven deliberate content defects and six deliberate boundary defects injected one at a time, each caught, clean document re-measured |
 
-The mutation test is the load-bearing one. A gate that has never been shown to fail is not
-evidence, and this family needed a new false-positive class closed before its casing rule could
-be trusted at all — see §9.
+The mutation tests are the load-bearing ones. A gate that has never been shown to fail is not
+evidence; this family needed a new false-positive class closed before its casing rule could be
+trusted at all (§9), and the boundary gate had to be shown catching a defect that neither of its
+cheaper rules could see (§9c).
 
 ## 7. Complete use
 
@@ -239,21 +279,28 @@ alone; the check is recorded here so the finding is not lost.
 
 ## 9a. House-style audit against the family's published sibling
 
-Both packs were measured with the same final checker. The audit runs in both directions, and
-neither direction came back empty.
+All three packs were measured with the same final checker. The audit runs in both directions,
+and no direction came back empty.
 
-| Measure | Free sibling `deep-time-earth-systems@1.0.1` | This pack |
-| --- | --- | --- |
-| subjects / tuples | 50 / 1,000 | 100 / 2,000 |
-| distinct `episode_object` | 1,000 / 1,000 | 2,000 / 2,000 |
-| distinct `time_place_scope` | 995 / 1,000 | 2,000 / 2,000 |
-| distinct `mechanism` | 1,000 / 1,000 | 2,000 / 2,000 |
-| distinct `evidence_lens` | 994 / 1,000 | 2,000 / 2,000 |
-| scopes with no geological interval | 615 / 1,000 | 0 / 2,000 |
-| scopes naming no place | 227 / 1,000 | 0 / 2,000 |
-| casing hits (single / bigram / half) | 1 / 0 / 5 | 0 / 0 / 0 |
-| modifier splits, lowercase formal subdivisions | 2, 41 | 0, 0 |
-| median length: object / scope / mechanism / lens | 48 / 40 / 49 / 52 | 56 / 61 / 67 / 65 |
+| Measure | Free sibling `deep-time-earth-systems@1.0.1` | Pack 1 | Pack 2 |
+| --- | --- | --- | --- |
+| subjects / tuples | 50 / 1,000 | 100 / 2,000 | 100 / 2,000 |
+| distinct `episode_object` | 1,000 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 |
+| distinct `time_place_scope` | 995 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 |
+| distinct `mechanism` | 1,000 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 |
+| distinct `evidence_lens` | 994 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 |
+| scopes with no geological interval | 615 / 1,000 | 0 / 2,000 | 0 / 2,000 |
+| scopes naming no place | 210 / 1,000 | 0 / 2,000 | 0 / 2,000 |
+| casing hits (single / bigram / half) | 1 / 0 / 5 | 0 / 0 / 0 | 0 / 0 / 0 |
+| modifier splits, lowercase formal subdivisions | 2, 41 | 0, 0 | 0, 0 |
+| median length: object / scope / mechanism / lens | 48 / 40 / 49 / 52 | 56 / 61 / 67 / 65 | 53 / 54 / 69 / 68 |
+
+The free sibling's "scopes naming no place" reads 210 here against the 227 recorded when pack 1
+was measured. Nothing changed in the sibling: the place rule learned the sea for pack 2 (water
+masses, gateways, bathymetric features, depth horizons and drill sites), and seventeen of the
+sibling's scopes that the palaeontological rule could not see are legitimate oceanographic
+settings. The number is restated rather than left standing, because the earlier one was measured
+with a ruler that could not read them.
 
 ### Finding against this pack: register drift, open for review
 
@@ -274,6 +321,13 @@ automated gate measures register.
 **This is a taste call for the independent wave review, not a defect the author should settle
 alone.** If the review wants the family's shorter register, the fix is a mechanism-only rewrite
 pass; the content and its evidence would not change.
+
+Pack 2 lands in the same place and is recorded the same way. It is tighter than pack 1 on the two
+axes a reader meets first (object 53 against 56, scope 54 against 61) and marginally wider on the
+two that carry the argument (mechanism 69 against 67, lens 68 against 65). Three of the ten
+writers measured the free sibling themselves and tightened their own mechanisms and lenses before
+submitting; the rest did not. So the same divergence, from the same cause, and the same open
+question: it is one decision for the family, not two, and it belongs to the wave review.
 
 ### Findings against the free sibling, recorded and not acted on
 
@@ -318,17 +372,106 @@ a committed-ledger guard under `electron/server/__tests__/`. The rest is closed 
 The backend gate's own anchors are unchanged by this, because the new script is separate from
 `test:backend`.
 
+## 9c. The cross-pack overlap gate, built before pack 2 was authored
+
+Section 10 held pack 2 back for one reason: marine reptiles, anoxia events and reef extinctions
+can honestly be written from either side of the wave's boundary, and "no two packs may name the
+same subject" is too blunt while "trust the author" is not a gate at all. The gate was built
+first, and is committed at
+`electron/server/__tests__/deep-time-cross-pack-overlap.test.ts`, beside the anti-padding guard
+and inside the same backend suite. It discovers packs from the authoring registry, so pack 3 is
+measured against packs 1 and 2 on the day its record lands, with no edit beyond adjudicating what
+it flags.
+
+### What it measures
+
+Three rules, in increasing tolerance:
+
+1. **Identical normalised subject** — lowercased, de-articled, crudely singularised, sorted.
+   Always a defect, never adjudicable.
+2. **Near-duplicate (token overlap at or above 35%), or a shared named anchor** — an anchor
+   being a locality, unit, event, vessel or programme name. Geological eon, era, period and
+   epoch names are excluded from anchors (half of every pack in this family names one, so a
+   shared period says nothing); stage and substage names are deliberately kept, because naming
+   a stage names one interval. Ocean and continent names are excluded as too coarse. A flagged
+   pair must appear in `ADJUDICATED` with a written reason **and** the borrowing pack's subject
+   must carry a system or record word.
+3. **A curated list of boundary events** — events both halves of the wave may reach for. Naming
+   one outside the pack that owns it requires the same system-or-record word.
+
+Rule 3 exists because rule 2 cannot see the hardest cases. "the end-Permian extinction and the
+Siberian Traps" and "the Meishan sections and end-Permian ocean chemistry" share no anchor and
+few words, yet they are exactly the pair the boundary was written for.
+
+The rulings are held honest two ways: a ruling naming a subject no pack authors any more fails,
+and so does a ruling on a pair the gate no longer flags. A ruling that protects nothing hides
+the next real overlap.
+
+### The adjudicated cases
+
+Four pairs are flagged and ruled on. Each is a boundary case the proposal named in advance.
+
+| Pack 1 subject | Pack 2 subject | The ruling |
+| --- | --- | --- |
+| the Western Interior Seaway and the Niobrara Chalk | the Western Interior Seaway and its water chemistry | Pack 1 builds on the Niobrara chalk and what is preserved in it; pack 2 builds on the epeiric sea's salinity, stratification and oxygen budget. Same body of water, different object: a chalk slab against a water column. |
+| the Messinian salinity crisis and its faunas | the Messinian desiccation of the Mediterranean basin | Pack 1 owns what happened to the animals; pack 2 owns the basin's water budget and the evaporite sequence that records it. |
+| the end-Ordovician extinction and the Hirnantian glaciation | the Hirnantian eustatic fall recorded on the shelf | Pack 1 owns the extinction; pack 2 owns the sea-level record left on the shelf. The glaciation is the shared cause, not the shared subject. |
+| the Late Devonian extinctions and the Kellwasser events | the Kellwasser black shales as a water-column record | Pack 1 owns the extinction pulses; pack 2 owns the redox chemistry of the water column the black shales record. |
+
+Five boundary events are declared with an owner: Kellwasser, the Hirnantian, the Messinian and
+the end-Permian and end-Triassic events belong to pack 1; the Hangenberg event and the Capitanian
+crisis belong to pack 2.
+
+### Two categories held by not authoring them at all
+
+The proposal named marine reptiles and reef extinctions as ambiguous. For two of those the
+cheaper answer was to leave them wholly to pack 1, and the gate records that so the reasoning
+survives the authors: **marine reptiles** (ichthyosaurs, plesiosaurs, mosasaurs, pliosaurs) and
+**the Permian reef complex of the Guadalupe Mountains**. Pack 2 authors no subject in either and
+the gate rejects one if a future pack tries. Reefs in general are not excluded — pack 2 carries
+Gotland, the Canning Basin, the Dachstein platform, the Cretaceous rudist platforms, the Bahama
+Bank, Enewetak and the drowned Great Barrier Reef terraces — because a reef treated as a
+carbonate factory is not the same subject as a reef treated as a habitat that died.
+
+### The gate was shown to fail
+
+Six deliberate defects were injected into pack 2's source one at a time and the committed gate
+was run against each. Each targets a different rule, because a mutation set that exercises only
+one rule proves nothing about the other two.
+
+| Injection | Caught by |
+| --- | --- |
+| a pack-1 subject copied verbatim | rule 1, identical normalised subject |
+| a pack-1 subject reworded, same content words in a new order | rule 1, identical normalised subject |
+| a new shared anchor ("Solnhofen") with no ruling | rule 2, unruled overlap |
+| an adjudicated subject rewritten out from under its ruling | the ruling-honesty assertion |
+| a boundary event named without a system treatment | rule 3, the only rule that can see it |
+| a marine-reptile subject | the recorded exclusion |
+
+**6/6 caught; the restored document re-measures clean.**
+
+### A defect the gate found in itself
+
+Writing the four rulings first and the vocabulary second produced a real hole: the ruling for
+the Kellwasser pair said pack 2 may keep the subject *because* it is a water-column record, and
+the word "record" was not in the system vocabulary. The gate would have rejected its own
+adjudicated subject. Found by auditing every boundary subject against the vocabulary before the
+content existed, and fixed by admitting "record", "records", "section", "sections",
+"water-column" and "seawater" — all of which are exactly what the boundary means by "and its
+record".
+
 ## 10. Wave sequencing
 
 **Pack 1 — Prehistoric Life & Extinction (enriched).** Authored in this wave at 100 x 20.
 
-**Pack 2 — Ancient Oceans & Deep Sea.** Same shape and same four axes. Its distinctness from
-pack 1 must be argued explicitly at proposal time, because marine reptiles, reef systems and
-anoxia events could be written from either direction. The boundary proposed: pack 1 owns the
+**Pack 2 — Ancient Oceans & Deep Sea.** Authored in this wave at 100 x 20, on the same four
+axes. The boundary this section required is the one it was authored under: pack 1 owns the
 *organism and the extinction*, pack 2 owns the *ocean as a system and its record* — water
-chemistry, circulation, ventilation, sea level, the deep-sea core record, and the modern deep
-sea read as a deep-time archive. A cross-pack subject-overlap gate should be added before pack 2
-is authored, not after.
+chemistry, circulation, ventilation, sea level, the carbonate factory, the deep-sea core record,
+and the modern deep sea read as a deep-time archive. The cross-pack overlap gate this section
+asked for was built and mutation-tested **before** any pack-2 tuple was written, and it runs for
+every future Deep Time pack automatically; see section 9c for its rules, its four adjudicated
+cases and the two categories held by exclusion.
 
 **Pack 3 — Human Origins & Ancient Worlds.** Same shape. Two additional contracts are needed
 before authoring: a dating-dispute posture at least as strict as pack 1's (hominin
