@@ -15,9 +15,24 @@ const STYLES = [
   'cinematic-photoreal', 'watercolor-storybook', 'flat-vector-explainer',
 ]
 
+/**
+ * The pack directory each Style is pinned to, where that is not the bare slug.
+ *
+ * A published `(pack_id, version, sha256)` is frozen, so the 2026-08-28 mark
+ * scrub shipped successors in `<slug>-v<version>` siblings rather than editing
+ * published bytes. These two were published on 2026-08-29 and are now the
+ * current release of their products, so this golden follows the shelf: it pins
+ * the built-in Style to the bytes a CUSTOMER DOWNLOADS.
+ */
+const PUBLISHED_DIRECTORY = {
+  'minimal-stick-figure-explainer': 'minimal-stick-figure-explainer-v1.0.1',
+  'prehistoric-stick-cartoon': 'prehistoric-stick-cartoon-v1.0.1',
+}
+
 test('signed Style source documents retain every legacy renderer-safe field', async () => {
   for (const slug of STYLES) {
-    const source = JSON.parse(await readFile(new URL(`style/${slug}/content/visual-style.json`, WAVE), 'utf8'))
+    const directory = PUBLISHED_DIRECTORY[slug] || slug
+    const source = JSON.parse(await readFile(new URL(`style/${directory}/content/visual-style.json`, WAVE), 'utf8'))
     const legacy = BUILT_IN_STYLES.find(candidate => candidate.id === `builtin-${slug}`)
     assert.ok(legacy, `missing legacy Style ${slug}`)
     assert.deepEqual({

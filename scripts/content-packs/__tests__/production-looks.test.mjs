@@ -259,10 +259,22 @@ test('no sold Production Look carries a third-party product mark in customer-vis
  * that scrub worked from. Rewritten to "hand-drawn 90s paint-program storybook
  * frames", the wording the renamed product's own style bible already uses.
  *
- * ONLY `visualStyleHint` is swept, deliberately. `metadataTitleStyleHint` and
- * the thumbnail guidance name YouTube because YouTube is where the episode is
- * published — a functional reference to the destination platform, not a mark
- * borrowed as art direction. Scrubbing those would destroy the meaning.
+ * This test still checks `visualStyleHint` ALONE, but no longer because the
+ * other hints are allowed to name the platform. When it was written,
+ * `metadataTitleStyleHint` and the thumbnail guidance were left naming YouTube
+ * on the theory that a reference to where the episode is published is
+ * functional rather than borrowed art direction — and, decisively, they were
+ * pinned to published pack bytes and could not be touched.
+ *
+ * The owner's 2026-08-28 ruling went the other way on the wording: the thirteen
+ * mark-scrub successors say "episode title" and "in a video feed", and on
+ * 2026-08-29 they were published and the live copy moved with them. Every one
+ * of those hints is now clean, and `published-mark-scrub.test.mjs` enforces it
+ * across every built-in document with no exception list.
+ *
+ * What stays platform-named is the app's real integration surface — upload, the
+ * finalizer, OAuth, playlists, category lookup. Naming the service you upload
+ * to is not the exposure the ruling was about.
  */
 test('no built-in Formula asks for a third-party product by name in its art direction', async () => {
   const NICHES = new URL('../../../electron/server/niches/', import.meta.url)

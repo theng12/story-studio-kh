@@ -51,7 +51,7 @@
       },
       "narration_profile_sha256": "467749aed7e3045d8689d055293b62fbcbb2d9a456d3c7f6cf6fa04934a3d8b4",
       "default_narrator_style_id": "historical-investigator",
-      "metadata_profile_sha256": "d0a8342d77e978c710a55c25dde2b3735671aa61208c103c2ac855430b1be96f",
+      "metadata_profile_sha256": "2f4b68598c8c47759ed06d8bd0a17b7c06fc50b8487a7ecc2f0f9a898ba1f106",
       "production_kit": {
         "id": "hidden-mechanics-history-kit",
         "label": "Hidden Mechanics History Production Kit",
@@ -206,7 +206,7 @@
       },
       "narration_profile_sha256": "9c7962f81fa74d1192e779ec73786d3c2450eb1f19a7b416b27207366272040a",
       "default_narrator_style_id": "natural-history",
-      "metadata_profile_sha256": "43fd0980c66e2abbf0dcebfa7e82b8a3d8ce84c28941e154866b973e54baf654",
+      "metadata_profile_sha256": "38721497a147e7adcf28f38818eba25c6fad7f52d964eb1c9e75b8c20bb5dfbe",
       "production_kit": {
         "id": "deep-time-documentary-kit",
         "label": "Deep-Time Documentary Production Kit",
@@ -215,9 +215,9 @@
           "deep-rest",
           "immersive"
         ],
-        "policies_sha256": "e904313c6fbe74ff1eaa79930309217434f64701237813ede3bc6435bbe6d750"
+        "policies_sha256": "0e921c1f93094b9d4ae658e3b7bfdd5bea6e1f220ddcfd090cfc166185cb28d2"
       },
-      "visual_profile_sha256": "e91840ac3ae599f14b78dca2660aa2489b4d16e7cee7ec03f90b93f487e0544f",
+      "visual_profile_sha256": "9eecc2c366ce2276ea3976274557be7444e57c0d584b194a074faaa6f054f8a8",
       "default_thumbnail_template_id": "documentary-label-tableau"
     },
     "default_topic_packs": [
@@ -368,7 +368,7 @@
         },
         "narration_profile_sha256": "36501460a5c3cae29906fb98d31deb73f29fc89451936f71cceee3f4dc20e547",
         "default_narrator_style_id": "A",
-        "metadata_profile_sha256": "7f521e6d63e6e13535ec9d064d770883c4058449809c501ae6d25b76a20e7745",
+        "metadata_profile_sha256": "14125ad39ea24f9a1401ef0ae8411ecba822f84e3b7b31558460ba483f6d0ef9",
         "production_kit": null,
         "visual_profile_sha256": "0ebab10adf8dea117fc9017a1e46edd05edebe88f74b6ca75ad6cc2409c31297",
         "default_thumbnail_template_id": "curiosity-question-cartoon"
@@ -417,7 +417,7 @@
         },
         "narration_profile_sha256": "4d3465a09a92dfeb02ed8f4b8c77792fbe34eb6314bfe0e039f4dfde43da1aa0",
         "default_narrator_style_id": "B",
-        "metadata_profile_sha256": "7f425c63c925ae5db8b7ddf7c63eca2ded49dcaa4d3907df77504805d80c4cb1",
+        "metadata_profile_sha256": "ae79ccb70ddb4f84d3e2c8ac5a848718872da34a9a3426155e56277be62e5016",
         "production_kit": null,
         "visual_profile_sha256": "76301fd4c7b1517e7057bb43258f0960b179fe35d89cbfd6a307b318674aa680",
         "default_thumbnail_template_id": null
@@ -470,7 +470,7 @@
         },
         "narration_profile_sha256": "9c7962f81fa74d1192e779ec73786d3c2450eb1f19a7b416b27207366272040a",
         "default_narrator_style_id": "natural-history",
-        "metadata_profile_sha256": "43fd0980c66e2abbf0dcebfa7e82b8a3d8ce84c28941e154866b973e54baf654",
+        "metadata_profile_sha256": "38721497a147e7adcf28f38818eba25c6fad7f52d964eb1c9e75b8c20bb5dfbe",
         "production_kit": {
           "id": "deep-time-documentary-kit",
           "label": "Deep-Time Documentary Production Kit",
@@ -479,9 +479,9 @@
             "deep-rest",
             "immersive"
           ],
-          "policies_sha256": "e904313c6fbe74ff1eaa79930309217434f64701237813ede3bc6435bbe6d750"
+          "policies_sha256": "0e921c1f93094b9d4ae658e3b7bfdd5bea6e1f220ddcfd090cfc166185cb28d2"
         },
-        "visual_profile_sha256": "e91840ac3ae599f14b78dca2660aa2489b4d16e7cee7ec03f90b93f487e0544f",
+        "visual_profile_sha256": "9eecc2c366ce2276ea3976274557be7444e57c0d584b194a074faaa6f054f8a8",
         "default_thumbnail_template_id": "documentary-label-tableau"
       },
       {
@@ -520,7 +520,7 @@
         },
         "narration_profile_sha256": "ad302c1f7cee715a258f849b09c55e55665bbbec1c38155f0faebe5bb664345f",
         "default_narrator_style_id": "A",
-        "metadata_profile_sha256": "25fe4144633367bd0e95b547e0bb75e2197a046ea3f5716eb77699f4c3defaca",
+        "metadata_profile_sha256": "83a4ebe5772f5d165da970f59a90ebcc7b891329e30fa2007b24946054394b2a",
         "production_kit": null,
         "visual_profile_sha256": "a49e7494b113b0dbd310fd8e1a7d0dc20d97672baaf879c2c27d03c57b201599",
         "default_thumbnail_template_id": "annotated-business-board"
@@ -539,7 +539,7 @@
           "human-behavior-social-dynamics"
         ],
         "effective_prompt_fields_sha256": "540ae2206887cead83740b2db10d81307b467dfd88bbaaff64fcc1b8b9b8e1af",
-        "ideation_profile_sha256": "5c3939d740f088a0d6463ab02099253dac39e2c989177b5059812a90a7606156",
+        "ideation_profile_sha256": "4c4df844d92967021753807d0df0d53c556de2eab2d2b19ceed9567c1c7d0520",
         "script_shape": {
           "default_chapter_count": 8,
           "chapter_count_range": [
@@ -560,7 +560,7 @@
         },
         "narration_profile_sha256": "7b58cfed4a43eab3a6e930f796cd31bdd147840686efff7e0af84bda2a50f886",
         "default_narrator_style_id": "A",
-        "metadata_profile_sha256": "33399d56692ffe1550a9c84a82502ed6ef1e31ce5c900ba815b3ed74d62cd4ee",
+        "metadata_profile_sha256": "730bde80587325adff787bab07daa2dd44c75c7108a9d7e257a1a6f921174b39",
         "production_kit": null,
         "visual_profile_sha256": "0ebab10adf8dea117fc9017a1e46edd05edebe88f74b6ca75ad6cc2409c31297",
         "default_thumbnail_template_id": null
@@ -594,7 +594,7 @@
         },
         "narration_profile_sha256": "33ef7a63c41aedf89cc7a39f4da1cb36e246afc19ea40ab8eee72935df27d4c3",
         "default_narrator_style_id": "A",
-        "metadata_profile_sha256": "24410ed7250ccb42613efa6bddf9a722c97be287c98bdf4505e3fde0230b82ab",
+        "metadata_profile_sha256": "a327e5cb7fc30ffc9cdaeb21f278dc4c10be498e9b4d59a3a332ef40c3ac0414",
         "production_kit": null,
         "visual_profile_sha256": "0ebab10adf8dea117fc9017a1e46edd05edebe88f74b6ca75ad6cc2409c31297",
         "default_thumbnail_template_id": null
@@ -640,7 +640,7 @@
         },
         "narration_profile_sha256": "d1c83af204d4e8cae294500d33100f5f25611443ebb83e9614e86c0d66c31867",
         "default_narrator_style_id": null,
-        "metadata_profile_sha256": "ec2c9d1c08ce0ec45c8a29dbafc297cf20f94b037c02807f05adcc944b0e211a",
+        "metadata_profile_sha256": "db986fd63731ed0a61b854c845e5a2c2755f776471048225b205696b48171a2d",
         "production_kit": null,
         "visual_profile_sha256": "0ebab10adf8dea117fc9017a1e46edd05edebe88f74b6ca75ad6cc2409c31297",
         "default_thumbnail_template_id": null
@@ -674,7 +674,7 @@
         },
         "narration_profile_sha256": "9d2dad9485a6206279ce17c7b07cb90bf8cf9ef744b58788533fcda9546a85b8",
         "default_narrator_style_id": "A",
-        "metadata_profile_sha256": "10b99357604a72d2f18a681e4a0c610bf9e848a10888311bd71f67a193e30f31",
+        "metadata_profile_sha256": "f57d0511611131dd6904a3b84c7b80e2c6f831245ad9f94df757fcbbd2c97b5b",
         "production_kit": null,
         "visual_profile_sha256": "0ebab10adf8dea117fc9017a1e46edd05edebe88f74b6ca75ad6cc2409c31297",
         "default_thumbnail_template_id": null
@@ -708,7 +708,7 @@
         },
         "narration_profile_sha256": "7c4c58a0f0c7f9a980ed8d0f4c582c64265b8796f595d180f837434754b54d66",
         "default_narrator_style_id": "A",
-        "metadata_profile_sha256": "d106054bfebb2d5c3ffa4b31893df348a910d35e149b05c2b41071915d17b011",
+        "metadata_profile_sha256": "0592565900725a7205dfe192f093526e2b850fcba233f529c1095f2b2b9830a3",
         "production_kit": null,
         "visual_profile_sha256": "0ebab10adf8dea117fc9017a1e46edd05edebe88f74b6ca75ad6cc2409c31297",
         "default_thumbnail_template_id": null
@@ -876,7 +876,7 @@
       {
         "id": "builtin-prehistoric-stick-cartoon",
         "name": "Prehistoric Stick Cartoon",
-        "style_bible_sha256": "b50a25ce9c191671dc92ff951477cd4da5fe6c9708463c32bb86e588e65b192e",
+        "style_bible_sha256": "fd2de514ffe2a79a78547b391e99ceb04f0887ab98cf8b27399793dd4a9bef36",
         "negative_prompt_sha256": "2fd839c8ee990667a70bba3ca83c4e2cab8570ea646f6db1c017f018c93e82db"
       },
       {
@@ -894,7 +894,7 @@
       {
         "id": "builtin-minimal-stick-figure-explainer",
         "name": "Minimal Stick-Figure Explainer",
-        "style_bible_sha256": "748e43e4d3765cdf2f8ead0ab365d482ad7871abe552b526969d9ce776ab6bb8",
+        "style_bible_sha256": "fe227b7bba310e554111330102b8540672602ae550b96d6f1c7cd9085a5b4b56",
         "negative_prompt_sha256": "317eb8d057d7b161a10eb9665fa10074cec4779665dcb1b6989b6955fbb10167"
       },
       {
@@ -928,14 +928,14 @@
         "name": "Curiosity Question Cartoon",
         "title_mode": "ai",
         "layout": "hero",
-        "recipe_behavior_sha256": "9f66ef14d3a0f7003df84468112bdc5c2ac7997c189a6d9001d7c861cb4a4a27"
+        "recipe_behavior_sha256": "704233e7a6be6803c4b817089f733f2f0f14632e0b98bd5645c043af4b37196f"
       },
       {
         "id": "documentary-label-tableau",
         "name": "Documentary Label Tableau",
         "title_mode": "ai",
         "layout": "hero",
-        "recipe_behavior_sha256": "ba955f4f9565c2005c937500b89613dba2d9fff0c7fe1128a9ed8b582bf147ab"
+        "recipe_behavior_sha256": "caa82ac0dde459a3ca0b307a2df1af48752b24fa19b43ef24e6b3020e28814a7"
       },
       {
         "id": "annotated-business-board",

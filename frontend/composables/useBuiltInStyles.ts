@@ -139,7 +139,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     tags: ['history', 'cartoon', 'stick figure', 'educational', 'prehistoric'],
     data: {
       style_bible:
-        'simple 2D educational cartoon, prehistoric explainer animation style, white round faces with tiny dot eyes and simple smiles, thin stick-limbed human bodies, shaggy brown cave-hair silhouettes, thick clean black outlines, flat digital colors, soft limited palette, pale icy blues and warm browns, friendly mammoths and primitive camp scenes, uncluttered wide composition, readable storytelling silhouettes, light playful tone, minimal shading, smooth clean fills, YouTube explainer thumbnail energy',
+        'simple 2D educational cartoon, prehistoric explainer animation style, white round faces with tiny dot eyes and simple smiles, thin stick-limbed human bodies, shaggy brown cave-hair silhouettes, thick clean black outlines, flat digital colors, soft limited palette, pale icy blues and warm browns, friendly mammoths and primitive camp scenes, uncluttered wide composition, readable storytelling silhouettes, light playful tone, minimal shading, smooth clean fills, explainer-video thumbnail energy',
       negative_prompt:
         'photorealism, painterly brushwork, 3D render, realistic anatomy, cinematic lighting, detailed textures, gritty darkness, heavy gradients, anime rendering, realistic skin pores, horror mood, complex background clutter',
     },
@@ -214,7 +214,7 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     tags: ['stick figure', 'minimal', 'editorial', 'white space', 'diagram'],
     data: {
       style_bible:
-        'polished minimalist 2D stick-figure editorial explainer, smooth thick black outlines with consistent line weight, round white faces with simple highly expressive eyes eyebrows and mouths, clean line bodies and limbs, icon-like props and visual metaphors, pure white background, generous negative space, one instantly readable idea per frame, simple diagram-like staging, sparse environmental cues, mostly black-and-white artwork with restrained flat muted color accents, red for urgency or emphasis, warm yellow for discovery or success, subdued blue and green for context, subtle light-gray grounding shadows only, crisp professional YouTube explainer illustration, clear at thumbnail size, no texture and no realistic lighting',
+        'polished minimalist 2D stick-figure editorial explainer, smooth thick black outlines with consistent line weight, round white faces with simple highly expressive eyes eyebrows and mouths, clean line bodies and limbs, icon-like props and visual metaphors, pure white background, generous negative space, one instantly readable idea per frame, simple diagram-like staging, sparse environmental cues, mostly black-and-white artwork with restrained flat muted color accents, red for urgency or emphasis, warm yellow for discovery or success, subdued blue and green for context, subtle light-gray grounding shadows only, crisp professional explainer-video illustration, clear at thumbnail size, no texture and no realistic lighting',
       negative_prompt:
         'photorealism, 3D render, painterly brushwork, whiteboard marker texture, rough sketching, scratchy lines, realistic anatomy, cinematic lighting, gradients, detailed scenery, cluttered background, dense colors, complex perspective, illegible text, random letters, watermark',
     },
