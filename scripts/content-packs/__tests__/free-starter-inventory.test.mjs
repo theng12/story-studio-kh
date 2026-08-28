@@ -292,6 +292,7 @@ test('free Starter Channel Kit sources preserve 47 lineages and every versioned 
     'content-packs/free-starters/kit/human-behavior-v1.0.2/pack.json',
     'content-packs/free-starters/kit/sleep-journeys-v1.0.2/pack.json',
     'content-packs/free-starters/topic/habits-momentum-v1.0.2/pack.json',
+    'content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.2/pack.json',
   ])
   assert.ok(secondSuccessors.every(({ source }) => source.version === '1.0.2'))
 })
