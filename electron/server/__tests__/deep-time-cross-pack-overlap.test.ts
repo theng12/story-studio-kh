@@ -246,7 +246,7 @@ test('no Deep Time Field Record pack authors another pack\'s subject', async () 
   })))
 
   // --- rules 1 and 2: pairwise ---
-  const adjudicated = new Map(ADJUDICATED.map(entry => [`${entry.earlier} ${entry.later}`, entry]))
+  const adjudicated = new Map(ADJUDICATED.map(entry => [`${entry.earlier}\u0000${entry.later}`, entry]))
   const usedRulings = new Set<string>()
   let comparisons = 0
   const problems: string[] = []
@@ -268,8 +268,8 @@ test('no Deep Time Field Record pack authors another pack\'s subject', async () 
             problems.push(`${where}: the same subject written twice (identical normalised form) — this is never adjudicable`)
             continue
           }
-          const forward = adjudicated.get(`${a} ${b}`)
-          const backward = adjudicated.get(`${b} ${a}`)
+          const forward = adjudicated.get(`${a}\u0000${b}`)
+          const backward = adjudicated.get(`${b}\u0000${a}`)
           const ruling = forward ?? backward
           if (!ruling) {
             problems.push(
@@ -278,7 +278,7 @@ test('no Deep Time Field Record pack authors another pack\'s subject', async () 
             )
             continue
           }
-          usedRulings.add(`${ruling.earlier} ${ruling.later}`)
+          usedRulings.add(`${ruling.earlier}\u0000${ruling.later}`)
           const borrower = ruling.later === b ? b : a
           if (!carriesSystemWord(borrower)) {
             problems.push(
@@ -332,7 +332,7 @@ test('no Deep Time Field Record pack authors another pack\'s subject', async () 
       'a ruling that protects nothing hides the next real overlap — delete it or fix the wording',
     )
     assert.ok(
-      usedRulings.has(`${entry.earlier} ${entry.later}`),
+      usedRulings.has(`${entry.earlier}\u0000${entry.later}`),
       `ADJUDICATED rules on "${entry.earlier}" vs "${entry.later}", but the gate no longer flags that pair; ` +
       'the ruling is dead weight — delete it',
     )

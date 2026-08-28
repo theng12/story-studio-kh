@@ -25,7 +25,7 @@ Four Topic components, each an independent catalog identity:
 | --- | --- | --- | --- |
 | 1 | Prehistoric Life & Extinction (enriched) | Ancient ecosystems, evolutionary transitions, extinction mechanisms, and the specimens and sections that record them | **Authored in this wave** |
 | 2 | Ancient Oceans & Deep Sea | Ocean chemistry and anoxia, currents and gateways, reefs as archives, sea-level cycles, the deep-sea record read from cores, and the instruments and expeditions that read them | **Authored in this wave** |
-| 3 | Human Origins & Ancient Worlds | Hominin fossils, sites, dating controversies, dispersal and the archaeological record of the deep past | Scoped; not authored |
+| 3 | Human Origins & Ancient Worlds | Hominin fossils, sites, dating controversies, dispersal and the archaeological record of the deep past | **Authored**; both required contracts written and gated — see §9d |
 | 4 | Speculative Earth Scenarios | Counterfactual Earths built from real physical constraints and published model runs | Scoped; **evidence contract unresolved — see §8** |
 
 ## 2. Net-new outcome
@@ -165,7 +165,14 @@ packs 2 to 4 would be reserved:
 | reserve `topic.deep-time-field-record.ancient-oceans-deep-sea@1.0.0` | 92 | `authoring:2692b7a5...2167f6b` |
 | transition that record to `authored` | 93 | `lifecycle:d484def3...49465c0` |
 
-Registry after both packs: **revision 93, 140 records, 19 batches, 73 transitions.**
+Pack 3's reservation chains from pack 2's, again one batch of its own:
+
+| Event | Revision | Reference |
+| --- | --- | --- |
+| reserve `topic.deep-time-field-record.human-origins-ancient-worlds@1.0.0` | 94 | `authoring:0b7dcf10...39e4212f` |
+| transition that record to `authored` | 95 | `lifecycle:PLACEHOLDER` |
+
+Registry after all three packs: **revision 95.**
 
 The reserved strings are:
 
@@ -473,11 +480,15 @@ asked for was built and mutation-tested **before** any pack-2 tuple was written,
 every future Deep Time pack automatically; see section 9c for its rules, its four adjudicated
 cases and the two categories held by exclusion.
 
-**Pack 3 — Human Origins & Ancient Worlds.** Same shape. Two additional contracts are needed
-before authoring: a dating-dispute posture at least as strict as pack 1's (hominin
-chronologies are contested more often than they are settled), and an explicit statement of the
-boundary against the **First Humans** free foundation and its own approved paid depth path, so
-the two lanes do not author into each other.
+**Pack 3 — Human Origins & Ancient Worlds.** Authored at 100 x 20 on the same four axes. The
+two contracts this section required were written **before** any pack-3 tuple existed, and both
+were written as gates rather than as prose: a dating-dispute posture strictly stronger than pack
+1's, and an explicit boundary against the **First Humans** lane. Section 9d records what each
+one measures, why both were mechanical rather than owner decisions, and the mutation set that
+shows them failing. This pack's half of the wave's split is *the hominin evidence record — the
+specimen, the site, the date, and the dispute*. The cross-pack overlap gate needed no edit to
+cover it: it discovers packs from the authoring registry and began measuring pack 3 against
+packs 1 and 2 the day its record landed.
 
 **Pack 4 — Speculative Earth Scenarios.** *Blocked pending an evidence contract.* The family's
 Formula requires that observation, inference, debate and speculation stay separated in plain

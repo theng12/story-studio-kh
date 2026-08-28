@@ -50,7 +50,14 @@ const BARS: Record<string, Bar> = {
   },
 }
 
-type Record_ = { pack_id: string, version: string, kind: string, source_path: string, dependencies: Array<{ pack_id: string, version: string }> }
+type Record_ = {
+  pack_id: string
+  version: string
+  kind: string
+  source_path: string
+  dependencies: Array<{ pack_id: string, version: string }>
+  stocking_proposal?: { family?: { id?: string, status?: string }, sku?: { id?: string, status?: string } }
+}
 type TopicDocument = Extract<ContentPackDocument, { kind: 'topic-pack' }>
 
 function newer(left: string, right: string): boolean {
@@ -94,7 +101,7 @@ function affixShare(values: string[]): { share: number, phrase: string } {
   return best
 }
 
-test('every Topic Pack a Channel Kit sells reaches its idea count by authorship, not by template', async () => {
+test('every Topic Pack we sell reaches its idea count by authorship, not by template', async () => {
   const registry = JSON.parse(await readFile(REGISTRY_PATH, 'utf8')) as { records: Record_[] }
   const byIdentity = new Map(registry.records.map(record => [`${record.pack_id}@${record.version}`, record]))
 
@@ -105,13 +112,40 @@ test('every Topic Pack a Channel Kit sells reaches its idea count by authorship,
     if (!current || newer(record.version, current.version)) newestKits.set(record.pack_id, record)
   }
 
-  const measured: string[] = []
+  // What is SOLD is what this guard has to measure, and a Channel Kit is only one of the
+  // ways we sell a Topic Pack. The Archival Ledger and the Deep Time Field Record sell
+  // their Topic components independently, each as its own catalog identity, so none of
+  // them was pinned by any kit and none of them was measured here -- six paid packs
+  // carrying 12,000 authored tuples sat outside the padding guard entirely while it
+  // reported green. A pack sold on its own is still a pack sold.
+  //
+  // The registry says which those are: a record carrying a `stocking_proposal` is one
+  // whose family and SKU are being proposed for the store on their own.
+  const targets: Array<{ record: Record_, soldBy: string }> = []
   for (const kit of [...newestKits.values()].sort((left, right) => left.pack_id.localeCompare(right.pack_id))) {
     const topicRecord = kit.dependencies
       .map(dependency => byIdentity.get(`${dependency.pack_id}@${dependency.version}`))
       .find(record => record?.kind === 'topic-pack')
     assert.ok(topicRecord, `${kit.pack_id}@${kit.version} must pin a Topic Pack`)
+    targets.push({ record: topicRecord, soldBy: `sold by ${kit.pack_id}@${kit.version}` })
+  }
 
+  const newestTopics = new Map<string, Record_>()
+  for (const record of registry.records) {
+    if (record.kind !== 'topic-pack') continue
+    if (!record.stocking_proposal) continue
+    const current = newestTopics.get(record.pack_id)
+    if (!current || newer(record.version, current.version)) newestTopics.set(record.pack_id, record)
+  }
+  const alreadyMeasured = new Set(targets.map(target => `${target.record.pack_id}@${target.record.version}`))
+  for (const record of [...newestTopics.values()].sort((left, right) => left.pack_id.localeCompare(right.pack_id))) {
+    if (alreadyMeasured.has(`${record.pack_id}@${record.version}`)) continue
+    targets.push({ record, soldBy: 'sold on its own as an independent Topic component' })
+  }
+
+  const measured: string[] = []
+  for (const target of targets) {
+    const topicRecord = target.record
     const document = await loadTopic(topicRecord)
     const profiles = document.coverage_profiles
     // Only profile-based packs carry per-subject tuples; an independent-axis pack has no
@@ -119,7 +153,7 @@ test('every Topic Pack a Channel Kit sells reaches its idea count by authorship,
     if (!profiles || profiles.length < 20) continue
 
     const bar = BARS[topicRecord.pack_id] ?? DEFAULT_BAR
-    const identity = `${topicRecord.pack_id}@${topicRecord.version} (sold by ${kit.pack_id}@${kit.version})`
+    const identity = `${topicRecord.pack_id}@${topicRecord.version} (${target.soldBy})`
 
     let worstScopes = Number.POSITIVE_INFINITY
     let worstSubject = ''
