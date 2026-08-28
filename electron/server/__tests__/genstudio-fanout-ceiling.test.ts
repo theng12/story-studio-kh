@@ -135,7 +135,26 @@ describe('the override is reachable, not just present', () => {
     assert.match(route, /jq\.setImageFanoutOverride/, 'it must apply to the live queue, not only store')
     const panel = await readFile(
       path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
-    assert.match(panel, /Images per episode at once/)
+    assert.match(panel, /Cloud requests per episode at once/)
+  })
+
+  // MEASURED 2026-08-28, diagnosing "subtitles are slow". The dial's storage key
+  // says `image_fanout_per_episode` and its screen used to say "Images per
+  // episode at once", but `generators/subtitles.ts` reads the SAME override for
+  // chapter transcription (see the sweep below). An owner who turns this down to
+  // leave image headroom silently narrows subtitle transcription too, with
+  // nothing on the screen saying so. The key stays put — renaming it would need a
+  // migration for no gain — so the SCREEN has to carry the truth instead.
+  test('the screen names every fan-out this dial governs, not just images', async () => {
+    const panel = await readFile(
+      path.join(SERVER, '..', '..', 'frontend', 'components', 'ThisMacSettings.vue'), 'utf8')
+    const field = panel.slice(panel.indexOf("key: 'imageFanout'"))
+      .slice(0, panel.slice(panel.indexOf("key: 'imageFanout'")).indexOf('choices:'))
+    for (const governed of [/subtitle/i, /video/i, /continuity/i, /image/i]) {
+      assert.match(field, governed,
+        `the dial governs this fan-out but the screen never mentions it — an owner lowering `
+        + `the dial cannot see what else he is slowing down`)
+    }
   })
 
   test('boot applies it, or it is a number in a file nobody reads', async () => {
