@@ -99,6 +99,30 @@ async function countStats<T>(fn: () => Promise<T>): Promise<{ result: T, stats: 
   }
 }
 
+/**
+ * State the precondition "these entries were just verified" instead of racing
+ * the clock for it.
+ *
+ * `trusted()` serves an entry without statting only while it is younger than
+ * AUDIT_MAX_AGE_MS (15s); past that the rolling audit re-verifies it. That is
+ * the cache working correctly — and it is also a clock the tests below were
+ * racing. On a loaded machine the SET-UP pass can itself take longer than that
+ * window, so entries aged out before the assertion, the audit re-verified them
+ * exactly as designed, and "a warm list costs nothing" failed intermittently
+ * with nothing actually wrong.
+ *
+ * Reproduced deliberately rather than guessed: backdating `verifiedAt` by 16s
+ * before the warm pass turns "must not stat episode folders" into "saw 12" —
+ * the exact intermittent failure, on demand.
+ *
+ * Nothing is weakened. The ageing path has its own test below, which backdates
+ * on purpose and asserts the audit DOES fire.
+ */
+function markFreshlyVerified() {
+  const now = Date.now()
+  for (const entry of cacheMod.episodeStatusCache._dumpProject(SLUG)) entry.verifiedAt = now
+}
+
 describe('episode-status warm list', () => {
   before(async () => {
     tmp = await useTempDataDir()
@@ -134,6 +158,11 @@ describe('episode-status warm list', () => {
       // it simply keeps re-statting. Nothing to assert about speed.
       return
     }
+
+    // The cold pass above may itself have outlived the trust window on a busy
+    // machine. Say what this test means — the entries are current — rather
+    // than depending on how long the previous line took.
+    markFreshlyVerified()
 
     const warm = await countStats(() => listAll())
     assert.equal(warm.stats, 0,
@@ -245,7 +274,10 @@ describe('episode-status warm list', () => {
       'aged entries must be re-checked against disk — the watcher is not the only witness')
 
     // ...and once re-verified they are trusted again, so the audit is a
-    // rolling cost, not a permanent one.
+    // rolling cost, not a permanent one. (Freshened for the same reason as
+    // above: the audit pass itself can outlive the window under load, which
+    // would re-age the very entries it just verified.)
+    markFreshlyVerified()
     const settled = await countStats(() => listAll())
     assert.equal(settled.stats, 0, 're-verified entries go back to costing nothing')
   })
@@ -280,6 +312,9 @@ describe('episode-status warm list', () => {
 
     // And the reads that follow are free, because nothing was evicted.
     if (watcherMod.watcherTrustedSince(SLUG) === null) return
+    // Hydrating 1,200 filler rows is real work; on a busy machine it alone can
+    // outlive the trust window. This test is about EVICTION, not ageing.
+    markFreshlyVerified()
     const after = await countStats(() => listAll())
     assert.equal(after.stats, 0, 'no recompute after another project was hydrated')
   })
