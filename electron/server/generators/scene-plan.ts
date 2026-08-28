@@ -37,7 +37,9 @@ import {
 } from '../lib/genstudio-client.js'
 import { resolveGenStudioModelId, unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
 import {
+  describeScenePromptPackSize,
   parseScenePromptPackSetting,
+  parseScenePromptPackTuning,
   parseScenePromptTokenSetting,
   resolveScenePromptPackSize,
   resolveScenePromptTokenBudget,
@@ -512,7 +514,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     ? Math.min(4_096, visualMaxTokens)
     : visualMaxTokens
   const promptPackSetting = parseScenePromptPackSetting(params.prompt_pack_size)
-  const promptPackSize = resolveScenePromptPackSize(activePromptOutputBudget, promptPackSetting)
+  // The owner's own batch tuning for THIS channel (tokens reserved per scene,
+  // safety fraction, default batch). Absent keys fall back to the documented
+  // defaults; there is no ceiling in code above any of them.
+  let promptPackTuning = parseScenePromptPackTuning(undefined)
+  try { promptPackTuning = parseScenePromptPackTuning(await getConfig(job.project_slug)) } catch { /* defaults apply */ }
+  const promptPackSize = resolveScenePromptPackSize(activePromptOutputBudget, promptPackSetting, promptPackTuning)
   // A published image-model figure or nothing. No default is invented here.
   const promptCharCap = parsePromptCharCap(params.prompt_char_cap)
 
@@ -643,8 +650,11 @@ export async function runScenePlanJob(job: Job): Promise<void> {
   }
   if (!timelineOnly) {
     job.output_lines.push('Visual detail: Full detail (110–150 words per scene)')
+    // Shows the arithmetic, and says out loud when an explicitly requested
+    // batch had to be reduced to what the chosen model can return complete.
+    // An explicit number is never quietly replaced with a different one.
     job.output_lines.push(
-      `Prompt batching: ${promptPackSize} scenes per request (up to ${activePromptOutputBudget.toLocaleString()} output tokens${promptPackSetting === 'auto' ? ', automatic' : ', override'})`,
+      `Prompt batching: ${describeScenePromptPackSize(activePromptOutputBudget, promptPackSetting, promptPackTuning)}`,
     )
     job.output_lines.push(promptCharCap
       ? `Prompt length ceiling: ${promptCharCap.toLocaleString()} characters per visual prompt. A ceiling only — prompts stay as short as the scene needs, and an over-length prompt is reported, never shortened.`
@@ -1091,6 +1101,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // outcome is unknown. Only that state makes a repair request unsafe —
       // see the repair gate below.
       let requestUnresolved = false
+      const startedAt = Date.now()
       try {
         const messages = buildPackMessages(payloads, input.recoveryIssues)
         const raw = await callAi(
@@ -1117,6 +1128,23 @@ export async function runScenePlanJob(job: Job): Promise<void> {
           input.saved,
           persistPrompt,
         )
+        // THROUGHPUT, RECORDED ON SUCCESS.
+        //
+        // `completionTokens` used to be read only inside an error string, so
+        // every request that WORKED threw its own measurement away. That is
+        // why the safe batch size had to be argued from an estimate: nobody
+        // could say how fast a large pack actually comes back, and the 20-
+        // minute submit timeout is what really bounds batch size, not tokens.
+        // One line per pack makes the next batch-size decision a lookup.
+        if (diagnostics?.completionTokens != null) {
+          const elapsedSec = Math.max(0.001, (Date.now() - startedAt) / 1000)
+          job.output_lines.push(
+            `↳ ${input.sceneIds.length} scene(s) · ${diagnostics.completionTokens.toLocaleString()} completion tokens`
+            + `${diagnostics.reasoningTokens ? ` (+${diagnostics.reasoningTokens.toLocaleString()} reasoning)` : ''}`
+            + ` in ${elapsedSec.toFixed(1)}s = ${Math.round(diagnostics.completionTokens / elapsedSec).toLocaleString()} tok/s`
+            + ` · ${Math.round(diagnostics.completionTokens / Math.max(1, input.sceneIds.length))} tokens/scene`,
+          )
+        }
       } catch (error: any) {
         if (isGenStudioInsufficientCredits(error)) throw error
         requestError = error?.message || String(error)
@@ -1192,6 +1220,30 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             sceneIds: group,
             saved,
             requestLabel: `${pack.pack_id}:repair-${attempt}:${group.join(',')}`,
+            // WHY 768 HERE AND ~400 IN THE SIZER, DELIBERATELY.
+            //
+            // `scene-prompt-batching.ts` reserves 300 tokens per scene at a
+            // 0.75 safety fraction — about 400 effective — while this repair
+            // request asks for 768. Measured over 85,411 real scene prompts,
+            // 768 is above the worst single scene ever recorded (561) and more
+            // than double the p99 (330), so it is over-cautious in absolute
+            // terms. It is left alone on purpose:
+            //
+            //   - This is a CEILING on one request, not a reservation. Nothing
+            //     is billed or reserved for tokens the model does not emit, so
+            //     the generosity costs nothing.
+            //   - The asymmetry runs in the SAFE direction. The repair budget
+            //     being LOOSER than the sizer's means a pack the sizer thought
+            //     safe can always be re-requested without truncating. Were it
+            //     the tighter of the two, repairs would fail where the original
+            //     succeeded — the exact failure repair exists to fix.
+            //   - This path only runs after something already went wrong, and
+            //     it carries `recoveryIssues` text the original did not. Extra
+            //     headroom is worth more here than anywhere else in the file.
+            //
+            // Tightening it to the sizer's number would REDUCE headroom on the
+            // recovery path to save nothing measurable, so it stays. The outer
+            // `Math.min` still clamps it to what the model publishes.
             maxTokens: Math.min(
               isMotion ? activePromptOutputBudget : visualMaxTokens,
               Math.max(2_048, group.length * 768),

@@ -199,7 +199,16 @@
             <strong>Prompt batches</strong>
             <span>Model-aware</span>
           </div>
-          <p class="scene-setting-help">Automatic keeps each full-detail JSON response complete, using the selected GenStudio model’s published output limit.</p>
+          <!-- This line used to claim Automatic "uses the selected GenStudio
+               model’s published output limit". It did not: a hardcoded 50-scene
+               cap sat on top of the derivation and bound for every model
+               publishing 20,000 output tokens or more. The cap is gone, and the
+               copy now states the two things that actually decide the number. -->
+          <p class="scene-setting-help">
+            Automatic sends this channel’s default of {{ promptBatchSizeDefault }} scenes per request, reduced only if
+            the selected GenStudio model cannot return that many complete in one response. Its published output
+            limit is the only ceiling — {{ maximumPromptPackSize.toLocaleString() }} scenes on the model chosen now.
+          </p>
           <div class="scene-batch-summary">
             <span><strong>{{ effectivePromptPackSize }} scenes</strong> per request</span>
             <span>up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens</span>
@@ -221,12 +230,41 @@
                   <option v-for="size in availablePromptPackPresets" :key="size" :value="String(size)">{{ size }} scenes</option>
                   <option value="custom">Custom…</option>
                 </select>
+                <!-- No :max. A typed number is accepted as typed; if the
+                     chosen model cannot return it, that is SAID below rather
+                     than silently rewritten to a smaller one. -->
                 <div v-if="promptPackPickerValue === 'custom'" class="scene-pack-custom">
-                  <input v-model.number="customPromptPackSize" class="input" type="number" min="1" :max="maximumPromptPackSize" step="1" @change="applyCustomPromptPackSize" />
-                  <span class="text-xs text-muted">1–{{ maximumPromptPackSize }} scenes</span>
+                  <input v-model.number="customPromptPackSize" class="input" type="number" min="1" step="1" @change="applyCustomPromptPackSize" />
+                  <span class="text-xs text-muted">Any whole number. This model returns up to {{ maximumPromptPackSize.toLocaleString() }} complete.</span>
                 </div>
+                <p v-if="promptPackReductionNotice" class="scene-setting-warn">{{ promptPackReductionNotice }}</p>
               </div>
             </div>
+            <!-- The three numbers behind every figure on this card, saved per
+                 channel. Nothing here has a maximum in code: if a future run
+                 wants 2,000 scenes in one request and the model can return
+                 them, that is the operator’s call to make, not a constant’s. -->
+            <div class="scene-compact-fields mt-1">
+              <div class="form-group">
+                <label>Tokens reserved per scene</label>
+                <input v-model.number="promptTokensPerScene" class="input" type="number" min="1" step="1" @change="saveBatchTuning" />
+              </div>
+              <div class="form-group">
+                <label>Safety fraction of the allowance</label>
+                <input v-model.number="promptSafetyFraction" class="input" type="number" min="0.01" max="1" step="0.05" @change="saveBatchTuning" />
+              </div>
+              <div class="form-group">
+                <label>Default scenes per request</label>
+                <input v-model.number="promptBatchSizeDefault" class="input" type="number" min="1" step="1" @change="saveBatchTuning" />
+              </div>
+            </div>
+            <p class="scene-setting-help mt-1">
+              Saved for this channel. Defaults are {{ DEFAULT_TOKENS_PER_SCENE }} tokens per scene, a
+              {{ DEFAULT_OUTPUT_SAFETY_FRACTION }} safety fraction and {{ DEFAULT_PROMPT_BATCH_SIZE }} scenes per request.
+              {{ DEFAULT_PROMPT_BATCH_SIZE }} is a speed judgement, not a token limit — a request has 20 minutes to come
+              back, and the large models’ real speed has not been measured yet. Raise it once it has.
+              <button type="button" class="btn btn-ghost btn-xs" @click="resetBatchTuning">Reset to defaults</button>
+            </p>
             <p class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · Output is the response limit, so it—not context—sets the safe batch size.</p>
           </details>
         </div>
@@ -1453,9 +1491,18 @@ type PromptPackSetting = 'auto' | number
  *  allowance, always clamped to that same published maximum. */
 type PromptTokenSetting = 'auto' | number
 type SelectedModelMeta = ModelTokenLimits & { id: string }
-const PROMPT_PACK_PRESETS = [1, 3, 5, 10, 15, 20, 25, 30, 50] as const
+const PROMPT_PACK_PRESETS = [1, 5, 10, 25, 50, 100, 250, 500] as const
 const PROMPT_PACK_MIN = 1
-const PROMPT_PACK_MAX = 50
+/**
+ * THERE IS NO `PROMPT_PACK_MAX` HERE, AND THERE MUST NOT BE ONE.
+ *
+ * This page used to carry its own `PROMPT_PACK_MAX = 50` — a duplicate of a
+ * backend constant, applied with the same formula, so both ends independently
+ * threw away a correct model-aware derivation. The presets above are shortcuts,
+ * not limits: "Custom…" accepts any whole number, and the only ceiling shown
+ * anywhere is `maximumPromptPackSize`, which is derived from the SELECTED
+ * model's published output allowance and the channel's own tuning below.
+ */
 /**
  * Used ONLY before the catalogue has been read, or when the selected product
  * published no usable allowance, purely so the local batch-size estimate has
@@ -1463,8 +1510,65 @@ const PROMPT_PACK_MAX = 50
  * for the selected product, that number is what is offered and enforced.
  */
 const FALLBACK_OUTPUT_TOKENS = 8192
-const TOKENS_PER_FULL_DETAIL_SCENE = 300
-const OUTPUT_SAFETY_FRACTION = 0.75
+/**
+ * Defaults only — mirrors `services/scene-prompt-batching.ts`. Each is
+ * overridden by the channel's own saved value (`scene_prompt_*` in project
+ * config, edited under Advanced batch controls) and the backend performs the
+ * same arithmetic from the same saved numbers.
+ *
+ * 250 is a WALL-CLOCK judgement, not a token limit: the token maths alone
+ * permits ~960 scenes on a 384,000-token model, but the GenStudio submit
+ * timeout is 20 minutes and the large models' sustained throughput is not yet
+ * measured. Raise it once it is.
+ */
+const DEFAULT_TOKENS_PER_SCENE = 300
+const DEFAULT_OUTPUT_SAFETY_FRACTION = 0.75
+const DEFAULT_PROMPT_BATCH_SIZE = 250
+
+// ── Scene Plan batch tuning, per channel ────────────────────────────────────
+// The owner's two-field pattern: an allowance he edits, and a dial with no
+// code maximum. These three numbers replaced a hardcoded 50-scene cap that
+// silently overrode the model-aware derivation, so the one thing they must
+// never grow is an upper bound. Persisted through the same /settings/config
+// endpoint as the toggles above; the backend reads the identical keys and
+// performs the identical arithmetic.
+const promptTokensPerScene = ref<number>(
+  Number((projectConfig.value as any)?.scene_prompt_tokens_per_scene) || DEFAULT_TOKENS_PER_SCENE,
+)
+const promptSafetyFraction = ref<number>(
+  Number((projectConfig.value as any)?.scene_prompt_output_safety_fraction) || DEFAULT_OUTPUT_SAFETY_FRACTION,
+)
+const promptBatchSizeDefault = ref<number>(
+  Number((projectConfig.value as any)?.scene_prompt_batch_size) || DEFAULT_PROMPT_BATCH_SIZE,
+)
+watch(projectConfig, (c) => {
+  promptTokensPerScene.value = Number((c as any)?.scene_prompt_tokens_per_scene) || DEFAULT_TOKENS_PER_SCENE
+  promptSafetyFraction.value = Number((c as any)?.scene_prompt_output_safety_fraction) || DEFAULT_OUTPUT_SAFETY_FRACTION
+  promptBatchSizeDefault.value = Number((c as any)?.scene_prompt_batch_size) || DEFAULT_PROMPT_BATCH_SIZE
+})
+async function saveBatchTuning(): Promise<void> {
+  const payload = {
+    scene_prompt_tokens_per_scene: Math.max(1, Math.round(Number(promptTokensPerScene.value) || DEFAULT_TOKENS_PER_SCENE)),
+    scene_prompt_output_safety_fraction: Math.min(1, Math.max(0.01, Number(promptSafetyFraction.value) || DEFAULT_OUTPUT_SAFETY_FRACTION)),
+    scene_prompt_batch_size: Math.max(1, Math.round(Number(promptBatchSizeDefault.value) || DEFAULT_PROMPT_BATCH_SIZE)),
+  }
+  try {
+    await put(`/projects/${slug.value}/settings/config`, payload)
+    if (projectConfig.value) Object.assign(projectConfig.value as any, payload)
+    promptTokensPerScene.value = payload.scene_prompt_tokens_per_scene
+    promptSafetyFraction.value = payload.scene_prompt_output_safety_fraction
+    promptBatchSizeDefault.value = payload.scene_prompt_batch_size
+    success('Batch tuning saved for this channel.')
+  } catch (e: any) {
+    showError(e?.data?.detail || e?.message || 'Could not save the batch tuning')
+  }
+}
+function resetBatchTuning(): void {
+  promptTokensPerScene.value = DEFAULT_TOKENS_PER_SCENE
+  promptSafetyFraction.value = DEFAULT_OUTPUT_SAFETY_FRACTION
+  promptBatchSizeDefault.value = DEFAULT_PROMPT_BATCH_SIZE
+  void saveBatchTuning()
+}
 
 const selectedModelMeta = ref<SelectedModelMeta | null>(null)
 const modelSelector = ref<{ reloadCatalog: () => Promise<void> } | null>(null)
@@ -1518,10 +1622,12 @@ const form = ref({
   custom_instructions: '',
 })
 const customPromptPackSize = ref(12)
+/** Shape check only. No upper bound: what is too large for the CHOSEN model is
+ *  shown as a warning next to the field, never swapped for a smaller number. */
 function normalizePromptPackSetting(value: unknown): PromptPackSetting {
   if (value === 'auto' || value == null || value === '') return 'auto'
-  const size = Math.round(Number(value))
-  return Number.isInteger(Number(value)) && size >= PROMPT_PACK_MIN && size <= PROMPT_PACK_MAX ? size : 'auto'
+  const size = Number(value)
+  return Number.isInteger(size) && size >= PROMPT_PACK_MIN ? size : 'auto'
 }
 /** Shape check only — 'auto' or a positive whole number. What is LEGAL is the
  *  selected product's business, so no fixed option list is consulted here. */
@@ -1630,15 +1736,31 @@ const effectivePromptTokenBudget = computed<number>(() => {
     ? automaticTokenBudget.value : Number(form.value.prompt_max_tokens)
   return Math.min(selectedModelMaxOutput.value, Math.max(1, requested))
 })
+/** The only ceiling on this page: what the SELECTED model's published output
+ *  allowance can return complete, at this channel's own tuning. Derived, never
+ *  declared — a bigger model means a bigger number, with nothing capping it. */
 const maximumPromptPackSize = computed<number>(() => {
-  const scenes = Math.floor((effectivePromptTokenBudget.value * OUTPUT_SAFETY_FRACTION) / TOKENS_PER_FULL_DETAIL_SCENE)
-  return Math.min(PROMPT_PACK_MAX, Math.max(PROMPT_PACK_MIN, scenes))
+  const scenes = Math.floor((effectivePromptTokenBudget.value * promptSafetyFraction.value) / promptTokensPerScene.value)
+  return Math.max(PROMPT_PACK_MIN, scenes)
 })
-const automaticPromptPackSize = computed<number>(() => maximumPromptPackSize.value)
+/** "Automatic" = the channel's default batch, or the model's derived maximum
+ *  when the model cannot return even that much. */
+const automaticPromptPackSize = computed<number>(() =>
+  Math.min(promptBatchSizeDefault.value, maximumPromptPackSize.value),
+)
 const effectivePromptPackSize = computed<number>(() => {
   const requested = form.value.prompt_pack_size === 'auto'
     ? automaticPromptPackSize.value : Number(form.value.prompt_pack_size)
   return Math.min(Math.max(PROMPT_PACK_MIN, requested), maximumPromptPackSize.value)
+})
+/** Said out loud when an explicit choice cannot be honoured by the chosen
+ *  model. The number is never silently rewritten behind the operator's back. */
+const promptPackReductionNotice = computed<string>(() => {
+  if (form.value.prompt_pack_size === 'auto') return ''
+  const requested = Number(form.value.prompt_pack_size)
+  if (!Number.isFinite(requested) || requested <= maximumPromptPackSize.value) return ''
+  return `This model can only return ${maximumPromptPackSize.value} scenes complete in one response, `
+    + `so ${requested} would be reduced to ${maximumPromptPackSize.value}. Pick a larger model or a smaller batch.`
 })
 const availablePromptPackPresets = computed(() => PROMPT_PACK_PRESETS.filter(size => size <= maximumPromptPackSize.value))
 /** Derived from the SELECTED product's published `max_output_tokens`, never
