@@ -209,7 +209,7 @@ textarea.input { font-family: var(--font-mono, monospace); font-size: 12px; resi
 .ph-table td:first-child { width: 140px; font-family: var(--font-mono, monospace); }
 .formula-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
 .formula-card-header { display: flex; align-items: center; gap: 8px; }
-.formula-source-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); }
+.formula-source-badge { font-size: var(--font-xs); padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); }
 .formula-source-badge.is-builtin { color: var(--accent); border-color: var(--accent); }
 .formula-source-badge.is-pack { color: var(--success, #5fb37a); border-color: var(--success, #5fb37a); }
 .formula-architecture { margin: 6px 0 0; font-size: 12px; color: var(--text-muted); line-height: 1.45; }
