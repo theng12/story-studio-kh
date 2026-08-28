@@ -1,0 +1,32 @@
+{
+  "expected_revision": 109,
+  "coordinator": {
+    "task": "drop-hidden-mechanics-reference-2026-08-28",
+    "branch": "chore/drop-dead-compatible-formula-ids-2026-08-28"
+  },
+  "proposal_ref": "Owner ruling 2026-08-28: remove the stale retired-formula reference com.storystudio.formula.hidden-mechanics-history from the historical-wars-treaties-world-order Topic Pack's compatible_formula_ids. v1.0.0 and v1.0.1 are published-immutable, so the fix ships as a v1.0.2 successor per the free-starter versioning rule (see docs/superpowers/plans/2026-08-28-published-mark-scrub.md).",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+      "item_id": "com.storystudio.topic.historical-wars-treaties-world-order",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.2",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.historical-wars-treaties-world-order",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.historical-wars-treaties-world-order",
+          "status": "proposed"
+        }
+      }
+    }
+  ]
+}

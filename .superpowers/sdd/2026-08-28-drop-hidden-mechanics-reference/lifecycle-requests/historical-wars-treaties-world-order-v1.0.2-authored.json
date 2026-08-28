@@ -1,0 +1,13 @@
+{
+  "expected_revision": 110,
+  "coordinator": {
+    "task": "drop-hidden-mechanics-reference-2026-08-28",
+    "branch": "chore/drop-dead-compatible-formula-ids-2026-08-28"
+  },
+  "receipt_ref": "authoring:a1a45bb7f027d2fddf8996163f5bb74c3b640d44d0c0891b7df89fcd34167f7b",
+  "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+  "version": "1.0.2",
+  "changes": {
+    "status": "authored"
+  }
+}
