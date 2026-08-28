@@ -8,6 +8,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
+import { stripEpisodeLabelFromDrawnText } from './image-prompts.js'
 import { matchChapterFile, introMarkerPath, resolveArtifact } from '../lib/episode-artifacts.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
@@ -395,7 +396,7 @@ Each prompt MUST end with this exact style tag:
 ## Thumbnail 1 through ## Thumbnail ${thumbsCount}
 
 CRITICAL FOR THUMBNAILS: Every thumbnail prompt MUST include:
-'The episode title "${title}" is displayed in large, golden, glowing text, perfectly centered and legible against the background.'
+'The title "${title}" is displayed in large, golden, glowing text, perfectly centered and legible against the background.'
 
 Each thumbnail MUST also end with the style tag above.
 
@@ -667,6 +668,11 @@ async function generateEpisode(job: Job): Promise<void> {
         imagePromptsPrompt(format, episode_id, title, storySummary, styleTag, characters), apiKeys, false,
         // Long: one prompt per scene for the whole episode in a single pass.
         { slug: project_slug, jobId: job.job_id, signal: controller.signal, outputBudget: 'long' })
+      // These prompts go to disk and then to an image model WITHOUT passing
+      // through enforceThumbnailPromptElements -- this generator predates it.
+      // So the same de-labelling runs here, or the word "Episode" gets drawn
+      // into every thumbnail this path produces.
+      imageText = stripEpisodeLabelFromDrawnText(imageText)
       const promptCount = (imageText.match(/^##\s/gm) || []).length
       job.output_lines.push(`Image prompts: ${promptCount} prompts`)
     }

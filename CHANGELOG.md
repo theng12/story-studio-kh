@@ -4,6 +4,12 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.79 — 2026-08-29
+
+- **The word "Episode" is gone from the other place it was being drawn, too.** The previous release fixed this where thumbnails are made on the Image Prompts page. Generating a whole episode in one go writes its prompts by a separate, older route that never passed through that fix — and worse, it instructed the model outright that every thumbnail "MUST include" a sentence beginning *The episode title "…"*, which the model duly lettered into the picture. That instruction no longer contains the word, and the prompts this route produces are now cleaned before they are written to disk, so a model that says it anyway still cannot paint it. Found by checking whether anything else reached an image model the same way; it did.
+
+---
+
 ## v1.4.78 — 2026-08-29
 
 - **Thumbnails no longer have the word "Episode" painted into them.** Titles are drawn into your thumbnails on purpose — that is what the text controls are for — but the instruction sent to the image model called it "the episode title", and a model that draws text draws the label along with the words it labels. So "Episode" kept appearing above the real title, inside the artwork, where the only fix was to generate again. The label is now stripped from every prompt at the last point before it is sent, which is what matters, because the phrasing arrived from three separate places at once: the writing model that composes the prompt, the guidance inside published thumbnail packs whose contents are frozen and cannot be edited, and the built-in channel guidance. Only that final step sees all three. It is removed at the two sources that can be changed as well, so in most cases the phrase is never written in the first place. Your title still goes in exactly as before; only the word "Episode" stops coming with it.
