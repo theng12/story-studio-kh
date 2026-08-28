@@ -152,3 +152,62 @@ describe('deterministic long-scene repair', () => {
     assert.deepEqual(result.scenes.map(scene => scene.scene_index), [1, 2])
   })
 })
+
+// ── Held opening survives the long-scene split (DK0032) ──────────────────
+// Holding scene 1 over an unplanned Introduction deliberately creates one very
+// long scene. The long-scene repair that runs immediately after would shred it
+// back into cue-aligned scenes with no images — silently undoing the choice and
+// re-blocking the render on the images it just created. It must not.
+describe('cue-aware coverage repair: held opening', () => {
+  const introSkipped: ScenePlanEntry[] = [
+    {
+      id: 'scene-a', scene_index: 1, start_sec: 240, end_sec: 250,
+      transcript_segment: 'Chapter one opens', visual_prompt: 'A prompt',
+      image_path: '/images/a.png', approved: true,
+    },
+    {
+      id: 'scene-b', scene_index: 2, start_sec: 250, end_sec: 260,
+      transcript_segment: 'And continues', visual_prompt: 'Another prompt',
+      image_path: '/images/b.png', approved: true,
+    },
+  ]
+  // Cues exist across the whole 260s, opening included — so the splitter has
+  // everything it needs to shred the held scene if it is not exempted.
+  const cues = Array.from({ length: 26 }, (_, i) => ({
+    index: i + 1, start_sec: i * 10, end_sec: (i + 1) * 10, text: `Cue ${i + 1}`,
+  }))
+
+  test('hold_head_scene covers the opening without inventing imageless scenes', () => {
+    const result = repairPlanCoverageWithSubtitleCues({
+      scenes: introSkipped,
+      cues,
+      audioDurationSec: 260,
+      threshold_sec: 20,
+      min_sec: 3,
+      max_sec: 10,
+      hold_head_scene: true,
+    })
+
+    assert.equal(result.coverageAfter.headGapSec, 0, 'the opening is covered')
+    assert.equal(result.coverageAfter.uncoveredTotalSec, 0)
+    assert.equal(result.addedSceneCount, 0, 'no new scenes, so no new images are owed')
+    assert.deepEqual(result.scenes.map(s => s.id), ['scene-a', 'scene-b'])
+    assert.equal(result.scenes[0]!.start_sec, 0)
+    assert.equal(result.scenes[0]!.image_path, '/images/a.png', 'the held scene keeps its image')
+    assert.equal(result.scenes[0]!.approved, true, 'and its approval')
+  })
+
+  test('without the opt-in the opening is left alone and reported', () => {
+    const result = repairPlanCoverageWithSubtitleCues({
+      scenes: introSkipped,
+      cues,
+      audioDurationSec: 260,
+      threshold_sec: 20,
+      min_sec: 3,
+      max_sec: 10,
+    })
+
+    assert.equal(result.coverageAfter.headGapSec, 240, 'still uncovered — this is the caller\'s call')
+    assert.equal(result.scenes[0]!.start_sec, 240)
+  })
+})

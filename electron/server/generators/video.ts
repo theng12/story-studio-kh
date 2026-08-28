@@ -509,6 +509,12 @@ export interface ScannedAssets {
     stills_ready: number
     motion_ready: number
     uncovered_sec: number
+    /** Narration before the first scene. Split out of `uncovered_sec` so the
+     *  page can say WHICH end of the timeline is short instead of naming
+     *  images and approvals that may be perfectly complete. */
+    head_gap_sec: number
+    /** Narration after the last scene. Same reason. */
+    tail_gap_sec: number
     gap_count: number
     overlap_sec: number
     overlap_count: number
@@ -837,6 +843,8 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       stills_ready: scannedPlan.scenes.filter(scene => !!byId.get(scene.id)?.still_path).length,
       motion_ready: planRows.filter(scene => scene.media_type === 'motion').length,
       uncovered_sec: integrity.blockingUncoveredSec,
+      head_gap_sec: integrity.headCovered ? 0 : (integrity.coverage?.headGapSec || 0),
+      tail_gap_sec: integrity.coverage?.tailGapSec || 0,
       gap_count: integrity.coverage?.internalGaps.length || 0,
       overlap_sec: overlapSec,
       overlap_count: overlapCount,
@@ -1233,8 +1241,20 @@ export async function generateVideo(job: Job): Promise<void> {
   const req = params as GenerateVideoRequest
   const code = episode_id.toUpperCase()
 
-  // Legacy whole-Introduction skipping is retired. New plans either reserve an
-  // exact branded-opening duration or begin scenes at the first second.
+  // Intro skip is a PLANNER-time economy switch, not a render-time one.
+  //
+  // What it still does: `config.skip_intro_scenes` tells Scene Plan not to
+  // spend prompts and images on the Introduction chapter, so scenes begin at
+  // the story start (see `generators/scene-plan.ts`, search `skipUntilSec`).
+  // What it no longer does: excuse the resulting hole here. A request-level
+  // `skip_intro_scenes` once let the render treat any head gap as intentional,
+  // which is exactly how an episode could reach the encoder with minutes of
+  // narration and nothing to show over it.
+  //
+  // So the coverage gate below stays authoritative: whatever the planner chose
+  // to skip, the render still requires something to cover it — an opening clip,
+  // a title card, or scene 1 held across it (Scene Plan → "Cover the opening").
+  // That is chosen per episode, deliberately, and never defaulted here.
   //
   // v1.3.1 — the caption default that used to read `visual_opening_mode` from
   // the project config moved to where the plan's reserve is known (search

@@ -634,15 +634,32 @@ export function inspectScenePlanCoverage(
 export function repairPlanCoverage(
   scenes: ScenePlanEntry[],
   audioDurationSec: number,
-): { scenes: ScenePlanEntry[]; changes: string[]; coverageBefore: PlanCoverage } {
+  options: { holdHeadScene?: boolean } = {},
+): { scenes: ScenePlanEntry[]; changes: string[]; coverageBefore: PlanCoverage; heldHeadSceneId?: string } {
   const coverageBefore = computePlanCoverage(scenes, audioDurationSec)
   const out = scenes.map(s => ({ ...s }))
   const changes: string[] = []
   if (!out.length) return { scenes: out, changes, coverageBefore }
 
+  let heldHeadSceneId: string | undefined
   if (coverageBefore.headGapSec > 0 && coverageBefore.headGapSec <= COVERAGE_FAIL_SEC) {
     changes.push(`Scene 1 start pulled ${coverageBefore.headGapSec.toFixed(2)}s back to 0:00 (lead-in).`)
     out[0]!.start_sec = 0
+  } else if (coverageBefore.headGapSec > COVERAGE_FAIL_SEC && options.holdHeadScene) {
+    // A head gap this size is narrated content the plan deliberately skipped
+    // (an intro-skipped plan), not lead-in noise — so closing it is never
+    // automatic. When the owner asks for it explicitly, scene 1's image is
+    // held across the whole opening. Only scene 1's START moves; every other
+    // scene keeps the time it was planned against, so nothing else drifts off
+    // its narration. The alternative — planning real scenes for that range —
+    // costs new prompts and images, which is why this is a choice and not a
+    // default.
+    changes.push(
+      `Scene 1 start pulled ${coverageBefore.headGapSec.toFixed(1)}s back to 0:00 — its image now holds `
+      + `for the whole ${coverageBefore.headGapSec.toFixed(1)}s opening. Every other scene keeps its own timing.`,
+    )
+    out[0]!.start_sec = 0
+    heldHeadSceneId = out[0]!.id
   }
   let closed = 0
   let closedSec = 0
@@ -664,7 +681,7 @@ export function repairPlanCoverage(
         : '.'),
     )
   }
-  return { scenes: out, changes, coverageBefore }
+  return { scenes: out, changes, coverageBefore, heldHeadSceneId }
 }
 
 // ── Reconcile plan timings to the current subtitles (v1.0.523) ──────────────
@@ -1213,6 +1230,10 @@ export function repairOverlongScenesDeterministically(opts: {
   threshold_sec?: number
   min_sec?: number
   max_sec?: number
+  /** Scenes the caller has already decided should stay one long hold. Used for
+   *  a head scene the owner deliberately stretched over the opening: splitting
+   *  it here would silently undo that choice and demand new images for it. */
+  exempt_ids?: ReadonlySet<string>
 }): RepairOverlongScenesResult {
   const thresholdSec = Math.max(1, opts.threshold_sec ?? 20)
   const minSec = Math.max(1, opts.min_sec ?? MIN_SCENE_SEC)
@@ -1221,7 +1242,7 @@ export function repairOverlongScenesDeterministically(opts: {
   const result: ScenePlanEntry[] = []
 
   for (const scene of opts.scenes) {
-    if (scene.end_sec - scene.start_sec <= thresholdSec) {
+    if (opts.exempt_ids?.has(scene.id) || scene.end_sec - scene.start_sec <= thresholdSec) {
       result.push({ ...scene })
       continue
     }
@@ -1302,14 +1323,22 @@ export function repairPlanCoverageWithSubtitleCues(opts: {
   threshold_sec?: number
   min_sec?: number
   max_sec?: number
+  /** Close a large head gap by holding scene 1 across the whole opening.
+   *  Off by default — see `repairPlanCoverage`. */
+  hold_head_scene?: boolean
 }): CueAwareCoverageRepairResult {
-  const coverageRepair = repairPlanCoverage(opts.scenes, opts.audioDurationSec)
+  const coverageRepair = repairPlanCoverage(opts.scenes, opts.audioDurationSec, {
+    holdHeadScene: opts.hold_head_scene,
+  })
   const longRepair = repairOverlongScenesDeterministically({
     scenes: coverageRepair.scenes,
     cues: opts.cues,
     threshold_sec: opts.threshold_sec,
     min_sec: opts.min_sec,
     max_sec: opts.max_sec,
+    exempt_ids: coverageRepair.heldHeadSceneId
+      ? new Set([coverageRepair.heldHeadSceneId])
+      : undefined,
   })
   const changes = [...coverageRepair.changes]
   if (longRepair.repairedCount) {
