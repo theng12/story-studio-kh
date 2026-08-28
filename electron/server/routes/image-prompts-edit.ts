@@ -198,6 +198,9 @@ router.post(
         number: target.number,
         title: next.title || target.title,
         prompt: next.prompt,
+        // Synchronous route with no job log — the substitution travels with
+        // the result rather than being dropped.
+        ...(modelNotice ? { model_notice: modelNotice } : {}),
 })
 
 router.put(

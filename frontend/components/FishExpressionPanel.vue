@@ -102,6 +102,11 @@ const emit = defineEmits<{
 }>()
 
 const { get, post, put } = useApi()
+// This panel's only notice channel is `loadError`, which REPLACES the whole
+// body (`v-else-if`) and is an error channel — wrong on both counts for an
+// informational heal, which must not hide the editor the user is working in.
+// The app-wide toast is the established mechanism for a transient outcome.
+const { show: showToast } = useToast()
 
 // One tag dialect. The alternative branch keyed off two retired direct-provider
 // model ids that no current GenStudio selection can produce, so it was
@@ -192,8 +197,12 @@ async function generateOne() {
   const slug = activeSlug.value
   busy.value = slug
   try {
-    const r = await post<{ sections: ExprSection[] }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate`, { model: markupModel.value, slugs: [slug], audio_model: props.audioModel })
+    const r = await post<{ sections: ExprSection[]; model_notice?: string }>(`/projects/${props.projectSlug}/episodes/${props.episodeId}/expression/generate`, { model: markupModel.value, slugs: [slug], audio_model: props.audioModel })
     applyServer(r.sections || [])
+    // The server healed away from the saved model. Informational, never
+    // blocking — the section IS tagged. ("Tag all" is a background job and
+    // announces the same substitution on its own output lines instead.)
+    if (r.model_notice) showToast(r.model_notice, 'info', 12000)
   } catch (e: any) {
     loadError.value = e?.data?.detail || 'AI tagging failed. Check your text-model API key in Settings.'
   } finally { busy.value = '' }

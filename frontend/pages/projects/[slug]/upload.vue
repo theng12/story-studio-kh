@@ -2894,7 +2894,7 @@ watch(
   () => { channelAvatarFailed.value = false },
 )
 
-const { success, error: showError } = useToast()
+const { success, error: showError, show: showToast } = useToast()
 const { ask } = useConfirm()
 
 type TabId = 'accounts' | 'queue' | 'missing' | 'plans' | 'playlists' | 'reconcile' | 'orphans' | 'analytics' | 'comments'
@@ -3834,12 +3834,15 @@ async function doGeneratePlaylistDescription() {
   if (!newPlaylistForm.title.trim() || generatingPlaylistDesc.value) return
   generatingPlaylistDesc.value = true
   try {
-    const r = await useApi().post<{ description: string; length: number }>(
+    const r = await useApi().post<{ description: string; length: number; model_notice?: string }>(
       `/projects/${slug.value}/upload/playlists/generate-description`,
       { title: newPlaylistForm.title.trim() },
     )
     newPlaylistForm.description = r.description
     success(`Generated ${r.length}-char description — review + edit before creating.`)
+    // The server healed away from the saved model. Informational, never
+    // blocking — the description IS generated and sitting in the field.
+    if (r.model_notice) showToast(r.model_notice, 'info', 12000)
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to generate description.')
   } finally {
