@@ -19,6 +19,7 @@ import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
 import { normalizeForTts } from '../lib/tts-text.js'
 import { findNarrationFile, resolveAudioDir } from '../generators/audio.js'
+import type { ProjectFactsCache } from './utils.js'
 import { readManifest } from './task-manifest.js'
 import {
   recoverTtsToFile as recoverGenStudioTtsToFile,
@@ -99,8 +100,15 @@ export async function getAudioStatus(
    * customer switches to a model with a different published boundary.
    */
   selectedModelId?: string,
+  /**
+   * v1.4.76 — the caller's request-scoped project facts, passed straight
+   * through to `findNarrationFile` so a list response resolves the episodes
+   * tree once instead of once per episode. Omitted, every lookup happens
+   * exactly as before.
+   */
+  cache?: ProjectFactsCache,
 ): Promise<AudioStatus> {
-  const narrationPath = await findNarrationFile(slug, episodeId)
+  const narrationPath = await findNarrationFile(slug, episodeId, cache)
   const audioDir = await resolveAudioDir(slug, narrationPath, episodeId)
   const sections = await parseNarrationDocx(narrationPath)
   const code = episodeId.toUpperCase()

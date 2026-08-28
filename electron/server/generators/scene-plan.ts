@@ -1575,6 +1575,33 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     },
   })
 
+  // Record what this plan did with its opening, the way the deterministic
+  // timeline builder already does.
+  //
+  // The LLM planner never reserves a branded opening — it times scenes against
+  // the narration and, when intro skip is on, simply starts later. Until now it
+  // wrote nothing about that, so a plan whose scenes began minutes in was
+  // indistinguishable from one that opens at 0:00. `inspectScenePlanCoverage`
+  // then fell back to its legacy guess ("no opening_mode recorded + a large
+  // head gap → probably an old branded opening") and waved the hole through,
+  // while Video Assembly — which reads the recorded reserve — refused it. Same
+  // plan, two verdicts, and only one of them visible. Stating the mode ends the
+  // guess: every consumer now sees the hole, which is what makes the per-episode
+  // choice ("Cover the opening", or plan real scenes for it) an actual choice.
+  //
+  // `from-start` with a zero reserve is the honest pair here: nothing owns the
+  // opening yet. It is deliberately NOT `branded-opening`, which would credit
+  // the head to an opening clip this episode does not have and let the render
+  // gate pass an episode with nothing to show over its first minutes.
+  plan.opening_mode = 'from-start'
+  plan.opening_reserved_sec = 0
+  if (skipUntilSec > 0) {
+    job.output_lines.push(
+      `Intro skip: scenes start at ${skipUntilSec.toFixed(1)}s and nothing is reserved for the opening yet. `
+      + 'Scene Plan and Video Assembly will both show it until you choose what covers it.',
+    )
+  }
+
   // v1.0.337 — apply the configured guide density to any scenes the planner
   // left untagged (two-pass / salvage). Single-pass scenes keep the LLM's
   // classification. Skipped entirely when density is unset (back-compat).

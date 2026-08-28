@@ -99,6 +99,30 @@ async function countStats<T>(fn: () => Promise<T>): Promise<{ result: T, stats: 
   }
 }
 
+/**
+ * State the precondition "these entries were just verified" instead of racing
+ * the clock for it.
+ *
+ * `trusted()` serves an entry without statting only while it is younger than
+ * AUDIT_MAX_AGE_MS (15s); past that the rolling audit re-verifies it. That is
+ * the cache working correctly — and it is also a clock the tests below were
+ * racing. On a loaded machine the SET-UP pass can itself take longer than that
+ * window, so entries aged out before the assertion, the audit re-verified them
+ * exactly as designed, and "a warm list costs nothing" failed intermittently
+ * with nothing actually wrong.
+ *
+ * Reproduced deliberately rather than guessed: backdating `verifiedAt` by 16s
+ * before the warm pass turns "must not stat episode folders" into "saw 12" —
+ * the exact intermittent failure, on demand.
+ *
+ * Nothing is weakened. The ageing path has its own test below, which backdates
+ * on purpose and asserts the audit DOES fire.
+ */
+function markFreshlyVerified() {
+  const now = Date.now()
+  for (const entry of cacheMod.episodeStatusCache._dumpProject(SLUG)) entry.verifiedAt = now
+}
+
 describe('episode-status warm list', () => {
   before(async () => {
     tmp = await useTempDataDir()
@@ -117,6 +141,9 @@ describe('episode-status warm list', () => {
   beforeEach(() => {
     cacheMod.episodeStatusCache.clear()
     watcherMod.stopAllWatchers()
+    // Restore the real wiring (episode-status-cache.ts binds this at import),
+    // so a test that deliberately goes deaf cannot leak into the next one.
+    watcherMod.bindInvalidator((slug, code) => cacheMod.episodeStatusCache.invalidate(slug, code))
   })
 
   test('an unchanged warm list does no per-episode statting', async () => {
@@ -134,6 +161,11 @@ describe('episode-status warm list', () => {
       // it simply keeps re-statting. Nothing to assert about speed.
       return
     }
+
+    // The cold pass above may itself have outlived the trust window on a busy
+    // machine. Say what this test means — the entries are current — rather
+    // than depending on how long the previous line took.
+    markFreshlyVerified()
 
     const warm = await countStats(() => listAll())
     assert.equal(warm.stats, 0,
@@ -182,6 +214,16 @@ describe('episode-status warm list', () => {
     // error and was never closed — but no event arrives for this change.
     // fs.watch really does behave this way on some filesystems, and it
     // reports nothing when it does, so the cache must not depend on it.
+    //
+    // "No event arrives" is made a FACT, not a hope. The change below is an
+    // `fs.utimes` on a watched folder while the watcher is live, so on any
+    // machine where fs.watch actually delivers, it would arrive as a real
+    // invalidation — turning the read into a miss instead of the stale
+    // recompute this test measures, and failing it. It passes here only
+    // because fs.watch delivers nothing at all in this environment, which is
+    // precisely the sort of accident that becomes a mystery failure on
+    // someone else's machine.
+    watcherMod.bindInvalidator(() => { /* deaf on purpose, for this test */ })
     const entry = cacheMod.episodeStatusCache._dumpProject(SLUG)
       .find(e => e.episode_code === 'EP004')!
     const scriptDir = dirs['EP004'].scriptDir
@@ -245,7 +287,10 @@ describe('episode-status warm list', () => {
       'aged entries must be re-checked against disk — the watcher is not the only witness')
 
     // ...and once re-verified they are trusted again, so the audit is a
-    // rolling cost, not a permanent one.
+    // rolling cost, not a permanent one. (Freshened for the same reason as
+    // above: the audit pass itself can outlive the window under load, which
+    // would re-age the very entries it just verified.)
+    markFreshlyVerified()
     const settled = await countStats(() => listAll())
     assert.equal(settled.stats, 0, 're-verified entries go back to costing nothing')
   })
@@ -280,6 +325,9 @@ describe('episode-status warm list', () => {
 
     // And the reads that follow are free, because nothing was evicted.
     if (watcherMod.watcherTrustedSince(SLUG) === null) return
+    // Hydrating 1,200 filler rows is real work; on a busy machine it alone can
+    // outlive the trust window. This test is about EVICTION, not ageing.
+    markFreshlyVerified()
     const after = await countStats(() => listAll())
     assert.equal(after.stats, 0, 'no recompute after another project was hydrated')
   })

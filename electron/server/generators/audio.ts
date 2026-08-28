@@ -7,6 +7,7 @@ import { existsSync } from 'fs'
 import fs from 'fs/promises'
 import path from 'path'
 import { parseNarrationDocx } from '../lib/docx-parser.js'
+import type { ProjectFactsCache } from '../services/utils.js'
 import { SpeedTracker, throttle } from '../lib/speed-tracker.js'
 import { resolveTtsControlValues } from '../lib/tts-controls.js'
 import {
@@ -36,7 +37,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
+import { fileExistsWithContent, isCloudEvictedPlaceholder, isTransportFailure } from '../lib/http-retry.js'
 import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
@@ -105,7 +106,33 @@ export class NarrationMissingError extends Error {
   }
 }
 
-export async function findNarrationFile(slug: string, episodeId: string): Promise<string> {
+export async function findNarrationFile(
+  slug: string,
+  episodeId: string,
+  /**
+   * The caller's request-scoped project facts, when it has them.
+   *
+   * v1.4.76 — the recursive search below scans the ENTIRE episodes tree, with
+   * no depth limit, for one code-specific filename. A cold 302-episode
+   * `/episodes` reaches it once per episode through `getAudioStatus`: measured
+   * at ~684,000 `readdir` calls, ~44% of that endpoint's whole filesystem load.
+   *
+   * Given a cache we resolve the episode's OWN folder through the same
+   * already-cached path resolver and confine the search to it. The filename
+   * embeds the episode code, so a hit anywhere in the tree is necessarily this
+   * episode's file — and it lives in this episode's folder.
+   *
+   * The miss case is what actually cost: on this project most episodes have no
+   * narration yet, and each of those paid a fruitless walk of the WHOLE tree
+   * before throwing. When the episode's folder exists, absent-from-that-folder
+   * IS absent, so it throws without the walk.
+   *
+   * The full-tree search is kept for the case that made it necessary: an
+   * episode folder renamed outside the app, where the templated path no longer
+   * resolves. That is detected (the folder is not there) rather than assumed.
+   */
+  cache?: ProjectFactsCache,
+): Promise<string> {
   const code = episodeId.toUpperCase()
   // Prefer the Markdown narration; fall back to a legacy .docx.
   const filename = `${code}_Script_Narration.md`
@@ -131,6 +158,40 @@ export async function findNarrationFile(slug: string, episodeId: string): Promis
       }
     } catch { /* skip */ }
     return null
+  }
+
+  if (cache) {
+    try {
+      const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+      const paths = await resolveEpisodePathsByCode(slug, code, cache)
+
+      // The canonical spot the script generator writes to — one stat, no walk.
+      // .md first, then the legacy .docx: the same precedence findRecursive
+      // applies within a single directory.
+      for (const name of [filename, `${code}_Script_Narration.docx`]) {
+        const candidate = path.join(paths.script_dir, name)
+        try {
+          if ((await fs.stat(candidate)).isFile()) return candidate
+        } catch { /* not there — try the next name */ }
+      }
+
+      // Not in the canonical spot. If the episode's folder is where the
+      // template says, the file is inside it or it does not exist — so search
+      // just that folder rather than the whole project.
+      let episodeDirPresent = false
+      try { episodeDirPresent = (await fs.stat(paths.episode_dir)).isDirectory() } catch { /* renamed or absent */ }
+      if (episodeDirPresent) {
+        const inEpisode = await findRecursive(paths.episode_dir)
+        if (inEpisode) return inEpisode
+        throw new NarrationMissingError(episodeId, filename)
+      }
+      // Episode folder is NOT where the template says (renamed outside the
+      // app) — fall through to the full search, which is exactly what it is
+      // for.
+    } catch (e) {
+      if (e instanceof NarrationMissingError) throw e
+      /* anything else: fall through to the full search */
+    }
   }
 
   const found = await findRecursive(outputRoot)
@@ -798,7 +859,18 @@ export async function generateAudio(job: Job): Promise<void> {
           // The owner found the same hole in subtitles the hard way — 122 of
           // 353 refused in one burst — and asked the obvious next question:
           // "what about the other generators". This is one of the answers.
+          //   A DROPPED CONNECTION (v1.4.76) — the request was never answered,
+          //     so no route can have taken it. This was the one class the rule
+          //     above read backwards: `fetch failed` is not a
+          //     GenStudioTerminalFailureError, so both predicates returned
+          //     false and the section was abandoned on attempt 1 with the raw
+          //     undici text ("9 section(s) failed: Chapter 1: fetch failed").
+          //     The client's own retry is ~3.5s of backoff — fine for a blip,
+          //     nowhere near a GenStudio restart, which is when whole batches
+          //     were lost. This ladder is minutes, which is the right scale.
+          const transportFailure = isTransportFailure(e)
           const worthRetrying = isGenStudioRouteExhausted(e) || isFleetBusyFailure(e, 'tts')
+            || transportFailure
           if (!worthRetrying || attempt >= TTS_ROUTE_RETRY_MAX_ATTEMPTS) {
             failedTasks++
             // Settled-pool semantics: one chunk failure doesn't kill the
@@ -810,7 +882,9 @@ export async function generateAudio(job: Job): Promise<void> {
           }
 
           const waitMs = ttsRouteRetryDelayMs(attempt - 1)
-          const reason = isFleetBusyFailure(e, 'tts')
+          const reason = transportFailure
+            ? `Could not reach ${genStudioProviderLabel}`
+            : isFleetBusyFailure(e, 'tts')
             ? 'Every machine was busy'
             : `No ${genStudioProviderLabel} route would accept this request`
           activeTasks.set(chunkFilename, {
@@ -827,11 +901,28 @@ export async function generateAudio(job: Job): Promise<void> {
             `  ${task.sectionLabel}: ${reason.toLowerCase()} — nothing was charged.`
             + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1} of ${TTS_ROUTE_RETRY_MAX_ATTEMPTS}).`,
           )
-          // Derived from the job that just failed, so this retry is repeatable:
-          // replaying it returns the job GenStudio already has for it instead
-          // of selling a second one.
-          submissionIdentity = nextTtsRouteRetryIdentity(submissionIdentity, e.jobId || chunkFilename)
-          recoveryEntry = null
+          if (transportFailure) {
+            // THE IDENTITY MUST NOT MOVE. A settled failure is dead — its key
+            // replays the same failure forever — so those retries mint a
+            // derived identity below. A dropped connection is the opposite
+            // case: the request may well have been RECEIVED, and a fresh
+            // identity would be a fresh idempotency key, which is a second
+            // job and a second charge for one chapter. Replaying the same key
+            // is what makes GenStudio hand back the job it already has.
+            //
+            // Re-read the manifest rather than trusting the captured entry:
+            // if the connection dropped AFTER the job was accepted,
+            // `onJobAccepted` has already written its id, and reclaiming it
+            // reconnects instead of submitting anything at all.
+            const persisted = (await readManifest(audioDir).catch(() => null))?.tasks[chunkFilename]
+            if (persisted?.provider === 'genstudio' && persisted.task_id) recoveryEntry = persisted
+          } else {
+            // Derived from the job that just failed, so this retry is repeatable:
+            // replaying it returns the job GenStudio already has for it instead
+            // of selling a second one.
+            submissionIdentity = nextTtsRouteRetryIdentity(submissionIdentity, e.jobId || chunkFilename)
+            recoveryEntry = null
+          }
           await delayUnlessAborted(waitMs, controller.signal)
           if (isCancelled()) {
             job.output_lines.push('  Cancelled.')

@@ -120,20 +120,36 @@ test('Formula v1.0.1 promotion is one receipt-bound reserved-to-authored transit
   assert.equal(transitions[0].revision, 18)
   assert.deepEqual(transitions[0].request, promotion)
 
-  for (const reservedPackId of [
+  // The other two leaves share this receipt, so the point of the block below is
+  // that THIS transition promoted the Formula and nothing else. It used to say so
+  // by asserting the pair was still `reserved` and that no Kit record existed --
+  // a snapshot of the wave mid-flight, which went stale the moment the wave
+  // finished and promoted them at revisions 88 and 89. Stated as "each leaf has
+  // its own promotion, distinct from the Formula's", the same claim survives the
+  // wave completing, which is what a test of a shared receipt should do.
+  for (const siblingPackId of [
     'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split',
     'com.storystudio.pack.style.pastel-surreal-psychological-collage',
   ]) {
-    const record = recordVersionFor(registry, reservedPackId, '1.0.1')
+    const record = recordVersionFor(registry, siblingPackId, '1.0.1')
     assert.equal(record.receipt_ref, LEAF_SUCCESSOR_RECEIPT)
-    assert.equal(record.status, 'reserved')
+    const own = registry.transitions.filter(transition => (
+      transition.request.receipt_ref === LEAF_SUCCESSOR_RECEIPT
+      && transition.request.pack_id === siblingPackId
+      && transition.request.version === '1.0.1'
+    ))
+    assert.equal(own.length, 1, `${siblingPackId} must be promoted by exactly one transition of its own`)
+    assert.notEqual(own[0].revision, transitions[0].revision)
+    assert.equal(record.status, 'authored')
   }
-  assert.equal(
-    registry.records.some(record => (
-      record.pack_id === 'com.storystudio.pack.kit.symbolic-psychology-studio' && record.version === '1.0.1'
-    )),
-    false,
-  )
+
+  // The Kit is a separate reservation under its own receipt, never part of the
+  // shared leaf receipt.
+  const kit = registry.records.find(record => (
+    record.pack_id === 'com.storystudio.pack.kit.symbolic-psychology-studio' && record.version === '1.0.1'
+  ))
+  assert.ok(kit, 'the Kit v1.0.1 must be registered')
+  assert.notEqual(kit.receipt_ref, LEAF_SUCCESSOR_RECEIPT)
 })
 
 test('kit closure: the coordinator is a pack-only exact six-node closure', async () => {

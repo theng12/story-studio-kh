@@ -1,0 +1,130 @@
+{
+  "schema_version": 1,
+  "target_pack": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split@1.0.1",
+  "runtime_asset_path": "thumbnail/editorial-psychology-symbolic-split-v1.0.1/assets/editorial-psychology-symbolic-split-6.webp",
+  "attempts_used": 1,
+  "attempts_allowed": 3,
+  "headline_rendered": "HIDDEN MOTIVES",
+  "headline_lines": 1,
+  "acceptance_verdict": "ACCEPT",
+  "evidence": {
+    "owner_approval_of_exact_prompt_batch": {
+      "quote": "approve of the 2 prompts.",
+      "approved_on": "2026-08-28",
+      "channel": "owner reply in session, after reading both literal prompt batches",
+      "freeze_correction": "The original freeze carried a trailing newline (0x0a); the approved prompt TEXT was unchanged. Corrected 2026-08-28 BEFORE any spend. Superseded batch hashes 22a6ab3bfee3a059e84c23aa065e83241680e56e6d90e0ab07cf16b8202fe068 (prompt 1) and b93bbe5e040edd40595a6acb22d114caf5015824cc76d27b05e8d7d6a3908fa6 (prompt 2) were NEVER submitted; no generation was ever run against them."
+    },
+    "exact_quote_and_owner_quote_approval": {
+      "exact_quote": "approve of the 2 prompts.",
+      "quote_approved": true,
+      "approved_on": "2026-08-28"
+    },
+    "job_submission_and_generation_authority": {
+      "job_submission_authorized": true,
+      "generation_authorized": true,
+      "authorized_on": "2026-08-28",
+      "basis": "Owner approval of both prompt batches on 2026-08-28 carries job-submission and generation authority for exactly these two generations."
+    },
+    "job_or_request_id": {
+      "preview_request_id": "70d76c52e9eaca60",
+      "note": "Story Studio's preview path returns its content-addressed preview id; the upstream GenStudio job id is not surfaced on this response. Recorded as the durable request identifier available at this boundary."
+    },
+    "exact_prompt_batch_and_sha256": {
+      "batch_file": "psych-prompt-1-editorial-split.txt",
+      "sha256": "dae334f3f1bea18569393675d5582324138b1fee53319926da8f42c3035bba0c",
+      "bytes": 483
+    },
+    "full_submitted_prompt_and_sha256": {
+      "prompt": "A full-frame 16:9 editorial thumbnail. On the far right, exactly one fragmented porcelain mannequin head and shoulders in three-quarter profile at medium-long distance, facing inward toward the left. The left two-thirds of the frame is a sparse, uncluttered dark tonal band. Rendered in-image across that band, the exact headline HIDDEN MOTIVES on one unbroken line — no other words anywhere. Muted editorial palette, clean studio lighting, no logo, no watermark, no UI, no border.",
+      "sha256": "dae334f3f1bea18569393675d5582324138b1fee53319926da8f42c3035bba0c",
+      "bytes": 483,
+      "equals_approved_batch_hash": true,
+      "note": "Submitted byte-for-byte; the route's trim() is a no-op against the corrected freeze."
+    },
+    "published_receiver_provider_and_model": {
+      "receiver": "GenStudio",
+      "provider_name_as_published": "OpenAI",
+      "model_id": "gpt-image-2",
+      "display_name": "GPT Image 2",
+      "execution_label": "GenStudio cloud",
+      "submitted_via": "Story Studio KH server, POST /api/projects/:slug/preview-image (the app's own GenStudio path, owner-configured key; the key was never read, printed, or handled)"
+    },
+    "execution_timestamp": {
+      "submitted_at": "2026-08-28T00:35:59.931Z",
+      "completed_at": "2026-08-28T00:36:33.662Z",
+      "provider_created_at": "2026-08-28T00:36:33.633Z"
+    },
+    "seed_if_published": {
+      "published": false,
+      "basis": "The live GenStudio catalogue publishes supports_seed:false for gpt-image-2; no seed was requested and none is returned. Recorded as not-published rather than invented."
+    },
+    "cost_receipt": {
+      "credits_charged": 20,
+      "credits_per_image": 20,
+      "resolution_billed": "1K",
+      "aspect_ratio": "16:9",
+      "price_version": "price_img_0251_db33ac588a720832e3a11119",
+      "cache_hit": false,
+      "note": "cached:false on the response confirms a real charged generation, not a cache replay."
+    },
+    "license_and_rights_basis": {
+      "basis": "OpenAI output terms basis; owner-authorized generation on the owner's own configured GenStudio account.",
+      "owner_responsible_for_use": true,
+      "non_exclusive_similarity_caveat": "applies",
+      "pattern": "Matches the existing Content Pack preview-provenance rights pattern used across this repository."
+    },
+    "no_reference_or_compositing_declaration": {
+      "reference_asset_ids": [],
+      "reference_images_used": false,
+      "image_to_image_used": false,
+      "saved_or_rejected_preview_bytes_used": false,
+      "copied_composition": false,
+      "compositing": false,
+      "masking": false,
+      "title_plate": false,
+      "post_render_overlay": false,
+      "logo": false,
+      "watermark": false,
+      "ui_chrome": false,
+      "statement": "Pure single-pass text-to-image from the approved prompt alone. The HIDDEN MOTIVES lettering is model-drawn in-image, never typeset or overlaid. The only post-generation operation is the deterministic whole-image WebP conversion recorded below."
+    },
+    "untouched_original_raster": {
+      "retained": true,
+      "format": "PNG",
+      "bytes": 1072596,
+      "note": "Retained unmodified outside the repository as the returned original."
+    },
+    "original_raster_sha256": "eee0b6c487447a59a8d112aed5c5ac776799ba2eed2e7ff5147277c3ca55d5fa",
+    "original_dimensions_file_type_and_byte_size": {
+      "width": 1280,
+      "height": 720,
+      "file_type": "PNG",
+      "byte_size": 1072596
+    },
+    "strict_decode_result": {
+      "original": "PASS (sharp failOn:error)",
+      "converted_webp": "PASS (sharp failOn:error)",
+      "converted": {
+        "format": "webp",
+        "width": 1672,
+        "height": 941,
+        "byte_size": 989872,
+        "sha256": "13027e9088479b8fae570853724aebb44eff3ff2afbf53cd932577d837282bcd"
+      },
+      "conversion": {
+        "recipe": "sharp resize(1672x941, fit:fill, kernel:lanczos3) then webp({lossless:true, effort:6})",
+        "determinism": "built twice in-process; outputs byte-identical",
+        "no_crop_overlay_composite_or_repair": true,
+        "upscale_disclosure": "The returned original is 1280x720 (GPT Image 2 1K 16:9, the only size the app's preview path requests). The whole-image conversion to the 1672x941 family standard is therefore a 1.306x upscale. No crop or reframing."
+      }
+    }
+  },
+  "acceptance_contract_assessment": [
+    { "criterion": "One completely original full-frame 16:9 raster suitable for deterministic whole-image conversion to 1672x941 WebP.", "verdict": "PASS", "note": "16:9 full-frame, single-pass original; conversion verified deterministic. Source is 1280x941-equivalent 1K, so the conversion upscales 1.306x — disclosed above." },
+    { "criterion": "Exactly one fragmented porcelain mannequin head and shoulders is on the far right, in three-quarter profile at medium-long distance, facing inward.", "verdict": "PASS", "note": "Exactly one cracked-porcelain figure, head and shoulders, far right, three-quarter profile facing left/inward." },
+    { "criterion": "The left two-thirds remain sparse and uncluttered as the dominant title band.", "verdict": "PASS", "note": "Left two-thirds is an empty dark tonal band carrying only the headline." },
+    { "criterion": "The complete exact headline HIDDEN MOTIVES is rendered in-image on one unbroken line with no other words, clipping, or malformed text.", "verdict": "PASS", "note": "Reads exactly HIDDEN MOTIVES, one unbroken line, condensed caps, no other words, no clipping, no malformed glyphs." },
+    { "criterion": "The result materially expands the existing gallery's subject side, camera angle, distance, and one-line hierarchy diversity.", "verdict": "PASS", "note": "Existing gallery is left/left/center-left with two- and three-line titles. This adds the first right-side subject, the first three-quarter profile, and the first one-line headline." },
+    { "criterion": "No reference or saved image, rejected preview bytes, copied composition, compositing, masking, title plate, post-render overlay, logo, watermark, or UI is permitted.", "verdict": "PASS", "note": "No references passed; no post-render compositing of any kind; no logo, watermark, or UI present." }
+  ]
+}

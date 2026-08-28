@@ -365,9 +365,12 @@ const throughputFields: ThroughputField[] = [
   },
   {
     key: 'imageFanout',
-    label: 'Images per episode at once',
-    help: 'Auto follows what GenStudio says your account can run, so it rises by itself as you add '
-      + 'machines. A number overrides it either way — higher is safe, since GenStudio queues the surplus.',
+    label: 'Cloud requests per episode at once',
+    help: 'Covers every fan-out inside ONE episode — images, AI video, continuity renders AND '
+      + 'subtitle transcription, which all share this dial. Auto follows what GenStudio says your '
+      + 'account can run, so it rises by itself as you add machines. A number overrides it either '
+      + 'way — higher is safe, since GenStudio queues the surplus, but lowering it slows subtitles '
+      + 'and video too, not just images.',
     choices: [
       { value: 'auto', label: 'Auto — follows your account (recommended)' },
       { value: 25, label: '25 — gentle' },

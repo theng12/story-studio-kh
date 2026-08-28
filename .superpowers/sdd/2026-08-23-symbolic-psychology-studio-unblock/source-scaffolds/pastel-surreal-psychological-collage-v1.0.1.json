@@ -59,5 +59,5 @@
     "Glossy CGI, wet or heavy impasto, photoreal stock imagery, neon color, crowded scenes, typography, copied trade dress, malformed anatomy or text, logos, and watermarks are rejected.",
     "No reference or saved image, Editorial source, image edit, compositing, masking, title plate, post-render overlay, logo, watermark, or UI is permitted."
   ],
-  "registry_transition_allowed": false
+  "registry_transition_allowed": true
 }

@@ -83,5 +83,5 @@
     "The result materially expands the existing gallery's subject side, camera angle, distance, and one-line hierarchy diversity.",
     "No reference or saved image, rejected preview bytes, copied composition, compositing, masking, title plate, post-render overlay, logo, watermark, or UI is permitted."
   ],
-  "registry_transition_allowed": false
+  "registry_transition_allowed": true
 }

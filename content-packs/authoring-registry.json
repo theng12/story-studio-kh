@@ -1,5 +1,5 @@
 {
-  "revision": 86,
+  "revision": 91,
   "batches": [
     {
       "revision": 2,
@@ -2285,7 +2285,7 @@
     },
     {
       "revision": 85,
-      "receipt_ref": "authoring:e17e8774f99bd489a52de625334e6b5ac74890a400c73eca4d52f50d8c0df9a7",
+      "receipt_ref": "authoring:89c96dbfc5539937b990d295a19e6a1f9a70b1afd6a8569a971456ba2dcc1550",
       "request": {
         "expected_revision": 84,
         "coordinator": {
@@ -2319,6 +2319,95 @@
               },
               "sku": {
                 "id": "com.storystudio.sku.metadata-formula.editorial",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 87,
+      "receipt_ref": "authoring:198cfa301a3178d36d285a5eb55543a29339bd2513483e33d11e8c5c5e384a67",
+      "request": {
+        "expected_revision": 86,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-unblock-kit-successor",
+          "branch": "content/symbolic-psychology-wave1-2026-08-28"
+        },
+        "proposal_ref": "docs/superpowers/plans/2026-08-23-symbolic-psychology-studio-unblock.md#task-6-kit-successor",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+            "bundle_id": "com.storystudio.bundle.symbolic-psychology-studio",
+            "version": "1.0.1",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+                "version": "1.0.1"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.symbolic-psychology-studio",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.symbolic-psychology-studio",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "revision": 90,
+      "receipt_ref": "authoring:62e4f79179a8279122d066262b3c2353de4ee9810e91186d2e3752b2481e33ae",
+      "request": {
+        "expected_revision": 89,
+        "coordinator": {
+          "task": "deep-time-field-record-wave-one",
+          "branch": "content/deep-time-wave1-2026-08-28"
+        },
+        "proposal_ref": "docs/product/deep-time-field-record-wave-one-proposal.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
+            "item_id": "com.storystudio.topic.deep-time-field-record.prehistoric-life-extinction",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/deep-time-field-record/topic/prehistoric-life-extinction",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.deep-time-field-record.prehistoric-life-extinction",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.deep-time-field-record.prehistoric-life-extinction",
                 "status": "proposed"
               }
             }
@@ -3452,7 +3541,7 @@
     },
     {
       "revision": 83,
-      "transition_ref": "lifecycle:1bba87c5c124cd4028825a4a167d15f0980892ad977108f8dfd7d5daec7b5a13",
+      "transition_ref": "lifecycle:462f85d5117091622d09da0e4f16eee97cb883f809868128bbbb6657295ff47c",
       "request": {
         "expected_revision": 82,
         "coordinator": {
@@ -3469,7 +3558,7 @@
     },
     {
       "revision": 84,
-      "transition_ref": "lifecycle:3c4e16760b787e8f879cf961718a52ab607ae52ceb64eacaea54d050000ea955",
+      "transition_ref": "lifecycle:09357082744e79bcfea4042dd9da3d2381a184df1c9ceb59d108ce84db8ce951",
       "request": {
         "expected_revision": 83,
         "coordinator": {
@@ -3486,15 +3575,66 @@
     },
     {
       "revision": 86,
-      "transition_ref": "lifecycle:5230e5b34a0cb15d8eba437375cb14c482fd0f59f8cf408ad061704e2c4d52d4",
+      "transition_ref": "lifecycle:af76dc3844edc0f6eade91fbb5e655ecc32d2a1691c016443d09d95afd41c1e8",
       "request": {
         "expected_revision": 85,
         "coordinator": {
           "task": "metadata-formulas",
           "branch": "feat/metadata-formulas-2026-08-27"
         },
-        "receipt_ref": "authoring:e17e8774f99bd489a52de625334e6b5ac74890a400c73eca4d52f50d8c0df9a7",
+        "receipt_ref": "authoring:89c96dbfc5539937b990d295a19e6a1f9a70b1afd6a8569a971456ba2dcc1550",
         "pack_id": "com.storystudio.pack.metadata-formula.editorial",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 88,
+      "transition_ref": "lifecycle:af0332d63eb79e1b916826a048d47dd4bfe9d876a2365ef22930b6515ae00215",
+      "request": {
+        "expected_revision": 87,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-unblock-leaf-successors",
+          "branch": "content/symbolic-psychology-wave1-2026-08-28"
+        },
+        "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+        "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 89,
+      "transition_ref": "lifecycle:daec7c4bb0522bfdce725d9b8e58d57ac19c46bff5793e34003d5bdf1fb442bf",
+      "request": {
+        "expected_revision": 88,
+        "coordinator": {
+          "task": "symbolic-psychology-studio-unblock-leaf-successors",
+          "branch": "content/symbolic-psychology-wave1-2026-08-28"
+        },
+        "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+        "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 91,
+      "transition_ref": "lifecycle:1ba362aef4920d2f96031e561f7c1770e8e7c068ff48eb8eb00b533f714f1661",
+      "request": {
+        "expected_revision": 90,
+        "coordinator": {
+          "task": "deep-time-field-record-wave-one",
+          "branch": "content/deep-time-wave1-2026-08-28"
+        },
+        "receipt_ref": "authoring:62e4f79179a8279122d066262b3c2353de4ee9810e91186d2e3752b2481e33ae",
+        "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -5535,7 +5675,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5558,7 +5698,7 @@
       "min_app_version_status": "release-bound",
       "kind": "visual-style",
       "source_path": "content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -7175,7 +7315,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:e17e8774f99bd489a52de625334e6b5ac74890a400c73eca4d52f50d8c0df9a7",
+      "receipt_ref": "authoring:89c96dbfc5539937b990d295a19e6a1f9a70b1afd6a8569a971456ba2dcc1550",
       "pack_id": "com.storystudio.pack.metadata-formula.editorial",
       "item_ids": [
         "com.storystudio.metadata-formula.chronology",
@@ -7200,6 +7340,69 @@
         },
         "sku": {
           "id": "com.storystudio.sku.metadata-formula.editorial",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:198cfa301a3178d36d285a5eb55543a29339bd2513483e33d11e8c5c5e384a67",
+      "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+      "bundle_id": "com.storystudio.bundle.symbolic-psychology-studio",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1",
+      "status": "reserved",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.symbolic-psychology-studio",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.symbolic-psychology-studio",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:62e4f79179a8279122d066262b3c2353de4ee9810e91186d2e3752b2481e33ae",
+      "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
+      "item_id": "com.storystudio.topic.deep-time-field-record.prehistoric-life-extinction",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/deep-time-field-record/topic/prehistoric-life-extinction",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.deep-time-field-record.prehistoric-life-extinction",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.deep-time-field-record.prehistoric-life-extinction",
           "status": "proposed"
         }
       }
