@@ -204,6 +204,73 @@ test('the forbidden-mark scan reads entry names and binary bytes, NUL bytes incl
   assert.ok(MARKS.length > 0)
 })
 
+/**
+ * The JSON entries are scanned as documents, so that the guard enforces the
+ * decision it exists for — marks out of what a customer SEES — rather than
+ * refusing internal lookup keys the owner deliberately kept.
+ *
+ * The fixture is the real shape this turned on: `metadata_profile.id` is
+ * `evidence-youtube` in nine published free-starter formula packs.
+ */
+const METADATA_PROFILE = { id: 'evidence-youtube', label: 'Evidence-led video package', youtube_tags_hint: ['deep time'] }
+
+test('an internal identifier value may name a mark, because no customer reads it', () => {
+  const document = Buffer.from(JSON.stringify({ name: 'Ancient Humans', metadata_profile: METADATA_PROFILE }))
+  assert.deepEqual(scanEntriesForForbiddenMarks([{ name: 'content/series-formula.json', bytes: document }]), [])
+})
+
+test('the same mark in a customer-visible value is still refused', () => {
+  for (const field of ['label', 'name', 'description']) {
+    const document = Buffer.from(JSON.stringify({
+      metadata_profile: { ...METADATA_PROFILE, [field]: 'Evidence-led YouTube package' },
+    }))
+    const hits = scanEntriesForForbiddenMarks([{ name: 'content/series-formula.json', bytes: document }])
+    assert.equal(hits.length, 1, `a mark in ${field} must be refused`)
+    assert.equal(hits[0].matched, 'YouTube')
+    assert.equal(hits[0].where, `contents at metadata_profile.${field}`)
+  }
+})
+
+test('only the exact identifier keys are exempt, never a wider set', () => {
+  // `meaningfulStrings` skips `id`, `*_id` and `*_ids`. Anything else that merely
+  // looks like an identifier is customer-readable text as far as this guard knows.
+  for (const key of ['identifier', 'slug', 'idea', 'profile_identity']) {
+    const hits = scanEntriesForForbiddenMarks([
+      { name: 'content/series-formula.json', bytes: Buffer.from(JSON.stringify({ [key]: 'evidence-YouTube' })) },
+    ])
+    assert.equal(hits.length, 1, `${key} is not an identifier key and must still be scanned`)
+  }
+  for (const key of ['id', 'profile_id', 'section_ids']) {
+    const value = key.endsWith('_ids') ? ['evidence-YouTube'] : 'evidence-YouTube'
+    assert.deepEqual(
+      scanEntriesForForbiddenMarks([
+        { name: 'content/series-formula.json', bytes: Buffer.from(JSON.stringify({ [key]: value })) },
+      ]),
+      [], `${key} is an identifier key and is exempt`)
+  }
+})
+
+test('a JSON entry that does not parse is byte-scanned rather than skipped', () => {
+  const truncated = Buffer.from('{"label": "Evidence-led YouTube package"')
+  const hits = scanEntriesForForbiddenMarks([{ name: 'content/broken.json', bytes: truncated }])
+  assert.equal(hits.length, 1, 'unparseable must never mean unscanned')
+  assert.equal(hits[0].matched, 'YouTube')
+  assert.match(hits[0].where, /unparseable JSON, byte-scanned/)
+})
+
+test('a mark in a JSON key name is still looked at', () => {
+  // Not exempt — merely spared by the word boundary, which is what lets
+  // `youtube_tags_hint` through while a bare key would be caught.
+  assert.deepEqual(scanEntriesForForbiddenMarks([
+    { name: 'content/a.json', bytes: Buffer.from(JSON.stringify({ youtube_tags_hint: [] })) },
+  ]), [])
+  const hits = scanEntriesForForbiddenMarks([
+    { name: 'content/b.json', bytes: Buffer.from(JSON.stringify({ YouTube: [] })) },
+  ])
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].where, 'key name YouTube')
+})
+
 test('a pack whose content names a forbidden mark is refused rather than shipped', async () => {
   const { root, registryPath } = await fixtureRepository({ description: 'A look assembled in Photoshop for editorial work.' })
   const outputDirectory = join(await temporaryDirectory('story-ship-out-'), 'artifacts')
