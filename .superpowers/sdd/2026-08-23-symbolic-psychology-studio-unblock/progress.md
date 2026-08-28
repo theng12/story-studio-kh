@@ -474,10 +474,19 @@ No registry write was performed. Three requests are staged as files:
 - `promotions/editorial-psychology-symbolic-split-v1.0.1.json`
 - `promotions/pastel-surreal-psychological-collage-v1.0.1.json`
 
-Each is staged with `expected_revision: 64`, the revision observed while this
-task ran. That is deliberate: if the landing agent advances the counter, these
-requests fail closed instead of applying against an unexpected registry. Re-read
-the live revision and update all three before executing them.
+Each is staged with `expected_revision: 86`, the revision on `main` at the end of
+this task. That pin is deliberate: if the counter has moved again, these requests
+fail closed instead of applying against an unexpected registry. Re-read the live
+revision and update all three before executing them.
+
+This branch is based on `84754d10`, and `main` advanced to `53e1401d`
+(registry revision `86`, 137 records) while this task ran, so it needs a rebase
+before landing. The landing did two things that matter here:
+
+- Topic `human-behavior-social-dynamics@1.0.1` is now `authored`, so the Kit's
+  Topic pin no longer rests only on the `human-behavior@1.0.2` precedent.
+- Thumbnail and Style `1.0.1` are both still `reserved`, so both promotions
+  remain exactly the right next write.
 
 Both source scaffolds now carry `registry_transition_allowed: true`, because
 their returned-evidence sets are complete and both previews were accepted.
