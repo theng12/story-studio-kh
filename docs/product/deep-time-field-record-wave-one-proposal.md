@@ -214,6 +214,61 @@ sibling, that new check immediately found a real split it carries (`late Palaeoz
 `Late Palaeozoic` in the same document). The sibling is not in this wave's scope and is left
 alone; the check is recorded here so the finding is not lost.
 
+## 9a. House-style audit against the family's published sibling
+
+Both packs were measured with the same final checker. The audit runs in both directions, and
+neither direction came back empty.
+
+| Measure | Free sibling `deep-time-earth-systems@1.0.1` | This pack |
+| --- | --- | --- |
+| subjects / tuples | 50 / 1,000 | 100 / 2,000 |
+| distinct `episode_object` | 1,000 / 1,000 | 2,000 / 2,000 |
+| distinct `time_place_scope` | 995 / 1,000 | 2,000 / 2,000 |
+| distinct `mechanism` | 1,000 / 1,000 | 2,000 / 2,000 |
+| distinct `evidence_lens` | 994 / 1,000 | 2,000 / 2,000 |
+| scopes with no geological interval | 615 / 1,000 | 0 / 2,000 |
+| scopes naming no place | 227 / 1,000 | 0 / 2,000 |
+| casing hits (single / bigram / half) | 1 / 0 / 5 | 0 / 0 / 0 |
+| modifier splits, lowercase formal subdivisions | 2, 41 | 0, 0 |
+| median length: object / scope / mechanism / lens | 48 / 40 / 49 / 52 | 56 / 61 / 67 / 65 |
+
+### Finding against this pack: register drift, open for review
+
+This pack runs longer than its sibling on every axis, and the `mechanism` axis is the widest
+gap: median 67 characters against the family's 49. One of the ten writers measured this in their
+own part and rewrote all 200 of their mechanisms to close it; the other nine did not, so the
+divergence is real and uneven.
+
+It is left as authored, and flagged here rather than silently accepted, because the reason is
+arguable in both directions. A palaeontological mechanism carries a biological or taphonomic
+process rather than a one-clause geological one, and the evidence lenses that hold this family's
+contested datings and kill mechanisms are named-record *comparisons* -- "the Deccan argon age
+model set against the Chicxulub ejecta horizon in the same sections" -- which cannot be said in
+52 characters without losing the second half of the comparison. Every value is inside the
+authored ceilings. But a reader moving between the free and paid packs would notice, and no
+automated gate measures register.
+
+**This is a taste call for the independent wave review, not a defect the author should settle
+alone.** If the review wants the family's shorter register, the fix is a mechanism-only rewrite
+pass; the content and its evidence would not change.
+
+### Findings against the free sibling, recorded and not acted on
+
+The audit also found real defects in the published free pack. They are out of this wave's scope
+-- it is a published component pinned at 1.0.1 by the free Deep Time kit, and editing it would
+change bytes the kit's pin depends on -- so they are recorded here rather than lost:
+
+* 5 duplicate `time_place_scope` values and 6 duplicate `evidence_lens` values.
+* 615 of 1,000 scopes name no geological interval, and 227 name no place.
+* 1 lowercased proper noun (`maar` beside `Maar`).
+* 5 half-lowercased proper names: `Indian ocean` (twice), `Atlantic ridge`, `American southwest`,
+  `Chinese loess`.
+* 2 chronostratigraphic modifier pairs written both ways, and 41 lowercase formal subdivisions.
+
+None of these is severe, and none blocks this wave. They are the natural candidates for a
+`deep-time-earth-systems` 1.0.2 whenever one is wanted, and they are the reason the paid pack's
+own bars were set where they are rather than at "matches the sibling".
+
 ## 10. Wave sequencing
 
 **Pack 1 — Prehistoric Life & Extinction (enriched).** Authored in this wave at 100 x 20.
