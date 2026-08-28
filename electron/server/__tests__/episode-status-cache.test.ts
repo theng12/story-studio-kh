@@ -121,6 +121,47 @@ describe('episode-status-cache', () => {
     assert.equal(after.staleRecomputes, before.staleRecomputes, 'no stale recomputes')
   })
 
+  test('an episode cached before any of its folders exist does not stay empty forever', async () => {
+    // A newly-accepted episode has a resolved folder list but nothing on disk,
+    // so its mtime snapshot is EMPTY. That entry could never go stale: the
+    // staleness check stats only the folders already IN the snapshot, and
+    // `mtimesUnchanged({}, {})` is true, so it was a permanent hit. The script
+    // then really landed on disk and the episode still reported script:false —
+    // for the life of the process, with no user action able to shift it.
+    //
+    // The disk path already treated these as poison and dropped them on
+    // hydrate; only the in-memory path still created them.
+    // Its own project: the shared one already has folders on disk from
+    // earlier tests, and the whole point here is a project that has none.
+    const slug = 'cache-not-yet-written'
+    const code = 'EP777'
+    const projDir = path.join(tmp.dir, 'projects', slug)
+    await fs.mkdir(projDir, { recursive: true })
+    await fs.writeFile(path.join(projDir, 'project.json'), JSON.stringify({
+      slug, name: 'Not Yet Written', episode_prefix: 'EP',
+      season_size: 20, season_prefix: 'Season',
+      folder_template: '{season_prefix} {season_num}/{code} - {title}/',
+    }, null, 2))
+    await fs.writeFile(path.join(projDir, 'ideas.json'), JSON.stringify({
+      ideas: [{ id: 'idea-777', episode_code: code, title: 'Test', status: 'accepted' }],
+      next_episode_number: 2, recycled_numbers: [],
+    }, null, 2))
+    const cache = cacheMod.episodeStatusCache
+
+    // Nothing on disk yet.
+    const cold = await cache.get(slug, code)
+    assert.equal(cold.script, false, 'nothing has been written, so there is no script')
+
+    // The script really lands.
+    const scriptDir = path.join(projDir, 'episodes', 'Season 001', `${code} - Test`, `${code} - 01 Script`)
+    await fs.mkdir(scriptDir, { recursive: true })
+    await fs.writeFile(path.join(scriptDir, `${code}_Script_Narration.docx`), 'fake docx content')
+
+    const afterWrite = await cache.get(slug, code)
+    assert.equal(afterWrite.script, true,
+      'the script is on disk — a cache that cannot see it is telling the owner his work is missing')
+  })
+
   test('STALE: bumping a watched folder mtime triggers recompute', async () => {
     const { scriptDir, epDir } = await makeProject()
     const cache = cacheMod.episodeStatusCache

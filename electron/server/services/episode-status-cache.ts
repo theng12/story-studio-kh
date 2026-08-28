@@ -414,16 +414,28 @@ class EpisodeStatusCache {
       //      this entry, recompute on the next read, by which point
       //      iCloud has usually settled.
       //
-      // Note: #1 gates on `folders.length`, NOT `watchedMtimes` size — a
-      // newly-accepted episode whose subfolders don't exist on disk yet
-      // resolves to a non-empty folder list (resolveEpisodePaths just
-      // computes paths from the template; doesn't require them to exist)
-      // but produces an empty mtimes snapshot. Caching THAT is correct
-      // — when the folders eventually appear, the new keys in mtimes
-      // will not match the empty snapshot and the cache will correctly
-      // stale.
+      //   3. An EMPTY mtimes snapshot, for the same reason as #1 and by
+      //      the same mechanism. A newly-accepted episode resolves to a
+      //      real folder list (resolveEpisodePaths computes paths from the
+      //      template and does not require them to exist) while none of
+      //      those folders is on disk yet, so `folders.length > 0` but the
+      //      snapshot is `{}`.
+      //
+      //      This note used to say caching that was correct, because when
+      //      the folders appeared "the new keys in mtimes will not match
+      //      the empty snapshot". They never appear. The staleness check
+      //      stats `Object.keys(entry.watchedMtimes)` — the keys ALREADY
+      //      stored — so an empty snapshot stats nothing, compares `{}`
+      //      against `{}`, and is a permanent hit. Measured: an episode
+      //      read once before its script existed still reported
+      //      `script: false` after the script really landed, for the life
+      //      of the process, with nothing the owner could do about it.
+      //
+      //      The disk path already knew this — `hydrateProjectIfNeeded`
+      //      drops empty-snapshot rows as poisoned. Only the in-memory
+      //      path still created them.
       const unreliable = (status as any)._unreliable === true
-      if (folders.length > 0 && !unreliable) {
+      if (folders.length > 0 && Object.keys(watchedMtimes).length > 0 && !unreliable) {
         this.set(k, entry)
         this.scheduleFlush(slug)
       }

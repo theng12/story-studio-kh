@@ -25,7 +25,7 @@ import {
   resolveScenePlanPath,
 } from './utils.js'
 import type { EpisodePaths } from './utils.js'
-import { resolveReadPath } from '../lib/episode-artifacts.js'
+import { resolveReadPath, resolveArtifact, matchChapterFile, introMarkerPath } from '../lib/episode-artifacts.js'
 import { resolveEpisodeSubfolderDir } from './media-root.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import {
@@ -188,6 +188,76 @@ async function hasValidIntroduction(dir: string, files: string[]): Promise<boole
     } catch { /* corrupt marker is not completion */ }
   }
   return false
+}
+
+/**
+ * Recover an introduction that exists ONLY inside the unified narration.
+ *
+ * THE DAMAGE THIS PREVENTS. `isIntroductionMarker` answers from filenames
+ * alone and never opens the narration — so an introduction living only in the
+ * narration reads as ABSENT. `isStepAlreadyDone` then lets the batch run
+ * `introduction-only`, which writes a freshly generated introduction straight
+ * over the real one (generators/episode.ts). Credits spent, and the original
+ * gone: there is no versioning on that path and no backup. Measured on a
+ * 302-episode fixture where every episode genuinely had one: 0 of 302 detected.
+ *
+ * WHY THIS DOES NOT PUT A PARSE ON THE STATUS PATH. Only ONE population can be
+ * in that state — episodes written before the per-chapter refactor, whose
+ * narration was never split. Every writer since emits `{code}_Introduction.md`,
+ * and `assembleUnifiedNarration` only puts an Introduction section into the
+ * unified file when that source file exists. So the gate is "no chapter source
+ * files", a test over a list already in memory: no syscall, and for a modern
+ * episode the narration is never opened.
+ *
+ * When it does fire it reads once and writes the sidecar the intro generator
+ * would have written, so detection is O(1) filename matching from then on.
+ * It never runs twice for the same episode. (The sidecar write bumps the
+ * folder mtime, so that episode recomputes once more — once, ever.)
+ *
+ * `splitNarrationIntoChapters`, never `parseNarrationDocx`: the latter labels
+ * ANY leading level-1 heading "Introduction", including `# Title — Narration`.
+ * That would report a phantom introduction and SKIP a generation the owner
+ * actually wanted, which is the worse failure of the two.
+ */
+async function backfillLegacyIntroMarker(
+  scriptDir: string, code: string, files: string[],
+): Promise<boolean> {
+  if (files.some(name => matchChapterFile(name, code) !== null)) return false
+  const narration = resolveArtifact(scriptDir, `${code}_Script_Narration`)
+  if (!narration) return false
+  try {
+    const { narrationDocxToMarkdown } = await import('../lib/docx-parser.js')
+    const { splitNarrationIntoChapters } = await import('../lib/narration-assembly.js')
+    const intro = splitNarrationIntoChapters(await narrationDocxToMarkdown(narration)).intro
+    const wordCount = intro ? intro.text.trim().split(/\s+/).filter(Boolean).length : 0
+    if (wordCount === 0) return false
+    await fs.writeFile(introMarkerPath(narration), JSON.stringify({
+      generated_at: new Date().toISOString(),
+      word_count: wordCount,
+      recovered_from: 'unified narration',
+    }, null, 2))
+    return true
+  } catch {
+    // A narration we cannot read is not evidence of an introduction. Report
+    // absent, exactly as before this existed.
+    return false
+  }
+}
+
+/**
+ * Does this script folder have an introduction? The single answer, used by
+ * both the normal path and the legacy fuzzy scan.
+ *
+ * A marker settles it outright. Only when there is NO marker is the narration
+ * considered at all, and only then for the one population that can hide an
+ * introduction inside it — see `backfillLegacyIntroMarker`.
+ */
+export async function computeScriptFolderIntroduction(
+  dir: string, code: string, files: string[],
+): Promise<boolean> {
+  return deriveScriptFolderState(files).introduction
+    ? await hasValidIntroduction(dir, files)
+    : await backfillLegacyIntroMarker(dir, code, files)
 }
 
 async function fileHasContent(p: string): Promise<boolean> {
@@ -945,8 +1015,10 @@ export async function computeEpisodeStatus(
     const scriptCompletion = await inspectChunkedScriptCompletion(paths.script_dir, code)
     const thumbPromptCompletion = await inspectPromptCompletion(paths.thumb_prompts_dir, code, 'thumbnail')
     status.script = scriptCompletion.complete
-    status.introduction = scriptState.introduction
-      && await hasValidIntroduction(paths.script_dir, scriptFiles)
+    // No marker is not the same as no introduction — see
+    // `backfillLegacyIntroMarker`, which is what stops the batch regenerating
+    // over an introduction that lives only inside the unified narration.
+    status.introduction = await computeScriptFolderIntroduction(paths.script_dir, code, scriptFiles)
     status.thumb_prompts = thumbPromptCompletion.authoritative
       ? thumbPromptCompletion.complete
       : thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md'))
@@ -1149,7 +1221,7 @@ export async function computeEpisodeStatus(
               const state = deriveScriptFolderState(files)
               const completion = await inspectChunkedScriptCompletion(subPath, code)
               if (completion.complete) status.script = true
-              if (state.introduction && await hasValidIntroduction(subPath, files)) status.introduction = true
+              if (await computeScriptFolderIntroduction(subPath, code, files)) status.introduction = true
             }
             if (cleanSub.includes('thumbnail prompt')) {
               const completion = await inspectPromptCompletion(subPath, code, 'thumbnail')

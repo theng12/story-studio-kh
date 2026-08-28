@@ -8,7 +8,7 @@ import { existsSync } from 'fs'
 import path from 'path'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { buildNarrationDocx, buildImagePromptsDocx } from '../lib/docx-builder.js'
-import { matchChapterFile, introMarkerPath } from '../lib/episode-artifacts.js'
+import { matchChapterFile, introMarkerPath, resolveArtifact } from '../lib/episode-artifacts.js'
 import { resolveEpisodePaths } from '../services/utils.js'
 import { getEffectiveFormat, fillPacingArcPlaceholders } from '../services/format-loader.js'
 import { applyRecencyToFormat, recordUsage } from '../services/recency-tracker.js'
@@ -1102,6 +1102,23 @@ Output ONLY the introduction text. No meta-commentary. No story chapters.`
   const { ensureChapterFilesMigrated, writeChapterFiles, assembleUnifiedNarration } =
     await import('../lib/narration-assembly.js')
   await ensureChapterFilesMigrated(paths.script_dir, episode_id, title)
+
+  // Say so when this is about to REPLACE an introduction rather than write a
+  // first one. Migration above has just materialised any introduction that
+  // lived only inside the unified narration, so by here the file is the
+  // honest answer. Deliberately a log line and not a refusal: `force` never
+  // reaches this generator (`presetToParams` passes only episode/title/model),
+  // so a refusal here would be a lock the owner has no key for — he would
+  // press Regenerate and get nothing. The real defence is upstream, in
+  // asset-status, which no longer reports these episodes as having none.
+  const existingIntro = resolveArtifact(paths.script_dir, `${episode_id}_Introduction`)
+  if (existingIntro) {
+    const existingWords = (await fs.readFile(existingIntro, 'utf-8').catch(() => ''))
+      .trim().split(/\s+/).filter(Boolean).length
+    if (existingWords > 0) {
+      job.output_lines.push(`Replacing an existing introduction (${existingWords} words) — the previous text is not kept.`)
+    }
+  }
 
   // After potential migration, verify chapters exist.
   let scriptDirEntries: string[] = []
