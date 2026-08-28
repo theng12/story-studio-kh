@@ -7,7 +7,7 @@ import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { callAi, callAiWithRetry, hasAnyTextProviderKey } from '../lib/ai-client.js'
-import { resolveEpisodePaths } from '../services/utils.js'
+import { resolveEpisodePaths, resolveEpisodePathsForRead } from '../services/utils.js'
 import { resolveReadPath, readArtifactRawText, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
@@ -247,7 +247,7 @@ router.get('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     const project = await pm.getProject(slug)
     if (!project) return res.status(404).json({ detail: 'Project not found' })
     const titleParam = (req.query.title as string) || ''
-    const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, titleParam)
     const { sidecarPath, readSidecar } = await import('../lib/chunked-narration.js')
     const sidecarFile = sidecarPath(paths.script_dir, episodeId)
     if (!existsSync(sidecarFile)) {
@@ -636,7 +636,7 @@ router.get('/projects/:slug/episodes/:episodeId/script-content', async (req, res
   const { slug, episodeId } = req.params
   const titleQuery = (req.query.title as string) || ''
   try {
-    const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, titleQuery)
     const result: any = { script: null, introduction: null }
 
     const narrationPath = resolveReadPath(paths.narration_docx)
@@ -692,7 +692,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
   const { slug, episodeId } = req.params
   const titleQuery = (req.query.title as string) || ''
   try {
-    const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, titleQuery)
 
     const { ensureChapterFilesMigrated } =
       await import('../lib/narration-assembly.js')
@@ -816,7 +816,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content'
     return res.status(400).json({ detail: `Invalid chapter number: ${chapterNumber}` })
   }
   try {
-    const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, titleQuery)
     // v1.0.249 — resolve the chapter file in either format: new `.md` first,
     // legacy `.docx` fallback. Previously this only looked for `.md`, so the
     // inline preview 404'd on whichever format the episode didn't have.
