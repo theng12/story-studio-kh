@@ -1593,7 +1593,7 @@
     },
     {
       "revision": 43,
-      "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+      "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
       "request": {
         "expected_revision": 42,
         "coordinator": {
@@ -1603,23 +1603,23 @@
         "proposal_ref": "docs/superpowers/specs/2026-08-25-visual-style-content-store-cutover-design.md",
         "records": [
           {
-            "pack_id": "com.storystudio.pack.style.ms-paint-fantasy",
-            "item_id": "com.storystudio.style.ms-paint-fantasy",
+            "pack_id": "com.storystudio.pack.style.retro-paint-fantasy",
+            "item_id": "com.storystudio.style.retro-paint-fantasy",
             "version": "1.0.0",
             "publisher_id": "com.storystudio",
             "min_app_version": "{{MIN_APP_VERSION}}",
             "min_app_version_status": "release-bound",
             "kind": "visual-style",
-            "source_path": "content-packs/production-looks/style/ms-paint-fantasy",
+            "source_path": "content-packs/production-looks/style/retro-paint-fantasy",
             "status": "reserved",
             "dependencies": [],
             "stocking_proposal": {
               "family": {
-                "id": "com.storystudio.family.style.ms-paint-fantasy",
+                "id": "com.storystudio.family.style.retro-paint-fantasy",
                 "status": "proposed"
               },
               "sku": {
-                "id": "com.storystudio.sku.style.ms-paint-fantasy",
+                "id": "com.storystudio.sku.style.retro-paint-fantasy",
                 "status": "proposed"
               }
             }
@@ -2946,15 +2946,15 @@
     },
     {
       "revision": 44,
-      "transition_ref": "lifecycle:95c36ad03f832e07241330480e4d15702ff3349db96fa97a747782bbf7d5fce3",
+      "transition_ref": "lifecycle:1416b976b05315b2857fcb7ab94572f855a03271a622377b81f4ce253f542d53",
       "request": {
         "expected_revision": 43,
         "coordinator": {
           "task": "visual-style-content-store-cutover",
           "branch": "feat/visual-style-packs"
         },
-        "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
-        "pack_id": "com.storystudio.pack.style.ms-paint-fantasy",
+        "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
+        "pack_id": "com.storystudio.pack.style.retro-paint-fantasy",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -2963,14 +2963,14 @@
     },
     {
       "revision": 45,
-      "transition_ref": "lifecycle:c958f5e8b0f87c959206617f2c8065755a8d2064f3e4e2f1c6e52c453455ecb1",
+      "transition_ref": "lifecycle:3e7303485c7b7cc06f679bd50a3276123eb781813f216bccb9a81af7215d9b1c",
       "request": {
         "expected_revision": 44,
         "coordinator": {
           "task": "visual-style-content-store-cutover",
           "branch": "feat/visual-style-packs"
         },
-        "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+        "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
         "pack_id": "com.storystudio.pack.style.pixel-art-story",
         "version": "1.0.0",
         "changes": {
@@ -2980,14 +2980,14 @@
     },
     {
       "revision": 46,
-      "transition_ref": "lifecycle:32e9d27168a788fc05826f7f9198f553eee12a02d8b9c028e62534e7355c00ef",
+      "transition_ref": "lifecycle:b863ceb2458ec1d22a7522bce7e369c6ede7bef5b480e1fc1f85c72ad5ecf673",
       "request": {
         "expected_revision": 45,
         "coordinator": {
           "task": "visual-style-content-store-cutover",
           "branch": "feat/visual-style-packs"
         },
-        "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+        "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
         "pack_id": "com.storystudio.pack.style.anime-cel",
         "version": "1.0.0",
         "changes": {
@@ -2997,14 +2997,14 @@
     },
     {
       "revision": 47,
-      "transition_ref": "lifecycle:1cfcbe1a915c70177493a1cae67b50c05caa571634485a0981e61b936811ab68",
+      "transition_ref": "lifecycle:8e2db8e101cef25ddfa8824c9119ff7035c889233f7553c75d561ef005f07ed9",
       "request": {
         "expected_revision": 46,
         "coordinator": {
           "task": "visual-style-content-store-cutover",
           "branch": "feat/visual-style-packs"
         },
-        "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+        "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
         "pack_id": "com.storystudio.pack.style.studio-catalog-realism",
         "version": "1.0.0",
         "changes": {
@@ -3014,14 +3014,14 @@
     },
     {
       "revision": 48,
-      "transition_ref": "lifecycle:0de0f2ebf5b79b829a349cca4bf116ade11319914c397e8a736a91f1856705f7",
+      "transition_ref": "lifecycle:facaf9c3707e44cdc1f8f0bdf86ed22f93194634b61c91b6b24cac1229da2fa6",
       "request": {
         "expected_revision": 47,
         "coordinator": {
           "task": "visual-style-content-store-cutover",
           "branch": "feat/visual-style-packs"
         },
-        "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+        "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
         "pack_id": "com.storystudio.pack.style.whiteboard-doodle-explainer",
         "version": "1.0.0",
         "changes": {
@@ -3031,14 +3031,14 @@
     },
     {
       "revision": 49,
-      "transition_ref": "lifecycle:a5a4087d9b1dfdecf3b1120d4d65909528867882f7b8cf20adfaea8ecf0f6d02",
+      "transition_ref": "lifecycle:92931ab0fb2d148f66008f115080b99e33e8d776466e98c58ea22566bf280f4a",
       "request": {
         "expected_revision": 48,
         "coordinator": {
           "task": "visual-style-content-store-cutover",
           "branch": "feat/visual-style-packs"
         },
-        "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+        "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
         "pack_id": "com.storystudio.pack.style.hand-drawn-cartoon-explainer",
         "version": "1.0.0",
         "changes": {
@@ -6674,30 +6674,30 @@
       }
     },
     {
-      "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
-      "pack_id": "com.storystudio.pack.style.ms-paint-fantasy",
-      "item_id": "com.storystudio.style.ms-paint-fantasy",
+      "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
+      "pack_id": "com.storystudio.pack.style.retro-paint-fantasy",
+      "item_id": "com.storystudio.style.retro-paint-fantasy",
       "version": "1.0.0",
       "publisher_id": "com.storystudio",
       "min_app_version": "{{MIN_APP_VERSION}}",
       "min_app_version_status": "release-bound",
       "kind": "visual-style",
-      "source_path": "content-packs/production-looks/style/ms-paint-fantasy",
+      "source_path": "content-packs/production-looks/style/retro-paint-fantasy",
       "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
-          "id": "com.storystudio.family.style.ms-paint-fantasy",
+          "id": "com.storystudio.family.style.retro-paint-fantasy",
           "status": "proposed"
         },
         "sku": {
-          "id": "com.storystudio.sku.style.ms-paint-fantasy",
+          "id": "com.storystudio.sku.style.retro-paint-fantasy",
           "status": "proposed"
         }
       }
     },
     {
-      "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+      "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
       "pack_id": "com.storystudio.pack.style.pixel-art-story",
       "item_id": "com.storystudio.style.pixel-art-story",
       "version": "1.0.0",
@@ -6720,7 +6720,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+      "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
       "pack_id": "com.storystudio.pack.style.anime-cel",
       "item_id": "com.storystudio.style.anime-cel",
       "version": "1.0.0",
@@ -6743,7 +6743,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+      "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
       "pack_id": "com.storystudio.pack.style.studio-catalog-realism",
       "item_id": "com.storystudio.style.studio-catalog-realism",
       "version": "1.0.0",
@@ -6766,7 +6766,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+      "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
       "pack_id": "com.storystudio.pack.style.whiteboard-doodle-explainer",
       "item_id": "com.storystudio.style.whiteboard-doodle-explainer",
       "version": "1.0.0",
@@ -6789,7 +6789,7 @@
       }
     },
     {
-      "receipt_ref": "authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae",
+      "receipt_ref": "authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf",
       "pack_id": "com.storystudio.pack.style.hand-drawn-cartoon-explainer",
       "item_id": "com.storystudio.style.hand-drawn-cartoon-explainer",
       "version": "1.0.0",
