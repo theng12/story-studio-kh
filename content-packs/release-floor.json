@@ -1,0 +1,4 @@
+{
+  "_comment": "The minimum Story Studio version a freshly shipped Store pack may require. This is the single source of truth: `npm run content-pack:ship` reads min_app_version from here and substitutes it for the {{MIN_APP_VERSION}} token in each pack.json. It is owner-editable data, not a constant in code. Raise it only when a new pack genuinely needs an app capability older builds lack, because every customer below the floor stops seeing packs shipped after the change. Already-published archives are immutable and are never affected by editing this file.",
+  "min_app_version": "1.0.843"
+}
