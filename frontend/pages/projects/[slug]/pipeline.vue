@@ -1456,10 +1456,15 @@ function researchNote(status: Record<string, boolean> | undefined): string {
   const s = status || {}
   if (!s.research) return ''
   if (!s.research_reviewed) return ' — claims still to review'
-  // 'human' | 'pipeline-auto'. Never let an unattended auto-accept read as a
-  // person having sat down and read the claims.
+  // 'human' | 'pipeline-auto' | 'auto-approval'. Never let a machine accept —
+  // an unattended batch or the project's automatic-approval setting — read as
+  // a person having sat down and read the claims.
   const by = (s as Record<string, unknown>).research_reviewed_by
-  const who = by === 'pipeline-auto' ? 'claims auto-accepted by the Pipeline, not read by a person' : 'claims reviewed'
+  const who = by === 'pipeline-auto'
+    ? 'claims auto-accepted by the Pipeline, not read by a person'
+    : by === 'auto-approval'
+      ? 'claims auto-approved by this project’s setting, not read by a person'
+      : 'claims reviewed'
   return s.research_has_usable_claims ? ` — ${who}` : ` — ${who}, none kept`
 }
 

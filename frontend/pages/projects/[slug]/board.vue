@@ -531,7 +531,9 @@ function researchNote(status: any): string {
   if (!status.research_reviewed) return ' — claims still to review'
   const who = status.research_reviewed_by === 'pipeline-auto'
     ? 'claims auto-accepted by the Pipeline, not read by a person'
-    : 'claims reviewed'
+    : status.research_reviewed_by === 'auto-approval'
+      ? 'claims auto-approved by this project’s setting, not read by a person'
+      : 'claims reviewed'
   return status.research_has_usable_claims ? ` — ${who}` : ` — ${who}, none kept`
 }
 function cellTitle(ep: any, col: BoardCol): string {

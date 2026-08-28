@@ -27,12 +27,15 @@ import type { Job } from '../models/types.js'
 import type { ResearchMode, ResearchOutput, ResearchSourceProvider } from '../models/types.js'
 import { requireJobCompletion } from '../services/job-completion.js'
 import {
+  autoApproveResearchReview,
   autoCompleteResearchReview,
   hasResearchEvidence,
   readResearchReview,
   readResearchTriage,
+  researchAutoApproveEnabled,
   withResearchUntriaged,
 } from '../lib/research-verification.js'
+import { getConfig } from '../services/project-manager.js'
 import { canonicalHttpUrl, canonicalHttpUrls, sanitizeResearchOutputUrls } from '../services/research/urls.js'
 
 // Re-exported for back-compat with importers that referenced these here.
@@ -124,15 +127,32 @@ export async function runResearchJob(job: Job): Promise<void> {
   // pretends a human read it. `pipeline_batch_id` is stamped on every job the
   // batch runner enqueues (and re-stamped by the job-queue chain hook), so it
   // is the authoritative "this ran unattended" signal.
+  //
+  // The second exception is the project's own "Approve claims automatically"
+  // setting on the Research page. It is read HERE, at run time, from
+  // config.json — never baked into a preset or into the job's params — so
+  // flipping it takes effect on the very next run. Absent means OFF, and a
+  // config that fails to load means OFF: the app never accepts unread
+  // evidence by accident. It is recorded as `auto-approval`, its own actor,
+  // because "you asked for this standing" and "an unattended batch could not
+  // wait" are different promises and must not share a sentence.
   const ranUnderPipeline = typeof (job.params as any)?.pipeline_batch_id === 'string'
     && !!(job.params as any).pipeline_batch_id
+  let autoApprove = false
+  try {
+    autoApprove = researchAutoApproveEnabled(await getConfig(job.project_slug))
+  } catch { /* unreadable config → off, the safe default */ }
   const persisted = ranUnderPipeline
     ? autoCompleteResearchReview(result)
-    : withResearchUntriaged(result)
+    : autoApprove
+      ? autoApproveResearchReview(result)
+      : withResearchUntriaged(result)
   job.output_lines.push(
     ranUnderPipeline
       ? 'Claim review: AUTO-COMPLETED (unattended Pipeline run). Every claim was accepted by the machine — no human read them. Open Research to review them.'
-      : 'Claim review: PENDING. Open Research and mark every claim Verified or Ignore (Verify all decides the whole list in one click).',
+      : autoApprove
+        ? 'Claim review: AUTO-APPROVED — this project has "Approve claims automatically" turned on, so every claim was accepted and passed to the Script Generator without being read. Open Research to change any of them, or turn the setting off.'
+        : 'Claim review: PENDING. Open Research and mark every claim Verified or Ignore (Verify all decides the whole list in one click).',
   )
   // Provenance in the job log, per mode. The two modes made different
   // promises, so they must not share a sentence here either.
@@ -240,6 +260,9 @@ function renderResearchMarkdown(r: ResearchOutput): string {
       + 'so this research hands the Script Generator nothing.')
   } else if (review?.completed_by === 'pipeline-auto') {
     lines.push(`> **Review auto-completed** by an unattended Pipeline run${reviewedAt}. `
+      + `No human read these claims. ${triage.verified} kept, ${triage.ignored} ignored.`)
+  } else if (review?.completed_by === 'auto-approval') {
+    lines.push(`> **Claims auto-approved** by this project’s "Approve claims automatically" setting${reviewedAt}. `
       + `No human read these claims. ${triage.verified} kept, ${triage.ignored} ignored.`)
   } else {
     lines.push(`> **Reviewed**${reviewedAt} — ${triage.verified} claim(s) kept, ${triage.ignored} ignored. `

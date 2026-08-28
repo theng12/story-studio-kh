@@ -230,6 +230,11 @@ describe('research completion rule', () => {
     assert.equal(rv.readResearchReview({ review: true }), null)
     assert.equal(rv.readResearchReview({}), null)
     assert.equal(rv.readResearchReview({ review: { completed_by: 'human' } })?.completed_by, 'human')
+    assert.equal(
+      rv.readResearchReview({ review: { completed_by: 'auto-approval' } })?.completed_by,
+      'auto-approval',
+      'automatic approval is a known actor — it must survive the read, not be dropped as forged',
+    )
   })
 
   test('human vs pipeline review records stay distinguishable', () => {
@@ -240,6 +245,59 @@ describe('research completion rule', () => {
     assert.match(auto.review?.note || '', /no human read these claims/i)
     assert.doesNotMatch(auto.review?.note || '', /cited sources/i)
     assert.ok(auto.review?.completed_at, 'automatic completion must be timestamped too')
+  })
+
+  // ── "Approve claims automatically" (config research_auto_approve_claims) ──
+  // The toggle reuses the manual transition exactly, so nothing downstream can
+  // tell an auto-approved claim from a hand-approved one BY SHAPE — and the
+  // provenance record is the one place that always can.
+  test('automatic approval is off unless the project explicitly asked for it', () => {
+    assert.equal(rv.researchAutoApproveEnabled(undefined), false)
+    assert.equal(rv.researchAutoApproveEnabled(null), false)
+    assert.equal(rv.researchAutoApproveEnabled({}), false, 'ABSENT KEY MEANS OFF')
+    assert.equal(rv.researchAutoApproveEnabled({ research_auto_approve_claims: false }), false)
+    assert.equal(rv.researchAutoApproveEnabled({ research_auto_approve_claims: 'true' }), false,
+      'only a real boolean true counts — a stray string must not turn it on')
+    assert.equal(rv.researchAutoApproveEnabled({ research_auto_approve_claims: 1 }), false)
+    assert.equal(rv.researchAutoApproveEnabled({ research_auto_approve_claims: true }), true)
+    assert.equal(rv.RESEARCH_AUTO_APPROVE_CONFIG_KEY, 'research_auto_approve_claims')
+  })
+
+  test('auto-approval marks claims through the same transition a human uses', () => {
+    const approved = rv.autoApproveResearchReview(rv.withResearchUntriaged(researchFixture()))
+    const byHand = rv.withResearchReviewRecord(triaged('verified'), 'human')
+
+    // Identical claim SHAPE: same field, same value, no extra per-claim key
+    // for a downstream consumer to have to learn.
+    assert.deepEqual(
+      approved.claims.map(c => c.status),
+      byHand.claims.map(c => c.status),
+    )
+    assert.deepEqual(Object.keys(approved.claims[0]!).sort(), Object.keys(byHand.claims[0]!).sort())
+    assert.equal(rv.isResearchReviewed(approved), true, 'the episode reaches Reviewed with no clicks')
+    assert.equal(rv.readResearchTriage(approved).hasUsableClaims, true)
+  })
+
+  test('auto-approved research is distinguishable from every other actor', () => {
+    const approved = rv.autoApproveResearchReview(rv.withResearchUntriaged(researchFixture()))
+    assert.equal(approved.review?.completed_by, 'auto-approval')
+    assert.ok(approved.review?.completed_at, 'automatic approval must be timestamped too')
+    assert.match(approved.review?.note || '', /no human read these claims/i)
+    assert.match(approved.review?.note || '', /Approve claims automatically/)
+    // It never borrows the Pipeline's sentence — they are different promises.
+    assert.doesNotMatch(approved.review?.note || '', /Pipeline/)
+    assert.doesNotMatch(approved.review?.note || '', /cited sources/i)
+    assert.notEqual(rv.AUTO_APPROVAL_REVIEW_NOTE, rv.PIPELINE_AUTO_REVIEW_NOTE)
+    assert.notEqual(rv.AUTO_APPROVAL_REVIEW_NOTE, rv.HUMAN_REVIEW_NOTE)
+  })
+
+  test('auto-approval never overwrites a decision a person already made', () => {
+    const withIgnored = researchFixture({
+      claims: [claim('c1', 'ignored'), claim('c2', 'unreviewed')],
+    })
+    const approved = rv.autoApproveResearchReview(withIgnored)
+    assert.equal(approved.claims[0]!.status, 'ignored', 'a human "Ignore" survives')
+    assert.equal(approved.claims[1]!.status, 'verified')
   })
 
   test('no wording anywhere claims the user checked the cited sources', () => {
@@ -596,6 +654,120 @@ describe('the research generator resets the triage', () => {
     const written = await readResearch(epDir)
     assert.ok(written.claims.every(c => c.status === 'unreviewed'))
     assert.equal(written.review, undefined)
+  })
+
+  // ── "Approve claims automatically", read at RUN time ────────────────────
+  /** Give the project a config.json so `getConfig` has something to read. */
+  async function writeProjectConfig(config: Record<string, unknown>): Promise<void> {
+    await fs.writeFile(
+      path.join(pm.projectsRoot(), SLUG, 'config.json'),
+      JSON.stringify(config, null, 2),
+      'utf-8',
+    )
+  }
+
+  test('with the setting OFF (absent key) a run behaves exactly as it does today', async () => {
+    const epDir = await makeProject(true)
+    await writeProjectConfig({})           // the key was never set
+    const job = await runGeneratorWithStubAdapter({})
+
+    const written = await readResearch(epDir)
+    assert.ok(written.claims.every(c => c.status === 'unreviewed'))
+    assert.equal(written.review, undefined)
+    assert.equal(rv.isResearchReviewed(written), false)
+    assert.ok(job.output_lines.some(l => /Claim review: PENDING/.test(l)))
+    assert.ok(!job.output_lines.some(l => /AUTO-APPROVED/.test(l)))
+  })
+
+  test('an explicit false is still off', async () => {
+    const epDir = await makeProject(true)
+    await writeProjectConfig({ research_auto_approve_claims: false })
+    await runGeneratorWithStubAdapter({})
+    const written = await readResearch(epDir)
+    assert.ok(written.claims.every(c => c.status === 'unreviewed'))
+    assert.equal(written.review, undefined)
+  })
+
+  test('with the setting ON the run approves the claims and records that it was automatic', async () => {
+    const epDir = await makeProject(true)
+    await writeProjectConfig({ research_auto_approve_claims: true })
+    const job = await runGeneratorWithStubAdapter({})
+
+    const written = await readResearch(epDir)
+    assert.ok(written.claims.every(c => c.status === 'verified'),
+      'every claim reaches the same verified state a hand triage produces')
+    assert.equal(rv.isResearchReviewed(written), true, 'the episode is Reviewed with no clicks')
+    assert.equal(written.review?.completed_by, 'auto-approval')
+    assert.notEqual(written.review?.completed_by, 'human', 'and never as a person')
+    assert.ok(job.output_lines.some(l => /AUTO-APPROVED/.test(l)))
+    assert.ok(!job.output_lines.some(l => /Claim review: PENDING/.test(l)))
+
+    // The markdown a reader opens in Finder says it too, in its own words.
+    const { mdPath } = await researchPaths.resolveResearchPaths(epDir, CODE)
+    const md = await fs.readFile(mdPath, 'utf-8')
+    assert.match(md, /Claims auto-approved/)
+    assert.match(md, /No human read these claims/)
+    assert.doesNotMatch(md, /unattended Pipeline run/)
+  })
+
+  test('an unattended Pipeline run still records itself as the Pipeline', async () => {
+    // Both are automatic; the batch's stronger claim wins so the record never
+    // understates that the run was unattended.
+    const epDir = await makeProject(true)
+    await writeProjectConfig({ research_auto_approve_claims: true })
+    await runGeneratorWithStubAdapter({ pipeline_batch_id: 'batch-123' })
+    const written = await readResearch(epDir)
+    assert.equal(written.review?.completed_by, 'pipeline-auto')
+  })
+
+  test('the setting is read at run time, so flipping it changes the very next run', async () => {
+    const epDir = await makeProject(true)
+    await writeProjectConfig({ research_auto_approve_claims: true })
+    await runGeneratorWithStubAdapter({})
+    assert.equal((await readResearch(epDir)).review?.completed_by, 'auto-approval')
+
+    await writeProjectConfig({ research_auto_approve_claims: false })
+    await runGeneratorWithStubAdapter({})
+    const after = await readResearch(epDir)
+    assert.equal(after.review, undefined, 'turning it off returns the next run to manual review')
+    assert.ok(after.claims.every(c => c.status === 'unreviewed'))
+  })
+
+  test('the setting survives a settings/config round-trip', async () => {
+    await makeProject(true)
+    await writeProjectConfig({})
+    assert.equal(rv.researchAutoApproveEnabled(await pm.getConfig(SLUG)), false,
+      'default off: an untouched project has no key at all')
+    assert.equal(((await pm.getSafeConfig(SLUG)) as any).research_auto_approve_claims, undefined)
+
+    assert.equal(await pm.updateConfig(SLUG, { research_auto_approve_claims: true }), true)
+    assert.equal(rv.researchAutoApproveEnabled(await pm.getConfig(SLUG)), true)
+    assert.equal(((await pm.getSafeConfig(SLUG)) as any).research_auto_approve_claims, true,
+      'and getSafeConfig must ECHO it, or the page would re-render its default after a reload')
+
+    assert.equal(await pm.updateConfig(SLUG, { research_auto_approve_claims: false }), true)
+    assert.equal(rv.researchAutoApproveEnabled(await pm.getConfig(SLUG)), false)
+    assert.equal(((await pm.getSafeConfig(SLUG)) as any).research_auto_approve_claims, false)
+  })
+
+  test('the Script Generator cannot tell an auto-approved claim from a hand-approved one', async () => {
+    // The consumer's own predicate (lib/chunked-narration.ts, and the scene
+    // planner) is `status === 'verified'`. Auto-approval must satisfy it
+    // identically — no second field, no special case.
+    const epDir = await makeProject(true)
+    await writeProjectConfig({ research_auto_approve_claims: true })
+    await runGeneratorWithStubAdapter({})
+    const auto = await readResearch(epDir)
+
+    const byHand = rv.withResearchReviewRecord(triaged('verified'), 'human')
+    const usable = (r: ResearchOutput) => (r.claims || [])
+      .filter(c => c.status === 'verified' && c.text?.trim())
+      .map(c => c.text)
+
+    assert.deepEqual(usable(auto), usable(byHand))
+    assert.equal(usable(auto).length, 1, 'and the claim really does reach the Script Generator')
+    // Distinguishable only where it should be: the provenance record.
+    assert.notEqual(auto.review?.completed_by, byHand.review?.completed_by)
   })
 
   // ── Web-search mode ────────────────────────────────────────────────────

@@ -116,6 +116,53 @@ describe('Research workspace flow', () => {
     assert.match(episodeSelector, /⚠ claims need review/)
   })
 
+  // ── "Approve claims automatically" ──────────────────────────────────────
+  test('offers automatic claim approval as a run control, defaulting to OFF', () => {
+    // The control lives in Run controls ("Tune the evidence run"), where the
+    // page already keeps its per-run options.
+    const runControls = research.indexOf('research-setup-surface')
+    const toggle = research.indexOf('research-auto-approve-card')
+    const endOfSurface = research.indexOf('</WorkspaceSection>')
+    assert.ok(runControls >= 0 && toggle > runControls && toggle < endOfSurface,
+      'the toggle belongs inside the Run controls surface, not on a separate settings page')
+
+    assert.match(research, /<strong>Approve claims automatically<\/strong>/)
+    assert.match(research, /v-model="autoApproveClaims"\s+type="checkbox"/)
+    assert.match(research, /@change="setAutoApproveClaims\(autoApproveClaims\)"/)
+    // One plain sentence stating the trade.
+    assert.match(research, /Claims skip manual review and go straight to the Script Generator, recorded as auto-approved/)
+  })
+
+  test('automatic approval is off unless the project stored true', () => {
+    // `=== true`, never `!== false`: an absent key must render UNCHECKED.
+    assert.match(research, /const autoApproveClaims = ref<boolean>\(\(\(projectConfig\.value as any\)\?\.research_auto_approve_claims\) === true\)/)
+    assert.match(research, /\(\(c as any\)\?\.research_auto_approve_claims\) === true/)
+    assert.doesNotMatch(research, /research_auto_approve_claims\) !== false/)
+  })
+
+  test('automatic approval persists through the project settings config endpoint', () => {
+    assert.match(research, /put\(`\/projects\/\$\{slug\.value\}\/settings\/config`, \{ research_auto_approve_claims: v \}\)/)
+    // A failed save reverts the flip, so the checkbox never shows a setting
+    // the project does not actually have.
+    assert.match(research, /autoApproveClaims\.value = !v/)
+    // And it is NOT smuggled into a research preset — presets travel between
+    // projects; permission to skip reading the evidence does not.
+    assert.doesNotMatch(research, /include: \[[^\]]*research_auto_approve_claims/)
+  })
+
+  test('auto-approved claims are visibly auto-approved wherever provenance is shown', () => {
+    assert.match(research, /completedByAutoApproval/)
+    assert.match(research, /Approved automatically by this project’s setting/)
+    assert.match(research, /No human read them/)
+    assert.match(research, /'Auto-approved'/)
+    // Automatic is automatic: the readiness tone must not read as a clean
+    // human review just because it was not the Pipeline that did it.
+    assert.match(research, /if \(completedAutomatically\.value\) return 'warning'/)
+    assert.match(research, /completed_by: 'human' \| 'pipeline-auto' \| 'auto-approval'/)
+    assert.match(episodeSelector, /✓ auto-approved/)
+    assert.match(episodeSelector, /'auto-approval'/)
+  })
+
   test('is honest about where the claims came from, per mode', () => {
     // Provenance is read from the SIDECAR, not the form: the form may have
     // been changed since the run, and the page must describe what happened.

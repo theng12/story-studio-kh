@@ -2283,6 +2283,14 @@ export interface UpdateConfigRequest {
   scene_prompt_tokens_per_scene?: number
   scene_prompt_output_safety_fraction?: number
   scene_prompt_batch_size?: number
+  /**
+   * Research page → "Approve claims automatically". When true, a research run
+   * that produces claims marks them approved through the SAME transition a
+   * hand triage uses, stamped `review.completed_by: 'auto-approval'` so the
+   * provenance never reads as a person. Absent = off; the default lives in
+   * `lib/research-verification.ts` (researchAutoApproveEnabled), not here.
+   */
+  research_auto_approve_claims?: boolean
 }
 
 // ── Jobs ────────────────────────────────────────────────────────────────────
@@ -3904,8 +3912,15 @@ export interface ResearchOutput {
  *  - 'pipeline-auto' — an unattended one-click Pipeline run accepted the
  *                      remaining claims so the batch could complete. Recorded
  *                      distinctly on purpose: the app must never pretend a
- *                      human read the claims. */
-export type ResearchReviewedBy = 'human' | 'pipeline-auto'
+ *                      human read the claims.
+ *  - 'auto-approval' — the project's "Approve claims automatically" setting
+ *                      (config `research_auto_approve_claims`) accepted the
+ *                      claims as the run finished. Also automatic, but it is
+ *                      a standing choice on the Research page rather than an
+ *                      unattended batch, so it carries its own value and its
+ *                      own wording — the two must never borrow each other's
+ *                      sentence. */
+export type ResearchReviewedBy = 'human' | 'pipeline-auto' | 'auto-approval'
 
 /**
  * v1.0.761 — review PROVENANCE, persisted inside the research sidecar

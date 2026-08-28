@@ -497,9 +497,10 @@ function statusSuffix(ep: any): string {
       if (!s.research_reviewed) return ' ⚠ claims need review'
     }
     if (s.research) {
-      return (ep.status as any)?.research_reviewed_by === 'pipeline-auto'
-        ? ' ✓ auto-accepted'
-        : ' ✓ researched'
+      const by = (ep.status as any)?.research_reviewed_by
+      if (by === 'pipeline-auto') return ' ✓ auto-accepted'
+      if (by === 'auto-approval') return ' ✓ auto-approved'
+      return ' ✓ researched'
     }
     return ''
   }

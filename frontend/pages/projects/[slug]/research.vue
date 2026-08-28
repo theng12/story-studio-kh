@@ -255,6 +255,29 @@
              decides how many searches to make, so there is no honest total to
              show before the run. The ACTUAL charge is reported afterwards. -->
         <p v-if="webMode && webCostNote" class="research-cost-note">{{ webCostNote }}</p>
+
+        <!-- Automatic approval. A per-project standing choice, saved to
+             config.json and read at RUN time, so it is not carried in a
+             research preset (presets travel between projects; who is allowed
+             to skip reading the evidence does not). Default OFF — the app
+             never accepts unread evidence unless it was asked to. -->
+        <div class="research-auto-approve-card">
+          <div class="research-auto-approve-head">
+            <strong>Approve claims automatically</strong>
+            <label class="research-switch-label">
+              <input
+                v-model="autoApproveClaims"
+                type="checkbox"
+                @change="setAutoApproveClaims(autoApproveClaims)"
+              />
+              {{ autoApproveClaims ? 'On' : 'Off' }}
+            </label>
+          </div>
+          <p class="research-setting-help">
+            Claims skip manual review and go straight to the Script Generator, recorded as auto-approved
+            so nothing pretends a person read them.
+          </p>
+        </div>
       </div>
     </WorkspaceSection>
 
@@ -305,6 +328,7 @@
             <strong v-if="reviewState === 'empty'">No claims to review</strong>
             <strong v-else-if="reviewState === 'pending'">{{ unreviewedCount }} of {{ claimCount }} claims still need a decision</strong>
             <strong v-else-if="reviewState === 'none-usable'">Reviewed — every claim ignored</strong>
+            <strong v-else-if="reviewState === 'auto' && completedByAutoApproval">Approved automatically by this project’s setting</strong>
             <strong v-else-if="reviewState === 'auto'">Accepted automatically by a Pipeline run</strong>
             <strong v-else>Review complete</strong>
 
@@ -319,6 +343,12 @@
             <p v-else-if="reviewState === 'none-usable'">
               You read every claim and kept none, so this research hands the Script Generator nothing.
               Keep at least one claim, or re-run research for better ones.
+            </p>
+            <p v-else-if="reviewState === 'auto' && completedByAutoApproval">
+              <b>Approve claims automatically</b> is on for this project, so these claims were approved as the run
+              finished and are already going to the Script Generator. <b>No human read them.</b> Your own
+              Verified / Ignore decisions replace that the moment you save.
+              <span v-if="reviewedAtLabel"> Approved automatically {{ reviewedAtLabel }}.</span>
             </p>
             <p v-else-if="reviewState === 'auto'">
               An unattended one-click Pipeline run accepted the remaining claims so the batch could finish.
@@ -560,6 +590,29 @@ const slug = computed(() => route.params.slug as string)
 const { get, post, put, del } = useApi()
 const { success, error: showError } = useToast()
 const { ask } = useConfirm()
+const { config: projectConfig } = useProject()
+
+// ── "Approve claims automatically" (config `research_auto_approve_claims`) ──
+// Per-project, persisted through the same /settings/config endpoint the Scene
+// Plan toggles use. ABSENT MEANS OFF: `=== true`, never `!== false`, so a
+// project that has never seen this setting keeps today's behaviour exactly.
+const autoApproveClaims = ref<boolean>(((projectConfig.value as any)?.research_auto_approve_claims) === true)
+watch(projectConfig, (c) => {
+  autoApproveClaims.value = ((c as any)?.research_auto_approve_claims) === true
+})
+async function setAutoApproveClaims(v: boolean): Promise<void> {
+  autoApproveClaims.value = v
+  try {
+    await put(`/projects/${slug.value}/settings/config`, { research_auto_approve_claims: v })
+    if (projectConfig.value) (projectConfig.value as any).research_auto_approve_claims = v
+    success(v
+      ? 'New research runs will approve every claim automatically and pass them to the Script Generator, recorded as auto-approved.'
+      : 'New research runs will wait for your Verified / Ignore decisions again.')
+  } catch (e: any) {
+    autoApproveClaims.value = !v
+    showError(e?.data?.detail || e?.message || 'Could not save the setting')
+  }
+}
 
 const episodeId = ref('')
 
@@ -878,7 +931,7 @@ interface ResearchStructureSection { heading: string; brief: string; claim_ids: 
 /** v1.0.761 — WHO finished the per-claim triage. Provenance only: whether the
  *  research counts as reviewed is derived from the claim statuses. */
 interface ResearchReviewRecord {
-  completed_by: 'human' | 'pipeline-auto'
+  completed_by: 'human' | 'pipeline-auto' | 'auto-approval'
   completed_at?: string
   note?: string
 }
@@ -970,12 +1023,16 @@ const reviewed = computed(() => claimCount.value > 0 && unreviewedCount.value ==
 const reviewComplete = computed(() => reviewed.value)
 const reviewRecord = computed<ResearchReviewRecord | null>(() => result.value?.review || null)
 const completedByPipeline = computed(() => reviewRecord.value?.completed_by === 'pipeline-auto')
+// The project's own "Approve claims automatically" setting. Automatic like the
+// Pipeline, but a different promise, so it never borrows the Pipeline's words.
+const completedByAutoApproval = computed(() => reviewRecord.value?.completed_by === 'auto-approval')
+const completedAutomatically = computed(() => completedByPipeline.value || completedByAutoApproval.value)
 /** Which story the banner tells. Derived — never a stored flag. */
 const reviewState = computed<'empty' | 'pending' | 'none-usable' | 'auto' | 'reviewed'>(() => {
   if (!claimCount.value) return 'empty'
   if (!reviewed.value) return 'pending'
   if (!acceptedCount.value) return 'none-usable'
-  return completedByPipeline.value ? 'auto' : 'reviewed'
+  return completedAutomatically.value ? 'auto' : 'reviewed'
 })
 const reviewedAtLabel = computed(() => {
   const at = reviewRecord.value?.completed_at
@@ -991,13 +1048,14 @@ const researchReadinessLabel = computed(() => {
   if (!claimCount.value) return 'No claims'
   if (unreviewedCount.value) return `${unreviewedCount.value} to review`
   if (!acceptedCount.value) return 'All ignored'
+  if (completedByAutoApproval.value) return 'Auto-approved'
   return completedByPipeline.value ? 'Auto-accepted' : 'Reviewed'
 })
 const researchReadinessTone = computed(() => {
   if (researching.value || researchJobActive.value) return 'info'
   if (!result.value) return 'info'
   if (dirty.value || !reviewComplete.value) return 'warning'
-  if (completedByPipeline.value) return 'warning'
+  if (completedAutomatically.value) return 'warning'
   return 'success'
 })
 // ── Provenance of the LOADED result ─────────────────────────────────────
@@ -1660,6 +1718,39 @@ watch(
   font-size: var(--font-xs);
   line-height: 1.5;
 }
+/* Automatic claim approval — a standing per-project run option, so it sits
+   inside Run controls with the same card treatment as the domain filters. */
+.research-auto-approve-card {
+  grid-column: 1 / -1;
+  margin-top: 11px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 7px);
+  background: var(--bg-secondary);
+}
+.research-auto-approve-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.research-auto-approve-head strong { font-size: 13px; }
+.research-switch-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.research-setting-help {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
+
 /* A web run that cited nothing is stated plainly rather than left blank. */
 .research-nosources-note {
   margin: 12px 0 0;
