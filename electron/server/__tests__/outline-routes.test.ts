@@ -149,22 +149,42 @@ async function terminalExpansionJob(
   return original
 }
 
+/**
+ * Clear one expand job, and do not return until it is really gone.
+ *
+ * This used to leak, and the leak surfaced two tests later as a baffling
+ * message: a lingering EP001 job made a later POST answer "Chapter expansion
+ * already queued/running for EP001" instead of the "same episode" refusal that
+ * test was asserting. Two reasons, both load-sensitive:
+ *
+ *   - cancellation was requested but never waited for. `requestJobCancellation`
+ *     is a REQUEST; the job reaches `cancelled` a moment later, so the
+ *     `removeTerminalJob` below was skipped on a job that was about to settle.
+ *   - the wait was 2 seconds, and only on the other branch. On a busy machine
+ *     a running expand job does not always settle that fast.
+ *
+ * Both are now one path with room to breathe, and the final assertion makes a
+ * failure land HERE, naming the job that would not clear, instead of in a
+ * later test that never touched it.
+ */
 async function clearExpandJob(jobId: string) {
   const jq = await import('../services/job-queue.js')
   const initial = jq.getJob(jobId)
   if (!initial) return
   if (initial.status === 'queued' || initial.status === 'paused') {
     await jq.requestJobCancellation(slug, jobId)
-  } else {
-    const deadline = Date.now() + 2_000
-    while (Date.now() < deadline && !['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')) {
-      await new Promise(resolve => setTimeout(resolve, 20))
-    }
+  }
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline && !['done', 'error', 'cancelled'].includes(jq.getJob(jobId)?.status || '')) {
+    await new Promise(resolve => setTimeout(resolve, 20))
   }
   const terminal = jq.getJob(jobId)
   if (terminal && ['done', 'error', 'cancelled'].includes(terminal.status)) {
     jq.removeTerminalJob(slug, jobId)
   }
+  assert.equal(jq.getJob(jobId), null,
+    `expand job ${jobId} was still ${jq.getJob(jobId)?.status} after clearing — `
+    + 'a later test will fail on this instead of here')
 }
 
 beforeEach(async () => {
