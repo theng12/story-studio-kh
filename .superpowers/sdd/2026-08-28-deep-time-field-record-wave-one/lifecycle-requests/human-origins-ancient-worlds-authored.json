@@ -1,0 +1,13 @@
+{
+  "expected_revision": 108,
+  "coordinator": {
+    "task": "deep-time-field-record-wave-one",
+    "branch": "content/deep-time-pack3-2026-08-28"
+  },
+  "receipt_ref": "authoring:edc29ccfbd98ba1d6f6eddfab035e134e3b50219628afc2270fe2270adb83ef1",
+  "pack_id": "com.storystudio.pack.topic.deep-time-field-record.human-origins-ancient-worlds",
+  "version": "1.0.0",
+  "changes": {
+    "status": "authored"
+  }
+}

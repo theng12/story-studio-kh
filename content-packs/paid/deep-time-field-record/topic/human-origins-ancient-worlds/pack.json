@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.deep-time-field-record.human-origins-ancient-worlds",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of Human Origins & Ancient Worlds for the Deep Time Field Record: 100 named subjects with 20 reviewed, evidence-anchored tuples each (2,000 lifetime assignments), every tuple anchored to a named site or specimen and a named interval, with every contested date, affinity and attribution held in the evidence lens as a named-record comparison.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.deep-time-field-record.human-origins-ancient-worlds",
+    "family": "com.storystudio.family.topic.deep-time-field-record.human-origins-ancient-worlds"
+  }
+}
