@@ -1650,8 +1650,14 @@ watch(activeFilter, () => { currentPage.value = 1 })
 watch(statusFilter, () => { currentPage.value = 1 })
 watch(projectFilter, () => { currentPage.value = 1 })
 
+// v1.2.9 — count what the button will actually clear. `clearFinished` skips a
+// finished job whose provider evidence is still unsettled, so counting by
+// status alone promised "Clear finished (1)" and then reported clearing zero,
+// with the row still sitting there. A job is clearable exactly when the server
+// says its history can be removed, and the server already tells us that.
 const finishedCount = computed(() =>
-  jobs.value.filter(j => ['done', 'error', 'cancelled'].includes(j.status)).length
+  jobs.value.filter(j => ['done', 'error', 'cancelled'].includes(j.status)
+    && jobControls(j).some(c => c.enabled && c.action === 'clear-history')).length
 )
 
 // ── Duration helpers ────────────────────────────────────────────────────

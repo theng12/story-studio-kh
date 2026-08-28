@@ -665,6 +665,18 @@ async function refreshFinishedJobProviderEvidence(jobId: string): Promise<void> 
     for (const item of outcome.providerJobs) mergeGenStudioReconciliationEvidence(job, item.operation, item.evidence_id, item.job)
     reportNeverCreatedProviderTasks(job, outcome.absent)
 
+    // v1.2.9 — `needsHistoryEvidenceRefresh` answers false for two entirely
+    // different reasons: the evidence really is settled, or the owner abandoned
+    // the job and stopped asking. Only the first is a confirmation. If he
+    // abandoned it while this check was in flight, saying "GenStudio confirmed
+    // every recorded provider task has finished" would write success evidence
+    // nobody has — onto the one job we know least about.
+    if (job.force_abandoned) {
+      delete job.history_evidence_check
+      await persistJob(job)
+      emitUpdate(job)
+      return
+    }
     if (!needsHistoryEvidenceRefresh(job)) {
       // GenStudio confirmed everything is terminal. Nothing is outstanding, so
       // the gate opens on this same snapshot with no further clicks.
