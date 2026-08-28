@@ -26,7 +26,7 @@ before(async () => {
   ;({ deactivateSceneRenderStatus, writeSceneRenderStatus } = await import('../services/scene-render-status.js'))
 })
 
-after(async () => { await cleanup() })
+after(async () => { killStrayStatusProcesses(); await cleanup() })
 
 function renderJob(projectSlug: string, episodeId: string, status: Job['status']): Job {
   const now = new Date().toISOString()
@@ -74,21 +74,70 @@ async function waitForInactive(statusFile: string): Promise<Record<string, unkno
 
 const processFixture = fileURLToPath(new URL('./fixtures/scene-render-status-process.ts', import.meta.url))
 
+/**
+ * Every worker this file has spawned and not yet seen exit.
+ *
+ * WHY THIS EXISTS. Two of these workers (`cleanup`, `live-stale-lock`) block
+ * until the test writes their release file. If an assertion between the spawn
+ * and that write fails, the release never happens and the worker blocks for
+ * ever — and its piped stdout/stderr are open handles on THIS process, so the
+ * test file can never exit. The suite then hangs rather than failing.
+ *
+ * That was survivable only because the runner passed `--test-force-exit`, which
+ * killed the process out from under the leak. v1.4.76 removed that flag so a
+ * truncated file can no longer be mistaken for a passing one, which turned this
+ * latent leak into an indefinite hang of the whole release gate. Two leaks were
+ * found and fixed when the flag came out; this is the third, and it only shows
+ * itself on the failure path, which is why it survived that sweep.
+ */
+const liveStatusProcesses = new Set<ReturnType<typeof spawn>>()
+
 function runStatusProcess(args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ['--import', 'tsx', processFixture, ...args], {
       env: { ...process.env },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
+    liveStatusProcesses.add(child)
     let output = ''
     child.stdout.on('data', chunk => { output += String(chunk) })
     child.stderr.on('data', chunk => { output += String(chunk) })
-    child.once('error', reject)
-    child.once('exit', code => code === 0 ? resolve() : reject(new Error(`scene status worker exited ${code}: ${output}`)))
+    child.once('error', err => { liveStatusProcesses.delete(child); reject(err) })
+    child.once('exit', code => {
+      liveStatusProcesses.delete(child)
+      code === 0 ? resolve() : reject(new Error(`scene status worker exited ${code}: ${output}`))
+    })
   })
 }
 
-async function waitForFile(filePath: string, timeoutMs = 2_000): Promise<boolean> {
+/**
+ * Backstop for a worker left blocked by a failed assertion. Killing it closes
+ * the pipes that were holding this process open, so a failing run FAILS instead
+ * of hanging. Each surviving promise already carries a `.catch`, so the
+ * rejections this produces are never unhandled.
+ */
+function killStrayStatusProcesses(): void {
+  for (const child of liveStatusProcesses) child.kill('SIGKILL')
+  liveStatusProcesses.clear()
+}
+
+/**
+ * The DEFAULT budget covers "has this worker started yet" — a positive wait,
+ * which returns the instant the file appears, so a generous ceiling costs a
+ * passing run nothing and is only ever spent on the way to a failure.
+ *
+ * It was 2s, and 2s had to cover spawning a whole new Node AND tsx compiling
+ * the fixture before a single line of it ran. On a busy machine that is not
+ * enough, so both cross-process tests failed intermittently on a cold start —
+ * observed on 1.4.75 as well, so this predates the release that exposed it.
+ * The assertions here are about ORDER (the worker began before we continued),
+ * never about speed, so waiting longer for a slow boot weakens nothing.
+ *
+ * The short explicit budgets passed at the call sites are the opposite kind of
+ * wait — a NEGATIVE assertion that something has NOT happened yet — and those
+ * must stay short to mean anything. Do not raise them.
+ */
+async function waitForFile(filePath: string, timeoutMs = 20_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     if (await fs.access(filePath).then(() => true, () => false)) return true
@@ -234,13 +283,23 @@ describe('Scene render status lifecycle', () => {
     const writerStartedFile = `${statusFile}.writer-started`
     const writerDoneFile = `${statusFile}.writer-done`
 
+    // The release write and the awaits live in `finally` for the same reason
+    // the live-lock test below does it: `cleanup` blocks until its release file
+    // exists, so an assertion failing before line writes it would strand that
+    // worker and hang the whole file. See `killStrayStatusProcesses`.
     const cleanup = runStatusProcess(['cleanup', project.slug, episodeId, 'old-render-batch', readyFile, releaseFile])
-    assert.equal(await waitForFile(readyFile), true, 'cleanup worker must hold its old read')
-    const writer = runStatusProcess(['write', statusFile, writerStartedFile, writerDoneFile])
-    assert.equal(await waitForFile(writerStartedFile), true, 'new writer must begin before cleanup is released')
-    const writerFinishedBeforeRelease = await waitForFile(writerDoneFile, 250)
-    await fs.writeFile(releaseFile, 'release')
-    await Promise.all([cleanup, writer])
+    let writer: Promise<void> | undefined
+    let writerFinishedBeforeRelease: boolean | undefined
+    try {
+      assert.equal(await waitForFile(readyFile), true, 'cleanup worker must hold its old read')
+      writer = runStatusProcess(['write', statusFile, writerStartedFile, writerDoneFile])
+      assert.equal(await waitForFile(writerStartedFile), true, 'new writer must begin before cleanup is released')
+      writerFinishedBeforeRelease = await waitForFile(writerDoneFile, 250)
+    } finally {
+      await fs.writeFile(releaseFile, 'release').catch(() => {})
+      await cleanup.catch(() => {})
+      await writer?.catch(() => {})
+    }
 
     const status = JSON.parse(await fs.readFile(statusFile, 'utf-8'))
     assert.equal(writerFinishedBeforeRelease, false, 'the new writer must wait for the cross-process ownership check')
