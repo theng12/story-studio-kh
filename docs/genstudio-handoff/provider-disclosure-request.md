@@ -74,3 +74,37 @@ Adopting the fields is a small change on our side, because voice already establi
 The owner chose **extend** on 2026-08-01, as quoted above. Provider identity stays display-only
 and GenStudio-owned; this request does not authorize Story Studio to infer providers or steer
 routing.
+
+---
+
+## ALREADY SHIPPED — verified 2026-08-28
+
+**Status:** CLOSED. No new work was required; this was verified complete, not built.
+
+The table in the body of this request is stale. Checked against GenStudio `main`
+(`0f8f28c1`), **all five remaining modalities already publish `provider_name`**:
+
+| Response schema | Field | Populated by |
+|---|---|---|
+| `ImageModelResponse` | `provider_name` | `images/catalog.py` (per-product literals) |
+| `ChatModelResponse` | `provider_name` | `chat/router.py` → `origin_provider_name(...)` |
+| `MusicModelResponse` | `provider_name` | `music/router.py` → `origin_provider_name(...)` |
+| `VideoModelResponse` | `provider_name` | `videos/router.py` → `origin_provider_name(...)` |
+| `TranscriptionModelResponse` | `provider_name` | `transcriptions/router.py` → `origin_provider_name(...)` |
+
+Video and transcription — the two this was reopened for — are populated at
+`videos/router.py:284` and `transcriptions/router.py:367` respectively. The
+declaration and the population were both checked; a field present in a schema
+but never assigned would have looked identical from the schema alone.
+
+`origin_provider_name()` resolves an exact-id lookup in `PRODUCT_ORIGIN_PROVIDERS`
+and returns `None` when nobody has established the maker — "by exact id and never
+by inference", which matches this request's own rule that identity is published
+or absent, never guessed. The scalar shape shipped rather than the
+operation-aware `provider_name_by_operation` floated here for images; a scalar
+was sufficient because a product's MAKER does not vary by operation, even when
+its serving route does.
+
+Nothing here changed in `feat/customer-failure-reason-2026-08-28`; the branch
+only confirmed it. The separate rule that an *aggregator* must never be named is
+enforced independently in `app/modules/jobs/failure_reason.py`.
