@@ -210,18 +210,28 @@ release-parameterized source without that explicit value, and refuses this overr
 sources. Set it only after the combined runtime release that contains the pack's schema, adapter,
 thumbnail, and planner support has an agreed version.
 
-### Proposal-stage sources
+### Reserve before the source enters `content-packs/`
 
-A wave is authored before its identities are reserved, so between those two moments its source
-exists with no registry record. `packPaths` walks everything under `content-packs/` and refuses
-any `pack.json` there that is not registered, so proposal-stage sources live in
-`content-packs-proposed/` instead, outside the discovered root. See
-`content-packs-proposed/README.md` for what is parked there and how to move one in once its
-identities are reserved.
+`packPaths` walks everything under `content-packs/` and `reconcileSources` refuses any
+`pack.json` it finds there with no registry record. `assertSafeSourcePath`, by contrast, allows a
+**reserved** record to name a `source_path` that does not exist yet, and only requires the
+directory once the record is `authored`.
 
-Those sources build normally -- `buildContentPack` takes any source directory -- so a wave's
-acceptance evidence is reproducible before reservation. They are never signed with a production
-key, stocked or published from that location.
+So when a wave is authored before its identities are reserved -- the normal order, since the
+wave-boundaries policy puts identity assignment after proposal acceptance -- the sequence is:
+
+1. Keep the authored source **outside** `content-packs/` while the registry is still unwritten.
+   `buildContentPack` takes any source directory, so the wave's acceptance evidence is fully
+   reproducible from there.
+2. `reserve` the identity, with `source_path` naming the future location inside
+   `content-packs/`.
+3. `git mv` the source into that location. It now has a record, so discovery accepts it.
+4. `transition` the record to `authored`.
+
+Two waves have hit this ordering constraint (`symbolic-psychology` and `deep-time-field-record`).
+Moving the source in before step 2 makes every registry write fail, because both
+`reserveAuthoringBatch` and `transitionAuthoringRecord` validate the whole document before
+mutating it.
 
 ## Validate
 

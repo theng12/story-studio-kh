@@ -121,17 +121,22 @@ Each of the four Topic components is proposed as its own catalog identity and en
 family, so any one of them can be owned, updated, withdrawn or reviewed without the others. The
 wave is not a monolith and this proposal does not create a kit.
 
-**No identity is reserved by this proposal, and none is registered.** The content-pack authoring
-registry is deliberately untouched: another authoring wave holds the writer slot, and identity
-reservation for this family is sequenced after that landing. The manifest authored in this wave
-therefore carries a *proposed* identity and the `{{KEY_ID}}` build token rather than a reserved
-publisher key.
+Each of the four Topic components is its own catalog identity and entitlement family, so any one
+can be owned, updated, withdrawn or reviewed without the others. The wave is not a monolith and
+this proposal does not create a kit.
 
-Because the registry refuses any unregistered `pack.json` under `content-packs/` -- correctly, since
-a signable source without a reserved identity is what that rule exists to prevent -- the authored
-source is parked in `content-packs-proposed/`, outside the discovered root, and moves into
-`content-packs/paid/deep-time-field-record/` as a plain rename once its identities are reserved.
-`content-packs-proposed/README.md` records that procedure. The proposed strings are:
+**Pack 1's authoring identity is now reserved and the record is `authored`.** The reservation
+chains from the repaired ledger (`d0b741f0` re-mint plus the committed-ledger guard at
+`45ea6ae3`):
+
+| Event | Revision | Reference |
+| --- | --- | --- |
+| reserve `topic.deep-time-field-record.prehistoric-life-extinction@1.0.0` | 90 | `authoring:62e4f791...81e33ae` |
+| transition that record to `authored` | 91 | `lifecycle:1ba362ae...714f1661` |
+
+Registry after the wave: **revision 91, 139 records, 18 batches, 72 transitions.**
+
+The reserved strings are:
 
 ```
 pack_id  com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction
@@ -140,9 +145,27 @@ sku      com.storystudio.sku.topic.deep-time-field-record.prehistoric-life-extin
 family   com.storystudio.family.topic.deep-time-field-record.prehistoric-life-extinction
 ```
 
-These strings are a proposal input. GenStudio assigns the eventual product, release and SKU
-identities after approval; Story Studio must not guess or cache them, and this document creates
-none.
+`stocking_proposal` holds the family and SKU at status `proposed`, which is what that field is
+for: GenStudio still assigns the eventual product, release and SKU identities after approval.
+An authoring reservation is not a catalog listing, and this document creates none.
+
+### Packs 2-4: identities NOT reserved, and why
+
+The sixteen-record `topic-pack-1000-repair` batch (revision 34) is the precedent for reserving a
+whole planned wave up front and promoting each record to `authored` as its source lands. That
+batch could do it because all sixteen records were the *same settled operation* against an
+accepted design doc -- repair each Topic Pack to 1,000 -- so every identity described something
+whose shape was already known.
+
+This wave does not meet that bar, by its own account. Section 10 records an unresolved cross-pack
+overlap boundary for pack 2, two missing contracts for pack 3, and an explicit **block** on pack
+4 pending an evidence contract. A reserved record is a claim in a permanent ledger; reserving
+three identities for components this document says are not ready would make the ledger assert a
+readiness the proposal denies.
+
+So pack 1 only. Packs 2-4 are reserved at their own authoring, one batch each, exactly as the
+symbolic-psychology wave reserved its leaves. Nothing is lost by waiting: reservation is cheap,
+and the identity strings are already written down above the line that reserves them.
 
 ## 6. Proofable claim
 
@@ -269,6 +292,32 @@ None of these is severe, and none blocks this wave. They are the natural candida
 `deep-time-earth-systems` 1.0.2 whenever one is wanted, and they are the reason the paid pack's
 own bars were set where they are rather than at "matches the sibling".
 
+## 9b. Two gate gaps found while registering this wave
+
+Registering pack 1 meant merging the repaired ledger, and doing that surfaced two problems that
+are not this wave's content but are this wave's to report.
+
+**A stale registry snapshot, red before this branch existed.**
+`scripts/content-packs/__tests__/symbolic-psychology-studio-wave-1.test.mjs` asserted that two
+leaf records were still `reserved` and that no Kit record existed. The symbolic-psychology wave
+then promoted both leaves and reserved the Kit, which is exactly what it was supposed to do, and
+the test was not updated. Bisected rather than assumed: it fails identically at `45ea6ae3`,
+before this branch touched anything. Repaired here by restating the claim so it survives the wave
+completing -- each leaf is promoted by its own transition, distinct from the Formula's, and the
+Kit is a separate reservation under a different receipt -- rather than by re-pinning a new
+snapshot that the next legitimate write would break again.
+
+**That whole directory ran in no gate at all.** `npm test` chained `test:backend`,
+`test:frontend` and `test:release`; nothing ran `scripts/content-packs/__tests__`. That is 156
+tests, including the ones that describe the authoring ledger, executing only when somebody
+happened to invoke them by hand. It is the same gap that let a corrupted ledger land through a
+fully green suite, and the symbolic-psychology wave closed the highest-value part of it by adding
+a committed-ledger guard under `electron/server/__tests__/`. The rest is closed here: a
+`test:content-packs` script now runs the directory, and `npm test` chains it. All 156 pass.
+
+The backend gate's own anchors are unchanged by this, because the new script is separate from
+`test:backend`.
+
 ## 10. Wave sequencing
 
 **Pack 1 — Prehistoric Life & Extinction (enriched).** Authored in this wave at 100 x 20.
@@ -299,9 +348,14 @@ pack 4 against this document as written.
 ## 11. What this proposal does not do
 
 It creates no product ID, SKU, release ID, entitlement family, price, discount or catalog
-listing. It reserves no identity and writes no registry record. It does not publish, grant,
-purchase, install or shelf-place anything, and no such action follows from a passing test.
-Publication requires the separate owner-approved release and GenStudio catalog actions.
+listing. It does not publish, grant, purchase, install or shelf-place anything, and no such
+action follows from a passing test. Publication requires the separate owner-approved release and
+GenStudio catalog actions.
+
+It does now hold one **authoring** reservation (section 5). That is the publisher-side ledger
+entry that lets the source live in `content-packs/` and be built reproducibly; it is not a
+product, a price, a release or a shelf entry, and the family and SKU it names remain at status
+`proposed` for GenStudio to assign.
 
 Independent wave review is still outstanding, and Critical or Important findings block the wave
 until corrected and re-reviewed.

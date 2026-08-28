@@ -1,0 +1,13 @@
+{
+  "expected_revision": 90,
+  "coordinator": {
+    "task": "deep-time-field-record-wave-one",
+    "branch": "content/deep-time-wave1-2026-08-28"
+  },
+  "receipt_ref": "authoring:62e4f79179a8279122d066262b3c2353de4ee9810e91186d2e3752b2481e33ae",
+  "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
+  "version": "1.0.0",
+  "changes": {
+    "status": "authored"
+  }
+}
