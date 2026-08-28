@@ -12,10 +12,19 @@ const LEGACY_SOURCE = new URL('../../../frontend/composables/useBuiltInStyles.ts
 const unregister = register()
 const { BUILT_IN_STYLES } = await import(LEGACY_SOURCE)
 unregister()
-const RECEIPT = 'authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae'
+// Re-minted on 2026-08-28 when the paint-fantasy pack's identifiers were
+// renamed off a third-party mark. The receipt hashes pack_id, item_id and
+// source_path, so the rename necessarily produced a new one.
+const RECEIPT = 'authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf'
 
 const STYLES = {
-  'ms-paint-fantasy': {
+  'retro-paint-fantasy': {
+    // The product slug was renamed off a third-party mark before this pack was
+    // ever stocked. The legacy built-in it was productised from keeps the old
+    // slug — existing projects pin `builtin-ms-paint-fantasy` in their
+    // `active_style_preset_id`, and the shipped swatch is named for it — so
+    // only the rows that reach back to that legacy record use `legacy`.
+    legacy: 'ms-paint-fantasy',
     name: 'Retro Paint Fantasy',
     description: 'Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.',
     category: 'Digital',
@@ -78,6 +87,9 @@ const STYLES = {
 }
 
 const slugs = Object.keys(STYLES).sort()
+// The slug the legacy built-in record and its shipped swatch are named for.
+// Identical to the product slug for five of the six.
+const legacySlug = slug => STYLES[slug].legacy ?? slug
 const parseJson = async path => JSON.parse(await readFile(path, 'utf8'))
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 
@@ -115,7 +127,7 @@ test('production looks contain exactly the six receipt-authorized source trees',
     // Parity is checked against the evaluated legacy record, not against the
     // source text. A quoting or formatting change in useBuiltInStyles.ts must
     // not be able to pass or fail this on its own.
-    const legacy = BUILT_IN_STYLES.find(candidate => candidate.id === `builtin-${slug}`)
+    const legacy = BUILT_IN_STYLES.find(candidate => candidate.id === `builtin-${legacySlug(slug)}`)
     assert.ok(legacy, `${slug} must still have a legacy built-in record to be a faithful productisation of`)
     assert.deepEqual({
       name: expected.name,
@@ -173,7 +185,7 @@ test('production look previews preserve approved bytes and complete provenance e
 
   for (const slug of slugs) {
     const expected = STYLES[slug]
-    const sourcePath = `frontend/public/builtin-style-previews/${slug}.webp`
+    const sourcePath = `frontend/public/builtin-style-previews/${legacySlug(slug)}.webp`
     const destinationPath = `content-packs/production-looks/style/${slug}/assets/${slug}.webp`
     const sourceBytes = await readFile(join(process.cwd(), sourcePath))
     const destinationBytes = await readFile(join(process.cwd(), destinationPath))
@@ -188,7 +200,7 @@ test('production look previews preserve approved bytes and complete provenance e
       { format: 'webp', width: 1672, height: 941 },
     )
 
-    for (const evidence of [sourcePath, destinationPath, `builtin-${slug}`, expected.sha256, String(expected.bytes), '1672x941', 'WebP decode passed', 'byte-identical']) {
+    for (const evidence of [sourcePath, destinationPath, `builtin-${legacySlug(slug)}`, expected.sha256, String(expected.bytes), '1672x941', 'WebP decode passed', 'byte-identical']) {
       assert.ok(provenance.includes(evidence), `${slug} provenance must record ${evidence}`)
     }
   }
@@ -209,13 +221,13 @@ test('production look previews preserve approved bytes and complete provenance e
  * here: changing those means new versions and republication, which is a
  * different decision with a different cost.
  */
-test('no sold Production Look carries a third-party product mark in customer-visible text', async () => {
-  // Word-boundary matched so ordinary words are never caught by accident.
-  const MARKS = [/\bMS\s*Paint\b/i, /\bMicrosoft\b/i, /\bYouTube\b/i, /\bPhotoshop\b/i, /\bIllustrator\b/i, /\bTikTok\b/i, /\bInstagram\b/i]
+// Word-boundary matched so ordinary words are never caught by accident.
+const MARKS = [/\bMS\s*Paint\b/i, /\bMicrosoft\b/i, /\bYouTube\b/i, /\bPhotoshop\b/i, /\bIllustrator\b/i, /\bTikTok\b/i, /\bInstagram\b/i]
 
+test('no sold Production Look carries a third-party product mark in customer-visible text', async () => {
   for (const slug of slugs) {
     const style = await parseJson(new URL(`style/${slug}/content/visual-style.json`, ROOT))
-    const legacy = BUILT_IN_STYLES.find(candidate => candidate.id === `builtin-${slug}`)
+    const legacy = BUILT_IN_STYLES.find(candidate => candidate.id === `builtin-${legacySlug(slug)}`)
 
     // Everything the customer can read or search, from both surfaces.
     const surfaces = [
@@ -228,6 +240,98 @@ test('no sold Production Look carries a third-party product mark in customer-vis
     for (const [field, text] of surfaces) {
       for (const mark of MARKS) {
         assert.ok(!mark.test(text), `${slug} ${field} names a third-party product mark (${mark}): ${text}`)
+      }
+    }
+  }
+})
+
+/**
+ * The same ruling, one surface further out.
+ *
+ * A built-in Formula's `visualStyleHint` is art direction the customer reads
+ * and edits in the format-override editor. On 2026-08-28 `ancient-humans.json`
+ * still asked for "hand-drawn MS Paint storybook frames" — the exact mark the
+ * six Production Looks had just been scrubbed of, sitting outside every list
+ * that scrub worked from. Rewritten to "hand-drawn 90s paint-program storybook
+ * frames", the wording the renamed product's own style bible already uses.
+ *
+ * ONLY `visualStyleHint` is swept, deliberately. `metadataTitleStyleHint` and
+ * the thumbnail guidance name YouTube because YouTube is where the episode is
+ * published — a functional reference to the destination platform, not a mark
+ * borrowed as art direction. Scrubbing those would destroy the meaning.
+ */
+test('no built-in Formula asks for a third-party product by name in its art direction', async () => {
+  const NICHES = new URL('../../../electron/server/niches/', import.meta.url)
+  const files = (await readdir(NICHES)).filter(name => name.endsWith('.json')).sort()
+
+  assert.ok(files.length >= 20, `expected the built-in Formula catalog, saw ${files.length} files`)
+
+  for (const file of files) {
+    const hint = (await parseJson(new URL(file, NICHES))).visualStyleHint
+    if (typeof hint !== 'string') continue
+    for (const mark of MARKS) {
+      assert.ok(!mark.test(hint), `${file} visualStyleHint names a third-party product mark (${mark}): ${hint}`)
+    }
+  }
+})
+
+/**
+ * The same rule, applied to identifiers rather than prose.
+ *
+ * WHY THIS EXISTS SEPARATELY. On 2026-08-25 this pack's display name was
+ * changed to Retro Paint Fantasy and its identifiers were deliberately left
+ * alone, to preserve the receipt chain. That reasoning assumed an id is
+ * internal. It is not: `pack_id` is printed on the permanent Installed tab of
+ * the Content Store, it names the `.sspack` file a buyer downloads, it becomes
+ * a directory under the customer's Application Support tree, and it is a key
+ * inside the `project.json` in their own project folder. An id also freezes
+ * permanently at first sale, where prose can still be edited. So the id is the
+ * HARDER surface to fix, not the softer one, and it is guarded here.
+ *
+ * Separators differ from prose — an identifier writes `ms-paint`, not
+ * `MS Paint` — so the prose patterns are rewritten to treat `-`, `_`, `.` and
+ * whitespace alike. `\b` cannot survive that rewrite, because `_` is a word
+ * character and would make `ms_paint_fantasy` slip through, so the ends become
+ * explicit alphanumeric lookarounds. The mark list itself is shared with the
+ * prose test above so the two can never drift apart.
+ */
+test('no sold Production Look carries a third-party product mark in any identifier', async () => {
+  const IDENTIFIER_MARKS = MARKS.map(mark => {
+    assert.match(mark.source, /^\\b.*\\b$/,
+      `mark ${mark} is not word-bounded at both ends, so it cannot be rewritten for identifiers`)
+    const body = mark.source.slice(2, -2).replaceAll('\\s*', '[\\s._-]*')
+    return new RegExp(`(?<![a-z0-9])${body}(?![a-z0-9])`, 'i')
+  })
+  const registry = await parseJson(REGISTRY)
+  const records = registry.records.filter(record => record.receipt_ref === RECEIPT)
+  assert.equal(records.length, 6)
+
+  for (const slug of slugs) {
+    const sourceRoot = new URL(`style/${slug}/`, ROOT)
+    const manifest = await parseJson(new URL('pack.json', sourceRoot))
+    const style = await parseJson(new URL('content/visual-style.json', sourceRoot))
+    const record = records.find(candidate => candidate.pack_id === manifest.pack_id)
+    assert.ok(record, `${slug} must have a registry record to check`)
+
+    // Every name a customer can see, be handed as a file, or find on disk.
+    const identifiers = [
+      ['directory name', slug],
+      ['manifest pack_id', manifest.pack_id],
+      ['manifest sku', manifest.entitlement.sku],
+      ['manifest family', manifest.entitlement.family],
+      ['item id', style.id],
+      ...style.preview_assets.map((asset, index) => [`preview_assets[${index}]`, asset]),
+      ...(await readdir(new URL('assets/', sourceRoot))).map(name => [`asset filename ${name}`, name]),
+      ['registry pack_id', record.pack_id],
+      ['registry item_id', record.item_id],
+      ['registry source_path', record.source_path],
+      ['registry family', record.stocking_proposal.family.id],
+      ['registry sku', record.stocking_proposal.sku.id],
+    ]
+
+    for (const [field, value] of identifiers) {
+      for (const mark of IDENTIFIER_MARKS) {
+        assert.ok(!mark.test(value), `${slug} ${field} carries a third-party product mark (${mark}): ${value}`)
       }
     }
   }
