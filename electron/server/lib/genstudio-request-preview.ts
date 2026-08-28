@@ -111,6 +111,21 @@ export function isPendingGenStudioEntryId(id: string): boolean {
   return typeof id === 'string' && id.startsWith('pending:')
 }
 
+/**
+ * Inverse of `pendingGenStudioEntryId`.
+ *
+ * The placeholder id IS the idempotency key with a prefix, so an entry still
+ * carrying one has never lost the key — even after
+ * `boundGenStudioRequestPreviews` drops its `request` preview. Reconciliation
+ * used to read the key only from that preview and then declare it had none,
+ * which made a 31-item batch permanently unreconcilable once the newest 8
+ * previews pushed the rest out. Encoder and decoder live together so the two
+ * cannot drift apart again.
+ */
+export function idempotencyKeyFromPendingEntryId(id: string): string {
+  return isPendingGenStudioEntryId(id) ? id.slice('pending:'.length) : ''
+}
+
 /** Strip any query string / fragment and keep a leading-slash API path. */
 function normalizePath(value: string): string {
   const raw = String(value || '').trim()

@@ -302,12 +302,23 @@ export function classifyJobControls(
     ? [provider]
     : provider.action === 'pause-submissions' ? [pause] : [pause, provider]
 
-  // v1.2.8 — the guarantee is that there is always a way out. Offer the
-  // override on any unfinished job, and on any finished one whose only control
-  // is disabled — the two shapes that can otherwise become a dead end. A job
-  // already abandoned does not offer it again.
-  const deadEnd = controls.every(candidate => !candidate.enabled)
-  if (!job.force_abandoned && (!isFinishedJob(job.status) || deadEnd)) {
+  // v1.2.9 — the guarantee is still that there is always a way out, but v1.2.8
+  // measured "a way out" as "any button you can click". That is the wrong test.
+  // For a FINISHED job the only exit is removing the row, and
+  // `recheck-provider-status` is a diagnostic, not an exit: it is enabled, so
+  // `controls.every(c => !c.enabled)` was false and the override was withheld —
+  // yet clicking it can only ever re-ask a question. When the evidence has no
+  // recoverable task identity the answer is permanently "cannot tell", so the
+  // owner was left holding a job whose single enabled button was guaranteed
+  // never to release it. That is the exact dead end v1.2.8 was written to
+  // abolish, rebuilt out of two individually reasonable parts.
+  //
+  // So ask the honest question instead: can the user actually leave? An
+  // unfinished job is never offered `clear-history`, so this stays a strict
+  // superset of the old rule — nothing that used to be offered stops being
+  // offered. A job already abandoned does not offer it again.
+  const canLeave = controls.some(candidate => candidate.enabled && candidate.action === 'clear-history')
+  if (!job.force_abandoned && !canLeave) {
     controls.push(forceAbandonControl())
   }
   return controls

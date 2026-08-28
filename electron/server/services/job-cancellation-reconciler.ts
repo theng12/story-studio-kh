@@ -9,6 +9,7 @@ import {
   type GenStudioJob,
 } from '../lib/genstudio-client.js'
 import { GENSTUDIO_TASK_NOT_CREATED_STATE, isNeverCreatedProviderTask } from '../lib/provider-task-state.js'
+import { idempotencyKeyFromPendingEntryId } from '../lib/genstudio-request-preview.js'
 import type { Job, JobRemoteCancellation } from '../models/types.js'
 import { redactSensitiveValue } from '../lib/redact-secrets.js'
 
@@ -210,7 +211,15 @@ export async function reconcilePendingJobCancellation(
   // before this job releases its duplicate lock or claims verified success.
   const observed = new Set(providerJobs.map(item => `${item.operation}:${item.evidence_id}`))
   for (const evidence of job.genstudio_jobs || []) {
+    // v1.2.9 — the placeholder id already contains the idempotency key, so an
+    // entry that still has one is never actually keyless. Reading it only from
+    // the `request` preview meant a batch larger than
+    // GENSTUDIO_REQUEST_PREVIEW_RETAINED declared itself unreconcilable the
+    // moment the older previews were pruned, and then said so to the owner as
+    // if it were a fact about the evidence rather than about where we looked.
     const idempotencyKey = evidence.request?.idempotency_key
+      || idempotencyKeyFromPendingEntryId(evidence.id || '')
+      || undefined
     const pendingEvidence = !evidence.id || evidence.id.startsWith('pending:')
     const evidenceId = evidence.id || (idempotencyKey ? `pending:${idempotencyKey}` : '')
     if (pendingEvidence && !idempotencyKey) {
