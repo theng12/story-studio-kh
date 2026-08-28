@@ -46,9 +46,12 @@ const KIND_NAMESPACES = {
   // Lettering is sold in packs of several creative documents, so its stable
   // identity is an exact set of item ids rather than one item or one bundle.
   'lettering-style': { pack: `${PUBLISHER_ID}.pack.lettering.`, item: `${PUBLISHER_ID}.lettering.`, proposal: 'lettering' },
+  // Metadata formulas sell the same way lettering does — six creative documents
+  // to a pack — so their identity is an exact set of item ids too.
+  'metadata-formula': { pack: `${PUBLISHER_ID}.pack.metadata-formula.`, item: `${PUBLISHER_ID}.metadata-formula.`, proposal: 'metadata-formula' },
 }
 /** Kinds whose pack holds many creative documents rather than exactly one. */
-const MULTI_ITEM_KINDS = new Set(['lettering-style'])
+const MULTI_ITEM_KINDS = new Set(['lettering-style', 'metadata-formula'])
 const MAX_PACK_ITEMS = 24
 const root = fileURLToPath(new URL('../..', import.meta.url))
 

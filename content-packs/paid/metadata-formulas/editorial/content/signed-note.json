@@ -1,0 +1,71 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.signed-note",
+  "name": "Signed Note",
+  "description": "The description as a short note from the person who made it, in first person, ending in a sign-off. No headers, no blocks, no boilerplate. For channels carried by one voice, where the description is part of the relationship rather than an index.",
+  "architecture": "A short first-person note to the viewer, signed off at the end.",
+  "description_plan": {
+    "max_chars": 1200,
+    "separator": "none",
+    "sections": [
+      {
+        "id": "opening",
+        "instruction": "Open the note in first person, as the person who made this episode addressing one reader. Say plainly why you made it — a reason drawn from the episode's own subject, not a generic one.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 280
+      },
+      {
+        "id": "what_it_is",
+        "instruction": "Say what the episode is and what happens in it, still in the same first-person voice. Do not switch into a blurb.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 340
+      },
+      {
+        "id": "aside",
+        "instruction": "One short passage on something you noticed or had to leave out while making it. Only use what the story context supports; if it supports nothing, write about what surprised you in the subject itself.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 220
+      },
+      {
+        "id": "signoff",
+        "instruction": "Close the note in one or two sentences and sign off. Warm, brief, and without asking for a like or a subscription.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 140
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary. At most four.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 70
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 2,
+    "max_length": 70,
+    "guidance": "Plain and personal, in the same first-person register as the note. No colon-subtitle construction and no branding suffix."
+  },
+  "tag_plan": {
+    "count": 10,
+    "guidance": "for this personal episode, staying close to the subject rather than the channel"
+  },
+  "tone": {
+    "constraints": [
+      "First person throughout, one voice, no headers.",
+      "Never ask for a like, a subscription, or a comment.",
+      "Nothing about the making of it may be invented — only what the story context supports."
+    ]
+  }
+}

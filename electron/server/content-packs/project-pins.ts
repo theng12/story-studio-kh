@@ -264,6 +264,11 @@ const CONSUMERS: Record<ContentPackItemKind, readonly JobType[]> = {
   // A lettering style is read when thumbnail prompts are written — that is the
   // job whose output carries the phrase into the image model.
   'lettering-style': ['image_prompts'],
+  // A metadata formula is resolved fresh on every metadata run — it IS the
+  // shape of the description being written — so a project that pinned the pack
+  // supplying it must be told when that pack is missing rather than quietly
+  // reverting to a different architecture.
+  'metadata-formula': ['metadata'],
 }
 
 function pathsFor(options: ContentPackProjectPinOptions): ContentPackRuntimePaths {

@@ -1,0 +1,83 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.questions-and-answers",
+  "name": "Questions and Answers",
+  "description": "The whole description is the questions a viewer arrives with, each one a header and each answered in two or three sentences. Reads as a reference rather than a pitch, and gives search engines real questions to match.",
+  "architecture": "Every section is a question header with a short answer beneath it.",
+  "description_plan": {
+    "max_chars": 2800,
+    "separator": "blank-line",
+    "sections": [
+      {
+        "id": "opening_question",
+        "instruction": "Write the single most common question somebody has about this subject as the header, and answer it beneath in two or three sentences. Take the question from what the episode actually addresses.",
+        "header": {
+          "render": true,
+          "text": "The question most people ask"
+        },
+        "target_chars": 280
+      },
+      {
+        "id": "second_question",
+        "instruction": "A second question, more specific than the first, drawn from the episode's own material. Answer it in two or three sentences. Write the question itself as the first line of the body rather than leaving it in the header.",
+        "header": {
+          "render": true,
+          "text": "And then"
+        },
+        "target_chars": 280
+      },
+      {
+        "id": "third_question",
+        "instruction": "A third question — the one somebody asks once they already understand the basics. Write the question as the first line of the body, then answer it.",
+        "header": {
+          "render": true,
+          "text": "Going deeper"
+        },
+        "target_chars": 280
+      },
+      {
+        "id": "misconception",
+        "instruction": "Name one thing people commonly get wrong about this subject and correct it plainly. Only use a misconception the episode actually addresses.",
+        "header": {
+          "render": true,
+          "text": "What people get wrong"
+        },
+        "target_chars": 260
+      },
+      {
+        "id": "coverage",
+        "instruction": "One short paragraph saying what else the episode covers that the questions above did not touch.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 220
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 4,
+    "max_length": 95,
+    "guidance": "Phrase the title as the question the episode answers, in the words somebody would actually type. Plain wording beats clever wording here."
+  },
+  "tag_plan": {
+    "count": 25,
+    "guidance": "for this question-and-answer reference episode, weighted heavily toward natural-language question phrasings"
+  },
+  "tone": {
+    "constraints": [
+      "Answer every question you raise — nothing is withheld in this formula.",
+      "Keep each answer to three sentences at most.",
+      "Never correct a misconception the episode does not actually address."
+    ]
+  }
+}

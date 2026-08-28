@@ -140,10 +140,30 @@ const REVIEWED_ROWS: ReviewedRow[] = [
     tupleAdditions: 980,
     reviewPath: '.superpowers/sdd/2026-08-25-topic-pack-1000-repair/reviews/natural-world-animals-semantic-review.md',
   },
+  // The first independent-axis row. This pack authors no tuples: the planner
+  // pairs axis index k with every subject, so a material axis is only correct
+  // if it is coherent against all fifty subjects at once. `universalMatrixPath`
+  // is the evidence for that, standing in for the authored tuples a profile row
+  // is checked against, and it is why the independent branch of this suite exists.
+  {
+    slug: 'audience-question-seeder',
+    class: 'independent',
+    predecessorRoot: 'content-packs/reusable-primitives/topic/audience-question-seeder',
+    successorRoot: 'content-packs/reusable-primitives/topic/audience-question-seeder-v1.0.1',
+    document: 'content/topic-pack.json',
+    packId: 'com.storystudio.pack.topic.audience-question-seeder',
+    itemId: 'com.storystudio.topic.audience-question-seeder',
+    formulaRoot: 'content-packs/reusable-primitives/formula/question-ladder',
+    subjects: 50,
+    siblings: 20,
+    tupleAdditions: 0,
+    reviewPath: '.superpowers/sdd/2026-08-25-topic-pack-1000-repair/reviews/audience-question-seeder-semantic-review.md',
+    universalMatrixPath: '.superpowers/sdd/2026-08-25-topic-pack-1000-repair/reviews/audience-question-seeder-universal-matrix.json',
+  },
 ]
 
-// Task 18 changes this to 'authored' only after all sixteen serialized transitions succeed.
-const EXPECTED_RECEIPT_STATUS: RegistryRecord['status'] = 'reserved'
+// Task 18 flipped this to 'authored' after all sixteen serialized transitions succeeded.
+const EXPECTED_RECEIPT_STATUS: RegistryRecord['status'] = 'authored'
 
 function sha256(value: Uint8Array): string {
   return createHash('sha256').update(value).digest('hex')

@@ -960,3 +960,36 @@ test('rejects an already oversized registry handle before parsing', async (t) =>
     /byte limit/i,
   )
 })
+
+test('records the five-leaf Wave 2 lifecycle as reserved proposals followed by exact authored transitions', async () => {
+  const { validateAuthoringRegistry, verifyAuthoringReceipt } = await import(registryModule)
+  const receiptRef = 'authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728'
+  const coordinator = { task: 'reusable-content-primitives-wave-2', branch: 'codex/content-expansion-portfolio' }
+  const validated = await validateAuthoringRegistry({ registryPath, repositoryRoot })
+  const batch = validated.batches.find(candidate => candidate.receipt_ref === receiptRef)
+  assert.ok(batch, 'Wave 2 reservation receipt is persisted')
+  assert.deepEqual(batch.coordinator ?? batch.request.coordinator, coordinator)
+  assert.equal(batch.request.records.length, 5)
+  assert.ok(batch.request.records.every(record => record.status === 'reserved'))
+  assert.ok(batch.request.records.every(record => Array.isArray(record.dependencies) && record.dependencies.length === 0))
+
+  const transitions = validated.transitions.filter(({ request }) => request.receipt_ref === receiptRef)
+  assert.equal(transitions.length, 5, 'each reserved Wave 2 leaf has one lifecycle transition')
+  assert.equal(new Set(transitions.map(({ request }) => `${request.pack_id}@${request.version}`)).size, 5)
+  for (const proposal of batch.request.records) {
+    const current = validated.records.find(record => record.pack_id === proposal.pack_id && record.version === proposal.version)
+    const transition = transitions.find(({ request }) => request.pack_id === proposal.pack_id && request.version === proposal.version)
+    assert.equal(current?.status, 'authored', `${proposal.pack_id} is authored only after its transition`)
+    assert.ok(transition, `${proposal.pack_id} has its status transition`)
+    assert.equal(transition.revision, transition.request.expected_revision + 1)
+    assert.deepEqual(transition.request.coordinator, coordinator)
+    assert.deepEqual(transition.request.changes, { status: 'authored' })
+    assert.deepEqual(await verifyAuthoringReceipt({
+      registryPath,
+      repositoryRoot,
+      revision: batch.revision,
+      receiptRef,
+      expectedIdentity: proposal,
+    }), { revision: batch.revision, receipt_ref: receiptRef, identity: proposal })
+  }
+})

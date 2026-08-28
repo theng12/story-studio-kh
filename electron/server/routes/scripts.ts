@@ -7,7 +7,7 @@ import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
 import { castImagePromptBlock } from '../lib/character-prompt-blocks.js'
 import { callAi, callAiWithRetry, hasAnyTextProviderKey } from '../lib/ai-client.js'
-import { resolveEpisodePaths } from '../services/utils.js'
+import { resolveEpisodePaths, resolveEpisodePathsForRead } from '../services/utils.js'
 import { resolveReadPath, readArtifactRawText, resolveArtifact, matchChapterFile } from '../lib/episode-artifacts.js'
 import { buildImagePromptsDocx } from '../lib/docx-builder.js'
 import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
@@ -17,6 +17,13 @@ import { formatMetadataTxt, parseMetadataTxt } from '../services/metadata-format
 import { validateBody } from '../lib/validate.js'
 import { GenerateScriptOnlySchema, GenerateIntroductionOnlySchema, GenerateChapterOnlySchema } from '../schemas/index.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import {
+  metadataFormulaCatalogue,
+  metadataFormulaPlan,
+  resolveActiveMetadataFormula,
+  withMetadataFormulaShape,
+} from '../services/metadata-formula-catalogue.js'
+import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
 import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
 import { appendSourcesToDescription, sourcesSectionEnabled } from '../lib/research-sources.js'
 import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
@@ -240,7 +247,7 @@ router.get('/projects/:slug/episodes/:episodeId/outline', async (req, res) => {
     const project = await pm.getProject(slug)
     if (!project) return res.status(404).json({ detail: 'Project not found' })
     const titleParam = (req.query.title as string) || ''
-    const paths = await resolveEpisodePaths(slug, episodeId, titleParam)
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, titleParam)
     const { sidecarPath, readSidecar } = await import('../lib/chunked-narration.js')
     const sidecarFile = sidecarPath(paths.script_dir, episodeId)
     if (!existsSync(sidecarFile)) {
@@ -629,7 +636,7 @@ router.get('/projects/:slug/episodes/:episodeId/script-content', async (req, res
   const { slug, episodeId } = req.params
   const titleQuery = (req.query.title as string) || ''
   try {
-    const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, titleQuery)
     const result: any = { script: null, introduction: null }
 
     const narrationPath = resolveReadPath(paths.narration_docx)
@@ -685,7 +692,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapter-list', async (req, res) 
   const { slug, episodeId } = req.params
   const titleQuery = (req.query.title as string) || ''
   try {
-    const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, titleQuery)
 
     const { ensureChapterFilesMigrated } =
       await import('../lib/narration-assembly.js')
@@ -809,7 +816,7 @@ router.get('/projects/:slug/episodes/:episodeId/chapters/:chapterNumber/content'
     return res.status(400).json({ detail: `Invalid chapter number: ${chapterNumber}` })
   }
   try {
-    const paths = await resolveEpisodePaths(slug, episodeId, titleQuery)
+    const paths = await resolveEpisodePathsForRead(slug, episodeId, titleQuery)
     // v1.0.249 — resolve the chapter file in either format: new `.md` first,
     // legacy `.docx` fallback. Previously this only looked for `.md`, so the
     // inline preview 404'd on whichever format the episode didn't have.
@@ -1029,12 +1036,51 @@ router.post([
 // when these grow long enough to need observability, migrate to the queue
 // via `enqueueOrRun(..., { sync: true })` — the seam is in services/job-queue.ts.
 
+/**
+ * The metadata formulas this channel can pick from, and which one it is on.
+ *
+ * Five ship with the app and a Content Pack adds more; the picker treats them
+ * identically because they are identical — the same document kind, validated by
+ * the same schema. `channel_default_id` is empty for a channel that has never
+ * picked one, which is every channel that existed before formulas did.
+ */
+router.get('/projects/:slug/metadata/formulas', async (req, res) => {
+  const { slug } = req.params
+  const config = await pm.getConfig(slug)
+  if (!config) return res.status(404).json({ detail: 'Config not found' })
+  try {
+    const rows = await metadataFormulaCatalogue()
+    res.json({
+      channel_default_id: typeof config.metadata_formula_id === 'string' ? config.metadata_formula_id : '',
+      formulas: rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        architecture: row.architecture,
+        source: row.source,
+        pack_id: row.packId,
+        section_count: row.document.description_plan.sections.length,
+        description_max_chars: row.document.description_plan.max_chars,
+        title_count: row.document.title_plan.count,
+        tag_count: row.document.tag_plan.count,
+        /** Header text where a section shows one, so the picker can preview the shape. */
+        outline: row.document.description_plan.sections.map(section => ({
+          id: section.id,
+          header: section.header.render ? section.header.text ?? '' : '',
+        })),
+      })),
+    })
+  } catch (e: any) {
+    res.status(500).json(humanizeBackendError(e, 'Could not load metadata formulas'))
+  }
+})
+
 router.post('/projects/:slug/generate/metadata/description', async (req, res) => {
   const { slug } = req.params
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Config not found' })
 
-  const { episode_id, title, model, sections, max_chars } = req.body
+  const { episode_id, title, model, sections, max_chars, metadata_formula_id } = req.body
   const credErr = checkProvider(model, config)
   if (credErr) return res.status(400).json({ detail: credErr })
 
@@ -1047,14 +1093,24 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
   // each format can pick its own (prayer / mindfulness narration is
   // typically much shorter than a 60-min sleep story).
   const format = await getEffectiveFormat(slug)
-  const effectiveMaxChars = max_chars || format?.metadata?.defaultMaxChars || 5000
+  // 2026-08-27 — the metadata formula seam, the same one the queued generator
+  // uses, so a channel that picked a formula gets the same architecture from
+  // every path into metadata. Null when nothing picked one, and every line
+  // below then resolves exactly as it did before formulas existed.
+  const formulaEntry = await resolveActiveMetadataFormula({ requestedId: metadata_formula_id, config })
+  const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
+  // An explicit section list from the page still wins; the formula supplies
+  // the architecture when the caller has none of its own.
+  const effectiveSections = (Array.isArray(sections) && sections.length) ? sections : (formula?.sections ?? [])
+  const promptFormat = formula ? withMetadataFormulaShape(format, formula, formulaEntry!.architecture) : format
+  const effectiveMaxChars = max_chars || formula?.descriptionMaxChars || format?.metadata?.defaultMaxChars || 5000
   // v1.0.108+ — multi-scope recency. When the niche's rule covers the
   // 'metadata' scope (e.g. prayer's scripture refs), prepend the
   // avoidance instruction. No-op otherwise.
   const prompt = await prependAvoidanceToPrompt(
     slug,
     'metadata',
-    buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format),
+    buildDescriptionPrompt(episode_id, title, storyContext, effectiveSections, effectiveMaxChars, promptFormat),
   ) + await noEmojiDirective()
 
   try {
@@ -1069,7 +1125,7 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
     // v1.0.197 — append the kept research sources (deterministic, real URLs);
     // v1.0.198 — gated on the description's Sources section being present + on.
     const withSources = await appendSourcesToDescription(
-      slug, episode_id, raw.trim(), format, effectiveMaxChars, sourcesSectionEnabled(sections),
+      slug, episode_id, stripInternalSectionLabels(raw.trim()), format, effectiveMaxChars, sourcesSectionEnabled(sections),
     )
     res.json({ description: withSources.description })
   } catch (e: any) {
@@ -1092,6 +1148,7 @@ router.post('/projects/:slug/generate/metadata/seo-titles', async (req, res) => 
   const {
     episode_id, title, model, count, max_length, platform_preset, include_script_context,
     title_mode, title_prefix, title_suffix, manual_title,
+    metadata_formula_id,
   } = req.body
   const credErr = checkProvider(model, config)
   if (credErr) return res.status(400).json({ detail: credErr })
@@ -1123,9 +1180,15 @@ router.post('/projects/:slug/generate/metadata/seo-titles', async (req, res) => 
     : `Maximum ${max_length} characters per title.`
 
   const format = await getEffectiveFormat(slug)
+  // 2026-08-27 — the metadata formula seam, the same one the queued generator
+  // uses, so a channel that picked a formula gets the same architecture from
+  // every path into metadata. Null when nothing picked one, and every line
+  // below then resolves exactly as it did before formulas existed.
+  const formulaEntry = await resolveActiveMetadataFormula({ requestedId: metadata_formula_id, config })
+  const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
   const hookRules = format.metadata.titleHookRules.map(r => `- ${r}`).join('\n')
 
-  const prompt = `Generate ${count || 5} SEO-optimized YouTube/TikTok/Facebook video title options ${format.metadata.purposeNote}.
+  const prompt = `Generate ${count || formula?.titleCount || 5} SEO-optimized YouTube/TikTok/Facebook video title options ${format.metadata.purposeNote}.
 
 Episode code: ${episode_id}
 Working title: ${title}
@@ -1133,7 +1196,7 @@ ${storyContext ? `\nStory context:\n${storyContext}\n` : ''}
 
 Requirements:
 - ${platformNote}
-- Tone: ${format.metadata.titleStyleHint}.
+- Tone: ${formula?.titleGuidance || format.metadata.titleStyleHint}.
 ${hookRules}
 - Each on its own line. No numbering, no quotes, no commentary.
 
@@ -1169,17 +1232,23 @@ router.post('/projects/:slug/generate/metadata/tags', async (req, res) => {
   const config = await pm.getConfig(slug)
   if (!config) return res.status(404).json({ detail: 'Config not found' })
 
-  const { episode_id, title, description, model, count } = req.body
+  const { episode_id, title, description, model, count, metadata_formula_id } = req.body
   const credErr = checkProvider(model, config)
   if (credErr) return res.status(400).json({ detail: credErr })
 
   const storyContext = await readStoryContext(slug, episode_id, title, 1500)
 
   const format = await getEffectiveFormat(slug)
+  // 2026-08-27 — the metadata formula seam, the same one the queued generator
+  // uses, so a channel that picked a formula gets the same architecture from
+  // every path into metadata. Null when nothing picked one, and every line
+  // below then resolves exactly as it did before formulas existed.
+  const formulaEntry = await resolveActiveMetadataFormula({ requestedId: metadata_formula_id, config })
+  const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
   const broadKeywordsLine = format.metadata.broadKeywords.join(', ')
   const tagRules = format.metadata.tagsHookRules.map(r => `- ${r}`).join('\n')
 
-  const prompt = `Generate ${count || 15} YouTube tags ${format.metadata.tagsContext}.
+  const prompt = `Generate ${count || formula?.tagCount || 15} YouTube tags ${formula?.tagGuidance || format.metadata.tagsContext}.
 
 Episode: ${episode_id} — ${title}
 ${description ? `\nDescription excerpt:\n${truncateChars(description, 500)}\n` : ''}
@@ -1226,7 +1295,7 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
     episode_id, title, model, sections, max_chars,
     title_count, title_max_length, title_platform_preset,
     title_mode, title_prefix, title_suffix, manual_title,
-    tag_count,
+    tag_count, metadata_formula_id,
   } = req.body
   // Channel prefix/suffix wrapper — v1.0.90+. Applies to fixed AND
   // paraphrase modes so the channel boilerplate ('Morning Prayer: ',
@@ -1254,22 +1323,32 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
     // and the tags prompt below. Cheap (project.json read + format-
     // defaults merge).
     const format = await getEffectiveFormat(slug)
+    // 2026-08-27 — the metadata formula seam, the same one the queued generator
+    // uses, so a channel that picked a formula gets the same architecture from
+    // every path into metadata. Null when nothing picked one, and every line
+    // below then resolves exactly as it did before formulas existed.
+    const formulaEntry = await resolveActiveMetadataFormula({ requestedId: metadata_formula_id, config })
+    const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
+    // An explicit section list from the page still wins; the formula supplies
+    // the architecture when the caller has none of its own.
+    const effectiveSections = (Array.isArray(sections) && sections.length) ? sections : (formula?.sections ?? [])
+    const promptFormat = formula ? withMetadataFormulaShape(format, formula, formulaEntry!.architecture) : format
 
     // Description (hashtags section uses format.youtubeDescriptionStructure
     // when no explicit defaults are set on the section config).
     // v1.0.102+ — char limit format-driven; same logic as the per-route
     // description endpoint above.
-    const effectiveMaxChars = max_chars || format?.metadata?.defaultMaxChars || 5000
+    const effectiveMaxChars = max_chars || formula?.descriptionMaxChars || format?.metadata?.defaultMaxChars || 5000
     // v1.0.108+ — metadata-scope recency on the /metadata/all batch route.
     const descPrompt = await prependAvoidanceToPrompt(
       slug,
       'metadata',
-      buildDescriptionPrompt(episode_id, title, storyContext, sections || [], effectiveMaxChars, format),
+      buildDescriptionPrompt(episode_id, title, storyContext, effectiveSections, effectiveMaxChars, promptFormat),
     ) + await noEmojiDirective()
     const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false, {
       slug, outputBudget: 'standard',
     })
-    const description = await applyEmojiPolicy(descRaw.trim(), [descPrompt])
+    const description = stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt]))
     await recordUsageForScope(slug, episode_id, 'metadata', descRaw).catch(() => null)
 
     // Titles — fixed modes return a single title without an LLM call.
@@ -1293,25 +1372,25 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
         const top = await getTopPerformersForSlug(slug, 5)
         topBlock = formatTopPerformersBlock(top)
       } catch { /* analytics is best-effort */ }
-      const titlePrompt = `Generate ${title_count || 5} SEO-optimized video title options ${format.metadata.purposeNote}.
+      const titlePrompt = `Generate ${title_count || formula?.titleCount || 5} SEO-optimized video title options ${format.metadata.purposeNote}.
 Episode: ${episode_id} — ${title}
 Story context:
 ${truncateChars(storyContext, 1500)}
 ${topBlock}
 Requirements:
 - ${platformNote}
-- Tone: ${format.metadata.titleStyleHint}.
+- Tone: ${formula?.titleGuidance || format.metadata.titleStyleHint}.
 - One per line. No numbering, quotes, or commentary.${await noEmojiDirective()}`
       const titlePromptWithAvoidance = await prependAvoidanceToPrompt(slug, 'titles', titlePrompt)
       const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false, { slug })
-      const rawTitles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || 5)
+      const rawTitles = titleRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, title_count || formula?.titleCount || 5)
       const cleanTitles = await applyEmojiPolicyToAll(rawTitles, [titlePromptWithAvoidance])
       titles = (title_prefix || title_suffix) ? cleanTitles.map(wrapAllTitle) : cleanTitles
       await recordUsageForScope(slug, episode_id, 'titles', titleRaw).catch(() => null)
     }
 
     // Tags
-    const tagPrompt = `Generate ${tag_count || 15} YouTube tags ${format.metadata.tagsContext}.
+    const tagPrompt = `Generate ${tag_count || formula?.tagCount || 15} YouTube tags ${formula?.tagGuidance || format.metadata.tagsContext}.
 Episode: ${episode_id} — ${title}
 Description excerpt:
 ${truncateChars(description, 500)}
@@ -1322,7 +1401,7 @@ Requirements:
 - One per line, no numbering or commentary.${await noEmojiDirective()}`
     const tagRaw = await callAiWithRetry(model, '', tagPrompt, aiCreds(config), false, { slug })
     const tags = await applyEmojiPolicyToAll(
-      tagRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, tag_count || 15),
+      tagRaw.split('\n').map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^#/, '').replace(/^["']|["']$/g, '').trim()).filter(Boolean).slice(0, tag_count || formula?.tagCount || 15),
       [tagPrompt],
     )
 
@@ -1561,7 +1640,12 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
           title_options: Array.isArray(data.title_options) && data.title_options.length
             ? data.title_options
             : (data.title ? [data.title] : []),
-          description: data.description || '',
+          // v1.4.75 — a package saved before the prompt fix can carry an
+          // internal section name the model printed as a heading (`HOOK:`,
+          // `SUBSCRIBE / LIKE CTA`). Cleaned on the way to the Metadata page
+          // so what he reads, copies and re-saves is what a viewer would see.
+          // The file on disk is left alone until he saves.
+          description: stripInternalSectionLabels(data.description || ''),
           tags: Array.isArray(data.tags) ? data.tags : [],
           youtube_finalization: data.youtube_finalization || null,
           savedAt: data.savedAt || null,
@@ -1583,7 +1667,12 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
         const v = m[1] ? parseInt(m[1], 10) : 1
         try {
           const parsed = parseMetadataTxt(text)
-          versions.push({ version: v, ...parsed, savedAt: null })
+          versions.push({
+            version: v,
+            ...parsed,
+            description: stripInternalSectionLabels(parsed.description || ''),
+            savedAt: null,
+          })
         } catch {}
       }
     }

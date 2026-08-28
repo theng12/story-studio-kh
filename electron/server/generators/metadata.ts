@@ -25,6 +25,12 @@ import { resolveSubfolder, resolveEpisodeDir } from '../lib/folder-resolver.js'
 import { trackGeneration } from '../services/session-tracker.js'
 import { formatMetadataTxt } from '../services/metadata-format.js'
 import { buildDescriptionPrompt } from '../lib/metadata-prompt.js'
+import {
+  metadataFormulaPlan,
+  resolveActiveMetadataFormula,
+  withMetadataFormulaShape,
+} from '../services/metadata-formula-catalogue.js'
+import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
 import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
 import { metadataPlaceholderOutputContract } from '../lib/story-output-contracts.js'
 import { sourcesSectionEnabled } from '../lib/research-sources.js'
@@ -86,6 +92,17 @@ interface MetadataParams {
   title_suffix?: string
   manual_title?: string
   tag_count?: number
+  /**
+   * Which metadata formula shapes this episode's write-up (2026-08-27).
+   *
+   * Per-episode override of the channel's saved `metadata_formula_id`, on the
+   * same semantics as the channel title prefix/suffix in routes/ideas.ts: an
+   * explicit string wins even when empty (empty = "no formula for this episode
+   * even though the channel has one"), and `undefined` falls back to the
+   * channel default. Absent from both, generation behaves exactly as it did
+   * before formulas existed.
+   */
+  metadata_formula_id?: string
   /** Existing edited package from the Preview. When complete, Finalize
    * refreshes only deterministic chapter/source blocks and saves a new
    * version instead of spending credits rewriting approved operator edits. */
@@ -213,14 +230,40 @@ export async function generateMetadata(job: Job): Promise<void> {
   const project = await pm.getProject(project_slug)
   const niche = project ? await getEffectiveNicheFor(project) : null
   const profile = niche?.metadataProfile
-  const max_chars = req.max_chars ?? profile?.descriptionMaxChars ?? fmtMeta?.defaultMaxChars ?? 5000
-  const title_count = req.title_count ?? (profile ? (profile.titleMode === 'paraphrase' ? 3 : 1) : undefined) ?? fmtMeta?.defaultTitleCount ?? 5
-  const title_max_length = req.title_max_length ?? profile?.titleMaxLength ?? fmtMeta?.defaultTitleMaxLength ?? 100
+  // 2026-08-27 — a metadata formula owns the description's ARCHITECTURE: the
+  // ordered sections, each one's instruction, whether the reader sees a heading
+  // and what it says, the lengths, the title shaping and the tag guidance. The
+  // niche's `metadataProfile` can only pick a subset of ONE shape, which is why
+  // "there's no meta data formulas that we can pick from" was true before this.
+  //
+  // It sits ABOVE the niche profile in every fallback chain because picking a
+  // formula is a deliberate act and the profile is an implicit consequence of
+  // the channel's series formula — but BELOW an explicit request field, so a
+  // saved preset still overrides both. Null when nothing picked one, and then
+  // every line below resolves exactly as it did before formulas existed.
+  const formulaEntry = await resolveActiveMetadataFormula({
+    requestedId: req.metadata_formula_id,
+    config,
+  })
+  const formula = formulaEntry ? metadataFormulaPlan(formulaEntry) : null
+  if (formula) job.output_lines.push(`Metadata formula: ${formulaEntry!.name} — ${formulaEntry!.architecture}`)
+  const max_chars = req.max_chars ?? formula?.descriptionMaxChars ?? profile?.descriptionMaxChars ?? fmtMeta?.defaultMaxChars ?? 5000
+  const title_count = req.title_count ?? formula?.titleCount ?? (profile ? (profile.titleMode === 'paraphrase' ? 3 : 1) : undefined) ?? fmtMeta?.defaultTitleCount ?? 5
+  const title_max_length = req.title_max_length ?? formula?.titleMaxLength ?? profile?.titleMaxLength ?? fmtMeta?.defaultTitleMaxLength ?? 100
   const title_platform_preset = req.title_platform_preset || 'Universal'
-  const tag_count = req.tag_count ?? profile?.tagCount ?? fmtMeta?.defaultTagCount ?? 15
+  const tag_count = req.tag_count ?? formula?.tagCount ?? profile?.tagCount ?? fmtMeta?.defaultTagCount ?? 15
   const sections = Array.isArray(req.sections) && req.sections.length
     ? req.sections
-    : metadataSectionsForProfile(profile?.descriptionSectionIds, tag_count)
+    : formula
+      ? formula.sections
+      : metadataSectionsForProfile(profile?.descriptionSectionIds, tag_count)
+  // The formula's tone rides in on the Format's own descriptionShape channel,
+  // which buildDescriptionPrompt already surfaces at the top of the prompt as
+  // rules the model must follow. Reusing it means the shared prompt builder
+  // needs no change, so this composes with any other work on prompt wording.
+  const promptFormat = formula
+    ? withMetadataFormulaShape(format, formula, formulaEntry!.architecture)
+    : format
 
   // Finalization is intentionally late-stage and one-pass. Refuse before any
   // LLM work or provider charge when measured Audio Assembly timing does not
@@ -307,7 +350,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       const descPrompt = await prependAvoidanceToPrompt(
         project_slug,
         'metadata',
-        buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, format),
+        buildDescriptionPrompt(episode_id, title, storyContext, sections, max_chars, promptFormat),
       ) + await noEmojiDirective()
       const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false,
         // Standard: a full YouTube description (up to ~5,000 characters).
@@ -317,7 +360,11 @@ export async function generateMetadata(job: Job): Promise<void> {
       // title, his custom section labels AND the niche's own voice rules — so
       // the prayer channel's deliberate single 🙏 survives, because the
       // instruction asking for it is right there in the source text.
-      description = await applyEmojiPolicy(descRaw.trim(), [descPrompt])
+      // v1.4.75 — and drop any internal section name the model printed as a
+      // heading, so what lands on disk is clean. Only this branch: the
+      // `preserveExistingPackage` branch above is his own edited copy, cleaned
+      // where it is read rather than rewritten under him.
+      description = stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt]))
       job.output_lines.push(`  → ${description.length} chars`)
       // Post-generation: scan the description for matches against the
       // niche's regex and append to the recency log. Fail-soft — never
@@ -332,7 +379,7 @@ export async function generateMetadata(job: Job): Promise<void> {
     // idea title flows through verbatim unless the user actively asks for
     // paraphrase. Channel prefix/suffix come from the project's saved
     // titleConfig — they're per-channel constants that wrap every episode.
-    const title_mode = req.title_mode || profile?.titleMode || 'use_idea_title'
+    const title_mode = req.title_mode || formula?.titleMode || profile?.titleMode || 'use_idea_title'
     const title_prefix = typeof req.title_prefix === 'string' ? req.title_prefix : ''
     const title_suffix = typeof req.title_suffix === 'string' ? req.title_suffix : ''
     const manual_title = typeof req.manual_title === 'string' ? req.manual_title.trim() : ''
@@ -395,7 +442,7 @@ export async function generateMetadata(job: Job): Promise<void> {
       // for anything the owner adds later, and the tone is no longer a string
       // an engineer owns: it is data, editable per niche and per format.
       const titlePurpose = fmtMeta?.purposeNote || DEFAULT_TITLE_PURPOSE
-      const titleTone = fmtMeta?.titleStyleHint || DEFAULT_TITLE_TONE
+      const titleTone = formula?.titleGuidance || fmtMeta?.titleStyleHint || DEFAULT_TITLE_TONE
       const titlePrompt = `Generate ${title_count} SEO-optimized video title options ${titlePurpose}.
 Episode: ${episode_id} — ${title}
 Story context:
@@ -437,7 +484,7 @@ Requirements:
       job.output_lines.push(`Generating ${tag_count} tag(s)…`)
       // Format-aware tag prompt (v1.0.69). Mirrors routes/scripts.ts
       // /metadata/all so batch and interactive runs use identical prompts.
-      const tagsContext = fmtMeta?.tagsContext || 'for this sleep story video'
+      const tagsContext = formula?.tagGuidance || fmtMeta?.tagsContext || 'for this sleep story video'
       const broadKeywordsLine = fmtMeta?.broadKeywords?.length
         ? `\n- Broad keywords to draw from: ${fmtMeta.broadKeywords.join(', ')}.`
         : ''

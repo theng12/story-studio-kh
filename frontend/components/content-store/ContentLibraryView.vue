@@ -17,11 +17,17 @@
           @click="installFilter = option.id"
         >{{ option.label }}<span>{{ countFor(option.id) }}</span></button>
       </div>
-      <button
-        v-if="showInstallAll && missingReleaseIds.length" type="button" class="btn btn-primary install-all"
-        :disabled="networkUnavailable"
-        @click="$emit('install-many', missingReleaseIds)"
-      >Install all missing ({{ missingReleaseIds.length }})</button>
+      <div
+        v-if="showInstallAll && missingReleaseIds.length" class="install-all-group"
+        role="status" aria-live="polite"
+      >
+        <button
+          type="button" class="btn btn-primary install-all"
+          :disabled="networkUnavailable || installManyRunning"
+          @click="startInstallAll"
+        >{{ installManyLabel }}</button>
+        <p v-if="installManyFailedCount" class="install-all-status">{{ installManyFailedCount }} install{{ installManyFailedCount === 1 ? '' : 's' }} failed. Open the pack and try again.</p>
+      </div>
     </div>
 
     <div v-if="!ownershipResolved" class="library-empty" role="status" aria-live="polite"><h3>Not checked yet</h3><p>Story Studio is asking GenStudio what this account owns and what is installed on this Mac. This list appears as soon as it answers.</p></div>
@@ -84,7 +90,7 @@ const props = withDefaults(defineProps<{
   queueStatus?: (releaseId: string) => InstallQueueStatus
 }>(), { ownershipResolved: true, showInstallAll: false, selectable: false, selectedProductIds: () => [] })
 
-defineEmits<{
+const emit = defineEmits<{
   quote: [product: ContentStoreProduct]
   install: [releaseId: string]
   'install-many': [releaseIds: string[]]
@@ -111,6 +117,28 @@ function queueStatusFor(product: ContentStoreProduct): InstallQueueStatus {
   const releaseId = product.currentRelease?.releaseId
   return releaseId && props.queueStatus ? props.queueStatus(releaseId) : 'idle'
 }
+
+/**
+ * "Install all missing" used to fire the click and give nothing back — no
+ * busy state, no progress, no sign the queue even accepted the batch. The
+ * cards next to it already show this (`:queue-status`); the button just
+ * never asked. This reads the SAME per-release status the cards do, for the
+ * exact ids this button last sent, rather than inventing a second queue.
+ */
+const installManyBatch = ref<string[]>([])
+const installManyStatuses = computed<InstallQueueStatus[]>(
+  () => installManyBatch.value.map(releaseId => (props.queueStatus ? props.queueStatus(releaseId) : 'idle')),
+)
+const installManyDone = computed(() => installManyStatuses.value.filter(status => status === 'installed' || status === 'failed').length)
+const installManyFailedCount = computed(() => installManyStatuses.value.filter(status => status === 'failed').length)
+const installManyRunning = computed(() => installManyBatch.value.length > 0 && installManyDone.value < installManyBatch.value.length)
+const installManyLabel = computed(() => installManyRunning.value
+  ? `Installing ${installManyDone.value} of ${installManyBatch.value.length}…`
+  : `Install all missing (${missingReleaseIds.value.length})`)
+function startInstallAll(): void {
+  installManyBatch.value = [...missingReleaseIds.value]
+  emit('install-many', installManyBatch.value)
+}
 </script>
 
 <style scoped>
@@ -128,6 +156,8 @@ header > span { flex: 0 0 auto; color: var(--text-muted); font-size: var(--font-
 .filter-chip span { color: var(--text-muted); font-size: var(--font-xs); font-variant-numeric: tabular-nums; }
 .filter-chip.active span { color: inherit; }
 .filter-chip:focus-visible, .install-all:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.install-all-group { display: grid; justify-items: end; gap: 6px; }
+.install-all-status { color: var(--warning); font-size: var(--font-sm); text-align: right; }
 .library-group { display: grid; gap: 10px; }
 .group-heading { display: flex; align-items: baseline; gap: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-size: var(--font-xs); font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .group-heading span { color: var(--text-muted); font-size: var(--font-xs); font-variant-numeric: tabular-nums; letter-spacing: 0; }

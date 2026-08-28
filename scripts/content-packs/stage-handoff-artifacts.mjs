@@ -88,6 +88,14 @@ const WAVE_CONTRACTS = {
     includeReceiverStatus: true,
     strictEntry: true,
   },
+  'reusable-content-primitives-wave-two-recipe-completion': {
+    label: 'fixed Wave 2 recipe completion',
+    receipt: 'authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728',
+    bindings: WAVE_TWO_BINDINGS,
+    includeStoryIdentity: false,
+    includeReceiverStatus: false,
+    completionSuccessor: true,
+  },
 }
 const REQUIRED_REVIEWS = [
   'schema',
@@ -217,6 +225,16 @@ function validateCollections({ allowedSlugs, eligibleSlugs, entries, blockedEntr
   if (!Array.isArray(entries) || !Array.isArray(blockedEntries)) fail('entries and blockedEntries must be arrays')
   const entrySlugs = uniqueSlugs(entries.map(entry => entry?.slug), 'entries')
   const blockedSlugs = uniqueSlugs(blockedEntries.map(entry => entry?.slug), 'blockedEntries')
+  if (contract.completionSuccessor) {
+    const requiredRecipes = ['object-hero-question', 'route-map-one-promise']
+    if (JSON.stringify(eligibleSlugs) !== JSON.stringify(requiredRecipes)
+      || JSON.stringify(entries.map(entry => entry?.slug)) !== JSON.stringify(requiredRecipes)
+      || blockedSlugs.size !== 0) {
+      fail('completion successor must stage the exact ordered two-recipe eligible set with no blocked entries')
+    }
+    exactSet(entrySlugs, eligible, 'entries')
+    return { allowed, eligible }
+  }
   exactSet(entrySlugs, eligible, 'entries')
   const complement = new Set([...allowed].filter(slug => !eligible.has(slug)))
   exactSet(blockedSlugs, complement, 'blockedEntries')
@@ -418,14 +436,80 @@ async function writeJsonExclusive(path, value, onCreated) {
 }
 
 async function readJsonStable(path, label) {
+  return (await readJsonStableEvidence(path, label)).value
+}
+
+async function readJsonStableEvidence(path, label) {
   const { handle, before } = await openStableRegular(path, label)
   try {
     const bytes = await handle.readFile()
     const after = await handle.stat({ bigint: true })
     if (!sameSnapshot(before, after) || after.size !== BigInt(bytes.byteLength)) fail(`${label} changed while being read`)
-    return JSON.parse(bytes.toString('utf8'))
+    return { value: JSON.parse(bytes.toString('utf8')), sha256: createHash('sha256').update(bytes).digest('hex') }
   } finally {
     await handle.close()
+  }
+}
+
+async function validatePriorValidatedDelivery(context, contract, repositoryPhysical) {
+  assertPlainObject(context, 'completion')
+  if (JSON.stringify(Object.keys(context).sort()) !== JSON.stringify([
+    'prior_artifact_root', 'prior_delivered_slugs', 'prior_ledger_path',
+  ])) fail('completion has invalid fields')
+  const expectedSlugs = Object.keys(contract.bindings).slice(0, 3)
+  if (!isAbsolute(context.prior_artifact_root) || !isAbsolute(context.prior_ledger_path)) {
+    fail('completion prior delivery paths must be absolute')
+  }
+  if (resolve(context.prior_ledger_path) !== join(resolve(context.prior_artifact_root), 'ledger.json')) {
+    fail('completion prior ledger must be the prior artifact ledger')
+  }
+  if (JSON.stringify(context.prior_delivered_slugs) !== JSON.stringify(expectedSlugs)) {
+    fail('completion prior delivered leaves must be the exact historical three-leaf set')
+  }
+  await assertNoSymlinkAncestry(context.prior_artifact_root, 'completion prior artifact root')
+  await assertNoSymlinkAncestry(context.prior_ledger_path, 'completion prior ledger', false)
+  const priorRoot = await snapshotDirectory(context.prior_artifact_root, 'completion prior artifact root')
+  if (isContained(repositoryPhysical, priorRoot.physical)) fail('completion prior delivery must be outside the repository')
+  const { value: ledger, sha256: ledgerSha256 } = await readJsonStableEvidence(context.prior_ledger_path, 'completion prior ledger')
+  if (JSON.stringify(Object.keys(ledger).sort()) !== JSON.stringify(['entries', 'schema_version']) || ledger.schema_version !== 1
+    || !Array.isArray(ledger.entries) || ledger.entries.length !== expectedSlugs.length) {
+    fail('completion prior ledger has an invalid shape')
+  }
+  if (JSON.stringify(ledger.entries.map(entry => entry?.slug)) !== JSON.stringify(expectedSlugs)) {
+    fail('completion prior ledger does not preserve the exact historical leaf order')
+  }
+  const archives = []
+  for (const entry of ledger.entries) {
+    assertPlainObject(entry, `completion prior ${entry?.slug ?? ''}`)
+    if (JSON.stringify(Object.keys(entry).sort()) !== JSON.stringify([
+      'absolute_path', 'bytes', 'delivery_profile', 'min_app_version', 'receipt_ref', 'reviews', 'sha256', 'slug',
+    ])) fail(`completion prior ${entry.slug} has invalid ledger fields`)
+    if (resolve(entry.absolute_path) !== join(priorRoot.physical, `${entry.slug}.sspack`)) {
+      fail(`completion prior ${entry.slug} archive path does not match its artifact root`)
+    }
+    if (entry.receipt_ref !== contract.receipt || entry.min_app_version !== MIN_APP_VERSION
+      || entry.delivery_profile !== DELIVERY_PROFILE || !expectedSlugs.includes(entry.slug)) {
+      fail(`completion prior ${entry.slug} does not match the immutable Wave 2 delivery`)
+    }
+    archives.push({ slug: entry.slug, ...(await verifyStableEvidence(entry.absolute_path, entry, priorRoot.physical)) })
+    await validateBoundArchive(entry, entry.absolute_path, contract)
+  }
+  await assertDirectoryUnchanged(priorRoot)
+  return {
+    summary: {
+      artifact_root: priorRoot.physical,
+      ledger_path: resolve(context.prior_ledger_path),
+      receipt_ref: contract.receipt,
+      delivered_leaves: expectedSlugs,
+      validation: 'validated-existing-delivery',
+    },
+    evidence: { ledger_sha256: ledgerSha256, archives },
+  }
+}
+
+function assertPriorDeliveryUnchanged(before, after) {
+  if (JSON.stringify(before.evidence) !== JSON.stringify(after.evidence)) {
+    fail('prior delivery changed since preflight')
   }
 }
 
@@ -544,6 +628,7 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     eligibleSlugs,
     entries,
     blockedEntries,
+    completion,
   } = input
   const contract = resolveWaveContract(waveId)
   validateCollections({ allowedSlugs, eligibleSlugs, entries, blockedEntries }, contract)
@@ -572,6 +657,10 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
       realpath(dirname(artifactRoot)),
       realpath(dirname(receiverHandoffPath)),
     ])
+    const priorDelivery = contract.completionSuccessor
+      ? await validatePriorValidatedDelivery(completion, contract, repositoryPhysical)
+      : undefined
+    const priorValidatedDelivery = priorDelivery?.summary
     const artifactPhysical = join(artifactParentPhysical, basename(artifactRoot))
     const receiverPhysical = join(receiverParentPhysical, basename(receiverHandoffPath))
     if (isContained(repositoryPhysical, artifactPhysical) || isContained(repositoryPhysical, receiverPhysical)) {
@@ -666,7 +755,15 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     await rmdir(stagingRoot)
     stagingGuard = undefined
 
-    const ledger = { schema_version: 1, entries: ledgerEntries }
+    if (priorDelivery) {
+      assertPriorDeliveryUnchanged(priorDelivery, await validatePriorValidatedDelivery(completion, contract, repositoryPhysical))
+    }
+
+    const ledger = {
+      schema_version: 1,
+      ...(priorValidatedDelivery ? { prior_validated_delivery: priorValidatedDelivery } : {}),
+      entries: ledgerEntries,
+    }
     const successfulEntries = ledgerEntries.map((entry, index) => ({
       ...(contract.includeStoryIdentity ? {
         slug: entries[index].slug,
@@ -681,7 +778,14 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
       ...entry,
       component_summary: entries[index].component_summary,
     }))
-    const releaseHandoff = { schema_version: 1, entries: successfulEntries }
+    const releaseHandoff = {
+      schema_version: 1,
+      ...(priorValidatedDelivery ? {
+        prior_validated_delivery: priorValidatedDelivery,
+        wave_completion: { all_leaves: Object.keys(contract.bindings), status: 'complete' },
+      } : {}),
+      entries: successfulEntries,
+    }
     const receiver = {
       schema_version: 1,
       ...(contract.includeReceiverStatus ? {
@@ -694,7 +798,12 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
       artifact_root: artifactRoot,
       ledger_path: join(artifactRoot, 'ledger.json'),
       successful_entries: successfulEntries,
-      blocked_entries: blockedEntries,
+      ...(priorValidatedDelivery ? {
+        prior_validated_delivery: priorValidatedDelivery,
+        wave_completion: { all_leaves: Object.keys(contract.bindings), status: 'complete' },
+        stocking_request: 'draft-stocking-only',
+        commercial_boundary: 'Component packs are draft and available through active Channel Kits; no standalone publication is authorized here.',
+      } : { blocked_entries: blockedEntries }),
       explicitly_not_done: EXPLICITLY_NOT_DONE,
     }
     const ledgerPath = join(artifactRoot, 'ledger.json')
@@ -730,6 +839,9 @@ export async function stageHandoffArtifacts(input, { afterPhase } = {}) {
     if (JSON.stringify(persistedLedger) !== JSON.stringify(ledger)
       || JSON.stringify(persistedRelease) !== JSON.stringify(releaseHandoff)
       || JSON.stringify(persistedReceiver) !== JSON.stringify(receiver)) fail('persisted handoff JSON differs from verified input')
+    if (priorDelivery) {
+      assertPriorDeliveryUnchanged(priorDelivery, await validatePriorValidatedDelivery(completion, contract, repositoryPhysical))
+    }
     await Promise.all([
       assertDirectoryUnchanged(artifactParentGuard),
       assertDirectoryUnchanged(artifactRootGuard),

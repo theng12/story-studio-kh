@@ -1,0 +1,55 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.object-hero-question",
+  "name": "Object Hero + Question",
+  "description": "A 16:9 explainer cover with one concrete object or artifact as the hero and a complete exact episode-title question rendered directly in a dominant title-safe band.",
+  "layout": "hero",
+  "category": "Explainer",
+  "tags": [
+    "object hero",
+    "question",
+    "artifact",
+    "in-image title"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Use one concrete object or artifact as the undisputed hero in the lower two-thirds of the 16:9 frame. Reserve an uncluttered upper-third title-safe band for the complete exact episode-title question rendered directly by the selected image model. The active Visual Style remains the final authority for medium, palette, texture, lighting, and rendering technique.",
+  "composition_rules": [
+    "Reserve the upper third as an uncluttered title-safe band for the complete exact episode title.",
+    "Place one concrete object or artifact as the undisputed hero in the lower two-thirds.",
+    "Keep the object silhouette and the title equally legible at small-screen size.",
+    "Use the title band and object as one immediate reading path without a second hero."
+  ],
+  "required_elements": [
+    "One concrete object or artifact as the hero",
+    "A complete exact episode title rendered directly by the selected image model",
+    "One dominant uncluttered title-safe band"
+  ],
+  "avoid_elements": [
+    "A collage, montage, or second competing hero",
+    "Logos, channel branding, watermarks, copied assets, or copied trade dress",
+    "Post-render typography compositing or overlay text",
+    "Misspelled, clipped, placeholder, or illegible title text"
+  ],
+  "headline_mode": "episode-title",
+  "headline_guidance": "Render the complete exact episode title directly in the upper title-safe band. Do not paraphrase, abbreviate, add extra text, or use post-render typography compositing. Use one, two, or three balanced lines only as required to preserve the exact title and small-screen readability.",
+  "default_text_style": "high contrast",
+  "default_font_style": "bold editorial",
+  "default_text_position": "top",
+  "headline_formats": [
+    "WHY DOES {SUBJECT} MATTER?",
+    "WHAT DOES {SUBJECT} CHANGE?",
+    "CAN {SUBJECT} WORK?"
+  ],
+  "visual_style_guidance": "The recipe controls only the one-object hierarchy and upper title-safe band. The active Visual Style remains authoritative for medium, palette, texture, lighting, and rendering details.",
+  "preview_assets": [
+    "assets/object-hero-question-1.png",
+    "assets/object-hero-question-2.png",
+    "assets/object-hero-question-3.png"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.question-ladder",
+    "com.storystudio.formula.before-after-timeline"
+  ]
+}

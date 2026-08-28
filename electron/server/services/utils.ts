@@ -284,6 +284,51 @@ export async function resolveEpisodePathsByCode(
   return resolveEpisodePaths(slug, code, title, cache)
 }
 
+/**
+ * Path resolver for READ routes that accept an optional `?title=`.
+ *
+ * An episode's folder name embeds its title (`{code} - {title}`), so a
+ * caller that omits the title resolves to `.../DK0061 - /` — a directory
+ * that does not exist. Every reader built on that path then finds no
+ * artifacts and answers "nothing here", which is indistinguishable from
+ * an episode that genuinely has none. That is not hypothetical: the
+ * Introduction page (v1.4.73+) tracks only an episode CODE, so its
+ * preview asked for script-content without a title and reported "No
+ * introduction generated yet" over three finished introductions.
+ *
+ * The write side already refuses to trust a caller-supplied title — see
+ * the comment on `/generate/introduction-only` in routes/scripts.ts,
+ * "The title is still resolved here rather than asked for, because the
+ * app already knows an accepted episode's title". Readers now agree:
+ * when the titled folder is not on disk, fall back to the title the
+ * idea index holds for that code.
+ *
+ * A correct `?title=` is unaffected — the titled folder exists, so it is
+ * returned before the fallback is even considered. When neither folder
+ * exists the titled path is returned unchanged, so a genuinely absent
+ * episode still reads as absent.
+ */
+export async function resolveEpisodePathsForRead(
+  slug: string,
+  code: string,
+  title: string,
+  cache?: ProjectFactsCache,
+): Promise<EpisodePaths> {
+  const titled = await resolveEpisodePaths(slug, code, title, cache)
+  if (existsSync(titled.episode_dir)) return titled
+
+  // 1. The title the idea index holds for this code.
+  const byCode = await resolveEpisodePathsByCode(slug, code, cache)
+  if (existsSync(byCode.episode_dir)) return byCode
+
+  // 2. The folder on disk that starts with this code, whatever it is now
+  //    called. Covers an episode renamed on disk after its idea was
+  //    written — the same recovery `getMetadataDir` already performs.
+  const { resolveEpisodeDir } = await import('../lib/folder-resolver.js')
+  const found = await resolveEpisodeDir(path.dirname(titled.episode_dir.replace(/[/\\]$/, '')), code)
+  return found ? rebaseEpisodePaths(titled, found) : titled
+}
+
 function rebaseEpisodePaths(paths: EpisodePaths, episodeDir: string): EpisodePaths {
   const from = path.resolve(paths.episode_dir)
   const to = path.resolve(episodeDir)

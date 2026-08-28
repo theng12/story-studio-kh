@@ -28,6 +28,7 @@
 
 import type { Format } from '../models/types.js'
 import { METADATA_SECTIONS } from './metadata-sections.js'
+import { internalSectionNamesDirective } from './metadata-label-leak.js'
 
 interface Section {
   id: string
@@ -55,6 +56,10 @@ export function buildDescriptionPrompt(
   format?: Format | null,
 ): string {
   let sectionInstructions = ''
+  // Every capitalised name this prompt is about to use to address an
+  // instruction, collected as the sections are built so the directive below can
+  // quote them back. v1.4.75 — see lib/metadata-label-leak.ts for why.
+  const internalNames: string[] = []
   for (const section of sections || []) {
     if (!section.enabled) continue
     const cfg = section.config || {}
@@ -62,9 +67,21 @@ export function buildDescriptionPrompt(
     if (def) {
       // v1.0.199 — registry-driven: each section type's prompt fragment lives
       // in metadata-sections.ts, so adding a section type is one entry there.
-      sectionInstructions += def.buildInstruction(cfg, { format }, section as any)
+      const instruction = def.buildInstruction(cfg, { format }, section as any)
+      sectionInstructions += instruction
+      // A section that contributed nothing named nothing. And a section whose
+      // instruction quotes the heading it wants (`"🎵 MUSIC"`) is naming the
+      // reader's heading, not an internal label — telling the model never to
+      // print MUSIC would delete the section it just asked for.
+      if (instruction && def.promptLabel && !def.literalHeader) internalNames.push(def.promptLabel)
     } else if (section.type === 'custom' && cfg.instructions) {
-      sectionInstructions += `\n- ${section.label.toUpperCase()}: ${cfg.instructions}`
+      // The operator's own name for a block he added. It gets shouted into the
+      // prompt exactly like a built-in one, and it leaked exactly like one —
+      // `ABOUT ME:` appeared above a host bio that the same channel publishes
+      // unlabelled in its other episodes.
+      const customName = section.label.toUpperCase()
+      sectionInstructions += `\n- ${customName}: ${cfg.instructions}`
+      internalNames.push(customName)
     }
   }
 
@@ -94,6 +111,12 @@ export function buildDescriptionPrompt(
     if (parts.length > 0) nicheVoiceBlock = `\n\n${parts.join('\n\n')}\n`
   }
 
+  // A description shape may state what goes between sections. Only when it
+  // says nothing does the long-standing rule below apply, so a shape asking for
+  // no dividers is no longer contradicted by the very next line of its prompt.
+  const separatorLine = descShape?.separatorRule
+    || 'Use separator lines (──────) between major sections.'
+
   return `Generate a YouTube description for a story episode.
 
 Episode: ${episode_id} — ${title}
@@ -102,9 +125,9 @@ Story context:
 ${storyContext}${nicheVoiceBlock}
 
 Include these sections IN THIS ORDER:
-${sectionInstructions}
+${sectionInstructions}${internalSectionNamesDirective(internalNames)}
 
-Use separator lines (──────) between major sections.
+${separatorLine}
 Total length must not exceed ${maxChars} characters.
 Output ONLY the description text, ready to copy-paste. No meta-commentary.`
 }

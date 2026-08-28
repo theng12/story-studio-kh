@@ -136,7 +136,37 @@
       </p>
     </div>
 
-
+    <!-- v2026-08-27 — description formula override. Distinct from the Series
+         Formula blueprint above: this picks a "metadata formula" (section
+         architecture + title/tag/tone shaping) for THIS episode's run only.
+         Default state sends nothing so the channel default (set on the
+         publishing profile page) applies server-side. -->
+    <div class="card workspace-section metadata-formula-override">
+      <div class="blueprint-heading">
+        <div>
+          <span class="settings-section-kicker">Description formula override</span>
+          <h3>This episode's description formula</h3>
+          <p class="text-muted">Optional — overrides the channel default for this run only.</p>
+        </div>
+      </div>
+      <div class="form-group mt-1">
+        <select v-model="metadataFormulaSelection" class="select" :disabled="metadataFormulasLoading">
+          <option :value="CHANNEL_DEFAULT_FORMULA">Use channel default ({{ channelDefaultFormulaLabel }})</option>
+          <option value="">None for this episode</option>
+          <option v-for="f in metadataFormulas" :key="f.id" :value="f.id">{{ f.name }}</option>
+        </select>
+      </div>
+      <div v-if="selectedOverrideFormula" class="blueprint-flow" aria-label="Selected formula outline">
+        <span v-for="(item, index) in selectedOverrideFormula.outline" :key="item.id" class="blueprint-step">
+          {{ item.id }}: {{ item.header ? `“${item.header}”` : 'no header' }}<i v-if="index < selectedOverrideFormula.outline.length - 1" aria-hidden="true">→</i>
+        </span>
+      </div>
+      <p v-if="effectiveFormula" class="text-muted text-xs mt-2">
+        <strong>{{ effectiveFormula.name }}</strong> supplies this run's description sections, lengths and counts,
+        so the Sections builder below is not used. Choose &ldquo;None for this episode&rdquo; to build them by hand instead.
+      </p>
+      <p v-if="metadataFormulasError" class="text-muted text-xs mt-2">Could not load description formulas: {{ metadataFormulasError }}</p>
+    </div>
 
     <!-- ═══════ Preview ═══════ -->
     <div class="card mt-2">
@@ -329,6 +359,9 @@ watch(episodeId, (newEp, oldEp) => {
   if (newEp !== oldEp) {
     genAll.value = false
     lastGenResult.value = null
+    // Override is per-episode-run only — never carry one episode's explicit
+    // pick onto the next episode's generation.
+    metadataFormulaSelection.value = CHANNEL_DEFAULT_FORMULA
   }
 })
 
@@ -378,6 +411,76 @@ const formulaMetadataProfile = ref<FormulaMetadataProfile>({
   titleMode: 'use_idea_title', descriptionMaxChars: 4000, titleMaxLength: 100, tagCount: 15,
 })
 const publishingProfileActive = ref(false)
+
+// ── Metadata formulas (2026-08-27) ──────────────────────────────────────────
+// A DIFFERENT concept from the Series Formula blueprint above
+// (`formulaMetadataProfile`, niche-driven script/title context). A metadata
+// formula owns the description's section ARCHITECTURE (ordered sections,
+// each with its own instruction/header/length) plus title shaping, tag
+// guidance and tone. The channel picks a default on the publishing profile
+// page (`metadata-template.vue`); here the user may override it for one
+// episode's run. `CHANNEL_DEFAULT_FORMULA` is a UI-only sentinel — it is
+// never sent to the backend. Selecting it means "omit metadata_formula_id
+// entirely", which is how the backend's channel-default fallback triggers.
+const CHANNEL_DEFAULT_FORMULA = '__channel_default__'
+interface MetadataFormula {
+  id: string
+  name: string
+  description: string
+  architecture: string
+  source: 'built-in' | 'pack'
+  pack_id: string | null
+  section_count: number
+  description_max_chars: number
+  title_count: number
+  tag_count: number
+  outline: Array<{ id: string; header: string }>
+}
+const metadataFormulas = ref<MetadataFormula[]>([])
+const channelDefaultFormulaId = ref('')
+const metadataFormulaSelection = ref<string>(CHANNEL_DEFAULT_FORMULA)
+const metadataFormulasLoading = ref(false)
+const metadataFormulasError = ref('')
+
+const channelDefaultFormulaLabel = computed(() => {
+  if (!channelDefaultFormulaId.value) return 'none'
+  return metadataFormulas.value.find(f => f.id === channelDefaultFormulaId.value)?.name || channelDefaultFormulaId.value
+})
+/**
+ * The formula that will actually shape this run: the episode override when the
+ * user picked one, otherwise the channel's default. Empty string = none, and
+ * then this page behaves exactly as it did before formulas existed.
+ */
+const effectiveFormulaId = computed(() => (
+  metadataFormulaSelection.value === CHANNEL_DEFAULT_FORMULA
+    ? channelDefaultFormulaId.value
+    : metadataFormulaSelection.value
+))
+const effectiveFormula = computed<MetadataFormula | null>(() => (
+  effectiveFormulaId.value
+    ? metadataFormulas.value.find(f => f.id === effectiveFormulaId.value) || null
+    : null
+))
+const selectedOverrideFormula = computed<MetadataFormula | null>(() => {
+  if (metadataFormulaSelection.value === CHANNEL_DEFAULT_FORMULA || !metadataFormulaSelection.value) return null
+  return metadataFormulas.value.find(f => f.id === metadataFormulaSelection.value) || null
+})
+
+async function loadMetadataFormulas(): Promise<void> {
+  metadataFormulasLoading.value = true
+  metadataFormulasError.value = ''
+  try {
+    const data = await get<{ channel_default_id: string; formulas: MetadataFormula[] }>(
+      `/projects/${slug.value}/metadata/formulas`,
+    )
+    metadataFormulas.value = Array.isArray(data?.formulas) ? data.formulas : []
+    channelDefaultFormulaId.value = data?.channel_default_id || ''
+  } catch (e: any) {
+    metadataFormulasError.value = e?.data?.detail || e?.message || 'unknown'
+  } finally {
+    metadataFormulasLoading.value = false
+  }
+}
 
 // v1.0.259 — remember the title settings across reloads. prefix / suffix /
 // manualTitle are excluded: prefix+suffix already persist on the project config
@@ -930,16 +1033,30 @@ async function generateAll() {
         episode_id: startedEpisodeId,
         title: startedTitle,
         model: model.value,
-        sections: sections.value.filter(s => s.enabled),
-        max_chars: descConfig.maxChars,
-        title_count: titleConfig.count,
-        title_max_length: titleConfig.maxLength,
         title_platform_preset: titleConfig.preset,
-        title_mode: titleConfig.mode,
+        // Channel-level wrapping, never a formula's business — always sent.
         title_prefix: titleConfig.prefix,
         title_suffix: titleConfig.suffix,
         manual_title: titleConfig.manualTitle,
-        tag_count: tagConfig.count,
+        // The backend rule is that an explicit request field beats the formula.
+        // This page would otherwise assert ALL of these on every run, which
+        // would leave a picked formula unable to change the one thing it exists
+        // to change. So when a formula is in effect it owns them, and when none
+        // is, every field is sent exactly as before.
+        ...(effectiveFormulaId.value ? {} : {
+          sections: sections.value.filter(s => s.enabled),
+          max_chars: descConfig.maxChars,
+          title_count: titleConfig.count,
+          title_max_length: titleConfig.maxLength,
+          title_mode: titleConfig.mode,
+          tag_count: tagConfig.count,
+        }),
+        // Only present when the user actively overrode the formula for this
+        // episode — omitted entirely (not even as "") so the backend falls
+        // back to the channel default. See CHANNEL_DEFAULT_FORMULA above.
+        ...(metadataFormulaSelection.value !== CHANNEL_DEFAULT_FORMULA
+          ? { metadata_formula_id: metadataFormulaSelection.value }
+          : {}),
         existing_package: preview.title.trim() && preview.description.trim() && preview.tags.length
           ? {
               title: preview.title,
@@ -1256,6 +1373,7 @@ onMounted(async () => {
   // templates. They are the channel's publishing contract, not a per-run
   // preference; saved presets remain available for model selection.
   await loadFormulaMetadataProfile()
+  await loadMetadataFormulas()
 })
 </script>
 
@@ -1294,7 +1412,7 @@ onMounted(async () => {
 .blueprint-heading h3 { margin: 3px 0 5px; font-size: 17px; }
 .blueprint-heading p { margin: 0; max-width: 720px; line-height: 1.5; }
 .blueprint-flow { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin-top: 16px; }
-.blueprint-step { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 999px; color: var(--text-secondary); border: 1px solid var(--border); background: rgba(11, 15, 25, .26); font-size: 12px; }
+.blueprint-step { display: inline-flex; align-items: center; gap: 7px; padding: 6px 10px; border-radius: 999px; color: var(--text-secondary); border: 1px solid var(--border); background: var(--bg-tertiary); font-size: 12px; }
 .blueprint-step i { font-style: normal; color: var(--accent); margin-left: 2px; }
 .blueprint-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 13px; font-size: 12px; color: var(--text-muted); }
 .blueprint-active { color: var(--success, #5fb37a); font-weight: 600; }

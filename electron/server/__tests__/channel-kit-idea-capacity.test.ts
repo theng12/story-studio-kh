@@ -29,28 +29,24 @@ const KIT_FLOORS: Array<[packId: string, floor: number, note?: string]> = [
   ['com.storystudio.pack.kit.history-explained', PROMISED_IDEAS],
   ['com.storystudio.pack.kit.deep-time', PROMISED_IDEAS],
   ['com.storystudio.pack.kit.business-explained', PROMISED_IDEAS],
-  // Below: kits still pinned to a starter-sized Topic Pack. The number is what the kit
-  // actually delivers today. Raise it to PROMISED_IDEAS as each successor lands; never
-  // lower one, and never delete a row to make this test pass.
+  // Measured at 1,000 rather than PROMISED_IDEAS because that is what it actually plans:
+  // states-revolutions-collapse 1.0.1 carries 100 subjects x 20 authored tuples, so its
+  // structural capacity is 2,000 and it saturates this test's 1,000 ceiling.
+  ['com.storystudio.pack.kit.archival-ledger', 1_000],
+  ['com.storystudio.pack.kit.symbolic-psychology-studio', PROMISED_IDEAS],
+  // Every kit lineage now clears the promise. If a future kit does not, add it below with
+  // the number it actually delivers today, and raise that number as its successor lands;
+  // never lower one, and never delete a row to make this test pass.
   //
-  // 2026-08-27 — both were investigated and both are BLOCKED, not merely unstarted. A
-  // full-sized successor Topic Pack does sit in the registry for each, and repinning
-  // either kit to it is a two-line change, so it is worth writing down why that change
-  // must not be made yet:
-  //
-  //   archival-ledger  — money-debt-financial-institutions 1.0.1 plans 1,000 ideas, but
-  //     46 of its 100 subjects fall below the anti-padding scope-diversity floor of 19
-  //     (worst subject: 10 distinct settings across its 20 tuples). It reaches 1,000 the
-  //     way habits-momentum 1.0.1 did, which the owner rejected. It is also one of
-  //     sixteen successors bound to a single atomic coordinator receipt, so it cannot be
-  //     advanced to `authored` on its own. See topic-pack-anti-padding.test.ts and
-  //     topic-pack-1000-successors.test.ts, which both fail the moment the kit repins.
-  //
-  //   symbolic-psychology-studio — its 1.0.1 successor sources are held behind a returned
-  //     preview-evidence gate with `registry_transition_allowed: false`. See
-  //     symbolic-psychology-studio-wave-1-source.test.ts.
-  ['com.storystudio.pack.kit.symbolic-psychology-studio', 10, 'six-piece kit governed by its own wave plan'],
-  ['com.storystudio.pack.kit.archival-ledger', 100, 'paid kit; its five Topic Pack successors are owner work in progress'],
+  // 2026-08-28 — archival-ledger and symbolic-psychology-studio were both RESOLVED on this
+  // date and moved up into the block above. archival-ledger had been recorded as blocked
+  // because the only full-sized successor then available was
+  // money-debt-financial-institutions 1.0.1, which reached 1,000 the padded way the owner
+  // rejected; it instead repinned at 1.0.3 to its own long-standing topic,
+  // states-revolutions-collapse 1.0.1. symbolic-psychology-studio had been recorded as
+  // blocked behind a returned preview-evidence gate; that gate is satisfied, and its
+  // 1.0.1 successor drops the two surplus Styles and repins the Topic Pack to 1.0.1,
+  // taking it from 10 planned ideas to 1,000.
 ]
 
 type Record_ = {
@@ -154,15 +150,12 @@ test('every Channel Kit lineage keeps the idea capacity its newest version promi
 // count and the shape, so the next surplus component is caught the day it is pinned.
 const KIT_PIECES = ['series-formula', 'topic-pack', 'visual-style', 'thumbnail-recipe'] as const
 
-// The one lineage that breaks the rule today, recorded at what it actually pins rather
-// than at what it should. Symbolic Psychology Studio 1.0.0 bundles two extra Visual
-// Styles; both are already registered as standalone packs with their own family and SKU,
-// so the repair is to drop them from the Kit's dependency closure — which is part of the
-// 1.0.1 wave held behind that lineage's preview-evidence gate. Never add a row here to
-// make a new kit pass; a five-piece Kit is the defect this test exists to catch.
-const EXTRA_PIECES: Record<string, readonly string[]> = {
-  'com.storystudio.pack.kit.symbolic-psychology-studio': ['visual-style', 'visual-style'],
-}
+// 2026-08-28 — the EXTRA_PIECES allowance is GONE, and nothing replaces it. It existed for
+// exactly one lineage: Symbolic Psychology Studio 1.0.0 bundled two surplus Visual Styles.
+// Its 1.0.1 successor drops both from the Kit's dependency closure, and each is already a
+// standalone pack with its own family and SKU, so every lineage now satisfies the rule
+// outright. Do not reintroduce an allowance to make a new kit pass — a five-piece Kit is
+// the defect this test exists to catch.
 
 test('every Channel Kit lineage ships exactly four pieces, one of each kind', async () => {
   const registry = JSON.parse(await readFile(REGISTRY_PATH, 'utf8')) as { records: Record_[] }
@@ -178,10 +171,9 @@ test('every Channel Kit lineage ships exactly four pieces, one of each kind', as
 
   for (const [packId, kit] of newest) {
     const kinds = kit.dependencies.map(dependency => byIdentity.get(`${dependency.pack_id}@${dependency.version}`)?.kind)
-    const allowed = [...KIT_PIECES, ...(EXTRA_PIECES[packId] ?? [])]
     assert.deepEqual(
       [...kinds].sort(),
-      allowed.sort(),
+      [...KIT_PIECES].sort(),
       `${packId}@${kit.version} pins ${kinds.length} components (${kinds.join(', ')}); a Channel Kit is `
       + 'exactly four pieces — one Formula, one Topic Pack, one Style, one Thumbnail Recipe. Sell the '
       + 'surplus separately at 300 credits instead of bundling it.',

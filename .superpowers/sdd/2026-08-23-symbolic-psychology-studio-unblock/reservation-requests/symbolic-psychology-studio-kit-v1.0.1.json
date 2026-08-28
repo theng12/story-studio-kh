@@ -1,0 +1,49 @@
+{
+  "expected_revision": 86,
+  "coordinator": {
+    "task": "symbolic-psychology-studio-unblock-kit-successor",
+    "branch": "content/symbolic-psychology-wave1-2026-08-28"
+  },
+  "proposal_ref": "docs/superpowers/plans/2026-08-23-symbolic-psychology-studio-unblock.md#task-6-kit-successor",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.kit.symbolic-psychology-studio",
+      "bundle_id": "com.storystudio.bundle.symbolic-psychology-studio",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1",
+      "status": "reserved",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+          "version": "1.0.1"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.symbolic-psychology-studio",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.symbolic-psychology-studio",
+          "status": "proposed"
+        }
+      }
+    }
+  ]
+}
