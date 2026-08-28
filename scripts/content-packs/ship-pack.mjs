@@ -35,7 +35,7 @@ import JSZip from 'jszip'
 
 import { validateAuthoringRegistry } from './authoring-registry.mjs'
 import { buildContentPack, validateContentPack } from './lib.mjs'
-import { MARKS } from './__tests__/forbidden-marks.mjs'
+import { MARKS, meaningfulStrings } from './__tests__/forbidden-marks.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -168,19 +168,81 @@ export function resolveSelections(records, selectors) {
 }
 
 /**
- * Every forbidden mark named by an entry name or by entry bytes.
+ * WHAT THIS GUARD IS FOR, because it was once wider than the decision it enforces.
  *
- * NUL-SAFE ON PURPOSE. The grep family treats a file containing a NUL byte as
- * binary and silently reports nothing, so a mark baked into a `.webp` would
- * pass a grep-based scan without ever being looked at. Decoding as latin1 maps
- * every byte to exactly one character, NUL included, so the word-boundary
- * regexes see the whole archive rather than the printable parts of it.
+ * The owner ruled on 2026-08-28 that third-party product marks must leave text
+ * a CUSTOMER SEES. The first implementation scanned raw entry bytes, which is
+ * wider than that: it also catches internal identifier VALUES such as
+ * `evidence-youtube` — lookup keys the app branches on, never rendered, never
+ * written to a customer's file. The approved scrub plan deliberately kept those
+ * ids (`calm-youtube` had shipped under that spelling long before), so the byte
+ * scan refused the very packs the ruling approved. Owner decision 2026-08-29:
+ * make the scan smarter, never looser. The scan is now JSON-aware.
+ *
+ * NUL-SAFE ON PURPOSE for every non-JSON entry. The grep family treats a file
+ * containing a NUL byte as binary and silently reports nothing, so a mark baked
+ * into a `.webp` would pass a grep-based scan without ever being looked at.
+ * Decoding as latin1 maps every byte to exactly one character, NUL included, so
+ * the word-boundary regexes see the whole entry rather than its printable parts.
+ *
+ * MIRRORED IN GenStudio's `apps/cloud-api/app/tools/stock_pack.py`
+ * (`forbidden_marks_in`), which is the last gate before a mark reaches a shelf.
+ * Same convention as the forbidden-mark list itself: the two are duplicated
+ * rather than shared, because they are different repositories and different
+ * languages, so WIDEN OR NARROW THEM TOGETHER — and if they ever drift, the
+ * Python one must be the stricter, never this one.
  */
+export function jsonKeyNames(node, out = new Set()) {
+  if (Array.isArray(node)) for (const item of node) jsonKeyNames(item, out)
+  else if (node && typeof node === 'object') {
+    for (const [key, value] of Object.entries(node)) {
+      out.add(key)
+      jsonKeyNames(value, out)
+    }
+  }
+  return out
+}
+
+/**
+ * The text of one archive entry, as the mark scan should read it.
+ *
+ * A JSON entry is read as a document rather than as bytes, with exactly the
+ * semantics of `meaningfulStrings()` — the same function
+ * `published-mark-scrub.test.mjs` uses, IMPORTED rather than reimplemented so
+ * the two can never drift. It exempts `id`, `*_id` and `*_ids` values and
+ * scans every other string: labels, descriptions, hints, titles, prompts.
+ * Narrowing that skip list is the only way this guard can be weakened, which
+ * is why it lives in one place and is shared.
+ *
+ * Key names are scanned separately, because `meaningfulStrings` yields string
+ * VALUES only and the byte scan this replaces did see key names. A key name is
+ * not customer-visible text, so it is expected to be spared by the word
+ * boundary rather than by exemption: `youtube_tags_hint` is followed by a word
+ * character and therefore does not match.
+ *
+ * UNPARSEABLE NEVER MEANS UNSCANNED: a `.json` entry that does not parse falls
+ * back to the byte scan. A guard that silently passes what it could not read
+ * is worse than no guard.
+ */
+export function scannableTexts(name, bytes) {
+  if (!name.endsWith('.json')) return [{ where: 'contents', text: Buffer.from(bytes).toString('latin1') }]
+  let document
+  try {
+    document = JSON.parse(Buffer.from(bytes).toString('utf8'))
+  } catch {
+    return [{ where: 'contents (unparseable JSON, byte-scanned)', text: Buffer.from(bytes).toString('latin1') }]
+  }
+  return [
+    ...[...jsonKeyNames(document)].map(key => ({ where: `key name ${key}`, text: key })),
+    ...meaningfulStrings(document).map(([path, text]) => ({ where: `contents at ${path}`, text })),
+  ]
+}
+
 export function scanEntriesForForbiddenMarks(entries) {
   const hits = []
   for (const { name, bytes } of entries) {
-    const haystacks = [['entry name', name], ['contents', Buffer.from(bytes).toString('latin1')]]
-    for (const [where, text] of haystacks) {
+    const haystacks = [{ where: 'entry name', text: name }, ...scannableTexts(name, bytes)]
+    for (const { where, text } of haystacks) {
       for (const mark of MARKS) {
         const found = text.match(mark)
         if (found) hits.push({ entry: name, where, mark: String(mark), matched: found[0] })
