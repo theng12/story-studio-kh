@@ -15,7 +15,14 @@ byte-identical — the mechanism `human-behavior-explained-v1.0.1` used, not the
 in-place edit that `ancient-humans` needed archaeology to undo afterwards.
 
 `git status` shows zero modified tracked files under `content-packs/`. Thirteen new
-directories, registered at revision 92 (reserve) and 93–105 (authored).
+directories, reserved at revision 94 and authored at 95–107.
+
+Those numbers moved once. The batch was first minted at 92 / 93–105 on a base of revision
+91; Ancient Oceans landed on that same base and took 92–93, so this batch was re-minted by
+replaying `reserve` and `transition` against the moved head. Exactly one value changed by
+hand — `expected_revision` in the reservation request. The receipts are new, because refs
+hash `expected_revision`; the pack bytes are identical at both bases, which was measured
+in a throwaway worktree before the shift rather than assumed after it.
 
 ## What changed, and what it now says
 

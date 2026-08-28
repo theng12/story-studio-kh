@@ -102,6 +102,25 @@ test('a metadata-profile label carries the mark only where a published pack pins
  * still live and why. A mark appearing anywhere else fails, and clearing one of these
  * at republication also fails until the entry is removed — so neither direction can
  * happen silently.
+ *
+ * THE PUBLISH SEQUENCE, recorded here because a commit body is not where anyone looks
+ * when this test goes red. The owner approved publishing the thirteen successors on
+ * 2026-08-28. Publication happens through his signed-in Studio Control and is NOT
+ * performed by any code in this repository. Whoever runs it:
+ *
+ *   1. Publish the thirteen successors.
+ *   2. In the SAME change, scrub the entries below and the three metadata-profile
+ *      labels above, and repoint the two golden tests at the successors. Doing this
+ *      before step 1 turns the goldens red; doing step 1 without it leaves the mark
+ *      live in the app while the packs claim it is gone.
+ *   3. Delete each entry here as it clears. When both lists are empty, delete the
+ *      ledger tests — their job is finished, and a ledger of nothing is a trap for
+ *      the next reader.
+ *
+ * Two surfaces reached this boundary independently on 2026-08-28: this batch, and the
+ * built-in art-direction scrub on main, which cleared `visualStyleHint` in
+ * ancient-humans.json and stopped at `metadataTitleStyleHint` in the same file. If a
+ * third arrives here, the wall is real — do not route around it, publish first.
  */
 const BLOCKED_UNTIL_REPUBLICATION = [
   'niches/ancient-humans.json',

@@ -1,10 +1,10 @@
 {
-  "expected_revision": 99,
+  "expected_revision": 101,
   "coordinator": {
     "task": "published-mark-scrub-2026-08-28",
     "branch": "content/published-mark-scrub-2026-08-28"
   },
-  "receipt_ref": "authoring:8e55c2338acfb1471ec8426de889ce0c3a36fed7f02faa582a1827c56085c418",
+  "receipt_ref": "authoring:a5308c35236f021fb017eddee19d672e9749b5401501c9351f274313a0c369aa",
   "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
   "version": "1.0.2",
   "changes": {
