@@ -158,6 +158,42 @@ describe('repairPlanCoverage', () => {
     assert.equal(computePlanCoverage(scenes, 2919.48).uncoveredTotalSec, 0)
   })
 
+  // ── The planner must state what it did with the opening ────────────────
+  // An LLM plan used to record no `opening_mode` at all, so a plan whose scenes
+  // began minutes in was indistinguishable from one opening at 0:00. The
+  // coverage check then fell back to its legacy guess and waved the hole
+  // through while the render refused it — one plan, two verdicts, one of them
+  // invisible. Recording the mode is what makes every consumer see the same
+  // hole, which is the basis of the per-episode choice.
+  test('an unrecorded opening is guessed; a recorded from-start opening is not', () => {
+    const introSkipped = [scene('a', 257.925, 265.905), scene('b', 265.905, 2919.48)]
+
+    // Legacy plan — states nothing, so the head is assumed to be an old branded
+    // opening and the hole vanishes from this reader's answer.
+    const guessed = inspectScenePlanCoverage({ scenes: introSkipped, total_duration_sec: 2919.48 })
+    assert.equal(guessed.headCovered, true, 'legacy fallback still protects old plans')
+    assert.equal(guessed.complete, true)
+
+    // Plans from the fixed planner state `from-start`, so there is nothing left
+    // to guess and the hole is visible to every reader.
+    const recorded = inspectScenePlanCoverage({
+      scenes: introSkipped, total_duration_sec: 2919.48, opening_mode: 'from-start',
+    })
+    assert.equal(recorded.headCovered, false)
+    assert.equal(recorded.complete, false, 'the opening is unspoken-for, and says so')
+    assert.equal(Math.round(recorded.blockingUncoveredSec), 258)
+  })
+
+  test('a recorded branded opening still credits its own head', () => {
+    // The other half of the contract: a plan that DID reserve an opening must
+    // not be dragged into the gate by this change.
+    const reserved = inspectScenePlanCoverage({
+      scenes: [scene('a', 30, 100)], total_duration_sec: 100, opening_mode: 'branded-opening',
+    })
+    assert.equal(reserved.headCovered, true)
+    assert.equal(reserved.complete, true)
+  })
+
   test('repaired plan always passes the render gate', () => {
     const messy = [scene('a', 0, 20), scene('b', 21, 40), scene('c', 41.2, 60)]
     const { scenes } = repairPlanCoverage(messy, 1122.9)   // EP0018-scale tail

@@ -50,3 +50,19 @@ test('holding the opening is opt-in, never the default repair', () => {
   assert.doesNotMatch(source, /@click="repairCoverage"/)
   assert.match(source, /async function repairCoverage\(holdHeadScene = false\)/)
 })
+
+test('the generic repair button is only offered for gaps repair can close', () => {
+  // "Repair coverage" declines head gaps by design. Counting one toward the
+  // deficit it advertises meant offering a button that could never help — the
+  // no-op the owner would have clicked on DK0032.
+  assert.match(source, /const coverageRepairableSec = computed/)
+  assert.match(source, /internalGapTotalSec \|\| 0\) \+ \(c\?\.tailGapSec \|\| 0\)/)
+  assert.match(source, /return coverageRepairableSec\.value > 0/)
+  // An unmeasurable timeline must still say something.
+  assert.match(source, /if \(!ci\.coverage\) return true/)
+})
+
+test('the head is credited by the same test the render applies', () => {
+  assert.match(source, /plan\?\.opening_mode === 'branded-opening'/)
+  assert.match(source, /Number\(plan\?\.opening_reserved_sec\) \|\| 0\) > 0/)
+})

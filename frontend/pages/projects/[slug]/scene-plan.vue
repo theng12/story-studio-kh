@@ -1320,33 +1320,50 @@ const missingSubtitleSections = computed(() => {
 const subtitleTimelineComplete = computed(() =>
   !!status.value?.stitched_srt && missingSubtitleSections.value.length === 0,
 )
-const coverageNeedsRepair = computed(() =>
-  status.value?.coverage_integrity?.authoritative === true
-  && status.value.coverage_integrity.complete === false,
-)
-const coverageGapLabel = computed(() =>
-  `${(status.value?.coverage_integrity?.blockingUncoveredSec || 0).toFixed(1)}s`,
-)
+/** Uncovered narration that "Repair coverage" can actually close: gaps between
+ *  scenes, and a tail. A head gap is deliberately NOT counted — repair declines
+ *  those unless explicitly asked, so counting one here offered a button that
+ *  promised a fix it would never perform. The head has its own action below. */
+const coverageRepairableSec = computed(() => {
+  const c = status.value?.coverage_integrity?.coverage
+  return (c?.internalGapTotalSec || 0) + (c?.tailGapSec || 0)
+})
+const coverageNeedsRepair = computed(() => {
+  const ci = status.value?.coverage_integrity
+  if (ci?.authoritative !== true || ci.complete !== false) return false
+  // Timings too broken to measure at all — still say so rather than fall silent.
+  if (!ci.coverage) return true
+  return coverageRepairableSec.value > 0
+})
+const coverageGapLabel = computed(() => {
+  const ci = status.value?.coverage_integrity
+  const sec = ci?.coverage ? coverageRepairableSec.value : (ci?.blockingUncoveredSec || 0)
+  return `${sec.toFixed(1)}s`
+})
 const coverageInternalGapCount = computed(() =>
   status.value?.coverage_integrity?.coverage?.internalGaps?.length || 0,
 )
 /**
- * Narration before scene 1 that this plan skipped without recording WHY.
+ * Narration before scene 1 that nothing is credited with covering.
  *
- * The coverage check tolerates a head gap on an older plan that states no
- * `opening_mode`, on the assumption it once had a branded opening. Video
- * Assembly does not make that assumption — it refuses to render a head it has
- * nothing to fill with. So a plan in this state reads "✓ ready" here and "not
- * ready" there, which is the contradiction this surfaces: the seconds are
- * shown on the page that can act on them, whether or not the check passed.
+ * The head is credited only by a branded opening WITH a reserve — the identical
+ * test the render applies (`generators/video.ts`, search `openingReserved`), so
+ * the two pages cannot disagree about whether the opening is spoken for.
  *
- * A plan that DID reserve its opening (`opening_reserved_sec`) is excluded —
- * there the head belongs to a real opening clip and both pages agree.
+ * Shown whether or not the coverage check passed. Plans written before the
+ * planner recorded its opening mode state nothing about it, so that check falls
+ * back to a legacy guess ("no mode recorded + a large head gap → probably an old
+ * branded opening") and waves the hole through, while the render refuses it.
+ * Those plans read "✓ ready" here and "not ready" there; surfacing the seconds
+ * on the page that can act on them is what ends the contradiction for episodes
+ * planned before the fix.
  */
 const uncreditedHeadGapSec = computed(() => {
   const head = status.value?.coverage_integrity?.coverage?.headGapSec || 0
-  const reserved = Number((status.value?.scene_plan as any)?.opening_reserved_sec) || 0
-  return head > 2 && reserved <= 0 ? head : 0
+  const plan = status.value?.scene_plan as any
+  const credited = plan?.opening_mode === 'branded-opening'
+    && (Number(plan?.opening_reserved_sec) || 0) > 0
+  return head > 2 && !credited ? head : 0
 })
 const uncreditedHeadGapLabel = computed(() => {
   const total = Math.round(uncreditedHeadGapSec.value)

@@ -1241,8 +1241,20 @@ export async function generateVideo(job: Job): Promise<void> {
   const req = params as GenerateVideoRequest
   const code = episode_id.toUpperCase()
 
-  // Legacy whole-Introduction skipping is retired. New plans either reserve an
-  // exact branded-opening duration or begin scenes at the first second.
+  // Intro skip is a PLANNER-time economy switch, not a render-time one.
+  //
+  // What it still does: `config.skip_intro_scenes` tells Scene Plan not to
+  // spend prompts and images on the Introduction chapter, so scenes begin at
+  // the story start (see `generators/scene-plan.ts`, search `skipUntilSec`).
+  // What it no longer does: excuse the resulting hole here. A request-level
+  // `skip_intro_scenes` once let the render treat any head gap as intentional,
+  // which is exactly how an episode could reach the encoder with minutes of
+  // narration and nothing to show over it.
+  //
+  // So the coverage gate below stays authoritative: whatever the planner chose
+  // to skip, the render still requires something to cover it — an opening clip,
+  // a title card, or scene 1 held across it (Scene Plan → "Cover the opening").
+  // That is chosen per episode, deliberately, and never defaulted here.
   //
   // v1.3.1 — the caption default that used to read `visual_opening_mode` from
   // the project config moved to where the plan's reserve is known (search
