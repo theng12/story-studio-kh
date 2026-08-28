@@ -30,7 +30,11 @@ import {
   repairPlanCoverageWithSubtitleCues,
   reconcilePlanToSubtitles,
 } from '../services/scene-planner.js'
-import { parseScenePromptPackSetting, parseScenePromptTokenSetting } from '../services/scene-prompt-batching.js'
+import {
+  parseScenePromptPackSetting,
+  parseScenePromptTokenSetting,
+  type ScenePromptPackSetting,
+} from '../services/scene-prompt-batching.js'
 import { parsePromptCharCap } from '../services/prompt-char-cap.js'
 import { normalizeCreativeDirection } from '../services/scene-creative-direction.js'
 import { clearLegacyPlannerFallbackReasons } from '../services/scene-prompt-integrity.js'
@@ -186,7 +190,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/run', async (req, res) => {
   // disagree with. Old clients may still send the fields; they are ignored.
   const promptLimit = typeof body.prompt_limit === 'number'
     ? Math.max(1, Math.min(5000, Math.round(body.prompt_limit))) : undefined
-  const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
+  // A batch size this server cannot honour is REPORTED, never swapped for a
+  // different number. `parseScenePromptPackSetting` throws rather than falling
+  // back to 'auto' — the old behaviour turned "200" into 50 in silence.
+  let promptPackSize: ScenePromptPackSetting
+  try {
+    promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
+  } catch (error: any) {
+    return res.status(400).json({ detail: error?.message || 'Invalid prompt_pack_size' })
+  }
   const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
   // Resolved by the workspace from the SELECTED image model's published
   // `max_prompt_characters`. Absent = nothing published = no target.
@@ -333,7 +345,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-prompts', as
   const stylePrompt = typeof body.style_prompt === 'string' ? body.style_prompt.trim() : ''
   const customInstructions = typeof body.custom_instructions === 'string' ? body.custom_instructions.trim() : ''
   const creativeDirection = parseCreativeDirection(body.creative_direction)
-  const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
+  // A batch size this server cannot honour is REPORTED, never swapped for a
+  // different number. `parseScenePromptPackSetting` throws rather than falling
+  // back to 'auto' — the old behaviour turned "200" into 50 in silence.
+  let promptPackSize: ScenePromptPackSetting
+  try {
+    promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
+  } catch (error: any) {
+    return res.status(400).json({ detail: error?.message || 'Invalid prompt_pack_size' })
+  }
   const promptMaxTokens = parseScenePromptTokenSetting(body.prompt_max_tokens)
   const promptCharCap = parsePromptCharCap(body.prompt_char_cap)
   const useResearch = body.use_research !== false
@@ -780,7 +800,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/regenerate-empty-motion-promp
   }
   const motionLevel = typeof body.motion_level === 'number'
     ? Math.min(4, Math.max(1, Math.round(body.motion_level))) : undefined
-  const promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
+  // A batch size this server cannot honour is REPORTED, never swapped for a
+  // different number. `parseScenePromptPackSetting` throws rather than falling
+  // back to 'auto' — the old behaviour turned "200" into 50 in silence.
+  let promptPackSize: ScenePromptPackSetting
+  try {
+    promptPackSize = parseScenePromptPackSetting(body.prompt_pack_size)
+  } catch (error: any) {
+    return res.status(400).json({ detail: error?.message || 'Invalid prompt_pack_size' })
+  }
 
   if (jq.isDuplicate(slug, episodeId, 'scene_plan_run' as JobType)) {
     return res.status(409).json({ detail: `A scene-plan job is already running for ${episodeId}` })

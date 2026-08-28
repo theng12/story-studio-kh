@@ -1225,6 +1225,24 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     default_motion_level: typeof (config as any).default_motion_level === 'number'
       ? (config as any).default_motion_level
       : undefined,
+    // Scene Plan batch tuning. These replaced a hardcoded 50-scene cap that
+    // silently overrode a correct model-aware derivation; each is the owner's
+    // number, with NO ceiling in code. Undefined means "never set", which
+    // resolves to the documented defaults in
+    // `services/scene-prompt-batching.ts` (300 / 0.75 / 250). Echoed here for
+    // the same reason as the fields above: `updateConfig` writes them through
+    // the passthrough, but this response is an allow-list, so without an entry
+    // the saved value would be invisible on the next read and the page would
+    // re-render its default.
+    scene_prompt_tokens_per_scene: typeof (config as any).scene_prompt_tokens_per_scene === 'number'
+      ? (config as any).scene_prompt_tokens_per_scene
+      : undefined,
+    scene_prompt_output_safety_fraction: typeof (config as any).scene_prompt_output_safety_fraction === 'number'
+      ? (config as any).scene_prompt_output_safety_fraction
+      : undefined,
+    scene_prompt_batch_size: typeof (config as any).scene_prompt_batch_size === 'number'
+      ? (config as any).scene_prompt_batch_size
+      : undefined,
     visual_opening_mode: typeof (config as any).visual_opening_mode === 'string'
       ? (config as any).visual_opening_mode
       : undefined,

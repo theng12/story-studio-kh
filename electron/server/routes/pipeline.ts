@@ -1569,7 +1569,20 @@ router.post('/projects/:slug/pipeline/run-batch', async (req, res) => {
       }
       const jobType = jobTypeForStep(step)
       const jobTitleStep = step === 'image_prompts' ? 'thumbnail_prompts' : step
-      const params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
+      // A stored preset holding a value the resolvers cannot honour (today:
+      // only a malformed `prompt_pack_size`) is SKIPPED and named, not quietly
+      // repaired into some other number and not allowed to 500 the whole batch
+      // enqueue. The operator sees exactly which episode and why.
+      let params: Record<string, any>
+      try {
+        params = resolveStepParams(step, episodeId, idea.title || '', presetByStep[step], effectiveFormat)
+      } catch (error: any) {
+        skipped.push({
+          episode_id: episodeId,
+          reason: `${step}: ${error?.message || String(error)} Fix the saved preset for this step, then run the batch again.`,
+        })
+        continue
+      }
       if (step === 'subtitles' && pipelineTranscriptionParams) {
         Object.assign(params, pipelineTranscriptionParams)
       }
