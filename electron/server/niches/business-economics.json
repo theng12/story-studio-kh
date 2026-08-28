@@ -299,7 +299,7 @@
   "visualStyleHint": "Representative business locations, people, equipment, inventory, money flows, and operating actions rendered as clear explainer scenes; the selected project art style controls the finish.",
   "thumbnailProfile": {
     "layout": "annotated-collage",
-    "conceptGuidance": "An annotated ownership-economics cover. Place one large, instantly recognizable business location, vehicle, facility, product, or operator in the center. Surround it with six to eight small, evenly spaced illustrated callouts representing the episode's actual economic drivers, such as startup capital, rent, staffing, inventory, equipment, customer volume, financing, supply chain, operating risk, and profit margin. Connect selected callouts with thin hand-drawn arrows. Reserve the top quarter for a compact two-line uppercase episode title and a short red underline.",
+    "conceptGuidance": "An annotated ownership-economics cover. Place one large, instantly recognizable business location, vehicle, facility, product, or operator in the center. Surround it with six to eight small, evenly spaced illustrated callouts representing the episode's actual economic drivers, such as startup capital, rent, staffing, inventory, equipment, customer volume, financing, supply chain, operating risk, and profit margin. Connect selected callouts with thin hand-drawn arrows. Reserve the top quarter for a compact two-line uppercase title and a short red underline.",
     "compositionRules": [
       "Top quarter: large centered two-line uppercase black headline with a short red underline",
       "Middle: one dominant front-facing or three-quarter-view business anchor",
