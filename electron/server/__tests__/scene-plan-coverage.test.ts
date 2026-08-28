@@ -117,6 +117,47 @@ describe('repairPlanCoverage', () => {
     assert.equal(input[1]!.end_sec, 90)
   })
 
+  // ── Opt-in head hold (DK0032) ──────────────────────────────────────────
+  // An intro-skipped plan leaves the whole Introduction unplanned. Repair must
+  // still refuse to touch it by default (holding one image for minutes is an
+  // editorial choice), but must be ABLE to when the owner asks — otherwise the
+  // only "one-click fix" the render gate names is a guaranteed no-op.
+  test('holdHeadScene closes a large head gap; default still leaves it', () => {
+    const introSkipped = [scene('a', 257.925, 265.905), scene('b', 265.905, 2919.48)]
+
+    const untouched = repairPlanCoverage(introSkipped, 2919.48)
+    assert.equal(untouched.scenes[0]!.start_sec, 257.925, 'default leaves the opening alone')
+    assert.equal(untouched.heldHeadSceneId, undefined)
+
+    const held = repairPlanCoverage(introSkipped, 2919.48, { holdHeadScene: true })
+    assert.equal(held.scenes[0]!.start_sec, 0, 'scene 1 now covers the opening')
+    assert.equal(held.heldHeadSceneId, 'a', 'the held scene is named for the split exemption')
+    assert.equal(held.scenes[1]!.start_sec, 265.905, 'every other scene keeps its narration timing')
+    assert.ok(
+      held.changes.some(c => /holds/.test(c) && /257\.9/.test(c)),
+      'the consequence is stated in seconds',
+    )
+  })
+
+  test('a held head gap makes the plan pass the render gate', () => {
+    const introSkipped = [scene('a', 257.925, 265.905), scene('b', 265.905, 2919.48)]
+    // Before: the gate refuses, because nothing fills the opening.
+    const before = inspectScenePlanCoverage(
+      { scenes: introSkipped, total_duration_sec: 2919.48 },
+      { headCovered: false },
+    )
+    assert.equal(before.complete, false)
+    assert.equal(Math.round(before.blockingUncoveredSec), 258)
+
+    const { scenes } = repairPlanCoverage(introSkipped, 2919.48, { holdHeadScene: true })
+    const after = inspectScenePlanCoverage(
+      { scenes, total_duration_sec: 2919.48 },
+      { headCovered: false },
+    )
+    assert.equal(after.complete, true, 'no head assumption needed once the plan really covers the audio')
+    assert.equal(computePlanCoverage(scenes, 2919.48).uncoveredTotalSec, 0)
+  })
+
   test('repaired plan always passes the render gate', () => {
     const messy = [scene('a', 0, 20), scene('b', 21, 40), scene('c', 41.2, 60)]
     const { scenes } = repairPlanCoverage(messy, 1122.9)   // EP0018-scale tail

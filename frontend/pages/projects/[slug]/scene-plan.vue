@@ -575,7 +575,7 @@
               class="btn btn-sm btn-secondary"
               :disabled="repairingCoverage || !!dirty"
               :title="dirty ? 'Save your edits first' : 'Restore narration ranges with no scene; large narrated gaps become cue-aligned pending scenes, not one frozen hold.'"
-              @click="repairCoverage"
+              @click="repairCoverage()"
             >
               {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage' }}
             </button>
@@ -633,9 +633,35 @@
           <button
             class="btn btn-sm btn-primary"
             :disabled="repairingCoverage || !!dirty"
-            @click="repairCoverage"
+            @click="repairCoverage()"
           >
             {{ repairingCoverage ? 'Repairing…' : '🩹 Repair coverage now' }}
+          </button>
+        </div>
+        <!-- The plan skipped the opening and recorded no reason, so this page's
+             coverage check waves it through while Video Assembly refuses it.
+             Shown here because this is the page that can act on it. -->
+        <div
+          v-if="uncreditedHeadGapSec"
+          class="validation-msg validation-msg-strong text-sm mt-2 coverage-warning"
+        >
+          <div>
+            ⚠ <strong>The first {{ uncreditedHeadGapLabel }} of narration has no planned scene.</strong>
+            Scene 1 starts at {{ uncreditedHeadGapLabel }}, so Video Assembly will not render this episode —
+            it has nothing to show over the opening. Everything from scene 1 onward is fine.
+            <div class="text-muted text-xs mt-1">
+              Either hold scene 1 across the opening (one image for {{ uncreditedHeadGapLabel }} — no new images
+              needed), add an opening clip that long in Video Assembly Step 2, or re-run Scene Plan with the
+              introduction included to plan real scenes for it.
+            </div>
+          </div>
+          <button
+            class="btn btn-sm btn-primary"
+            :disabled="repairingCoverage || !!dirty"
+            :title="dirty ? 'Save your edits first' : `Pull scene 1 back to 0:00 so its image holds for the whole ${uncreditedHeadGapLabel} opening. Every other scene keeps its timing.`"
+            @click="repairCoverage(true)"
+          >
+            {{ repairingCoverage ? 'Covering…' : '⏮ Cover the opening' }}
           </button>
         </div>
         <!-- Plan health surfaces missing prompts and timeline defects without
@@ -1304,6 +1330,31 @@ const coverageGapLabel = computed(() =>
 const coverageInternalGapCount = computed(() =>
   status.value?.coverage_integrity?.coverage?.internalGaps?.length || 0,
 )
+/**
+ * Narration before scene 1 that this plan skipped without recording WHY.
+ *
+ * The coverage check tolerates a head gap on an older plan that states no
+ * `opening_mode`, on the assumption it once had a branded opening. Video
+ * Assembly does not make that assumption — it refuses to render a head it has
+ * nothing to fill with. So a plan in this state reads "✓ ready" here and "not
+ * ready" there, which is the contradiction this surfaces: the seconds are
+ * shown on the page that can act on them, whether or not the check passed.
+ *
+ * A plan that DID reserve its opening (`opening_reserved_sec`) is excluded —
+ * there the head belongs to a real opening clip and both pages agree.
+ */
+const uncreditedHeadGapSec = computed(() => {
+  const head = status.value?.coverage_integrity?.coverage?.headGapSec || 0
+  const reserved = Number((status.value?.scene_plan as any)?.opening_reserved_sec) || 0
+  return head > 2 && reserved <= 0 ? head : 0
+})
+const uncreditedHeadGapLabel = computed(() => {
+  const total = Math.round(uncreditedHeadGapSec.value)
+  if (total < 60) return `${total}s`
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return s ? `${m}m ${s}s` : `${m}m`
+})
 const missingSubtitleRanges = computed(() =>
   (status.value?.stitched_srt?.meta?.sections || [])
     .filter(section => missingSubtitleSections.value.includes(section.slug))
@@ -2240,7 +2291,11 @@ async function repairLongScenes(): Promise<void> {
 // Heal full audio coverage from the verified subtitle cues. Large narrated
 // gaps become new pending scenes instead of one extended frozen image.
 const repairingCoverage = ref(false)
-async function repairCoverage(): Promise<void> {
+/** Seconds of narration before scene 1 that the last repair deliberately left
+ *  alone, because closing it is an editorial choice rather than a repair.
+ *  Drives the "Cover the opening" offer. */
+const headGapLeftSec = ref(0)
+async function repairCoverage(holdHeadScene = false): Promise<void> {
   if (!episodeId.value || repairingCoverage.value) return
   repairingCoverage.value = true
   try {
@@ -2251,9 +2306,21 @@ async function repairCoverage(): Promise<void> {
       coverage_after: { uncoveredTotalSec: number }
       repaired_long_scene_count: number
       added_scene_count: number
-    }>(`/projects/${slug.value}/scene-plan/${episodeId.value}/repair-coverage`, {})
+      head_gap_left_sec?: number
+    }>(`/projects/${slug.value}/scene-plan/${episodeId.value}/repair-coverage`,
+      holdHeadScene ? { hold_head_scene: true } : {})
+    headGapLeftSec.value = r.head_gap_left_sec || 0
     if (r.changes?.length) {
       success(`Coverage repaired — plan now covers ${r.audio_duration_sec.toFixed(1)}s of audio. ${r.changes.join(' ')}`)
+    } else if (headGapLeftSec.value > 0) {
+      // The one case where "nothing to repair" was a lie: everything from scene
+      // 1 onward is fine, and the opening before it is untouched on purpose.
+      // Say so, and say what each way forward costs.
+      showError(
+        `Nothing else to repair, but the first ${headGapLeftSec.value.toFixed(0)}s of narration still has no scene. `
+        + 'Use "Cover the opening" to hold scene 1 across it, or re-run Scene Plan with the introduction included '
+        + 'to plan real scenes for it (that needs new prompts and images).',
+      )
     } else {
       success(`Plan already covers the full audio (${r.audio_duration_sec.toFixed(1)}s) — nothing to repair.`)
     }

@@ -509,6 +509,12 @@ export interface ScannedAssets {
     stills_ready: number
     motion_ready: number
     uncovered_sec: number
+    /** Narration before the first scene. Split out of `uncovered_sec` so the
+     *  page can say WHICH end of the timeline is short instead of naming
+     *  images and approvals that may be perfectly complete. */
+    head_gap_sec: number
+    /** Narration after the last scene. Same reason. */
+    tail_gap_sec: number
     gap_count: number
     overlap_sec: number
     overlap_count: number
@@ -837,6 +843,8 @@ export async function scanEpisodeAssets(slug: string, episodeId: string): Promis
       stills_ready: scannedPlan.scenes.filter(scene => !!byId.get(scene.id)?.still_path).length,
       motion_ready: planRows.filter(scene => scene.media_type === 'motion').length,
       uncovered_sec: integrity.blockingUncoveredSec,
+      head_gap_sec: integrity.headCovered ? 0 : (integrity.coverage?.headGapSec || 0),
+      tail_gap_sec: integrity.coverage?.tailGapSec || 0,
       gap_count: integrity.coverage?.internalGaps.length || 0,
       overlap_sec: overlapSec,
       overlap_count: overlapCount,
