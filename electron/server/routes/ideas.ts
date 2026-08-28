@@ -1169,11 +1169,9 @@ router.get('/projects/:slug/episodes', async (req, res) => {
 /** Returns the episode rows, or null when the project doesn't exist. */
 async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   const ideas = await im.getIdeas(slug, 'accepted')
+  // Still resolved: a missing output root is how this route answers 404.
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) return null
-  // Re-bind to a `string` local so TS narrowing survives the async closures
-  // below (buildRow captures this via the outer scope).
-  const root: string = outputRoot
 
   // v1.4.48 — ONE snapshot of the project's unchanging facts for this whole
   // response. Without it every row re-read and re-parsed ideas.json (227 KB on
@@ -1190,12 +1188,8 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
   const needsScenePlan = visualSource !== 'broll' && visualSource !== 'image-pool'
   const needsBrollPick = visualSource === 'broll'
 
-  // v1.0.337 — ONE tree walk builds a code→dir index shared by every row
-  // (vs. the old per-episode recursive findDir that re-walked the whole
-  // project per episode). v1.0.338 — moved to the shared folder-resolver.
-  const { buildEpisodeDirIndex } = await import('../lib/folder-resolver.js')
-  const codes = new Set<string>(ideas.map((i: any) => i.episode_code).filter(Boolean))
-  const dirIndex = await buildEpisodeDirIndex(root, codes)
+  // v1.4.76 — the code→dir index that used to be built here is gone with the
+  // `episode_dir` field it existed to populate. See the response object below.
 
   // Source-doc checks (script / prompts / metadata) stay as cheap file-ext
   // scans — they're "is the input artifact present?" questions where a file
@@ -1207,11 +1201,6 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
     if (!idea.episode_code) return null
     const code = idea.episode_code
 
-    // Resolve the episode directory purely for the response's episode_dir
-    // field — the status computation now lives in services/asset-status.ts
-    // so buildRow and run-batch agree on every boolean.
-    const episodeDir = dirIndex.get(code) || ''
-
     // Pass `ideas` so the underlying compute skips its internal ideas.json
     // load — at 150+ episodes this used to do 2 reloads/parses per call,
     // which the route's per-episode loop multiplied across the batch.
@@ -1222,24 +1211,21 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
     // without re-statting every episode's folders. The single-episode status
     // route below stays on the strict get().
     const status = await episodeStatusCache.getForList(slug, code, ideas, projectFacts)
+    // Only the fields the DERIVED values below are computed from. Everything
+    // else reaches the response through `...publicStatus` — see the status
+    // object at the end of this function.
     const {
-      research: researchDone,
       scene_plan: scenePlanDone,
       scene_review: sceneReviewDone,
-      motion_review: motionReviewDone,
-      character_sheet: characterSheetDone,
       broll_picked: brollPickedDone,
       script: scriptDone,
-      introduction: introductionDone,
       scene_prompts: scenePromptsDone,
       thumb_prompts: thumbPromptsDone,
       metadata: metadataDone,
-      images: imagesDone,
       thumbnails: thumbsDone,
       audio: audioDone,
       merged_audio: mergedAudioDone,
       subtitles: subtitlesDone,
-      video: videoDone,
       video_assembly: videoAssemblyDone,
     } = status
     // Publish every current and future EpisodeStatus field by default. This
@@ -1304,48 +1290,34 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
       //   metadata       — at least one metadata file (.txt/.json/.md) in the metadata folder.
       //   all_done       — every primary asset present (output, not inputs).
       status: {
+        // `...publicStatus` IS the contract: every field asset-status computes
+        // is published, including ones added after this line was written.
+        //
+        // v1.4.76 — seventeen explicit re-assignments used to follow this
+        // spread (research, scene_plan, scene_review, motion_review,
+        // character_sheet, broll_picked, script, introduction, scene_prompts,
+        // thumb_prompts, images, thumbnails, audio, merged_audio, subtitles,
+        // video, video_assembly). Each destructured a field out of `status` and
+        // put back the identical value, so every one was a no-op.
+        //
+        // They are not deleted lightly — each arrived fixing a REAL bug
+        // (v1.0.246 research, v1.0.279 scene_plan/scene_review, v1.0.352
+        // subtitles, v1.0.361 character_sheet, v1.0.362 broll_picked, and the
+        // 2026-04-24 video_assembly regression). But those bugs all had one
+        // cause: this object was assembled field-by-field, so a field nobody
+        // remembered to list vanished from the response. The spread fixed the
+        // CLASS. Keeping the list as well left two sources of truth and taught
+        // the next person that a new workflow step needs a line here — the very
+        // habit that caused all six bugs. The spread alone is the guarantee.
+        //
+        // What genuinely cannot come from the spread stays below: `prompts` is
+        // an alias asset-status does not emit, and the last three are DERIVED
+        // from several fields plus this project's format.
         ...publicStatus,
-        // v1.0.246 — research was computed upstream (asset-status) but dropped
-        // by this destructure/re-assembly, so the Research page's "Pending
-        // only" filter (filter-field="research") read undefined and never
-        // excluded finished episodes. Surfaced now.
-        research: researchDone,
-        // v1.0.279 — scene_plan / scene_review were computed upstream but
-        // dropped by this re-assembly (same class as the v1.0.246 research bug),
-        // so the Scene Plan / Scene Review "Pending only" filters read undefined
-        // and never excluded finished episodes. Surfaced now.
-        scene_plan: scenePlanDone,
-        scene_review: sceneReviewDone,
-        // Optional image-to-video review. Surfaced even when false so manual
-        // overrides, Pipeline chips and Production Board share one contract.
-        motion_review: motionReviewDone,
-        // v1.0.361 — surfaced so the Character Sheet page filters its pending
-        // list by "continuity config saved" instead of borrowing `script`.
-        character_sheet: characterSheetDone,
-        // v1.0.362 — B-Roll page filters by "selection picked" instead of `video`.
-        broll_picked: brollPickedDone,
-        script: scriptDone,
-        introduction: introductionDone,
-        prompts: scenePromptsDone,           // backward compat
-        scene_prompts: scenePromptsDone,
-        thumb_prompts: thumbPromptsDone,
-        images: imagesDone,
-        thumbnails: thumbsDone,
-        audio: audioDone,
-        merged_audio: mergedAudioDone,
-        // v1.0.352 — surfaced so the Subtitles page's "Pending only" filter can
-        // key off real subtitle presence instead of borrowing `audio` (which
-        // hid audio-ready episodes that still needed subtitles).
-        subtitles: subtitlesDone,
-        video: videoDone,
-        // Added 2026-04-24: was silently dropped by buildRow's destructure so
-        // pipeline.vue saw `undefined` and always reported video_assembly as
-        // missing, even after the broader disk detection landed.
-        video_assembly: videoAssemblyDone,
+        prompts: scenePromptsDone,           // deprecated alias of scene_prompts
         video_ready: (needsScenePlan ? sceneReviewDone : (needsBrollPick ? brollPickedDone : true))
           && mergedAudioDone && !videoAssemblyDone,
         publishable: thumbsDone && mergedAudioDone && videoAssemblyDone,
-        metadata: metadataDone,
         all_done: scriptDone && thumbPromptsDone && thumbsDone
           && audioDone && metadataDone && mergedAudioDone && subtitlesDone
           && (!needsScenePlan || (scenePlanDone && sceneReviewDone))
@@ -1353,7 +1325,12 @@ async function computeEpisodeRows(slug: string): Promise<any[] | null> {
           && videoAssemblyDone,
       },
       scene_images: sceneImages || { total: 0, present: 0, complete: false },
-      episode_dir: episodeDir,
+      // v1.4.76 — `episode_dir` is gone. It was an absolute filesystem path
+      // sent for every row (63 KB, 15.2% of this response on a 302-episode
+      // project) that no consumer has ever read: the only mention anywhere was
+      // an unused optional field on the frontend's EpisodeRow type, removed
+      // with it. Building it also cost the route a tree walk of its own.
+      // Pages that need an episode's paths ask the routes that own them.
     }
   }
 

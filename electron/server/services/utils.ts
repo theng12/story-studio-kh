@@ -87,6 +87,37 @@ export interface ProjectFactsCache {
   slug?: string
   meta?: Promise<Record<string, unknown>>
   ideas?: Promise<Array<Record<string, unknown>>>
+  /**
+   * The project's `config.json`, as returned by `project-manager.getConfig()`.
+   *
+   * A DIFFERENT file from `meta` (`project.json`) and a much more expensive
+   * one: `getConfig` re-reads and re-parses config.json and then rebuilds the
+   * image, audio and video model catalogues on every call. `computeEpisodeStatus`
+   * called it once per episode purely to read two optional feature flags
+   * (`contextual_cues`, `sound_design`), so a 302-episode list did that
+   * catalogue merge 302 times — synchronous CPU that stalls the event loop and
+   * makes the whole API unresponsive while a cold list is being built.
+   */
+  config?: Promise<unknown>
+  /**
+   * Every directory under the project's episodes root, in the exact order a
+   * depth-first episode-folder search visits it.
+   *
+   * MEASURED 2026-08-28, cold `/episodes` on the 302-episode project:
+   * 1,561,592 `readdir` calls, ~98% of them from two recursive searches that
+   * each re-walked the whole tree ONCE PER EPISODE —
+   * `asset-status.findEpisodeDir` (~53%) and
+   * `generators/audio.findNarrationFile` (~44%). The tree holds ~3,050
+   * directories, so every episode paid a near-full walk several times over to
+   * answer a question whose answer is the same for every episode in the request.
+   *
+   * Walking it once per request turns each of those searches into an in-memory
+   * scan. Ordered, NOT a Map: the match rule is a PREFIX test
+   * (`name.startsWith(CODE)`) returning the FIRST hit in traversal order, so a
+   * Map keyed on the exact code would silently pick a different folder
+   * whenever two share a prefix (`EP0001` vs `EP00012`).
+   */
+  episodeDirs?: { root: string; index: Promise<Array<{ upper: string; path: string }>> }
 }
 
 export function createProjectFactsCache(slug?: string): ProjectFactsCache {
@@ -114,6 +145,28 @@ async function projectMeta(slug: string, cache?: ProjectFactsCache): Promise<any
     // A failed read must not be remembered as the answer for the rest of the
     // request: drop it so the next caller genuinely retries.
     scoped.meta = undefined
+    throw error
+  }
+}
+
+/**
+ * The project's `config.json` (via `getConfig`), resolved at most once per cache.
+ *
+ * Exported because the callers that need it live in `asset-status.ts`, not here.
+ * Without a cache this behaves exactly like calling `getConfig` directly.
+ */
+export async function projectConfigOnce(slug: string, cache?: ProjectFactsCache): Promise<any> {
+  const scoped = usableFor(cache, slug)
+  const read = async (): Promise<unknown> => {
+    const pm = await import('./project-manager.js')
+    return pm.getConfig(slug)
+  }
+  if (!scoped) return read()
+  scoped.config ??= read()
+  try {
+    return await scoped.config
+  } catch (error) {
+    scoped.config = undefined
     throw error
   }
 }
