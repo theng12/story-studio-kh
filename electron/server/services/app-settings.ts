@@ -406,6 +406,162 @@ export async function setOutlineHeadroom(value: unknown): Promise<number> {
   return n
 }
 
+/**
+ * How long ONE language (LLM) request may hold its socket open, in MINUTES.
+ *
+ * WHY IT IS A SETTING. It was `GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS`, a
+ * hardcoded 20 minutes in `lib/genstudio-client.ts`. The right number is a
+ * property of the model and provider chosen on the day, not of this code: a
+ * 250-scene batch on a slow provider needs longer than the same batch on a
+ * fast one, and the owner is the person who knows which he is buying. His
+ * ruling (2026-08-29) raised the default to 30 minutes and made it a dial.
+ *
+ * WHY IT IS APP-LEVEL, NOT PER-PROJECT. The value is consumed inside
+ * `submitLanguageJson`, the transport layer, which has no project and no slug
+ * — every language call in the app goes through it, including ones with no
+ * project at all (catalogue reads, content-pack work). Its siblings here —
+ * `llm_concurrency`, `outline_chapter_headroom` — are the same shape: numbers
+ * about how this install talks to GenStudio. Per-project config exists for
+ * numbers that are a property of the CHANNEL (`scene_prompt_*`), which this
+ * is not.
+ *
+ * THE BOUNDS, and where they come from.
+ *   5 minutes floor — a typo must not make every language call fail
+ *     instantly. Measured 40-scene packs take 33-86 seconds, so five minutes
+ *     is already several times the slowest routine request; anything smaller
+ *     is a mistake rather than a choice.
+ *   240 minutes ceiling — NOT a judgement about what is sensible, just the
+ *     point past which the number stops meaning anything: every attempt is
+ *     already clamped to whatever remains of the caller's own deadline,
+ *     `GENSTUDIO_LONG_JOB_TIMEOUT_MS`, which is 4 hours. A larger value here
+ *     would be silently ineffective, and a setting that does nothing is worse
+ *     than one that refuses.
+ *
+ * Raising it is close to free: the cost of too small is losing paid-for work
+ * (see the note this replaced in genstudio-client.ts — nine packs, 333
+ * scenes, 131 credits, generated and unreachable), while the cost of too
+ * large is bounded by that same outer deadline, and cancellation still aborts
+ * instantly.
+ */
+export const LANGUAGE_TIMEOUT_MINUTES_KEY = 'genstudio_language_timeout_minutes'
+export const LANGUAGE_TIMEOUT_MINUTES_DEFAULT = 30
+export const LANGUAGE_TIMEOUT_MINUTES_MIN = 5
+export const LANGUAGE_TIMEOUT_MINUTES_MAX = 240
+
+export async function getLanguageTimeoutMinutes(): Promise<number> {
+  const raw = await getAppSetting(LANGUAGE_TIMEOUT_MINUTES_KEY)
+  const n = Number(raw)
+  // An absent or unusable value is the DEFAULT, never a clamp of the garbage:
+  // a file someone hand-edited to `"thirty"` must behave like an unset one.
+  if (!Number.isFinite(n) || n < LANGUAGE_TIMEOUT_MINUTES_MIN) return LANGUAGE_TIMEOUT_MINUTES_DEFAULT
+  return Math.min(LANGUAGE_TIMEOUT_MINUTES_MAX, n)
+}
+
+/** The same number in milliseconds, which is what the client actually wants. */
+export async function getLanguageTimeoutMs(): Promise<number> {
+  return Math.round(await getLanguageTimeoutMinutes() * 60_000)
+}
+
+export async function setLanguageTimeoutMinutes(value: unknown): Promise<number> {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < LANGUAGE_TIMEOUT_MINUTES_MIN || n > LANGUAGE_TIMEOUT_MINUTES_MAX) {
+    throw Object.assign(
+      new Error(
+        `How long one writing request may run must be between ${LANGUAGE_TIMEOUT_MINUTES_MIN} and `
+        + `${LANGUAGE_TIMEOUT_MINUTES_MAX} minutes. Below ${LANGUAGE_TIMEOUT_MINUTES_MIN} every request `
+        + `would fail before a model could answer; above ${LANGUAGE_TIMEOUT_MINUTES_MAX} the job's own `
+        + `4-hour deadline stops it anyway, so the extra would do nothing.`,
+      ),
+      { statusCode: 400, expose: true },
+    )
+  }
+  await setAppSetting(LANGUAGE_TIMEOUT_MINUTES_KEY, n)
+  return n
+}
+
+/**
+ * Provider generation speed, in output tokens per second: the HARD FLOOR a
+ * provider may run at and still be eligible at all, and the speed we PREFER.
+ *
+ * TWO NUMBERS, NOT ONE, and the distinction is the owner's. On 2026-08-29 he
+ * first said "keep the floor at 50 tps" and then corrected it the same day:
+ * *"our floor is 25 tps, we prefer 50 tps+"*. 25 is the gate; 50 is a
+ * preference. A worst-case warning has to be computed against the gate — a
+ * provider running at 25 is eligible, so a batch that cannot finish at 25 is a
+ * batch that can genuinely be lost.
+ *
+ * BOTH ARE SETTINGS BECAUSE HE REVISED ONE OF THEM WITHIN A DAY OF SETTING
+ * IT. A number he changes is data he owns, not a constant, and the version of
+ * this file that shipped them as `const` would have needed a rebuild to carry
+ * that correction.
+ *
+ * STORY STUDIO DOES NOT OWN THE REAL FLOOR. GenStudio picks the provider,
+ * holds the routing rules, and is the only place that could enforce a speed
+ * gate. Nothing it publishes today carries the figure — its catalogue fields,
+ * account overview and fleet config were searched and there is no
+ * tokens-per-second anywhere — so these live here purely so the Scene Plan
+ * panel can answer "can this batch finish in time?" instead of staying silent.
+ * They are used for ONE thing: a non-blocking sentence. Nothing refuses,
+ * clamps, retries or routes on them, so being wrong costs an inaccurate
+ * warning, never work. If GenStudio ever publishes a real floor, read that.
+ *
+ * Real speeds are recorded per successful pack (`completionTokens` in
+ * generators/scene-plan.ts), so these stop being estimates as soon as somebody
+ * reads that log.
+ *
+ * The 1-10,000 range is not a judgement about plausible hardware, only the
+ * span outside which the number stops describing a provider at all: 0 or
+ * negative would divide the warning by zero, and 10,000 tok/s is faster than
+ * any published model by more than an order of magnitude.
+ */
+export const LANGUAGE_FLOOR_TPS_KEY = 'language_floor_tokens_per_second'
+export const LANGUAGE_FLOOR_TPS_DEFAULT = 25
+export const LANGUAGE_PREFERRED_TPS_KEY = 'language_preferred_tokens_per_second'
+export const LANGUAGE_PREFERRED_TPS_DEFAULT = 50
+export const LANGUAGE_TPS_MIN = 1
+export const LANGUAGE_TPS_MAX = 10_000
+
+function readTps(raw: unknown, fallback: number): number {
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < LANGUAGE_TPS_MIN || n > LANGUAGE_TPS_MAX) return fallback
+  return n
+}
+
+export async function getLanguageFloorTps(): Promise<number> {
+  return readTps(await getAppSetting(LANGUAGE_FLOOR_TPS_KEY), LANGUAGE_FLOOR_TPS_DEFAULT)
+}
+
+export async function getLanguagePreferredTps(): Promise<number> {
+  return readTps(await getAppSetting(LANGUAGE_PREFERRED_TPS_KEY), LANGUAGE_PREFERRED_TPS_DEFAULT)
+}
+
+function assertTps(value: unknown, what: string): number {
+  const n = Number(value)
+  if (!Number.isFinite(n) || n < LANGUAGE_TPS_MIN || n > LANGUAGE_TPS_MAX) {
+    throw Object.assign(
+      new Error(
+        `${what} must be between ${LANGUAGE_TPS_MIN} and ${LANGUAGE_TPS_MAX} tokens a second. `
+        + `It is only used to warn you when a batch looks too big to finish in time — nothing `
+        + `refuses or reroutes work because of it.`,
+      ),
+      { statusCode: 400, expose: true },
+    )
+  }
+  return n
+}
+
+export async function setLanguageFloorTps(value: unknown): Promise<number> {
+  const n = assertTps(value, 'The slowest provider speed you will accept')
+  await setAppSetting(LANGUAGE_FLOOR_TPS_KEY, n)
+  return n
+}
+
+export async function setLanguagePreferredTps(value: unknown): Promise<number> {
+  const n = assertTps(value, 'The provider speed you prefer')
+  await setAppSetting(LANGUAGE_PREFERRED_TPS_KEY, n)
+  return n
+}
+
 export const VOICE_PRESETS_KEY = 'voice_presets'
 export const VOICE_FAVOURITES_KEY = 'voice_favourites'
 

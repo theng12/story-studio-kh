@@ -40,8 +40,12 @@ import assert from 'node:assert/strict'
 import {
   callChatWithGenStudio,
   GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
-  GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS,
+  languageSubmitTimeoutMs,
 } from '../lib/genstudio-client.js'
+import {
+  LANGUAGE_TIMEOUT_MINUTES_DEFAULT,
+  LANGUAGE_TIMEOUT_MINUTES_MIN,
+} from '../services/app-settings.js'
 
 function catalog() {
   return [{
@@ -105,14 +109,22 @@ function requestInProgress() {
   )
 }
 
-test('a language submission is not bounded by the control-plane timeout', () => {
+test('a language submission is not bounded by the control-plane timeout', async () => {
   // The control timeout is right for a job GET or a cancel. It is wrong for a
   // POST that runs a model, and 30s is shorter than an ordinary 40-scene pack.
   assert.equal(GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS, 30_000)
   assert.ok(
-    GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS >= 10 * 60_000,
+    await languageSubmitTimeoutMs() >= 10 * 60_000,
     'a submission that executes the model inline needs minutes, not seconds',
   )
+  // The dial cannot be turned down far enough to reintroduce the incident:
+  // its floor is minutes, and the pack that was lost took 86 seconds.
+  assert.ok(
+    LANGUAGE_TIMEOUT_MINUTES_MIN * 60_000 > GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS * 4,
+    'the lowest the owner can set must still be far above a 40-scene pack',
+  )
+  // The owner's ruling of 2026-08-29: 30 minutes out of the box.
+  assert.equal(LANGUAGE_TIMEOUT_MINUTES_DEFAULT, 30)
 })
 
 test('an in-progress submission is reattached, not abandoned', async () => {

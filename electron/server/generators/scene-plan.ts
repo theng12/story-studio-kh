@@ -1133,9 +1133,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         // `completionTokens` used to be read only inside an error string, so
         // every request that WORKED threw its own measurement away. That is
         // why the safe batch size had to be argued from an estimate: nobody
-        // could say how fast a large pack actually comes back, and the 20-
-        // minute submit timeout is what really bounds batch size, not tokens.
-        // One line per pack makes the next batch-size decision a lookup.
+        // could say how fast a large pack actually comes back, and what really
+        // bounds batch size is wall-clock — how long a request may run — not
+        // tokens. That limit is now the owner's own setting
+        // (`genstudio_language_timeout_minutes`), and the Scene Plan panel
+        // warns against it using an ASSUMED 50 tok/s floor. Every line below
+        // is a measured tok/s for a real pack, which is what will eventually
+        // replace that assumption. One line per pack makes the next
+        // batch-size decision a lookup instead of an argument.
         if (diagnostics?.completionTokens != null) {
           const elapsedSec = Math.max(0.001, (Date.now() - startedAt) / 1000)
           job.output_lines.push(
