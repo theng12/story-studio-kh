@@ -6,6 +6,8 @@ import test from 'node:test'
 import sharp from 'sharp'
 import { register } from 'tsx/esm/api'
 
+import { MARKS } from './forbidden-marks.mjs'
+
 const ROOT = new URL('../../../content-packs/production-looks/', import.meta.url)
 const REGISTRY = new URL('../../../content-packs/authoring-registry.json', import.meta.url)
 const LEGACY_SOURCE = new URL('../../../frontend/composables/useBuiltInStyles.ts', import.meta.url)
@@ -210,8 +212,8 @@ test('production look previews preserve approved bytes and complete provenance e
  * different decision with a different cost.
  */
 test('no sold Production Look carries a third-party product mark in customer-visible text', async () => {
-  // Word-boundary matched so ordinary words are never caught by accident.
-  const MARKS = [/\bMS\s*Paint\b/i, /\bMicrosoft\b/i, /\bYouTube\b/i, /\bPhotoshop\b/i, /\bIllustrator\b/i, /\bTikTok\b/i, /\bInstagram\b/i]
+  // MARKS is shared with the published-pack scrub guard, so widening the list
+  // widens both surfaces at once rather than only whichever one was in hand.
 
   for (const slug of slugs) {
     const style = await parseJson(new URL(`style/${slug}/content/visual-style.json`, ROOT))

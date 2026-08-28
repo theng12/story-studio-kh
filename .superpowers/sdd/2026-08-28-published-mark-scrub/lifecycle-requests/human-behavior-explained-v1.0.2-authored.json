@@ -1,0 +1,13 @@
+{
+  "expected_revision": 97,
+  "coordinator": {
+    "task": "published-mark-scrub-2026-08-28",
+    "branch": "content/published-mark-scrub-2026-08-28"
+  },
+  "receipt_ref": "authoring:8e55c2338acfb1471ec8426de889ce0c3a36fed7f02faa582a1827c56085c418",
+  "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+  "version": "1.0.2",
+  "changes": {
+    "status": "authored"
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "kind": "thumbnail-recipe",
+  "schema_version": 1,
+  "id": "com.storystudio.thumbnail.curiosity-question-cartoon",
+  "name": "Curiosity Question Cartoon",
+  "description": "A bright, simple cartoon moment with one main subject, one revealing contrast, and a short model-rendered curiosity hook instead of the full episode title.",
+  "layout": "hero",
+  "category": "Explainer",
+  "tags": [
+    "curiosity",
+    "question",
+    "cartoon",
+    "science",
+    "animals",
+    "short hook"
+  ],
+  "aspect_ratio": "16:9",
+  "title_mode": "ai",
+  "composition_guidance": "Build one instantly readable cartoon situation: a single oversized subject or creature, optionally paired with one reacting guide or one revealing representative object. The frame should feel like the visual answer is almost in reach.",
+  "composition_rules": [
+    "Reserve the full upper quarter for one short, large curiosity hook; render the exact generated hook in hand-lettered uppercase yellow text with a thick uneven black outline.",
+    "Use one dominant main subject in the lower three quarters. A second reacting character or representative reveal object is optional, but do not create a crowded ensemble.",
+    "Make the contrast or tension visible without a written explanation: scale, expression, one object, or one simple action should carry the click.",
+    "Use a simplified setting with only enough location cues to make the situation immediately legible at phone size.",
+    "Keep the full episode title out of the artwork; the hook and the title must be truthful partners, not duplicate sentences."
+  ],
+  "required_elements": [
+    "one short model-rendered curiosity hook",
+    "one oversized primary subject or creature",
+    "one emotionally clear reveal, contrast, or reaction",
+    "simple mobile-readable background context"
+  ],
+  "avoid_elements": [
+    "the full episode title, explanatory paragraphs, labels, callouts, or a dense infographic",
+    "more than two competing main subjects",
+    "generic bait, false danger, fabricated facts, copied characters, logos, or channel trade dress",
+    "small illegible lettering, placeholder text, random letters, or a text overlay added after rendering"
+  ],
+  "headline_mode": "curiosity-hook",
+  "headline_guidance": "Write one truthful 1–4 word hook that creates a concrete question or surprise. It must describe the episode's real subject or tension, never use empty bait such as 'YOU WON'T BELIEVE', and never make a claim the episode cannot support.",
+  "default_text_style": "shadow",
+  "default_font_style": "bold",
+  "default_text_position": "top",
+  "headline_formats": [
+    "{SHORT TRUE QUESTION}?",
+    "{SURPRISING FACT}?",
+    "{UNEXPECTED CONTRAST}?"
+  ],
+  "visual_style_guidance": "Original 2D waxy-outline cartoon: thick slightly wobbly black crayon-marker contours, flat saturated blocks of sky blue, leaf green, warm orange, yellow, and red accent, oversized expressive eyes, simple rounded objects, minimal shading, and a deliberately hand-drawn texture. The project visual art style remains the final rendering authority.",
+  "preview_assets": [
+    "assets/poison-or-cure.webp",
+    "assets/too-smart.webp",
+    "assets/silent-killer.webp"
+  ],
+  "compatible_formula_ids": [
+    "com.storystudio.formula.natural-world-explained",
+    "com.storystudio.formula.insects",
+    "com.storystudio.formula.fungi",
+    "com.storystudio.formula.plants"
+  ]
+}
