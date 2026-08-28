@@ -370,8 +370,265 @@ leaf receipt before source authoring.
   deploy, tag, or push occurred. The independent Task 5 review remains the
   coordinator's post-commit acceptance gate.
 
+## Task 6 returned previews, leaf successors, and the four-piece Kit
+
+Task 6 started from `84754d10` on branch
+`content/symbolic-psychology-wave1-2026-08-28` in its own worktree. The
+authoring registry was read-only for this task throughout; a separate
+coordinated landing agent holds the writer slot.
+
+### Owner authority and the corrected freeze
+
+The owner read both literal prompt batches on 2026-08-28 and replied
+`approve of the 2 prompts.` That approval carries quote approval, job-submission
+authority, and generation authority for exactly these two generations.
+
+The original freeze files each ended with a trailing newline, so their hashes
+(`22a6ab3b…`, `b93bbe5e…`) covered a byte that was never part of the approved
+prompt text. The coordinator re-froze both files without it before any spend.
+The canonical approved-batch hashes are now
+`dae334f3f1bea18569393675d5582324138b1fee53319926da8f42c3035bba0c` and
+`f3e3b291dbaad8ec5c3ca8a59d3cde8f60a47e8785843866611a84d1e53e7583`. No
+generation was ever run against the superseded hashes.
+
+### Generation
+
+Both images were submitted through Story Studio's own GenStudio path,
+`POST /api/projects/:slug/preview-image`, using the owner's configured key. The
+key is held encrypted under Electron `safeStorage`; it was never read, decrypted,
+printed, or handled. Because the corrected freeze has no trailing whitespace,
+that route's `trim()` is a no-op, so the submitted prompt is byte-identical to
+the approved batch and hashes to the same value. Each generation returned
+`cached:false`, confirming a real charged call rather than a cache replay.
+
+Receiver GenStudio, provider OpenAI, model `gpt-image-2`, 16:9, 1K, 20 credits
+each — 40 credits total. `gpt-image-2` publishes `supports_seed:false`, so no
+seed exists to record; that is captured as not-published rather than invented.
+No reference image, image edit, compositing, masking, title plate, or
+post-render overlay was used for either image. Each was accepted on its first
+attempt, against a budget of three.
+
+Full 16-item returned evidence for each image lives in `returned-evidence/`.
+The untouched original rasters are retained outside the repository at
+`<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/returned-originals-2026-08-28/`.
+
+### Known resolution shortfall
+
+Story Studio's preview route never selects a published output option, so
+GenStudio applies the model's own `default_resolution` of 1K and both returned
+originals are 1280×720. The family standard is 1672×941, so the deterministic
+whole-image conversion upscales 1.306×. `gpt-image-2` does publish a 2K 16:9
+option at 2560×1440 for 29 credits, but no verbatim-prompt route in the app
+exposes a resolution parameter, so 2K was unreachable without either mutating a
+project's saved configuration or bypassing the sanctioned path. This is
+disclosed in the provenance ledger and in both evidence records rather than
+being quietly absorbed.
+
+### Authored sources
+
+- Thumbnail `1.0.1` at `content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1`.
+  It carries the four retained `1.0.0` previews byte-identically plus the new
+  `-6` entry. The rejected preview `#4` slot stays permanently vacant, so the
+  new gallery entry is numbered `-6` rather than reusing a rejected identity.
+- Style `1.0.1` at `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1`.
+  Its content document is byte-identical to the predecessor; only the preview
+  asset and the manifest version/changelog change. The replaced `1.0.0` impasto
+  preview is retained unchanged as diagnostic evidence.
+- Kit `1.0.1` at `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1`,
+  reduced from the six-piece `1.0.0` shape to exactly four pieces — one Formula,
+  one Topic, one Style, one thumbnail Recipe. Impasto and Oil drop out; both
+  already have their own families. The Topic is repinned to `1.0.1`.
+
+### Measured capacity
+
+Measured through `planIdeaAssignments` with the same binary-search harness the
+kit-capacity test uses, on Formula `1.0.1` plus Topic `1.0.1`: capacity rises
+from **10** at the current Topic `1.0.0` pin to **1,000** at the `1.0.1` pin.
+
+`channel-kit-idea-capacity.test.ts` still records a floor of `10` for this kit
+and still passes, because it resolves each lineage's newest *registered* version
+and Kit `1.0.1` is not in the registry yet.
+
+Three edits to that file must land in the **same** change as the Kit
+reservation, or the suite goes red the moment the registry moves:
+
+1. Raise the `KIT_FLOORS` row for `com.storystudio.pack.kit.symbolic-psychology-studio`
+   from `10` to `PROMISED_IDEAS`, and delete the stale note calling it a
+   "six-piece kit governed by its own wave plan".
+2. Delete the whole `EXTRA_PIECES` entry for this kit. It grants two surplus
+   `visual-style` pieces for the six-piece `1.0.0` shape, and the four-piece
+   assertion uses `deepEqual`, so leaving the exemption in place makes the
+   correct four-piece Kit **fail** against a six-piece allowance. That file's own
+   comment already anticipates this: the repair is to drop the surplus styles
+   from the Kit closure, which this task has now done.
+3. Delete the `symbolic-psychology-studio` paragraph from the blocked-kits
+   comment, since its preview-evidence gate is satisfied.
+
+### Held for the registry writer
+
+No registry write was performed. Three requests are staged as files:
+
+- `reservation-requests/symbolic-psychology-studio-kit-v1.0.1.json` — Kit
+  `1.0.1` has no registry record at all, so it needs a reservation before it can
+  be promoted.
+- `promotions/editorial-psychology-symbolic-split-v1.0.1.json`
+- `promotions/pastel-surreal-psychological-collage-v1.0.1.json`
+
+Each is staged with `expected_revision: 86`, the revision on `main` at the end of
+this task. That pin is deliberate: if the counter has moved again, these requests
+fail closed instead of applying against an unexpected registry. Re-read the live
+revision and update all three before executing them.
+
+This branch is based on `84754d10`, and `main` advanced to `53e1401d`
+(registry revision `86`, 137 records) while this task ran, so it needs a rebase
+before landing. The landing did two things that matter here:
+
+- Topic `human-behavior-social-dynamics@1.0.1` is now `authored`, so the Kit's
+  Topic pin no longer rests only on the `human-behavior@1.0.2` precedent.
+- Thumbnail and Style `1.0.1` are both still `reserved`, so both promotions
+  remain exactly the right next write.
+
+Both source scaffolds now carry `registry_transition_allowed: true`, because
+their returned-evidence sets are complete and both previews were accepted.
+
+### Verification
+
+- `npx tsx --test electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts`
+  — 8 passed, 0 failed. The absence assertions were inverted rather than
+  deleted: `registry_transition_allowed` is now derived from the returned
+  evidence itself, the three ENOENT checks became manifest-identity checks, and
+  a new test pins both preview hashes, the 1672×941 decode, and the four-piece
+  Kit shape.
+- `npx tsx --test electron/server/__tests__/channel-kit-idea-capacity.test.ts`
+  — 2 passed, 0 failed.
+
+## Task 6a registry writes — RESOLVED, final revision `89`
+
+The writer slot was granted and this branch was rebased cleanly onto `main`
+(`8a7f69eb`, no conflicts). The three staged writes were refused at first,
+because `main` was carrying an authoring registry that failed its own
+validation. The owner authorized the repair; it landed as its own commit, and
+then all three writes executed. The diagnosis below is kept deliberately — the
+guard test that now prevents a recurrence only makes sense beside it.
+
+### The defect
+
+`node scripts/content-packs/authoring-registry.mjs validate` failed on `main`:
+
+> `Authoring registry: batch 15 receipt does not match its persisted request metadata`
+
+Both `reserveAuthoringBatch` and `transitionAuthoringRecord` call
+`validateRegistryDocument(current)` before they mutate anything, so this blocks
+**every** registry write — not just this task's. The Deep Time wave queued behind
+this one is blocked by the same defect.
+
+### Attribution, established by bisection rather than inference
+
+The registry file on this branch is byte-identical to `origin/main`, and a clean
+`origin/main` worktree fails validation identically. Re-deriving every
+`receipt_ref` and `transition_ref` from its own persisted request across recent
+commits gives:
+
+| commit | revision | corrupted entries |
+| --- | ---: | --- |
+| `b077297a` repin Archival Ledger | 82 | none |
+| `8fae08f0` Merge `codex/wave-2-recipe-previews-2026-08-27` | 84 | `t66`, `t67` |
+| `b6fb166d` Merge `feat/metadata-formulas-2026-08-27` | 86 | `+ b15`, `t68` |
+
+Four entries are corrupt, introduced by **two independent merges**:
+
+- `b15` — reservation of `metadata-formula.editorial@1.0.0`
+- `t66` — `thumbnail.object-hero-question@1.0.0` to authored
+- `t67` — `thumbnail.route-map-one-promise@1.0.0` to authored
+- `t68` — `metadata-formula.editorial@1.0.0` to authored
+
+### Mechanism
+
+Both `receipt_ref` and `transition_ref` are `sha256(canonical(request))` over the
+whole request, and the request includes `expected_revision`. The merges
+re-sequenced entries to slot them after `main`'s advance but did not re-mint the
+derived refs. For `b15` this is exact and provable: on `a22fcd19` the batch sat
+at revision `65` with `expected_revision: 64`, and its receipt is the honest hash
+of that request. The merge rewrote `expected_revision` to `84` and `revision` to
+`85` while leaving the receipt untouched, which permanently invalidated it.
+
+So the receipts are authentic and the *requests* were edited after the fact.
+
+### The repair, recorded rather than hidden
+
+The owner authorized the repair and took the fault: the landing brief ordered
+renumbering while "preserving everything else byte-for-byte", which is exactly
+backwards for a ref derived *from* the renumbered field.
+
+It landed as one dedicated commit touching only the registry, whose message
+carries the full old → new table so the ledger contains its own correction. A
+ledger that documents its repair is honest; one that silently validates again is
+not. The pre-merge requests stay recoverable from git history at `a22fcd19` and
+`8fae08f0^`.
+
+| entry | rev | subject | old → new |
+| --- | ---: | --- | --- |
+| `b15` | 85 | `metadata-formula.editorial@1.0.0` reservation | `authoring:e17e8774…` → `authoring:89c96dbf…` |
+| `t66` | 83 | `thumbnail.object-hero-question@1.0.0` → authored | `lifecycle:1bba87c5…` → `lifecycle:462f85d5…` |
+| `t67` | 84 | `thumbnail.route-map-one-promise@1.0.0` → authored | `lifecycle:3c4e1676…` → `lifecycle:09357082…` |
+| `t68` | 86 | `metadata-formula.editorial@1.0.0` → authored | `lifecycle:5230e5b3…` → `lifecycle:af76dc38…` |
+
+`b15 → t68` is the only cascade: a transition request embeds the receipt it
+targets, so repairing `b15`'s receipt also rewrote that field inside `t68`'s
+request, which is why `t68`'s ref moved for two reasons rather than one. One
+record bound to `b15` was re-bound.
+
+Exactly six lines changed and all six are ref values. No `pack_id`, `version`,
+`kind`, `source_path`, dependency, coordinator, `status`, or `revision` was
+touched — substantive content is byte-for-byte what the merges left. None of the
+four refs was referenced anywhere outside `authoring-registry.json`, in the
+repository or in `_handoffs`.
+
+### The root cause is now gated
+
+`electron/server/__tests__/authoring-registry-integrity.test.ts` runs
+`validateAuthoringRegistry` over the committed registry.
+
+This is the gap that let two merges land a broken ledger through a fully green
+suite: `validateAuthoringRegistry` was only ever exercised from
+`scripts/content-packs/__tests__/`, and the backend gate collects
+`electron/server/__tests__/*.test.ts` and nothing else — so the one check that
+would have caught it was in no gate at all.
+
+Proven both ways. On the unrepaired registry, byte-identical to `origin/main`,
+it fails with `batch 15 receipt does not match its persisted request metadata`.
+After the repair and the three writes it passes. It validates the whole
+document, so any rule the validator gains later is enforced here for free.
+
+### The writes
+
+Executed exactly as the dry-run predicted, including the reserve receipt:
+
+| step | revision |
+| --- | ---: |
+| reserve Kit `1.0.1` (`authoring:198cfa30…`) | 87 |
+| promote Thumbnail `1.0.1` to authored | 88 |
+| promote Style `1.0.1` to authored | 89 |
+
+Final: **revision `89`, 138 records, 17 batches, 71 transitions.** Kit `1.0.1`
+reserved; Formula, Topic, Thumbnail and Style `1.0.1` all authored.
+
+`reconcileSources` rejects a pack source directory that exists on disk with no
+registry record, so the tooling expects reserve-then-author. The Kit source was
+necessarily authored first here, while the registry was read-only, so the
+reserve ran with
+`content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1`
+temporarily moved outside `content-packs/`, then restored and verified.
+
+### Co-requisite capacity edits, now true
+
+`channel-kit-idea-capacity.test.ts`: the `KIT_FLOORS` row for this kit moved from
+`10` to `PROMISED_IDEAS`, the `EXTRA_PIECES` allowance was deleted outright along
+with its last usage, and the stale blocked comment is gone. The four-piece
+assertion now compares against `KIT_PIECES` alone, with no per-lineage exemption
+anywhere in the file.
+
 ## Next task
 
-Task 6 remains blocked on exact Recipe/Pastel owner authority, returned bytes,
-provenance, and independent review gates. Recipe and Pastel stay `reserved`;
-Kit `1.0.1` stays absent and unreserved.
+Nothing in Task 6 is blocked. The registry is valid at revision `89` and the
+Deep Time wave can reserve directly on top of it.

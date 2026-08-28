@@ -1,0 +1,13 @@
+{
+  "expected_revision": 87,
+  "coordinator": {
+    "task": "symbolic-psychology-studio-unblock-leaf-successors",
+    "branch": "content/symbolic-psychology-wave1-2026-08-28"
+  },
+  "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
+  "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+  "version": "1.0.1",
+  "changes": {
+    "status": "authored"
+  }
+}

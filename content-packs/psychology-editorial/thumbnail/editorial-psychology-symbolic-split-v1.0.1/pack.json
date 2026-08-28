@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.1",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "entitlement": {
+    "sku": "com.storystudio.sku.thumbnail.editorial-psychology-symbolic-split",
+    "family": "com.storystudio.family.thumbnail.editorial-psychology-symbolic-split"
+  },
+  "changelog": "Adds one owner-approved generated preview that expands the gallery to a right-side subject, three-quarter profile, and a one-line headline."
+}
