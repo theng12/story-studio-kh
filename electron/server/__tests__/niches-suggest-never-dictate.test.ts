@@ -53,6 +53,12 @@ test('no built-in Formula names a visual style id, in any shape', () => {
     // `builtin-` ids belong to the style library, not to a Formula. A Formula
     // that mentions one is reaching across the boundary again.
     if (/"builtin-/.test(raw)) offenders.push(`${name} (builtin- id)`)
+    // A signed id is the same dictate in the new catalog's clothes. The ruling
+    // is about the BINDING, not about which id space it is written in, so
+    // trading `builtin-x` for `com.storystudio.style.x` does not satisfy it.
+    // The visual-style cutover plan's Task 7 Step 5 proposes exactly that
+    // substitution — this line is why it must not be done as written.
+    if (/"com\.storystudio\.style\./.test(raw)) offenders.push(`${name} (signed style id)`)
   }
   assert.deepEqual(offenders, [], 'a Formula must not name the look the customer should use')
 })
