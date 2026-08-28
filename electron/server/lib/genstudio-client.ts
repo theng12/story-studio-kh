@@ -9,7 +9,7 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 import { createHash, randomUUID } from 'crypto'
-import { getGenStudioUrl } from '../services/app-settings.js'
+import { getGenStudioUrl, getLanguageTimeoutMs } from '../services/app-settings.js'
 import { runFfmpeg } from './ffmpeg-utils.js'
 import {
   GenStudioAdmissionPool,
@@ -105,6 +105,13 @@ export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
 /**
  * How long ONE language submission may hold its socket open.
  *
+ * OWNER-EDITABLE since 2026-08-29, and no longer a constant. The number lives
+ * in `app-settings.json` under `genstudio_language_timeout_minutes`, defaults
+ * to 30 minutes, and is read FRESH on every submission — changing it in
+ * This Mac → Throughput takes effect on the next request with no restart.
+ * `services/app-settings.ts` carries the bounds and where they come from.
+ * The history below is why the number matters at all.
+ *
  * NOT a control-plane request, and this distinction cost a whole episode.
  * `POST /v1/chat/responses` answers 202 and carries `Location` + `Retry-After`,
  * so it reads like a durable submit-then-poll route. It is not: on the
@@ -128,7 +135,9 @@ export const GENSTUDIO_ARTIFACT_REQUEST_TIMEOUT_MS = 5 * 60_000
  * signal clamps every attempt to whatever remains of the caller's own deadline
  * (`GENSTUDIO_LONG_JOB_TIMEOUT_MS`), and cancellation still aborts instantly.
  */
-export const GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS = 20 * 60_000
+export async function languageSubmitTimeoutMs(): Promise<number> {
+  return getLanguageTimeoutMs()
+}
 export const GENSTUDIO_MAX_TRANSCRIPTION_BYTES = 100 * 1024 * 1024
 
 export type GenStudioQueueState =
@@ -3188,7 +3197,7 @@ async function requestJsonWithRetry(
   /** Per-ATTEMPT socket ceiling. Defaults to the control-plane timeout, which is
    *  right for every short request (job GETs, cancels, catalogue reads) and
    *  wrong for a POST that executes a model inline — see
-   *  GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS. */
+   *  `languageSubmitTimeoutMs()`. */
   operationTimeoutMs: number = GENSTUDIO_CONTROL_REQUEST_TIMEOUT_MS,
   /** Statuses that a durable caller must reconcile read-only, not re-POST. */
   noRetryStatuses: readonly number[] = [],
@@ -3364,10 +3373,15 @@ async function submitLanguageJson(
   evidence: GenStudioSubmissionEvidence,
 ): Promise<any> {
   const poller = createGenStudioJobPoller()
+  // Read per SUBMISSION, not per module load. The owner changing the dial
+  // while a long episode is running must apply to the next request, and a
+  // value captured at import time would need a restart to take effect —
+  // exactly the silent no-op the concurrency route already refuses to ship.
+  const timeoutMs = await languageSubmitTimeoutMs()
   for (;;) {
     try {
       return await submitJsonWithAdmission(
-        apiKey, url, init, request, deadline, GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS, [502, 504], evidence,
+        apiKey, url, init, request, deadline, timeoutMs, [502, 504], evidence,
       )
     } catch (error) {
       if (!isGenStudioRequestInProgress(error)) throw error

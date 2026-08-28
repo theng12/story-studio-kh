@@ -13,8 +13,8 @@
         <span class="eyebrow">Throughput</span>
         <h4>How much runs at once</h4>
         <p class="hint">
-          Both of these were fixed numbers in the program until today. Raise them as you add
-          machines; lower them if your fleet starts refusing work.
+          Every number here was fixed in the program until it appeared on this screen. Raise them as
+          you add machines; lower them if your fleet starts refusing work.
         </p>
       </div>
 
@@ -295,7 +295,8 @@ const concurrencySaved = ref('')
  */
 interface ThroughputChoice { value: string | number; label: string }
 interface ThroughputField {
-  key: 'subtitleEpisodes' | 'llmJobs' | 'imageEpisodes' | 'thumbnailEpisodes' | 'imageFanout' | 'outlineHeadroom'
+  key: 'subtitleEpisodes' | 'llmJobs' | 'imageEpisodes' | 'thumbnailEpisodes' | 'imageFanout'
+    | 'outlineHeadroom' | 'languageTimeoutMinutes' | 'languageFloorTps' | 'languagePreferredTps'
   label: string
   help: string
   choices: ThroughputChoice[]
@@ -308,6 +309,9 @@ const models = reactive<Record<ThroughputField['key'], string | number>>({
   imageFanout: 'auto',
   thumbnailEpisodes: 3,
   outlineHeadroom: 2,
+  languageTimeoutMinutes: 30,
+  languageFloorTps: 25,
+  languagePreferredTps: 50,
 })
 
 const throughputFields: ThroughputField[] = [
@@ -391,6 +395,46 @@ const throughputFields: ThroughputField[] = [
       { value: 3, label: '3×' },
     ],
   },
+  {
+    key: 'languageTimeoutMinutes',
+    label: 'How long one writing request may run',
+    help: 'A big scene-plan batch or a long chapter is written while the request is still open, so '
+      + 'this is how long the app waits before giving up on it. Longer is safer — a request cut off '
+      + 'part-way is still charged for, and the writing is lost — but a genuinely stuck request '
+      + 'takes this long to notice. Anything from 5 to 240 minutes.',
+    choices: [
+      { value: 10, label: '10 minutes — small batches only' },
+      { value: 20, label: '20 minutes — what it used to be' },
+      { value: 30, label: '30 minutes — recommended' },
+      { value: 45, label: '45 minutes' },
+      { value: 60, label: '60 minutes — very large batches' },
+    ],
+  },
+  {
+    key: 'languageFloorTps',
+    label: 'Slowest provider speed you accept',
+    help: 'In tokens a second. Nothing is refused or rerouted because of this — it is only used to '
+      + 'warn you, on the Scene Plan page, when a batch looks too big to come back in time even from '
+      + 'the slowest provider you would accept.',
+    choices: [
+      { value: 10, label: '10 tok/s — very cautious warnings' },
+      { value: 25, label: '25 tok/s — recommended' },
+      { value: 50, label: '50 tok/s — warn unless it is fast' },
+      { value: 100, label: '100 tok/s' },
+    ],
+  },
+  {
+    key: 'languagePreferredTps',
+    label: 'Provider speed you prefer',
+    help: 'Also tokens a second, and also only used in that warning: it is the speed the message '
+      + 'says most providers actually manage, so you can see how much of the worry is worst case.',
+    choices: [
+      { value: 25, label: '25 tok/s' },
+      { value: 50, label: '50 tok/s — recommended' },
+      { value: 100, label: '100 tok/s' },
+      { value: 200, label: '200 tok/s' },
+    ],
+  },
 ]
 
 /** The select shows a preset when the value matches one, otherwise "Custom…". */
@@ -426,6 +470,9 @@ function restoreDefaults() {
   models.imageFanout = 'auto'
   models.thumbnailEpisodes = 3
   models.outlineHeadroom = 2
+  models.languageTimeoutMinutes = 30
+  models.languageFloorTps = 25
+  models.languagePreferredTps = 50
   concurrencySaved.value = ''
 }
 
@@ -438,6 +485,9 @@ async function loadConcurrency() {
     models.imageFanout = r?.image_fanout_per_episode ?? 'auto'
     models.thumbnailEpisodes = r?.thumbnail_episode_concurrency ?? 3
     models.outlineHeadroom = r?.outline_chapter_headroom ?? 2
+    models.languageTimeoutMinutes = r?.genstudio_language_timeout_minutes ?? 30
+    models.languageFloorTps = r?.language_floor_tokens_per_second ?? 25
+    models.languagePreferredTps = r?.language_preferred_tokens_per_second ?? 50
   } catch { /* an unreachable setting must not break the whole page */ }
   concurrencyLoaded.value = true
 }
@@ -454,6 +504,9 @@ async function saveConcurrency() {
       image_fanout_per_episode: models.imageFanout === 'auto' ? 'auto' : Number(models.imageFanout),
       thumbnail_episode_concurrency: Number(models.thumbnailEpisodes),
       outline_chapter_headroom: Number(models.outlineHeadroom),
+      genstudio_language_timeout_minutes: Number(models.languageTimeoutMinutes),
+      language_floor_tokens_per_second: Number(models.languageFloorTps),
+      language_preferred_tokens_per_second: Number(models.languagePreferredTps),
     })
     // Show what was ACTUALLY applied, not what was typed. The server clamps,
     // and a clamped value that looks accepted is a lie the owner acts on.
@@ -463,9 +516,19 @@ async function saveConcurrency() {
     if (applied?.image_fanout_per_episode !== undefined) models.imageFanout = applied.image_fanout_per_episode
     if (applied?.thumbnail_episode_concurrency !== undefined) models.thumbnailEpisodes = applied.thumbnail_episode_concurrency
     if (applied?.outline_chapter_headroom !== undefined) models.outlineHeadroom = applied.outline_chapter_headroom
+    if (applied?.genstudio_language_timeout_minutes !== undefined) {
+      models.languageTimeoutMinutes = applied.genstudio_language_timeout_minutes
+    }
+    if (applied?.language_floor_tokens_per_second !== undefined) {
+      models.languageFloorTps = applied.language_floor_tokens_per_second
+    }
+    if (applied?.language_preferred_tokens_per_second !== undefined) {
+      models.languagePreferredTps = applied.language_preferred_tokens_per_second
+    }
     concurrencySaved.value = `Saved and already in effect: ${models.imageEpisodes} image episode(s) at once, `
       + `${models.imageFanout === 'auto' ? 'auto' : models.imageFanout} images per episode, `
-      + `${models.subtitleEpisodes} transcribing, ${models.llmJobs} writing.`
+      + `${models.subtitleEpisodes} transcribing, ${models.llmJobs} writing, `
+      + `${models.languageTimeoutMinutes} minutes per writing request.`
   } catch (e: any) {
     concurrencyError.value = e?.data?.detail || e?.message || 'Could not save'
   } finally {

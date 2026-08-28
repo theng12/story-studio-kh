@@ -152,8 +152,11 @@ describe('batch tuning is the owner\'s data, not a constant', () => {
 
   /**
    * 250 is a WALL-CLOCK judgement, not a token limit: the arithmetic permits
-   * 960, but a 220,000-token response must sustain ~185 tok/s to land inside
-   * the 20-minute GenStudio submit timeout, and that throughput is unverified.
+   * 960, but the response has to arrive before the request times out, and the
+   * large models' real throughput is unverified. That timeout is the owner's
+   * own setting since 2026-08-29 (`genstudio_language_timeout_minutes`), so
+   * this comment no longer states a number for it — the Scene Plan panel does
+   * the sum live and warns when a batch does not fit.
    */
   test('automatic is the owner default of 250, not the derived 960', () => {
     assert.equal(maxSafeScenePromptPackSize(384_000), 960)

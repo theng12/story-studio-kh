@@ -213,6 +213,10 @@
             <span><strong>{{ effectivePromptPackSize }} scenes</strong> per request</span>
             <span>up to {{ effectivePromptTokenBudget.toLocaleString() }} output tokens</span>
           </div>
+          <!-- Shown when the batch may outlast the request, never when it will
+               not. It warns and stops there: the batch is still sent exactly as
+               chosen. -->
+          <p v-if="promptBatchTimeoutWarning" class="scene-setting-warn">{{ promptBatchTimeoutWarning }}</p>
           <details class="scene-advanced-batches">
             <summary>Advanced batch controls</summary>
             <div class="scene-compact-fields mt-1">
@@ -261,8 +265,9 @@
             <p class="scene-setting-help mt-1">
               Saved for this channel. Defaults are {{ DEFAULT_TOKENS_PER_SCENE }} tokens per scene, a
               {{ DEFAULT_OUTPUT_SAFETY_FRACTION }} safety fraction and {{ DEFAULT_PROMPT_BATCH_SIZE }} scenes per request.
-              {{ DEFAULT_PROMPT_BATCH_SIZE }} is a speed judgement, not a token limit — a request has 20 minutes to come
-              back, and the large models’ real speed has not been measured yet. Raise it once it has.
+              {{ DEFAULT_PROMPT_BATCH_SIZE }} is a speed judgement, not a token limit — a request has
+              {{ languageTimeoutMinutes }} minutes to come back, and the large models’ real speed has not been
+              measured yet. Raise it once it has, or give requests longer in This Mac → Throughput.
               <button type="button" class="btn btn-ghost btn-xs" @click="resetBatchTuning">Reset to defaults</button>
             </p>
             <p class="scene-setting-help mt-1">Context: {{ selectedModelContextLabel }} · Output is the response limit, so it—not context—sets the safe batch size.</p>
@@ -948,6 +953,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import {
   availableInputTokens,
+  batchTimeoutWarning,
   clampOutputAllowance,
   contextWindowTokens,
   formatTokenCount,
@@ -1517,9 +1523,10 @@ const FALLBACK_OUTPUT_TOKENS = 8192
  * same arithmetic from the same saved numbers.
  *
  * 250 is a WALL-CLOCK judgement, not a token limit: the token maths alone
- * permits ~960 scenes on a 384,000-token model, but the GenStudio submit
- * timeout is 20 minutes and the large models' sustained throughput is not yet
- * measured. Raise it once it is.
+ * permits ~960 scenes on a 384,000-token model, but a request only has so long
+ * to come back and the large models' sustained throughput is not yet measured.
+ * How long it has is `languageTimeoutMinutes` below — the owner's own setting,
+ * read from the backend, deliberately not repeated as a number in this comment.
  */
 const DEFAULT_TOKENS_PER_SCENE = 300
 const DEFAULT_OUTPUT_SAFETY_FRACTION = 0.75
@@ -1762,6 +1769,45 @@ const promptPackReductionNotice = computed<string>(() => {
   return `This model can only return ${maximumPromptPackSize.value} scenes complete in one response, `
     + `so ${requested} would be reduced to ${maximumPromptPackSize.value}. Pick a larger model or a smaller batch.`
 })
+// ── Will this batch finish in time? ─────────────────────────────────────────
+// Token maths says what the model can RETURN. It says nothing about whether
+// the answer arrives before the request is cut off, and a request cut off
+// part-way is charged for and lost — that is the EP0067 failure, repeated at
+// a bigger batch size. Every number in the sum is now a real value rather than
+// an assumption baked into a comment: how long a request may run, the hard
+// speed floor it is measured against, and the preferred speed the sentence
+// mentions are all the owner's own settings, read from the backend. Not one of
+// them is copied here — he revised the floor within a day of setting it.
+//
+// Non-blocking, always. He may knowingly send a batch that cannot finish at
+// floor speed — most providers are faster. The panel's job is to say so before
+// the click, not to refuse.
+const languageTimeoutMinutes = ref<number>(30)
+const floorTokensPerSecond = ref<number>(25)
+const preferredTokensPerSecond = ref<number>(50)
+async function loadRequestTimeout(): Promise<void> {
+  try {
+    const r: any = await get('/app-settings/concurrency')
+    // An unreadable setting must leave the shipped default showing, never 0 —
+    // a 0 here would make the warning fire on every batch, forever.
+    const minutes = Number(r?.genstudio_language_timeout_minutes)
+    if (Number.isFinite(minutes) && minutes > 0) languageTimeoutMinutes.value = minutes
+    const floor = Number(r?.language_floor_tokens_per_second)
+    if (Number.isFinite(floor) && floor > 0) floorTokensPerSecond.value = floor
+    const preferred = Number(r?.language_preferred_tokens_per_second)
+    if (Number.isFinite(preferred) && preferred > 0) preferredTokensPerSecond.value = preferred
+  } catch { /* the warning goes quiet; nothing else on the page depends on it */ }
+}
+// The arithmetic itself lives in utils/model-token-budget.ts beside the rest
+// of this page's derivations, so it can be tested directly rather than through
+// a rendered component.
+const promptBatchTimeoutWarning = computed<string>(() => batchTimeoutWarning({
+  packSize: effectivePromptPackSize.value,
+  tokensPerScene: promptTokensPerScene.value,
+  timeoutMinutes: languageTimeoutMinutes.value,
+  floorTokensPerSecond: floorTokensPerSecond.value,
+  preferredTokensPerSecond: preferredTokensPerSecond.value,
+}))
 const availablePromptPackPresets = computed(() => PROMPT_PACK_PRESETS.filter(size => size <= maximumPromptPackSize.value))
 /** Derived from the SELECTED product's published `max_output_tokens`, never
  *  from a fixed list. The product's own maximum is always the top option. */
@@ -2661,6 +2707,7 @@ onMounted(() => {
   void planPresets.load()
   // The character ceiling is only as honest as the catalogue behind it.
   void refreshGenStudioImageModels().catch(() => {})
+  void loadRequestTimeout()
 })
 // Re-measure whenever the customer comes back to this page or switches
 // project: he may have just changed the intro clip in Video Assembly, and a

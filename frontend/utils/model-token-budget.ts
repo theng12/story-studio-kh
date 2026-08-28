@@ -135,3 +135,74 @@ export function isModelTokenLimitError(message: unknown): boolean {
   if (!text) return false
   return /\b(context[_ ]window|context[_ ]limit|max[_ ]output[_ ]tokens|output tokens|context length|token limit)\b/i.test(text)
 }
+
+/**
+ * Will this batch finish before the request is cut off?
+ *
+ * Token maths says what the model can RETURN. It says nothing about whether
+ * the answer arrives before the request times out — and a request cut off
+ * part-way is charged for and lost. That is the EP0067 failure (nine packs,
+ * 333 scenes, 131 credits, all generated and none retrievable), and a batch
+ * far larger than the ones that caused it is now a normal choice.
+ *
+ * COMPUTED AGAINST THE FLOOR, DESCRIBED WITH THE PREFERENCE. The owner keeps
+ * two speeds: a hard floor (25 tok/s by default) below which a provider is not
+ * eligible at all, and a preferred speed (50+) that most of them actually hit.
+ * The arithmetic has to use the FLOOR, because a provider running at the floor
+ * is a provider he may genuinely be routed to, and a batch that cannot finish
+ * at that speed is a batch that can genuinely be lost. At the shipped defaults
+ * that means the default 250-scene batch DOES warn: 75,000 tokens at 25 tok/s
+ * is 50 minutes against a 30-minute timeout. That is correct and intended, so
+ * the sentence is careful to say it is the worst eligible case rather than a
+ * prediction — a preferred-speed provider finishes the same batch in 25.
+ *
+ * WHY `tokensPerScene` ALONE, and not the safety fraction as well. 300 is
+ * already the pessimistic figure — it sits between the measured p95 (260) and
+ * p99 (330) of a real emitted scene — so it is the right multiplier for how
+ * many tokens actually come back. The safety fraction guards the model's
+ * published ALLOWANCE, a different question, and folding it in here would
+ * double-count the pessimism on top of an already worst-case speed.
+ *
+ * NON-BLOCKING, ALWAYS. It returns a sentence, never a refusal. Nothing here
+ * returns a boolean a caller could disable a button with.
+ */
+export function batchTimeoutWarning(input: {
+  /** Scenes in one request, as the panel has resolved it. */
+  packSize: number
+  /** The channel's `scene_prompt_tokens_per_scene`. */
+  tokensPerScene: number
+  /** The owner's `genstudio_language_timeout_minutes`. */
+  timeoutMinutes: number
+  /** His hard floor, `language_floor_tokens_per_second`. The sum uses this. */
+  floorTokensPerSecond: number
+  /** His preferred speed, `language_preferred_tokens_per_second`. Mentioned
+   *  only, and only when it is genuinely faster than the floor. */
+  preferredTokensPerSecond?: number
+}): string {
+  const packSize = positiveInt(input.packSize)
+  const tokensPerScene = positiveInt(input.tokensPerScene)
+  const floor = Number(input.floorTokensPerSecond)
+  const minutes = Number(input.timeoutMinutes)
+  // A missing or nonsensical input means the question cannot be answered, and
+  // an unanswerable question must be silent rather than alarming. A zero speed
+  // or zero timeout would otherwise warn on every batch forever.
+  if (!packSize || !tokensPerScene) return ''
+  if (!Number.isFinite(floor) || floor <= 0) return ''
+  if (!Number.isFinite(minutes) || minutes <= 0) return ''
+
+  const tokens = packSize * tokensPerScene
+  const seconds = tokens / floor
+  if (seconds <= minutes * 60) return ''
+
+  const preferred = Number(input.preferredTokensPerSecond)
+  const hasPreference = Number.isFinite(preferred) && preferred > floor
+  const atPreferred = hasPreference ? Math.ceil(tokens / preferred / 60) : 0
+  return `At the slowest acceptable provider speed (${floor} tok/s), a batch this size may not finish `
+    + `within your ${minutes}-minute timeout — ${packSize} scenes is about ${tokens.toLocaleString()} `
+    + `tokens, roughly ${Math.ceil(seconds / 60)} minutes. `
+    + (hasPreference
+      ? `Faster providers (${preferred}+ preferred) will typically complete it, in about `
+        + `${atPreferred} minutes. `
+      : '')
+    + `Reduce the batch or raise the timeout if you see timeouts.`
+}

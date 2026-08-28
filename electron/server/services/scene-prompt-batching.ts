@@ -67,11 +67,19 @@ export interface ScenePromptPackTuning {
    * alone permits ~960 scenes on a 384,000-token model (15% of the allowance
    * is used at 250, so there is 6.6x headroom at p90 and the worst scene ever
    * recorded would still fit inside 21%). What actually binds is wall-clock:
-   * `GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS` is 20 minutes, and a 220,000-token
-   * response has to sustain ~185 tokens/second to land inside it. The real
-   * sustained throughput of the large models is UNVERIFIED, so 250 is the
-   * largest batch that is comfortable at an unknown speed. It cuts requests
-   * across the owner's library from 1,951 to 591.
+   * how long one request may run, and how fast the chosen provider writes.
+   * The real sustained throughput of the large models is UNVERIFIED, so 250
+   * is the largest batch that is comfortable at an unknown speed. It cuts
+   * requests across the owner's library from 1,951 to 591.
+   *
+   * NEITHER HALF OF THAT WALL-CLOCK SUM IS FIXED ANY MORE (2026-08-29). The
+   * request timeout is `genstudio_language_timeout_minutes` in app settings,
+   * default 30 minutes, and the owner may dial it. The speed floor is
+   * `LANGUAGE_MIN_ACCEPTABLE_TOKENS_PER_SECOND`, 50. This comment deliberately
+   * quotes neither number: it stated "20 minutes" for four weeks after nothing
+   * guaranteed that, and a second copy of a figure is how it goes stale. The
+   * Scene Plan panel does the arithmetic live from both and warns when the
+   * chosen batch does not fit.
    *
    * RAISE THIS once throughput is measured — `completionTokens` is now logged
    * with each successful pack precisely so that question is answerable from

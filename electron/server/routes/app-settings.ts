@@ -59,9 +59,13 @@ router.get('/app-settings/concurrency', async (_req, res) => {
     const {
       getSubtitleEpisodeConcurrency, getLlmConcurrency, getOutlineHeadroom,
       getImageEpisodeConcurrency, getImageFanout, getThumbnailEpisodeConcurrency,
+      getLanguageTimeoutMinutes, getLanguageFloorTps, getLanguagePreferredTps,
       SUBTITLE_EPISODE_CONCURRENCY_DEFAULT, LLM_CONCURRENCY_DEFAULT,
       OUTLINE_HEADROOM_DEFAULT, IMAGE_EPISODE_CONCURRENCY_DEFAULT,
-      THUMBNAIL_EPISODE_CONCURRENCY_DEFAULT,
+      THUMBNAIL_EPISODE_CONCURRENCY_DEFAULT, LANGUAGE_TIMEOUT_MINUTES_DEFAULT,
+      LANGUAGE_TIMEOUT_MINUTES_MIN, LANGUAGE_TIMEOUT_MINUTES_MAX,
+      LANGUAGE_FLOOR_TPS_DEFAULT, LANGUAGE_PREFERRED_TPS_DEFAULT,
+      LANGUAGE_TPS_MIN, LANGUAGE_TPS_MAX,
     } = await import('../services/app-settings.js')
     res.json({
       subtitle_episode_concurrency: await getSubtitleEpisodeConcurrency(),
@@ -73,6 +77,24 @@ router.get('/app-settings/concurrency', async (_req, res) => {
       thumbnail_episode_concurrency: await getThumbnailEpisodeConcurrency(),
       image_fanout_per_episode: await getImageFanout(),
       outline_chapter_headroom: await getOutlineHeadroom(),
+      // v1.4.78 — also not a concurrency number. Same reason again: it decides
+      // how long one writing request may run, and the Scene Plan panel needs
+      // it to say whether a chosen batch can finish inside it.
+      genstudio_language_timeout_minutes: await getLanguageTimeoutMinutes(),
+      // Published so the Scene Plan batch warning derives from THESE numbers
+      // rather than a second copy in a .vue file. The floor is the gate the
+      // warning is computed against; the preferred speed is what the sentence
+      // tells him most providers will actually do.
+      language_floor_tokens_per_second: await getLanguageFloorTps(),
+      language_preferred_tokens_per_second: await getLanguagePreferredTps(),
+      bounds: {
+        genstudio_language_timeout_minutes: {
+          min: LANGUAGE_TIMEOUT_MINUTES_MIN,
+          max: LANGUAGE_TIMEOUT_MINUTES_MAX,
+        },
+        language_floor_tokens_per_second: { min: LANGUAGE_TPS_MIN, max: LANGUAGE_TPS_MAX },
+        language_preferred_tokens_per_second: { min: LANGUAGE_TPS_MIN, max: LANGUAGE_TPS_MAX },
+      },
       defaults: {
         subtitle_episode_concurrency: SUBTITLE_EPISODE_CONCURRENCY_DEFAULT,
         llm_concurrency: LLM_CONCURRENCY_DEFAULT,
@@ -80,6 +102,9 @@ router.get('/app-settings/concurrency', async (_req, res) => {
         thumbnail_episode_concurrency: THUMBNAIL_EPISODE_CONCURRENCY_DEFAULT,
         image_fanout_per_episode: 'auto',
         outline_chapter_headroom: OUTLINE_HEADROOM_DEFAULT,
+        genstudio_language_timeout_minutes: LANGUAGE_TIMEOUT_MINUTES_DEFAULT,
+        language_floor_tokens_per_second: LANGUAGE_FLOOR_TPS_DEFAULT,
+        language_preferred_tokens_per_second: LANGUAGE_PREFERRED_TPS_DEFAULT,
       },
     })
   } catch (e: any) {
@@ -127,6 +152,23 @@ router.put('/app-settings/concurrency', async (req, res) => {
     }
     if (req.body?.outline_chapter_headroom !== undefined) {
       out.outline_chapter_headroom = await settings.setOutlineHeadroom(req.body.outline_chapter_headroom)
+    }
+    // No live object to update: `submitLanguageJson` reads this fresh on every
+    // submission, so the next writing request already uses the new value.
+    if (req.body?.genstudio_language_timeout_minutes !== undefined) {
+      out.genstudio_language_timeout_minutes =
+        await settings.setLanguageTimeoutMinutes(req.body.genstudio_language_timeout_minutes)
+    }
+    // Neither of these routes, retries or refuses anything — they only decide
+    // what the Scene Plan panel says about a batch. He revised the floor once
+    // within a day of setting it, which is why they are here at all.
+    if (req.body?.language_floor_tokens_per_second !== undefined) {
+      out.language_floor_tokens_per_second =
+        await settings.setLanguageFloorTps(req.body.language_floor_tokens_per_second)
+    }
+    if (req.body?.language_preferred_tokens_per_second !== undefined) {
+      out.language_preferred_tokens_per_second =
+        await settings.setLanguagePreferredTps(req.body.language_preferred_tokens_per_second)
     }
     res.json(out)
   } catch (e: any) {
