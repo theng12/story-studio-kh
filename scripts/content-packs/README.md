@@ -141,6 +141,11 @@ second build races the final write. Choose a new versioned output path for every
 
 ## Build
 
+**Anything sold uses the Store delivery profile below, and it takes no signing key.** Do not go
+looking for a publisher key to build a Store archive: there is none to find, and supplying one is
+refused (`delivery-attested builds must not receive a private key`). The verifier likewise rejects a
+Store archive that carries a publisher signature.
+
 Production Store delivery uses GenStudio's signed purchase receipt as the permanent archive
 authority. Select that profile explicitly; it accepts no publisher private key and emits neither
 `key_id` nor `signature.ed25519`. The source `key_id` is authoring metadata for the independent
@@ -154,9 +159,10 @@ npm run content-pack:build -- ./content-packs/free-starters/formula/ancient-huma
 ```
 
 The builder immediately runs the delivery-attested structural verifier over the completed bytes.
-It reports the exact SHA-256 and byte count needed for the GenStudio draft release. The publisher-
-signed command below remains the separate local/recovery developer path and is still the default.
+It reports the exact SHA-256 and byte count needed for the GenStudio draft release.
 
+The publisher-signed command below is **not** the Store path and is not what you want for anything
+sold. It is a separate local/recovery developer path, used only for archives that are never stocked.
 Use an explicit path to an Ed25519 PKCS#8 private-key PEM:
 
 ```bash
