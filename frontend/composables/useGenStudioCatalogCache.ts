@@ -64,6 +64,37 @@ export function _tickGenStudioCatalogClockForTests(): void {
   tick.value += 1
 }
 
+/**
+ * Every age comparison in this module reads the clock through here rather
+ * than calling `Date.now()` directly, so tests can cross a freshness boundary
+ * by MOVING the clock instead of by sleeping.
+ *
+ * The offset is always 0 in production — nothing but the test hook below ever
+ * writes it — so this is behaviourally identical to `Date.now()` at runtime.
+ *
+ * Why it exists: the staleness tests used to sleep past `freshMs` and then
+ * assert the data was stale but NOT yet past `staleCeilingMs`. That turns the
+ * ceiling half of the assertion into a bet on the scheduler. On 2026-08-28 a
+ * 40ms sleep in those tests was measured at 2,656ms under concurrent suites
+ * (41ms when run alone), so the cache genuinely had passed a 1,000ms ceiling
+ * and the test reported a defect that did not exist.
+ */
+let testClockOffsetMs = 0
+function now(): number {
+  return Date.now() + testClockOffsetMs
+}
+
+/**
+ * Test-only: move this module's clock forward by exactly `ms`, then
+ * re-evaluate the staleness computeds. Replaces `sleep(ms)` in the freshness
+ * tests, which makes the elapsed age exact rather than "at least `ms`, and
+ * hopefully not very much more than that".
+ */
+export function _advanceGenStudioCatalogClockForTests(ms: number): void {
+  testClockOffsetMs += ms
+  tick.value += 1
+}
+
 export interface GenStudioCatalogCacheOptions<T> {
   /** Value held before the first successful fetch, and after an
    *  unrecoverable failure (no usable cache left to fall back to). */
@@ -114,7 +145,7 @@ export function createGenStudioCatalogCache<T>(
 
   const age = computed(() => {
     void tick.value // dependency only — forces periodic re-evaluation
-    return lastFetchedAt.value === null ? Number.POSITIVE_INFINITY : Date.now() - lastFetchedAt.value
+    return lastFetchedAt.value === null ? Number.POSITIVE_INFINITY : now() - lastFetchedAt.value
   })
   const isStale = computed(() => loaded.value && age.value > freshMs)
   const isExpired = computed(() => loaded.value && age.value > staleCeilingMs)
@@ -129,7 +160,7 @@ export function createGenStudioCatalogCache<T>(
         const result = await options.fetcher()
         data.value = result
         error.value = ''
-        lastFetchedAt.value = Date.now()
+        lastFetchedAt.value = now()
         loaded.value = true
       } catch (cause: any) {
         error.value = cause?.data?.detail || cause?.message || 'GenStudio KH catalog unavailable'

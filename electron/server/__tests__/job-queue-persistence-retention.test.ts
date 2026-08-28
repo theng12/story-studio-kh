@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Job } from '../models/types.js'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor, waitForValue } from './_timing.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -44,20 +45,38 @@ function makeJob(
   }
 }
 
-async function waitForPersistedCount(file: string, expected: number): Promise<any[]> {
-  const deadline = Date.now() + 10_000
-  let records: any[] = []
-  while (Date.now() < deadline) {
-    try {
-      const parsed = JSON.parse(await fs.readFile(file, 'utf-8'))
-      records = Array.isArray(parsed.jobs) ? parsed.jobs : []
-    } catch {
-      records = []
-    }
-    if (records.length >= expected) return records
-    await new Promise(resolve => setTimeout(resolve, 20))
+async function readPersisted(file: string): Promise<any[]> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(file, 'utf-8'))
+    return Array.isArray(parsed.jobs) ? parsed.jobs : []
+  } catch {
+    return []
   }
-  assert.fail(`Expected at least ${expected} persisted jobs, found ${records.length}`)
+}
+
+/**
+ * Wait until at least `expected` jobs have been flushed to disk.
+ *
+ * The old hardcoded `Date.now() + 10_000` ceiling was measured giving up at
+ * 10,442ms and 10,621ms under concurrent suites. It never observed a wrong
+ * value — it ran out of wall clock while this process was descheduled.
+ * `waitForValue` spends a budget of scheduled time instead, so the same
+ * assertion survives a loaded machine while still failing promptly on an idle
+ * one if persistence is genuinely broken.
+ */
+function waitForPersistedCount(file: string, expected: number): Promise<any[]> {
+  return waitForValue(
+    async () => {
+      const records = await readPersisted(file)
+      return records.length >= expected ? records : false
+    },
+    {
+      label: `at least ${expected} persisted jobs in ${path.basename(file)}`,
+      // The original ceiling, reinterpreted: 10s of SCHEDULED time rather
+      // than 10s of wall clock. Strictly more generous than before.
+      timeoutMs: 10_000,
+    },
+  )
 }
 
 describe('status-aware durable job retention', () => {
@@ -211,10 +230,12 @@ describe('status-aware durable job retention', () => {
       title: 'Terminal history',
       params: {},
     })
-    const terminalDeadline = Date.now() + 2_000
-    while (Date.now() < terminalDeadline && jq.getJob(terminal.job_id)?.status !== 'done') {
-      await new Promise(resolve => setTimeout(resolve, 10))
-    }
+    // Wait for ANY terminal status, then assert below that it was `done` —
+    // an `error` here must still fail, so the wait must not be "until done".
+    await waitFor(
+      () => ['done', 'error', 'cancelled'].includes(jq.getJob(terminal.job_id)?.status ?? ''),
+      { label: 'the seeded metadata job to reach a terminal status', timeoutMs: 2_000 },
+    )
     assert.equal(jq.getJob(terminal.job_id)?.status, 'done')
 
     await jq.setQueuePaused(true)
@@ -229,13 +250,11 @@ describe('status-aware durable job retention', () => {
     await waitForPersistedCount(jobsFile, queued.length + 1)
     assert.equal(await jq.clearFinished(project.slug), 1)
 
-    const deadline = Date.now() + 5_000
     let persisted: Job[] = []
-    while (Date.now() < deadline) {
-      persisted = JSON.parse(await fs.readFile(jobsFile, 'utf-8')).jobs as Job[]
-      if (!persisted.some(job => job.job_id === terminal.job_id)) break
-      await new Promise(resolve => setTimeout(resolve, 20))
-    }
+    await waitFor(async () => {
+      persisted = await readPersisted(jobsFile) as Job[]
+      return !persisted.some(job => job.job_id === terminal.job_id)
+    }, { label: 'the cleared terminal job to disappear from jobs.json', timeoutMs: 5_000 })
     assert.equal(persisted.some(job => job.job_id === terminal.job_id), false)
     assert.deepEqual(persisted.map(job => job.job_id), queued.map(job => job.job_id))
 
