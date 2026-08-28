@@ -36,7 +36,7 @@ import { getApiKey } from '../services/app-secrets-store.js'
 import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import * as cm from '../services/character-manager.js'
-import { fileExistsWithContent, isCloudEvictedPlaceholder } from '../lib/http-retry.js'
+import { fileExistsWithContent, isCloudEvictedPlaceholder, isTransportFailure } from '../lib/http-retry.js'
 import { recordTask, recordTaskStrict, hashInput, readManifest, type Manifest } from '../services/task-manifest.js'
 import { checkpointGenStudioAsset, type GenStudioRecoveryState } from '../services/genstudio-recovery.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
@@ -798,7 +798,18 @@ export async function generateAudio(job: Job): Promise<void> {
           // The owner found the same hole in subtitles the hard way — 122 of
           // 353 refused in one burst — and asked the obvious next question:
           // "what about the other generators". This is one of the answers.
+          //   A DROPPED CONNECTION (v1.4.76) — the request was never answered,
+          //     so no route can have taken it. This was the one class the rule
+          //     above read backwards: `fetch failed` is not a
+          //     GenStudioTerminalFailureError, so both predicates returned
+          //     false and the section was abandoned on attempt 1 with the raw
+          //     undici text ("9 section(s) failed: Chapter 1: fetch failed").
+          //     The client's own retry is ~3.5s of backoff — fine for a blip,
+          //     nowhere near a GenStudio restart, which is when whole batches
+          //     were lost. This ladder is minutes, which is the right scale.
+          const transportFailure = isTransportFailure(e)
           const worthRetrying = isGenStudioRouteExhausted(e) || isFleetBusyFailure(e, 'tts')
+            || transportFailure
           if (!worthRetrying || attempt >= TTS_ROUTE_RETRY_MAX_ATTEMPTS) {
             failedTasks++
             // Settled-pool semantics: one chunk failure doesn't kill the
@@ -810,7 +821,9 @@ export async function generateAudio(job: Job): Promise<void> {
           }
 
           const waitMs = ttsRouteRetryDelayMs(attempt - 1)
-          const reason = isFleetBusyFailure(e, 'tts')
+          const reason = transportFailure
+            ? `Could not reach ${genStudioProviderLabel}`
+            : isFleetBusyFailure(e, 'tts')
             ? 'Every machine was busy'
             : `No ${genStudioProviderLabel} route would accept this request`
           activeTasks.set(chunkFilename, {
@@ -827,11 +840,28 @@ export async function generateAudio(job: Job): Promise<void> {
             `  ${task.sectionLabel}: ${reason.toLowerCase()} — nothing was charged.`
             + ` Retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1} of ${TTS_ROUTE_RETRY_MAX_ATTEMPTS}).`,
           )
-          // Derived from the job that just failed, so this retry is repeatable:
-          // replaying it returns the job GenStudio already has for it instead
-          // of selling a second one.
-          submissionIdentity = nextTtsRouteRetryIdentity(submissionIdentity, e.jobId || chunkFilename)
-          recoveryEntry = null
+          if (transportFailure) {
+            // THE IDENTITY MUST NOT MOVE. A settled failure is dead — its key
+            // replays the same failure forever — so those retries mint a
+            // derived identity below. A dropped connection is the opposite
+            // case: the request may well have been RECEIVED, and a fresh
+            // identity would be a fresh idempotency key, which is a second
+            // job and a second charge for one chapter. Replaying the same key
+            // is what makes GenStudio hand back the job it already has.
+            //
+            // Re-read the manifest rather than trusting the captured entry:
+            // if the connection dropped AFTER the job was accepted,
+            // `onJobAccepted` has already written its id, and reclaiming it
+            // reconnects instead of submitting anything at all.
+            const persisted = (await readManifest(audioDir).catch(() => null))?.tasks[chunkFilename]
+            if (persisted?.provider === 'genstudio' && persisted.task_id) recoveryEntry = persisted
+          } else {
+            // Derived from the job that just failed, so this retry is repeatable:
+            // replaying it returns the job GenStudio already has for it instead
+            // of selling a second one.
+            submissionIdentity = nextTtsRouteRetryIdentity(submissionIdentity, e.jobId || chunkFilename)
+            recoveryEntry = null
+          }
           await delayUnlessAborted(waitMs, controller.signal)
           if (isCancelled()) {
             job.output_lines.push('  Cancelled.')
