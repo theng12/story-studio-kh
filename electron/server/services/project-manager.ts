@@ -1243,6 +1243,14 @@ export async function getSafeConfig(slug: string): Promise<any | null> {
     scene_prompt_batch_size: typeof (config as any).scene_prompt_batch_size === 'number'
       ? (config as any).scene_prompt_batch_size
       : undefined,
+    // Research page → "Approve claims automatically". Echoed for the same
+    // reason as the toggles above: this response is an allow-list, so without
+    // an entry the saved value would be invisible on the next read and the
+    // page would re-render its default. Undefined means "never set", which
+    // resolves to OFF (lib/research-verification.ts).
+    research_auto_approve_claims: typeof (config as any).research_auto_approve_claims === 'boolean'
+      ? (config as any).research_auto_approve_claims
+      : undefined,
     visual_opening_mode: typeof (config as any).visual_opening_mode === 'string'
       ? (config as any).visual_opening_mode
       : undefined,

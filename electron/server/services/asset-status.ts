@@ -779,9 +779,10 @@ export interface EpisodeStatus {
    *  evidence it may use. Reviewed-but-all-ignored is a real editorial
    *  outcome: reviewed = true and usable = false, without blocking progress. */
   research_has_usable_claims?: boolean
-  /** 'human' | 'pipeline-auto' — so the UI never implies a person read
-   *  claims an unattended Pipeline run accepted on its own. */
-  research_reviewed_by?: 'human' | 'pipeline-auto'
+  /** 'human' | 'pipeline-auto' | 'auto-approval' — so the UI never implies a
+   *  person read claims a machine accepted on its own, whether that was an
+   *  unattended Pipeline run or the project's automatic-approval setting. */
+  research_reviewed_by?: 'human' | 'pipeline-auto' | 'auto-approval'
   // Timestamp/continuity Scene Plan is complete when scene_plan.json has at
   // least one timeline row and every row has a non-empty visual prompt. A
   // timeline-only or partially prompted plan remains pending and resumable.

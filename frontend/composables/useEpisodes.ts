@@ -72,7 +72,7 @@ export interface EpisodeRow {
     research_generated?: boolean
     research_reviewed?: boolean
     research_has_usable_claims?: boolean
-    // NOTE: `research_reviewed_by` ('human' | 'pipeline-auto') is also on the
+    // NOTE: `research_reviewed_by` ('human' | 'pipeline-auto' | 'auto-approval') is on the
     // wire but is deliberately NOT declared here — this object is intersected
     // with Record<string, boolean | undefined> for generic per-step indexing,
     // which would collapse a string-valued member to `never`. Read it with a

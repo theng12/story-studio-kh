@@ -59,6 +59,34 @@ export const PIPELINE_AUTO_REVIEW_NOTE =
 export const HUMAN_REVIEW_NOTE =
   'Every claim was triaged by hand on the Research page — kept or ignored.'
 
+/** Note stamped when the project's automatic-approval setting completed it. */
+export const AUTO_APPROVAL_REVIEW_NOTE =
+  'Claim review auto-completed by this project’s "Approve claims automatically" setting '
+  + '— no human read these claims.'
+
+/**
+ * Project config key behind the Research page's "Approve claims
+ * automatically" toggle.
+ *
+ * A per-project setting, read at RUN time rather than baked into a preset, so
+ * turning it on or off takes effect on the next run without re-saving
+ * anything else.
+ */
+export const RESEARCH_AUTO_APPROVE_CONFIG_KEY = 'research_auto_approve_claims'
+
+/**
+ * Is automatic claim approval turned on for this project?
+ *
+ * OFF unless the project explicitly stored `true`. Absent, null, a legacy
+ * config, the string "true", or a config that failed to load all mean off —
+ * accepting evidence nobody read is never something the app may decide on the
+ * owner's behalf, so only his stored `true` turns it on.
+ */
+export function researchAutoApproveEnabled(config: unknown): boolean {
+  if (!config || typeof config !== 'object') return false
+  return (config as Record<string, unknown>)[RESEARCH_AUTO_APPROVE_CONFIG_KEY] === true
+}
+
 /**
  * Does this sidecar contain usable research at all?
  *
@@ -129,9 +157,11 @@ export function readResearchReview(research: unknown): ResearchReviewRecord | nu
   const raw = (research as { review?: unknown } | null | undefined)?.review
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Partial<ResearchReviewRecord>
-  // Only the two known actors are trusted; anything else is dropped rather
+  // Only the known actors are trusted; anything else is dropped rather
   // than echoed back to the UI as if the app had vouched for it.
-  if (r.completed_by !== 'human' && r.completed_by !== 'pipeline-auto') return null
+  if (r.completed_by !== 'human'
+    && r.completed_by !== 'pipeline-auto'
+    && r.completed_by !== 'auto-approval') return null
   return {
     completed_by: r.completed_by,
     completed_at: r.completed_at ? String(r.completed_at) : '',
@@ -174,9 +204,34 @@ export function withResearchReviewRecord<T extends ResearchOutput>(
   next.review = {
     completed_by: by,
     completed_at: new Date().toISOString(),
-    note: note ?? (by === 'pipeline-auto' ? PIPELINE_AUTO_REVIEW_NOTE : HUMAN_REVIEW_NOTE),
+    note: note ?? DEFAULT_REVIEW_NOTES[by],
   }
   return next
+}
+
+/** The sentence each actor gets. They never share one: an unattended batch,
+ *  a standing project setting, and a person are three different promises. */
+const DEFAULT_REVIEW_NOTES: Record<ResearchReviewedBy, string> = {
+  'human': HUMAN_REVIEW_NOTE,
+  'pipeline-auto': PIPELINE_AUTO_REVIEW_NOTE,
+  'auto-approval': AUTO_APPROVAL_REVIEW_NOTE,
+}
+
+/**
+ * Accept every still-pending claim, leaving decisions a human already made
+ * exactly as they are. Shared by both automatic actors so an auto-approved
+ * claim is indistinguishable IN SHAPE from a hand-approved one — the only
+ * thing that separates them is the review record's `completed_by`.
+ */
+function withPendingClaimsAccepted<T extends ResearchOutput>(research: T): T {
+  return {
+    ...research,
+    claims: (research.claims || []).map(claim => (
+      claim.status === 'verified' || claim.status === 'ignored'
+        ? claim
+        : { ...claim, status: 'verified' as const }
+    )),
+  }
 }
 
 /**
@@ -188,13 +243,20 @@ export function withResearchReviewRecord<T extends ResearchOutput>(
  * `pipeline-auto` so nothing ever pretends a person read these claims.
  */
 export function autoCompleteResearchReview<T extends ResearchOutput>(research: T): T {
-  const promoted = {
-    ...research,
-    claims: (research.claims || []).map(claim => (
-      claim.status === 'verified' || claim.status === 'ignored'
-        ? claim
-        : { ...claim, status: 'verified' as const }
-    )),
-  }
-  return withResearchReviewRecord(promoted, 'pipeline-auto')
+  return withResearchReviewRecord(withPendingClaimsAccepted(research), 'pipeline-auto')
+}
+
+/**
+ * Complete the triage because the project asked for it — the Research page's
+ * "Approve claims automatically" toggle.
+ *
+ * Identical mechanism to a hand triage: the same `status: 'verified'`
+ * transition on the same claims, so the Script Generator's selection cannot
+ * tell the difference and no downstream consumer needs to learn a new shape.
+ * The difference lives where it belongs — in the provenance record, stamped
+ * `auto-approval`, so every surface that shows who reviewed the claims can
+ * say plainly that nobody read them.
+ */
+export function autoApproveResearchReview<T extends ResearchOutput>(research: T): T {
+  return withResearchReviewRecord(withPendingClaimsAccepted(research), 'auto-approval')
 }
