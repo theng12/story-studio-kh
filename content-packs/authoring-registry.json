@@ -1,5 +1,5 @@
 {
-  "revision": 107,
+  "revision": 109,
   "batches": [
     {
       "revision": 2,
@@ -2750,6 +2750,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 108,
+      "receipt_ref": "authoring:edc29ccfbd98ba1d6f6eddfab035e134e3b50219628afc2270fe2270adb83ef1",
+      "request": {
+        "expected_revision": 107,
+        "coordinator": {
+          "task": "deep-time-field-record-wave-one",
+          "branch": "content/deep-time-pack3-2026-08-28"
+        },
+        "proposal_ref": "docs/product/deep-time-field-record-wave-one-proposal.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.deep-time-field-record.human-origins-ancient-worlds",
+            "item_id": "com.storystudio.topic.deep-time-field-record.human-origins-ancient-worlds",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/deep-time-field-record/topic/human-origins-ancient-worlds",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.deep-time-field-record.human-origins-ancient-worlds",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.deep-time-field-record.human-origins-ancient-worlds",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -4210,6 +4246,23 @@
         "receipt_ref": "authoring:a5308c35236f021fb017eddee19d672e9749b5401501c9351f274313a0c369aa",
         "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
         "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 109,
+      "transition_ref": "lifecycle:69ea35ec7f541f448478a101c76241f9383937e148225b93a98c63e24b6ff85a",
+      "request": {
+        "expected_revision": 108,
+        "coordinator": {
+          "task": "deep-time-field-record-wave-one",
+          "branch": "content/deep-time-pack3-2026-08-28"
+        },
+        "receipt_ref": "authoring:edc29ccfbd98ba1d6f6eddfab035e134e3b50219628afc2270fe2270adb83ef1",
+        "pack_id": "com.storystudio.pack.topic.deep-time-field-record.human-origins-ancient-worlds",
+        "version": "1.0.0",
         "changes": {
           "status": "authored"
         }
@@ -8299,6 +8352,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.thumbnail.documentary-label-tableau",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:edc29ccfbd98ba1d6f6eddfab035e134e3b50219628afc2270fe2270adb83ef1",
+      "pack_id": "com.storystudio.pack.topic.deep-time-field-record.human-origins-ancient-worlds",
+      "item_id": "com.storystudio.topic.deep-time-field-record.human-origins-ancient-worlds",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/deep-time-field-record/topic/human-origins-ancient-worlds",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.deep-time-field-record.human-origins-ancient-worlds",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.deep-time-field-record.human-origins-ancient-worlds",
           "status": "proposed"
         }
       }

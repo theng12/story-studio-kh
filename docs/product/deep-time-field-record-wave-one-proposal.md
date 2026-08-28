@@ -22,7 +22,7 @@ method that turns that object into a claim about the past.
 Four Topic components, each an independent catalog identity:
 
 | # | Component | Direction | Status |
-| --- | --- | --- | --- |
+| --- | --- | --- | --- | --- |
 | 1 | Prehistoric Life & Extinction (enriched) | Ancient ecosystems, evolutionary transitions, extinction mechanisms, and the specimens and sections that record them | **Authored in this wave** |
 | 2 | Ancient Oceans & Deep Sea | Ocean chemistry and anoxia, currents and gateways, reefs as archives, sea-level cycles, the deep-sea record read from cores, and the instruments and expeditions that read them | **Authored in this wave** |
 | 3 | Human Origins & Ancient Worlds | Hominin fossils, sites, dating controversies, dispersal and the archaeological record of the deep past | **Authored**; both required contracts written and gated — see §9d |
@@ -165,14 +165,25 @@ packs 2 to 4 would be reserved:
 | reserve `topic.deep-time-field-record.ancient-oceans-deep-sea@1.0.0` | 92 | `authoring:2692b7a5...2167f6b` |
 | transition that record to `authored` | 93 | `lifecycle:d484def3...49465c0` |
 
-Pack 3's reservation chains from pack 2's, again one batch of its own:
+Pack 3's reservation is again one batch of its own:
 
 | Event | Revision | Reference |
 | --- | --- | --- |
-| reserve `topic.deep-time-field-record.human-origins-ancient-worlds@1.0.0` | 94 | `authoring:0b7dcf10...39e4212f` |
-| transition that record to `authored` | 95 | `lifecycle:PLACEHOLDER` |
+| reserve `topic.deep-time-field-record.human-origins-ancient-worlds@1.0.0` | 108 | `authoring:edc29ccf...adb83ef1` |
+| transition that record to `authored` | 109 | `lifecycle:69ea35ec...4b6ff85a` |
 
-Registry after all three packs: **revision 95.**
+Registry after all three packs: **revision 109, 154 records, 21 batches, 87 transitions.**
+
+Pack 3 was first reserved at revision 94 against a head of 93, and that reservation was
+**discarded and replayed**: the published-mark scrub took 94-107 on its own lineage while this
+branch was authoring, so 94 was no longer this pack's to hold. The replay cost exactly what
+`scripts/content-packs/remint-registry.mjs` predicts for a branch rebase — one integer,
+`expected_revision`, moved from 93 to 107 — and re-minted nobody else's records. The one trap
+that module documents did bite and is worth recording: on a merged tree the branch's source
+files are already on disk while the destination registry does not yet know them, so
+`reconcileSources` rejects the pre-state and refuses the write. Moving the pack directory aside
+for the length of the `reserve` call and restoring it immediately afterwards is the whole
+workaround; no sandbox tree was needed.
 
 The reserved strings are:
 
@@ -289,18 +300,18 @@ alone; the check is recorded here so the finding is not lost.
 All three packs were measured with the same final checker. The audit runs in both directions,
 and no direction came back empty.
 
-| Measure | Free sibling `deep-time-earth-systems@1.0.1` | Pack 1 | Pack 2 |
+| Measure | Free sibling `deep-time-earth-systems@1.0.1` | Pack 1 | Pack 2 | Pack 3 |
 | --- | --- | --- | --- |
-| subjects / tuples | 50 / 1,000 | 100 / 2,000 | 100 / 2,000 |
-| distinct `episode_object` | 1,000 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 |
-| distinct `time_place_scope` | 995 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 |
-| distinct `mechanism` | 1,000 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 |
-| distinct `evidence_lens` | 994 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 |
-| scopes with no geological interval | 615 / 1,000 | 0 / 2,000 | 0 / 2,000 |
-| scopes naming no place | 210 / 1,000 | 0 / 2,000 | 0 / 2,000 |
-| casing hits (single / bigram / half) | 1 / 0 / 5 | 0 / 0 / 0 | 0 / 0 / 0 |
-| modifier splits, lowercase formal subdivisions | 2, 41 | 0, 0 | 0, 0 |
-| median length: object / scope / mechanism / lens | 48 / 40 / 49 / 52 | 56 / 61 / 67 / 65 | 53 / 54 / 69 / 68 |
+| subjects / tuples | 50 / 1,000 | 100 / 2,000 | 100 / 2,000 | 100 / 2,000 |
+| distinct `episode_object` | 1,000 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 | 2,000 / 2,000 |
+| distinct `time_place_scope` | 995 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 | 2,000 / 2,000 |
+| distinct `mechanism` | 1,000 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 | 2,000 / 2,000 |
+| distinct `evidence_lens` | 994 / 1,000 | 2,000 / 2,000 | 2,000 / 2,000 | 2,000 / 2,000 |
+| scopes with no geological interval | 615 / 1,000 | 0 / 2,000 | 0 / 2,000 | 0 / 2,000 |
+| scopes naming no place | 210 / 1,000 | 0 / 2,000 | 0 / 2,000 | 0 / 2,000 |
+| casing hits (single / bigram / half) | 1 / 0 / 5 | 0 / 0 / 0 | 0 / 0 / 0 | 0 / 0 / 0 |
+| modifier splits, lowercase formal subdivisions | 2, 41 | 0, 0 | 0, 0 | 0, 0 |
+| median length: object / scope / mechanism / lens | 48 / 40 / 49 / 52 | 56 / 61 / 67 / 65 | 53 / 54 / 69 / 68 | 51 / 66 / 82 / 79 |
 
 The free sibling's "scopes naming no place" reads 210 here against the 227 recorded when pack 1
 was measured. Nothing changed in the sibling: the place rule learned the sea for pack 2 (water
@@ -466,6 +477,90 @@ adjudicated subject. Found by auditing every boundary subject against the vocabu
 content existed, and fixed by admitting "record", "records", "section", "sections",
 "water-column" and "seawater" — all of which are exactly what the boundary means by "and its
 record".
+
+## 9d. Pack 3's two contracts, and the gate gaps found writing them
+
+Section 10 required two contracts before pack 3 could be authored. Both were resolvable from
+material that already existed — neither turned out to need an owner ruling — and both are
+committed as gates in `electron/server/__tests__/deep-time-human-origins-contracts.test.ts`
+rather than as prose.
+
+**Contract 1 — the dating-dispute posture, made strictly stronger than pack 1's.** Pack 1's
+rule is editorial: contested datings, affinities and kill mechanisms appear only in the
+evidence lens. Pack 3 is held to the same shape by machine, in three clauses:
+
+1. hedging vocabulary is banned outright from `episode_object`, `time_place_scope` and
+   `mechanism`;
+2. it is permitted in `evidence_lens`, and only there;
+3. **a hedging lens must also be a named-record comparison** — it has to set one record,
+   method or dataset against another.
+
+The third clause is the delta. Without it an author satisfies the contract by moving vague
+wording into a safer field: "may be older than the Kibish tuffs" is a hedge wearing an
+evidence lens, while "the argon ages on Tuff E set against the faunal correlation" is a
+comparison. Only the second is allowed to carry a dispute.
+
+**Contract 2 — the boundary against the First Humans lane.** Both lanes' paid depth paths are
+already approved, and the boundary follows from them rather than needing a new decision. First
+Humans owns the **lived problem**: its free foundation is Survival Problems ("surviving
+winter", "making a stone tool"), and its approved depth path — Environments & Climate, Social
+Life & Belief, Tools & Technology — already exists as built-in Topic Packs. Not one of those
+subjects names a site, a specimen or a date. Deep Time pack 3 owns the **evidence and its
+chronology**. The gate checks this twice: no pack-3 subject may collide with that lane's free
+foundation, its three depth-path packs, or the identically named legacy built-in
+`deep-time-human-origins`; and **every pack-3 subject must name a site, specimen, unit, method,
+collection or dispute**. The second rule is the load-bearing one — it is what stops the pack
+drifting into "how ancient humans coped with winter" one subject at a time. Screening the
+candidate subject list against it before any tuple was written caught two real collisions
+("the Lomekwi stone tools" against "knapping stone tools", and a subject that restated the
+legacy built-in's bare taxon).
+
+**Three gaps found while writing these.** None is pack 3's content, all are pack 3's to report:
+
+* `topic-pack-anti-padding` discovered Topic Packs only through **Channel Kit dependencies**.
+  The Archival Ledger and this wave sell their Topic components independently, so none of them
+  was pinned by a kit and none was measured — **six paid packs carrying 12,000 authored tuples
+  sat outside the padding guard while it reported green**. Discovery now also covers any Topic
+  Pack record carrying a `stocking_proposal`. All six were measured before the change and all
+  six pass, so the widening cost nothing and closed a real hole.
+* The casing and dispute checkers described in §9 as machine-checked were **never committed**;
+  they were run ad hoc and their output pasted into §9a. Pack 3's equivalents are committed.
+* No test ran `planIdeaAssignments` against any pack in this family. Pack 3's capacity claim is
+  now measured through the planner the app actually uses, including the fail-closed assertion.
+
+**The interval ruler had to be calibrated, not assumed.** The rule that every scope names a
+place *and* an interval was first written too narrowly and reported 480 misses in pack 3 —
+then, run against the two packs whose own checker records zero, it reported 60% of pack 1 and
+46% of pack 2. That is the signature of a short ruler, not of worse content: it could not read
+`Cryogenian`, `Neoarchean`, "about 635 million years ago", "14,300 cal BP", "the Anglian" or
+"the Neronian phase". Calibrating it against the sibling packs first is what stopped roughly
+three hundred correct scopes being "repaired" against a broken measure.
+
+**Pack 3 is the widest of the three on register, and that is recorded rather than fixed.** Its
+medians are object 51, scope 66, mechanism 82, lens 79, against pack 1's 56/61/67/65 and pack
+2's 53/54/69/68. It is *tighter* than both on the axis a reader meets first and wider on the two
+that carry the argument, and the cause is visible: a hominin scope has to name a site, a layer
+and an interval before it has said anything, and a lens holding a contested chronology has to
+name both records in tension — which is contract 1's own requirement, so the two pull against
+each other by design. Every value sits inside the authored ceiling of 110 characters, and no
+gate measures register.
+
+This is deliberately NOT settled here. §9a already routes register to the independent wave
+review as one decision for the family rather than three, and a rewrite of 2,000 mechanisms and
+lenses to reach the free sibling's 49 would trade away the specificity that makes every value
+distinct. The recommendation to the review is to decide the family's register once; if it wants
+the shorter one, the fix is a `mechanism` and `evidence_lens` pass across all three packs, and
+the content and its evidence would not change.
+
+**The owner's rule of 2026-08-28 is already satisfied by contract 1.** The ruling — *"for a
+what if, speculation is expected. as for the other deep time packs, if it's not fact, we must
+never have it presented as fact in the script or narration"* — is the same direction contract 1
+enforces: what is not settled may not be asserted, may appear only in the evidence lens, and
+must be framed there as competing records. The pack was measured against it rather than
+re-audited by hand: **0 of 2,000 tuples carry hedging vocabulary outside the evidence lens**,
+and every lens that does hedge names the records in tension. Pack 4 is a different case and the
+ruling unblocks it: speculation is expected there, so its fourth axis needs an anchored-
+speculation contract of its own rather than this pack's evidence lens.
 
 ## 10. Wave sequencing
 

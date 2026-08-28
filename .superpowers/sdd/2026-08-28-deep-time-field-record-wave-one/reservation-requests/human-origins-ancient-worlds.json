@@ -1,5 +1,5 @@
 {
-  "expected_revision": 93,
+  "expected_revision": 107,
   "coordinator": {
     "task": "deep-time-field-record-wave-one",
     "branch": "content/deep-time-pack3-2026-08-28"
