@@ -502,15 +502,18 @@ their returned-evidence sets are complete and both previews were accepted.
 - `npx tsx --test electron/server/__tests__/channel-kit-idea-capacity.test.ts`
   — 2 passed, 0 failed.
 
-## Task 6a registry writes — BLOCKED by a pre-existing registry defect
+## Task 6a registry writes — RESOLVED, final revision `89`
 
 The writer slot was granted and this branch was rebased cleanly onto `main`
-(`8a7f69eb`, no conflicts). The three staged writes could not be executed,
-because `main` is carrying an authoring registry that fails its own validation.
+(`8a7f69eb`, no conflicts). The three staged writes were refused at first,
+because `main` was carrying an authoring registry that failed its own
+validation. The owner authorized the repair; it landed as its own commit, and
+then all three writes executed. The diagnosis below is kept deliberately — the
+guard test that now prevents a recurrence only makes sense beside it.
 
 ### The defect
 
-`node scripts/content-packs/authoring-registry.mjs validate` fails on `main`:
+`node scripts/content-packs/authoring-registry.mjs validate` failed on `main`:
 
 > `Authoring registry: batch 15 receipt does not match its persisted request metadata`
 
@@ -551,60 +554,81 @@ of that request. The merge rewrote `expected_revision` to `84` and `revision` to
 
 So the receipts are authentic and the *requests* were edited after the fact.
 
-### Why this was not repaired here
+### The repair, recorded rather than hidden
 
-Re-deriving the four refs is not a self-contained fix. A batch receipt is
-embedded inside any transition request that targets it, so repairing `b15`
-forces a rewrite of `t68`'s recorded request content, which in turn changes
-`t68`'s own ref. The repair therefore rewrites what the audit trail says another
-team's reservation was made against, across three packs owned by two other
-branches. That is a call for the coordinator, not for this task.
+The owner authorized the repair and took the fault: the landing brief ordered
+renumbering while "preserving everything else byte-for-byte", which is exactly
+backwards for a ref derived *from* the renumbered field.
 
-More importantly the root cause is the merge procedure, not the four hashes.
-Patching the hashes without changing how registry entries are merged means the
-next coordinated landing corrupts it again.
+It landed as one dedicated commit touching only the registry, whose message
+carries the full old → new table so the ledger contains its own correction. A
+ledger that documents its repair is honest; one that silently validates again is
+not. The pre-merge requests stay recoverable from git history at `a22fcd19` and
+`8fae08f0^`.
 
-Blast radius is small and was checked: none of the four refs is referenced
-anywhere outside `authoring-registry.json` — not in the repository, not in
-`_handoffs`.
+| entry | rev | subject | old → new |
+| --- | ---: | --- | --- |
+| `b15` | 85 | `metadata-formula.editorial@1.0.0` reservation | `authoring:e17e8774…` → `authoring:89c96dbf…` |
+| `t66` | 83 | `thumbnail.object-hero-question@1.0.0` → authored | `lifecycle:1bba87c5…` → `lifecycle:462f85d5…` |
+| `t67` | 84 | `thumbnail.route-map-one-promise@1.0.0` → authored | `lifecycle:3c4e1676…` → `lifecycle:09357082…` |
+| `t68` | 86 | `metadata-formula.editorial@1.0.0` → authored | `lifecycle:5230e5b3…` → `lifecycle:af76dc38…` |
 
-### This task's writes are proven correct against a repaired registry
+`b15 → t68` is the only cascade: a transition request embeds the receipt it
+targets, so repairing `b15`'s receipt also rewrote that field inside `t68`'s
+request, which is why `t68`'s ref moved for two reasons rather than one. One
+record bound to `b15` was re-bound.
 
-A scratch dry-run (temp copy of the registry, repo copy never touched, verified
-`0` diff afterwards) re-derived the four refs and then executed all three staged
-requests successfully:
+Exactly six lines changed and all six are ref values. No `pack_id`, `version`,
+`kind`, `source_path`, dependency, coordinator, `status`, or `revision` was
+touched — substantive content is byte-for-byte what the merges left. None of the
+four refs was referenced anywhere outside `authoring-registry.json`, in the
+repository or in `_handoffs`.
 
-| step | resulting revision |
+### The root cause is now gated
+
+`electron/server/__tests__/authoring-registry-integrity.test.ts` runs
+`validateAuthoringRegistry` over the committed registry.
+
+This is the gap that let two merges land a broken ledger through a fully green
+suite: `validateAuthoringRegistry` was only ever exercised from
+`scripts/content-packs/__tests__/`, and the backend gate collects
+`electron/server/__tests__/*.test.ts` and nothing else — so the one check that
+would have caught it was in no gate at all.
+
+Proven both ways. On the unrepaired registry, byte-identical to `origin/main`,
+it fails with `batch 15 receipt does not match its persisted request metadata`.
+After the repair and the three writes it passes. It validates the whole
+document, so any rule the validator gains later is enforced here for free.
+
+### The writes
+
+Executed exactly as the dry-run predicted, including the reserve receipt:
+
+| step | revision |
 | --- | ---: |
-| repaired registry validates | 86 (137 records) |
-| reserve Kit `1.0.1` | 87 |
+| reserve Kit `1.0.1` (`authoring:198cfa30…`) | 87 |
 | promote Thumbnail `1.0.1` to authored | 88 |
 | promote Style `1.0.1` to authored | 89 |
 
-Final state: Kit `1.0.1` reserved, Thumbnail `1.0.1` authored, Style `1.0.1`
-authored. **Expect final revision `89`** once the registry is repaired, assuming
-nothing else writes first.
-
-### One ordering constraint this task hit
+Final: **revision `89`, 138 records, 17 batches, 71 transitions.** Kit `1.0.1`
+reserved; Formula, Topic, Thumbnail and Style `1.0.1` all authored.
 
 `reconcileSources` rejects a pack source directory that exists on disk with no
 registry record, so the tooling expects reserve-then-author. The Kit source was
-necessarily authored first here, while the registry was read-only. The reserve
-call must therefore run with
+necessarily authored first here, while the registry was read-only, so the
+reserve ran with
 `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1`
-temporarily moved outside `content-packs/`, then restored. The dry-run does
-exactly this and restores it in a `finally` block.
+temporarily moved outside `content-packs/`, then restored and verified.
 
-### Deliberately not committed yet
+### Co-requisite capacity edits, now true
 
-The three co-requisite edits to `channel-kit-idea-capacity.test.ts` — raising
-`KIT_FLOORS` to `PROMISED_IDEAS`, deleting the `EXTRA_PIECES` entry, and dropping
-the stale blocked comment — are **not** in this branch. They only become true
-once Kit `1.0.1` is in the registry; landing them earlier turns the suite red,
-because the registry still resolves this lineage to the six-piece `1.0.0` at
-capacity `10`. They must land in the same change as the reservation.
+`channel-kit-idea-capacity.test.ts`: the `KIT_FLOORS` row for this kit moved from
+`10` to `PROMISED_IDEAS`, the `EXTRA_PIECES` allowance was deleted outright along
+with its last usage, and the stale blocked comment is gone. The four-piece
+assertion now compares against `KIT_PIECES` alone, with no per-lineage exemption
+anywhere in the file.
 
 ## Next task
 
-Repair the authoring registry on `main`, then execute the three staged writes
-plus the three co-requisite test edits together.
+Nothing in Task 6 is blocked. The registry is valid at revision `89` and the
+Deep Time wave can reserve directly on top of it.
