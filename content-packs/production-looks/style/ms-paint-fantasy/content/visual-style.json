@@ -2,7 +2,7 @@
   "kind": "visual-style",
   "schema_version": 1,
   "id": "com.storystudio.style.ms-paint-fantasy",
-  "name": "MS Paint Fantasy",
+  "name": "Retro Paint Fantasy",
   "description": "Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.",
   "category": "Digital",
   "tags": [
@@ -12,7 +12,7 @@
     "flat color",
     "old web"
   ],
-  "style_bible": "crude MS Paint fantasy art, retro internet animation aesthetic, medieval fantasy atmosphere, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive faces, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition",
+  "style_bible": "crude 90s paint-program fantasy art, retro internet animation aesthetic, medieval fantasy atmosphere, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive faces, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition",
   "negative_prompt": "photorealism, realistic anatomy, cinematic realism, ultra detailed rendering, 3D render, smooth skin, glossy realism, centered composition",
   "preview_assets": [
     "assets/ms-paint-fantasy.webp"

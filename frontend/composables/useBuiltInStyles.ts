@@ -41,14 +41,14 @@ export interface BuiltInStyle {
 export const BUILT_IN_STYLES: BuiltInStyle[] = [
   {
     id: 'builtin-ms-paint-fantasy',
-    name: 'MS Paint Fantasy',
+    name: 'Retro Paint Fantasy',
     builtin: true,
     blurb: 'Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.',
     category: 'Digital',
     tags: ['retro', 'fantasy', 'rough', 'flat color', 'old web'],
     data: {
       style_bible:
-        'crude MS Paint fantasy art, retro internet animation aesthetic, medieval fantasy atmosphere, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive faces, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition',
+        'crude 90s paint-program fantasy art, retro internet animation aesthetic, medieval fantasy atmosphere, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive faces, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition',
       negative_prompt:
         'photorealism, realistic anatomy, cinematic realism, ultra detailed rendering, 3D render, smooth skin, glossy realism, centered composition',
     },
@@ -224,12 +224,12 @@ export const BUILT_IN_STYLES: BuiltInStyle[] = [
     id: 'builtin-hand-drawn-cartoon-explainer',
     name: 'Hand-Drawn Cartoon Explainer',
     builtin: true,
-    blurb: 'Casual YouTube explainer cartoons with rounded mascots, slightly imperfect ink lines, flat muted colors, and familiar everyday props.',
+    blurb: 'Casual explainer-video cartoons with rounded mascots, slightly imperfect ink lines, flat muted colors, and familiar everyday props.',
     category: 'Explainer',
-    tags: ['hand drawn', 'cartoon', 'mascot', 'educational', 'flat color', 'youtube'],
+    tags: ['hand drawn', 'cartoon', 'mascot', 'educational', 'flat color', 'online video'],
     data: {
       style_bible:
-        'simple hand-drawn 2D cartoon explainer, casual educational YouTube animation aesthetic, clean but slightly uneven thick black outlines, flat solid color fills, muted friendly palette of medium blue, teal, sage green, warm yellow, tan, cream, and grey, round-headed simplified characters with oversized outlined circular eyes, dot pupils, bold eyebrows, and small expressive mouths, black line limbs, rounded plain colored torsos, recognizable everyday props, playful anthropomorphic objects and visual metaphors, simple white or pale cream backgrounds, lightly detailed interiors, one clear visual idea or action per frame, readable medium-wide composition, generous breathing room, minimal shading, soft flat visual treatment, slightly wobbly human-drawn contours rather than geometric vector perfection',
+        'simple hand-drawn 2D cartoon explainer, casual educational online-video animation aesthetic, clean but slightly uneven thick black outlines, flat solid color fills, muted friendly palette of medium blue, teal, sage green, warm yellow, tan, cream, and grey, round-headed simplified characters with oversized outlined circular eyes, dot pupils, bold eyebrows, and small expressive mouths, black line limbs, rounded plain colored torsos, recognizable everyday props, playful anthropomorphic objects and visual metaphors, simple white or pale cream backgrounds, lightly detailed interiors, one clear visual idea or action per frame, readable medium-wide composition, generous breathing room, minimal shading, soft flat visual treatment, slightly wobbly human-drawn contours rather than geometric vector perfection',
       negative_prompt:
         'photorealism, 3D render, anime, painterly brushwork, glossy polished vector art, perfectly geometric shapes, cinematic lighting, gradients, complex textures, realistic skin, dense clutter, dramatic depth of field, tiny details, illegible writing, random letters, captions, speech bubbles, watermark',
     },

@@ -325,7 +325,7 @@ export async function setImageFanout(value: unknown): Promise<ImageFanoutSetting
   const n = Math.floor(Number(value))
   if (!Number.isFinite(n) || n < 1 || n > 500) {
     throw Object.assign(
-      new Error('Images per episode at once must be "auto", or a whole number between 1 and 500.'),
+      new Error('Cloud requests per episode at once must be "auto", or a whole number between 1 and 500.'),
       { statusCode: 400, expose: true },
     )
   }

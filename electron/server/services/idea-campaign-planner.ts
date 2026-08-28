@@ -243,7 +243,28 @@ export function planIdeaAssignments(options: {
     ]
   }
 
-  const targetPoolSize = Math.max(options.count * 4, options.count + 40)
+  // The pool must be able to see PAST the history, not just past the request.
+  //
+  // A reserved idea still costs a pool slot. It enumerates as a distinct
+  // fingerprint — the same structure carrying a different non-structural axis
+  // value — so it is only rejected later, by the structural filter. Sizing the
+  // pool from `count` alone therefore let the enumeration run out inside a
+  // round the history had already consumed, and the planner concluded the pack
+  // was exhausted with thousands of tuples untouched.
+  //
+  // Measured on money-debt (100 subjects x 20 tuples, 500 reserved): count 1
+  // gave a pool of 41 against 100 subject rows, so the walk stopped partway
+  // through round 0 — every candidate a burned structure — and threw. The
+  // shape was perverse enough to be worth naming: asking for ONE idea failed
+  // while asking for sixty succeeded, because only the larger pool looked far
+  // enough ahead.
+  //
+  // Within the first T rounds the walk visits every (subject, tuple) exactly
+  // once, so at most `used.size` slots can be spent on burned structures.
+  // `used.size + count` is therefore the smallest budget that guarantees
+  // `count` fresh candidates are SEEN whenever they exist. `maxRounds` below
+  // already scales with `used.size`; this makes the pool agree with it.
+  const targetPoolSize = Math.max(options.count * 4, options.count + 40, used.size + options.count)
   const candidates: IdeaAssignment[] = []
   const seen = new Set<string>()
   const primaryRank = new Map<string, number>()
@@ -341,6 +362,27 @@ export function planIdeaAssignments(options: {
 
   const siblingCounts = new Map<string, number>()
   const siblingStructures = new Map<string, Array<{ episodeObject: string, mechanism: string }>>()
+  /**
+   * `usedStructuralPairs` rescans the WHOLE reserved set, and the filter below
+   * memoises its result only when a candidate is accepted. At exhaustion
+   * nothing is accepted, so it rescanned once per candidate — O(pool x used).
+   *
+   * That was survivable only because the pool was too small to matter. Sizing
+   * the pool correctly above turns it into a real regression: money-debt at
+   * exhaustion went 1.3s -> 22.0s. Memoising per subject makes the scan happen
+   * once per subject instead of once per candidate (1.2s), and it is exactly
+   * equivalent — the function is pure in `used`, which never changes here.
+   */
+  const usedStructuresBySubject = new Map<string, Array<{ episodeObject: string, mechanism: string }>>()
+  const priorUsedStructures = (subject: SubjectRow): Array<{ episodeObject: string, mechanism: string }> => {
+    const memoKey = `${subject.packId || ''}|${slug(subject.value)}`
+    let cached = usedStructuresBySubject.get(memoKey)
+    if (cached === undefined) {
+      cached = usedStructuralPairs(used, niche.id, subject)
+      usedStructuresBySubject.set(memoKey, cached)
+    }
+    return cached
+  }
   const genericSiblingCounts = new Map<string, number>()
   const genericMaterialValues = new Map<string, Map<string, Set<string>>>()
   for (const fingerprint of used) {
@@ -400,7 +442,7 @@ export function planIdeaAssignments(options: {
       }
       const key = `${candidate.topic_pack_id}|${candidate.dimensions.subject}`
       const priorStructures = subject && episodeObject && mechanism
-        ? siblingStructures.get(key) || usedStructuralPairs(used, niche.id, subject)
+        ? siblingStructures.get(key) || priorUsedStructures(subject)
         : []
       if (episodeObject && mechanism && priorStructures.some(prior =>
         prior.episodeObject === slug(episodeObject) || prior.mechanism === slug(mechanism))) return false

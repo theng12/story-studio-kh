@@ -42,7 +42,30 @@ before(async () => {
   await setApiKey('genstudio', '')
 })
 
-after(async () => { await cleanup() })
+/**
+ * Tear down without pulling the claim out from under work still in flight.
+ *
+ * The cancellation lane finishes its bookkeeping AFTER the request that
+ * started it returns — deliberately, so a slow project cannot freeze the UI.
+ * `useTempDataDir().cleanup` unsets STORY_STUDIO_DATA_DIR, so a persist that
+ * lands a moment later fails the job-queue isolation guard, arrives as an
+ * unhandled rejection, and fails the whole FILE. Nine to eleven per run.
+ *
+ * None of that is a production bug, and none of it was visible while the
+ * harness passed `--test-force-exit`: the process was killed before those
+ * writes could land. Removing that flag — it was silently truncating results
+ * — made an existing hygiene defect visible, which is the point of removing it.
+ *
+ * So: let the lane settle, then delete the directory but KEEP the claim for
+ * the moments of process life that remain. Each test file runs in its own
+ * child process, so the claim cannot leak anywhere, and a straggling write is
+ * judged against the directory it was always writing to. `cleanup` is
+ * deliberately not called: unsetting the claim is the only part that hurts.
+ */
+after(async () => {
+  for (let i = 0; i < 25; i++) await new Promise(resolve => setTimeout(resolve, 20))
+  await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {})
+})
 
 async function waitForTerminal(jobId: string): Promise<void> {
   const deadline = Date.now() + 2_000

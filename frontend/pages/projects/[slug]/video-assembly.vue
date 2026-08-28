@@ -286,8 +286,8 @@
         <div v-if="!step1Valid" class="validation-msg mt-2">
           <span v-if="!scannedAssets.scenes?.length">* At least 1 approved Scene Plan image is required</span>
           <span v-if="!hasMergedAudio">* Merged audio file is required (run Audio Assembly first)</span>
-          <span v-if="!unifiedTimingReady">
-            * Scene Plan timing, images, and approvals must all be complete before rendering
+          <span v-for="(problem, i) in unifiedTimingProblems" :key="i" class="validation-line">
+            * {{ problem }}
           </span>
         </div>
       </div>
@@ -2816,6 +2816,60 @@ const missingPlannedSceneSummary = computed(() => {
 })
 const unifiedTimingReady = computed(() => scannedAssets.value?.scene_plan_timing?.complete === true)
 const isPlanStrict = computed(() => !!scannedAssets.value?.scene_plan_timing)
+
+/**
+ * Say WHICH part of the timing check failed, in the episode's own numbers.
+ *
+ * The old copy named "timing, images, and approvals" together, so an episode
+ * with 310/310 approved images and one uncovered range read as an image
+ * problem and sent the owner back to a Scene Review page that was already
+ * green. Each deficit below is measured independently and only reported when
+ * it is actually the one blocking the render.
+ */
+function fmtGap(sec: number): string {
+  const total = Math.round(sec)
+  if (total < 60) return `${total}s`
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return s ? `${m}m ${s}s` : `${m}m`
+}
+const unifiedTimingProblems = computed<string[]>(() => {
+  const t = scannedAssets.value?.scene_plan_timing
+  if (!t || t.complete === true) return []
+  const out: string[] = []
+  const cov = scannedAssets.value?.scene_plan_coverage
+  if (cov && cov.total > 0 && cov.ready !== cov.total) {
+    const bits: string[] = []
+    if (cov.missing) bits.push(`${cov.missing} missing image(s)`)
+    if (cov.unapproved) bits.push(`${cov.unapproved} not approved`)
+    if (cov.stale) bits.push(`${cov.stale} stale`)
+    out.push(`${cov.ready}/${cov.total} scenes are render-ready — ${bits.join(', ')}.`)
+  }
+  if (t.head_gap_sec > 0) {
+    out.push(
+      `The first ${fmtGap(t.head_gap_sec)} of narration has no scene — Scene Plan starts its first scene at `
+      + `${fmtGap(t.head_gap_sec)}. Fix it on the Scene Plan page ("Cover the opening"), or add an opening clip `
+      + `that long in Step 2.`,
+    )
+  }
+  if (t.gap_count > 0) {
+    out.push(`${t.gap_count} gap(s) between scenes have no image. Fix them on the Scene Plan page ("Repair coverage").`)
+  }
+  if (t.tail_gap_sec > 0) {
+    out.push(
+      `The last ${fmtGap(t.tail_gap_sec)} of narration has no scene. Fix it on the Scene Plan page `
+      + `("Repair coverage").`,
+    )
+  }
+  if (t.overlap_count > 0) {
+    out.push(`${t.overlap_count} scene(s) overlap each other (${t.overlap_sec.toFixed(1)}s). Rebuild the Scene Plan timeline.`)
+  }
+  // Never leave the gate silent about itself: if `complete` is false for a
+  // reason none of the measurements above explain, say that plainly rather
+  // than showing an empty list next to a disabled button.
+  if (!out.length) out.push('Scene Plan timing is incomplete — open the Scene Plan page to see what it reports.')
+  return out
+})
 
 // --------------- Step 2: Branding ---------------
 const logo = reactive({
@@ -6036,6 +6090,9 @@ onUnmounted(() => {
 
 /* Validation */
 .validation-msg { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--error); }
+/* Each deficit is a full sentence naming what to do, so it wraps rather than
+   truncating the instruction half. */
+.validation-line { line-height: 1.45; }
 
 /* Settings section */
 .settings-section { padding: 16px; background: var(--bg-tertiary); border-radius: var(--radius-md); border: 1px solid var(--border); }

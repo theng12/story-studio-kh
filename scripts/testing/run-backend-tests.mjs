@@ -15,6 +15,9 @@ const PROBE_PATH = path.join(ROOT, 'scripts', 'release', 'fixtures', 'hermetic-b
 // the request is answered by the neighbour instead of the app under test.
 // See scripts/testing/loopback-supertest.mjs for the full story.
 const LOOPBACK_PRELOAD = path.join(ROOT, 'scripts', 'testing', 'loopback-supertest.mjs')
+// Records which FILES finished, so the run can be reconciled against the files
+// it discovered rather than against its own summary. See `assertEverySuiteCompleted`.
+const COVERAGE_REPORTER = path.join(ROOT, 'scripts', 'testing', 'suite-coverage-reporter.mjs')
 
 async function writeJson(filePath, value) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
@@ -163,7 +166,14 @@ async function run() {
     const require = createRequire(import.meta.url)
     const tsxCli = require.resolve('tsx/cli')
     const onlyNeedles = parseOnly(process.argv)
-    const allTests = process.argv.includes('--probe') ? [PROBE_PATH] : await backendTestFiles()
+    // Real paths on both sides: Node's reporter names files by their resolved
+    // path, and on macOS a discovered path can differ only by a symlink
+    // (/var -> /private/var). Comparing the two unresolved would report every
+    // file as missing — a coverage floor that cries wolf gets switched off.
+    const allTests = await Promise.all(
+      (process.argv.includes('--probe') ? [PROBE_PATH] : await backendTestFiles())
+        .map(file => fs.realpath(file)),
+    )
     const tests = selectOnly(allTests, onlyNeedles)
     // Zero matched files is NOT a pass. It is the most convincing green light
     // in the world and it means nothing ran, so it fails here, before the
@@ -195,11 +205,19 @@ async function run() {
     delete childEnv.STORY_STUDIO_DATA_DIR
     delete childEnv.NODE_TEST_CONTEXT
 
+    const coveragePath = path.join(sandbox, 'suite-coverage.jsonl')
     const child = spawn(process.execPath, [
       tsxCli,
       '--test',
       '--test-concurrency=1',
-      '--test-force-exit',
+      // NO `--test-force-exit`. See `startSuiteWatchdog` for what it was doing.
+      // `spec` is already Node's default on this runtime; naming it explicitly
+      // only makes room for the second reporter, and keeps the human output
+      // identical if that default ever moves.
+      '--test-reporter=spec',
+      '--test-reporter-destination=stdout',
+      `--test-reporter=${COVERAGE_REPORTER}`,
+      `--test-reporter-destination=${coveragePath}`,
       ...tests,
     ], {
       cwd: ELECTRON_ROOT,
@@ -214,14 +232,29 @@ async function run() {
       stream.setEncoding('utf8')
       stream.on('data', chunk => { transcript += chunk; sink.write(chunk) })
     }
+    const watchdog = startSuiteWatchdog(child)
     let exitCode = await new Promise((resolve, reject) => {
       child.once('error', reject)
       child.once('close', code => resolve(code ?? 1))
-    })
+    }).finally(() => clearTimeout(watchdog))
 
     const summary = assertSummaryAgrees(transcript, exitCode)
     if (summary) {
       console.error(`[test-harness] ${summary}`)
+      exitCode = 1
+    }
+
+    // The coverage floor. Checked even when the summary looked clean — a
+    // vanished file is INVISIBLE to the summary, which is the whole point.
+    const coverage = assertEverySuiteCompleted(tests, await readCoverageRecords(coveragePath))
+    console.log(`[test-harness] suite coverage: ${coverage.completed}/${coverage.discovered} file(s) completed`
+      + `, ${coverage.tests} test(s) + ${coverage.suites} suite(s) = ${coverage.tests + coverage.suites} marks`)
+    if (coverage.message) {
+      console.error('[test-harness] ============== SUITE COVERAGE BELOW FLOOR ==============')
+      console.error(`[test-harness] ${coverage.message}`)
+      for (const name of coverage.missing) console.error(`[test-harness]   ✗ ${path.basename(name)}`)
+      console.error('[test-harness] A file that never finished cannot have passed. Treating this run as a failure.')
+      console.error('[test-harness] ========================================================')
       exitCode = 1
     }
 
@@ -301,8 +334,112 @@ export function assertSummaryAgrees(transcript, exitCode) {
   return null
 }
 
-// Importing this module (a test reaching for `assertSummaryAgrees` or
-// `selectOnly`) must NOT launch the backend suite as a side effect.
+/**
+ * Kill a suite that will not finish — LOUDLY. This replaces `--test-force-exit`.
+ *
+ * WHAT THAT FLAG WAS ACTUALLY DOING. It is inherited by every child test
+ * process (Node runs each file in its own child, reporting results back over a
+ * stdout PIPE). On macOS a pipe write is asynchronous, so a child that calls
+ * `process.exit()` while its results are still queued DISCARDS the rest of
+ * them. The parent never receives those tests, so they are not failed and not
+ * cancelled — they never existed. The summary shrinks and still adds up.
+ *
+ * Measured here, 3,600 tests across 20 files, ten CPU burners for load:
+ *
+ *   with    --test-force-exit : 3538 / 3427 / 3485 tests, fail 0, exit 0
+ *   without --test-force-exit : 3600 / 3600 / 3600 tests, fail 0, exit 0
+ *
+ * Three runs each, and the losses land on the TAIL of a file — which is the
+ * "six of nine describes" that `subtitle-engine.test.ts` was blamed for. That
+ * file is innocent: it has no timers, no async, no temp files, and runs in
+ * 1.4s. It was simply one of the largest reporter payloads in the suite, so it
+ * was among the likeliest to have its tail dropped. This also explains the
+ * totals drifting between runs (3410 / 3424 / 3379).
+ *
+ * The flag was never added in response to an incident — it is in the harness's
+ * first commit. It bought no speed either: 50 handle-heavy files finished in
+ * 537s without it, and had not finished at 600s with it.
+ *
+ * A hang must therefore be handled by killing the run out loud instead. A
+ * killed child prints no summary, and `assertSummaryAgrees` already fails a
+ * run that produced no summary. The limit is env-overridable rather than a
+ * constant: a number a future reader would want different is data, not code.
+ */
+function startSuiteWatchdog(child) {
+  const limitMs = Number(process.env.STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS ?? 90 * 60_000)
+  if (!Number.isFinite(limitMs) || limitMs <= 0) return undefined
+  return setTimeout(() => {
+    console.error(`[test-harness] the backend suite ran past ${limitMs}ms and was killed. `
+      + 'A run that does not finish is a failure, never a pass.')
+    child.kill('SIGKILL')
+  }, limitMs)
+}
+
+/** Read the per-file records the coverage reporter wrote. Missing file = no evidence. */
+async function readCoverageRecords(coveragePath) {
+  let raw
+  try {
+    raw = await fs.readFile(coveragePath, 'utf8')
+  } catch {
+    return null
+  }
+  return raw.split('\n').filter(Boolean).flatMap(line => {
+    try { return [JSON.parse(line)] } catch { return [] }
+  })
+}
+
+/**
+ * The coverage floor — every file DISCOVERED must have finished.
+ *
+ * WHY THE SUMMARY IS NOT ENOUGH. `assertSummaryAgrees` reconciles the summary
+ * against itself and against the exit code. Both agree perfectly when a file
+ * dies mid-run, because a file that stops producing output stops contributing
+ * to every total the summary is made of. Reduced to its smallest form:
+ *
+ *     f1..f12  (24 tests)          ->  all fine
+ *     b        (process.exit(0))   ->  reported `test:pass`, zero tests counted
+ *     result: exit 0, fail 0, skipped 0, success true — one file simply gone
+ *
+ * Measured on this runtime, five runs out of five. That is the shape of the
+ * run that dropped three suites this week and of the `subtitle-engine` file
+ * that reported six of its nine describes.
+ *
+ * WHAT IT CHECKS INSTEAD. Node emits a file-scoped `test:summary` only for a
+ * file that ran to completion; the dying file above emits none. So the floor is
+ * the discovery list itself: every file handed to the runner must come back
+ * with its own summary. There is deliberately NO expected-total constant —
+ * adding a test file raises the floor by itself, and nothing has to be bumped.
+ *
+ * Returns `{ message, missing, discovered, completed, tests, suites }`, with
+ * `message` null when coverage is sound.
+ */
+export function assertEverySuiteCompleted(discoveredFiles, records) {
+  const discovered = discoveredFiles.length
+  if (records === null) {
+    return {
+      message: 'the run produced no suite-coverage record at all, so there is no evidence '
+        + `any of the ${discovered} discovered file(s) finished.`,
+      missing: discoveredFiles, discovered, completed: 0, tests: 0, suites: 0,
+    }
+  }
+  const finished = new Set(records.map(record => path.resolve(record.file)))
+  const missing = discoveredFiles.filter(file => !finished.has(path.resolve(file)))
+  const tests = records.reduce((total, record) => total + (record.tests ?? 0), 0)
+  const suites = records.reduce((total, record) => total + (record.suites ?? 0), 0)
+  const result = {
+    message: null, missing, discovered, completed: finished.size, tests, suites,
+  }
+  if (missing.length > 0) {
+    result.message = `${missing.length} of ${discovered} discovered test file(s) never reported a `
+      + 'completed suite, so the run covered less than it discovered. Each either ended early or '
+      + 'defines no tests at all — both mean the file verified nothing:'
+  }
+  return result
+}
+
+// Importing this module (a test reaching for `assertSummaryAgrees`,
+// `assertEverySuiteCompleted` or `selectOnly`) must NOT launch the backend
+// suite as a side effect.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await run()
 }

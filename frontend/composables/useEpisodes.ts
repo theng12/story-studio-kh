@@ -49,7 +49,6 @@ export interface EpisodeRow {
   idea_dimensions?: Record<string, string>
   episode_profile?: string
   scene_images: { total: number; present: number; complete: boolean }
-  episode_dir?: string
   // Provenance + per-episode override surface (added in mark-done overhaul).
   // batch_id === 'imported' identifies YouTube imports (Situation A); the UI
   // uses it for the Source filter + bulk-by-source action. marked_done lets

@@ -21,11 +21,12 @@ import {
   resolveEpisodePaths,
   resolveEpisodePathsByCodeWithSidecar,
   resolveSubfolderNames,
+  projectConfigOnce,
   type ProjectFactsCache,
   resolveScenePlanPath,
 } from './utils.js'
 import type { EpisodePaths } from './utils.js'
-import { resolveReadPath } from '../lib/episode-artifacts.js'
+import { resolveReadPath, resolveArtifact, matchChapterFile, introMarkerPath } from '../lib/episode-artifacts.js'
 import { resolveEpisodeSubfolderDir } from './media-root.js'
 import { resolveResearchPaths } from '../lib/research-paths.js'
 import {
@@ -41,7 +42,6 @@ import {
 } from '../generators/images.js'
 import { resolveSceneImagesDir, SCENE_IMAGES_SUBFOLDER } from '../generators/scene-image.js'
 import { resolveVideoAssetsDir } from '../generators/scene-clip.js'
-import { DEFAULT_SUBFOLDER_NAMES } from '../models/types.js'
 import { getAudioStatus } from './audio-reconciler.js'
 import { inspectChunkedScriptCompletion } from '../lib/chunked-narration.js'
 import { inspectScenePromptIntegrity } from './scene-prompt-integrity.js'
@@ -190,6 +190,76 @@ async function hasValidIntroduction(dir: string, files: string[]): Promise<boole
   return false
 }
 
+/**
+ * Recover an introduction that exists ONLY inside the unified narration.
+ *
+ * THE DAMAGE THIS PREVENTS. `isIntroductionMarker` answers from filenames
+ * alone and never opens the narration — so an introduction living only in the
+ * narration reads as ABSENT. `isStepAlreadyDone` then lets the batch run
+ * `introduction-only`, which writes a freshly generated introduction straight
+ * over the real one (generators/episode.ts). Credits spent, and the original
+ * gone: there is no versioning on that path and no backup. Measured on a
+ * 302-episode fixture where every episode genuinely had one: 0 of 302 detected.
+ *
+ * WHY THIS DOES NOT PUT A PARSE ON THE STATUS PATH. Only ONE population can be
+ * in that state — episodes written before the per-chapter refactor, whose
+ * narration was never split. Every writer since emits `{code}_Introduction.md`,
+ * and `assembleUnifiedNarration` only puts an Introduction section into the
+ * unified file when that source file exists. So the gate is "no chapter source
+ * files", a test over a list already in memory: no syscall, and for a modern
+ * episode the narration is never opened.
+ *
+ * When it does fire it reads once and writes the sidecar the intro generator
+ * would have written, so detection is O(1) filename matching from then on.
+ * It never runs twice for the same episode. (The sidecar write bumps the
+ * folder mtime, so that episode recomputes once more — once, ever.)
+ *
+ * `splitNarrationIntoChapters`, never `parseNarrationDocx`: the latter labels
+ * ANY leading level-1 heading "Introduction", including `# Title — Narration`.
+ * That would report a phantom introduction and SKIP a generation the owner
+ * actually wanted, which is the worse failure of the two.
+ */
+async function backfillLegacyIntroMarker(
+  scriptDir: string, code: string, files: string[],
+): Promise<boolean> {
+  if (files.some(name => matchChapterFile(name, code) !== null)) return false
+  const narration = resolveArtifact(scriptDir, `${code}_Script_Narration`)
+  if (!narration) return false
+  try {
+    const { narrationDocxToMarkdown } = await import('../lib/docx-parser.js')
+    const { splitNarrationIntoChapters } = await import('../lib/narration-assembly.js')
+    const intro = splitNarrationIntoChapters(await narrationDocxToMarkdown(narration)).intro
+    const wordCount = intro ? intro.text.trim().split(/\s+/).filter(Boolean).length : 0
+    if (wordCount === 0) return false
+    await fs.writeFile(introMarkerPath(narration), JSON.stringify({
+      generated_at: new Date().toISOString(),
+      word_count: wordCount,
+      recovered_from: 'unified narration',
+    }, null, 2))
+    return true
+  } catch {
+    // A narration we cannot read is not evidence of an introduction. Report
+    // absent, exactly as before this existed.
+    return false
+  }
+}
+
+/**
+ * Does this script folder have an introduction? The single answer, used by
+ * both the normal path and the legacy fuzzy scan.
+ *
+ * A marker settles it outright. Only when there is NO marker is the narration
+ * considered at all, and only then for the one population that can hide an
+ * introduction inside it — see `backfillLegacyIntroMarker`.
+ */
+export async function computeScriptFolderIntroduction(
+  dir: string, code: string, files: string[],
+): Promise<boolean> {
+  return deriveScriptFolderState(files).introduction
+    ? await hasValidIntroduction(dir, files)
+    : await backfillLegacyIntroMarker(dir, code, files)
+}
+
 async function fileHasContent(p: string): Promise<boolean> {
   try {
     if (!existsSync(p)) return false
@@ -198,8 +268,70 @@ async function fileHasContent(p: string): Promise<boolean> {
   } catch { return false }
 }
 
-async function findEpisodeDir(projectDir: string, code: string): Promise<string | null> {
+/**
+ * Every directory under `projectDir`, in the order `search()` below visits
+ * them: all children of a directory first, then a depth-first descent through
+ * those children in the same order. Reproducing that order exactly is what
+ * lets an index lookup return the identical folder the walk would have.
+ */
+async function buildEpisodeDirOrder(projectDir: string): Promise<Array<{ upper: string; path: string }>> {
+  const out: Array<{ upper: string; path: string }> = []
+  async function walk(dir: string, depth: number): Promise<void> {
+    if (depth > 4) return
+    let entries
+    try { entries = await fs.readdir(dir, { withFileTypes: true }) } catch { return }
+    const subs: string[] = []
+    for (const e of entries) {
+      if (!e.isDirectory()) continue
+      const full = path.join(dir, e.name)
+      out.push({ upper: stripDecorativePrefix(e.name).toUpperCase(), path: full })
+      subs.push(full)
+    }
+    for (const s of subs) await walk(s, depth + 1)
+  }
+  await walk(projectDir, 0)
+  return out
+}
+
+/**
+ * Resolve an episode's folder by code.
+ *
+ * v1.4.76 — when the caller supplies its request-scoped project facts, the
+ * project tree is walked ONCE for the whole request and every subsequent
+ * lookup is an in-memory scan. This used to recurse the entire episodes tree
+ * on every call, and a cold 302-episode `/episodes` calls it several times per
+ * episode: measured at ~832,000 `readdir` calls, over half of the endpoint's
+ * total filesystem traffic, all of it re-deriving the same directory layout.
+ *
+ * Without a cache the behaviour is byte-for-byte the original walk, so every
+ * caller that has no request scope (single-episode routes, generators) is
+ * unaffected.
+ */
+async function findEpisodeDir(
+  projectDir: string,
+  code: string,
+  cache?: ProjectFactsCache,
+): Promise<string | null> {
   const CODE = code.toUpperCase()
+
+  if (cache) {
+    // Keyed by root as well as slug: a project whose media_root moves mid-cache
+    // must not be answered from the previous root's index.
+    if (!cache.episodeDirs || cache.episodeDirs.root !== projectDir) {
+      cache.episodeDirs = { root: projectDir, index: buildEpisodeDirOrder(projectDir) }
+    }
+    try {
+      for (const entry of await cache.episodeDirs.index) {
+        if (entry.upper.startsWith(CODE)) return entry.path
+      }
+      return null
+    } catch {
+      // A failed walk must not be remembered as "no such episode" for the rest
+      // of the request — drop it and fall through to the direct search.
+      cache.episodeDirs = undefined
+    }
+  }
+
   async function search(dir: string, depth: number): Promise<string | null> {
     if (depth > 4) return null
     try {
@@ -420,29 +552,33 @@ export interface AudioMergeStatus {
  * We consider "any version" as present — users generate v2+ when doing
  * revisions, and the latest one is the one that matters.
  */
-export async function getAudioMergeStatus(slug: string, episodeId: string): Promise<AudioMergeStatus> {
+export async function getAudioMergeStatus(
+  slug: string,
+  episodeId: string,
+  // v1.4.76 — the caller's request-scoped project facts, so a list response
+  // reads project.json once rather than once per episode. See below.
+  cache?: ProjectFactsCache,
+): Promise<AudioMergeStatus> {
   const code = episodeId.toUpperCase()
   const outputRoot = await pm.getProjectOutputRoot(slug)
   if (!outputRoot) return { present: false }
 
-  const epDir = await findEpisodeDir(outputRoot, code)
+  const epDir = await findEpisodeDir(outputRoot, code, cache)
   if (!epDir) return { present: false }
 
   // Resolve merged_audio subfolder name from project config (same logic
   // as audio-merge generator's resolveMergedAudioName).
-  let subfolder: string
-  try {
-    const metaRaw = await fs.readFile(
-      // Linked-aware: read project.json from the actual project dir,
-      // not the default-location guess.
-      path.join(pm.getProjectDir(slug) || path.join(pm.projectsRoot(), slug), 'project.json'), 'utf-8',
-    )
-    const meta = JSON.parse(metaRaw)
-    const tmpl = meta.subfolder_names?.merged_audio || DEFAULT_SUBFOLDER_NAMES.merged_audio
-    subfolder = tmpl.replace('{code}', code)
-  } catch {
-    subfolder = DEFAULT_SUBFOLDER_NAMES.merged_audio.replace('{code}', code)
-  }
+  //
+  // v1.4.76 — this used to open, read and JSON.parse project.json itself,
+  // bypassing the request-scoped facts cache every other resolver in this file
+  // already goes through. On a 302-episode list that was 302 extra reads and
+  // parses of a file that cannot change while one response is being built.
+  // `resolveSubfolderNames` applies the identical rule (project override, else
+  // the default template, then `{code}` substitution), resolves the project
+  // directory the same linked-aware way, and falls back to the defaults on an
+  // unreadable file exactly as the hand-rolled version did — so this is the
+  // same answer, reached through the shared cached path.
+  const subfolder = (await resolveSubfolderNames(slug, code, cache)).merged_audio
 
   // Scan with/without decorative prefixes (✅, ✔️, etc.) for flexibility.
   const entries = await safeReaddir(epDir)
@@ -890,7 +1026,14 @@ export async function computeEpisodeStatus(
   const outputRoot = await getProjectOutputRoot(slug)
   if (!outputRoot) return emptyStatus()
 
-  const projectConfig = await pm.getConfig(slug)
+  // v1.4.76 — read config.json through the request-scoped facts cache. It is
+  // only ever consulted here for two optional feature flags, but `getConfig`
+  // re-parses config.json and rebuilds the image/audio/video model catalogues
+  // on every call. Per episode, that was the largest block of synchronous CPU
+  // in a cold 302-episode list — the work that stalls the event loop and makes
+  // the whole API unresponsive while the list is being built. With no cache
+  // passed it still calls getConfig exactly as before.
+  const projectConfig = await projectConfigOnce(slug, cache)
   const cueConfig = normalizeContextualCueConfig(projectConfig?.contextual_cues)
   const soundConfig = normalizeSoundDesignConfig(projectConfig?.sound_design)
 
@@ -945,8 +1088,10 @@ export async function computeEpisodeStatus(
     const scriptCompletion = await inspectChunkedScriptCompletion(paths.script_dir, code)
     const thumbPromptCompletion = await inspectPromptCompletion(paths.thumb_prompts_dir, code, 'thumbnail')
     status.script = scriptCompletion.complete
-    status.introduction = scriptState.introduction
-      && await hasValidIntroduction(paths.script_dir, scriptFiles)
+    // No marker is not the same as no introduction — see
+    // `backfillLegacyIntroMarker`, which is what stops the batch regenerating
+    // over an introduction that lives only inside the unified narration.
+    status.introduction = await computeScriptFolderIntroduction(paths.script_dir, code, scriptFiles)
     status.thumb_prompts = thumbPromptCompletion.authoritative
       ? thumbPromptCompletion.complete
       : thumbPromptFiles.some(f => f.endsWith('.docx') || f.endsWith('.md'))
@@ -1133,7 +1278,7 @@ export async function computeEpisodeStatus(
   // outside the app), fall back to the original fuzzy scan so these
   // episodes don't suddenly regress to "nothing done".
   if (!authoritativeHit) {
-    const dir = await findEpisodeDir(outputRoot, code)
+    const dir = await findEpisodeDir(outputRoot, code, cache)
     if (dir) {
       try {
         const subs = await fs.readdir(dir)
@@ -1149,7 +1294,7 @@ export async function computeEpisodeStatus(
               const state = deriveScriptFolderState(files)
               const completion = await inspectChunkedScriptCompletion(subPath, code)
               if (completion.complete) status.script = true
-              if (state.introduction && await hasValidIntroduction(subPath, files)) status.introduction = true
+              if (await computeScriptFolderIntroduction(subPath, code, files)) status.introduction = true
             }
             if (cleanSub.includes('thumbnail prompt')) {
               const completion = await inspectPromptCompletion(subPath, code, 'thumbnail')
@@ -1173,9 +1318,9 @@ export async function computeEpisodeStatus(
   // audio chunks present) correctly resolve to false here.
   const { getAudioStatus } = await import('./audio-reconciler.js')
   const [audioS, imageS, mergedS] = await Promise.allSettled([
-    getAudioStatus(slug, code),
+    getAudioStatus(slug, code, undefined, cache),
     getImageStatus(slug, code, 'thumbnails', authoritativePaths),
-    getAudioMergeStatus(slug, code),
+    getAudioMergeStatus(slug, code, cache),
   ])
 
   status.audio = audioS.status === 'fulfilled'

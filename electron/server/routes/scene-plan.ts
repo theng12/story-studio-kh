@@ -24,6 +24,7 @@ import { inspectSubtitleText } from '../lib/subtitle-quality.js'
 import { requireScenePlanGenStudioModel, SCENE_PLAN_FILENAME } from '../generators/scene-plan.js'
 import {
   computePlanCoverage,
+  COVERAGE_FAIL_SEC,
   inspectScenePlanCoverage,
   repairOverlongScenesDeterministically,
   repairPlanCoverageWithSubtitleCues,
@@ -490,6 +491,10 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
         threshold_sec: 20,
         min_sec: minSec,
         max_sec: maxSec,
+        // Opt-in, never inferred: holding scene 1 across a long unplanned
+        // opening is an editorial choice with a visible consequence, so it
+        // happens only when the request asks for it by name.
+        hold_head_scene: (req.body as any)?.hold_head_scene === true,
       })
       fresh.scenes = result.scenes
       fresh.total_duration_sec = audioDur
@@ -497,6 +502,12 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
       return result
     })
     await invalidateScenePlanStatus(slug, episodeId)
+    // A head gap this repair deliberately left alone is the one deficit the
+    // caller cannot see in `changes` (nothing changed). Name it, so the page
+    // can offer the choice instead of reporting a no-op repair.
+    const headGapLeft = repaired.coverageAfter.headGapSec > COVERAGE_FAIL_SEC
+      ? repaired.coverageAfter.headGapSec
+      : 0
     res.json({
       ok: true,
       audio_duration_sec: audioDur,
@@ -505,6 +516,7 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-coverage', async (req,
       coverage_after: repaired.coverageAfter,
       repaired_long_scene_count: repaired.repairedLongSceneCount,
       added_scene_count: repaired.addedSceneCount,
+      head_gap_left_sec: headGapLeft,
     })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to repair plan coverage'))
