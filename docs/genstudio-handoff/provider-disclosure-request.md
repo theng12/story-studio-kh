@@ -77,18 +77,60 @@ routing.
 
 ---
 
-**NEEDS-OWNER / still genuinely OPEN — status header added 2026-08-28.** No code or test in
-this repo references this file's path, so it is safe to move on that ground alone — left in
-place instead because the ask itself is unresolved. Verified against the current tree:
+## RECONCILED 2026-08-28 — server side shipped, client side is the remaining work
 
-| Response schema | `provider_name` published (as of this repo's client types) |
+**Status:** OPEN, and the remaining gap is Story Studio's, not GenStudio's.
+
+Two audits on 2026-08-28 appeared to contradict each other. They did not — they measured
+opposite sides of the boundary, and both were correct. Recorded here as two facts rather than
+one verdict, because collapsing them is what made this look like a disagreement.
+
+### GenStudio side — SHIPPED
+
+Checked against GenStudio `main` (`0f8f28c1`), **all five remaining modalities publish
+`provider_name`**:
+
+| Response schema | Field | Populated by |
+|---|---|---|
+| `ImageModelResponse` | `provider_name` | `images/catalog.py` (per-product literals) |
+| `ChatModelResponse` | `provider_name` | `chat/router.py` -> `origin_provider_name(...)` |
+| `MusicModelResponse` | `provider_name` | `music/router.py` -> `origin_provider_name(...)` |
+| `VideoModelResponse` | `provider_name` | `videos/router.py` -> `origin_provider_name(...)` |
+| `TranscriptionModelResponse` | `provider_name` | `transcriptions/router.py` -> `origin_provider_name(...)` |
+
+Video and transcription — the two this was reopened for — are populated at
+`videos/router.py:284` and `transcriptions/router.py:367`. The declaration and the population
+were both checked; a field present in a schema but never assigned would have looked identical
+from the schema alone.
+
+`origin_provider_name()` resolves an exact-id lookup in `PRODUCT_ORIGIN_PROVIDERS` and returns
+`None` when nobody has established the maker — "by exact id and never by inference", which
+matches this request's own rule that identity is published or absent, never guessed. A scalar
+shipped rather than the operation-aware `provider_name_by_operation` floated here for images; a
+scalar suffices because a product's MAKER does not vary by operation, even when its serving
+route does.
+
+### Story Studio side — ARRIVES, BUT IS DISCARDED
+
+Verified against this repo's own client types on the same date:
+
+| Client interface | Declares `provider_name` |
 |---|---|
 | `GenStudioImageModel` | yes (optional) |
 | `GenStudioMusicModel` | yes (optional) |
 | `GenStudioChatModel` | yes (optional) |
-| `GenStudioTranscriptionModel` | **still absent** |
-| `GenStudioVideoModel` | **still absent** |
+| `GenStudioTtsModel` | yes (required) |
+| `GenStudioTranscriptionModel` | **absent** |
+| `GenStudioVideoModel` | **absent** |
 
-So three of the five requested modalities have shipped since this was written; video and
-transcription have not. Genuinely open — this is a GenStudio-side catalogue gap, not a Story
-Studio decision.
+It is not inherited from `GenStudioCatalogLock` either, and neither `listVideoModelsSnapshot`
+nor `listTranscriptionModelsSnapshot` reads the field. So for video and transcription GenStudio
+sends `provider_name` and Story Studio drops it on the floor.
+
+**The remaining work is client-side declaration and consumption in this repo.** That is the
+whole of what is left; nothing further is needed from GenStudio. The earlier reading of this as
+"a GenStudio-side catalogue gap" was wrong, and pointed the fix at the wrong repository.
+
+Nothing here changed in `feat/customer-failure-reason-2026-08-28`; that branch only confirmed
+the server half. The separate rule that an *aggregator* must never be named is enforced
+independently in `app/modules/jobs/failure_reason.py`.

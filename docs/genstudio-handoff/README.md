@@ -5,7 +5,7 @@ Everything Story Studio is waiting on from GenStudio, in one place.
 **This folder is disposable.** When every item below is ANSWERED and the work has
 shipped, delete the whole folder — nothing in Story Studio imports or depends on it.
 Five items closed out that way on 2026-08-28 (moved to `docs/handoffs-retired/` rather than
-deleted, so the shipping evidence survives). Four items remain genuinely open; three files
+deleted, so the shipping evidence survives). Four items remain genuinely open; five files
 stay here specifically because a code comment still cites their exact path by name — see each
 file's own status header.
 
@@ -31,8 +31,8 @@ commit).
 | 8 | Own the per-model step default (FLUX 2 Klein = 4) | *(moved to `docs/handoffs-retired/image-steps-default-request.md`)* | **RETIRED 2026-08-28.** Confirmed shipped, unchanged since 2026-08-10. |
 | 9 | Publish per-model voice controls | *(moved to `docs/handoffs-retired/voice-controls-request.md`)* | **RETIRED 2026-08-28.** Confirmed shipped both sides, unchanged since 2026-08-10. |
 | 10 | Make the quote text limit follow the model | `quote-limit-request.md` | **More resolved than "on the customer path" suggests.** A code comment in `tts-request-plan.ts` confirms GenStudio removed the fixed 40,000-char cap this ask was about — the core request was granted. C3 (legacy `/v1/models` literal) is unverifiable from this repo. Left in place — cited by path in code. |
-| 11 | Publish the serving provider on every modality | `provider-disclosure-request.md` | **OPEN, progressed.** `provider_name` now published for image, chat, and music (was TTS/voice-clone only). Video and transcription still carry none. Genuinely open — GenStudio-side gap, not a Story Studio decision. |
-| 12 | *(untracked in this table until now)* A distinct reason code for content refusals | `content-refusal-code-request.md` | **OPEN, and was never listed in this table.** No `content_refused` code anywhere in the tree. Story Studio's own prevention work (`image-content-guidance.ts`) has shipped regardless. Genuinely open. |
+| 11 | Publish the serving provider on every modality | `provider-disclosure-request.md` | **OPEN — and the remaining gap is ours, not GenStudio's.** GenStudio publishes `provider_name` for all five model kinds (verified server-side at `0f8f28c1`). Story Studio's client types declare it on Image, Music and Chat, but not on `GenStudioTranscriptionModel` or `GenStudioVideoModel`, and neither `listVideoModelsSnapshot` nor `listTranscriptionModelsSnapshot` reads it — so for those two the field arrives and is discarded. Client-side declaration is the remaining work. |
+| 12 | A distinct reason code for content refusals | `content-refusal-code-request.md` | **ANSWERED — shipped both sides 2026-08-28.** GenStudio publishes `failure_class` (`content_refused` / `provider_transient` / `provider_error`) plus a display-only `failure_reason`. Story Studio branches on the class and never on the reason's wording. Content refusals are not charged — the reservation is released. This ask was never listed in this table until now. |
 
 ---
 
