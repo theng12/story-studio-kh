@@ -1,5 +1,5 @@
 {
-  "revision": 91,
+  "revision": 93,
   "batches": [
     {
       "revision": 2,
@@ -2414,6 +2414,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 92,
+      "receipt_ref": "authoring:2692b7a571bc9d38bd568336c4ca200089edd695a38bd90335a7328022167f6b",
+      "request": {
+        "expected_revision": 91,
+        "coordinator": {
+          "task": "deep-time-field-record-wave-one",
+          "branch": "content/deep-time-oceans-2026-08-28"
+        },
+        "proposal_ref": "docs/product/deep-time-field-record-wave-one-proposal.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.deep-time-field-record.ancient-oceans-deep-sea",
+            "item_id": "com.storystudio.topic.deep-time-field-record.ancient-oceans-deep-sea",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/deep-time-field-record/topic/ancient-oceans-deep-sea",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.deep-time-field-record.ancient-oceans-deep-sea",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.deep-time-field-record.ancient-oceans-deep-sea",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -3635,6 +3671,23 @@
         },
         "receipt_ref": "authoring:62e4f79179a8279122d066262b3c2353de4ee9810e91186d2e3752b2481e33ae",
         "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 93,
+      "transition_ref": "lifecycle:d484def3a16e77bf8077d88ad591a276a3daee40ff55f561d00f0754249465c0",
+      "request": {
+        "expected_revision": 92,
+        "coordinator": {
+          "task": "deep-time-field-record-wave-one",
+          "branch": "content/deep-time-oceans-2026-08-28"
+        },
+        "receipt_ref": "authoring:2692b7a571bc9d38bd568336c4ca200089edd695a38bd90335a7328022167f6b",
+        "pack_id": "com.storystudio.pack.topic.deep-time-field-record.ancient-oceans-deep-sea",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -7403,6 +7456,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.topic.deep-time-field-record.prehistoric-life-extinction",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:2692b7a571bc9d38bd568336c4ca200089edd695a38bd90335a7328022167f6b",
+      "pack_id": "com.storystudio.pack.topic.deep-time-field-record.ancient-oceans-deep-sea",
+      "item_id": "com.storystudio.topic.deep-time-field-record.ancient-oceans-deep-sea",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/deep-time-field-record/topic/ancient-oceans-deep-sea",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.deep-time-field-record.ancient-oceans-deep-sea",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.deep-time-field-record.ancient-oceans-deep-sea",
           "status": "proposed"
         }
       }
