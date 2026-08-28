@@ -41,7 +41,7 @@ export interface BuiltInStyle {
 export const BUILT_IN_STYLES: BuiltInStyle[] = [
   {
     id: 'builtin-ms-paint-fantasy',
-    name: 'MS Paint Fantasy',
+    name: 'Retro Paint Fantasy',
     builtin: true,
     blurb: 'Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.',
     category: 'Digital',

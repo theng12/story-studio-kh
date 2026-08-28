@@ -16,7 +16,7 @@ const RECEIPT = 'authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c
 
 const STYLES = {
   'ms-paint-fantasy': {
-    name: 'MS Paint Fantasy',
+    name: 'Retro Paint Fantasy',
     description: 'Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.',
     category: 'Digital',
     tags: ['retro', 'fantasy', 'rough', 'flat color', 'old web'],
