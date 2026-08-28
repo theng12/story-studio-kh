@@ -177,6 +177,31 @@ test('the floor is derived from discovery, so adding a file needs no constant bu
   assert.match(floor, /discoveredFiles\.filter/, 'the expectation must come from the discovered list itself')
 })
 
+test('the suite is never run with --test-force-exit', async () => {
+  // The flag is inherited by every child test process. Node runs each file in
+  // its own child, which reports results back over a stdout PIPE, and on macOS
+  // a pipe write is asynchronous — so a child that calls process.exit() while
+  // its results are still queued DISCARDS the rest of them. Those tests are
+  // not failed and not cancelled; they never existed, and the summary shrinks
+  // and still adds up.
+  //
+  // Measured on this runtime, 3,600 tests across 20 files, under CPU load:
+  //   with    the flag: 3538 / 3427 / 3485 tests, fail 0, exit 0
+  //   without the flag: 3600 / 3600 / 3600 tests, fail 0, exit 0
+  // The losses land on the TAIL of a file — the "six of nine describes" that
+  // subtitle-engine.test.ts was blamed for, and the drifting totals.
+  const body = await fs.readFile(path.join(ROOT, 'scripts', 'testing', 'run-backend-tests.mjs'), 'utf8')
+  const code = body.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '')
+  assert.doesNotMatch(code, /--test-force-exit/,
+    'a child that force-exits drops whatever results are still in its pipe')
+  // A hang still has to be handled, just loudly: a killed child prints no
+  // summary, and assertSummaryAgrees already fails a run with no summary.
+  assert.match(code, /startSuiteWatchdog/, 'removing the flag must not remove hang protection')
+  assert.match(code, /STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS/,
+    'the limit must be data the operator can change, not a constant')
+  assert.match(code, /child\.kill\('SIGKILL'\)/)
+})
+
 test('failing and skipped files still report a completed suite, so the floor cannot cry wolf', async () => {
   // The floor's value depends entirely on NOT firing for healthy files. A
   // failing file and an all-skipped file are both legitimate, both must be

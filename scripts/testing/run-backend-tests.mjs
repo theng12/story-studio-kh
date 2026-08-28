@@ -210,7 +210,7 @@ async function run() {
       tsxCli,
       '--test',
       '--test-concurrency=1',
-      '--test-force-exit',
+      // NO `--test-force-exit`. See `startSuiteWatchdog` for what it was doing.
       // `spec` is already Node's default on this runtime; naming it explicitly
       // only makes room for the second reporter, and keeps the human output
       // identical if that default ever moves.
@@ -232,10 +232,11 @@ async function run() {
       stream.setEncoding('utf8')
       stream.on('data', chunk => { transcript += chunk; sink.write(chunk) })
     }
+    const watchdog = startSuiteWatchdog(child)
     let exitCode = await new Promise((resolve, reject) => {
       child.once('error', reject)
       child.once('close', code => resolve(code ?? 1))
-    })
+    }).finally(() => clearTimeout(watchdog))
 
     const summary = assertSummaryAgrees(transcript, exitCode)
     if (summary) {
@@ -331,6 +332,47 @@ export function assertSummaryAgrees(transcript, exitCode) {
     return `every test passed but the runner exited ${exitCode}, so something outside the tests failed.`
   }
   return null
+}
+
+/**
+ * Kill a suite that will not finish — LOUDLY. This replaces `--test-force-exit`.
+ *
+ * WHAT THAT FLAG WAS ACTUALLY DOING. It is inherited by every child test
+ * process (Node runs each file in its own child, reporting results back over a
+ * stdout PIPE). On macOS a pipe write is asynchronous, so a child that calls
+ * `process.exit()` while its results are still queued DISCARDS the rest of
+ * them. The parent never receives those tests, so they are not failed and not
+ * cancelled — they never existed. The summary shrinks and still adds up.
+ *
+ * Measured here, 3,600 tests across 20 files, ten CPU burners for load:
+ *
+ *   with    --test-force-exit : 3538 / 3427 / 3485 tests, fail 0, exit 0
+ *   without --test-force-exit : 3600 / 3600 / 3600 tests, fail 0, exit 0
+ *
+ * Three runs each, and the losses land on the TAIL of a file — which is the
+ * "six of nine describes" that `subtitle-engine.test.ts` was blamed for. That
+ * file is innocent: it has no timers, no async, no temp files, and runs in
+ * 1.4s. It was simply one of the largest reporter payloads in the suite, so it
+ * was among the likeliest to have its tail dropped. This also explains the
+ * totals drifting between runs (3410 / 3424 / 3379).
+ *
+ * The flag was never added in response to an incident — it is in the harness's
+ * first commit. It bought no speed either: 50 handle-heavy files finished in
+ * 537s without it, and had not finished at 600s with it.
+ *
+ * A hang must therefore be handled by killing the run out loud instead. A
+ * killed child prints no summary, and `assertSummaryAgrees` already fails a
+ * run that produced no summary. The limit is env-overridable rather than a
+ * constant: a number a future reader would want different is data, not code.
+ */
+function startSuiteWatchdog(child) {
+  const limitMs = Number(process.env.STORY_STUDIO_BACKEND_TEST_TIMEOUT_MS ?? 90 * 60_000)
+  if (!Number.isFinite(limitMs) || limitMs <= 0) return undefined
+  return setTimeout(() => {
+    console.error(`[test-harness] the backend suite ran past ${limitMs}ms and was killed. `
+      + 'A run that does not finish is a failure, never a pass.')
+    child.kill('SIGKILL')
+  }, limitMs)
 }
 
 /** Read the per-file records the coverage reporter wrote. Missing file = no evidence. */
