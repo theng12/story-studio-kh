@@ -210,6 +210,19 @@ release-parameterized source without that explicit value, and refuses this overr
 sources. Set it only after the combined runtime release that contains the pack's schema, adapter,
 thumbnail, and planner support has an agreed version.
 
+### Proposal-stage sources
+
+A wave is authored before its identities are reserved, so between those two moments its source
+exists with no registry record. `packPaths` walks everything under `content-packs/` and refuses
+any `pack.json` there that is not registered, so proposal-stage sources live in
+`content-packs-proposed/` instead, outside the discovered root. See
+`content-packs-proposed/README.md` for what is parked there and how to move one in once its
+identities are reserved.
+
+Those sources build normally -- `buildContentPack` takes any source directory -- so a wave's
+acceptance evidence is reproducible before reservation. They are never signed with a production
+key, stocked or published from that location.
+
 ## Validate
 
 Validate a production Store archive structurally without a publisher key:

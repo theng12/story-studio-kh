@@ -1,0 +1,14 @@
+{
+  "pack_format": 1,
+  "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
+  "publisher_id": "com.storystudio",
+  "key_id": "{{KEY_ID}}",
+  "version": "1.0.0",
+  "min_app_version": "{{MIN_APP_VERSION}}",
+  "lifecycle": "active",
+  "changelog": "First release of Prehistoric Life & Extinction for the Deep Time Field Record: 100 named subjects with 20 reviewed, evidence-anchored tuples each (2,000 lifetime assignments), every tuple anchored to a named locality and a named geological interval.",
+  "entitlement": {
+    "sku": "com.storystudio.sku.topic.deep-time-field-record.prehistoric-life-extinction",
+    "family": "com.storystudio.family.topic.deep-time-field-record.prehistoric-life-extinction"
+  }
+}
