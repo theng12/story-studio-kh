@@ -345,6 +345,26 @@ async function assertPlannerCapacity(row: ReviewedRow, document: TopicDocument):
   assert.equal(reserved.length, 1_000, `${row.slug} must fill all 1,000 lifetime reservations`)
   assertPlannedAssignments(row, document, reserved)
 
+  // A TOP-UP OF ONE, against a half-spent pack, must succeed.
+  //
+  // It did not. The candidate pool was sized from `count` alone
+  // (`max(count*4, count+40)`), so `count: 1` built a pool of 41 — smaller
+  // than one full round of subjects on these packs. The walk stopped partway
+  // through round 0, where every structure was already reserved, and the
+  // planner announced exhaustion with 500 to 1,500 tuples untouched. Perverse
+  // in exactly the way that hides a bug: asking for ONE idea failed while
+  // asking for SIXTY succeeded, because only the larger pool looked far enough.
+  //
+  // This is the shape the real caller uses — `generators/idea-campaign.ts`
+  // passes `count: remaining` with the project's whole history — so it is a
+  // long-running channel topping up by one that hit this.
+  const halfSpent = first.map(assignment => assignment.fingerprint)
+  const topUp = planIdeaAssignments({ niche, count: 1, seed, usedFingerprints: halfSpent })
+  assert.ok(topUp.length >= 1,
+    `${row.slug} must plan a single idea against a half-spent pack, not declare exhaustion`)
+  assert.equal(halfSpent.includes(topUp[0]!.fingerprint), false,
+    `${row.slug} top-up must not hand back an already-reserved idea`)
+
   if (row.class === 'profile') {
     assert.throws(() => planIdeaAssignments({ niche, count: 1, seed, usedFingerprints: reserved.map(assignment => assignment.fingerprint) }),
       /cannot plan the requested campaign without repeating an episode object or mechanism/,
