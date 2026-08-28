@@ -59,3 +59,22 @@ might change my mind tomorrow and support 20 more languages."*
 So the control is being built now specifically so that adding languages later is a dropdown
 change rather than an engineering project. Low urgency, but worth getting the shape right
 before a UI is built around it.
+
+---
+
+**STILL-REFERENCED — status header added 2026-08-28.** Cited directly (as
+`docs/genstudio-handoff/transcription-language-request.md`) in a doc comment on
+`GenStudioTranscriptionModel.supported_languages` in `electron/server/lib/genstudio-client.ts`
+(~L811) — do not move this file while that comment cites the path.
+
+**A discrepancy worth flagging, not fixed here:** that same code comment (unchanged since
+commit `b22440207`, 2026-07-31) says *"GenStudio does not publish this yet... so it is empty
+today"* for `supported_languages[]` — but this folder's own README (reconciled 2026-08-10)
+says `supported_languages[]` **shipped** and drives the picker in `audio.vue`, and the parser
+at `genstudio-client.ts` reads it live. The consumption logic for item #2,
+`supports_language_auto_detect`, was also added on 2026-08-10 (commit `e909a4ae`,
+"reconcile current GenStudio contracts") and is live in `generators/subtitles.ts:215`. Whether
+GenStudio's live payload today actually populates either field with real (non-empty) values
+cannot be confirmed from this repo alone — that comment has simply never been updated since
+the day it was written, five days before the fields it describes reportedly shipped. Worth a
+one-line comment correction the next time this file is touched.

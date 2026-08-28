@@ -50,3 +50,7 @@ crossing the release boundary would compute a new key and GenStudio would start 
 second job for work already running. That is purely internal and needs nothing from GenStudio;
 mentioning it only so the value `4` appearing in our hashes isn't mistaken for a live request
 field.
+
+---
+
+**RETIRED 2026-08-28.** Shipped: GenStudio owns the per-model step default server-side (commit `b2244020`, "durable chat, published image capabilities, poll backoff, prompt caps"); confirmed no `steps` field is sent from any image-generation route today. Moved from `docs/genstudio-handoff/`.

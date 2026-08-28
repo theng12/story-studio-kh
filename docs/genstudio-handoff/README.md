@@ -4,6 +4,10 @@ Everything Story Studio is waiting on from GenStudio, in one place.
 
 **This folder is disposable.** When every item below is ANSWERED and the work has
 shipped, delete the whole folder — nothing in Story Studio imports or depends on it.
+Five items closed out that way on 2026-08-28 (moved to `docs/handoffs-retired/` rather than
+deleted, so the shipping evidence survives). Four items remain genuinely open; three files
+stay here specifically because a code comment still cites their exact path by name — see each
+file's own status header.
 
 Each file is written to be sent as-is. No preamble needed.
 
@@ -11,19 +15,24 @@ Each file is written to be sent as-is. No preamble needed.
 
 ## Status
 
+**Re-verified against the tree 2026-08-28** (see `docs/handoffs-retired/` for items closed out
+below — moved there rather than deleted, each with a one-line closing note and its shipping
+commit).
+
 | # | Ask | File | Status |
 |---|---|---|---|
-| 1 | Split language products into web-capable and offline | `web-search-request.md` | **CONTRACT SHIPPED — runtime activation pending.** GenStudio published `supports_web_search`, `returns_citations`, `citation_format`, `supports_domain_filters`, `research_qualified`, `web_search_credits_per_search`, `max_web_searches`, `web_research_credits_per_request`. Story Studio built against them in v1.0.764. **Still waiting on:** a qualified direct-provider research route becoming runnable; until then `research_qualified` remains false and web research stays unavailable by design. |
-| 2 | Citation response shape | `citation-response-request.md` | **CONTRACT SHIPPED — runtime activation pending.** Citations arrive in the response envelope; the field names are `research_ran_at`, `web_searches_executed`, and `web_search_credit_cost`, wired in v1.0.765. Per-source `retrieved_at` is deliberately not provided — Story Studio uses run-level "Research ran on". `citation_claims` exists but providers do not currently populate it, so citations display per run, not per claim. `research_qualified` already represents an effective customer-runnable route; Story Studio may also defensively filter `!qualification_only`. |
-| 3 | Image resolution and variant pricing | `image-options-request.md` | **CLOSED — shipped both sides.** `default_resolution` and `output_options[]` publish, `ImageGenerationRequest` accepts `resolution`, and Story Studio's selector shipped in v1.0.770. Each published row is offered verbatim with its own price; combinations are never synthesised by crossing lists. |
-| 4 | Small gaps for live credit display | `pricing-display-request.md` | **PARTIAL — not blocking.** Story Studio uses model catalogues, quotes, and settled jobs only. The retired `unlimited_relaxed` field is gone. Remaining audit-quality asks: `price_version` on TTS/music model rows and `minimum_credits` on image rows. Chat remains option (a): published rates plus actual settled charge, with no locally invented total. |
-| 5 | Say which layer applied backpressure | `rate-limit-reason-request.md` | **ANSWERED — shipped.** Language HTTP 429 responses now include a provider-agnostic `capacity_reason` and `retry_after_seconds`, with matching `Retry-After` and `X-GenStudio-Capacity-Reason` headers. |
-| 6 | Publish transcription language support | `transcription-language-request.md` | **PARTIAL.** `supported_languages[]` ships and drives Story Studio's picker. Still open: `supports_language_auto_detect` and `detected_language`. Until those publish, Story Studio sends an explicit published language and does not offer auto-detect. |
-| 8 | Own the per-model step default (FLUX 2 Klein = 4) | `image-steps-default-request.md` | **ANSWERED — shipped.** GenStudio owns fixed steps server-side; FLUX.2 Klein uses 4. Story Studio correctly sends no `steps` field. |
-| 9 | Publish per-model voice controls | `voice-controls-request.md` | **ANSWERED — shipped both sides.** `/v1/tts/models` publishes `controls[]` with names, ranges, defaults, labels, and descriptions. Story Studio renders and submits only the selected model's published controls and re-clamps state on model change. |
-| 10 | Make the quote text limit follow the model | `quote-limit-request.md` | **ANSWERED on the customer path.** `/v1/tts/models.maximum_input_characters` drives quote and submission validation. Story Studio consumes that endpoint. GenStudio still needs to correct the contradictory legacy `/v1/models` literals, tracked there as C3. |
-| 11 | Publish the serving provider on every modality | `provider-disclosure-request.md` | **OPEN — owner chose extend.** Provider publishes for TTS and voice-clone surfaces, not chat, image, video, music, or transcription. Story Studio displays only published identity and never uses it for dispatch. Scalar provider labels fit chat/video/music/transcription; image needs an operation-aware shape. |
-| 7 | Let the server control job-poll cadence | `job-poll-hint-request.md` | **OPEN.** Load-shape, not correctness. Story Studio is shipping capped backoff with jitter regardless; a `poll_after_ms` hint would let GenStudio widen intervals under load with no client release. Relevant once hosted customer count grows. |
+| 1 | Split language products into web-capable and offline | `web-search-request.md` | **CONTRACT SHIPPED — runtime activation pending.** Unchanged since 2026-08-10: `research_qualified` confirmed still `false` on every product today. Still genuinely open on the runtime half. Left in place — cited by path in `genstudio-client.ts` and a test. |
+| 2 | Citation response shape | `citation-response-request.md` | **CONTRACT SHIPPED, contract still governs the code.** Envelope shape (`citations`, `research_ran_at`, `web_searches_executed`, `web_search_credit_cost`, `citation_claims`, no `retrieved_at`) confirmed unchanged and actively implemented. Left in place — historically valuable, no better home for the rationale. |
+| 3 | Image resolution and variant pricing | *(moved to `docs/handoffs-retired/image-options-request.md`)* | **RETIRED 2026-08-28.** Confirmed shipped both sides, unchanged since 2026-08-10. |
+| 4 | Small gaps for live credit display | `pricing-display-request.md` | **PARTIAL, progressed.** Gap 3 (`minimum_credits` on image) now shipped. Gap 2 (`price_version`) shipped on music, still missing on the TTS model row itself (only the TTS *quote* carries it). Gap 1 (chat cost estimate) unchanged — still option (a) only. Left in place — cited by path in `tts-request-plan.ts`... *(see file for the exact citing module)*. |
+| 5 | Say which layer applied backpressure | *(moved to `docs/handoffs-retired/rate-limit-reason-request.md`)* | **RETIRED 2026-08-28.** Confirmed shipped, unchanged since 2026-08-10. |
+| 6 | Publish transcription language support | `transcription-language-request.md` | **PARTIAL, progressed — and a stale comment found.** `supports_language_auto_detect` now has real consumption logic (`subtitles.ts`, shipped 2026-08-10). But the `supported_languages[]` doc comment in `genstudio-client.ts` still says unpublished, dated 2026-07-31 and never updated — contradicts this folder's own 2026-08-10 "shipped" claim. See the file's own status header for detail. Left in place — cited by path in code. |
+| 7 | Let the server control job-poll cadence | *(moved to `docs/handoffs-retired/job-poll-hint-request.md`)* | **RETIRED 2026-08-28 — this was actually shipped**, contradicting the OPEN status this table carried. `readGenStudioPollHintMs()` reads GenStudio 1.2's `retry_after_seconds`/`retry_at` at 3 call sites (shipped 2026-08-13, three days after this table was last touched). |
+| 8 | Own the per-model step default (FLUX 2 Klein = 4) | *(moved to `docs/handoffs-retired/image-steps-default-request.md`)* | **RETIRED 2026-08-28.** Confirmed shipped, unchanged since 2026-08-10. |
+| 9 | Publish per-model voice controls | *(moved to `docs/handoffs-retired/voice-controls-request.md`)* | **RETIRED 2026-08-28.** Confirmed shipped both sides, unchanged since 2026-08-10. |
+| 10 | Make the quote text limit follow the model | `quote-limit-request.md` | **More resolved than "on the customer path" suggests.** A code comment in `tts-request-plan.ts` confirms GenStudio removed the fixed 40,000-char cap this ask was about — the core request was granted. C3 (legacy `/v1/models` literal) is unverifiable from this repo. Left in place — cited by path in code. |
+| 11 | Publish the serving provider on every modality | `provider-disclosure-request.md` | **OPEN, progressed.** `provider_name` now published for image, chat, and music (was TTS/voice-clone only). Video and transcription still carry none. Genuinely open — GenStudio-side gap, not a Story Studio decision. |
+| 12 | *(untracked in this table until now)* A distinct reason code for content refusals | `content-refusal-code-request.md` | **OPEN, and was never listed in this table.** No `content_refused` code anywhere in the tree. Story Studio's own prevention work (`image-content-guidance.ts`) has shipped regardless. Genuinely open. |
 
 ---
 

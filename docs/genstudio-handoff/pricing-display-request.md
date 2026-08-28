@@ -73,6 +73,24 @@ request. If no floor applies, ignore this — Story Studio will assume none.
   job response is exactly what Story Studio needs, and it will keep preferring those over
   anything it derived beforehand.
 
+## Status header — added 2026-08-28
+
+**STILL-REFERENCED.** Cited directly (as `docs/genstudio-handoff/pricing-display-request.md`)
+in a doc comment on `GenStudioTranscriptionModel.credits_per_second` in
+`electron/server/lib/genstudio-client.ts` (~L831), explaining why transcription is priced
+per-second rather than per-minute. Do not move this file while that comment cites the path.
+
+**Progress since 2026-08-10, verified against the current tree:**
+- **Gap 3 (minimum_credits on image) — shipped.** `GenStudioImageModel` now carries both
+  `minimum_credits: number | null` and `price_version: string | null`.
+- **Gap 2 (price_version on TTS/music) — half-shipped.** `GenStudioMusicModel` now carries
+  `price_version`. `GenStudioTtsModel` still does not — only `GenStudioTtsQuote` carries
+  `price_version`, so a TTS job's price version is knowable at quote time but not from the
+  model catalogue row itself. Still a real, if narrower, gap.
+- **Gap 1 (chat cost estimate)** — no `POST /v1/chat/quotes` or `typical_output_tokens`
+  found; Story Studio is still on option (a), rate + actual only, exactly as the doc says it
+  would be regardless.
+
 ## What Story Studio is building regardless
 
 Live credit cost shown for every action and model, read from the catalogue at run time,

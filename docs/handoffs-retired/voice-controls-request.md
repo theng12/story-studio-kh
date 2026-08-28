@@ -95,3 +95,7 @@ UI — gated behind flags hardcoded to `false` from a previous integration. If a
 contract lands, that is the surface it would light up. Mentioning it so the shape of the ask
 is clear: this is not a new feature request so much as reconnecting something that lost its
 contract when everything moved behind GenStudio.
+
+---
+
+**RETIRED 2026-08-28.** Shipped: `/v1/tts/models.controls[]` published and fully consumed — `resolveTtsControlValues`/`parseTtsControls` in `electron/server/lib/genstudio-client.ts` (commit `01aa7be4`, "render per-model voice controls entirely from the published contract"). Moved from `docs/genstudio-handoff/`.
