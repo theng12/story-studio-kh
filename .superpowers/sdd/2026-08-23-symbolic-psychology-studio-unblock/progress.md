@@ -370,8 +370,130 @@ leaf receipt before source authoring.
   deploy, tag, or push occurred. The independent Task 5 review remains the
   coordinator's post-commit acceptance gate.
 
+## Task 6 returned previews, leaf successors, and the four-piece Kit
+
+Task 6 started from `84754d10` on branch
+`content/symbolic-psychology-wave1-2026-08-28` in its own worktree. The
+authoring registry was read-only for this task throughout; a separate
+coordinated landing agent holds the writer slot.
+
+### Owner authority and the corrected freeze
+
+The owner read both literal prompt batches on 2026-08-28 and replied
+`approve of the 2 prompts.` That approval carries quote approval, job-submission
+authority, and generation authority for exactly these two generations.
+
+The original freeze files each ended with a trailing newline, so their hashes
+(`22a6ab3b…`, `b93bbe5e…`) covered a byte that was never part of the approved
+prompt text. The coordinator re-froze both files without it before any spend.
+The canonical approved-batch hashes are now
+`dae334f3f1bea18569393675d5582324138b1fee53319926da8f42c3035bba0c` and
+`f3e3b291dbaad8ec5c3ca8a59d3cde8f60a47e8785843866611a84d1e53e7583`. No
+generation was ever run against the superseded hashes.
+
+### Generation
+
+Both images were submitted through Story Studio's own GenStudio path,
+`POST /api/projects/:slug/preview-image`, using the owner's configured key. The
+key is held encrypted under Electron `safeStorage`; it was never read, decrypted,
+printed, or handled. Because the corrected freeze has no trailing whitespace,
+that route's `trim()` is a no-op, so the submitted prompt is byte-identical to
+the approved batch and hashes to the same value. Each generation returned
+`cached:false`, confirming a real charged call rather than a cache replay.
+
+Receiver GenStudio, provider OpenAI, model `gpt-image-2`, 16:9, 1K, 20 credits
+each — 40 credits total. `gpt-image-2` publishes `supports_seed:false`, so no
+seed exists to record; that is captured as not-published rather than invented.
+No reference image, image edit, compositing, masking, title plate, or
+post-render overlay was used for either image. Each was accepted on its first
+attempt, against a budget of three.
+
+Full 16-item returned evidence for each image lives in `returned-evidence/`.
+The untouched original rasters are retained outside the repository at
+`<owner-home>/Developer/_handoffs/artifacts/story-symbolic-psychology-studio-wave-1-2026-08-23/returned-originals-2026-08-28/`.
+
+### Known resolution shortfall
+
+Story Studio's preview route never selects a published output option, so
+GenStudio applies the model's own `default_resolution` of 1K and both returned
+originals are 1280×720. The family standard is 1672×941, so the deterministic
+whole-image conversion upscales 1.306×. `gpt-image-2` does publish a 2K 16:9
+option at 2560×1440 for 29 credits, but no verbatim-prompt route in the app
+exposes a resolution parameter, so 2K was unreachable without either mutating a
+project's saved configuration or bypassing the sanctioned path. This is
+disclosed in the provenance ledger and in both evidence records rather than
+being quietly absorbed.
+
+### Authored sources
+
+- Thumbnail `1.0.1` at `content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1`.
+  It carries the four retained `1.0.0` previews byte-identically plus the new
+  `-6` entry. The rejected preview `#4` slot stays permanently vacant, so the
+  new gallery entry is numbered `-6` rather than reusing a rejected identity.
+- Style `1.0.1` at `content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1`.
+  Its content document is byte-identical to the predecessor; only the preview
+  asset and the manifest version/changelog change. The replaced `1.0.0` impasto
+  preview is retained unchanged as diagnostic evidence.
+- Kit `1.0.1` at `content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1`,
+  reduced from the six-piece `1.0.0` shape to exactly four pieces — one Formula,
+  one Topic, one Style, one thumbnail Recipe. Impasto and Oil drop out; both
+  already have their own families. The Topic is repinned to `1.0.1`.
+
+### Measured capacity
+
+Measured through `planIdeaAssignments` with the same binary-search harness the
+kit-capacity test uses, on Formula `1.0.1` plus Topic `1.0.1`: capacity rises
+from **10** at the current Topic `1.0.0` pin to **1,000** at the `1.0.1` pin.
+
+`channel-kit-idea-capacity.test.ts` still records a floor of `10` for this kit
+and still passes, because it resolves each lineage's newest *registered* version
+and Kit `1.0.1` is not in the registry yet.
+
+Three edits to that file must land in the **same** change as the Kit
+reservation, or the suite goes red the moment the registry moves:
+
+1. Raise the `KIT_FLOORS` row for `com.storystudio.pack.kit.symbolic-psychology-studio`
+   from `10` to `PROMISED_IDEAS`, and delete the stale note calling it a
+   "six-piece kit governed by its own wave plan".
+2. Delete the whole `EXTRA_PIECES` entry for this kit. It grants two surplus
+   `visual-style` pieces for the six-piece `1.0.0` shape, and the four-piece
+   assertion uses `deepEqual`, so leaving the exemption in place makes the
+   correct four-piece Kit **fail** against a six-piece allowance. That file's own
+   comment already anticipates this: the repair is to drop the surplus styles
+   from the Kit closure, which this task has now done.
+3. Delete the `symbolic-psychology-studio` paragraph from the blocked-kits
+   comment, since its preview-evidence gate is satisfied.
+
+### Held for the registry writer
+
+No registry write was performed. Three requests are staged as files:
+
+- `reservation-requests/symbolic-psychology-studio-kit-v1.0.1.json` — Kit
+  `1.0.1` has no registry record at all, so it needs a reservation before it can
+  be promoted.
+- `promotions/editorial-psychology-symbolic-split-v1.0.1.json`
+- `promotions/pastel-surreal-psychological-collage-v1.0.1.json`
+
+Each is staged with `expected_revision: 64`, the revision observed while this
+task ran. That is deliberate: if the landing agent advances the counter, these
+requests fail closed instead of applying against an unexpected registry. Re-read
+the live revision and update all three before executing them.
+
+Both source scaffolds now carry `registry_transition_allowed: true`, because
+their returned-evidence sets are complete and both previews were accepted.
+
+### Verification
+
+- `npx tsx --test electron/server/__tests__/symbolic-psychology-studio-wave-1-source.test.ts`
+  — 8 passed, 0 failed. The absence assertions were inverted rather than
+  deleted: `registry_transition_allowed` is now derived from the returned
+  evidence itself, the three ENOENT checks became manifest-identity checks, and
+  a new test pins both preview hashes, the 1672×941 decode, and the four-piece
+  Kit shape.
+- `npx tsx --test electron/server/__tests__/channel-kit-idea-capacity.test.ts`
+  — 2 passed, 0 failed.
+
 ## Next task
 
-Task 6 remains blocked on exact Recipe/Pastel owner authority, returned bytes,
-provenance, and independent review gates. Recipe and Pastel stay `reserved`;
-Kit `1.0.1` stays absent and unreserved.
+The Kit reservation and both leaf promotions await the registry writer slot.
+Nothing else in Task 6 is blocked.

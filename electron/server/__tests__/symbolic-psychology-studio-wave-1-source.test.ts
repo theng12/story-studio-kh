@@ -61,6 +61,8 @@ const EDITORIAL_PROVENANCE_ROW_HASHES = {
   'style/pastel-surreal-psychological-collage/assets/pastel-surreal-psychological-collage.webp':
     'a9044497df6d7130f6c354eac26327dbdf2a4c9309c1c51baa5b2a3087026779',
 } as const
+const NEW_EDITORIAL_PREVIEW_SHA256 = '13027e9088479b8fae570853724aebb44eff3ff2afbf53cd932577d837282bcd'
+const NEW_PASTEL_PREVIEW_SHA256 = 'f0bd9dd66b09e37e1f7c542a48e6bec02697c9fcdf77ad6e2d11274d3c71f93a'
 const HUMAN_BEHAVIOR = 'com.storystudio.formula.human-behavior-explained'
 const IMPASTO_SHA256 = '27050a92b2b71afd9a238ccd8ac9e72497ba2dda576bd4ad05fd01e465178e07'
 const OIL_ASSET = 'oil-painting-classical.webp'
@@ -346,21 +348,113 @@ test('leaf successor reservation is one receipt-bound batch with non-discoverabl
     assert.deepEqual(scaffold.predecessor, contract.predecessor)
     assert.deepEqual(scaffold.required_returned_evidence, contract.required_returned_evidence)
     assert.deepEqual(scaffold.preview_acceptance_contract, contract.preview_acceptance_contract)
-    assert.equal(scaffold.registry_transition_allowed, false)
+    // 2026-08-28 — this used to be pinned to `false` while the preview-evidence gate was open.
+    // It is now derived from the returned evidence itself, which is strictly stronger than any
+    // hardcoded boolean: the flag may only be true when every required evidence item is present
+    // and the preview was accepted. Inverted deliberately, not deleted.
+    const evidenceName = contract.basename === 'editorial-psychology-symbolic-split'
+      ? 'image-1-editorial'
+      : 'image-2-pastel'
+    const record = await readJson(path.join(UNBLOCK_SDD_ROOT, 'returned-evidence', `${evidenceName}.evidence.json`)) as {
+      acceptance_verdict: string
+      attempts_used: number
+      evidence: Record<string, unknown>
+    }
+    for (const item of contract.required_returned_evidence) {
+      assert.ok(record.evidence[item] !== undefined, `${evidenceName} must return evidence item ${item}`)
+    }
+    assert.equal(record.acceptance_verdict, 'ACCEPT')
+    assert.ok(record.attempts_used >= 1 && record.attempts_used <= 3, 'attempts must stay within the evidenced budget')
+    const batchKey = contract.required_returned_evidence.find(item => item.endsWith('prompt_batch_and_sha256'))!
+    const batch = record.evidence[batchKey] as { sha256: string }
+    const submitted = record.evidence.full_submitted_prompt_and_sha256 as { sha256: string, prompt: string }
+    assert.equal(submitted.sha256, batch.sha256, 'the submitted prompt must hash to the owner-approved batch')
+    assert.equal(sha256(Buffer.from(submitted.prompt, 'utf8')), batch.sha256, 'the recorded prompt text must reproduce that hash')
+    assert.equal(scaffold.registry_transition_allowed, true)
     assert.equal(JSON.stringify(scaffold).includes('component_summary'), false)
   }
 
-  for (const successorPath of [
-    'content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1',
-    'content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1',
-    'content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1',
+  // 2026-08-28 — these three paths used to be pinned ABSENT while the evidence gate was open.
+  // The gate is satisfied, so the absence assertion is inverted into a presence assertion that
+  // also pins each successor's manifest identity — strictly more than the old ENOENT check.
+  for (const [successorPath, expectedPackId] of [
+    ['content-packs/psychology-editorial/thumbnail/editorial-psychology-symbolic-split-v1.0.1',
+      'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split'],
+    ['content-packs/psychology-editorial/style/pastel-surreal-psychological-collage-v1.0.1',
+      'com.storystudio.pack.style.pastel-surreal-psychological-collage'],
+    ['content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1',
+      'com.storystudio.pack.kit.symbolic-psychology-studio'],
+  ] as const) {
+    const manifest = await readJson(path.join(ROOT, successorPath, 'pack.json'))
+    assert.equal(manifest.pack_id, expectedPackId, `${successorPath} must declare its reserved pack id`)
+    assert.equal(manifest.version, '1.0.1', `${successorPath} must be the 1.0.1 successor`)
+    assert.equal(manifest.publisher_id, 'com.storystudio')
+    assert.ok(typeof manifest.changelog === 'string' && manifest.changelog.length > 0,
+      `${successorPath} must state what changed`)
+  }
+})
+
+test('v1.0.1 successors carry the approved generated previews at the family WebP standard', async () => {
+  const thumbRoot = path.join(PSYCHOLOGY_ROOT, 'thumbnail', 'editorial-psychology-symbolic-split-v1.0.1')
+  const styleRoot = path.join(PSYCHOLOGY_ROOT, 'style', 'pastel-surreal-psychological-collage-v1.0.1')
+  const kitRoot = path.join(STUDIO_ROOT, 'kit', 'symbolic-psychology-studio-v1.0.1')
+
+  const thumbDocument = await readJson(path.join(thumbRoot, 'content', 'thumbnail-recipe.json'))
+  parseContentPackDocument('thumbnail-recipe', thumbDocument)
+  // The rejected preview #4 slot stays permanently vacant, so the new gallery entry is -6.
+  assert.deepEqual(thumbDocument.preview_assets, [
+    ...EDITORIAL_ASSETS.slice(0, 4).map(asset => `assets/${asset}`),
+    'assets/editorial-psychology-symbolic-split-6.webp',
+  ])
+  assert.equal(
+    sha256(await fs.readFile(path.join(thumbRoot, 'assets', 'editorial-psychology-symbolic-split-6.webp'))),
+    NEW_EDITORIAL_PREVIEW_SHA256,
+  )
+  // The four retained v1.0.0 previews must ride along unchanged.
+  for (const [index, asset] of EDITORIAL_ASSETS.slice(0, 4).entries()) {
+    assert.equal(sha256(await fs.readFile(path.join(thumbRoot, 'assets', asset))), EDITORIAL_HASHES[index])
+  }
+
+  const styleDocument = await readJson(path.join(styleRoot, 'content', 'visual-style.json'))
+  parseContentPackDocument('visual-style', styleDocument)
+  assert.deepEqual(styleDocument.preview_assets, [`assets/${EDITORIAL_ASSETS[4]}`])
+  const newPastel = await fs.readFile(path.join(styleRoot, 'assets', EDITORIAL_ASSETS[4]))
+  assert.equal(sha256(newPastel), NEW_PASTEL_PREVIEW_SHA256)
+  // The whole point of the successor: it must NOT be the rejected impasto preview.
+  assert.notEqual(sha256(newPastel), EDITORIAL_HASHES[4])
+
+  for (const asset of [
+    path.join(thumbRoot, 'assets', 'editorial-psychology-symbolic-split-6.webp'),
+    path.join(styleRoot, 'assets', EDITORIAL_ASSETS[4]),
   ]) {
-    await assert.rejects(
-      fs.access(path.join(ROOT, successorPath)),
-      { code: 'ENOENT' },
-      `${successorPath} must remain absent until its later evidence gate is satisfied`,
+    const metadata = await webpMetadata(asset)
+    assert.deepEqual(
+      { format: metadata.format, width: metadata.width, height: metadata.height },
+      { format: 'webp', width: 1672, height: 941 },
     )
   }
+
+  // A Kit is exactly four pieces: one Formula, one Topic, one Style, one thumbnail Recipe.
+  const kitManifest = await readJson(path.join(kitRoot, 'pack.json')) as {
+    dependencies: Array<{ pack_id: string, version: string }>
+    bundles: Array<{ components: Array<{ pack_id: string, version: string, kind: string }> }>
+  }
+  const components = kitManifest.bundles[0]!.components
+  assert.equal(components.length, 4, 'a Kit is exactly four pieces')
+  assert.deepEqual([...components.map(component => component.kind)].sort(), [
+    'series-formula', 'thumbnail-recipe', 'topic-pack', 'visual-style',
+  ])
+  assert.deepEqual(kitManifest.dependencies, components.map(({ pack_id, version }) => ({ pack_id, version })))
+  // The kit's idea-capacity promise rides entirely on the Topic pin, so pin it explicitly.
+  assert.deepEqual(
+    components.map(component => `${component.pack_id}@${component.version}`),
+    [
+      'com.storystudio.pack.formula.human-behavior-explained@1.0.1',
+      'com.storystudio.pack.topic.human-behavior-social-dynamics@1.0.1',
+      'com.storystudio.pack.style.pastel-surreal-psychological-collage@1.0.1',
+      'com.storystudio.pack.thumbnail.editorial-psychology-symbolic-split@1.0.1',
+    ],
+  )
 })
 
 test('source evidence: Editorial preview bytes match the provenance ledger', async () => {
