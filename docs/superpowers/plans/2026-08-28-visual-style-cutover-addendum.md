@@ -94,9 +94,25 @@ it is independent of the six-product stocking. It can be done now.
    Fantasy`. The owner approved renaming the user-facing product to **`Retro
    Paint Fantasy`** before first stocking, because the prior independent review
    found the old name places a Microsoft product mark as the leading element of
-   a paid product name. Technical ids (`ms-paint-fantasy`,
+   a paid product name. At the time, the technical ids (`ms-paint-fantasy`,
    `com.storystudio.pack.style.ms-paint-fantasy`, sku, family, asset filename)
-   are deliberately unchanged, so the revision-43 receipt chain still resolves.
+   were deliberately left unchanged, so the revision-43 receipt chain would
+   still resolve.
+
+   **That decision was revisited and reversed on 2026-08-28.** It rested on the
+   id being internal, and it is not. `pack_id` is printed on the permanent
+   Installed tab of the Content Store, it names the `.sspack` file a buyer
+   downloads, it becomes a directory under the customer's Application Support
+   tree, and it is a key inside `project.json` in the customer's own project
+   folder — and unlike prose, an id freezes permanently at first sale. All six
+   packs were still pre-sale (`authored`, family and sku `proposed`), so the
+   identifiers were renamed to `retro-paint-fantasy` while that was still
+   possible. Revision 43's batch receipt and the six lifecycle transitions at
+   revisions 44-49 were re-minted through the registry's own write functions;
+   the chain resolves against the new receipt
+   `authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf`.
+   The legacy `builtin-ms-paint-fantasy` id is out of scope and unchanged:
+   existing user projects pin it in `active_style_preset_id`.
    Task 7 Step 5 needs a separate correction — see below.
 
    The owner additionally ruled on 2026-08-28 that third-party product marks

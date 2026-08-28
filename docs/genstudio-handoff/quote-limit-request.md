@@ -61,3 +61,17 @@ quoted.
 No change to how quotes are priced, and no bulk or multi-chunk quote endpoint. One quote per
 job is the right granularity, because one job is the unit that gets charged. We are not asking
 you to total anything for us.
+
+---
+
+**STILL-REFERENCED — status header added 2026-08-28.** Cited directly (as
+`docs/genstudio-handoff/quote-limit-request.md`) in a doc comment on
+`TtsRequestBudgetSource` in `electron/server/services/tts-request-plan.ts` (~L71). Do not move
+this file while that comment cites the path.
+
+**More resolved than the file's own status line suggests.** That same comment states plainly:
+*"GenStudio removed that cap (the change `docs/genstudio-handoff/quote-limit-request.md`
+asked for), leaving the model as the only authority on how long a request may be."* The fixed
+`TTSQuoteRequest.text` 40,000-character cap this file complains about is gone — the core ask
+was granted. Whether the legacy `/v1/models` endpoint (tracked here as "C3") still carries the
+contradictory literal is a GenStudio-repo question this codebase cannot answer.

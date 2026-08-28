@@ -41,9 +41,18 @@ const KEY_ID = 'com.storystudio.key.production-looks-test'
 const APP_VERSION = '1.0.0'
 
 const SLUGS = [
-  'anime-cel', 'hand-drawn-cartoon-explainer', 'ms-paint-fantasy',
-  'pixel-art-story', 'studio-catalog-realism', 'whiteboard-doodle-explainer',
+  'anime-cel', 'hand-drawn-cartoon-explainer', 'pixel-art-story',
+  'retro-paint-fantasy', 'studio-catalog-realism', 'whiteboard-doodle-explainer',
 ] as const
+
+/**
+ * Retro Paint Fantasy was renamed off a third-party mark on 2026-08-28, before
+ * it was ever stocked. The shipped swatch under `frontend/public/` keeps the
+ * old slug, because existing projects pin the legacy `builtin-` id it belongs
+ * to, so the preview comparison below maps back to it.
+ */
+const BUILTIN_PREVIEW_SLUGS: Record<string, string> = { 'retro-paint-fantasy': 'ms-paint-fantasy' }
+const builtinPreviewSlug = (slug: string) => BUILTIN_PREVIEW_SLUGS[slug] ?? slug
 
 const keyPair = generateKeyPairSync('ed25519')
 const policy = createContentPackKeyring([{
@@ -185,7 +194,7 @@ describe('the six Production Looks reach the image generator as signed styles', 
       assert.equal(response.headers['content-type'], 'image/webp')
       assert.equal(
         sha256(response.body),
-        sha256(await fs.readFile(path.join(BUILTIN_PREVIEWS, `${slug}.webp`))),
+        sha256(await fs.readFile(path.join(BUILTIN_PREVIEWS, `${builtinPreviewSlug(slug)}.webp`))),
         `${slug} serves a different swatch than the built-in it replaces`,
       )
     }

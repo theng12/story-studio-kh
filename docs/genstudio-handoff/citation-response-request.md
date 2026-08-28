@@ -9,6 +9,16 @@ envelope as `citations`; the run-level fields are `research_ran_at`,
 `web_searches_executed`, and `web_search_credit_cost`. Per-source `retrieved_at` is not
 provided, and `citation_claims` is currently empty when a provider supplies no claim map.
 
+**HISTORICALLY VALUABLE — status header added 2026-08-28.** This exact envelope shape
+(`citations`, `research_ran_at`, `web_searches_executed`, `web_search_credit_cost`,
+`citation_claims`, no `retrieved_at`) is still what the code implements — confirmed live
+in `electron/server/lib/genstudio-client.ts` (~L5020-5185), `services/research/provenance.ts`,
+and `services/research/prompt.ts`, all of which cite this document's field names directly in
+their comments. `research_qualified` is still `false` today (confirmed in
+`services/research/genstudio-web.ts`), so runtime activation is genuinely still pending, not
+just stale wording. Left in place — no better home for the rationale behind these field
+choices.
+
 Please answer the questions below, including "we are not building that" where true. A
 clear no is genuinely useful: Story Studio will just not render the field, rather than
 leaving a placeholder for something that never arrives.

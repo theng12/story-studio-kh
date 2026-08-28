@@ -1938,7 +1938,7 @@ export async function planScenesTwoPass(opts: ScenePlanRunOptions): Promise<Scen
  * output — see `availableInputTokens` in scene-prompt-batching.ts), 'auto'
  * window sizing uses the smaller 10-scene window; at or above it, the
  * historical 30-scene window. An ESTIMATE that decides how work is split
- * across LLM calls — same role as `TOKENS_PER_FULL_DETAIL_SCENE` in
+ * across LLM calls — same role as `ScenePromptPackTuning.tokensPerScene` in
  * scene-prompt-batching.ts — never a hard cap on what a product may be asked
  * for.
  */

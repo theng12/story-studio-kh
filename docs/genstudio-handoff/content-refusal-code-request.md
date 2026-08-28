@@ -74,3 +74,52 @@ generic failure — workable, just needlessly opaque.
 
 If content-refusal reasons cannot be surfaced without leaking provider policy, saying so closes
 the question and we will lean entirely on prevention.
+
+---
+
+## ANSWERED AND SHIPPED — 2026-08-28
+
+**Status:** CLOSED. GenStudio `f043f268` (`feat/customer-failure-reason-2026-08-28`);
+Story Studio `feat/show-failure-reason-2026-08-28`.
+
+### What shipped
+
+`failure_class` on every modality's job body, in the requested shape — a small
+provider-agnostic vocabulary, following the `capacity_reason` precedent this
+request asked us to follow:
+
+| Value | Meaning |
+|---|---|
+| `content_refused` | refused on content-policy grounds |
+| `provider_transient` | rate limit, 5xx, provider temporarily unavailable |
+| `provider_error` | terminal, and GenStudio will not claim to know why |
+
+Alongside it, `failure_reason` — the provider's own sentence — for display only.
+**Story Studio branches on the class and never on the reason's wording**, which
+is what this request asked for and what its own reasoning demanded.
+
+It is computed from structured facts only: the job's failure code and the
+recorded exception class. Nothing reads provider prose. As part of the same
+change, `direct_images` now reads OpenAI's documented `error.code`, so a
+`moderation_blocked` rejection raises `ProviderContentRefusedError` and lands as
+`content_refused` — previously it arrived as a bare protocol error, which is
+exactly why the owner's own blocked thumbnail looked like a generic failure.
+
+### The two further questions
+
+**1. Is a content-refused generation charged? — No.** A content refusal calls
+`billing.release(...)` on the reservation, the same as any other provider
+failure; nothing is captured. So prevention is a quality improvement, not a
+money leak. The cost of a refusal is the customer's time, not their credits.
+
+**2. Which category tripped it? — Not provided, deliberately.** Upstream gives us
+a refusal signal, not a taxonomy: OpenAI returns `moderation_blocked` with no
+machine-readable category. Synthesising one from the message text is what this
+request explicitly asked us not to do, and a guessed category would steer a
+rewrite in the wrong direction. The bare `content_refused` code ships; the
+category does not.
+
+**No provider name is published in either field on an aggregator route.** As
+requested, `failure_class` names nobody at all — it is GenStudio's own closed
+vocabulary — which is why it is published even where the provider's words are
+withheld.

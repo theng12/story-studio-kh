@@ -12,19 +12,28 @@
  */
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
-import { _tickGenStudioCatalogClockForTests, createGenStudioCatalogCache } from '../composables/useGenStudioCatalogCache.ts'
+import { _advanceGenStudioCatalogClockForTests, createGenStudioCatalogCache } from '../composables/useGenStudioCatalogCache.ts'
 
-// The cache's `isStale`/`isExpired` computeds are driven by a shared tick
-// (see the module) so the UI can auto-refresh a staleness badge over time
-// without every cache running its own timer. In production that tick fires
-// every 15s; tests can't wait that long, so `sleep()` is always paired with
-// this hook to force an immediate re-evaluation against the real clock.
-function sleepPastThreshold(ms: number): Promise<void> {
-  return sleep(ms).then(() => { _tickGenStudioCatalogClockForTests() })
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms))
+/**
+ * Cross a freshness boundary by MOVING the cache's clock, not by sleeping.
+ * (The hook also ticks the shared staleness clock, so the `isStale` /
+ * `isExpired` computeds re-evaluate immediately instead of waiting on the
+ * real 15s production interval.)
+ *
+ * These windows are two-sided: "stale but not expired" requires the age to be
+ * ABOVE `freshMs` and BELOW `staleCeilingMs`. A real `sleep(40)` only ever
+ * guaranteed the floor — the ceiling was a bet on the scheduler, and it lost.
+ * On 2026-08-28 that 40ms sleep was measured at 2,656ms under concurrent
+ * suites (41ms when run alone), pushing the cache past a 1,000ms ceiling and
+ * failing an assertion about the product that was never actually false.
+ *
+ * Advancing the clock makes the elapsed age EXACTLY `ms`, so both sides of
+ * every window are genuinely proven on every run rather than one side proven
+ * and the other merely hoped for. It also drops this file's real-time cost to
+ * zero.
+ */
+function advancePastThreshold(ms: number): void {
+  _advanceGenStudioCatalogClockForTests(ms)
 }
 
 interface Row { id: string }
@@ -67,7 +76,7 @@ describe('createGenStudioCatalogCache', () => {
     await cache.refresh()
     assert.equal(cache.isStale.value, false)
 
-    await sleepPastThreshold(40)
+    advancePastThreshold(40)
     assert.equal(cache.isStale.value, true)
     assert.equal(cache.isExpired.value, false)
     // Stale is still shown — the last good snapshot, not wiped out.
@@ -84,7 +93,7 @@ describe('createGenStudioCatalogCache', () => {
     await cache.refresh()
     assert.equal(cache.isUsable.value, true)
 
-    await sleepPastThreshold(50)
+    advancePastThreshold(50)
     assert.equal(cache.isExpired.value, true)
     assert.equal(cache.isUsable.value, false)
     // Still visible for display (better than a blank panel)...
@@ -98,7 +107,7 @@ describe('createGenStudioCatalogCache', () => {
     await cache.refresh()
     assert.deepEqual(cache.data.value, [{ id: 'seed' }])
 
-    await sleepPastThreshold(50) // now past the hard ceiling
+    advancePastThreshold(50) // now past the hard ceiling
     await cache.refresh(true)
 
     assert.equal(cache.error.value, 'down')
@@ -148,7 +157,7 @@ describe('createGenStudioCatalogCache', () => {
     const cache = createGenStudioCatalogCache<Row[]>({ empty: [], fetcher, freshMs: 10, staleCeilingMs: 5000 })
 
     await cache.refresh()
-    await sleepPastThreshold(20)
+    advancePastThreshold(20)
     await cache.refresh()
 
     assert.equal(cache.error.value, 'blip')

@@ -14,6 +14,11 @@
  * The option ladder is now GENERATED from the product's live
  * `max_output_tokens`, and the product's own number is always offered as the
  * top choice. No allowance, context window, or model name is hardcoded.
+ *
+ * The SAME MISTAKE was made a second time, in the batch sizer below, and lived
+ * until 2026-08-28 — see the note above `SCENE_PROMPT_PACK_MIN`. That one hurt
+ * more, because the clamp sat directly on top of a correct derivation and the
+ * Scene Plan panel advertised the derivation as the thing it was doing.
  */
 export type ScenePromptPackSize = number
 export type ScenePromptPackSetting = 'auto' | ScenePromptPackSize
@@ -22,7 +27,64 @@ export type ScenePromptPackSetting = 'auto' | ScenePromptPackSize
 export type ScenePromptTokenSetting = 'auto' | number
 
 export const SCENE_PROMPT_PACK_MIN = 1
-export const SCENE_PROMPT_PACK_MAX = 50
+
+/**
+ * WHY THERE IS NO `SCENE_PROMPT_PACK_MAX` ANY MORE.
+ * ----------------------------------------------------------------------
+ * There used to be one, fixed at 50, and `maxSafeScenePromptPackSize` ended
+ * with `Math.min(SCENE_PROMPT_PACK_MAX, …)`. That clamp bound for every model
+ * publishing 20,000 output tokens or more — i.e. every serious model — so the
+ * derivation below computed a correct number and then threw it away, and the
+ * panel's "Model-aware" badge was false. Measured against 85,411 real scene
+ * prompts (447 episodes, 8 channels), one emitted scene object costs a median
+ * 149 tokens, p90 229, p95 260, p99 330, worst-ever 561. Fifty scenes is 3% of
+ * a 384,000-token allowance. The cap was never protecting anything.
+ *
+ * What replaces it is the owner's own two-field pattern: an ALLOWANCE he edits
+ * (`ScenePromptPackTuning`, persisted in project config) and a dial with no
+ * code maximum. Nothing in this module may reintroduce a hardcoded ceiling.
+ */
+
+/**
+ * The three numbers behind batch sizing, all owner-editable per project.
+ *
+ * `tokensPerScene` is NOT a measured average — it is deliberately pessimistic.
+ * 300 sits between the measured p95 (260) and p99 (330), and combined with a
+ * 0.75 safety fraction it reserves ~400 tokens per scene, above the p99 and
+ * within 30% of the worst single scene ever written.
+ */
+export interface ScenePromptPackTuning {
+  /** Tokens reserved per emitted scene object. Project key: `scene_prompt_tokens_per_scene`. */
+  tokensPerScene: number
+  /** Fraction of the model's published output allowance the sizer will use.
+   *  Project key: `scene_prompt_output_safety_fraction`. */
+  safetyFraction: number
+  /**
+   * The default effective batch when "Automatic" is chosen. Project key:
+   * `scene_prompt_batch_size`.
+   *
+   * 250 IS A THROUGHPUT JUDGEMENT, NOT A TOKEN LIMIT. The token arithmetic
+   * alone permits ~960 scenes on a 384,000-token model (15% of the allowance
+   * is used at 250, so there is 6.6x headroom at p90 and the worst scene ever
+   * recorded would still fit inside 21%). What actually binds is wall-clock:
+   * `GENSTUDIO_LANGUAGE_SUBMIT_TIMEOUT_MS` is 20 minutes, and a 220,000-token
+   * response has to sustain ~185 tokens/second to land inside it. The real
+   * sustained throughput of the large models is UNVERIFIED, so 250 is the
+   * largest batch that is comfortable at an unknown speed. It cuts requests
+   * across the owner's library from 1,951 to 591.
+   *
+   * RAISE THIS once throughput is measured — `completionTokens` is now logged
+   * with each successful pack precisely so that question is answerable from
+   * data instead of estimated again.
+   */
+  batchSize: number
+}
+
+export const SCENE_PROMPT_PACK_TUNING_DEFAULTS: Readonly<ScenePromptPackTuning> = Object.freeze({
+  tokensPerScene: 300,
+  safetyFraction: 0.75,
+  batchSize: 250,
+})
 
 /**
  * Used ONLY when the catalogue published no usable allowance for the selected
@@ -37,8 +99,29 @@ export const SCENE_PROMPT_FALLBACK_OUTPUT_TOKENS = 8192
  *  and keeps going for as long as the selected product allows. */
 const TOKEN_LADDER_SEEDS = [4096, 6144] as const
 
-const TOKENS_PER_FULL_DETAIL_SCENE = 300
-const OUTPUT_SAFETY_FRACTION = 0.75
+/**
+ * Read the owner's tuning out of a project config object. Every field is
+ * independent: an absent or unusable one falls back to its own default and
+ * leaves the others alone. There is deliberately no upper bound on any of
+ * them — see the note above `SCENE_PROMPT_PACK_MIN`.
+ */
+export function parseScenePromptPackTuning(config: unknown): ScenePromptPackTuning {
+  const source = (config && typeof config === 'object' ? config : {}) as Record<string, unknown>
+  const tokensPerScene = Number(source.scene_prompt_tokens_per_scene)
+  const safetyFraction = Number(source.scene_prompt_output_safety_fraction)
+  const batchSize = Number(source.scene_prompt_batch_size)
+  return {
+    tokensPerScene: Number.isFinite(tokensPerScene) && tokensPerScene >= 1
+      ? tokensPerScene : SCENE_PROMPT_PACK_TUNING_DEFAULTS.tokensPerScene,
+    // A fraction above 1 would ask for more than the model publishes, which
+    // `resolveScenePromptTokenBudget` would clip anyway; 0 would make every
+    // batch a single scene. Anything inside (0, 1] is the owner's business.
+    safetyFraction: Number.isFinite(safetyFraction) && safetyFraction > 0 && safetyFraction <= 1
+      ? safetyFraction : SCENE_PROMPT_PACK_TUNING_DEFAULTS.safetyFraction,
+    batchSize: Number.isInteger(batchSize) && batchSize >= SCENE_PROMPT_PACK_MIN
+      ? batchSize : SCENE_PROMPT_PACK_TUNING_DEFAULTS.batchSize,
+  }
+}
 
 function normalizeMaxOutputTokens(value: unknown): number {
   const parsed = Number(value)
@@ -61,11 +144,29 @@ export function scenePromptTokenOptions(modelMaxOutputTokens: unknown): number[]
   return [...options].sort((a, b) => a - b)
 }
 
+/**
+ * A chosen batch size, or 'auto'. THROWS on a value that is present but not
+ * usable, and never substitutes a different number.
+ *
+ * It used to do the opposite: reject anything above 50 and quietly return
+ * 'auto', which resolved straight back to 50. Someone who typed 200 got 50 and
+ * was told nothing. A value this function cannot honour is now reported to
+ * whoever sent it — see the 400s in `routes/scene-plan.ts` and the visible skip
+ * in `routes/pipeline.ts`.
+ */
 export function parseScenePromptPackSetting(value: unknown): ScenePromptPackSetting {
   if (value === 'auto' || value == null || value === '') return 'auto'
-  const size = Number(value)
-  return Number.isInteger(size) && size >= SCENE_PROMPT_PACK_MIN && size <= SCENE_PROMPT_PACK_MAX
-    ? size : 'auto'
+  // Booleans, arrays and objects all coerce to a number in JS (`true` → 1,
+  // `[]` → 0), so the type is checked before the value. A caller sending one of
+  // those has a bug, and 1 is not a helpful guess at what it meant.
+  const size = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
+  if (!Number.isInteger(size) || size < SCENE_PROMPT_PACK_MIN) {
+    throw new Error(
+      `Scenes per request must be "auto" or a whole number of ${SCENE_PROMPT_PACK_MIN} or more. `
+      + `Received ${JSON.stringify(value)}. Nothing was substituted.`,
+    )
+  }
+  return size
 }
 
 /**
@@ -80,11 +181,33 @@ export function parseScenePromptTokenSetting(value: unknown): ScenePromptTokenSe
   return Number.isInteger(budget) && budget >= 1 ? budget : 'auto'
 }
 
-/** The largest structured pack that leaves headroom for JSON and retries. */
-export function maxSafeScenePromptPackSize(maxOutputTokens?: unknown): ScenePromptPackSize {
+/**
+ * The largest structured pack the SELECTED MODEL's published output allowance
+ * can return complete, at the owner's tuning. This is the only ceiling in the
+ * module, and it is derived, not declared: exceeding it truncates the JSON.
+ */
+export function maxSafeScenePromptPackSize(
+  maxOutputTokens?: unknown,
+  tuning: ScenePromptPackTuning = SCENE_PROMPT_PACK_TUNING_DEFAULTS,
+): ScenePromptPackSize {
   const maxOutput = normalizeMaxOutputTokens(maxOutputTokens)
-  const scenes = Math.floor((maxOutput * OUTPUT_SAFETY_FRACTION) / TOKENS_PER_FULL_DETAIL_SCENE)
-  return Math.min(SCENE_PROMPT_PACK_MAX, Math.max(SCENE_PROMPT_PACK_MIN, scenes))
+  const scenes = Math.floor((maxOutput * tuning.safetyFraction) / tuning.tokensPerScene)
+  return Math.max(SCENE_PROMPT_PACK_MIN, scenes)
+}
+
+/**
+ * What "Automatic" means: the owner's default batch, or the model's derived
+ * safe maximum when that model cannot return even that much.
+ *
+ * The `Math.min` here is NOT the old cap wearing a new hat. `batchSize` is a
+ * value the owner sets and can raise without touching code; `maxSafe` is what
+ * the chosen model publishes. Neither is a constant this module invented.
+ */
+export function automaticScenePromptPackSize(
+  maxOutputTokens?: unknown,
+  tuning: ScenePromptPackTuning = SCENE_PROMPT_PACK_TUNING_DEFAULTS,
+): ScenePromptPackSize {
+  return Math.min(tuning.batchSize, maxSafeScenePromptPackSize(maxOutputTokens, tuning))
 }
 
 export function resolveScenePromptTokenBudget(
@@ -97,16 +220,46 @@ export function resolveScenePromptTokenBudget(
 }
 
 /**
- * Explicit choices remain available, but are clipped to what the selected
- * GenStudio model can actually return as a complete, durable JSON response.
+ * Explicit choices remain available, and are limited only by what the selected
+ * GenStudio model can actually return as one complete, durable JSON response.
+ * A choice that IS reduced is reported by `describeScenePromptPackSize`, which
+ * the scene-plan generator writes into the job log — an explicit number never
+ * changes quietly.
  */
 export function resolveScenePromptPackSize(
   outputBudget: unknown,
   setting: ScenePromptPackSetting,
+  tuning: ScenePromptPackTuning = SCENE_PROMPT_PACK_TUNING_DEFAULTS,
 ): ScenePromptPackSize {
-  const safeMaximum = maxSafeScenePromptPackSize(outputBudget)
-  const requested = setting === 'auto' ? safeMaximum : setting
+  const safeMaximum = maxSafeScenePromptPackSize(outputBudget, tuning)
+  const requested = setting === 'auto'
+    ? automaticScenePromptPackSize(outputBudget, tuning)
+    : setting
   return Math.min(safeMaximum, Math.max(SCENE_PROMPT_PACK_MIN, requested))
+}
+
+/**
+ * A one-line, honest account of how the batch size was arrived at, including
+ * whether an explicitly requested size had to be reduced and why.
+ */
+export function describeScenePromptPackSize(
+  outputBudget: unknown,
+  setting: ScenePromptPackSetting,
+  tuning: ScenePromptPackTuning = SCENE_PROMPT_PACK_TUNING_DEFAULTS,
+): string {
+  const safeMaximum = maxSafeScenePromptPackSize(outputBudget, tuning)
+  const resolved = resolveScenePromptPackSize(outputBudget, setting, tuning)
+  const budget = normalizeMaxOutputTokens(outputBudget)
+  const basis = `${budget.toLocaleString()} output tokens × ${tuning.safetyFraction} ÷ `
+    + `${tuning.tokensPerScene} per scene = ${safeMaximum.toLocaleString()} max`
+  if (setting === 'auto') {
+    return resolved < tuning.batchSize
+      ? `Batch: ${resolved} scenes per request — this model cannot safely return the ${tuning.batchSize}-scene default (${basis}).`
+      : `Batch: ${resolved} scenes per request (project default; ${basis}).`
+  }
+  return resolved < setting
+    ? `Batch: ${resolved} scenes per request — ${setting} was requested, but this model can only return ${safeMaximum} complete (${basis}).`
+    : `Batch: ${resolved} scenes per request (requested; ${basis}).`
 }
 
 /**

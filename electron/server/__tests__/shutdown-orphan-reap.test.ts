@@ -19,6 +19,7 @@ import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'child_process'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 import { parsePsOutput } from '../services/orphan-reaper.js'
 
 let cleanup: () => Promise<void>
@@ -41,6 +42,7 @@ describe('killAllTrackedChildren()', () => {
     // Real subprocess that would otherwise sleep forever. The executor
     // registers it via trackChild so the shutdown helper can find it.
     let exitSignal: NodeJS.Signals | null = null
+    let childExited = false
     let resolved: () => void = () => {}
     const exited = new Promise<void>((r) => { resolved = r })
 
@@ -49,11 +51,16 @@ describe('killAllTrackedChildren()', () => {
       jq.trackChild(child)
       child.on('exit', (_code, signal) => {
         exitSignal = signal
+        childExited = true
         resolved()
       })
-      // Block the executor so the child stays "tracked" until the
-      // shutdown helper actually sends SIGTERM.
-      await new Promise((r) => setTimeout(r, 5000))
+      // Block the executor so the child stays "tracked" until the shutdown
+      // helper actually sends SIGTERM. Blocking on the child's own exit
+      // rather than a fixed 5s means the executor finishes as soon as the
+      // SIGTERM lands: it can no longer still be running after the test has
+      // torn down its temp data dir, which is what produced the
+      // `STORY_STUDIO_DATA_DIR=<unset>` isolation violation downstream.
+      await exited
     })
 
     jq.enqueuePreparedForTest({
@@ -61,8 +68,13 @@ describe('killAllTrackedChildren()', () => {
       title: 't', params: {},
     })
 
-    // Let processQueue dequeue and start the executor.
-    await new Promise((r) => setTimeout(r, 150))
+    // Let processQueue dequeue and start the executor. This is a
+    // precondition, not the assertion under test — the test proves that
+    // killAllTrackedChildren SIGTERMs whatever is tracked, and it can only
+    // prove that once something IS tracked.
+    await waitFor(() => jq._trackedChildCountForTesting() >= 1, {
+      label: 'the queue runner to start the executor and track its child',
+    })
 
     assert.ok(jq._trackedChildCountForTesting() >= 1,
       'expected at least 1 tracked child before shutdown')
@@ -72,11 +84,12 @@ describe('killAllTrackedChildren()', () => {
     const pids = jq.killAllTrackedChildren(500)
     assert.ok(pids.length >= 1, 'expected the helper to report at least one pid')
 
-    // Race the actual exit against a generous test timeout.
-    await Promise.race([
-      exited,
-      new Promise<void>((_, rej) => setTimeout(() => rej(new Error('child did not exit in 2s')), 2000)),
-    ])
+    // Wait for the child to actually go away. The budget is scheduled time,
+    // so a loaded machine gets proportionally longer without the test
+    // becoming unable to fail.
+    await waitFor(() => childExited, {
+      label: 'the tracked child to exit after killAllTrackedChildren',
+    })
 
     assert.equal(exitSignal, 'SIGTERM',
       `expected child to exit with SIGTERM, got ${exitSignal}`)

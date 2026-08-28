@@ -2273,6 +2273,16 @@ export interface UpdateConfigRequest {
    */
   music_library_tracks?: MusicLibraryTrack[]
   music_library_usage_log?: MusicLibraryUsageEntry[]
+  /**
+   * Scene Plan batch tuning, per channel. Declared rather than cast for the
+   * same reason as the music fields above. Defaults (300 / 0.75 / 250) live in
+   * `services/scene-prompt-batching.ts`; there is deliberately no upper bound
+   * on any of them in code, because a hardcoded batch ceiling is exactly what
+   * these replaced.
+   */
+  scene_prompt_tokens_per_scene?: number
+  scene_prompt_output_safety_fraction?: number
+  scene_prompt_batch_size?: number
 }
 
 // ── Jobs ────────────────────────────────────────────────────────────────────

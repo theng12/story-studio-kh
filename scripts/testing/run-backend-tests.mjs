@@ -318,7 +318,11 @@ export function assertSummaryAgrees(transcript, exitCode) {
       + `Zero tests is a failure, not a pass (reported exit code ${exitCode}).`
   }
   if (failed > 0) {
-    return `${failed} of ${tests} backend test(s) failed (reported exit code ${exitCode}).`
+    // Lane-neutral wording: every gate lane reports through this function, and
+    // the caller prefixes its own name. Saying "backend" here produced the line
+    // "[test-harness] frontend: 1 of 1116 backend test(s) failed" on a real
+    // frontend failure — which points a reader at the wrong suite entirely.
+    return `${failed} of ${tests} test(s) failed (reported exit code ${exitCode}).`
   }
   // Skipped and todo are legitimate outcomes and are counted separately, so
   // they belong in the total. Anything left over means tests were started and
@@ -375,8 +379,14 @@ function startSuiteWatchdog(child) {
   }, limitMs)
 }
 
-/** Read the per-file records the coverage reporter wrote. Missing file = no evidence. */
-async function readCoverageRecords(coveragePath) {
+/**
+ * Read the per-file records the coverage reporter wrote. Missing file = no evidence.
+ *
+ * Exported so the other three gate lanes (`run-lane-tests.mjs`) read the
+ * reporter's output through this exact function instead of a second copy of
+ * it. One implementation of the floor, or the lanes drift apart.
+ */
+export async function readCoverageRecords(coveragePath) {
   let raw
   try {
     raw = await fs.readFile(coveragePath, 'utf8')

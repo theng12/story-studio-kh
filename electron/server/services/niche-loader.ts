@@ -170,7 +170,7 @@ const METADATA_PROFILES: Record<'evidence' | 'immersive' | 'reflective' | 'calm'
     descriptionSectionIds: ['hook', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 2500, titleMaxLength: 100, tagCount: 12,
   },
   faith: {
-    id: 'pastoral-youtube', label: 'Pastoral YouTube package',
+    id: 'pastoral-youtube', label: 'Pastoral video package',
     description: 'A respectful episode summary and restrained discoverability details, without pressure language.',
     descriptionSectionIds: ['hook', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 3000, titleMaxLength: 100, tagCount: 15,
   },

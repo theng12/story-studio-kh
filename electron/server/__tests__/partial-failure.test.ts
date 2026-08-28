@@ -19,10 +19,26 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 let cleanup: () => Promise<void>
 let jq: typeof import('../services/job-queue.js')
 let pm: typeof import('../services/project-manager.js')
+
+const TERMINAL = ['done', 'error', 'cancelled']
+
+/**
+ * Wait until the queue runner has stamped SOME terminal status on the job.
+ *
+ * Deliberately not "wait until the status is `error`" — that would make the
+ * assertion which follows vacuous. Each test still asserts WHICH terminal
+ * status it got, so a `done` where `error` was required is still a failure.
+ * All that changes is that the verdict no longer depends on the runner
+ * finishing inside a hardcoded 200ms.
+ */
+function waitForTerminal(jobId: string, label: string): Promise<void> {
+  return waitFor(() => TERMINAL.includes(jq.getJob(jobId)?.status ?? ''), { label })
+}
 
 before(async () => {
   const t = await useTempDataDir()
@@ -47,7 +63,7 @@ describe('partial-failure status contract', () => {
     })
 
     // Wait for the queue runner to execute + persist the terminal state.
-    await new Promise((r) => setTimeout(r, 200))
+    await waitForTerminal(job.job_id, 'PF_EP1 to reach a terminal status')
 
     const after = jq.getJob(job.job_id)
     assert.ok(after, 'job should be readable after it finishes')
@@ -72,7 +88,7 @@ describe('partial-failure status contract', () => {
       project_slug: proj.slug, type: 'script-only', episode_id: 'PF_EP2',
       title: 't', params: {},
     })
-    await new Promise((r) => setTimeout(r, 200))
+    await waitForTerminal(job.job_id, 'PF_EP2 to reach a terminal status')
 
     const after = jq.getJob(job.job_id)
     assert.equal(after!.status, 'done')
@@ -99,7 +115,11 @@ describe('partial-failure status contract', () => {
         project_slug: proj.slug, type: 'script-only', episode_id: 'PF_EV_1',
         title: 't', params: {},
       })
-      await new Promise((r) => setTimeout(r, 250))
+      // Wait for a terminal frame of ANY kind, then assert below that the one
+      // we got was the error frame — a `done` here would still fail the test.
+      await waitFor(() => updates.some(u => TERMINAL.includes(u.status)), {
+        label: 'a terminal jobEvents.update for PF_EV_1',
+      })
 
       // The SSE stream relies on this terminal-error frame for the
       // "failed" toast in the UI — regressing this breaks the user-

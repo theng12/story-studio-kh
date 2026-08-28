@@ -21,12 +21,11 @@ describe('Scene Plan workspace', () => {
 
   test('keeps GenStudio-aware prompt batching and readable intensity controls visible', () => {
     assert.match(scenePlan, /class="scene-workflow-grid/)
-    assert.match(scenePlan, /Automatic keeps each full-detail JSON response complete/)
     assert.match(scenePlan, /Advanced batch controls/)
     assert.match(scenePlan, /selectedModelContextLabel/)
     assert.doesNotMatch(scenePlan, /Scenes per cloud pack/)
     assert.doesNotMatch(scenePlan, /Local and free-cloud models cap/)
-    assert.match(scenePlan, /PROMPT_PACK_PRESETS = \[1, 3, 5, 10, 15, 20, 25, 30, 50\]/)
+    assert.match(scenePlan, /PROMPT_PACK_PRESETS = \[1, 5, 10, 25, 50, 100, 250, 500\]/)
     assert.match(scenePlan, /value="custom"/)
     assert.match(scenePlan, /customPromptPackSize/)
     assert.match(scenePlan, /prompt_pack_size: form\.value\.prompt_pack_size/)
@@ -38,6 +37,42 @@ describe('Scene Plan workspace', () => {
     assert.match(scenePlan, /:disabled="!form\.generate_motion_prompts"/)
     assert.match(scenePlan, /class="intensity-options"/)
     assert.doesNotMatch(scenePlan, /v-if="form\.generate_motion_prompts" class="mt-2"/)
+  })
+
+  /**
+   * The panel carried its own `PROMPT_PACK_MAX = 50` — a duplicate of a backend
+   * constant, applied with the same formula — so BOTH ends independently threw
+   * away a correct model-aware derivation, and the Custom box's `:max` stopped
+   * anyone typing past it. Measured against 85,411 real scene prompts, 50
+   * scenes is 3% of a large model's published allowance; the cap protected
+   * nothing and made the card's own copy false.
+   */
+  test('no hardcoded batch ceiling survives on the page', () => {
+    // The DECLARATION, not the word — the comment explaining its removal
+    // deliberately names it, and that comment is the point.
+    assert.doesNotMatch(scenePlan, /const PROMPT_PACK_MAX/)
+    assert.doesNotMatch(scenePlan, /:max="maximumPromptPackSize"/)
+    // The card's ceiling is derived from the selected model, and the tuning
+    // behind it is the channel's own saved data.
+    assert.match(scenePlan, /const maximumPromptPackSize = computed/)
+    assert.match(scenePlan, /promptTokensPerScene/)
+    assert.match(scenePlan, /promptSafetyFraction/)
+    assert.match(scenePlan, /promptBatchSizeDefault/)
+    assert.match(scenePlan, /scene_prompt_tokens_per_scene/)
+    assert.match(scenePlan, /scene_prompt_output_safety_fraction/)
+    assert.match(scenePlan, /scene_prompt_batch_size/)
+    assert.match(scenePlan, /const DEFAULT_PROMPT_BATCH_SIZE = 250/)
+    // A choice the model cannot honour is stated, not silently rewritten.
+    assert.match(scenePlan, /promptPackReductionNotice/)
+  })
+
+  /** The old line claimed Automatic used "the selected GenStudio model's
+   *  published output limit". A 50-scene cap made that false for every serious
+   *  model, so the copy has to describe what actually happens. */
+  test('the batch card no longer claims a limit it did not honour', () => {
+    assert.doesNotMatch(scenePlan, /Automatic keeps each full-detail JSON response complete/)
+    assert.match(scenePlan, /Automatic sends this channel’s default of \{\{ promptBatchSizeDefault \}\} scenes per request/)
+    assert.match(scenePlan, /reduced only if/)
   })
 
   test('repairs missing prompts in the saved GenStudio pack size', () => {
