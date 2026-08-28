@@ -31,6 +31,7 @@
     "verify:public-artifact": "node scripts/release/verify-signed-desktop-artifact.mjs",
     "content-pack:build": "node scripts/content-packs/build-pack.mjs",
     "content-pack:validate": "node scripts/content-packs/validate-pack.mjs",
+    "content-pack:ship": "node scripts/content-packs/ship-pack.mjs",
     "content-pack:registry": "node scripts/content-packs/authoring-registry.mjs",
     "start": "electron .",
     "test:backend": "node scripts/testing/run-backend-tests.mjs",
