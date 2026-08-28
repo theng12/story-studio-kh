@@ -13,9 +13,16 @@
       placeholder="Pick an LLM model…"
       search-placeholder="Search LLM models…"
       aria-label="LLM model options"
+      :catalog-notice="selectionGap"
+      :missing-selection-label="selectionGap ? 'No longer offered' : ''"
       @update:model-value="selectModel"
     />
     <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
+    <!-- The saved product is gone from the catalogue. Body text in the flow,
+         like the disclosure and retirement notices below it: this is the only
+         thing telling the user why the field no longer names a model, and it
+         asks them to do something about it. -->
+    <p v-if="selectionGap" class="selection-gap">{{ selectionGap }}</p>
     <!-- Rendered in full, always, while a model carrying it is selected. Not a
          tooltip, not collapsed, not truncated: choosing the model IS the
          consent act, so the words have to be readable at the moment of
@@ -36,6 +43,8 @@ import {
   isUsableLiveGenStudioModel,
   selectLiveGenStudioModel,
   genStudioModelLockReason,
+  describeGenStudioSelectionGap,
+  genStudioSelectionGapMessage,
 } from '../utils/live-genstudio-model-selection.js'
 import { invalidateModelCatalogCache } from '../composables/useApi.js'
 import type { GenStudioCostTier } from '../utils/genstudio-cost-tier.js'
@@ -137,6 +146,14 @@ const { get } = useApi()
 const allModels = ref<LlmModelRow[]>([])
 const loading = ref(false)
 const loadError = ref('')
+/**
+ * The sentence for a saved product that has LEFT the live catalogue, or ''.
+ *
+ * Authored once in `genStudioSelectionGapMessage` and rendered verbatim on both
+ * surfaces this picker owns — under the field, and inside the open menu — so a
+ * user who never opens the menu still learns their pin is dead.
+ */
+const selectionGap = ref('')
 
 function isDisabled(model: LlmModelRow): boolean {
   return !isUsableLiveGenStudioModel(model, props.requireVision === true)
@@ -229,10 +246,30 @@ function syncModelSelection(): void {
       loadError.value = unavailable.disabled_reason
         || `${unavailable.label} is retired or unavailable. Choose a replacement; Story Studio will not switch products automatically.`
     }
+    // The saved product left the catalogue entirely. Until now this fell
+    // through in silence — no row to read a `disabled_reason` off, so the
+    // branch above said nothing and the menu showed the dead id as though it
+    // were still a choice. A pinned id that GenStudio no longer publishes is
+    // exactly the case a catalogue dedupe produces, and it must be told to the
+    // user rather than discovered when a generation fails.
+    //
+    // Guarded on a loaded catalogue: an empty `allModels` means the read is
+    // still in flight or failed outright, and "no longer offered" would be a
+    // lie about a catalogue nobody has seen yet. That failure has its own
+    // message in `loadError`.
+    //
+    // `vanished` ONLY. A product that is still listed but disabled is the
+    // branch above, which keeps its own wording — reporting the gap message
+    // too would say the same thing twice in two different sentences.
+    const gap = allModels.value.length
+      ? describeGenStudioSelectionGap(saved, allModels.value, props.requireVision === true)
+      : null
+    selectionGap.value = gap?.kind === 'vanished' ? genStudioSelectionGapMessage(gap) || '' : ''
     emit('model-meta', null)
     return
   }
   loadError.value = ''
+  selectionGap.value = ''
   // Persist the healed value through the owning form. This replaces stale
   // direct-provider defaults (notably GPT-4o) and means they cannot reappear
   // after the next visit.
@@ -283,6 +320,23 @@ defineExpose({ reloadCatalog })
 <style scoped>
 .loading { margin-left: 8px; color: var(--text-muted); font-size: var(--font-xs); font-weight: 400; }
 .catalog-message { margin: 6px 0 0; color: var(--warning, #d97706); font-size: var(--font-xs); line-height: 1.4; }
+
+/*
+ * Same treatment as the two notices below, and for the same reason: a dead pin
+ * is not a hint, it is a thing the user must act on before this form can run.
+ * Muted micro-copy under a control is how it stayed invisible before.
+ */
+.selection-gap {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--warning, #d97706);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-md);
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
 
 /*
  * Body text, deliberately. This is the only place a customer is told what

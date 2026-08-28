@@ -33,6 +33,27 @@ export interface ResolvedDefaultChatModel {
   requestedModelId: string | null
 }
 
+/**
+ * The sentence an operator should see when a saved default healed to a
+ * different product, or null when nothing was substituted.
+ *
+ * `ResolvedDefaultChatModel.healed` documents that callers "should surface
+ * this to the operator instead of healing silently", and every caller holding
+ * a saved preference discarded it — the substitution happened, correctly, and
+ * then went unmentioned. The wording lives here rather than at seven call
+ * sites so a customer reading two different job logs is told the same thing.
+ *
+ * Shaped like the announcement `lib/chunked-narration.ts` already makes for a
+ * mid-run heal: what was saved, why it could not be used, what ran instead,
+ * and what the operator can do about it.
+ */
+export function describeHealedDefaultChatModel(resolved: ResolvedDefaultChatModel): string | null {
+  if (!resolved.healed || !resolved.requestedModelId) return null
+  return `The saved model "${resolved.requestedModelId}" is no longer available on GenStudio `
+    + `(retired, unpublished, or qualification-only), so "${resolved.modelId}" was used instead. `
+    + 'Choose a model explicitly if you want a different one.'
+}
+
 /** A product is selectable when GenStudio marks it available, unlocked, and
  *  not qualification-gated. Never infer usability from the product's name. */
 function isUsableChatModel(model: GenStudioChatModel): boolean {

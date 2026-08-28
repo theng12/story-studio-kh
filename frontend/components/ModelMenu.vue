@@ -11,8 +11,8 @@
       @click="toggle"
     >
       <span class="model-menu-kind" aria-hidden="true">{{ kindLabel }}</span>
-      <span class="model-menu-current">
-        <strong>{{ selectedOption?.label || modelValue || (loading ? loadingLabel : placeholder) }}</strong>
+      <span class="model-menu-current" :class="{ missing: showingMissingSelection }">
+        <strong>{{ triggerLabel }}</strong>
         <span v-if="selectedSummary">{{ selectedSummary }}</span>
       </span>
       <span
@@ -200,6 +200,19 @@ const props = withDefaults(defineProps<{
   disabled?: boolean
   catalogNotice?: string
   catalogNoticeHref?: string
+  /**
+   * What to show on the trigger when `modelValue` names a product this menu's
+   * options no longer contain.
+   *
+   * Empty by default, which keeps the long-standing behaviour of echoing the
+   * raw id — during a load the options are legitimately empty and the saved id
+   * is all there is to show. An owner that KNOWS the id is dead (it has the
+   * catalogue and the id is not in it) sets this, and the trigger stops
+   * presenting a dead id as though it were a chosen model. The raw id stays
+   * reachable as the trigger's title, because the user still needs to know
+   * which product went away.
+   */
+  missingSelectionLabel?: string
 }>(), {
   mediaType: 'llm',
   title: 'Choose a model',
@@ -211,6 +224,7 @@ const props = withDefaults(defineProps<{
   disabled: false,
   catalogNotice: '',
   catalogNoticeHref: '',
+  missingSelectionLabel: '',
 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -229,6 +243,21 @@ const kindLabel = computed(() => ({
   transcription: 'STT',
 })[props.mediaType])
 const selectedOption = computed(() => props.options.find(option => option.id === props.modelValue) || null)
+/**
+ * True only when the owner has told us the saved id is genuinely gone.
+ *
+ * Deliberately NOT inferred from "no matching option": that is also true while
+ * the catalogue is still loading, and a menu that called its own saved value
+ * dead every time it opened before the network answered would be crying wolf.
+ */
+const showingMissingSelection = computed(() => (
+  !selectedOption.value && !!props.modelValue && !!props.missingSelectionLabel
+))
+/** The trigger's headline: the chosen model, the dead-pin label, or the id. */
+const triggerLabel = computed(() => {
+  if (showingMissingSelection.value) return props.missingSelectionLabel
+  return selectedOption.value?.label || props.modelValue || (props.loading ? props.loadingLabel : props.placeholder)
+})
 const selectedAccessBadges = computed(() => (
   selectedOption.value?.badges?.filter(badge => badge.label.startsWith('∞')) || []
 ))
@@ -402,6 +431,9 @@ function onListKeydown(event: KeyboardEvent) {
   -webkit-line-clamp: 2;
 }
 .model-menu-current span { overflow: hidden; color: var(--text-muted); font-size: var(--font-xs); line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+/* A dead pin must not read as a settled choice. Same warning colour the rest of
+   this app uses for "you need to do something about this". */
+.model-menu-current.missing strong { color: var(--warning, #d97706); }
 .model-menu-chevron { flex: 0 0 auto; color: var(--text-muted); transition: transform .15s ease; }
 .model-menu-trigger.open .model-menu-chevron { transform: rotate(180deg); }
 .model-menu-trigger-badge { flex: 0 0 auto; }

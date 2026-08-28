@@ -27,7 +27,7 @@ import { requireJobCompletion } from '../services/job-completion.js'
 import { writePromptCompletionManifest } from '../services/prompt-completion.js'
 import { thumbnailPromptsOutputContract } from '../lib/story-output-contracts.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
+import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
 import {
   buildPromptCharCapInstruction,
   describeOverCapPrompts,
@@ -331,14 +331,16 @@ async function loadExistingThumbnails(
  * one is no longer live. Never falls back to a hardcoded external product
  * id; GenStudio owns the catalog.
  */
-async function resolveDefaultImagePromptsModel(config: any): Promise<string> {
+async function resolveDefaultImagePromptsModel(config: any): Promise<{ model: string, notice: string }> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
     throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating thumbnail prompts.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   const resolved = await resolveDefaultChatModel(apiKey, saved)
-  return resolved.modelId
+  // Handed back rather than discarded: the caller has the job whose log the
+  // operator actually reads.
+  return { model: resolved.modelId, notice: describeHealedDefaultChatModel(resolved) || '' }
 }
 
 export async function generateImagePrompts(job: Job): Promise<void> {
@@ -381,7 +383,9 @@ export async function generateImagePrompts(job: Job): Promise<void> {
   // a hardcoded external product id — GenStudio owns the catalog and a
   // retired/renamed literal must never be submitted blind (see
   // services/genstudio-default-model.ts).
-  const model = req.model?.trim() || await resolveDefaultImagePromptsModel(config)
+  const resolvedDefault = req.model?.trim() ? null : await resolveDefaultImagePromptsModel(config)
+  const model = req.model?.trim() || resolvedDefault!.model
+  if (resolvedDefault?.notice) job.output_lines.push(resolvedDefault.notice)
   const count = Math.max(1, Math.round(Number(req.thumb_count) || 5))
   const fillGaps = req.fill_gaps === true
   // Resolved by the workspace from the intended image model's published

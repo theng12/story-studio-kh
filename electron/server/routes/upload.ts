@@ -30,7 +30,7 @@ import * as renumberUndo from '../services/upload-renumber-undo.js'
 import { updateVideoMetadata, createPlaylist, listVideoStatuses, listVideoSnippetStatus } from '../lib/youtube-client.js'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
+import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
 import { getYoutubeDefaults } from '../services/app-settings.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 import { previewThumbnailRefresh } from '../generators/youtube-thumbnail-refresh.js'
@@ -112,11 +112,16 @@ router.post('/projects/:slug/upload/playlists/generate-description', async (req,
     // hardcoded external product id (GenStudio owns the catalog; a
     // retired/renamed literal must never be submitted blind).
     const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : ''
+    // `healed` used to be discarded right here, so a description written by a
+    // substituted model came back looking like the saved model's own work.
+    let modelNotice = ''
     const model = requestedModel || await (async () => {
       const apiKey = await getApiKey('genstudio').catch(() => '')
       if (!apiKey) throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating a playlist description.')
       const saved = typeof (config as any)?.prompt_model === 'string' ? (config as any).prompt_model : null
-      return (await resolveDefaultChatModel(apiKey, saved)).modelId
+      const resolved = await resolveDefaultChatModel(apiKey, saved)
+      modelNotice = describeHealedDefaultChatModel(resolved) || ''
+      return resolved.modelId
     })()
 
     // Optional caller-provided overrides
@@ -159,7 +164,9 @@ Target ~${targetLength} characters. Plain prose — no bullet lists, no all-caps
       slug, outputBudget: 'standard',
     })
     const text = await applyEmojiPolicy(raw.trim(), [userMsg, system])
-    res.json({ description: text, model, length: text.length })
+    // Synchronous route with no job log — the substitution travels with the
+    // result rather than being dropped.
+    res.json({ description: text, model, length: text.length, ...(modelNotice ? { model_notice: modelNotice } : {}) })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to generate playlist description'))
   }
