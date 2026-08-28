@@ -59,7 +59,13 @@ The reservation landed on 2026-08-27 against registry revision 42, the current
 committed authority at that point, and is recorded as batch revision 43 under
 receipt `authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae`.
 Six lifecycle transitions then advanced the records to `authored` (revisions
-44-49). An earlier attempt reserved against revision 8; that receipt was never
+44-49). On 2026-08-28 the paint-fantasy pack's identifiers were renamed off a
+third-party mark while all six were still pre-sale, which changed the hashed
+request; revision 43 and its six transitions were re-minted through the
+registry's own write functions, and the receipt is now
+`authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf`.
+The receipt quoted above is the honest hash of the pre-rename request and is
+kept here as the record of what was originally reserved. An earlier attempt reserved against revision 8; that receipt was never
 merged and is void — a receipt is a hash of the request, expected revision
 included, so a stale reservation cannot be rebased, only re-made.
 
@@ -83,7 +89,7 @@ The cutover order is strict:
 
 The registry will issue the exact identities. The proposed stable slugs are:
 
-- `ms-paint-fantasy`
+- `retro-paint-fantasy` (revised 2026-08-28 from `ms-paint-fantasy`; see the cutover addendum)
 - `pixel-art-story`
 - `anime-cel`
 - `studio-catalog-realism`

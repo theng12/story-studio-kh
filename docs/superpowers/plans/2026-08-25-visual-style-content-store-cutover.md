@@ -14,7 +14,11 @@
 > packs live under `content-packs/production-looks/style/`, are registered at
 > registry revision 43 (receipt
 > `authoring:0b7e8bcafc21b4cc6ea8bfd16ee9c21211544fdcb67d2a27dc71c28dedbc30ae`)
-> and were advanced to `authored` at revisions 44-49. Tasks 3-7 are NOT done and
+> and were advanced to `authored` at revisions 44-49. **Re-minted 2026-08-28:**
+> renaming the paint-fantasy pack's identifiers changed the hashed request, so
+> revision 43's receipt is now
+> `authoring:6e66133618b8aa71b6650ac93603060cb3f3756e0af8f5fe9199a5fd38944fdf`
+> and the six transitions at 44-49 carry new `transition_ref` values. Tasks 3-7 are NOT done and
 > are not Story-side work alone: Tasks 5 and 6 need GenStudio to stock, price,
 > publish and confirm the six products before the Task 7 catalog deletion may
 > begin. Nothing in Tasks 1-2 changes runtime behaviour on its own.
@@ -79,7 +83,7 @@ The six request records use kind `visual-style`, version `1.0.0`, publisher `com
 
 | Slug | Pack ID | Item ID | Source path |
 | --- | --- | --- | --- |
-| `ms-paint-fantasy` | `com.storystudio.pack.style.ms-paint-fantasy` | `com.storystudio.style.ms-paint-fantasy` | `content-packs/production-looks/style/ms-paint-fantasy` |
+| `retro-paint-fantasy` | `com.storystudio.pack.style.retro-paint-fantasy` | `com.storystudio.style.retro-paint-fantasy` | `content-packs/production-looks/style/retro-paint-fantasy` |
 | `pixel-art-story` | `com.storystudio.pack.style.pixel-art-story` | `com.storystudio.style.pixel-art-story` | `content-packs/production-looks/style/pixel-art-story` |
 | `anime-cel` | `com.storystudio.pack.style.anime-cel` | `com.storystudio.style.anime-cel` | `content-packs/production-looks/style/anime-cel` |
 | `studio-catalog-realism` | `com.storystudio.pack.style.studio-catalog-realism` | `com.storystudio.style.studio-catalog-realism` | `content-packs/production-looks/style/studio-catalog-realism` |
@@ -87,6 +91,13 @@ The six request records use kind `visual-style`, version `1.0.0`, publisher `com
 | `hand-drawn-cartoon-explainer` | `com.storystudio.pack.style.hand-drawn-cartoon-explainer` | `com.storystudio.style.hand-drawn-cartoon-explainer` | `content-packs/production-looks/style/hand-drawn-cartoon-explainer` |
 
 For every slug, propose `com.storystudio.family.style.<slug>` and `com.storystudio.sku.style.<slug>` with status `proposed`. Do not add GenStudio fields.
+> **Revised 2026-08-28.** The paint-fantasy product's identifiers were renamed to
+> `retro-paint-fantasy` (pack id, item id, family, sku, source directory and asset
+> filename) before first stocking, matching the display name. The table above shows
+> the corrected identity. The legacy `builtin-ms-paint-fantasy` id and the swatch at
+> `frontend/public/builtin-style-previews/ms-paint-fantasy.webp` keep the old slug,
+> because existing user projects pin that id.
+
 
 - [x] **Step 4: Reserve the batch once and record the receipt**
 
@@ -203,7 +214,7 @@ Expected source SHA-256 values:
 
 | Slug | SHA-256 |
 | --- | --- |
-| `ms-paint-fantasy` | `5dced4a83086703f8b49ce8edff43b137126a0c237a8636c35ef6b4d5b3afbc8` |
+| `retro-paint-fantasy` (source file still named `ms-paint-fantasy.webp`) | `5dced4a83086703f8b49ce8edff43b137126a0c237a8636c35ef6b4d5b3afbc8` |
 | `pixel-art-story` | `f81fd10b04dabff766f993fe6dfecd80611c5e3d61545abc131431650307adf5` |
 | `anime-cel` | `d5c5336ef911b14dec00deee80b112a0d25f70a6e5106cb755f6dc42173f8e18` |
 | `studio-catalog-realism` | `60e7b00efb4b6c80e691c6241edcb8a19659a7b069842fd3fb36b11af6a1171e` |
