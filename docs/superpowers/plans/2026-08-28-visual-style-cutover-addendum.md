@@ -97,7 +97,25 @@ it is independent of the six-product stocking. It can be done now.
    a paid product name. Technical ids (`ms-paint-fantasy`,
    `com.storystudio.pack.style.ms-paint-fantasy`, sku, family, asset filename)
    are deliberately unchanged, so the revision-43 receipt chain still resolves.
-   Task 7 Step 5's signed-id replacements are unaffected.
+   Task 7 Step 5 needs a separate correction — see below.
+3. **Task 7 Step 5 must not be done as written.** It says to replace the
+   shipped niche style recommendations with signed ids
+   (`com.storystudio.style.paleo-documentary-tableau`,
+   `com.storystudio.style.archival-documentary-reconstruction`). That would
+   write a style id back into a Formula, which is the binding the owner
+   outlawed on 2026-08-25 — *"art style is a selection, a preference for the
+   user; they can't be dictated this way"*. Trading `builtin-x` for
+   `com.storystudio.style.x` does not satisfy the ruling, because the ruling is
+   about the binding, not the id space.
+
+   `electron/server/__tests__/niches-suggest-never-dictate.test.ts` is the fence
+   built for that ruling, but its check only caught `recommendedVisualStyleId`
+   and `"builtin-` ids — a qualified signed id would have passed it silently.
+   The fence has been hardened here to reject `"com.storystudio.style.` as well.
+   It is green today: no niche names a style id in any shape.
+
+   What niches legitimately keep is `visualStyleHint`, a descriptive one-liner
+   that never reaches a prompt. Suggesting is allowed; naming an id is not.
 
 ## 4. Blast radius of the deletion, as measured
 
