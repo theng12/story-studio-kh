@@ -300,12 +300,22 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const dryRun = argv.includes('--dry-run')
   const registryPath = flag(argv, '--registry') ? resolve(flag(argv, '--registry')) : DEFAULT_REGISTRY
   const repositoryRoot = flag(argv, '--repository-root') ? resolve(flag(argv, '--repository-root')) : root
-  if (argv[0] === 'rebase' && flag(argv, '--from') && flag(argv, '--base')) {
-    const result = await rebaseAuthoringLineage({
-      registryPath, repositoryRoot, sourceRegistryPath: resolve(flag(argv, '--from')),
-      baseRevision: Number(flag(argv, '--base')), dryRun,
-    })
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+  // `rebase` is NOT an operation here, and the block that used to dispatch it
+  // called a `rebaseAuthoringLineage` that does not exist -- so anyone who
+  // followed the usage string got a ReferenceError instead of the explanation
+  // in this module's header. Say the real thing instead, once, at the point of
+  // use. (Hit on 2026-08-29 landing two branches that both reserved revision
+  // 108; the replay is described below and cost one integer, as predicted.)
+  if (argv[0] === 'rebase') {
+    fail('remint-registry.mjs has no `rebase` operation, deliberately -- see this module\'s header.\n'
+      + 'To move a branch\'s own reservations onto a moved head, replay the branch\'s REQUEST files\n'
+      + 'through authoring-registry.mjs with `expected_revision` advanced to the current revision:\n'
+      + '  authoring-registry.mjs reserve --request <reservation-request.json>\n'
+      + '  authoring-registry.mjs transition --request <lifecycle-request.json>   (receipt_ref = the new one)\n'
+      + 'On an ALREADY-MERGED tree, reconcileSources rejects the pre-state, because the branch\'s source\n'
+      + 'is on disk while the registry does not yet know it. Move that one source directory aside for the\n'
+      + 'reserve step only -- a `reserved` record need not exist on disk, only an `authored` one must --\n'
+      + 'then restore it before the transition.')
   } else if (argv[0] === 'repair' && flag(argv, '--batch') && flag(argv, '--overrides')) {
     const result = await repairAuthoringBatch({
       registryPath, repositoryRoot, batchRevision: Number(flag(argv, '--batch')),
@@ -313,9 +323,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     })
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   } else {
-    fail('usage: remint-registry.mjs rebase --from <branch-registry> --base <revision> [--registry <path>] '
-      + '[--repository-root <path>] [--dry-run]\n'
-      + '   or: remint-registry.mjs repair --batch <revision> --overrides <path> [--registry <path>] '
+    fail('usage: remint-registry.mjs repair --batch <revision> --overrides <path> [--registry <path>] '
       + '[--repository-root <path>] [--dry-run]')
   }
 }
