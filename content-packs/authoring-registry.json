@@ -1,5 +1,5 @@
 {
-  "revision": 82,
+  "revision": 84,
   "batches": [
     {
       "revision": 2,
@@ -3406,6 +3406,40 @@
           "status": "authored"
         }
       }
+    },
+    {
+      "revision": 83,
+      "transition_ref": "lifecycle:1bba87c5c124cd4028825a4a167d15f0980892ad977108f8dfd7d5daec7b5a13",
+      "request": {
+        "expected_revision": 82,
+        "coordinator": {
+          "task": "reusable-content-primitives-wave-2",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+        "pack_id": "com.storystudio.pack.thumbnail.object-hero-question",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 84,
+      "transition_ref": "lifecycle:3c4e16760b787e8f879cf961718a52ab607ae52ceb64eacaea54d050000ea955",
+      "request": {
+        "expected_revision": 83,
+        "coordinator": {
+          "task": "reusable-content-primitives-wave-2",
+          "branch": "codex/content-expansion-portfolio"
+        },
+        "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
+        "pack_id": "com.storystudio.pack.thumbnail.route-map-one-promise",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
     }
   ],
   "records": [
@@ -5556,7 +5590,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/reusable-primitives/thumbnail/object-hero-question",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5579,7 +5613,7 @@
       "min_app_version_status": "release-bound",
       "kind": "thumbnail-recipe",
       "source_path": "content-packs/reusable-primitives/thumbnail/route-map-one-promise",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
