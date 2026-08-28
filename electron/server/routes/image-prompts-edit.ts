@@ -193,7 +193,12 @@ router.post(
         number: target.number,
         title: next.title || target.title,
         prompt: next.prompt,
-})
+      })
+    } catch (e: any) {
+      res.status(500).json({ detail: e?.message || 'Failed to regenerate prompt' })
+    }
+  },
+)
 
 router.put(
   '/projects/:slug/episodes/:episodeId/image-prompts/item',
@@ -236,11 +241,6 @@ router.put(
       res.json({ number, title, prompt })
     } catch (e: any) {
       res.status(500).json({ detail: e?.message || 'Failed to save prompt edits' })
-    }
-  },
-)
-    } catch (e: any) {
-      res.status(500).json({ detail: e?.message || 'Failed to regenerate prompt' })
     }
   },
 )
