@@ -27,6 +27,62 @@
  *
  * To regenerate after legitimately removing instances:
  *   UPDATE_TIMING_BASELINE=1 npm run test:backend -- --only no-new-wallclock
+ *
+ * ============================================================================
+ * TRIAGE OF THE SURVIVORS — read this before "fixing" a baselined site.
+ * Recorded 2026-08-28 so the next person starts from this analysis instead of
+ * re-deriving it. The sweep found 141 sites; 13 were fixed, 128 remain.
+ * ============================================================================
+ *
+ * THE COUNT IS NOT THE DEFECT COUNT. Most baselined sites fail OPEN: they
+ * would need the machine to be too SLOW to break, and load does not cause
+ * that. Do not "fix" these — converting them is churn at best and can delete
+ * an assertion at worst. Four shapes matter, and only two are defects:
+ *
+ *   FAIL-CLOSED (real defects, worth fixing):
+ *     - two-sided windows: cross a floor, assert still under a ceiling
+ *     - "sleep N, then assert something HAS happened"
+ *     - `elapsed < N` assertions
+ *     - exact interval-fire counts (assert a poller ran exactly 3-4 times)
+ *
+ *   FAIL-OPEN (leave alone):
+ *     - "sleep N, then assert something has NOT happened yet" — a slower
+ *       machine only makes the negative more true
+ *     - deliberate observation windows: hold still for N and prove a
+ *       concurrency cap held. `chapter-only-stays-serial.test.ts` says so in
+ *       its own comment; the window is load-bearing, not padding
+ *     - `ttl-cache.test.ts` (3 sites) — checked, all one-sided floors
+ *
+ * DELIBERATELY NOT TAKEN: `job-cancel.test.ts` (37) and `job-queue.test.ts`
+ * (23) are the bulk of the remaining fail-closed risk. They were left on
+ * 2026-08-28 as a scope decision, not an oversight. Many of their sites are
+ * "assert the job is STILL running" negatives, where polling until the
+ * condition passes silently deletes the assertion. A vacuous test in the two
+ * most concurrency-sensitive files in the repo is worse than a flaky one: a
+ * flaky test annoys us, a vacuous test lies to us. That work wants a quiet
+ * tree and site-by-site judgement, not a sweep.
+ *
+ * KNOWN REPEAT OFFENDERS, still unfixed:
+ *   - `frontend/__tests__/useCredits.test.ts` (5) — exact interval-fire
+ *     counts. Observed failing under load twice on 2026-08-28 alone.
+ *   - `frontend/__tests__/useToast.test.ts` (6) — includes a `sleep(48)`
+ *     racing a real 50ms timer: a 2ms margin.
+ *   - `electron/server/__tests__/episode-status-warm-list.test.ts` — same
+ *     family, surfaces as `Cannot read properties of undefined (reading
+ *     'watchedMtimes')` under load. Not matched by this scanner (no literal
+ *     sleep on the assertion's line), so it is NOT in the baseline.
+ *
+ * THE FRONTEND HAS NO SHARED WAIT HELPER. `_timing.ts` lives in the backend
+ * tree. The frontend's fix here needed a fake clock rather than a poll, so a
+ * second copy was not built — one primitive in two places would drift, which
+ * is the failure mode this guard exists to prevent. `useCredits` makes that
+ * gap real rather than hypothetical; giving the frontend the same primitive
+ * without duplicating it is its own piece of work.
+ *
+ * RELATED, OUT OF THIS CLASS: 15 files each re-implement their own
+ * wait-with-deadline helper (see `_timing.ts` for what replaces them), and
+ * `__tests__/fixtures/scene-render-status-process.ts` polls in a `while(true)`
+ * with NO deadline at all — that one hangs rather than false-fails.
  */
 
 import { test } from 'node:test'
