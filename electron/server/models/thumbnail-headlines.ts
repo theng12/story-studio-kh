@@ -46,7 +46,10 @@ export const HEADLINE_MODES: readonly HeadlineMode[] = [
     label: 'Full episode title',
     summary: 'The episode title exactly as written. Long titles will dominate the frame.',
     invents: false,
-    instruction: `TITLE: render this exact episode title inside the image: "{{TITLE}}". Integrate it into the composition. ${RENDER_RULE}`,
+    // Not "episode title". The exact words follow in quotes, so the label adds
+    // nothing -- and it is the phrase the authoring LLM copies into the prompt,
+    // where the image model then letters "Episode" onto the thumbnail.
+    instruction: `TITLE: render this exact title inside the image: "{{TITLE}}". Integrate it into the composition. ${RENDER_RULE}`,
   },
   {
     id: 'short-hook',

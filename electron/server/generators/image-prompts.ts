@@ -215,6 +215,29 @@ export function buildThumbnailDirective(opts: {
   return lines.join('\n\n')
 }
 
+/**
+ * The word "Episode" was being PAINTED onto thumbnails.
+ *
+ * A prompt that says "render the exact episode title" hands a text-drawing
+ * image model a string with the label attached, and it letters the label too --
+ * "Episode" sitting above the real title. Titles are drawn here by design; the
+ * defect is only the label riding in with them.
+ *
+ * The phrase arrives from three independent places: the LLM that authors the
+ * prompt, content-pack headline and composition guidance whose bytes are signed
+ * and so cannot be edited, and built-in niche concept guidance. Only this choke
+ * point sees all three, which is why the rewrite lives here and runs on every
+ * prompt unconditionally rather than at any one source.
+ *
+ * Scoped deliberately: it strips "episode" only where it binds to the text
+ * being drawn. A prompt that merely mentions the episode elsewhere is untouched.
+ */
+const EPISODE_LABEL_ON_DRAWN_TEXT = /\bepisode(?:['’]s)?[\s-]+(title|headline)\b/gi
+
+export function stripEpisodeLabelFromDrawnText(text: string): string {
+  return text.replace(EPISODE_LABEL_ON_DRAWN_TEXT, '$1')
+}
+
 export function enforceThumbnailPromptElements(prompt: string, opts: {
   aspectRatio: string
   title: string
@@ -223,7 +246,7 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
   textPosition?: string
   headlineMode?: string
 }): string {
-  const out = (prompt || '').trim()
+  const out = stripEpisodeLabelFromDrawnText((prompt || '').trim())
   if (!out) return out
   const ratio = opts.aspectRatio || '16:9'
   const ratioPhrase = RATIO_DESCRIPTIONS[ratio] || `${ratio} format`
@@ -243,7 +266,10 @@ export function enforceThumbnailPromptElements(prompt: string, opts: {
     const position = !opts.textPosition || opts.textPosition === 'auto'
       ? 'the strongest placement for the composition'
       : opts.textPosition
-    const headlineLabel = opts.headlineMode === 'curiosity-hook' ? 'thumbnail hook' : 'episode title'
+    // Never "episode title": this clause is an instruction to draw text, and
+    // the model draws the label along with it. The title is quoted right after,
+    // so the word carries no information the model needs.
+    const headlineLabel = opts.headlineMode === 'curiosity-hook' ? 'thumbnail hook' : 'title'
     clauses.push(`Render the exact ${headlineLabel} "${opts.title.trim()}" inside the image as large, highly legible display text using ${font}, ${text}, positioned at ${position}. This is the finished thumbnail; do not use placeholder or gibberish lettering.`)
   }
   return clauses.length ? `${out}\n\n${clauses.join(' ')}` : out

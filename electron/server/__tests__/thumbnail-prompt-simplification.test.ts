@@ -99,9 +99,9 @@ test('recipe thumbnails instruct the image model to render the complete episode 
     title: 'The Economics of a Coffee Shop',
   })
 
-  assert.match(directive, /render this exact episode title inside the image/i)
+  assert.match(directive, /render this exact title inside the image/i)
   assert.match(directive, /six supporting operating objects/i)
-  assert.match(fixed, /Render the exact episode title "The Economics of a Coffee Shop" inside the image/i)
+  assert.match(fixed, /Render the exact title "The Economics of a Coffee Shop" inside the image/i)
 })
 
 test('archival map investigation keeps the exact title and evidence-led safety rules', () => {
@@ -120,7 +120,7 @@ test('archival map investigation keeps the exact title and evidence-led safety r
     },
   })
 
-  assert.match(directive, /render this exact episode title inside the image/i)
+  assert.match(directive, /render this exact title inside the image/i)
   assert.match(directive, /The Loan That Changed Egypt/)
   assert.match(directive, /parchment map/i)
   assert.match(directive, /stacked white headline bands/i)
@@ -226,4 +226,73 @@ test('the thumbnail executor sends a thumbnail-only response contract', () => {
   assert.match(prompt, /"thumbnails"/)
   assert.doesNotMatch(prompt, /scene prompts/i)
   assert.doesNotMatch(prompt, /"scenes"/)
+})
+
+/**
+ * The owner reported thumbnails with the word "Episode" lettered into the art.
+ *
+ * Titles ARE drawn on purpose, so the fix is not to stop sending the title --
+ * it is to stop sending the LABEL attached to it. Every prompt that reaches an
+ * image model passes through `enforceThumbnailPromptElements`, so that is where
+ * the guarantee is asserted.
+ *
+ * The inputs below are real phrasings taken from shipped content-pack headline
+ * guidance, niche concept guidance, and LLM-authored prompts -- not invented
+ * strings -- so a passing run means the rule holds against the corpus that
+ * actually caused the bug.
+ */
+test('no emitted thumbnail prompt labels the drawn text as an "episode" title', () => {
+  const realWorldPhrasings = [
+    'Render the exact episode title as one big centered all-caps headline.',
+    'Reserve an uncluttered upper title-safe band for the complete exact episode title.',
+    'Render the complete intended full episode title directly into the title card.',
+    'Reserve the top quarter for a compact two-line uppercase episode title.',
+    'Two to four stacked white bands containing the exact episode title.',
+    'Keep the full YouTube episode title out of the artwork.',
+    "Set the episode's title in large condensed type against the background.",
+    'A weathered map with the Episode Title lettered across the lower third.',
+    'Use an episode-title block anchored right inside the safe margins.',
+  ]
+
+  for (const prompt of realWorldPhrasings) {
+    const emitted = enforceThumbnailPromptElements(prompt, {
+      aspectRatio: '16:9',
+      title: 'The Loan That Changed Egypt',
+    })
+    assert.doesNotMatch(
+      emitted,
+      /\bepisode(?:['’]s)?[\s-]+(?:title|headline)\b/i,
+      `"episode" still labels the drawn text in: ${emitted}`,
+    )
+    // The title itself must survive -- this is a label fix, not a text removal.
+    assert.match(emitted, /title/i)
+  }
+})
+
+test('the enforcement pass never emits the episode label in its own added clause', () => {
+  // Title absent from the prompt: the pass appends its own render clause, which
+  // is the path that produced the reported thumbnails.
+  const appended = enforceThumbnailPromptElements('A lone ship against a storm.', {
+    aspectRatio: '16:9',
+    title: 'The Impossible Storm',
+    headlineMode: 'episode-title',
+  })
+  assert.match(appended, /Render the exact title "The Impossible Storm" inside the image/i)
+  assert.doesNotMatch(appended, /\bepisode(?:['’]s)?[\s-]+(?:title|headline)\b/i)
+
+  const hook = enforceThumbnailPromptElements('A single poison bottle.', {
+    aspectRatio: '16:9',
+    title: 'POISON OR CURE?',
+    headlineMode: 'curiosity-hook',
+  })
+  assert.match(hook, /exact thumbnail hook "POISON OR CURE\?"/i)
+  assert.doesNotMatch(hook, /\bepisode(?:['’]s)?[\s-]+(?:title|headline)\b/i)
+})
+
+test('stripping the episode label leaves unrelated mentions of the episode alone', () => {
+  const emitted = enforceThumbnailPromptElements(
+    'A cinematic moment from the episode: a lone ship in a storm, 16:9 thumbnail.',
+    { aspectRatio: '16:9', title: 'The Impossible Storm' },
+  )
+  assert.match(emitted, /moment from the episode/i)
 })
