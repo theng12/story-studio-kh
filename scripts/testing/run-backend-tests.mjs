@@ -375,8 +375,14 @@ function startSuiteWatchdog(child) {
   }, limitMs)
 }
 
-/** Read the per-file records the coverage reporter wrote. Missing file = no evidence. */
-async function readCoverageRecords(coveragePath) {
+/**
+ * Read the per-file records the coverage reporter wrote. Missing file = no evidence.
+ *
+ * Exported so the other three gate lanes (`run-lane-tests.mjs`) read the
+ * reporter's output through this exact function instead of a second copy of
+ * it. One implementation of the floor, or the lanes drift apart.
+ */
+export async function readCoverageRecords(coveragePath) {
   let raw
   try {
     raw = await fs.readFile(coveragePath, 'utf8')
