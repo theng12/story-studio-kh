@@ -61,14 +61,14 @@ describe('the customer chooses, not the recipe', () => {
       fmt: recipeWantsTitle, headlineModeId: 'short-hook',
     })
     assert.match(directive, /Hard limit: 3 words/)
-    assert.doesNotMatch(directive, /render this exact episode title/)
+    assert.doesNotMatch(directive, /render this exact title/)
   })
 
   test('with no choice, the recipe still supplies one', () => {
     const directive = buildThumbnailDirective({
       thumbs: 3, title: 'A Title', fmt: recipeWantsTitle,
     })
-    assert.match(directive, /render this exact episode title/)
+    assert.match(directive, /render this exact title/)
   })
 
   test('with neither, an existing recipe still behaves exactly as it did', () => {
@@ -78,7 +78,7 @@ describe('the customer chooses, not the recipe', () => {
     // preference lives in the picker's starting value instead.
     const directive = buildThumbnailDirective({ thumbs: 3, title: 'A Very Long Episode Title Indeed' })
     assert.equal(DEFAULT_HEADLINE_MODE, 'episode-title')
-    assert.match(directive, /render this exact episode title/)
+    assert.match(directive, /render this exact title/)
   })
 
   test('but a new run on the page starts on the short option', () => {
@@ -89,7 +89,7 @@ describe('the customer chooses, not the recipe', () => {
   test('"no text at all" really asks for none', () => {
     const directive = buildThumbnailDirective({ thumbs: 1, title: 'A Title', headlineModeId: 'none' })
     assert.match(directive, /render no words, letters, captions/)
-    assert.doesNotMatch(directive, /render this exact episode title/)
+    assert.doesNotMatch(directive, /render this exact title/)
   })
 
   test('an unknown mode falls back to the default rather than rendering nothing', () => {
