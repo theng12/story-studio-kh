@@ -17,7 +17,7 @@ import * as pm from '../services/project-manager.js'
 import * as jq from '../services/job-queue.js'
 import { callAi, callAiWithRetry } from '../lib/ai-client.js'
 import { getApiKey } from '../services/app-secrets-store.js'
-import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
+import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
 import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
 import { resolveEpisodePaths, resolveSubfolderNames } from '../services/utils.js'
 import { readArtifactRawText } from '../lib/episode-artifacts.js'
@@ -124,14 +124,17 @@ function aiCreds(_config: any) { return {} }
  * GenStudio owns the catalog, so this asks it directly and prefers the
  * project's saved `prompt_model` preference when it's still usable.
  */
-async function resolveDefaultMetadataModel(config: any): Promise<string> {
+async function resolveDefaultMetadataModel(config: any): Promise<{ model: string, notice: string }> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
     throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating metadata.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   const resolved = await resolveDefaultChatModel(apiKey, saved)
-  return resolved.modelId
+  // The caller owns the job log, so the heal is handed back rather than
+  // discarded here — a substituted model used to be indistinguishable from
+  // the saved one in the run's output.
+  return { model: resolved.modelId, notice: describeHealedDefaultChatModel(resolved) || '' }
 }
 
 function metadataSectionsForProfile(ids: string[] | undefined, tagCount: number): Array<any> {
@@ -209,7 +212,9 @@ export async function generateMetadata(job: Job): Promise<void> {
   // Metadata page; a missing model is resolved against GenStudio's live
   // catalog instead of a hardcoded external product id (never invent a
   // product GenStudio hasn't published).
-  const model = req.model?.trim() || await resolveDefaultMetadataModel(config)
+  const resolvedDefault = req.model?.trim() ? null : await resolveDefaultMetadataModel(config)
+  const model = req.model?.trim() || resolvedDefault!.model
+  if (resolvedDefault?.notice) job.output_lines.push(resolvedDefault.notice)
   const credErr = checkProvider(model, config)
   if (credErr) throw new Error(credErr)
 

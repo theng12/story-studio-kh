@@ -14,7 +14,7 @@ import {
   listTtsModels as listGenStudioTtsModels,
 } from '../lib/genstudio-client.js'
 import { unavailableLegacyModelMessage } from '../services/genstudio-model-migration.js'
-import { resolveDefaultChatModel } from '../services/genstudio-default-model.js'
+import { resolveDefaultChatModel, describeHealedDefaultChatModel } from '../services/genstudio-default-model.js'
 
 export const router = Router()
 
@@ -24,14 +24,16 @@ export const router = Router()
  * product id — GenStudio owns the catalog, so this asks it directly and
  * prefers the project's saved `prompt_model` preference when still usable.
  */
-async function resolveExpressionDefaultModel(config: any): Promise<string> {
+async function resolveExpressionDefaultModel(config: any): Promise<{ model: string, notice: string }> {
   const apiKey = await getApiKey('genstudio').catch(() => '')
   if (!apiKey) {
     throw new Error('No GenStudio API key configured. Add it in Settings → This Mac before generating expression markup.')
   }
   const saved = typeof config?.prompt_model === 'string' ? config.prompt_model : null
   const resolved = await resolveDefaultChatModel(apiKey, saved)
-  return resolved.modelId
+  // `healed` was dropped here, so a run against a substituted model looked
+  // exactly like a run against the one the project had saved.
+  return { model: resolved.modelId, notice: describeHealedDefaultChatModel(resolved) || '' }
 }
 
 router.post('/projects/:slug/generate/audio', validateBody(GenerateAudioSchema), async (req, res) => {
@@ -307,7 +309,8 @@ router.post('/projects/:slug/episodes/:code/expression/generate-all', async (req
     const narrationPath = await resolveNarrationOr404(slug, code, res)
     if (!narrationPath) return
     const config = await pm.getConfig(slug)
-    const model = requestedModel || await resolveExpressionDefaultModel(config)
+    const resolvedDefault = requestedModel ? null : await resolveExpressionDefaultModel(config)
+    const model = requestedModel || resolvedDefault!.model
     const { dialectForModel } = await import('../services/audio-expression.js')
     const dialect = dialectForModel(req.body?.audio_model) || 'fish'
     if (jq.isDuplicate(slug, code, 'expression_markup')) {
@@ -318,7 +321,9 @@ router.post('/projects/:slug/episodes/:code/expression/generate-all', async (req
       type: 'expression_markup',
       episode_id: code,
       title: `Expression markup — ${code}`,
-      params: { episode_id: code, model, dialect },
+      // The heal notice rides into the job because this route resolves the
+      // model before any job exists to announce it on.
+      params: { episode_id: code, model, dialect, ...(resolvedDefault?.notice ? { model_heal_notice: resolvedDefault.notice } : {}) },
     })
     res.status(201).json({ job_id: job.job_id })
   } catch (e: any) {
@@ -338,7 +343,8 @@ router.post('/projects/:slug/episodes/:code/expression/generate', async (req, re
     if (!config) return res.status(404).json({ detail: 'Project config not found' })
     const narrationPath = await resolveNarrationOr404(slug, code, res)
     if (!narrationPath) return
-    const model = requestedModel || await resolveExpressionDefaultModel(config)
+    const syncResolvedDefault = requestedModel ? null : await resolveExpressionDefaultModel(config)
+    const model = requestedModel || syncResolvedDefault!.model
     const { parseNarrationDocx } = await import('../lib/docx-parser.js')
     const {
       readExpression, writeExpression, markupSectionText, dialectForModel,
@@ -366,7 +372,9 @@ router.post('/projects/:slug/episodes/:code/expression/generate', async (req, re
     const generated_at = new Date().toISOString()
     await writeExpression(narrationPath, { schema_version: 1, model, dialect, generated_at, sections: sectionsOut })
     const sections = parsed.map(s => ({ slug: s.slug, label: s.label, original: s.text, expressive: sectionsOut[s.slug] || '' }))
-    res.json({ model, generated_at, sections })
+    // Synchronous route: no job log exists, so the substitution travels back
+    // with the result instead of being dropped on the floor.
+    res.json({ model, generated_at, sections, ...(syncResolvedDefault?.notice ? { model_notice: syncResolvedDefault.notice } : {}) })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to generate expression markup'))
   }
