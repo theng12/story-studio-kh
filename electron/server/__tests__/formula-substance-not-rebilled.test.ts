@@ -33,7 +33,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync, readdirSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -147,7 +147,9 @@ interface SignedFormula {
 const SIGNED_FORMULAS: SignedFormula[] = packContentFiles(PACKS_DIR)
   .map(path => ({ path, doc: readJson(path) }))
   .filter(({ doc }) => typeof doc?.id === 'string' && doc.id.includes('.formula.'))
-  .map(({ path, doc }) => ({ id: doc.id as string, path, print: fingerprint(doc) }))
+  // Reported repo-relative: an absolute path here would print this machine's
+  // home directory into every failure message.
+  .map(({ path, doc }) => ({ id: doc.id as string, path: relative(REPO_ROOT, path), print: fingerprint(doc) }))
   .sort((a, b) => a.id.localeCompare(b.id) || a.path.localeCompare(b.path))
 
 const BUILTIN_FORMULAS = readdirSync(NICHES_DIR)
