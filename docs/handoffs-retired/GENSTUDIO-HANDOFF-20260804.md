@@ -182,3 +182,7 @@ fix (1) lands, the default transport works again. Do not hardcode the
 S1 first — it is the reason two diagnoses went wrong tonight, and it will make
 every subsequent failure legible. Then S2 and S3 together (same root cause), then
 S4, S5, S6.
+
+---
+
+**RETIRED 2026-08-28.** All six numbered items confirmed fixed in the current tree, all landed same-day in commit `64838103` ("stop substituting zero for unpublished prices; steer prompts for hard history"): S1 — `genstudio-client.ts` now preserves null/undefined instead of `?? 0` and `describeMissingRequestBoundary()` distinguishes "published vs. submission vs. unusable value" origins; S2/S3 — every `listVoices`/`listGenStudioVoices` call site is scoped with `modelId` and unscoped callers get a 400 ("Choose a voice model...") before any GenStudio call; S4 — `services/research/genstudio.ts` passes `JSON_OBJECT_OUTPUT_CONTRACT` (already confirmed fixed by `LLM-CALL-SITE-SURVEY.md` at time of writing); S5 — the `genstudio-web.ts` header comment is corrected; S6 — `jobs.vue` now renders "Today HH:MM" / "Yesterday HH:MM" / a full date instead of time-only. Moved from `docs/handoffs/`.

@@ -136,3 +136,7 @@ lower-risk tolerant-fallback sites (image prompt single regen, image-pool sugges
 prompts) for correctness/quality even though they don't currently crash. Then the two
 cosmetic items (vision's deprecated `jsonObject` flag, the stale route comment in
 `genstudio-web.ts`). Everything else surveyed is already correct.
+
+---
+
+**RETIRED 2026-08-28.** Read-only survey companion to `DECLARE-OUTPUT-CONTRACTS.md`; every finding in it has been acted on (see that file's closing note) or overtaken by the Visual Recipe removal. Nothing in the current tree still needs this survey to decide what to fix. Moved from `docs/handoffs/`.

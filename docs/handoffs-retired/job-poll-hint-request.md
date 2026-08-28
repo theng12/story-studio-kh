@@ -65,3 +65,7 @@ than Story Studio's correctness.
 
 If you implement option 1, say so and Story Studio will prefer your hint over its own
 schedule — no release needed on our side beyond reading the field.
+
+---
+
+**RETIRED 2026-08-28.** Shipped: `readGenStudioPollHintMs()` in `electron/server/lib/genstudio-client.ts` reads `retry_after_seconds`/`retry_at`/`poll_after_ms` from job payloads and drives poll cadence at 3 call sites; the function's own doc comment (commit `5d7c7c3b`, v1.0.832) confirms "GenStudio 1.2 publishes `retry_after_seconds` and `retry_at`." No remaining code reference to this file's path. Moved from `docs/genstudio-handoff/`.
