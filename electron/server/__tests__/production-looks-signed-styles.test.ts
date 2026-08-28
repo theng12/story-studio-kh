@@ -2,7 +2,7 @@
  * The six Production Looks, exercised the whole way through.
  *
  * `content-packs/production-looks/` productises the six built-in visual styles
- * that never had a signed pack: MS Paint Fantasy, Pixel Art Story, Anime Cel,
+ * that never had a signed pack: Retro Paint Fantasy, Pixel Art Story, Anime Cel,
  * Studio Catalog Realism, Whiteboard Doodle Explainer, and Hand-Drawn Cartoon
  * Explainer. A source tree that merely parses proves nothing — the question is
  * whether a customer who buys one gets that look in their images.
