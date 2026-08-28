@@ -141,6 +141,9 @@ describe('episode-status warm list', () => {
   beforeEach(() => {
     cacheMod.episodeStatusCache.clear()
     watcherMod.stopAllWatchers()
+    // Restore the real wiring (episode-status-cache.ts binds this at import),
+    // so a test that deliberately goes deaf cannot leak into the next one.
+    watcherMod.bindInvalidator((slug, code) => cacheMod.episodeStatusCache.invalidate(slug, code))
   })
 
   test('an unchanged warm list does no per-episode statting', async () => {
@@ -211,6 +214,16 @@ describe('episode-status warm list', () => {
     // error and was never closed — but no event arrives for this change.
     // fs.watch really does behave this way on some filesystems, and it
     // reports nothing when it does, so the cache must not depend on it.
+    //
+    // "No event arrives" is made a FACT, not a hope. The change below is an
+    // `fs.utimes` on a watched folder while the watcher is live, so on any
+    // machine where fs.watch actually delivers, it would arrive as a real
+    // invalidation — turning the read into a miss instead of the stale
+    // recompute this test measures, and failing it. It passes here only
+    // because fs.watch delivers nothing at all in this environment, which is
+    // precisely the sort of accident that becomes a mystery failure on
+    // someone else's machine.
+    watcherMod.bindInvalidator(() => { /* deaf on purpose, for this test */ })
     const entry = cacheMod.episodeStatusCache._dumpProject(SLUG)
       .find(e => e.episode_code === 'EP004')!
     const scriptDir = dirs['EP004'].scriptDir
