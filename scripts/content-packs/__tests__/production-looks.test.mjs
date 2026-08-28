@@ -20,7 +20,7 @@ const STYLES = {
     description: 'Deliberately rough fantasy art with thick outlines, flat fills, and goofy old-web energy.',
     category: 'Digital',
     tags: ['retro', 'fantasy', 'rough', 'flat color', 'old web'],
-    style_bible: 'crude MS Paint fantasy art, retro internet animation aesthetic, medieval fantasy atmosphere, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive faces, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition',
+    style_bible: 'crude 90s paint-program fantasy art, retro internet animation aesthetic, medieval fantasy atmosphere, thick black outlines, rough hand-drawn lines, flat colors, limited color palette, simple shading, intentionally low-detail rendering, expressive faces, minimal textures, clean digital fill areas, dramatic perspective, wide-angle framing, dynamic off-center composition',
     negative_prompt: 'photorealism, realistic anatomy, cinematic realism, ultra detailed rendering, 3D render, smooth skin, glossy realism, centered composition',
     sha256: '5dced4a83086703f8b49ce8edff43b137126a0c237a8636c35ef6b4d5b3afbc8',
     bytes: 226050,
@@ -67,10 +67,10 @@ const STYLES = {
   },
   'hand-drawn-cartoon-explainer': {
     name: 'Hand-Drawn Cartoon Explainer',
-    description: 'Casual YouTube explainer cartoons with rounded mascots, slightly imperfect ink lines, flat muted colors, and familiar everyday props.',
+    description: 'Casual explainer-video cartoons with rounded mascots, slightly imperfect ink lines, flat muted colors, and familiar everyday props.',
     category: 'Explainer',
-    tags: ['hand drawn', 'cartoon', 'mascot', 'educational', 'flat color', 'youtube'],
-    style_bible: 'simple hand-drawn 2D cartoon explainer, casual educational YouTube animation aesthetic, clean but slightly uneven thick black outlines, flat solid color fills, muted friendly palette of medium blue, teal, sage green, warm yellow, tan, cream, and grey, round-headed simplified characters with oversized outlined circular eyes, dot pupils, bold eyebrows, and small expressive mouths, black line limbs, rounded plain colored torsos, recognizable everyday props, playful anthropomorphic objects and visual metaphors, simple white or pale cream backgrounds, lightly detailed interiors, one clear visual idea or action per frame, readable medium-wide composition, generous breathing room, minimal shading, soft flat visual treatment, slightly wobbly human-drawn contours rather than geometric vector perfection',
+    tags: ['hand drawn', 'cartoon', 'mascot', 'educational', 'flat color', 'online video'],
+    style_bible: 'simple hand-drawn 2D cartoon explainer, casual educational online-video animation aesthetic, clean but slightly uneven thick black outlines, flat solid color fills, muted friendly palette of medium blue, teal, sage green, warm yellow, tan, cream, and grey, round-headed simplified characters with oversized outlined circular eyes, dot pupils, bold eyebrows, and small expressive mouths, black line limbs, rounded plain colored torsos, recognizable everyday props, playful anthropomorphic objects and visual metaphors, simple white or pale cream backgrounds, lightly detailed interiors, one clear visual idea or action per frame, readable medium-wide composition, generous breathing room, minimal shading, soft flat visual treatment, slightly wobbly human-drawn contours rather than geometric vector perfection',
     negative_prompt: 'photorealism, 3D render, anime, painterly brushwork, glossy polished vector art, perfectly geometric shapes, cinematic lighting, gradients, complex textures, realistic skin, dense clutter, dramatic depth of field, tiny details, illegible writing, random letters, captions, speech bubbles, watermark',
     sha256: 'ad03fb926514316328776c89684f25e8ee34f0635cfff8d8e9c378d077445b16',
     bytes: 78230,
@@ -190,6 +190,45 @@ test('production look previews preserve approved bytes and complete provenance e
 
     for (const evidence of [sourcePath, destinationPath, `builtin-${slug}`, expected.sha256, String(expected.bytes), '1672x941', 'WebP decode passed', 'byte-identical']) {
       assert.ok(provenance.includes(evidence), `${slug} provenance must record ${evidence}`)
+    }
+  }
+})
+
+/**
+ * These six are sold. A third-party product mark in the text a customer reads
+ * or searches is a commercial exposure, not a wording preference.
+ *
+ * The owner ruled twice on 2026-08-28: rename the paint-fantasy product away
+ * from the Microsoft mark, and scrub `YouTube` from the cartoon explainer's
+ * description, tags and style bible. Both marks had reached customer-visible
+ * text once already, so this pins their absence rather than trusting review to
+ * catch a reintroduction.
+ *
+ * Scope is deliberately the six PRE-STOCK Production Looks and the legacy
+ * records they were productised from. Already-published packs are not swept
+ * here: changing those means new versions and republication, which is a
+ * different decision with a different cost.
+ */
+test('no sold Production Look carries a third-party product mark in customer-visible text', async () => {
+  // Word-boundary matched so ordinary words are never caught by accident.
+  const MARKS = [/\bMS\s*Paint\b/i, /\bMicrosoft\b/i, /\bYouTube\b/i, /\bPhotoshop\b/i, /\bIllustrator\b/i, /\bTikTok\b/i, /\bInstagram\b/i]
+
+  for (const slug of slugs) {
+    const style = await parseJson(new URL(`style/${slug}/content/visual-style.json`, ROOT))
+    const legacy = BUILT_IN_STYLES.find(candidate => candidate.id === `builtin-${slug}`)
+
+    // Everything the customer can read or search, from both surfaces.
+    const surfaces = [
+      ['name', style.name], ['description', style.description], ['tags', style.tags.join(' ')],
+      ['style_bible', style.style_bible], ['negative_prompt', style.negative_prompt],
+      ['legacy name', legacy.name], ['legacy blurb', legacy.blurb], ['legacy tags', legacy.tags.join(' ')],
+      ['legacy style_bible', legacy.data.style_bible], ['legacy negative_prompt', legacy.data.negative_prompt],
+    ]
+
+    for (const [field, text] of surfaces) {
+      for (const mark of MARKS) {
+        assert.ok(!mark.test(text), `${slug} ${field} names a third-party product mark (${mark}): ${text}`)
+      }
     }
   }
 })
