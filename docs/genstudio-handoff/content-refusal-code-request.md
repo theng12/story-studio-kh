@@ -74,3 +74,14 @@ generic failure — workable, just needlessly opaque.
 
 If content-refusal reasons cannot be surfaced without leaking provider policy, saying so closes
 the question and we will lean entirely on prevention.
+
+---
+
+**NEEDS-OWNER / still genuinely OPEN — status header added 2026-08-28.** No `content_refused`
+(or similar) reason code found anywhere in `electron/server` — this ask has not shipped.
+**Note:** this file is not listed in this folder's own `README.md` status table at all (the
+table covers 11 of the 12 request files; this is the 12th, uncounted). The "prevention" half
+Story Studio said it would build regardless has shipped —
+`electron/server/lib/image-content-guidance.ts` exists and guides prompts away
+from filter-triggering phrasing for historical subjects. The GenStudio-side ask (a
+`content_refused` code, and whether refusals are charged) remains unanswered.

@@ -10,6 +10,15 @@ confidently-worded claims are the exact failure mode we need to avoid.
 
 Story Studio will not guess which products can search. It needs GenStudio to say so.
 
+**STILL-REFERENCED — status header added 2026-08-28.** Cited directly (as
+`docs/genstudio-web-search-request.md`) by `electron/server/lib/genstudio-client.ts` (~L5023)
+and `electron/server/__tests__/research-envelope-contract.test.ts` (~L160), both quoting this
+document's §3 as the reason citations arrive "as their own field, not folded into the answer
+text." Per the folder README, the catalogue contract shipped in v1.0.764, but
+`research_qualified` is confirmed still `false` on every product today
+(`services/research/genstudio-web.ts`), so live web research remains unavailable — this ask
+is still genuinely open on the runtime-activation half. Left in place.
+
 ---
 
 ## 1. Declare the capability in the chat catalogue

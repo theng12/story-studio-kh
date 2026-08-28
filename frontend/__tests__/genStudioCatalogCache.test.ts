@@ -27,6 +27,27 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+/**
+ * A threshold the test needs the clock to stay UNDER, sized so machine
+ * contention cannot reach it.
+ *
+ * These windows are wall-clock, and the two directions are not equally safe.
+ * A threshold the test needs to CROSS stays small — a loaded machine only
+ * crosses it harder. A threshold it needs to stay UNDER is the fragile one:
+ * on 2026-08-28, under a loaded machine, the 40ms sleep in the
+ * stale-but-not-expired case below was measured taking ~2.6s. That sailed
+ * past a 1000ms ceiling, `isExpired` flipped true, and the test failed on
+ * machine load rather than on behaviour. Same defect class as the
+ * cross-process budgets raised from 2s to 20s in 1.4.76.
+ *
+ * Ten minutes is not a guess at how slow this machine gets. It is past the
+ * point where the surrounding suite would itself have died, so no run that
+ * reaches the assertion at all can have crossed it. Nothing is weakened:
+ * every fresh/stale boundary these tests actually prove is the SMALL number,
+ * and those are unchanged.
+ */
+const UNREACHABLE_CEILING_MS = 600_000
+
 interface Row { id: string }
 
 function makeFetcher(behaviors: Array<(() => Row[]) | (() => never)>) {
@@ -46,7 +67,7 @@ function failing(message: string): () => never {
 describe('createGenStudioCatalogCache', () => {
   test('a fresh fetch is served from cache within the window — refresh() is a no-op', async () => {
     const { fetcher, callCount } = makeFetcher([() => [{ id: 'a' }]])
-    const cache = createGenStudioCatalogCache<Row[]>({ empty: [], fetcher, freshMs: 200, staleCeilingMs: 1000 })
+    const cache = createGenStudioCatalogCache<Row[]>({ empty: [], fetcher, freshMs: UNREACHABLE_CEILING_MS, staleCeilingMs: UNREACHABLE_CEILING_MS })
 
     await cache.refresh()
     assert.equal(callCount(), 1)
@@ -62,7 +83,7 @@ describe('createGenStudioCatalogCache', () => {
 
   test('data past the fresh window is marked stale but stays displayable', async () => {
     const { fetcher, callCount } = makeFetcher([() => [{ id: 'a' }]])
-    const cache = createGenStudioCatalogCache<Row[]>({ empty: [], fetcher, freshMs: 20, staleCeilingMs: 1000 })
+    const cache = createGenStudioCatalogCache<Row[]>({ empty: [], fetcher, freshMs: 20, staleCeilingMs: UNREACHABLE_CEILING_MS })
 
     await cache.refresh()
     assert.equal(cache.isStale.value, false)
@@ -145,7 +166,7 @@ describe('createGenStudioCatalogCache', () => {
 
   test('a failed refresh while still under the ceiling keeps the last good snapshot displayable', async () => {
     const { fetcher } = makeFetcher([() => [{ id: 'good' }], failing('blip')])
-    const cache = createGenStudioCatalogCache<Row[]>({ empty: [], fetcher, freshMs: 10, staleCeilingMs: 5000 })
+    const cache = createGenStudioCatalogCache<Row[]>({ empty: [], fetcher, freshMs: 10, staleCeilingMs: UNREACHABLE_CEILING_MS })
 
     await cache.refresh()
     await sleepPastThreshold(20)
