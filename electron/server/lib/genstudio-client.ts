@@ -176,6 +176,9 @@ export interface GenStudioJob {
   stall_recovery_at?: string | null
   status_detail?: string | null
   failure_detail?: string | null
+  /** See `GenStudioSettledJobShape`. Optional; absent on older APIs. */
+  failure_reason?: string | null
+  failure_class?: string | null
   price_version?: string | null
   location?: string | null
   /**
@@ -336,10 +339,100 @@ export interface GenStudioSettledJobShape {
   cancellation_note?: string | null
   /** video jobs use this instead of `cancellable`. */
   cancellation_requested?: boolean | null
+  /**
+   * The serving provider's own account of why it refused, when GenStudio has
+   * one it can publish. Optional on purpose: a deployed API that predates the
+   * field simply omits it, and every surface below then reads exactly as it
+   * did before. Never assume it is present.
+   */
+  failure_reason?: string | null
+  /**
+   * What KIND of problem it was, in GenStudio's own closed vocabulary. Branch
+   * on this, never on `failure_reason`'s wording. Optional for the same reason
+   * as the field above; see `GenStudioFailureClass`.
+   */
+  failure_class?: string | null
 }
 
 function settledFailureCode(job: GenStudioSettledJobShape): string | null {
   return typeof job.failure_code === 'string' && job.failure_code ? job.failure_code : null
+}
+
+/** Absent, null, and blank all mean the same thing: nothing to show. */
+function settledFailureReason(job: GenStudioSettledJobShape): string | null {
+  return typeof job.failure_reason === 'string' && job.failure_reason.trim()
+    ? job.failure_reason.trim()
+    : null
+}
+
+/**
+ * What KIND of problem ended the job, as GenStudio classified it.
+ *
+ * GenStudio computes this from structured facts — the job's failure code and
+ * the recorded exception class — and publishes it. Story Studio does NOT
+ * derive it from the reason text, and must not start: our own request for this
+ * field (`docs/genstudio-handoff/content-refusal-code-request.md`) said so in
+ * as many words, because "pattern-matching provider error text to infer a
+ * content refusal ... would break the first time a provider changed its
+ * wording". The message is for a human to read; this is the part code branches
+ * on.
+ *
+ * `unknown` covers both "GenStudio published no class" (every deployed API
+ * older than the field) and "GenStudio published one we do not recognise" (a
+ * newer API that has grown a fourth value). Both mean the same thing here: show
+ * what we have and invent no advice.
+ */
+export type GenStudioFailureClass =
+  | 'content_refused'
+  | 'provider_transient'
+  | 'provider_error'
+  | 'unknown'
+
+const KNOWN_FAILURE_CLASSES: ReadonlySet<string> = new Set([
+  'content_refused',
+  'provider_transient',
+  'provider_error',
+])
+
+export function settledFailureClass(job: GenStudioSettledJobShape): GenStudioFailureClass {
+  const raw = typeof job.failure_class === 'string' ? job.failure_class.trim() : ''
+  return KNOWN_FAILURE_CLASSES.has(raw) ? (raw as GenStudioFailureClass) : 'unknown'
+}
+
+/**
+ * Where a user edits the text this modality submitted, named the way the app
+ * names it, so "edit the prompt" points somewhere they can actually click.
+ */
+const REPROMPT_SURFACE: Record<GenStudioModality, string> = {
+  image: 'the Prompts page',
+  video: 'the Prompts page',
+  chat: 'the script',
+  tts: 'the script',
+  music: 'the music prompt',
+  transcription: 'the source audio',
+}
+
+/**
+ * One actionable sentence, or nothing at all.
+ *
+ * `provider_error` and `unknown` both return null on purpose. A confidently
+ * wrong instruction ("edit your prompt") costs more than silence when the real
+ * cause was a billing hold or an expired key — and `provider_error` is
+ * GenStudio saying, precisely, that it will not claim to know why.
+ */
+export function genStudioFailureGuidance(
+  failureClass: GenStudioFailureClass,
+  modality: GenStudioModality,
+): string | null {
+  switch (failureClass) {
+    case 'content_refused':
+      return `The provider refused this prompt's content. Edit the prompt (open `
+        + `${REPROMPT_SURFACE[modality]}) and Retry — retrying unchanged will fail again.`
+    case 'provider_transient':
+      return 'Temporary provider issue — Retry usually succeeds.'
+    default:
+      return null
+  }
 }
 
 function releasedCreditSettlement(job: GenStudioSettledJobShape): string {
@@ -363,17 +456,38 @@ export class GenStudioTerminalFailureError extends Error {
   readonly modality: GenStudioModality
   readonly jobId: string
   readonly failureCode: string | null
+  /** The provider's own words, when GenStudio published them. */
+  readonly failureReason: string | null
+  /** What kind of problem it was, as GenStudio classified it. */
+  readonly failureClass: GenStudioFailureClass
   readonly cancelled: boolean
   readonly reservedCredits: number | null
   readonly settledCredits: number | null
   readonly releasedCredits: number | null
 
   constructor(modality: GenStudioModality, job: GenStudioSettledJobShape, message: string) {
-    super(message)
+    // Appended HERE rather than in each of the six subclasses, and rather than
+    // at the render sites, because every surface that shows a failed job shows
+    // `.message`: the job card's red error line, `Thumbnail N: FAILED — ...`,
+    // and `Chapter N: ...`. One seam reaches all of them, and none of them can
+    // drift out of step with the others.
+    //
+    // When GenStudio publishes no reason — including every currently deployed
+    // API, which does not know the field — both parts are null and `message`
+    // is byte-for-byte what it was before this existed.
+    const reason = settledFailureReason(job)
+    const failureClass = settledFailureClass(job)
+    super([
+      message,
+      reason ? `Provider reason: ${reason}` : null,
+      genStudioFailureGuidance(failureClass, modality),
+    ].filter(Boolean).join(' '))
     this.name = 'GenStudioTerminalFailureError'
     this.modality = modality
     this.jobId = job.id
     this.failureCode = settledFailureCode(job)
+    this.failureReason = reason
+    this.failureClass = failureClass
     this.cancelled = job.cancelled === true
     this.reservedCredits = typeof job.reserved_credits === 'number' && Number.isFinite(job.reserved_credits) ? job.reserved_credits : null
     this.settledCredits = typeof job.settled_credits === 'number' && Number.isFinite(job.settled_credits) ? job.settled_credits : null
@@ -926,6 +1040,9 @@ interface GenStudioImageJob {
   steps: number
   seed?: number | null
   failure_code?: string | null
+  /** See `GenStudioSettledJobShape`. Optional; absent on older APIs. */
+  failure_reason?: string | null
+  failure_class?: string | null
   routing_status_code?: string | null
   /** `ImageJobResponse` publishes a released reservation when it has one. */
   credit_cost?: number
@@ -971,6 +1088,9 @@ interface GenStudioTranscriptionJob {
   state: GenStudioJob['state']
   model_id: string
   failure_code?: string | null
+  /** See `GenStudioSettledJobShape`. Optional; absent on older APIs. */
+  failure_reason?: string | null
+  failure_class?: string | null
   routing_status_code?: string | null
   srt_url?: string | null
   credit_cost?: number
