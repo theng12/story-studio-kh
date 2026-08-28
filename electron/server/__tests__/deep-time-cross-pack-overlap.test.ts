@@ -44,6 +44,52 @@ const REGISTRY_PATH = path.join(ROOT, 'content-packs', 'authoring-registry.json'
 // This runs for every future Deep Time pack automatically: packs are discovered
 // from the authoring registry, so pack 3 is measured against packs 1 and 2 on the
 // day its record lands, with no edit here beyond adjudicating what it flags.
+//
+// ---------------------------------------------------------------------------
+// WHAT THIS GATE DOES NOT DO. Read this before trusting it with a new pack.
+//
+// A gate is only honest about its own reach. These six limits are real, each one
+// is deliberate, and every one of them is somebody's job rather than the gate's.
+//
+// 1. IT COMPARES SUBJECTS, NEVER TUPLES. A pack could reproduce another pack's
+//    two thousand tuples wholesale behind a hundred distinct subject strings and
+//    nothing here would fire. Pack 2 was swept by hand instead (no pack-1 subject
+//    string appears inside any pack-2 tuple; no excluded-category token appears
+//    inside any tuple). Do that sweep for every new pack; it is a few lines of
+//    script and it is the hole most worth watching.
+//
+// 2. IT CANNOT SEE THE FREE LANES AT ALL. Discovery is FAMILY_PREFIX only, so
+//    every free foundation Topic is invisible. Pack 3's stated obligation is a
+//    boundary against the FIRST HUMANS free foundation and its own paid depth
+//    path; that boundary is entirely outside this file and needs either new
+//    machinery or an argument made in the proposal.
+//
+// 3. BOUNDARY_EVENTS IS HAND-CURATED, AND IT IS THE ONLY RULE THAT CATCHES THE
+//    HARDEST CLASS. Two subjects about the same event, sharing no anchor and few
+//    words, are invisible to rules 1 and 2. Every such pair a new pack introduces
+//    is unguarded until someone writes it down here. For a hominin pack that is
+//    most of the risk surface: contested chronologies, named sites, named type
+//    specimens. Adding entries is the work, not an afterthought.
+//
+// 4. SYSTEM_WORDS ENCODES PACK 2'S BOUNDARY, NOT A UNIVERSAL ONE. The question it
+//    asks -- "does the borrowing subject declare itself a system or record
+//    treatment?" -- is the ocean pack's half of the split. A third pack whose
+//    boundary is a different shape needs its own vocabulary, which probably means
+//    turning this constant into a per-pack map. That is an extension point, not a
+//    defect, but it will not extend itself.
+//
+// 5. OCEAN AND CONTINENT NAMES ARE DELIBERATELY NOT ANCHORS. Atlantic, Pacific,
+//    Tethys, Panthalassic and the continental adjectives sit in GENERIC. Admitting
+//    them flagged eleven noise pairs and adjudicated nothing. The cost is real:
+//    two packs may both build on "the Atlantic" and never be flagged.
+//
+// 6. THE RULINGS ARE HELD HONEST, SO THEY WILL BREAK ON PURPOSE. A ruling naming a
+//    subject no pack authors any more fails, and so does a ruling on a pair the
+//    gate no longer flags. Re-wording an adjudicated subject is therefore a
+//    deliberate trip-wire: re-make the ruling, do not delete the assertion. Note
+//    also `comparisons >= 10000` at the foot of the test -- with three packs that
+//    should read roughly thirty thousand, and if it does not, discovery broke.
+// ---------------------------------------------------------------------------
 
 const FAMILY_PREFIX = 'com.storystudio.pack.topic.deep-time-field-record.'
 
