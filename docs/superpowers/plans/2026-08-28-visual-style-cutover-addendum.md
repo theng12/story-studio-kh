@@ -98,6 +98,14 @@ it is independent of the six-product stocking. It can be done now.
    `com.storystudio.pack.style.ms-paint-fantasy`, sku, family, asset filename)
    are deliberately unchanged, so the revision-43 receipt chain still resolves.
    Task 7 Step 5 needs a separate correction — see below.
+
+   The owner additionally ruled on 2026-08-28 that third-party product marks
+   come out of customer-visible copy: `MS Paint` left Retro Paint Fantasy's
+   style bible (now "90s paint-program"), and `YouTube` left Hand-Drawn Cartoon
+   Explainer's description, tags and style bible. Note for Task 7 Step 7's
+   sweep: the style bible is **customer-visible and searchable**, not just
+   prompt text, so any "is this user-facing?" judgement during the deletion must
+   treat it as user-facing.
 3. **Task 7 Step 5 must not be done as written.** It says to replace the
    shipped niche style recommendations with signed ids
    (`com.storystudio.style.paleo-documentary-tableau`,
