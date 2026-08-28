@@ -209,10 +209,10 @@ test('production look previews preserve approved bytes and complete provenance e
  * here: changing those means new versions and republication, which is a
  * different decision with a different cost.
  */
-test('no sold Production Look carries a third-party product mark in customer-visible text', async () => {
-  // Word-boundary matched so ordinary words are never caught by accident.
-  const MARKS = [/\bMS\s*Paint\b/i, /\bMicrosoft\b/i, /\bYouTube\b/i, /\bPhotoshop\b/i, /\bIllustrator\b/i, /\bTikTok\b/i, /\bInstagram\b/i]
+// Word-boundary matched so ordinary words are never caught by accident.
+const MARKS = [/\bMS\s*Paint\b/i, /\bMicrosoft\b/i, /\bYouTube\b/i, /\bPhotoshop\b/i, /\bIllustrator\b/i, /\bTikTok\b/i, /\bInstagram\b/i]
 
+test('no sold Production Look carries a third-party product mark in customer-visible text', async () => {
   for (const slug of slugs) {
     const style = await parseJson(new URL(`style/${slug}/content/visual-style.json`, ROOT))
     const legacy = BUILT_IN_STYLES.find(candidate => candidate.id === `builtin-${slug}`)
@@ -229,6 +229,36 @@ test('no sold Production Look carries a third-party product mark in customer-vis
       for (const mark of MARKS) {
         assert.ok(!mark.test(text), `${slug} ${field} names a third-party product mark (${mark}): ${text}`)
       }
+    }
+  }
+})
+
+/**
+ * The same ruling, one surface further out.
+ *
+ * A built-in Formula's `visualStyleHint` is art direction the customer reads
+ * and edits in the format-override editor. On 2026-08-28 `ancient-humans.json`
+ * still asked for "hand-drawn MS Paint storybook frames" — the exact mark the
+ * six Production Looks had just been scrubbed of, sitting outside every list
+ * that scrub worked from. Rewritten to "hand-drawn 90s paint-program storybook
+ * frames", the wording the renamed product's own style bible already uses.
+ *
+ * ONLY `visualStyleHint` is swept, deliberately. `metadataTitleStyleHint` and
+ * the thumbnail guidance name YouTube because YouTube is where the episode is
+ * published — a functional reference to the destination platform, not a mark
+ * borrowed as art direction. Scrubbing those would destroy the meaning.
+ */
+test('no built-in Formula asks for a third-party product by name in its art direction', async () => {
+  const NICHES = new URL('../../../electron/server/niches/', import.meta.url)
+  const files = (await readdir(NICHES)).filter(name => name.endsWith('.json')).sort()
+
+  assert.ok(files.length >= 20, `expected the built-in Formula catalog, saw ${files.length} files`)
+
+  for (const file of files) {
+    const hint = (await parseJson(new URL(file, NICHES))).visualStyleHint
+    if (typeof hint !== 'string') continue
+    for (const mark of MARKS) {
+      assert.ok(!mark.test(hint), `${file} visualStyleHint names a third-party product mark (${mark}): ${hint}`)
     }
   }
 })

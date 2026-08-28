@@ -110,3 +110,7 @@ Story Studio will:
 
 Nothing else changes. Story Studio will not infer resolutions from a model's name, and
 will not pair independent lists into combinations GenStudio has not declared valid.
+
+---
+
+**RETIRED 2026-08-28.** Shipped: `default_resolution` + `output_options[]` published by GenStudio (commit `06e7247c`, "publish image output options, live credit cost, and enforced-limit visibility"); `ImageGenerationRequest.resolution` and the Story Studio selector confirmed wired in `electron/server/lib/genstudio-client.ts`. Moved from `docs/genstudio-handoff/`.

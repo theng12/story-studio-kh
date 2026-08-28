@@ -59,3 +59,7 @@ ambiguous sentence covering every cause.
 
 Continues to display GenStudio's own message as the primary text, and does not infer a cause
 when no code is present.
+
+---
+
+**RETIRED 2026-08-28.** Shipped: `capacity_reason`, `retry_after_seconds`, and the matching `Retry-After` / `X-GenStudio-Capacity-Reason` headers all confirmed live in `electron/server/lib/genstudio-client.ts` (commit `25f3b59f`, "real transcription pricing, published video variants, capacity reason codes"). Moved from `docs/genstudio-handoff/`.

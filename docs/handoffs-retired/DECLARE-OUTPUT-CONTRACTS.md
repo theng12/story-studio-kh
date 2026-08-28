@@ -124,3 +124,7 @@ still open — chiefly **S1**, the `?? 0` coercion at `genstudio-client.ts:2657`
 that turns any failed response into a confident claim about what GenStudio
 published. That one caused two wrong diagnoses in a single evening and is worth
 more than it looks.
+
+---
+
+**RETIRED 2026-08-28.** All 8 call sites (scene planning, style extraction, idea generation ×2, idea campaign, metadata template extraction, single image-prompt regen, image-pool suggest-prompts) confirmed carrying an explicit `outputContract` in the current tree; the vision.ts `jsonObject`→`outputContract` migration and the `genstudio-web.ts` route-comment fix are also both done. Shipped in commit `d1dab81e` ("declare the output contract on eight LLM call sites"). Item 3, Prompt Director, is now moot: the whole Visual Recipe / Prompt Director feature was later ripped out entirely (commit `92ab70a8`, "chore: rip out Visual Recipe"). Companion survey `LLM-CALL-SITE-SURVEY.md` retired alongside this. Moved from `docs/handoffs/`.

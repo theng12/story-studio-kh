@@ -74,3 +74,21 @@ Adopting the fields is a small change on our side, because voice already establi
 The owner chose **extend** on 2026-08-01, as quoted above. Provider identity stays display-only
 and GenStudio-owned; this request does not authorize Story Studio to infer providers or steer
 routing.
+
+---
+
+**NEEDS-OWNER / still genuinely OPEN — status header added 2026-08-28.** No code or test in
+this repo references this file's path, so it is safe to move on that ground alone — left in
+place instead because the ask itself is unresolved. Verified against the current tree:
+
+| Response schema | `provider_name` published (as of this repo's client types) |
+|---|---|
+| `GenStudioImageModel` | yes (optional) |
+| `GenStudioMusicModel` | yes (optional) |
+| `GenStudioChatModel` | yes (optional) |
+| `GenStudioTranscriptionModel` | **still absent** |
+| `GenStudioVideoModel` | **still absent** |
+
+So three of the five requested modalities have shipped since this was written; video and
+transcription have not. Genuinely open — this is a GenStudio-side catalogue gap, not a Story
+Studio decision.
