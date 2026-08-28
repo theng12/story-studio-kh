@@ -1,5 +1,5 @@
 {
-  "revision": 64,
+  "revision": 82,
   "batches": [
     {
       "revision": 2,
@@ -2229,6 +2229,59 @@
           }
         ]
       }
+    },
+    {
+      "revision": 81,
+      "receipt_ref": "authoring:e8f16de4a974fcb2aff15a40eceb0690174d41b84073668fd877a7a6896453a2",
+      "request": {
+        "expected_revision": 80,
+        "coordinator": {
+          "task": "archival-ledger-kit-repin-1.0.3",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "proposal_ref": ".superpowers/sdd/2026-08-25-topic-pack-1000-repair/plan-research.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.kit.archival-ledger",
+            "bundle_id": "com.storystudio.bundle.archival-ledger",
+            "version": "1.0.3",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "channel-kit",
+            "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger-v1.0.3",
+            "status": "reserved",
+            "dependencies": [
+              {
+                "pack_id": "com.storystudio.pack.formula.archival-ledger",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+                "version": "1.0.1"
+              },
+              {
+                "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+                "version": "1.0.0"
+              },
+              {
+                "pack_id": "com.storystudio.pack.thumbnail.archival-map-investigation",
+                "version": "1.0.0"
+              }
+            ],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.kit.archival-ledger",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.kit.archival-ledger",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -3060,6 +3113,295 @@
         "receipt_ref": "authoring:d3ff9c69d0660487f3fe6d7ba1dc686b77024d978b40d5e8809248039a5edd89",
         "pack_id": "com.storystudio.pack.kit.build-momentum",
         "version": "1.0.2",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 65,
+      "transition_ref": "lifecycle:c0db2d85881870251b19ea87b7e556ca9e6163db1c87851ac6cf90ec64ddbeb5",
+      "request": {
+        "expected_revision": 64,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.ancient-humans-survival",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 66,
+      "transition_ref": "lifecycle:f619c35465a6420f17de174c0059990ebc74df4e4a24be9b7ea7cd60212b4e33",
+      "request": {
+        "expected_revision": 65,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.empires-trade-extraction",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 67,
+      "transition_ref": "lifecycle:3f938431d24ec84233ba8ac677833b3eec408501701d960ff3380f01193f2a2d",
+      "request": {
+        "expected_revision": 66,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.infrastructure-commodities-corporate-power",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 68,
+      "transition_ref": "lifecycle:d4b277db2e4828673d15603ae8fd0d07c08026d3861f8a5bd5da68d93e9573c5",
+      "request": {
+        "expected_revision": 67,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.money-debt-financial-institutions",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 69,
+      "transition_ref": "lifecycle:3c8a8d8c0304d4ae63de5b53ed4a3f5da56244d532004b06990014e30e489b05",
+      "request": {
+        "expected_revision": 68,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 70,
+      "transition_ref": "lifecycle:689983bf5fdb3db56580e3e4713334eed06d1f4b09de94af458dcc45ac849a38",
+      "request": {
+        "expected_revision": 69,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.archival-ledger.wars-treaties-world-order",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 71,
+      "transition_ref": "lifecycle:43db2a936fd8ac441d6d7c8c60a80b888e9454305e767a4123b44a01af73402a",
+      "request": {
+        "expected_revision": 70,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.audience-question-seeder",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 72,
+      "transition_ref": "lifecycle:49cb67e3badae6777754c535055887f26809eb6896cc25d5a404107ffd161dec",
+      "request": {
+        "expected_revision": 71,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.deep-time-earth-systems",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 73,
+      "transition_ref": "lifecycle:59211be998b8d928ab9d688790e28c73c8a0ee4bd26bf434cc1e72d7b2830e6a",
+      "request": {
+        "expected_revision": 72,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.economics-businesses",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 74,
+      "transition_ref": "lifecycle:86f9acadbc4c1b5888aa597f6e970ee7612e63cbbc82ea897d4e9e0479c01567",
+      "request": {
+        "expected_revision": 73,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.everyday-calm",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 75,
+      "transition_ref": "lifecycle:accb7df8361720708b9ac626417e9d6d3a31994a2a4ca0c9d71d7f76e37e9ea7",
+      "request": {
+        "expected_revision": 74,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.habits-momentum",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 76,
+      "transition_ref": "lifecycle:59c3ac934e1752bcaa2dab919f41017a3682915537c0b7d09a84bd0fe23824e5",
+      "request": {
+        "expected_revision": 75,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.historical-wars-treaties-world-order",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 77,
+      "transition_ref": "lifecycle:9ad71cba6eb9aa9fa3c9a9430c5d19ee5c8bcb0db524d5d5e2c501174b430000",
+      "request": {
+        "expected_revision": 76,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.human-behavior-social-dynamics",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 78,
+      "transition_ref": "lifecycle:cba9e75f51c3544fac6b06bd17a719ed693ada1651321410b6607700f9c57c8d",
+      "request": {
+        "expected_revision": 77,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.natural-world-animals",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 79,
+      "transition_ref": "lifecycle:0abf674afc6bbaabdd167a28d2a9e40c65e05c69f67cf173189359eb37622ce5",
+      "request": {
+        "expected_revision": 78,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.night-journeys",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 80,
+      "transition_ref": "lifecycle:c81e57659ae29aca276f88d37aaf1d976397f1749ccbbdec38e693a511db9d8f",
+      "request": {
+        "expected_revision": 79,
+        "coordinator": {
+          "task": "topic-pack-1000-successor-batch-advance",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:c9ab5bbdb15dfd8dc1d63e83478d0d9ccded2309453eb0a516392cc1c37c5eb3",
+        "pack_id": "com.storystudio.pack.topic.pov-historical-occupations",
+        "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 82,
+      "transition_ref": "lifecycle:653de9f5ebad646fd16dff377a8d24c02a3e3e23983bd2a8d43a564a33cb5af1",
+      "request": {
+        "expected_revision": 81,
+        "coordinator": {
+          "task": "archival-ledger-kit-repin-1.0.3",
+          "branch": "content/batch-advance-and-repin-2026-08-28"
+        },
+        "receipt_ref": "authoring:e8f16de4a974fcb2aff15a40eceb0690174d41b84073668fd877a7a6896453a2",
+        "pack_id": "com.storystudio.pack.kit.archival-ledger",
+        "version": "1.0.3",
         "changes": {
           "status": "authored"
         }
@@ -5490,7 +5832,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/ancient-humans-survival-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5513,7 +5855,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/deep-time-earth-systems-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5536,7 +5878,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/economics-businesses-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5559,7 +5901,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/everyday-calm-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5582,7 +5924,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/habits-momentum-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5605,7 +5947,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/historical-wars-treaties-world-order-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5628,7 +5970,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/human-behavior-social-dynamics-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5651,7 +5993,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/natural-world-animals-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5674,7 +6016,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/night-journeys-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5697,7 +6039,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/free-starters/topic/pov-historical-occupations-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5720,7 +6062,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/reusable-primitives/topic/audience-question-seeder-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5743,7 +6085,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/paid/archival-ledger/topic/empires-trade-extraction-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5766,7 +6108,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/paid/archival-ledger/topic/infrastructure-commodities-corporate-power-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5789,7 +6131,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/paid/archival-ledger/topic/money-debt-financial-institutions-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5812,7 +6154,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/paid/archival-ledger/topic/states-revolutions-collapse-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -5835,7 +6177,7 @@
       "min_app_version_status": "release-bound",
       "kind": "topic-pack",
       "source_path": "content-packs/paid/archival-ledger/topic/wars-treaties-world-order-v1.0.1",
-      "status": "reserved",
+      "status": "authored",
       "dependencies": [],
       "stocking_proposal": {
         "family": {
@@ -6694,6 +7036,46 @@
         },
         "sku": {
           "id": "com.storystudio.sku.kit.build-momentum",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:e8f16de4a974fcb2aff15a40eceb0690174d41b84073668fd877a7a6896453a2",
+      "pack_id": "com.storystudio.pack.kit.archival-ledger",
+      "bundle_id": "com.storystudio.bundle.archival-ledger",
+      "version": "1.0.3",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "channel-kit",
+      "source_path": "content-packs/paid/archival-ledger/kit/archival-ledger-v1.0.3",
+      "status": "authored",
+      "dependencies": [
+        {
+          "pack_id": "com.storystudio.pack.formula.archival-ledger",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.topic.archival-ledger.states-revolutions-collapse",
+          "version": "1.0.1"
+        },
+        {
+          "pack_id": "com.storystudio.pack.style.archival-documentary-reconstruction",
+          "version": "1.0.0"
+        },
+        {
+          "pack_id": "com.storystudio.pack.thumbnail.archival-map-investigation",
+          "version": "1.0.0"
+        }
+      ],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.kit.archival-ledger",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.kit.archival-ledger",
           "status": "proposed"
         }
       }
