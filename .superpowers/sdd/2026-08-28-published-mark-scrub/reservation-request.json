@@ -1,0 +1,296 @@
+{
+  "expected_revision": 93,
+  "coordinator": {
+    "task": "published-mark-scrub-2026-08-28",
+    "branch": "content/published-mark-scrub-2026-08-28"
+  },
+  "proposal_ref": "docs/superpowers/plans/2026-08-28-published-mark-scrub.md#reserve-successors",
+  "records": [
+    {
+      "pack_id": "com.storystudio.pack.formula.ancient-humans",
+      "item_id": "com.storystudio.formula.ancient-humans",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/ancient-humans-v1.0.2",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.ancient-humans",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.ancient-humans",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.deep-time-documentary",
+      "item_id": "com.storystudio.formula.deep-time-documentary",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/deep-time-documentary-v1.0.2",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.deep-time-documentary",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.deep-time-documentary",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.economics-of",
+      "item_id": "com.storystudio.formula.economics-of",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/economics-of-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.economics-of",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.economics-of",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.guided-mindfulness",
+      "item_id": "com.storystudio.formula.guided-mindfulness",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/guided-mindfulness-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.guided-mindfulness",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.guided-mindfulness",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.history-explained",
+      "item_id": "com.storystudio.formula.history-explained",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/history-explained-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.history-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.history-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.human-behavior-explained",
+      "item_id": "com.storystudio.formula.human-behavior-explained",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/human-behavior-explained-v1.0.2",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.human-behavior-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.human-behavior-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.natural-world-explained",
+      "item_id": "com.storystudio.formula.natural-world-explained",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/natural-world-explained-v1.0.2",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.natural-world-explained",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.natural-world-explained",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.pov-your-life-as",
+      "item_id": "com.storystudio.formula.pov-your-life-as",
+      "version": "1.0.2",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/pov-your-life-as-v1.0.2",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.pov-your-life-as",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.pov-your-life-as",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.formula.practical-motivation",
+      "item_id": "com.storystudio.formula.practical-motivation",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "series-formula",
+      "source_path": "content-packs/free-starters/formula/practical-motivation-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.formula.practical-motivation",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.formula.practical-motivation",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.minimal-stick-figure-explainer",
+      "item_id": "com.storystudio.style.minimal-stick-figure-explainer",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/minimal-stick-figure-explainer-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.minimal-stick-figure-explainer",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.minimal-stick-figure-explainer",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.style.prehistoric-stick-cartoon",
+      "item_id": "com.storystudio.style.prehistoric-stick-cartoon",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "visual-style",
+      "source_path": "content-packs/free-starters/style/prehistoric-stick-cartoon-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.style.prehistoric-stick-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.style.prehistoric-stick-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.curiosity-question-cartoon",
+      "item_id": "com.storystudio.thumbnail.curiosity-question-cartoon",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/curiosity-question-cartoon-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.curiosity-question-cartoon",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.curiosity-question-cartoon",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "pack_id": "com.storystudio.pack.thumbnail.documentary-label-tableau",
+      "item_id": "com.storystudio.thumbnail.documentary-label-tableau",
+      "version": "1.0.1",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "thumbnail-recipe",
+      "source_path": "content-packs/free-starters/thumbnail/documentary-label-tableau-v1.0.1",
+      "status": "reserved",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.thumbnail.documentary-label-tableau",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.thumbnail.documentary-label-tableau",
+          "status": "proposed"
+        }
+      }
+    }
+  ]
+}

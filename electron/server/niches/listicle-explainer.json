@@ -268,7 +268,7 @@
   ],
   "structuralVariety": "vary-all",
   "visualStyleHint": "clean, bold, single-concept visuals per topic — evidence-forward, not decorative",
-  "metadataTitleStyleHint": "punchy number-led explainer title — hook-first, optimised for YouTube CTR without clickbait",
+  "metadataTitleStyleHint": "punchy number-led explainer title — hook-first, optimised for click-through without clickbait",
   "metadataTitleHookRules": [
     "Lead with a number ('10 Sleep Mysteries Explained', '7 Plane Crashes…').",
     "Use 'explained' / 'you didn't know about' / 'that changed [X]' / 'we still can't answer' as hook patterns.",

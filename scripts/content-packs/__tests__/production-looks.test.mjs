@@ -6,6 +6,8 @@ import test from 'node:test'
 import sharp from 'sharp'
 import { register } from 'tsx/esm/api'
 
+import { MARKS } from './forbidden-marks.mjs'
+
 const ROOT = new URL('../../../content-packs/production-looks/', import.meta.url)
 const REGISTRY = new URL('../../../content-packs/authoring-registry.json', import.meta.url)
 const LEGACY_SOURCE = new URL('../../../frontend/composables/useBuiltInStyles.ts', import.meta.url)
@@ -221,8 +223,10 @@ test('production look previews preserve approved bytes and complete provenance e
  * here: changing those means new versions and republication, which is a
  * different decision with a different cost.
  */
-// Word-boundary matched so ordinary words are never caught by accident.
-const MARKS = [/\bMS\s*Paint\b/i, /\bMicrosoft\b/i, /\bYouTube\b/i, /\bPhotoshop\b/i, /\bIllustrator\b/i, /\bTikTok\b/i, /\bInstagram\b/i]
+// MARKS is imported from ./forbidden-marks.mjs rather than declared here, so that
+// widening the list widens this guard and the published-pack scrub guard together
+// instead of only whichever one happened to be in hand. Both surfaces hoisted the
+// same literal on the same day; the shared module is where the two agreed to meet.
 
 test('no sold Production Look carries a third-party product mark in customer-visible text', async () => {
   for (const slug of slugs) {
