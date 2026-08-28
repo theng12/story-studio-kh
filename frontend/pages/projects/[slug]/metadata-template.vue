@@ -38,6 +38,25 @@
     </section>
 
     <section class="card mt-3">
+      <h3>Description formula</h3>
+      <span class="hint">Choose the section architecture every episode's YouTube description follows by default. An episode can still override this for a single run on the YouTube Finalizer page.</span>
+      <select v-model="selectedFormulaId" class="select mt-1" :disabled="formulasLoading">
+        <option value="">None — build sections manually (current behaviour)</option>
+        <option v-for="f in formulas" :key="f.id" :value="f.id">{{ f.name }}</option>
+      </select>
+      <div v-if="selectedFormula" class="formula-card mt-1">
+        <div class="formula-card-header">
+          <strong>{{ selectedFormula.name }}</strong>
+          <span :class="['formula-source-badge', selectedFormula.source === 'built-in' ? 'is-builtin' : 'is-pack']">
+            {{ selectedFormula.source === 'built-in' ? 'Built in' : 'From a pack' }}
+          </span>
+        </div>
+        <p class="formula-architecture">{{ selectedFormula.architecture }}</p>
+      </div>
+      <p v-if="formulasError" class="text-muted text-xs mt-1">Could not load description formulas: {{ formulasError }}</p>
+    </section>
+
+    <section class="card mt-3">
       <h3>Optional title wrapper</h3>
       <span class="hint">Leave empty to keep the approved episode title exactly as the Formula created it. Use only for a durable channel prefix or suffix.</span>
       <input v-model="tpl.title" class="input mt-1" placeholder="e.g. The Economics of {topic}" />
@@ -87,6 +106,47 @@ const tagsText = ref('')
 const saving = ref(false)
 const saveMessage = ref<{ ok: boolean; text: string } | null>(null)
 
+// ── Description formula (2026-08-27) ────────────────────────────────────────
+// A metadata formula owns the description's section architecture, title
+// shaping, tag guidance, and tone. This picker sets the CHANNEL default,
+// persisted as `metadata_formula_id` on project config. An empty string
+// means "no formula" — every existing channel keeps that as its default;
+// nothing here auto-picks a formula for anyone.
+interface MetadataFormula {
+  id: string
+  name: string
+  description: string
+  architecture: string
+  source: 'built-in' | 'pack'
+  pack_id: string | null
+  section_count: number
+  description_max_chars: number
+  title_count: number
+  tag_count: number
+  outline: Array<{ id: string; header: string }>
+}
+const formulas = ref<MetadataFormula[]>([])
+const selectedFormulaId = ref('')
+const formulasLoading = ref(false)
+const formulasError = ref('')
+const selectedFormula = computed(() => formulas.value.find(f => f.id === selectedFormulaId.value) || null)
+
+async function loadFormulas(): Promise<void> {
+  formulasLoading.value = true
+  formulasError.value = ''
+  try {
+    const data = await get<{ channel_default_id: string; formulas: MetadataFormula[] }>(
+      `/projects/${slug.value}/metadata/formulas`,
+    )
+    formulas.value = Array.isArray(data?.formulas) ? data.formulas : []
+    selectedFormulaId.value = data?.channel_default_id || ''
+  } catch (e: any) {
+    formulasError.value = e?.data?.detail || e?.message || 'unknown'
+  } finally {
+    formulasLoading.value = false
+  }
+}
+
 async function load(): Promise<void> {
   try {
     const cfg = await get<any>(`/projects/${slug.value}/settings/config`)
@@ -97,7 +157,10 @@ async function load(): Promise<void> {
   } catch { /* tolerate */ }
 }
 
-onMounted(load)
+onMounted(() => {
+  void load()
+  void loadFormulas()
+})
 
 async function save(): Promise<void> {
   saving.value = true
@@ -110,6 +173,7 @@ async function save(): Promise<void> {
     if (tags.length) template.tags = tags
     await put(`/projects/${slug.value}/settings/config`, {
       metadata_template: Object.keys(template).length ? template : undefined,
+      metadata_formula_id: selectedFormulaId.value,
     })
     saveMessage.value = { ok: true, text: 'Saved. The next YouTube package will use this recurring channel copy.' }
     success('Publishing profile saved')
@@ -133,7 +197,7 @@ async function clearTpl(): Promise<void> {
 .publishing-relationship { padding: 16px 18px; border: 1px solid rgba(240, 198, 116, .35); border-radius: var(--radius-md, 6px); background: linear-gradient(120deg, rgba(240, 198, 116, .10), rgba(95, 179, 124, .06)); }
 .relationship-kicker { display: block; margin-bottom: 10px; color: var(--accent); text-transform: uppercase; letter-spacing: .09em; font-weight: 700; font-size: var(--font-xs); }
 .relationship-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.relationship-grid div { display: grid; gap: 3px; padding: 10px 12px; border-radius: 6px; background: rgba(11, 15, 25, .28); }
+.relationship-grid div { display: grid; gap: 3px; padding: 10px 12px; border-radius: 6px; background: var(--bg-tertiary); }
 .relationship-grid span { color: var(--text-muted); font-size: 12px; line-height: 1.45; }
 .card { padding: 14px 18px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-md, 6px); }
 .card h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
@@ -143,6 +207,12 @@ textarea.input { font-family: var(--font-mono, monospace); font-size: 12px; resi
 .ph-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .ph-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); }
 .ph-table td:first-child { width: 140px; font-family: var(--font-mono, monospace); }
+.formula-card { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-tertiary); }
+.formula-card-header { display: flex; align-items: center; gap: 8px; }
+.formula-source-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); }
+.formula-source-badge.is-builtin { color: var(--accent); border-color: var(--accent); }
+.formula-source-badge.is-pack { color: var(--success, #5fb37a); border-color: var(--success, #5fb37a); }
+.formula-architecture { margin: 6px 0 0; font-size: 12px; color: var(--text-muted); line-height: 1.45; }
 .actions { display: flex; gap: 8px; align-items: center; }
 .ml-auto { margin-left: auto; }
 .save-msg { padding: 8px 12px; border-radius: 4px; font-size: 12px; margin-top: 12px; }

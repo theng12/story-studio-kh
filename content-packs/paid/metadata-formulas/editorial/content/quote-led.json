@@ -1,0 +1,71 @@
+{
+  "kind": "metadata-formula",
+  "schema_version": 1,
+  "id": "com.storystudio.metadata-formula.quote-led",
+  "name": "Quote Led",
+  "description": "Opens on a line pulled from the episode itself, then earns it. A quote, a paragraph of commentary, the context that makes it land, and an attribution line. For channels where the writing is the draw.",
+  "architecture": "A pulled quote first, then commentary, context, and attribution.",
+  "description_plan": {
+    "max_chars": 1800,
+    "separator": "none",
+    "sections": [
+      {
+        "id": "quote",
+        "instruction": "Choose the single most striking sentence from the episode's own narration and set it alone as the first line, in quotation marks. Take it verbatim from the story context. If no single sentence stands out, choose the one that best states the episode's central idea.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 180
+      },
+      {
+        "id": "commentary",
+        "instruction": "One paragraph on why that line matters — what it turns on, what it asks the listener to hold. Do not simply restate it.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 380
+      },
+      {
+        "id": "context",
+        "instruction": "One paragraph placing the quote in the episode: what surrounds it and what the episode covers around it.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 340
+      },
+      {
+        "id": "attribution",
+        "instruction": "One line naming the episode and, if the story context says, who narrated it. Plain, no flourish.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 90
+      },
+      {
+        "id": "hashtags",
+        "instruction": "Emit only hashtags, on a single line, separated by spaces. No sentence, no heading, no commentary. At most six.",
+        "header": {
+          "render": false
+        },
+        "target_chars": 80
+      }
+    ]
+  },
+  "title_plan": {
+    "mode": "paraphrase",
+    "count": 3,
+    "max_length": 75,
+    "guidance": "A phrase from the episode's own language, or close to it. Evocative rather than descriptive, but never vague about the subject."
+  },
+  "tag_plan": {
+    "count": 12,
+    "guidance": "for this writing-led episode, mixing the subject with the mood and the form"
+  },
+  "tone": {
+    "constraints": [
+      "The opening quote must be taken from the episode, never composed for the description.",
+      "No section headers anywhere — this formula runs as continuous text.",
+      "No call to action of any kind."
+    ]
+  }
+}

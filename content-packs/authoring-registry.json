@@ -1,5 +1,5 @@
 {
-  "revision": 84,
+  "revision": 86,
   "batches": [
     {
       "revision": 2,
@@ -2282,6 +2282,49 @@
           }
         ]
       }
+    },
+    {
+      "revision": 85,
+      "receipt_ref": "authoring:e17e8774f99bd489a52de625334e6b5ac74890a400c73eca4d52f50d8c0df9a7",
+      "request": {
+        "expected_revision": 84,
+        "coordinator": {
+          "task": "metadata-formulas",
+          "branch": "feat/metadata-formulas-2026-08-27"
+        },
+        "proposal_ref": "metadata-formula:editorial-v1",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.metadata-formula.editorial",
+            "item_ids": [
+              "com.storystudio.metadata-formula.chronology",
+              "com.storystudio.metadata-formula.numbered-index",
+              "com.storystudio.metadata-formula.problem-and-fix",
+              "com.storystudio.metadata-formula.questions-and-answers",
+              "com.storystudio.metadata-formula.quote-led",
+              "com.storystudio.metadata-formula.signed-note"
+            ],
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "metadata-formula",
+            "source_path": "content-packs/paid/metadata-formulas/editorial",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.metadata-formula.editorial",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.metadata-formula.editorial",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -3435,6 +3478,23 @@
         },
         "receipt_ref": "authoring:bd4d3d8938cee8b2191379c5912cbbc5d848daa36bf6f7ca28f870c1359a2728",
         "pack_id": "com.storystudio.pack.thumbnail.route-map-one-promise",
+        "version": "1.0.0",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 86,
+      "transition_ref": "lifecycle:5230e5b34a0cb15d8eba437375cb14c482fd0f59f8cf408ad061704e2c4d52d4",
+      "request": {
+        "expected_revision": 85,
+        "coordinator": {
+          "task": "metadata-formulas",
+          "branch": "feat/metadata-formulas-2026-08-27"
+        },
+        "receipt_ref": "authoring:e17e8774f99bd489a52de625334e6b5ac74890a400c73eca4d52f50d8c0df9a7",
+        "pack_id": "com.storystudio.pack.metadata-formula.editorial",
         "version": "1.0.0",
         "changes": {
           "status": "authored"
@@ -7110,6 +7170,36 @@
         },
         "sku": {
           "id": "com.storystudio.sku.kit.archival-ledger",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:e17e8774f99bd489a52de625334e6b5ac74890a400c73eca4d52f50d8c0df9a7",
+      "pack_id": "com.storystudio.pack.metadata-formula.editorial",
+      "item_ids": [
+        "com.storystudio.metadata-formula.chronology",
+        "com.storystudio.metadata-formula.numbered-index",
+        "com.storystudio.metadata-formula.problem-and-fix",
+        "com.storystudio.metadata-formula.questions-and-answers",
+        "com.storystudio.metadata-formula.quote-led",
+        "com.storystudio.metadata-formula.signed-note"
+      ],
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "metadata-formula",
+      "source_path": "content-packs/paid/metadata-formulas/editorial",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.metadata-formula.editorial",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.metadata-formula.editorial",
           "status": "proposed"
         }
       }

@@ -610,6 +610,14 @@ export interface MetadataFormat {
     descriptionShapeRules?: string[]
     closingBenediction?: string
     ctaShape?: string
+    /**
+     * What goes between sections, replacing the prompt's default instruction.
+     *
+     * Without this the builder always ended with "Use separator lines (──────)
+     * between major sections", which flatly contradicts any description shape
+     * that wants none — the model was handed both instructions and left to pick.
+     */
+    separatorRule?: string
   }
 }
 
@@ -2006,6 +2014,13 @@ export interface ProjectConfig {
   /** How many recent uploads to consult when avoiding repeats (default 10). */
   broll_lookback?: number
   /** Channel-locked metadata template (LLM fills placeholders only). */
+  /**
+   * The channel's default metadata formula — the architecture its YouTube
+   * write-ups are built to (2026-08-27). Unset means the pre-formula behaviour,
+   * which is why adding this changes no existing channel's output. A single
+   * episode can override it; see `metadata_formula_id` on the metadata job.
+   */
+  metadata_formula_id?: string
   metadata_template?: MetadataTemplate
 
   /**
@@ -2224,6 +2239,13 @@ export interface SafeProjectConfig {
   confirmation_preferences?: ConfirmationPreferences
   broll_pool_id?: string
   broll_lookback?: number
+  /**
+   * The channel's default metadata formula — the architecture its YouTube
+   * write-ups are built to (2026-08-27). Unset means the pre-formula behaviour,
+   * which is why adding this changes no existing channel's output. A single
+   * episode can override it; see `metadata_formula_id` on the metadata job.
+   */
+  metadata_formula_id?: string
   metadata_template?: MetadataTemplate
 }
 
