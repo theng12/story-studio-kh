@@ -150,17 +150,17 @@ const DEFAULT_NARRATIVE_QUALITY: NonNullable<Niche['narrativeQualityContract']> 
 
 const METADATA_PROFILES: Record<'evidence' | 'immersive' | 'reflective' | 'calm' | 'faith', NicheMetadataProfile> = {
   evidence: {
-    id: 'evidence-youtube', label: 'Evidence-led YouTube package',
+    id: 'evidence-youtube', label: 'Evidence-led video package',
     description: 'A direct episode summary with sources when research exists, a concise CTA, disclosure, and focused hashtags.',
     descriptionSectionIds: ['hook', 'sources', 'cta', 'ai-disclosure', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 4000, titleMaxLength: 100, tagCount: 15,
   },
   immersive: {
-    id: 'immersive-youtube', label: 'Immersive YouTube package',
+    id: 'immersive-youtube', label: 'Immersive video package',
     description: 'A concise premise-led summary with a light CTA, disclosure, and focused hashtags.',
     descriptionSectionIds: ['hook', 'cta', 'ai-disclosure', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 3500, titleMaxLength: 100, tagCount: 15,
   },
   reflective: {
-    id: 'reflective-youtube', label: 'Reflective YouTube package',
+    id: 'reflective-youtube', label: 'Reflective video package',
     description: 'A clear, non-hyped summary with a modest CTA, disclosure, and focused hashtags.',
     descriptionSectionIds: ['hook', 'cta', 'ai-disclosure', 'hashtags'], titleMode: 'use_idea_title', descriptionMaxChars: 3500, titleMaxLength: 100, tagCount: 15,
   },

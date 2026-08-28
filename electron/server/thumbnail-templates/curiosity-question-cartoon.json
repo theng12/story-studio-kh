@@ -1,7 +1,7 @@
 {
   "id": "curiosity-question-cartoon",
   "name": "Curiosity Question Cartoon",
-  "description": "A bright, simple cartoon moment with one main subject, one revealing contrast, and a short model-rendered curiosity hook instead of the full YouTube title.",
+  "description": "A bright, simple cartoon moment with one main subject, one revealing contrast, and a short model-rendered curiosity hook instead of the full episode title.",
   "tagline": "Big question, one visual reveal",
   "builtin": true,
   "schemaVersion": 1,
@@ -24,7 +24,7 @@
       "Use one dominant main subject in the lower three quarters. A second reacting character or representative reveal object is optional, but do not create a crowded ensemble.",
       "Make the contrast or tension visible without a written explanation: scale, expression, one object, or one simple action should carry the click.",
       "Use a simplified setting with only enough location cues to make the situation immediately legible at phone size.",
-      "Keep the full YouTube episode title out of the artwork; the hook and the title must be truthful partners, not duplicate sentences."
+      "Keep the full episode title out of the artwork; the hook and the title must be truthful partners, not duplicate sentences."
     ],
     "requiredElements": [
       "one short model-rendered curiosity hook",

@@ -53,7 +53,7 @@
         "ideaAxisValue": "deep rest documentary",
         "titleSuffix": " | Documentary for Sleep",
         "narratorStyleId": "deep-rest",
-        "titlePolicy": "End the YouTube title with “| Documentary for Sleep”.",
+        "titlePolicy": "End the episode title with “| Documentary for Sleep”.",
         "thumbnailPolicy": "Prefer the exact two-line label “DOCUMENTARY / FOR SLEEP” unless a shorter factual time or subject label is materially clearer.",
         "metadataPolicy": "Describe the episode as calm long-form listening without promising therapy, guaranteed sleep, or invented certainty."
       },
@@ -65,7 +65,7 @@
         "forbiddenTitleSuffixes": [" | Documentary for Sleep", "Documentary for Sleep"],
         "narratorStyleId": "natural-history",
         "titlePolicy": "Do not append a sleep label. Use the precise factual or clearly speculative episode title.",
-        "thumbnailPolicy": "Use a truthful two-to-five-word factual label that complements rather than repeats the YouTube title.",
+        "thumbnailPolicy": "Use a truthful two-to-five-word factual label that complements rather than repeats the episode title.",
         "metadataPolicy": "Emphasize the central evidence, process, and uncertainty; do not call the episode sleep content."
       }
     ]
@@ -169,7 +169,7 @@
   "defaultThumbnailTemplateId": "documentary-label-tableau",
   "thumbnailProfile": {
     "layout": "hero",
-    "conceptGuidance": "Build an original documentary cover around one extraordinary but legible subject: a prehistoric landscape, organism, deep-ocean inhabitant, Earth-scale process, fossil detail, or reconstructed map. The artwork carries the atmosphere; bake a short 2-4 word curiosity hook directly into the generated thumbnail only when it adds useful contrast to the full YouTube title.",
+    "conceptGuidance": "Build an original documentary cover around one extraordinary but legible subject: a prehistoric landscape, organism, deep-ocean inhabitant, Earth-scale process, fossil detail, or reconstructed map. The artwork carries the atmosphere; bake a short 2-4 word curiosity hook directly into the generated thumbnail only when it adds useful contrast to the full episode title.",
     "compositionRules": ["One dominant focal subject or vista; never a crowded collage.", "Use clean negative space and a bold lower-left or upper-left text zone.", "The short thumbnail hook must complement rather than repeat the complete title.", "Use original documentary visual language; no copied logos, channel marks, or branded lockups."],
     "moodKeywords": ["grand", "calm", "mysterious", "scientific", "atmospheric"],
     "avoid": ["busy infographic collage", "generic stock photo look", "fake scientific certainty", "copied branding", "unrelated human host"],

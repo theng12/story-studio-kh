@@ -68,80 +68,40 @@ test('a mark-scrub successor supersedes its predecessor without touching it', as
 })
 
 /**
- * The shared metadata-profile catalogue is code, not a pack, and its `label` is
- * rendered on the Metadata page. The `id` beside it is an internal key that is
- * never rendered, so it keeps its historical spelling rather than churning a
- * content-addressed record for no customer-visible gain.
+ * THE LEDGER IS GONE, AND THAT IS THE POINT.
  *
- * Three of these labels are pinned field-for-field to published pack bytes by
- * `free-starter-signed-source-golden.test.ts`, so they cannot be scrubbed until the
- * successors are published. The two that no published pack pins — `calm`, which was
- * already generic, and `faith`, scrubbed in this batch — must stay clean.
+ * Two ledgers stood here until 2026-08-29: one naming the three metadata-profile
+ * labels that still carried the mark, one naming the four live documents that did.
+ * Both existed because the live copy is pinned field-for-field to PUBLISHED pack
+ * bytes, and a published `(pack_id, version, sha256)` is frozen — so the copy could
+ * not be scrubbed until successors carrying the scrubbed wording were on the shelf.
+ *
+ * The thirteen successors were published on 2026-08-29, the copy moved with them in
+ * this change, and both lists emptied. Their own instructions said to delete them at
+ * that point, because a ledger of nothing is a trap for the next reader: it reads as
+ * permission rather than as history.
+ *
+ * What replaces them is not a ledger. It is the plain rule with no list to edit and
+ * no exception to grant — the guard the two ledgers were always standing in for.
+ * The `id` beside each label keeps its historical spelling deliberately: it is an
+ * internal key, never rendered, and `meaningfulStrings` skips it.
  */
-const LABELS_PINNED_TO_PUBLISHED_PACKS = [
-  'Evidence-led YouTube package',
-  'Immersive YouTube package',
-  'Reflective YouTube package',
-]
-
-test('a metadata-profile label carries the mark only where a published pack pins it', async () => {
+test('no live metadata-profile label or built-in document names a third-party mark', async () => {
   const source = await readFile(new URL('electron/server/services/niche-loader.ts', ROOT), 'utf8')
   const labels = [...source.matchAll(/\blabel:\s*'([^']*)'/g)].map(match => match[1])
   assert.ok(labels.length >= 5, 'expected the metadata-profile labels to be found')
-  assert.deepEqual(labels.filter(label => markIn(label)).sort(), LABELS_PINNED_TO_PUBLISHED_PACKS,
-    'a metadata-profile label named a third-party product where no published pack pins it, or a pinned one was cleared without updating this ledger')
-})
+  assert.deepEqual(labels.filter(label => markIn(label)).sort(), [],
+    'a metadata-profile label names a third-party product mark')
 
-/**
- * The live legacy copy is pinned field-for-field to the PUBLISHED pack bytes by
- * `free-starter-signed-source-golden.test.ts` and `free-starter-signed-style-golden.test.mjs`.
- * Those bytes are frozen, so this copy cannot be scrubbed until the successors above
- * are published and the golden tests are repointed at them.
- *
- * This is therefore a ledger, not an allowance: it names exactly where the mark is
- * still live and why. A mark appearing anywhere else fails, and clearing one of these
- * at republication also fails until the entry is removed — so neither direction can
- * happen silently.
- *
- * THE PUBLISH SEQUENCE, recorded here because a commit body is not where anyone looks
- * when this test goes red. The owner approved publishing the thirteen successors on
- * 2026-08-28. Publication happens through his signed-in Studio Control and is NOT
- * performed by any code in this repository. Whoever runs it:
- *
- *   1. Publish the thirteen successors.
- *   2. In the SAME change, scrub the entries below and the three metadata-profile
- *      labels above, and repoint the two golden tests at the successors. Doing this
- *      before step 1 turns the goldens red; doing step 1 without it leaves the mark
- *      live in the app while the packs claim it is gone.
- *   3. Delete each entry here as it clears. When both lists are empty, delete the
- *      ledger tests — their job is finished, and a ledger of nothing is a trap for
- *      the next reader.
- *
- * Two surfaces reached this boundary independently on 2026-08-28: this batch, and the
- * built-in art-direction scrub on main, which cleared `visualStyleHint` in
- * ancient-humans.json and stopped at `metadataTitleStyleHint` in the same file. If a
- * third arrives here, the wall is real — do not route around it, publish first.
- */
-const BLOCKED_UNTIL_REPUBLICATION = [
-  'niches/ancient-humans.json',
-  'niches/deep-time-documentary.json',
-  'thumbnail-templates/curiosity-question-cartoon.json',
-  'thumbnail-templates/documentary-label-tableau.json',
-]
-
-test('the mark survives only where published pack bytes pin it', async () => {
   const found = []
   for (const directory of ['niches', 'thumbnail-templates']) {
     const base = new URL(`electron/server/${directory}/`, ROOT)
     for (const name of (await readdir(base)).filter(entry => entry.endsWith('.json'))) {
       const document = await readJson(new URL(name, base))
-      if (meaningfulStrings(document).some(([, text]) => markIn(text))) {
-        found.push(`${directory}/${name}`)
-      }
+      if (meaningfulStrings(document).some(([, text]) => markIn(text))) found.push(`${directory}/${name}`)
     }
   }
-  assert.deepEqual(found.sort(), BLOCKED_UNTIL_REPUBLICATION,
-    'a third-party mark appeared in live copy that no published pack pins, or a pinned one was cleared without updating this ledger')
+  assert.deepEqual(found.sort(), [], 'a third-party mark appeared in live built-in copy')
 })
 
 test('the forbidden-mark list still covers the marks this batch scrubbed', () => {

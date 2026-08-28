@@ -57,9 +57,36 @@ const ADVERTISED_COVERAGE = [
   ['sleep-story', 'night-journeys', 15],
 ] as const
 
+/**
+ * The pack directory each surface is pinned to, where that is not the bare slug.
+ *
+ * A published `(pack_id, version, sha256)` is frozen, so the 2026-08-28 mark
+ * scrub shipped thirteen SUCCESSOR packs in `<slug>-v<version>` siblings rather
+ * than editing the published bytes. Those successors were published on
+ * 2026-08-29 and are now the current release of their products.
+ *
+ * This golden pins the live built-in copy to the pack bytes a CUSTOMER
+ * DOWNLOADS, so it has to follow the shelf rather than the directory name. A
+ * slug missing here is a pack whose bare directory is still the published one.
+ */
+const PUBLISHED_DIRECTORY: Record<string, string> = {
+  'formula/ancient-humans': 'ancient-humans-v1.0.2',
+  'formula/deep-time-documentary': 'deep-time-documentary-v1.0.2',
+  'formula/economics-of': 'economics-of-v1.0.1',
+  'formula/guided-mindfulness': 'guided-mindfulness-v1.0.1',
+  'formula/history-explained': 'history-explained-v1.0.1',
+  'formula/human-behavior-explained': 'human-behavior-explained-v1.0.2',
+  'formula/natural-world-explained': 'natural-world-explained-v1.0.2',
+  'formula/pov-your-life-as': 'pov-your-life-as-v1.0.2',
+  'formula/practical-motivation': 'practical-motivation-v1.0.1',
+  'thumbnail/curiosity-question-cartoon': 'curiosity-question-cartoon-v1.0.1',
+  'thumbnail/documentary-label-tableau': 'documentary-label-tableau-v1.0.1',
+}
+
 async function sourceJson(kind: 'formula' | 'topic' | 'style' | 'thumbnail', slug: string) {
   const documentName = { formula: 'series-formula', topic: 'topic-pack', style: 'visual-style', thumbnail: 'thumbnail-recipe' }[kind]
-  const raw = JSON.parse(await readFile(resolve(FREE_STARTERS, kind, slug, 'content', `${documentName}.json`), 'utf8'))
+  const directory = PUBLISHED_DIRECTORY[`${kind}/${slug}`] || slug
+  const raw = JSON.parse(await readFile(resolve(FREE_STARTERS, kind, directory, 'content', `${documentName}.json`), 'utf8'))
   return parseContentPackDocument(raw.kind, raw)
 }
 
