@@ -210,6 +210,29 @@ release-parameterized source without that explicit value, and refuses this overr
 sources. Set it only after the combined runtime release that contains the pack's schema, adapter,
 thumbnail, and planner support has an agreed version.
 
+### Reserve before the source enters `content-packs/`
+
+`packPaths` walks everything under `content-packs/` and `reconcileSources` refuses any
+`pack.json` it finds there with no registry record. `assertSafeSourcePath`, by contrast, allows a
+**reserved** record to name a `source_path` that does not exist yet, and only requires the
+directory once the record is `authored`.
+
+So when a wave is authored before its identities are reserved -- the normal order, since the
+wave-boundaries policy puts identity assignment after proposal acceptance -- the sequence is:
+
+1. Keep the authored source **outside** `content-packs/` while the registry is still unwritten.
+   `buildContentPack` takes any source directory, so the wave's acceptance evidence is fully
+   reproducible from there.
+2. `reserve` the identity, with `source_path` naming the future location inside
+   `content-packs/`.
+3. `git mv` the source into that location. It now has a record, so discovery accepts it.
+4. `transition` the record to `authored`.
+
+Two waves have hit this ordering constraint (`symbolic-psychology` and `deep-time-field-record`).
+Moving the source in before step 2 makes every registry write fail, because both
+`reserveAuthoringBatch` and `transitionAuthoringRecord` validate the whole document before
+mutating it.
+
 ## Validate
 
 Validate a production Store archive structurally without a publisher key:

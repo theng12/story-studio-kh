@@ -1,5 +1,5 @@
 {
-  "revision": 89,
+  "revision": 91,
   "batches": [
     {
       "revision": 2,
@@ -2378,6 +2378,42 @@
           }
         ]
       }
+    },
+    {
+      "revision": 90,
+      "receipt_ref": "authoring:62e4f79179a8279122d066262b3c2353de4ee9810e91186d2e3752b2481e33ae",
+      "request": {
+        "expected_revision": 89,
+        "coordinator": {
+          "task": "deep-time-field-record-wave-one",
+          "branch": "content/deep-time-wave1-2026-08-28"
+        },
+        "proposal_ref": "docs/product/deep-time-field-record-wave-one-proposal.md",
+        "records": [
+          {
+            "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
+            "item_id": "com.storystudio.topic.deep-time-field-record.prehistoric-life-extinction",
+            "version": "1.0.0",
+            "publisher_id": "com.storystudio",
+            "min_app_version": "{{MIN_APP_VERSION}}",
+            "min_app_version_status": "release-bound",
+            "kind": "topic-pack",
+            "source_path": "content-packs/paid/deep-time-field-record/topic/prehistoric-life-extinction",
+            "status": "reserved",
+            "dependencies": [],
+            "stocking_proposal": {
+              "family": {
+                "id": "com.storystudio.family.topic.deep-time-field-record.prehistoric-life-extinction",
+                "status": "proposed"
+              },
+              "sku": {
+                "id": "com.storystudio.sku.topic.deep-time-field-record.prehistoric-life-extinction",
+                "status": "proposed"
+              }
+            }
+          }
+        ]
+      }
     }
   ],
   "transitions": [
@@ -3583,6 +3619,23 @@
         "receipt_ref": "authoring:f12a9e8de181d536fe2e8367df5028460ce9e84948f43cc6978bfe5b5340bdfd",
         "pack_id": "com.storystudio.pack.style.pastel-surreal-psychological-collage",
         "version": "1.0.1",
+        "changes": {
+          "status": "authored"
+        }
+      }
+    },
+    {
+      "revision": 91,
+      "transition_ref": "lifecycle:1ba362aef4920d2f96031e561f7c1770e8e7c068ff48eb8eb00b533f714f1661",
+      "request": {
+        "expected_revision": 90,
+        "coordinator": {
+          "task": "deep-time-field-record-wave-one",
+          "branch": "content/deep-time-wave1-2026-08-28"
+        },
+        "receipt_ref": "authoring:62e4f79179a8279122d066262b3c2353de4ee9810e91186d2e3752b2481e33ae",
+        "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
+        "version": "1.0.0",
         "changes": {
           "status": "authored"
         }
@@ -7327,6 +7380,29 @@
         },
         "sku": {
           "id": "com.storystudio.sku.kit.symbolic-psychology-studio",
+          "status": "proposed"
+        }
+      }
+    },
+    {
+      "receipt_ref": "authoring:62e4f79179a8279122d066262b3c2353de4ee9810e91186d2e3752b2481e33ae",
+      "pack_id": "com.storystudio.pack.topic.deep-time-field-record.prehistoric-life-extinction",
+      "item_id": "com.storystudio.topic.deep-time-field-record.prehistoric-life-extinction",
+      "version": "1.0.0",
+      "publisher_id": "com.storystudio",
+      "min_app_version": "{{MIN_APP_VERSION}}",
+      "min_app_version_status": "release-bound",
+      "kind": "topic-pack",
+      "source_path": "content-packs/paid/deep-time-field-record/topic/prehistoric-life-extinction",
+      "status": "authored",
+      "dependencies": [],
+      "stocking_proposal": {
+        "family": {
+          "id": "com.storystudio.family.topic.deep-time-field-record.prehistoric-life-extinction",
+          "status": "proposed"
+        },
+        "sku": {
+          "id": "com.storystudio.sku.topic.deep-time-field-record.prehistoric-life-extinction",
           "status": "proposed"
         }
       }
