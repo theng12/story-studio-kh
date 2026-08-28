@@ -502,7 +502,109 @@ their returned-evidence sets are complete and both previews were accepted.
 - `npx tsx --test electron/server/__tests__/channel-kit-idea-capacity.test.ts`
   — 2 passed, 0 failed.
 
+## Task 6a registry writes — BLOCKED by a pre-existing registry defect
+
+The writer slot was granted and this branch was rebased cleanly onto `main`
+(`8a7f69eb`, no conflicts). The three staged writes could not be executed,
+because `main` is carrying an authoring registry that fails its own validation.
+
+### The defect
+
+`node scripts/content-packs/authoring-registry.mjs validate` fails on `main`:
+
+> `Authoring registry: batch 15 receipt does not match its persisted request metadata`
+
+Both `reserveAuthoringBatch` and `transitionAuthoringRecord` call
+`validateRegistryDocument(current)` before they mutate anything, so this blocks
+**every** registry write — not just this task's. The Deep Time wave queued behind
+this one is blocked by the same defect.
+
+### Attribution, established by bisection rather than inference
+
+The registry file on this branch is byte-identical to `origin/main`, and a clean
+`origin/main` worktree fails validation identically. Re-deriving every
+`receipt_ref` and `transition_ref` from its own persisted request across recent
+commits gives:
+
+| commit | revision | corrupted entries |
+| --- | ---: | --- |
+| `b077297a` repin Archival Ledger | 82 | none |
+| `8fae08f0` Merge `codex/wave-2-recipe-previews-2026-08-27` | 84 | `t66`, `t67` |
+| `b6fb166d` Merge `feat/metadata-formulas-2026-08-27` | 86 | `+ b15`, `t68` |
+
+Four entries are corrupt, introduced by **two independent merges**:
+
+- `b15` — reservation of `metadata-formula.editorial@1.0.0`
+- `t66` — `thumbnail.object-hero-question@1.0.0` to authored
+- `t67` — `thumbnail.route-map-one-promise@1.0.0` to authored
+- `t68` — `metadata-formula.editorial@1.0.0` to authored
+
+### Mechanism
+
+Both `receipt_ref` and `transition_ref` are `sha256(canonical(request))` over the
+whole request, and the request includes `expected_revision`. The merges
+re-sequenced entries to slot them after `main`'s advance but did not re-mint the
+derived refs. For `b15` this is exact and provable: on `a22fcd19` the batch sat
+at revision `65` with `expected_revision: 64`, and its receipt is the honest hash
+of that request. The merge rewrote `expected_revision` to `84` and `revision` to
+`85` while leaving the receipt untouched, which permanently invalidated it.
+
+So the receipts are authentic and the *requests* were edited after the fact.
+
+### Why this was not repaired here
+
+Re-deriving the four refs is not a self-contained fix. A batch receipt is
+embedded inside any transition request that targets it, so repairing `b15`
+forces a rewrite of `t68`'s recorded request content, which in turn changes
+`t68`'s own ref. The repair therefore rewrites what the audit trail says another
+team's reservation was made against, across three packs owned by two other
+branches. That is a call for the coordinator, not for this task.
+
+More importantly the root cause is the merge procedure, not the four hashes.
+Patching the hashes without changing how registry entries are merged means the
+next coordinated landing corrupts it again.
+
+Blast radius is small and was checked: none of the four refs is referenced
+anywhere outside `authoring-registry.json` — not in the repository, not in
+`_handoffs`.
+
+### This task's writes are proven correct against a repaired registry
+
+A scratch dry-run (temp copy of the registry, repo copy never touched, verified
+`0` diff afterwards) re-derived the four refs and then executed all three staged
+requests successfully:
+
+| step | resulting revision |
+| --- | ---: |
+| repaired registry validates | 86 (137 records) |
+| reserve Kit `1.0.1` | 87 |
+| promote Thumbnail `1.0.1` to authored | 88 |
+| promote Style `1.0.1` to authored | 89 |
+
+Final state: Kit `1.0.1` reserved, Thumbnail `1.0.1` authored, Style `1.0.1`
+authored. **Expect final revision `89`** once the registry is repaired, assuming
+nothing else writes first.
+
+### One ordering constraint this task hit
+
+`reconcileSources` rejects a pack source directory that exists on disk with no
+registry record, so the tooling expects reserve-then-author. The Kit source was
+necessarily authored first here, while the registry was read-only. The reserve
+call must therefore run with
+`content-packs/symbolic-psychology-studio/kit/symbolic-psychology-studio-v1.0.1`
+temporarily moved outside `content-packs/`, then restored. The dry-run does
+exactly this and restores it in a `finally` block.
+
+### Deliberately not committed yet
+
+The three co-requisite edits to `channel-kit-idea-capacity.test.ts` — raising
+`KIT_FLOORS` to `PROMISED_IDEAS`, deleting the `EXTRA_PIECES` entry, and dropping
+the stale blocked comment — are **not** in this branch. They only become true
+once Kit `1.0.1` is in the registry; landing them earlier turns the suite red,
+because the registry still resolves this lineage to the six-piece `1.0.0` at
+capacity `10`. They must land in the same change as the reservation.
+
 ## Next task
 
-The Kit reservation and both leaf promotions await the registry writer slot.
-Nothing else in Task 6 is blocked.
+Repair the authoring registry on `main`, then execute the three staged writes
+plus the three co-requisite test edits together.
