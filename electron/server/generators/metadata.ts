@@ -30,6 +30,7 @@ import {
   resolveActiveMetadataFormula,
   withMetadataFormulaShape,
 } from '../services/metadata-formula-catalogue.js'
+import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
 import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
 import { metadataPlaceholderOutputContract } from '../lib/story-output-contracts.js'
 import { sourcesSectionEnabled } from '../lib/research-sources.js'
@@ -359,7 +360,11 @@ export async function generateMetadata(job: Job): Promise<void> {
       // title, his custom section labels AND the niche's own voice rules — so
       // the prayer channel's deliberate single 🙏 survives, because the
       // instruction asking for it is right there in the source text.
-      description = await applyEmojiPolicy(descRaw.trim(), [descPrompt])
+      // v1.4.75 — and drop any internal section name the model printed as a
+      // heading, so what lands on disk is clean. Only this branch: the
+      // `preserveExistingPackage` branch above is his own edited copy, cleaned
+      // where it is read rather than rewritten under him.
+      description = stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt]))
       job.output_lines.push(`  → ${description.length} chars`)
       // Post-generation: scan the description for matches against the
       // niche's regex and append to the recency log. Fail-soft — never

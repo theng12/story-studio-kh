@@ -23,6 +23,7 @@ import {
   resolveActiveMetadataFormula,
   withMetadataFormulaShape,
 } from '../services/metadata-formula-catalogue.js'
+import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
 import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
 import { appendSourcesToDescription, sourcesSectionEnabled } from '../lib/research-sources.js'
 import { prependAvoidanceToPrompt, recordUsageForScope } from '../services/recency-tracker.js'
@@ -1124,7 +1125,7 @@ router.post('/projects/:slug/generate/metadata/description', async (req, res) =>
     // v1.0.197 — append the kept research sources (deterministic, real URLs);
     // v1.0.198 — gated on the description's Sources section being present + on.
     const withSources = await appendSourcesToDescription(
-      slug, episode_id, raw.trim(), format, effectiveMaxChars, sourcesSectionEnabled(sections),
+      slug, episode_id, stripInternalSectionLabels(raw.trim()), format, effectiveMaxChars, sourcesSectionEnabled(sections),
     )
     res.json({ description: withSources.description })
   } catch (e: any) {
@@ -1347,7 +1348,7 @@ router.post('/projects/:slug/generate/metadata/all', async (req, res) => {
     const descRaw = await callAiWithRetry(model, '', descPrompt, aiCreds(config), false, {
       slug, outputBudget: 'standard',
     })
-    const description = await applyEmojiPolicy(descRaw.trim(), [descPrompt])
+    const description = stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt]))
     await recordUsageForScope(slug, episode_id, 'metadata', descRaw).catch(() => null)
 
     // Titles — fixed modes return a single title without an LLM call.
@@ -1639,7 +1640,12 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
           title_options: Array.isArray(data.title_options) && data.title_options.length
             ? data.title_options
             : (data.title ? [data.title] : []),
-          description: data.description || '',
+          // v1.4.75 — a package saved before the prompt fix can carry an
+          // internal section name the model printed as a heading (`HOOK:`,
+          // `SUBSCRIBE / LIKE CTA`). Cleaned on the way to the Metadata page
+          // so what he reads, copies and re-saves is what a viewer would see.
+          // The file on disk is left alone until he saves.
+          description: stripInternalSectionLabels(data.description || ''),
           tags: Array.isArray(data.tags) ? data.tags : [],
           youtube_finalization: data.youtube_finalization || null,
           savedAt: data.savedAt || null,
@@ -1661,7 +1667,12 @@ router.get('/projects/:slug/episodes/:episodeId/metadata', async (req, res) => {
         const v = m[1] ? parseInt(m[1], 10) : 1
         try {
           const parsed = parseMetadataTxt(text)
-          versions.push({ version: v, ...parsed, savedAt: null })
+          versions.push({
+            version: v,
+            ...parsed,
+            description: stripInternalSectionLabels(parsed.description || ''),
+            savedAt: null,
+          })
         } catch {}
       }
     }
