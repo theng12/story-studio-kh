@@ -1920,7 +1920,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         retry_hint: 'Motion prompts already saved were kept; Retry fills only the remaining gaps.',
       })
       if (failed && !missingMotionIds.length) {
-        job.output_lines.push('All motion prompts are durable despite transient worker failures reported during generation.')
+        job.output_lines.push('All motion prompts are durable despite transient provider failures reported during generation.')
       }
     }
   }

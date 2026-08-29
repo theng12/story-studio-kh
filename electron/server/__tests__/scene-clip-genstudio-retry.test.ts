@@ -71,7 +71,7 @@ test('(a) a busy fleet with the money returned earns another attempt', () => {
   for (const failure_code of ['SITE_PLACEMENT_EXHAUSTED', 'SITE_CAPACITY_UNAVAILABLE']) {
     const plan = sceneClipFleetBusyRetryPlan(videoFailure({ failure_code }), 1)
     assert.ok(plan, `${failure_code} must earn another attempt`)
-    assert.match(plan.reason, /every machine was busy/i)
+    assert.match(plan.reason, /high demand right now/i)
   }
 })
 

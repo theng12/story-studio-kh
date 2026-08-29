@@ -123,7 +123,9 @@ describe('Scene Review image preview', () => {
     assert.match(sceneReviewSource, /const \{ updateEpisode: updateCachedEpisode, revalidateAfterMutation \} = useEpisodes\(slug\)/)
     assert.match(sceneReviewSource, /function publishReviewCompletion\(episodeCode: string, reviewStats: ReviewStats\)/)
     assert.match(sceneReviewSource, /updateCachedEpisode\(episodeCode,[\s\S]*scene_review: reviewStats\.all_approved/)
-    assert.match(sceneReviewSource, /void revalidateAfterMutation\(\)\.catch/)
+    // v1.4.82 — the code is now passed so the SERVER drops that episode's
+    // cached status too; without it the refresh returned the pre-approval answer.
+    assert.match(sceneReviewSource, /void revalidateAfterMutation\(episodeCode\)\.catch/)
     assert.ok(
       (sceneReviewSource.match(/publishReviewCompletion\(episodeId\.value, r\.stats\)/g) || []).length >= 2,
       'single and bulk approval must both synchronize the pending episode list',

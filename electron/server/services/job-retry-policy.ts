@@ -135,7 +135,7 @@ export function resolveJobAutoRetryPolicy(
 
   if (job.type === 'research_run') {
     return value(params, 'source_provider') === 'llm-only' && isLocalTextModel(value(params, 'model'))
-      ? localPolicy('LLM-only research runs on the local Chat Studio fleet.')
+      ? localPolicy('LLM-only research runs on your own Chat Studio.')
       : MANUAL_ONLY
   }
 
@@ -148,14 +148,14 @@ export function resolveJobAutoRetryPolicy(
       }
     }
     return isLocalTextModel(model)
-      ? localPolicy('Chat Studio inference runs on the local fleet and preserves completed items.')
+      ? localPolicy('Chat Studio inference runs on your own hardware and preserves completed items.')
       : MANUAL_ONLY
   }
 
   if (IMAGE_MODEL_TYPES.has(job.type)) {
     const model = value(params, 'model')
     if (isLocalImageModel(model)) {
-      return localPolicy('Image Studio generation runs on the local fleet and preserves completed images.')
+      return localPolicy('Image Studio generation runs on your own hardware and preserves completed images.')
     }
     // Classified STRUCTURALLY, by elimination, not by what the product is
     // called. Story Studio has exactly two image paths: the local Image Studio

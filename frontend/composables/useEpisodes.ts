@@ -168,14 +168,26 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
     return getOrCreateSlot(slugRef.value)
   }
 
-  async function fetchOnce(force: boolean | 'rescan' | 'mutation'): Promise<EpisodeRow[]> {
+  /**
+   * `force` may be an episode code, which is the post-mutation case: the server
+   * drops just THAT episode's status-cache entry and recomputes it from disk.
+   *
+   * v1.4.82 — this used to send `?mutation=<timestamp>`, which the episodes
+   * route treats as a plain read: it busted the browser's cache and nothing
+   * else, so the server happily answered from a status cache written BEFORE the
+   * mutation. That is the "Pending only / Steps 10 of 12" vs "Greenlit 100%"
+   * split-brain — the episode's own page recomputed, the list did not. The
+   * surgical `?invalidate=CODE` handler already existed server-side and every
+   * caller already knows the code.
+   */
+  async function fetchOnce(force: boolean | 'rescan' | { invalidate: string }): Promise<EpisodeRow[]> {
     const slot = currentSlot()
     if (slot.inflight && !force) return slot.inflight
 
     const path = force === 'rescan'
       ? `/projects/${slugRef.value}/episodes?rescan=1`
-      : force === 'mutation'
-        ? `/projects/${slugRef.value}/episodes?mutation=${Date.now()}`
+      : typeof force === 'object'
+        ? `/projects/${slugRef.value}/episodes?invalidate=${encodeURIComponent(force.invalidate)}`
       : force
         ? `/projects/${slugRef.value}/episodes?refresh=1`
         : `/projects/${slugRef.value}/episodes`
@@ -251,11 +263,17 @@ export function useEpisodes(slug: string | Ref<string>, opts: UseEpisodesOptions
   /**
    * Re-read after a successful single-episode mutation. This must not join an
    * older in-flight request that started before the mutation was saved.
+   *
+   * v1.4.82 — pass the episode code that was mutated. Without it the server
+   * answers from its own status cache and the list keeps showing the episode's
+   * pre-mutation step state (see fetchOnce). The code-less call is kept only for
+   * the caller that has no single episode in hand; it still cannot fix a stale
+   * entry, so prefer passing the code.
    */
-  async function revalidateAfterMutation(): Promise<EpisodeRow[]> {
+  async function revalidateAfterMutation(episodeCode?: string): Promise<EpisodeRow[]> {
     const slot = currentSlot()
     slot.isRevalidating.value = true
-    return await fetchOnce('mutation')
+    return await fetchOnce(episodeCode ? { invalidate: episodeCode } : true)
   }
 
   /** Publish a confirmed mutation immediately to every mounted selector/board. */

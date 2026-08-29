@@ -92,7 +92,7 @@ describe('Image Pool: a busy fleet is worth asking again', () => {
     for (const failure_code of ['SITE_PLACEMENT_EXHAUSTED', 'SITE_CAPACITY_UNAVAILABLE']) {
       const plan = imagePoolFleetBusyRetryPlan(imageFailure({ failure_code }), 1)
       assert.ok(plan, `${failure_code} must earn another attempt`)
-      assert.match(plan.reason, /every machine was busy/i)
+      assert.match(plan.reason, /high demand right now/i)
       // Minutes, not seconds. GenStudio only declares this AFTER a fifteen-minute
       // placement window, so a two-second retry rejoins the same jam.
       assert.ok(plan.waitMs >= 30_000, 'a fleet wait is never a couple of seconds')

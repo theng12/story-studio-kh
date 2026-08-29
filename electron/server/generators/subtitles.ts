@@ -864,7 +864,7 @@ async function transcribePerChapter(
             if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id)) throw attemptError
             fleetBusyAttempt++
             job.output_lines.push(
-              `  ${sec.slug}: every machine was busy, so no charge was made. `
+              `  ${sec.slug}: high demand right now, so no charge was made. `
               + `Waiting ${Math.round(delay / 1000)}s and trying again `
               + `(attempt ${fleetBusyAttempt} of ${FLEET_BUSY_RETRY_DELAYS_MS.length}).`,
             )

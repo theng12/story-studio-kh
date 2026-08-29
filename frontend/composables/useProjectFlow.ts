@@ -141,6 +141,64 @@ export function requiredFlowSteps(vs: VisualSource): FlowStep[] {
   return flowForVisualSource(vs).filter(step => !step.optional)
 }
 
+/**
+ * v1.4.82 — flow step key → the per-episode status field that reports on it.
+ *
+ * WHY THIS LIVES HERE. Three surfaces each kept their own copy of this map and
+ * their own "is this episode done" loop: the Production Board, the project
+ * Dashboard, and the episode selector's Steps chip. They drifted — the
+ * Dashboard's copy was missing Research and Introduction entirely — so the same
+ * episode could read "Steps 10 of 12" in one place and "100%" in another. One
+ * map, one done-test, three readers.
+ *
+ * Steps with no detectable per-episode status are deliberately absent (Ideas is
+ * implicit; Contextual Cues, Sound Design and Music Library have no per-episode
+ * signal), so every field here is a real, meaningful status.
+ */
+export const STEP_STATUS_FIELD: Readonly<Record<string, string>> = {
+  research: 'research',
+  // v1.4.73 — `status.introduction` was returned per episode all along and
+  // rendered nowhere: no badge, no count, no filter. That is how four episodes
+  // reached paid audio with no opening without anyone noticing. Because the
+  // Introduction step is optional it never blocks an episode from reading done.
+  introduction: 'introduction',
+  script: 'script',
+  metadata: 'metadata',
+  'thumb-prompts': 'thumb_prompts',
+  thumbnails: 'thumbnails',
+  audio: 'audio',
+  'audio-merge': 'merged_audio',
+  subtitles: 'subtitles',
+  'character-sheet': 'character_sheet',
+  'scene-plan': 'scene_plan',
+  'scene-review': 'scene_review',
+  'motion-review': 'motion_review',
+  'video-assembly': 'video_assembly',
+}
+
+/** The status fields that can hold an episode back, for this format's flow. */
+export function requiredStatusFields(vs: VisualSource): string[] {
+  return requiredFlowSteps(vs)
+    .map(step => STEP_STATUS_FIELD[step.key])
+    .filter((field): field is string => !!field)
+}
+
+/**
+ * Is this episode finished? Every REQUIRED step of its format's flow is done.
+ *
+ * Optional steps never count against it — that is what `optional` means, and
+ * every surface that reports completeness must agree on it. The server keeps
+ * its own twin of this rule (`all_done`, routes/ideas.ts) which is deliberately
+ * left alone for now; if the two ever disagree, that is the other half.
+ */
+export function isEpisodeDone(
+  status: Record<string, unknown> | null | undefined,
+  vs: VisualSource,
+): boolean {
+  if (!status) return false
+  return requiredStatusFields(vs).every(field => status[field] === true)
+}
+
 export function useProjectFlow(
   slug: Ref<string> | ComputedRef<string>,
   visualSource: Ref<VisualSource> | ComputedRef<VisualSource>,

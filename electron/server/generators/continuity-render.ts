@@ -221,7 +221,7 @@ export function continuityFleetBusyRetryPlan(e: unknown, attemptNum: number): Co
   if (!isFleetBusyFailure(e, 'image')) return null
   const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
   if (waitMs === undefined) return null
-  return { waitMs, reason: 'Every machine was busy', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+  return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
 }
 
 export async function runContinuityRenderJob(job: Job): Promise<void> {

@@ -430,6 +430,44 @@ describe('episode-status-cache', () => {
     assert.equal(status.scene_review, true, 'both scene images exist on disk → scene review done')
   })
 
+  // v1.4.82 — the split-brain regression. An approve rewrites scene_plan.json
+  // inside the Scene Prompts folder; if the cache is still holding the entry it
+  // computed a moment earlier, the episode LIST keeps answering "scene review
+  // pending" while the episode's own page reads fresh and says done. The
+  // approve route now drops this episode's entry, and this is what that buys.
+  test('scene_review: an approve is visible to the next list read, not the one after', async () => {
+    const { epDir } = await makeProject()
+    const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)
+    const imagesDir = path.join(epDir, `${CODE} - 05 Scene Images`)
+    await fs.rm(scenePromptsDir, { recursive: true, force: true })
+    await fs.rm(imagesDir, { recursive: true, force: true })
+    await fs.mkdir(scenePromptsDir, { recursive: true })
+    await fs.mkdir(imagesDir, { recursive: true })
+    const planPath = path.join(scenePromptsDir, 'scene_plan.json')
+    const writePlan = async (approved: boolean) => fs.writeFile(planPath, JSON.stringify({
+      scenes: [
+        { id: 's1', visual_prompt: 'a', approved: true },
+        { id: 's2', visual_prompt: 'b', approved },
+      ],
+    }))
+    await writePlan(false)
+    await writeVerifiedSubtitleTimeline(epDir)
+    await fs.writeFile(path.join(imagesDir, 's1.png'), 'png-bytes')
+    await fs.writeFile(path.join(imagesDir, 's2.png'), 'png-bytes')
+
+    const cache = cacheMod.episodeStatusCache
+    const before = await cache.get(SLUG, CODE)
+    assert.equal(before.scene_review, false, 'one scene is unapproved, so the episode is pending')
+
+    // The approve lands. Without the route's invalidate this entry survives and
+    // the list goes on reporting the stale answer.
+    await writePlan(true)
+    cache.invalidate(SLUG, CODE)
+
+    const after = await cache.get(SLUG, CODE)
+    assert.equal(after.scene_review, true, 'the very next read must reflect the approve')
+  })
+
   test('scene_review: remains pending when every image exists but any scene is unapproved', async () => {
     const { epDir } = await makeProject()
     const scenePromptsDir = path.join(epDir, `${CODE} - 03 Scene Prompts`)

@@ -616,9 +616,15 @@ router.post('/projects/:slug/scene-plan/:episodeId/repair-long-scenes', async (r
       return result
     })
     if (!repaired.repairedCount) {
-      return res.status(400).json({
-        detail: `No scenes exceed the selected ${maxSec}-second pacing cap. If subtitles were just restored, stitch them again before retrying.`,
-      })
+      // v1.4.82 — do not claim "nothing exceeds the cap" when scenes DO exceed
+      // it and merely hold too little subtitle material to divide. That wording
+      // sent people back to re-stitch subtitles that were already correct.
+      const detail = repaired.unsplittableCount
+        ? `${repaired.unsplittableCount} scene(s) run past the selected ${maxSec}-second pacing cap but could not be split further — `
+          + 'each holds a single indivisible subtitle cue, or spans a silent gap with no narration to cut on. '
+          + 'Shorten those holds by hand in Scene Plan, or raise the pacing maximum on Character Sheet.'
+        : `No scenes exceed the selected ${maxSec}-second pacing cap. If subtitles were just restored, stitch them again before retrying.`
+      return res.status(400).json({ detail })
     }
     await invalidateScenePlanStatus(slug, episodeId)
     res.json({

@@ -814,7 +814,7 @@ export function reconcilePlanToSubtitles(
  * make these easy to flag in the Plan-health check, and the user can re-plan
  * or fill them — but the timeline is never blocked by a single huge scene.
  */
-function subdivideWindow(
+export function subdivideWindow(
   cues: SrtCue[],
   startSec: number,
   endSec: number,
@@ -839,8 +839,11 @@ function subdivideWindow(
     chunkCues = []
   }
   for (const c of cues) {
+    // v1.4.82 — cut BEFORE the cue that would exceed `maxSec`, matching
+    // splitLongScene. The old form pushed the cue first and then closed at its
+    // END, so every chunk came out at maxSec PLUS one whole cue.
+    if (chunkCues.length && c.end_sec - chunkStart > maxSec) flush(c.start_sec)
     chunkCues.push(c)
-    if (c.end_sec - chunkStart >= maxSec) flush(c.end_sec)
   }
   flush(endSec)
   return out
@@ -1050,50 +1053,117 @@ export function splitScenesDeterministically(opts: {
   const cues = opts.cues.flatMap(cue => splitCueForStrictVisualPacing(cue, pacingAt(cue.start_sec).maxSec))
 
   const scenes: ScenePlanEntry[] = []
-  let bucketStart = opts.initial_start_sec ?? opts.cues[0]!.start_sec
-  let bucketCues: SrtCue[] = []
 
-  function emitBucket() {
-    if (!bucketCues.length) return
-    const start = bucketStart
-    const end = bucketCues[bucketCues.length - 1]!.end_sec
-    const text = bucketCues.map(c => c.text.trim()).filter(Boolean).join(' ')
+  /**
+   * v1.4.82 — the SPOKEN span a scene starting at `startSec` would have if it
+   * closed at `endSec`, given its first cue. Leading silence (the dead air of a
+   * chapter gap between the previous scene's end and this scene's first cue) is
+   * not pacing: a hold that is long only because of a gap is not an overshoot,
+   * and a scene that is short only because the gap ate its wall-clock is not a
+   * runt. Every min/target/max decision below is made on this measure.
+   */
+  const spokenSpan = (startSec: number, firstCueStart: number, endSec: number): number =>
+    endSec - Math.max(startSec, firstCueStart)
+
+  /**
+   * v1.4.82 — measured against DK0055 (band 10–30s): the old walk pushed a cue
+   * and THEN tested `durSoFar >= targetSec`, closing the scene at the busting
+   * cue's END. Every scene therefore measured target PLUS a whole trailing cue,
+   * and the `>= maxSec` clause could never fire because `targetSec <= maxSec`
+   * always tripped first — it was dead code. The correct idiom is the one
+   * splitLongScene already used: cut BEFORE the cue that would exceed.
+   *
+   * Boundary choice, in order:
+   *   1. Among cue boundaries whose span lands inside [min, max], take the one
+   *      nearest `target` (ties go to the longer scene — fewer images, and both
+   *      are equally on-target).
+   *   2. If no boundary lands in the band, take the first boundary at or past
+   *      `min`. That over-runs `max`, and is only reachable for a single cue
+   *      that alone exceeds max (splitCueForStrictVisualPacing pre-splits those
+   *      at :1160) or a leading chapter-gap silence, which is exempt above.
+   *   3. If the remaining cues never reach `min` at all, emit the tail and let
+   *      the merge pass below fold it backward.
+   */
+  let sceneStart = opts.initial_start_sec ?? opts.cues[0]!.start_sec
+  let first = 0
+  while (first < cues.length) {
+    const band = pacingAt(sceneStart)
+    const cueStart = cues[first]!.start_sec
+    let best = -1
+    let bestSpan = 0
+    for (let i = first; i < cues.length; i++) {
+      const span = spokenSpan(sceneStart, cueStart, cues[i]!.end_sec)
+      if (span < band.minSec) continue
+      if (span <= band.maxSec) {
+        if (best < 0 || Math.abs(span - band.targetSec) <= Math.abs(bestSpan - band.targetSec)) {
+          best = i
+          bestSpan = span
+        }
+        // Spans only grow, so once we are at or past target no later boundary
+        // can be closer to it.
+        if (span >= band.targetSec) break
+        continue
+      }
+      // This cue busts the cap. Cut before it if anything already fits.
+      if (best < 0) best = i
+      break
+    }
+    const cut = best >= 0 ? best : cues.length - 1
+    const group = cues.slice(first, cut + 1)
+    const end = group[group.length - 1]!.end_sec
     scenes.push({
       id: idGen(scenes.length),
       scene_index: scenes.length + 1,
-      start_sec: start,
+      start_sec: sceneStart,
       end_sec: end,
-      transcript_segment: text,
+      transcript_segment: group.map(c => c.text.trim()).filter(Boolean).join(' '),
       visual_prompt: '',
       boundary_reason: 'deterministic split (cue-aligned)',
     })
-    bucketCues = []
-    bucketStart = end
+    sceneStart = end
+    first = cut + 1
   }
 
-  for (const cue of cues) {
-    bucketCues.push(cue)
-    const durSoFar = cue.end_sec - bucketStart
-    const current = pacingAt(bucketStart)
-    if (durSoFar >= current.targetSec || durSoFar >= current.maxSec) {
-      emitBucket()
-    }
-  }
-  // Tail bucket — emit if it has content.
-  if (bucketCues.length) emitBucket()
-
-  // Post-pass: tiny trailing scenes get merged backward into their
-  // predecessor. min_sec enforcement after the fact is cheaper than
-  // trying to predict during the walk.
+  // Post-pass: runt scenes get merged backward into their predecessor. min_sec
+  // enforcement after the fact is cheaper than trying to predict during the
+  // walk. v1.4.82 — but only when the merged scene still fits under max;
+  // otherwise the merge would trade a too-short scene for a too-long one. In
+  // that case move the shared boundary instead so both halves land in band.
+  const firstCueStartAfter = (t: number): number =>
+    cues.find(c => c.end_sec > t + 0.0001)?.start_sec ?? t
   for (let i = scenes.length - 1; i > 0; i--) {
     const cur = scenes[i]!
-    if ((cur.end_sec - cur.start_sec) < pacingAt(cur.start_sec).minSec) {
-      const prev = scenes[i - 1]!
-      // Merge cur into prev — extend prev's end + concat transcript.
+    const curBand = pacingAt(cur.start_sec)
+    if (spokenSpan(cur.start_sec, firstCueStartAfter(cur.start_sec), cur.end_sec) >= curBand.minSec) continue
+    const prev = scenes[i - 1]!
+    const prevBand = pacingAt(prev.start_sec)
+    const prevCueStart = firstCueStartAfter(prev.start_sec)
+    if (spokenSpan(prev.start_sec, prevCueStart, cur.end_sec) <= prevBand.maxSec) {
       prev.end_sec = cur.end_sec
       prev.transcript_segment = (prev.transcript_segment + ' ' + cur.transcript_segment).trim()
       scenes.splice(i, 1)
+      continue
     }
+    // Rebalance: pick the cue boundary strictly inside the pair that leaves both
+    // halves in band and closest to target. If none exists, leave the short tail
+    // alone — a runt is a smaller sin than breaking the cap the user chose.
+    let rebalanced = -1
+    let bestCost = Infinity
+    for (const c of cues) {
+      const b = c.end_sec
+      if (b <= prev.start_sec + 0.0001 || b >= cur.end_sec - 0.0001) continue
+      const left = spokenSpan(prev.start_sec, prevCueStart, b)
+      const right = spokenSpan(b, firstCueStartAfter(b), cur.end_sec)
+      if (left < prevBand.minSec || left > prevBand.maxSec) continue
+      if (right < curBand.minSec || right > curBand.maxSec) continue
+      const cost = Math.abs(left - prevBand.targetSec) + Math.abs(right - curBand.targetSec)
+      if (cost < bestCost) { bestCost = cost; rebalanced = b }
+    }
+    if (rebalanced < 0) continue
+    prev.end_sec = rebalanced
+    prev.transcript_segment = transcriptForRange(cues, prev.start_sec, rebalanced)
+    cur.start_sec = rebalanced
+    cur.transcript_segment = transcriptForRange(cues, rebalanced, cur.end_sec)
   }
   // Renumber after any merges.
   scenes.forEach((s, i) => { s.scene_index = i + 1 })
@@ -1215,6 +1285,13 @@ export interface RepairOverlongScenesResult {
   repairedCount: number
   addedCount: number
   repairedIds: string[]
+  /**
+   * v1.4.82 — scenes that DO exceed the cap but hold too little subtitle
+   * material to divide (one indivisible cue, or a chapter-gap silence with no
+   * cues inside it). Callers must not report these as "nothing exceeds the
+   * cap": the honest answer is that they could not be split further.
+   */
+  unsplittableCount: number
 }
 
 /**
@@ -1240,6 +1317,7 @@ export function repairOverlongScenesDeterministically(opts: {
   const maxSec = Math.max(minSec, opts.max_sec ?? MAX_SCENE_SEC)
   const repairedIds: string[] = []
   const result: ScenePlanEntry[] = []
+  let unsplittableCount = 0
 
   for (const scene of opts.scenes) {
     if (opts.exempt_ids?.has(scene.id) || scene.end_sec - scene.start_sec <= thresholdSec) {
@@ -1250,6 +1328,7 @@ export function repairOverlongScenesDeterministically(opts: {
       cue.end_sec > scene.start_sec + 0.01 && cue.start_sec < scene.end_sec - 0.01,
     )
     if (!cues.length) {
+      unsplittableCount++
       result.push({ ...scene })
       continue
     }
@@ -1262,6 +1341,7 @@ export function repairOverlongScenesDeterministically(opts: {
       idGen: index => index === 0 ? scene.id : freshId(),
     })
     if (parts.length < 2) {
+      unsplittableCount++
       result.push({ ...scene })
       continue
     }
@@ -1297,6 +1377,7 @@ export function repairOverlongScenesDeterministically(opts: {
     repairedCount: repairedIds.length,
     addedCount: Math.max(0, cleaned.scenes.length - opts.scenes.length),
     repairedIds,
+    unsplittableCount,
   }
 }
 

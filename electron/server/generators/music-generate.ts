@@ -105,7 +105,7 @@ export function musicFleetBusyRetryPlan(
   if (!isFleetBusyFailure(e, MUSIC_GENSTUDIO_MODALITY)) return null
   const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
   if (waitMs === undefined) return null
-  return { waitMs, reason: 'Every machine was busy', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+  return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
 }
 
 const PLANNER_SYSTEM = 'You are a music director planning a set of instrumental background tracks for one '

@@ -366,5 +366,5 @@ test('local Image Studio work is still the one image case that auto-retries', ()
     type: 'scene_image_generate', params: { model: 'imagestudio:some/repo' },
   } as any)
   assert.equal(local.eligible, true)
-  assert.match(local.reason, /local fleet/)
+  assert.match(local.reason, /your own hardware/)
 })

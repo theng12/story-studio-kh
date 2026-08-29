@@ -127,8 +127,15 @@ test('the Production Board and the Pipeline agree on what a Research tick means'
   // the backend also skips on — so the two views can never report different
   // totals for the same episodes again.
   const board = page('board.vue')
-  assert.match(board, /^\s*research: 'research',$/m,
-    'the Board column must map Research to status.research')
+  // v1.4.82 — the step -> status-field map moved out of board.vue into the
+  // shared composable, because three surfaces each kept a drifting copy of it.
+  // The rule this test protects is unchanged: the Board's Research column and
+  // the Pipeline's Research pill must read the SAME field.
+  const flow = readFileSync(fileURLToPath(new URL('../composables/useProjectFlow.ts', import.meta.url)), 'utf8')
+  assert.match(flow, /^\s*research: 'research',$/m,
+    'the shared step map must map Research to status.research')
+  assert.match(board, /STEP_STATUS_FIELD\[s\.key\]/,
+    'and the Board columns must be built from that shared map, not a private copy')
   assert.match(fnBody(pipeline, 'isStepDoneForEpisode').split('\n').find(l => l.includes("case 'research':"))!,
     /s\.research\b/, 'and the Pipeline pill must read the same field')
 

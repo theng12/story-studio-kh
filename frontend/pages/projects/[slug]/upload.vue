@@ -580,7 +580,7 @@
               <template v-if="uploadJobFor(item.episode_code) && uploadJobFor(item.episode_code)!.status === 'queued'">
                 <!-- Live job state beats the sidecar display — user sees
                      progress the moment the job starts running. -->
-                <span class="progress-pill" title="Job is queued. It will start as soon as the queue worker picks it up — click Jobs in the sidebar to see queue position.">
+                <span class="progress-pill" title="Queued — waiting for capacity. It starts as soon as the queue reaches it; click Jobs in the sidebar to see queue position.">
                   <span class="progress-dot" />
                   Queued…
                 </span>
