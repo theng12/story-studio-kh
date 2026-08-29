@@ -31,3 +31,39 @@ export const GENSTUDIO_TASK_NOT_CREATED_STATE = 'not_created'
 export function isNeverCreatedProviderTask(entry: { state?: unknown }): boolean {
   return entry.state === GENSTUDIO_TASK_NOT_CREATED_STATE
 }
+
+/**
+ * Every provider state from which no further outcome can arrive.
+ *
+ * v1.4.81 — THERE WERE TWO OF THESE, and they disagreed by one word.
+ *
+ * `job-control.ts` decided whether to offer "Remove from history" using a set
+ * that contained `cancelled`. `job-queue.ts` decided whether `clearFinished`
+ * would actually remove the row using a predicate that did not: it accepted the
+ * `cancelled` BOOLEAN but not the `cancelled` STATE. So a task recorded as
+ * `state: 'cancelled'` without that boolean read as terminal to the button and
+ * as still-settling to the thing behind the button.
+ *
+ * The owner met this on 2026-08-29: six Scene Review jobs abandoned when the
+ * queue drained, a header reading "Clear finished (6)", and clicking it
+ * removing nothing, repeatedly, while the badge kept promising six. The badge
+ * was not wrong and the clear was not broken — they were reading two different
+ * definitions of the same word.
+ *
+ * One definition now, in the leaf module both sides already import. A cancelled
+ * provider task is settled: it will not run again, produce more output, or
+ * incur further charges.
+ */
+const SETTLED_PROVIDER_STATES: ReadonlySet<string> = new Set([
+  'succeeded', 'failed', 'cancelled', GENSTUDIO_TASK_NOT_CREATED_STATE,
+])
+
+/** True when this recorded provider task can no longer change. */
+export function isSettledProviderEntry(entry: { state?: unknown; cancelled?: boolean | null }): boolean {
+  return entry.cancelled === true || SETTLED_PROVIDER_STATES.has(String(entry.state))
+}
+
+/** True when this recorded provider task's outcome can still change. */
+export function isUnsettledProviderEntry(entry: { state?: unknown; cancelled?: boolean | null }): boolean {
+  return !isSettledProviderEntry(entry)
+}

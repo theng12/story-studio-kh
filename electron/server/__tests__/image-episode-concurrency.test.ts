@@ -18,11 +18,13 @@
  * This is the THIRD lane with the same story (subtitles 1.4.23, writing 1.4.27),
  * and the first found by measuring rather than by the owner reporting a failure.
  */
-import { test, describe } from 'node:test'
+import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
+import { useTempDataDir } from './_helpers.js'
+import { waitFor } from './_timing.js'
 
 import {
   IMAGE_EPISODE_CONCURRENCY_DEFAULT,
@@ -265,5 +267,127 @@ describe('thumbnails do not spend the local fleet\'s budget', () => {
     // this", which is now false and would send him to the wrong dial.
     assert.ok(!panel.includes('Scene Review, Thumbnails and Image Pool share this'))
     assert.match(panel, /Thumbnails have their own number below/)
+  })
+})
+
+/**
+ * v1.4.81 — WHO GETS THE LANES BACK after a restart.
+ *
+ * MEASURED ON THE OWNER'S OWN BATCH, 2026-08-29. He queued 44 Scene Review jobs
+ * at 11:06, three started on his three lanes, and he force-quit at 11:14 to see
+ * what would happen. On relaunch he had SIX running against three lanes:
+ *
+ *   DK0054/55/56  started 04:06:54Z — interrupted, still showing `running`
+ *   DK0057/58/59  started 04:35:41Z — brand new, two seconds after boot
+ *
+ * `groupActive` is in-memory and resets to zero on boot, and the interrupted
+ * three had been parked on the reconcile-only path, which takes no slot by
+ * design. So the scheduler saw three empty lanes and filled them with never-
+ * started episodes, while the interrupted ones — holding ~254 images he had
+ * already paid for — sat there making no progress at all.
+ *
+ * The fix is not a scheduler change. Interrupted image jobs now rejoin
+ * `pending` during load, BEFORE the boot pump runs, so ordinary FIFO hands them
+ * their lanes back first. This test is the proof, and it is behavioural on
+ * purpose: the rest of this file reads source text, but "who actually starts"
+ * is not a claim source text can settle.
+ */
+describe('after a restart the interrupted episodes get the lanes back first', () => {
+  let tempDir: string
+  let cleanup: () => Promise<void>
+  let jq: typeof import('../services/job-queue.js')
+  let pm: typeof import('../services/project-manager.js')
+
+  before(async () => {
+    const t = await useTempDataDir()
+    tempDir = t.dir
+    cleanup = t.cleanup
+    pm = await import('../services/project-manager.js')
+    jq = await import('../services/job-queue.js')
+  })
+
+  after(async () => {
+    jq.setImageEpisodeConcurrency(IMAGE_EPISODE_CONCURRENCY_DEFAULT)
+    await cleanup()
+  })
+
+  test('never-started episodes wait while the interrupted ones resume', async () => {
+    jq.setImageEpisodeConcurrency(3)
+    const project = await pm.createProject({ name: 'Restart Lane Order' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+
+    const started: string[] = []
+    const releases: Array<() => void> = []
+    let draining = false
+    jq.registerExecutor('continuity_render', async (job) => {
+      started.push(job.job_id)
+      if (draining) return
+      await new Promise<void>(resolve => releases.push(resolve))
+    })
+
+    const at = (seconds: number) => new Date(Date.UTC(2026, 7, 29, 4, 6, seconds)).toISOString()
+    // Written in the order the owner's own jobs.json holds them: creation order,
+    // so the three that had already started come first.
+    const interrupted = ['DK0054', 'DK0055', 'DK0056'].map((episode, index) => ({
+      job_id: `interrupted-${episode}`,
+      project_slug: project.slug,
+      type: 'continuity_render',
+      episode_id: episode,
+      title: `[batch] scene_review — ${episode}`,
+      status: 'running',
+      created_at: at(54 + index),
+      started_at: at(54 + index),
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {},
+      remote_cancellations: {},
+      // Finished while the app was dead, and never downloaded. This is the work
+      // that must not queue behind a fresh episode. Settled evidence only, so
+      // the job runs to completion here without scheduling provider polling
+      // this test has no business exercising.
+      genstudio_jobs: [
+        { id: `job_${episode}_paid`, operation: 'image.generation', state: 'succeeded', updated_at: at(58) },
+      ],
+    }))
+    const neverStarted = ['DK0057', 'DK0058', 'DK0059'].map((episode, index) => ({
+      job_id: `never-started-${episode}`,
+      project_slug: project.slug,
+      type: 'continuity_render',
+      episode_id: episode,
+      title: `[batch] scene_review — ${episode}`,
+      status: 'queued',
+      created_at: at(57 + index),
+      started_at: null,
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {},
+      remote_cancellations: {},
+    }))
+    await writeFile(jobsFile, JSON.stringify({ jobs: [...interrupted, ...neverStarted] }))
+
+    await jq.getJobs(project.slug)
+    await waitFor(() => started.length >= 3, { label: 'three image lanes to be claimed' })
+
+    // Three lanes, six candidates. The interrupted three take all three.
+    assert.deepEqual([...started].sort(), [
+      'interrupted-DK0054', 'interrupted-DK0055', 'interrupted-DK0056',
+    ])
+    // And the fresh episodes are still waiting their turn, which is the whole
+    // point: he saw six running against three lanes, and now cannot.
+    for (const episode of ['DK0057', 'DK0058', 'DK0059']) {
+      assert.equal(jq.getJob(`never-started-${episode}`)?.status, 'queued')
+    }
+
+    // Drain before the temp data dir is torn down: a job still finishing after
+    // cleanup would try to persist into a directory that no longer exists.
+    draining = true
+    for (const release of releases) release()
+    const allIds = [...interrupted, ...neverStarted].map(job => job.job_id)
+    await waitFor(
+      () => allIds.every(id => ['done', 'error', 'cancelled'].includes(jq.getJob(id)?.status || '')),
+      { label: 'every queued render to reach a terminal status before teardown' },
+    )
   })
 })

@@ -26,7 +26,10 @@ import { getAppSetting, setAppSetting } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
-import { isNeverCreatedProviderTask } from '../lib/provider-task-state.js'
+import {
+  isNeverCreatedProviderTask,
+  isUnsettledProviderEntry as isUnsettledProviderEntryShared,
+} from '../lib/provider-task-state.js'
 import { getApiKey } from './app-secrets-store.js'
 import type { JobControl } from '../models/types.js'
 import {
@@ -390,10 +393,9 @@ function hasPendingRemoteCancellation(job: Pick<Job, 'remote_cancellations'>): b
  * `failed` are: GenStudio has answered, and no later answer is coming.
  */
 function isUnsettledProviderEntry(entry: NonNullable<Job['genstudio_jobs']>[number]): boolean {
-  return entry.cancelled !== true
-    && entry.state !== 'succeeded'
-    && entry.state !== 'failed'
-    && !isNeverCreatedProviderTask(entry)
+  // v1.4.81 — this used to spell the rule out here, and `job-control.ts` spelled
+  // a DIFFERENT one out there. See `isSettledProviderEntry` for what that cost.
+  return isUnsettledProviderEntryShared(entry)
 }
 
 /**
@@ -426,6 +428,54 @@ function hasRecoverableUnsettledGenStudioEvidence(job: Pick<Job, 'genstudio_jobs
     && isUnsettledProviderEntry(entry)
     && ((entry.id && !entry.id.startsWith('pending:')) || Boolean(entry.request?.idempotency_key))
   ))
+}
+
+/**
+ * v1.4.81 — one image GenStudio already finished, that this Mac never downloaded.
+ *
+ * Deliberately UNLIKE `hasRecoverableUnsettledGenStudioEvidence`, this counts
+ * `succeeded` entries. That is the whole point: the owner force-quit mid-batch,
+ * GenStudio kept generating and settling for the twenty-one minutes the app was
+ * dead, and those images are paid for and sitting on the server. A settled entry
+ * is not "nothing left to do" — it is "collect this, for free, before the
+ * artifact expires". `tryRecoverImageFromManifestEntry` in the image generators
+ * does exactly that, keyed on the task id in `.task-manifest.json`.
+ *
+ * A terminally failed or never-created entry proves nothing reclaimable, so it
+ * is excluded — same reasoning as the audio gate's `state !== 'failed'`.
+ */
+function hasReclaimableImageEvidence(job: Pick<Job, 'genstudio_jobs'>): boolean {
+  return (job.genstudio_jobs || []).some(entry => (
+    entry.operation === 'image.generation'
+    && entry.cancelled !== true
+    && entry.state !== 'failed'
+    && !isNeverCreatedProviderTask(entry)
+    && ((entry.id && !entry.id.startsWith('pending:')) || Boolean(entry.request?.idempotency_key))
+  ))
+}
+
+/**
+ * Can this job name the SAME output files it named before the restart?
+ *
+ * Resume reclaims by filename: the generator looks up `.task-manifest.json` for
+ * the file it is about to write and reconnects to that saved task id. If a
+ * resumed run derives different filenames, every lookup misses, every scene
+ * looks missing, and the batch is submitted and paid for a second time while
+ * the already-paid images sit orphaned in the folder. So filename stability is
+ * a precondition for auto-resume, not a detail.
+ */
+function hasStableImageOutputIdentity(job: Pick<Job, 'type' | 'params'>): boolean {
+  // Scene ids come from scene_plan.json on disk, so `<scene-id>.png` is stable
+  // across restarts with nothing to persist and nothing to lose.
+  if (job.type === 'continuity_render') return true
+  // Pool filenames are `gen-<run_id>-NNNN.png`. `run_id` is persisted onto
+  // params by the generator, but a crash in the moments before that first
+  // persist would leave a resumed run inventing a fresh one. Require the proof.
+  if (job.type === 'image_pool_generate') {
+    const runId = (job.params as { run_id?: unknown } | undefined)?.run_id
+    return typeof runId === 'string' && runId.trim().length > 0
+  }
+  return false
 }
 
 /** Continue control-plane polling until every accepted sibling is terminal. */
@@ -557,9 +607,17 @@ async function reconcileCancellationJob(jobId: string): Promise<void> {
     reportNeverCreatedProviderTasks(job, outcome.absent)
 
     if (outcome.kind === 'pending') {
+      // v1.4.81 — this path is reached two ways, and only one of them involves
+      // a cancellation. A job that arrived here from `requiresCancellationReconciliation`
+      // via `hasRecoverableUnsettledGenStudioEvidence` was never cancelled by
+      // anybody; it was interrupted. Telling its owner that Story Studio is
+      // "reconciling the provider cancellation" reports an action he did not
+      // take, on work he still wants. Say what is actually happening instead.
       const line = job.status === 'paused'
         ? 'Paused. Story Studio is checking already accepted GenStudio work; no new generation request was sent.'
-        : 'Story Studio is reconciling the provider cancellation; no new generation request was sent.'
+        : hasCancellationContext(job)
+          ? 'Story Studio is reconciling the provider cancellation; no new generation request was sent.'
+          : 'Story Studio is checking what GenStudio already finished for this job; no new generation request was sent.'
       if (!job.output_lines.slice(-8).includes(line)) job.output_lines.push(line)
     } else if (job.status === 'paused') {
       const line = 'Paused. All previously accepted GenStudio work has settled; Resume will verify files and submit only missing items.'
@@ -1403,13 +1461,38 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
                 && asset.idempotency_key.startsWith('story-')
                 && asset?.state !== 'failed'
               ))
-            if (recoverableGenStudio && !hasCancellationContext(j)) {
+            // v1.4.81 — image-episode work resumes for the same reason audio
+            // does, and the machinery is already built and proven; this type
+            // was simply never added to it.
+            //
+            // Before this, a scene render caught by a restart stayed `running`
+            // forever on the reconcile-only path below: never re-executed,
+            // never failed, holding no lane — so the scheduler saw free lanes
+            // and started NEW episodes while the interrupted ones sat there.
+            // The owner watched three become six. Reclaiming the images he had
+            // already paid for then depended on him noticing and clicking Retry.
+            //
+            // Requeueing cannot spend more than the status quo: Retry runs this
+            // same executor with the same disk-based skip and the same manifest
+            // reclaim. It only does it automatically, and sooner — which matters,
+            // because a provider artifact that expires is money that cannot be
+            // collected at all. Note this branch also restores the owner's
+            // stated order for free: these jobs are pushed into `pending` here,
+            // during load, ahead of the boot `pump()` below, so plain FIFO gives
+            // them their lanes back before any never-started job is admitted.
+            const recoverableImageEpisode = IMAGE_EPISODE_TYPES.has(j.type as JobType)
+              && !!queues[j.type as JobType]?.executor
+              && hasStableImageOutputIdentity(j)
+              && hasReclaimableImageEvidence(j)
+            if ((recoverableGenStudio || recoverableImageEpisode) && !hasCancellationContext(j)) {
               j.status = 'queued'
               j.started_at = null
               j.finished_at = null
               j.error = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push('↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.')
+              j.output_lines.push(recoverableImageEpisode
+                ? '↻ Story Studio restarted — resuming this render. Every image GenStudio already finished will be reclaimed from its saved task id at no extra credits, and only genuinely missing scenes will be submitted.'
+                : '↻ Story Studio restarted — resuming the checkpointed GenStudio asset job automatically; the saved request identity will be reused and no direct fallback will run.')
               queues[j.type as JobType].pending.push(j)
               resumedTypes.add(j.type as JobType)
             } else if (requiresCancellationReconciliation(j)) {

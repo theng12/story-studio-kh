@@ -2386,8 +2386,25 @@ async function waitForJobTerminal(jobId: string, timeoutMs: number, projectSlug:
 }
 
 async function clearFinished() {
+  // v1.4.81 — what the badge promised, captured before the call, so a clear
+  // that removes nothing can say so instead of handing back a receipt for zero.
+  // The owner clicked this repeatedly against "Clear finished (6)" and watched
+  // six rows stay put; "Cleared 0 finished job(s)" told him nothing he could
+  // act on, and nothing at all about why.
+  const promised = finishedCount.value
   try {
     const result = await del<{ cleared: number }>(isUniversal.value ? '/jobs/all' : `/projects/${slug.value}/jobs`)
+    if (result.cleared === 0) {
+      if (promised > 0) {
+        showError(
+          `Nothing was cleared, though ${promised} row(s) look finished. `
+          + 'Open a row and use its own button — its reason says what is still holding it.',
+        )
+      } else {
+        success('No finished jobs to clear.')
+      }
+      return
+    }
     success(`Cleared ${result.cleared} finished job(s)`)
   } catch (e: any) { showError(e.data?.detail || 'Failed to clear jobs') }
 }
