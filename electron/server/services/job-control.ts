@@ -4,7 +4,7 @@ import type {
   JobControlCapabilities,
   JobRemoteOperation,
 } from '../models/types.js'
-import { GENSTUDIO_TASK_NOT_CREATED_STATE } from '../lib/provider-task-state.js'
+import { isSettledProviderEntry, isUnsettledProviderEntry } from '../lib/provider-task-state.js'
 import { isProvenLocalStopCapableJob as isSafelyStoppableLocalJob } from './job-retry-policy.js'
 
 export { isSafelyStoppableLocalJob as isProvenLocalStopCapableJob }
@@ -21,10 +21,11 @@ const REMOTE_OPERATIONS = new Set<JobRemoteOperation>([
   'music.generation',
 ])
 
-// `not_created` is Story Studio's record that GenStudio answered and has no
-// such task (v1.2.8). It belongs here for the same reason `failed` does:
-// nothing about it can change again.
-const TERMINAL_STATES = new Set(['succeeded', 'failed', 'cancelled', GENSTUDIO_TASK_NOT_CREATED_STATE])
+// v1.4.81 — the terminal-state set used to live here, a second copy of the one
+// `job-queue.ts` used to decide whether a row could actually be removed. They
+// differed by one word and the owner paid for it with a "Clear finished (6)"
+// button that cleared nothing. Both sides now read `isSettledProviderEntry`
+// from the leaf module; `not_created` and its rationale live there too.
 const PENDING_CANCELLATION_STATES = new Set(['queued', 'submitting', 'requested', 'reconciling', 'unknown'])
 const PAUSABLE_SUBMISSION_TYPES = new Set<Job['type']>([
   // These executors check the cooperative pause marker between submissions.
@@ -49,7 +50,7 @@ function isRemoteOperation(operation: string): operation is JobRemoteOperation {
 }
 
 function isProviderTerminal(entry: JobEvidence): boolean {
-  return TERMINAL_STATES.has(entry.state) || entry.cancelled === true
+  return isSettledProviderEntry(entry)
 }
 
 function isSubmissionUncertain(entry: JobEvidence): boolean {
@@ -179,9 +180,10 @@ function classifyProviderJobControl(
       'READY', 'history-only',
     )
   }
-  const unsettledEvidence = evidence.some(entry => (
-    entry.cancelled !== true && !TERMINAL_STATES.has(entry.state)
-  )) || Object.values(job.remote_cancellations || {}).some(record => PENDING_CANCELLATION_STATES.has(record.status))
+  // v1.4.81 — one shared definition of "settled", so the button and the action
+  // behind it cannot disagree about which rows are clearable.
+  const unsettledEvidence = evidence.some(isUnsettledProviderEntry)
+    || Object.values(job.remote_cancellations || {}).some(record => PENDING_CANCELLATION_STATES.has(record.status))
   if ((job.status === 'done' || job.status === 'error' || job.status === 'cancelled') && unsettledEvidence) {
     // v1.2.6 — `genstudio_jobs` is a snapshot taken while the job ran, not a
     // live reading. An entry that was mid-flight when it was written stays

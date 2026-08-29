@@ -722,3 +722,106 @@ test('a sibling status read error remains visible and retries on the next reconc
     globalThis.fetch = original
   }
 })
+
+/**
+ * v1.4.81 — a big batch must be able to REACH ITS TAIL.
+ *
+ * THE BUG. This function shares ONE 30-second budget across every entry on the
+ * job, one HTTP round trip each, starting from index 0 every time. A 142-image
+ * batch spent that whole budget re-confirming the ~96 tasks it already knew had
+ * succeeded, ran out before reaching the unsettled tail, returned `pending`,
+ * and was rescheduled five seconds later to do exactly the same thing. It could
+ * never finish, so the job could never settle.
+ *
+ * The owner hit it by force-quitting mid-batch on 2026-08-29: three interrupted
+ * renders sat "reconciling" indefinitely, holding no lane, while the scheduler
+ * saw free lanes and started three more episodes.
+ *
+ * A settled entry cannot change state, so re-asking can only return the same
+ * answer. These tests pin both halves of that: the call is skipped, and the
+ * EVIDENCE is not — because a skipped `failed` sibling that vanished from the
+ * outcome would let the rest read as all-succeeded and green-light the job.
+ */
+function batchJob(entries: Array<{ id: string; state: string }>): Job {
+  return {
+    job_id: 'story-batch-reconcile', project_slug: 'project', type: 'continuity_render',
+    episode_id: 'DK0054', title: '[batch] scene_review — DK0054', status: 'running',
+    created_at: new Date().toISOString(), started_at: new Date().toISOString(), finished_at: null,
+    error: null, output_lines: [], params: {},
+    genstudio_jobs: entries.map(entry => ({
+      id: entry.id, operation: 'image.generation' as const, state: entry.state,
+      updated_at: new Date().toISOString(),
+    })),
+    remote_cancellations: {},
+  }
+}
+
+test('settled entries are not re-queried, so the unsettled tail is reached in one pass', async () => {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input) => {
+    const requestPath = new URL(String(input)).pathname
+    requests.push(requestPath)
+    return Response.json({ id: requestPath.split('/').pop(), state: 'running', cancelled: false })
+  }
+  try {
+    // The owner's shape: a long head of images that finished while the app was
+    // dead, and the still-unsettled remainder at the very end of the list.
+    const settled = Array.from({ length: 96 }, (_, i) => ({ id: `job_done_${i}`, state: 'succeeded' }))
+    const tail = [{ id: 'job_tail_a', state: 'reserved' }, { id: 'job_tail_b', state: 'reserved' }]
+    const result = await reconcilePendingJobCancellation(batchJob([...settled, ...tail]), 'test-key')
+
+    // Only the tail cost a round trip. Before the fix this was 98 calls, and
+    // the two that mattered were the ones that ran out of budget.
+    assert.deepEqual(requests, ['/v1/images/job_tail_a', '/v1/images/job_tail_b'])
+    assert.equal(result.kind, 'pending')
+    // Every entry is still accounted for in the outcome, not just the queried
+    // ones — the classification below reads this array.
+    assert.equal(result.providerJobs.length, 98)
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('a failed entry buried among settled ones still decides the outcome without being re-read', async () => {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input) => {
+    requests.push(new URL(String(input)).pathname)
+    return Response.json({ id: 'unexpected', state: 'succeeded', cancelled: false })
+  }
+  try {
+    const result = await reconcilePendingJobCancellation(batchJob([
+      { id: 'job_ok_1', state: 'succeeded' },
+      { id: 'job_dead', state: 'failed' },
+      { id: 'job_ok_2', state: 'succeeded' },
+    ]), 'test-key')
+
+    // Nothing was asked — every entry was already terminal.
+    assert.deepEqual(requests, [])
+    // And the failure still wins. If the skip had dropped the evidence instead
+    // of reusing it, the remaining two would have read as all-succeeded.
+    assert.equal(result.kind, 'failed')
+  } finally {
+    globalThis.fetch = original
+  }
+})
+
+test('an all-succeeded batch settles from stored evidence alone', async () => {
+  const original = globalThis.fetch
+  const requests: string[] = []
+  globalThis.fetch = async (input) => {
+    requests.push(new URL(String(input)).pathname)
+    return Response.json({ id: 'unexpected', state: 'running', cancelled: false })
+  }
+  try {
+    const result = await reconcilePendingJobCancellation(batchJob([
+      { id: 'job_a', state: 'succeeded' },
+      { id: 'job_b', state: 'succeeded' },
+    ]), 'test-key')
+    assert.deepEqual(requests, [])
+    assert.equal(result.kind, 'succeeded')
+  } finally {
+    globalThis.fetch = original
+  }
+})

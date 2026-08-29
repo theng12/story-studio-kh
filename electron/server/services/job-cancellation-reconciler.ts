@@ -77,6 +77,43 @@ function isRemoteOperation(value: string): value is JobRemoteCancellation['opera
   return REMOTE_OPERATIONS.has(value as JobRemoteCancellation['operation'])
 }
 
+/**
+ * v1.4.81 — the provider's own last word, already recorded, re-used instead of
+ * re-asked.
+ *
+ * THE BUG THIS FIXES. Every reconciliation tick re-queried every entry on the
+ * job, one HTTP round trip each, sharing ONE 30-second budget for the whole
+ * pass. A 142-image batch therefore spent that entire budget re-confirming the
+ * ~96 tasks it already knew had succeeded, ran out before reaching the
+ * unsettled tail, returned `pending`, and was rescheduled five seconds later to
+ * do exactly the same thing. It could never finish, so the job could never
+ * settle — it just said "reconciling" forever while holding no lane. The owner
+ * hit this by force-quitting mid-batch: three interrupted renders spun here
+ * indefinitely while the scheduler, seeing free lanes, started three more.
+ *
+ * A settled entry cannot change state, so asking again can only ever get the
+ * same answer back. Returning the stored evidence keeps it in `providerJobs`,
+ * which is what matters: the terminal classification below reads that array,
+ * so a skipped `failed` sibling must still be visible or an all-`succeeded`
+ * read of the remainder would wrongly green-light the job. Skipping the CALL
+ * is safe; skipping the EVIDENCE would not be.
+ *
+ * `not_created` is excluded because it has its own branch that also records it
+ * in `absent`; returning it here as well would double-count it.
+ */
+function settledEvidenceAsProviderTask(
+  entry: NonNullable<Job['genstudio_jobs']>[number],
+): (GenStudioJob & GenStudioCancellationFields) | null {
+  if (!entry.id || entry.id.startsWith('pending:')) return null
+  if (isNeverCreatedProviderTask(entry)) return null
+  if (!isSettledGenStudioJob(entry)) return null
+  // Structurally this already IS a provider response: every field below was
+  // copied from one by `mergeGenStudioReconciliationEvidence`. The cast only
+  // narrows `state`, stored as the wider `string`, back to the published
+  // vocabulary that `isSettledGenStudioJob` has just proven it belongs to.
+  return entry as unknown as GenStudioJob & GenStudioCancellationFields
+}
+
 function asRecord(
   prior: JobRemoteCancellation,
   provider: GenStudioJob & GenStudioCancellationFields,
@@ -233,6 +270,16 @@ export async function reconcilePendingJobCancellation(
       providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: absentProviderTask(evidenceId) })
       observed.add(key)
       absent.push({ operation: evidence.operation, evidence_id: evidenceId })
+      continue
+    }
+    // v1.4.81 — same reasoning as the branch above, generalised to every
+    // terminal state. This is what lets a large batch reach its unsettled tail
+    // inside one pass instead of spending the whole budget re-reading answers
+    // it already has. See `settledEvidenceAsProviderTask`.
+    const alreadySettled = settledEvidenceAsProviderTask(evidence)
+    if (alreadySettled) {
+      providerJobs.push({ operation: evidence.operation, evidence_id: evidenceId, job: alreadySettled })
+      observed.add(key)
       continue
     }
     try {
