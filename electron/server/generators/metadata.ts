@@ -31,6 +31,7 @@ import {
   withMetadataFormulaShape,
 } from '../services/metadata-formula-catalogue.js'
 import { stripInternalSectionLabels } from '../lib/metadata-label-leak.js'
+import { isScaffoldTitleLine, stripMarkdownScaffold, stripTitleScaffold } from '../lib/metadata-scaffold.js'
 import { applyEmojiPolicy, applyEmojiPolicyToAll, noEmojiDirective } from '../lib/emoji-policy.js'
 import { metadataPlaceholderOutputContract } from '../lib/story-output-contracts.js'
 import { sourcesSectionEnabled } from '../lib/research-sources.js'
@@ -369,7 +370,14 @@ export async function generateMetadata(job: Job): Promise<void> {
       // heading, so what lands on disk is clean. Only this branch: the
       // `preserveExistingPackage` branch above is his own edited copy, cleaned
       // where it is read rather than rewritten under him.
-      description = stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt]))
+      // v1.4.84 — and then take away the markdown itself. `stripInternal-
+      // SectionLabels` removes a name the model published as a heading;
+      // `stripMarkdownScaffold` removes the heading marks and the `**` around
+      // headings the description is SUPPOSED to have. YouTube renders neither
+      // — it prints the hash and the asterisks at the viewer as typed.
+      description = stripMarkdownScaffold(
+        stripInternalSectionLabels(await applyEmojiPolicy(descRaw.trim(), [descPrompt])),
+      )
       job.output_lines.push(`  → ${description.length} chars`)
       // Post-generation: scan the description for matches against the
       // niche's regex and append to the recency log. Fail-soft — never
@@ -460,10 +468,34 @@ Requirements:
       const titlePromptWithAvoidance = await prependAvoidanceToPrompt(project_slug, 'titles', titlePrompt)
       const titleRaw = await callAiWithRetry(model, '', titlePromptWithAvoidance, aiCreds(config), false,
         { slug: project_slug, jobId: job.job_id, signal: controller.signal })
-      const rawTitles = titleRaw.split('\n')
+      // v1.4.84 — drop the model's own document furniture BEFORE the slice.
+      //
+      // The prompt asks for titles "one per line, no numbering, quotes, or
+      // commentary". Three times in eighty on one channel the model
+      // wrote `# SEO-Optimized Video Titles — EP0061` first and the five
+      // titles under it. This line-clean stripped `-`, digits, `.`, `)` and
+      // quotes; it had nothing to say about `#`. So the heading became
+      // titles[0], was auto-picked as the episode title, went to YouTube as
+      // the video's name — and the slice to five then threw away the fifth
+      // real title to make room for it.
+      //
+      // Removing furniture before the slice fixes both halves: the heading
+      // never becomes a title, and no real title is lost to it.
+      const allTitleLines = titleRaw.split('\n')
         .map(l => l.trim().replace(/^[\-\d\.\)]+\s*/, '').replace(/^["']|["']$/g, '').trim())
         .filter(Boolean)
+      const scaffoldLines = allTitleLines.filter(l => isScaffoldTitleLine(l))
+      const rawTitles = allTitleLines
+        .filter(l => !isScaffoldTitleLine(l))
+        .map(l => stripTitleScaffold(l))
+        .filter(Boolean)
         .slice(0, title_count)
+      if (scaffoldLines.length) {
+        job.output_lines.push(
+          `  → ignored ${scaffoldLines.length} heading/commentary line(s) the model wrote around its title list ` +
+          `(first: "${scaffoldLines[0]}")`,
+        )
+      }
       // Post-generation: scan the full title text for matches.
       await recordUsageForScope(project_slug, episode_id, 'titles', titleRaw).catch(() => null)
       // Wrap LLM titles with channel prefix/suffix too — paraphrase mode
