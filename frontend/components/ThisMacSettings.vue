@@ -6,15 +6,15 @@
       <p>Story Studio uses one GenStudio API URL and one API key for every AI catalog, job, and credit event. The key may be all-access or scoped.</p>
     </header>
 
-    <!-- v1.4.28 — the two queues that can stampede. Machine-wide, not
-         per-channel: they describe what this Mac's fleet can absorb. -->
+    <!-- v1.4.28 — the two queues that can stampede. App-wide, not
+         per-channel: they describe how much work this app takes on at once. -->
     <section class="panel concurrency">
       <div>
         <span class="eyebrow">Throughput</span>
         <h4>How much runs at once</h4>
         <p class="hint">
-          Every number here was fixed in the program until it appeared on this screen. Raise them as
-          you add machines; lower them if your fleet starts refusing work.
+          Every number here was fixed in the program until it appeared on this screen. Raise them when
+          there is spare capacity; lower them if work starts getting refused.
         </p>
       </div>
 
@@ -290,7 +290,7 @@ const concurrencySaved = ref('')
  * a magic word you had to be told existed; a bare text box cannot teach it.
  *
  * The recommendations carry the reasoning that is otherwise only in a commit
- * message: which number caused the flood, which left the fleet idle, which one
+ * message: which number caused the flood, which left capacity idle, which one
  * GenStudio itself accepts.
  */
 interface ThroughputChoice { value: string | number; label: string }
@@ -319,12 +319,12 @@ const throughputFields: ThroughputField[] = [
     key: 'subtitleEpisodes',
     label: 'Episodes transcribing at once',
     help: 'Each episode still transcribes all its chapters together — this is how many EPISODES '
-      + 'start at the same time. Thirty at once overwhelmed the fleet and lost a third of the work.',
+      + 'start at the same time. Thirty at once overwhelmed the available capacity and lost a third of the work.',
     choices: [
       { value: 1, label: '1 — one at a time' },
       { value: 2, label: '2 — recommended' },
       { value: 3, label: '3' },
-      { value: 5, label: '5 — a large fleet' },
+      { value: 5, label: '5 — plenty of capacity' },
       { value: 10, label: '10 — aggressive' },
     ],
   },
@@ -343,13 +343,13 @@ const throughputFields: ThroughputField[] = [
   {
     key: 'imageEpisodes',
     label: 'Episodes making scene images at once',
-    help: 'Scene Review and Image Pool share this — the work that runs on your own machines. '
+    help: 'Scene Review and Image Pool share this — the work that runs on locally hosted models. '
       + 'Thumbnails have their own number below, so a few cloud thumbnails can never hold up '
-      + 'your fleet.',
+      + 'this queue.',
     choices: [
       { value: 1, label: '1 — one at a time' },
       { value: 3, label: '3 — recommended' },
-      { value: 5, label: '5 — a large fleet' },
+      { value: 5, label: '5 — plenty of capacity' },
       { value: 8, label: '8' },
       { value: 12, label: '12 — aggressive' },
     ],
@@ -358,8 +358,8 @@ const throughputFields: ThroughputField[] = [
     key: 'thumbnailEpisodes',
     label: 'Episodes making thumbnails at once',
     help: 'Separate from scene images because thumbnails usually run on a cloud model while '
-      + 'Scene Review runs on your own machines. They no longer compete: raising this cannot '
-      + 'slow your fleet down, and a thumbnail batch cannot stall it.',
+      + 'Scene Review runs on a locally hosted one. They no longer compete: raising this cannot '
+      + 'slow that queue down, and a thumbnail batch cannot stall it.',
     choices: [
       { value: 1, label: '1 — one at a time' },
       { value: 3, label: '3 — recommended' },
@@ -372,7 +372,7 @@ const throughputFields: ThroughputField[] = [
     label: 'Cloud requests per episode at once',
     help: 'Covers every fan-out inside ONE episode — images, AI video, continuity renders AND '
       + 'subtitle transcription, which all share this dial. Auto follows what GenStudio says your '
-      + 'account can run, so it rises by itself as you add machines. A number overrides it either '
+      + 'account can run, so it rises by itself as your capacity grows. A number overrides it either '
       + 'way — higher is safe, since GenStudio queues the surplus, but lowering it slows subtitles '
       + 'and video too, not just images.',
     choices: [
