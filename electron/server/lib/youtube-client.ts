@@ -29,6 +29,7 @@ import {
   sessionUrlHash,
 } from '../services/upload-resume-sidecar.js'
 import { truncateChars } from './well-formed-text.js'
+import { assertPublishableMetadata } from './metadata-scaffold.js'
 
 /**
  * Wrapper around `recordQuotaUsage` that logs at warn level on failure
@@ -208,6 +209,12 @@ export async function fetchWithAuthRetry(
 //      Range mechanism in Phase 3 if we add chunked retry.
 
 export async function uploadVideo(args: UploadVideoArgs): Promise<UploadedVideo> {
+  // v1.4.84 — the gate lives HERE, and in `updateVideoMetadata`, because these
+  // two functions are the only two doors to the YouTube Data API. Every route,
+  // every job, every bulk action goes through one of them, so a caller added
+  // next year is covered without anyone remembering to cover it. See
+  // lib/metadata-scaffold.ts for what "junk" means and how it was calibrated.
+  assertPublishableMetadata(args.snippet)
   const stat = await fsp.stat(args.filePath)
   const totalBytes = stat.size
   if (totalBytes <= 0) throw new Error(`Upload target is empty: ${args.filePath}`)
@@ -638,6 +645,8 @@ export async function updateVideoMetadata(opts: {
    */
   status?: VideoStatus
 }): Promise<UploadedVideo> {
+  // The second and last door to the Data API. See uploadVideo above.
+  assertPublishableMetadata(opts.snippet)
   const body: Record<string, unknown> = {
     id: opts.videoId,
     snippet: {

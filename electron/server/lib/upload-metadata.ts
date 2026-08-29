@@ -21,6 +21,7 @@ import { parseMetadataTxt } from '../services/metadata-format.js'
 import type { VideoSnippet } from './youtube-client.js'
 import { truncateChars, toWellFormedText } from './well-formed-text.js'
 import { stripInternalSectionLabels } from './metadata-label-leak.js'
+import { isScaffoldTitleLine, stripMarkdownScaffold, stripTitleScaffold } from './metadata-scaffold.js'
 
 export interface EpisodeMetadataForUpload {
   title: string
@@ -113,9 +114,22 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
     if (existsSync(paths.metadata_json)) {
       const raw = await fsp.readFile(paths.metadata_json, 'utf-8')
       const data = JSON.parse(raw)
-      title = pickFirstNonEmpty([
+      // v1.4.84 — the saved title, unless what was saved is the metadata
+      // document's own heading.
+      //
+      // Episodes have been published titled
+      // `# SEO-Optimized Video Titles — EP0061`, because the generator picked
+      // the model's list heading as title[0]. The generator no longer does
+      // that, but the files are already on disk and their real titles are
+      // sitting right beside them in `title_options`. Saved files are never
+      // rewritten — the same rule as the section-label leak — so the recovery
+      // happens here, on the way out. The operator clicking "Update metadata"
+      // on one of those rows now pushes the title the document actually
+      // contains, rather than being refused.
+      title = pickUsableTitle([
         typeof data.title === 'string' ? data.title : '',
-        Array.isArray(data.titles) ? data.titles.find((t: any) => typeof t === 'string' && t.trim()) : '',
+        ...(Array.isArray(data.title_options) ? data.title_options : []),
+        ...(Array.isArray(data.titles) ? data.titles : []),
       ])
       description = typeof data.description === 'string' ? data.description : ''
       tags = Array.isArray(data.tags) ? data.tags.filter((t: any) => typeof t === 'string' && t.trim()) : []
@@ -127,7 +141,13 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
       const raw = await fsp.readFile(paths.metadata_txt, 'utf-8')
       const parsed = parseMetadataTxt(raw)
       if (!title) {
-        title = pickFirstNonEmpty([
+        // The txt's own TITLE section first. Only if that is missing do we
+        // look at the description's opening line — and v1.4.84 requires that
+        // line to look like a title, so a description that begins with
+        // `# <the episode title as a markdown heading>` contributes nothing.
+        // Falling back to a heading is what put document furniture on YouTube
+        // in the first place.
+        title = pickUsableTitle([
           typeof parsed.title === 'string' ? parsed.title : '',
           parsed.description?.split('\n')[0] || '',
         ])
@@ -143,7 +163,10 @@ export async function resolveUploadMetadata(input: ResolveUploadMetadataInput): 
   // words are not something to tidy. Upload Center reads this description
   // directly as well as through `snippetFromMeta`, so the clean has to happen
   // at the read, not only at the last gate.
-  description = stripInternalSectionLabels(description)
+  // v1.4.84 — and the markdown marks themselves, for the same reason and in
+  // the same place: YouTube prints `**AI DISCLOSURE:**` with the asterisks in
+  // it. The heading stays, the asterisks go.
+  description = stripMarkdownScaffold(stripInternalSectionLabels(description))
 
   // Per-platform overrides sidecar (optional).
   const overridesPath = path.join(paths.episode_dir, 'upload_metadata_overrides.json')
@@ -215,6 +238,23 @@ function pickFirstNonEmpty(candidates: string[]): string {
     if (typeof c === 'string' && c.trim()) return c.trim()
   }
   return ''
+}
+
+/**
+ * The first candidate that is a title rather than a piece of the document that
+ * held it — no markdown heading, no echo of the instruction we gave the model,
+ * no `EPISODE EP0061 —` label. Falls back to the first non-empty candidate so
+ * that an episode whose every candidate is furniture still resolves to
+ * something; the publish gate refuses that case out loud rather than here.
+ */
+function pickUsableTitle(candidates: string[]): string {
+  for (const c of candidates) {
+    if (typeof c !== 'string' || !c.trim()) continue
+    if (isScaffoldTitleLine(c)) continue
+    const cleaned = stripTitleScaffold(c)
+    if (cleaned) return cleaned
+  }
+  return pickFirstNonEmpty(candidates)
 }
 
 function versionOf(filename: string): number {
@@ -313,6 +353,11 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[],
   // silently in titles), strip URLs with a warning, then cap length.
   let title = stripControl(meta.title).replace(/[<>]/g, '')
   title = stripUrlsFromTitle(title, logs)
+  // v1.4.84 — a title is one line of plain text. Anything markdown about it
+  // came from the document it was read out of, and YouTube would show it.
+  const beforeScaffold = title
+  title = stripTitleScaffold(title)
+  if (title !== beforeScaffold.trim()) logs?.push('formatting marks removed from the title')
   title = capLength(title.trim(), YT_TITLE_MAX, 'title', logs)
 
   // Description: strip control chars (keeping newlines/tabs for formatting),
@@ -332,7 +377,7 @@ export function snippetFromMeta(meta: EpisodeMetadataForUpload, logs?: string[],
   // operator can type a description here, move this strip so it runs before
   // his override lands, the way the resolver already does.
   const description = capLength(
-    stripInternalSectionLabels(stripControl(meta.description)),
+    stripMarkdownScaffold(stripInternalSectionLabels(stripControl(meta.description))),
     YT_DESCRIPTION_MAX, 'description', logs,
   )
 
