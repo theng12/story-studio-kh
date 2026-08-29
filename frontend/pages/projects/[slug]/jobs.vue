@@ -443,9 +443,9 @@
           <span v-if="job.finished_at" class="meta-tag">
             <span class="meta-label">Finished:</span> {{ formatTime(job.finished_at) }}
           </span>
-          <span class="meta-tag">
-            <span class="meta-label">ID:</span> {{ job.job_id }}
-          </span>
+          <!-- The raw job id lives in Technical details now. It is an
+               8-character hex slice with no meaning to the person asking
+               "is my video coming?", and it was the widest thing on the row. -->
         </div>
 
         <!-- Row 2.5: Account attribution.
@@ -466,22 +466,58 @@
           </span>
         </div>
 
-        <GenStudioBatchLedger
-          v-if="isLargeGenStudioBatch(job)"
-          :remote-jobs="job.genstudio_jobs!"
-        />
-        <template v-else-if="job.genstudio_jobs?.length">
-          <div class="job-accounts genstudio-diagnostics">
-            <span class="meta-label">GenStudio:</span>
-            <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
-              {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
-              <!-- v1.4.7 — the unit on all three, not just the last. `on hold` already
-                   said "credits" while `charged` and `returned` did not, so the same
-                   page spelled one fact two ways. -->
-              <template v-if="genStudioChargedCredits(remote) > 0"> · {{ genStudioChargedCredits(remote) }} credits charged</template>
-              <template v-else-if="genStudioReturnedCredits(remote) > 0"> · {{ genStudioReturnedCredits(remote) }} credits returned</template>
-              <template v-else-if="genStudioHeldCredits(remote) > 0"> · {{ genStudioHeldCredits(remote) }} credits on hold</template>
-            </span>
+        <!-- Row 3: the progress tracker. Counts first, in words, because the
+             question this card exists to answer is "how much is left" — and
+             the wall of one-line-per-scene it replaces answered that only by
+             making the reader count. -->
+        <div v-if="job.item_progress" class="job-stats">
+          <span class="job-stat">
+            <strong>{{ jobCounts(job).total.toLocaleString() }}</strong>
+            <span class="job-stat-label">total</span>
+          </span>
+          <span class="job-stat is-inflight">
+            <strong>{{ jobCounts(job).inFlight.toLocaleString() }}</strong>
+            <span class="job-stat-label">generating right now</span>
+          </span>
+          <span class="job-stat is-finished">
+            <strong>{{ jobCounts(job).finished.toLocaleString() }}</strong>
+            <span class="job-stat-label">finished</span>
+          </span>
+          <span class="job-stat">
+            <strong>{{ jobCounts(job).remaining.toLocaleString() }}</strong>
+            <span class="job-stat-label">remaining</span>
+          </span>
+          <span v-if="jobCounts(job).queued" class="job-stat is-muted">
+            <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong>
+            <span class="job-stat-label">waiting for capacity</span>
+          </span>
+          <span v-if="jobCounts(job).settling" class="job-stat is-muted">
+            <strong>{{ jobCounts(job).settling.toLocaleString() }}</strong>
+            <span class="job-stat-label">settling</span>
+          </span>
+          <!-- Measured, never assumed — see useJobEta.ts. Absent until this
+               job's own rate or its class's median can support one. -->
+          <span v-if="jobEta(job)" class="job-stat-eta">{{ jobEta(job) }}</span>
+          <!-- "when did something last actually happen". A quiet card is the
+               reason this page gets opened; silence must be legible. -->
+          <span
+            v-if="jobFreshness(job)"
+            class="job-stat-fresh"
+            :class="{ 'is-stale': jobProgressStale(job) }"
+          >{{ jobFreshness(job) }}</span>
+        </div>
+
+        <!-- Money: three figures, nothing else. The per-item ledger that used
+             to sit here is in Technical details. -->
+        <template v-if="job.genstudio_jobs?.length">
+          <div class="job-money">
+            <span class="meta-label">Credits:</span>
+            <!-- v1.4.7 — the unit on all three, not just the last. `on hold` already
+                 said "credits" while `charged` and `returned` did not, so the same
+                 page spelled one fact two ways. -->
+            <span class="job-money-figure charged">{{ jobChargedCredits(job).toLocaleString() }} credits charged</span>
+            <span class="job-money-figure held">{{ jobHeldCredits(job).toLocaleString() }} credits on hold</span>
+            <span class="job-money-figure returned">{{ jobReturnedCredits(job).toLocaleString() }} credits returned</span>
           </div>
           <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
         </template>
@@ -489,8 +525,7 @@
           {{ genStudioStatusDetail(job) }}
         </p>
 
-        <!-- Row 3: Running progress / Summary -->
-        <div v-if="job.status === 'running' && job.output_lines?.length" class="job-live-output">
+        <div v-if="job.status === 'running'" class="job-live-output">
           <div class="progress-row">
             <ProgressBar
               :indeterminate="jobProgress(job) == null"
@@ -504,73 +539,16 @@
             />
             <span v-if="jobProgress(job) == null && progressCounter(job)" class="progress-counter">{{ progressCounter(job) }}</span>
           </div>
-          <!--
-            What the job is actually working on. A percentage says how far; a
-            long-running step that reports nothing else is indistinguishable
-            from a hang, and that ambiguity has already produced a wrong
-            diagnosis. `waiting_retry` in particular is a job doing exactly
-            what it should — waiting out a provider — and must not read as
-            stuck.
-          -->
-          <div v-if="job.item_progress" class="job-items">
-            <span class="job-items-count">
-              {{ job.item_progress.completed }} of {{ job.item_progress.total }} done
-            </span>
-            <span v-if="job.item_progress.failed" class="job-items-failed">
-              · {{ job.item_progress.failed }} failed
-            </span>
-            <span v-if="job.item_progress.settling" class="job-items-note">
-              · {{ job.item_progress.settling }} settling
-            </span>
-            <span v-if="job.item_progress.cancelled" class="job-items-note">
-              · {{ job.item_progress.cancelled }} cancelled by customer
-            </span>
-            <span v-if="job.item_progress.not_submitted" class="job-items-note">
-              · {{ job.item_progress.not_submitted }} not submitted
-            </span>
-            <span
-              v-if="job.item_progress.concurrency === 1 && job.item_progress.total > 1"
-              class="job-items-note"
-              title="Sent to the provider one request at a time, on purpose — a whole batch at once gets most of it refused."
-            >· one at a time</span>
-            <span
-              v-for="item in job.item_progress.active"
-              :key="item.key || item.label"
-              class="job-items-active"
-              :class="{ waiting: item.state === 'waiting_retry' }"
-            >· {{ itemAttemptText(item) }}</span>
-          </div>
-          <div class="output-scroll" ref="outputScrollRefs">
-            <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
-          </div>
         </div>
 
-        <!-- Running but no output lines yet — placeholder so the card doesn't
-             look inert. Running generators take a moment to produce their
-             first log line; the progress bar + "Starting…" confirms the job
-             is alive and the UI is listening. Disappears on the first line. -->
-        <div v-else-if="job.status === 'running'" class="job-live-output">
-          <div class="progress-row">
-            <ProgressBar
-              :indeterminate="jobProgress(job) == null"
-              :progress="jobProgress(job) ?? undefined"
-              :bytes-done="job.bytes_done"
-              :bytes-total="job.bytes_total"
-              :speed-bps="job.speed_bps"
-              :eta-seconds="job.eta_seconds"
-              :label="job.type === 'youtube_upload' ? youtubeProgressLabel(job) : undefined"
-              :label-title="job.type === 'youtube_upload' ? youtubeProgressHelp : undefined"
-            />
-          </div>
-          <div class="output-scroll output-starting">
-            <code class="starting-placeholder">
-              <LoadingSpinner size="sm" />
-              Starting — waiting for first log line…
-            </code>
-          </div>
-        </div>
+        <!-- Exceptions, one plain-words line each: what failed, what it cost,
+             what happens next. Renders only when something actually went
+             wrong — a healthy job shows none of this. -->
+        <ul v-if="jobExceptions(job).length" class="job-exceptions">
+          <li v-for="line in jobExceptions(job)" :key="line.key">{{ line.text }}</li>
+        </ul>
 
-        <div v-else-if="job.status === 'done' && job.output_lines?.length" class="job-summary">
+        <div v-if="job.status === 'done' && job.output_lines?.length" class="job-summary">
           <span class="summary-icon">&#10003;</span>
           <span>{{ getSummaryLine(job) }}</span>
           <button
@@ -582,23 +560,6 @@
             Open in Finder
           </button>
         </div>
-
-        <!-- Expandable output for non-running jobs -->
-        <div
-          v-if="job.status !== 'running' && hasExpandableDetail(job)"
-          class="job-expand"
-          @click="toggleExpand(job.job_id)"
-        >
-          {{ expanded === job.job_id ? 'Hide output' : 'Show output' }}
-          ({{ expandSummary(job) }})
-        </div>
-
-        <template v-if="expanded === job.job_id && job.status !== 'running' && hasExpandableDetail(job)">
-          <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
-          <div v-if="job.output_lines?.length" class="job-output">
-            <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
-          </div>
-        </template>
 
         <!-- Error details -->
         <div v-if="job.status === 'error'" class="job-error-section">
@@ -617,6 +578,72 @@
             {{ job.error }}
           </div>
         </div>
+
+        <!-- Technical details. Everything the default view no longer shows,
+             folded rather than deleted: the full item ledger, the per-item
+             states, the raw log, the redacted request preview and every id.
+             These are what actually solved incidents; only one card's drawer
+             is mounted at a time so a page of long logs stays cheap. -->
+        <AdvancedDisclosure
+          label="Technical details"
+          :badge="expandSummary(job) || undefined"
+          :open="expanded === job.job_id"
+          @update:open="setTechnicalOpen(job.job_id, $event)"
+        >
+          <template v-if="expanded === job.job_id">
+            <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
+            <!--
+              What the job is actually working on, item by item. A percentage
+              says how far; a long-running step that reports nothing else is
+              indistinguishable from a hang, and that ambiguity has already
+              produced a wrong diagnosis. `waiting_retry` in particular is a
+              job doing exactly what it should and must not read as stuck.
+            -->
+            <div v-if="job.item_progress" class="job-items">
+              <span class="job-items-count">
+                {{ job.item_progress.completed }} of {{ job.item_progress.total }} done
+              </span>
+              <span v-if="job.item_progress.failed" class="job-items-failed">
+                · {{ job.item_progress.failed }} failed
+              </span>
+              <span v-if="job.item_progress.settling" class="job-items-note">
+                · {{ job.item_progress.settling }} settling
+              </span>
+              <span v-if="job.item_progress.cancelled" class="job-items-note">
+                · {{ job.item_progress.cancelled }} cancelled by customer
+              </span>
+              <span v-if="job.item_progress.not_submitted" class="job-items-note">
+                · {{ job.item_progress.not_submitted }} not submitted
+              </span>
+              <span
+                v-if="job.item_progress.concurrency === 1 && job.item_progress.total > 1"
+                class="job-items-note"
+                title="Sent to the provider one request at a time, on purpose — a whole batch at once gets most of it refused."
+              >· one at a time</span>
+              <span
+                v-for="item in job.item_progress.active"
+                :key="item.key || item.label"
+                class="job-items-active"
+                :class="{ waiting: item.state === 'waiting_retry' }"
+              >· {{ itemAttemptText(item) }}</span>
+            </div>
+            <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
+            <div v-if="job.output_lines?.length" class="job-output">
+              <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
+            </div>
+            <div class="job-technical-ids">
+              <span class="meta-tag"><span class="meta-label">Job id:</span> {{ job.job_id }}</span>
+              <span v-if="getOutputDir(job)" class="meta-tag"><span class="meta-label">Output folder:</span> {{ getOutputDir(job) }}</span>
+              <span
+                v-for="remote in job.genstudio_jobs || []"
+                :key="remote.id"
+                class="meta-tag"
+                :title="genStudioJobTitle(remote, job)"
+              ><span class="meta-label">Remote job:</span> {{ remote.id }}</span>
+            </div>
+          </template>
+        </AdvancedDisclosure>
+
         <p
           v-for="control in jobControls(job)"
           :key="`reason-${control.action}`"
@@ -739,25 +766,47 @@
             </span>
           </div>
 
-          <GenStudioBatchLedger
-            v-if="isLargeGenStudioBatch(job)"
-            :remote-jobs="job.genstudio_jobs!"
-          />
-          <template v-else-if="job.genstudio_jobs?.length">
-            <div class="job-accounts genstudio-diagnostics">
-              <span class="meta-label">GenStudio:</span>
-              <span v-for="remote in job.genstudio_jobs" :key="remote.id" class="account-chip" :title="genStudioJobTitle(remote, job)">
-                {{ remote.operation }} · <strong>{{ genStudioQueueLabel(remote) }}</strong>
-                <template v-if="genStudioChargedCredits(remote) > 0"> · {{ genStudioChargedCredits(remote) }} credits charged</template>
-                <template v-else-if="genStudioReturnedCredits(remote) > 0"> · {{ genStudioReturnedCredits(remote) }} credits returned</template>
-                <template v-else-if="genStudioHeldCredits(remote) > 0"> · {{ genStudioHeldCredits(remote) }} credits on hold</template>
-              </span>
+          <!-- History has no in-flight work and no ETA — its final counts,
+               its money, its exceptions, and the same drawer. -->
+          <div v-if="job.item_progress" class="job-stats">
+            <span class="job-stat">
+              <strong>{{ jobCounts(job).total.toLocaleString() }}</strong>
+              <span class="job-stat-label">total</span>
+            </span>
+            <span class="job-stat is-finished">
+              <strong>{{ jobCounts(job).finished.toLocaleString() }}</strong>
+              <span class="job-stat-label">finished</span>
+            </span>
+            <span class="job-stat">
+              <strong>{{ jobCounts(job).remaining.toLocaleString() }}</strong>
+              <span class="job-stat-label">remaining</span>
+            </span>
+            <span v-if="jobCounts(job).queued" class="job-stat is-muted">
+              <strong>{{ jobCounts(job).queued.toLocaleString() }}</strong>
+              <span class="job-stat-label">waiting for capacity</span>
+            </span>
+            <span v-if="jobCounts(job).settling" class="job-stat is-muted">
+              <strong>{{ jobCounts(job).settling.toLocaleString() }}</strong>
+              <span class="job-stat-label">settling</span>
+            </span>
+          </div>
+
+          <template v-if="job.genstudio_jobs?.length">
+            <div class="job-money">
+              <span class="meta-label">Credits:</span>
+              <span class="job-money-figure charged">{{ jobChargedCredits(job).toLocaleString() }} credits charged</span>
+              <span class="job-money-figure held">{{ jobHeldCredits(job).toLocaleString() }} credits on hold</span>
+              <span class="job-money-figure returned">{{ jobReturnedCredits(job).toLocaleString() }} credits returned</span>
             </div>
             <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
           </template>
           <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
             {{ genStudioStatusDetail(job) }}
           </p>
+
+          <ul v-if="jobExceptions(job).length" class="job-exceptions">
+            <li v-for="line in jobExceptions(job)" :key="line.key">{{ line.text }}</li>
+          </ul>
 
           <div v-if="job.status === 'done' && job.output_lines?.length" class="job-summary">
             <span class="summary-icon">&#10003;</span>
@@ -772,21 +821,54 @@
             </button>
           </div>
 
-          <div
-            v-if="hasExpandableDetail(job)"
-            class="job-expand"
-            @click="toggleExpand(job.job_id)"
+          <!-- Technical details — mirror of the Active card's drawer. -->
+          <AdvancedDisclosure
+            label="Technical details"
+            :badge="expandSummary(job) || undefined"
+            :open="expanded === job.job_id"
+            @update:open="setTechnicalOpen(job.job_id, $event)"
           >
-            {{ expanded === job.job_id ? 'Hide output' : 'Show output' }}
-            ({{ expandSummary(job) }})
-          </div>
-
-          <template v-if="expanded === job.job_id && hasExpandableDetail(job)">
-            <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
-            <div v-if="job.output_lines?.length" class="job-output">
-              <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
-            </div>
-          </template>
+            <template v-if="expanded === job.job_id">
+              <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
+              <div v-if="job.item_progress" class="job-items">
+                <span class="job-items-count">
+                  {{ job.item_progress.completed }} of {{ job.item_progress.total }} done
+                </span>
+                <span v-if="job.item_progress.failed" class="job-items-failed">
+                  · {{ job.item_progress.failed }} failed
+                </span>
+                <span v-if="job.item_progress.settling" class="job-items-note">
+                  · {{ job.item_progress.settling }} settling
+                </span>
+                <span v-if="job.item_progress.cancelled" class="job-items-note">
+                  · {{ job.item_progress.cancelled }} cancelled by customer
+                </span>
+                <span v-if="job.item_progress.not_submitted" class="job-items-note">
+                  · {{ job.item_progress.not_submitted }} not submitted
+                </span>
+                <span
+                  v-for="item in job.item_progress.active"
+                  :key="item.key || item.label"
+                  class="job-items-active"
+                  :class="{ waiting: item.state === 'waiting_retry' }"
+                >· {{ itemAttemptText(item) }}</span>
+              </div>
+              <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
+              <div v-if="job.output_lines?.length" class="job-output">
+                <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
+              </div>
+              <div class="job-technical-ids">
+                <span class="meta-tag"><span class="meta-label">Job id:</span> {{ job.job_id }}</span>
+                <span v-if="getOutputDir(job)" class="meta-tag"><span class="meta-label">Output folder:</span> {{ getOutputDir(job) }}</span>
+                <span
+                  v-for="remote in job.genstudio_jobs || []"
+                  :key="remote.id"
+                  class="meta-tag"
+                  :title="genStudioJobTitle(remote, job)"
+                ><span class="meta-label">Remote job:</span> {{ remote.id }}</span>
+              </div>
+            </template>
+          </AdvancedDisclosure>
 
           <div v-if="job.status === 'error'" class="job-error-section">
             <div v-if="job.error" class="error-summary">
@@ -826,6 +908,20 @@ import type { DeepReadonly } from 'vue'
 import type { Job } from '~/composables/useJobs'
 import { publicProviderLabel } from '~/composables/useModelGroups'
 import { buildLatestBatchSummary, formatElapsed } from '~/composables/useBatchSummary'
+import {
+  describeCancellation,
+  describeFreshness,
+  describeJobExceptions,
+  estimateSecondsRemaining,
+  formatEtaApprox,
+  isProgressStale,
+  lastProgressAt,
+  medianSecondsPerItem,
+  recordEtaSample,
+  summariseJobItems,
+  WAITING_FALLBACK_REASON,
+  type EtaSample,
+} from '~/composables/useJobEta'
 import {
   describeRetryAllTriage,
   normaliseRepairResult,
@@ -947,10 +1043,7 @@ function genStudioRequestCount(job: RJob): number {
   return job.genstudio_jobs?.filter(remote => !!remote.request).length || 0
 }
 
-function hasExpandableDetail(job: RJob): boolean {
-  return !!job.output_lines?.length || genStudioRequestCount(job) > 0
-}
-
+/** The Technical-details badge: how much is folded away behind the toggle. */
 function expandSummary(job: RJob): string {
   const parts: string[] = []
   const lines = job.output_lines?.length || 0
@@ -958,12 +1051,6 @@ function expandSummary(job: RJob): string {
   const requests = genStudioRequestCount(job)
   if (requests) parts.push(`${requests} request${requests === 1 ? '' : 's'}`)
   return parts.join(' + ')
-}
-
-const GENSTUDIO_BATCH_THRESHOLD = 12
-
-function isLargeGenStudioBatch(job: RJob): boolean {
-  return (job.genstudio_jobs?.length || 0) >= GENSTUDIO_BATCH_THRESHOLD
 }
 
 function isTtsJob(job: RJob): boolean {
@@ -1126,7 +1213,106 @@ watch(jobs, (list) => {
   }
 }, { immediate: true })
 
+// ── Measured progress speed ───────────────────────────────────────────────
+//
+// The job contract carries no per-item timestamps and no per-item rate, so
+// the only way to know how fast a run is going is to watch it. Every SSE
+// update (or poll refresh) replaces the jobs array, which fires this watcher;
+// each running job's `completed` count is sampled against the wall clock and
+// the window does the arithmetic (see composables/useJobEta.ts).
+//
+// In memory, for this session only, and deliberately: it is a measurement of a
+// run in flight, not a fact about the job worth persisting. A plain Map rather
+// than a ref because nothing renders from it directly — the ETA and freshness
+// lines are recomputed off the one-second `now` ticker, which is reactive.
+const etaSamples = new Map<string, EtaSample[]>()
+watch(jobs, (list) => {
+  const at = Date.now()
+  for (const job of list as RJob[]) {
+    if (job.status !== 'running' || !job.item_progress) continue
+    etaSamples.set(job.job_id, recordEtaSample(
+      etaSamples.get(job.job_id),
+      { at, completed: job.item_progress.completed },
+    ))
+  }
+}, { immediate: true })
+
+function jobCounts(job: RJob) {
+  return summariseJobItems(job.item_progress)
+}
+
+/**
+ * Finished multi-item jobs, the only source of a per-item cadence.
+ *
+ * This is the history the page already holds, not a table: a job type with no
+ * finished runs behind it simply has no cadence, and every derived number that
+ * depends on one is then withheld rather than invented.
+ */
+const cadenceHistory = computed(() =>
+  jobs.value.filter((j: RJob) => j.status === 'done' && !!j.started_at && !!j.finished_at))
+
+function jobCadenceSeconds(job: RJob): number | null {
+  return medianSecondsPerItem(cadenceHistory.value, job.type)
+}
+
+/** "~4 min left". Absent whenever the evidence cannot support one. */
+function jobEta(job: RJob): string | null {
+  if (job.status !== 'running') return null
+  return formatEtaApprox(estimateSecondsRemaining({
+    remaining: jobCounts(job).remaining,
+    nowMs: now.value,
+    window: etaSamples.get(job.job_id),
+    history: cadenceHistory.value,
+    type: job.type,
+  }))
+}
+
+function jobLastProgressAt(job: RJob): number | null {
+  return lastProgressAt(etaSamples.get(job.job_id), job.genstudio_jobs)
+}
+
+/** "last progress: 40s ago" — withheld entirely when nothing has happened. */
+function jobFreshness(job: RJob): string | null {
+  if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') return null
+  return describeFreshness(jobLastProgressAt(job), now.value)
+}
+
+/**
+ * Quiet becomes abnormal at a multiple of the cadence this job class has been
+ * MEASURED at — never at a written-down number of minutes. A class with no
+ * measured cadence is never called stale.
+ */
+function jobProgressStale(job: RJob): boolean {
+  if (job.status !== 'running') return false
+  return isProgressStale(jobLastProgressAt(job), now.value, jobCadenceSeconds(job))
+}
+
+function jobExceptions(job: RJob) {
+  return describeJobExceptions(job, now.value)
+}
+
+// ── Money, summarised ─────────────────────────────────────────────────────
+// Three figures across the whole job. The per-item breakdown lives in the
+// ledger inside Technical details.
+function jobChargedCredits(job: RJob): number {
+  return (job.genstudio_jobs || []).reduce((sum, remote) => sum + genStudioChargedCredits(remote), 0)
+}
+function jobHeldCredits(job: RJob): number {
+  return (job.genstudio_jobs || []).reduce((sum, remote) => sum + genStudioHeldCredits(remote), 0)
+}
+function jobReturnedCredits(job: RJob): number {
+  return (job.genstudio_jobs || []).reduce((sum, remote) => sum + genStudioReturnedCredits(remote), 0)
+}
+
+// Which card's Technical-details drawer is mounted. One at a time, as the old
+// ad-hoc output expander was: `AdvancedDisclosure` renders its slot with
+// `v-show`, so leaving every drawer built would keep every job's full log and
+// ledger in the DOM on a page that lists ten of them.
 const expanded = ref<string | null>(null)
+function setTechnicalOpen(jobId: string, open: boolean) {
+  if (open) expanded.value = jobId
+  else if (expanded.value === jobId) expanded.value = null
+}
 const errorExpanded = ref<string | null>(null)
 // Persistent per-job repair result so the user can see WHICH cards they've
 // repaired and the outcome (the toast is transient; the card stays red).
@@ -1740,7 +1926,7 @@ function itemAttemptText(item: JobItemAttempt): string {
   const remaining = item.retry_at
     ? Math.max(0, Math.round((new Date(item.retry_at).getTime() - now.value) / 1000))
     : 0
-  return `${item.label} — ${item.reason || 'provider declined'};`
+  return `${item.label}: ${item.reason || WAITING_FALLBACK_REASON};`
     + ` retrying${remaining ? ` in ${remaining}s` : ' now'}`
     + ` (attempt ${item.attempt + 1} of ${item.max_attempts})`
 }
@@ -1877,10 +2063,6 @@ function platformFileBrowser(): string {
 
 // ── Actions ─────────────────────────────────────────────────────────────
 
-function toggleExpand(jobId: string) {
-  expanded.value = expanded.value === jobId ? null : jobId
-}
-
 const controlBusy = ref(new Set<string>())
 
 type JobControl = NonNullable<RJob['control']>
@@ -1913,6 +2095,12 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
       return
     } else if (control.action === 'cancel-before-submit' || control.action === 'stop-local' || control.action === 'request-remote-cancel') {
       await post(`${jobQueuePath(job)}/cancel`, {})
+      // Say it in work, not in job states: "Cancelling 16 queued items —
+      // credits for unstarted work are released." The action name and the
+      // server's own reason are still on the button's tooltip and in the
+      // reason line under the card for anyone who wants them.
+      success(describeCancellation(job))
+      return
     } else if (control.action === 'pause-submissions') {
       await post(`${jobQueuePath(job)}/pause`, {})
     } else if (control.action === 'clear-history') {
@@ -2140,8 +2328,8 @@ async function repairJobOnly(job: RJob) {
     JSON.stringify(template.body).replace(/__EPISODE__/g, job.episode_id)
   )
 
-  info(`Recovering in-flight ${jobTypeLabel(job.type)} tasks for ${job.episode_id} (no charge)…`)
-  repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'Repairing…', kind: 'busy' } }
+  info(`Looking for finished ${jobTypeLabel(job.type)} work for ${job.episode_id} that never arrived (no charge)…`)
+  repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'Looking for finished work…', kind: 'busy' } }
   try {
     const resp = await post<{
       job_id?: string
@@ -2168,42 +2356,47 @@ async function repairJobOnly(job: RJob) {
       : { outcome: 'inconclusive' })
     const recovered = normalised ? normalised.recovered : null
     const missing = normalised ? normalised.stillMissing : null
+    // v1.4.82 — these say what happened to the WORK. "recovered 3 task(s)"
+    // and "0 recovered, 4 left" described the recovery machinery; the person
+    // reading the card wants to know how many finished pieces they now have
+    // and how many are still missing.
+    const piece = (n: number) => `${n} finished item${n === 1 ? '' : 's'}`
     let chip: { text: string; kind: string }
     if (recovered !== null && missing !== null) {
       if (missing === 0 && recovered > 0) {
         success(
-          `Recovered ${recovered} task(s) from the provider. ` +
-          `Everything is on disk — you can dismiss this failed job now.`
+          `Recovered ${piece(recovered)}. ` +
+          `Nothing is missing — you can dismiss this job now.`
         )
-        chip = { text: `✓ recovered ${recovered} — all present, dismiss`, kind: 'ok' }
+        chip = { text: `Recovered ${piece(recovered)}; nothing missing — dismiss`, kind: 'ok' }
       } else if (missing === 0 && recovered === 0) {
         success(
-          `Nothing to recover — all assets were already on disk. ` +
-          `The original failure was likely transient; you can dismiss this job.`
+          `Nothing was missing — everything was already saved. ` +
+          `The original failure was temporary; you can dismiss this job.`
         )
-        chip = { text: '✓ all present — dismiss', kind: 'ok' }
+        chip = { text: 'Nothing was missing — dismiss', kind: 'ok' }
       } else if (missing > 0 && recovered > 0) {
         info(
-          `Recovered ${recovered} task(s). ${missing} still missing — ` +
-          `click Retry to re-submit only the missing chunks.`
+          `Recovered ${piece(recovered)}. ${missing} still missing — ` +
+          `Retry re-makes only those.`
         )
-        chip = { text: `recovered ${recovered}, ${missing} left — Retry`, kind: 'warn' }
+        chip = { text: `Recovered ${piece(recovered)}; ${missing} still missing — Retry`, kind: 'warn' }
       } else {
         info(
-          `Provider had nothing completed to recover (${missing} chunks still missing). ` +
-          `Click Retry to re-submit them.`
+          `Nothing was ready to recover; ${missing} item${missing === 1 ? '' : 's'} still missing. ` +
+          `Retry re-makes only those.`
         )
-        chip = { text: `0 recovered, ${missing} left — Retry`, kind: 'warn' }
+        chip = { text: `Nothing to recover yet; ${missing} still missing — Retry`, kind: 'warn' }
       }
     } else {
-      success(`Repair complete for ${jobTypeLabel(job.type)} on ${job.episode_id}.`)
-      chip = { text: '✓ repaired', kind: 'ok' }
+      success(`Finished checking ${jobTypeLabel(job.type)} for ${job.episode_id}.`)
+      chip = { text: 'Recovery finished', kind: 'ok' }
     }
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: chip }
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Repair failed')
+    showError(e?.data?.detail || e?.message || 'Could not check for finished work')
     setRepairState(job.job_id, { outcome: 'failed' })
-    repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'repair failed', kind: 'warn' } }
+    repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'could not check — try again', kind: 'warn' } }
   }
 }
 
@@ -2859,28 +3052,64 @@ async function clearFinished() {
 
 /* Live output for running jobs */
 .job-live-output { margin-top: 10px; }
-.output-scroll {
-  background: var(--bg-primary); border-radius: var(--radius-sm);
-  padding: 10px; margin-top: 6px;
-  max-height: 180px; overflow: auto;
-  font-size: var(--font-xs);
-}
-.output-scroll code {
-  display: block; color: var(--text-secondary);
-  font-family: 'SF Mono', Monaco, monospace; line-height: 1.6;
-}
 
-/* "Starting…" placeholder — shows for a running job before the first log
-   line arrives, so the card doesn't look inert. Replaced by real output
-   as soon as emitUpdate ships the first push. */
-.output-scroll.output-starting { padding: 6px 10px; }
-.starting-placeholder {
-  display: flex !important;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted) !important;
-  font-style: italic;
-  font-family: inherit !important;
+/* The headline counts. Number first, then what it counts, in words — the row
+   has to be readable at a glance by someone who is not going to read it
+   twice. Tabular figures so the digits do not jump as they tick. */
+.job-stats {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px;
+  margin-top: 8px;
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+}
+.job-stat { display: inline-flex; align-items: baseline; gap: 5px; color: var(--text-muted); }
+.job-stat strong { color: var(--text-primary); font-size: 14px; font-weight: 650; }
+.job-stat-label { color: var(--text-muted); }
+.job-stat.is-inflight strong { color: var(--accent); }
+.job-stat.is-finished strong { color: var(--success, #3fb950); }
+.job-stat.is-muted strong { color: var(--text-muted); font-weight: 600; }
+.job-stat-eta {
+  margin-left: auto;
+  padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 999px;
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.job-stat-fresh { color: var(--text-muted); white-space: nowrap; }
+.job-stat-fresh.is-stale { color: var(--warning, rgb(202, 138, 4)); font-weight: 600; }
+
+/* Money: three figures, always the same three, always in the same order. */
+.job-money {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+  margin-top: 8px;
+  font-size: var(--font-xs);
+  font-variant-numeric: tabular-nums;
+}
+.job-money-figure.charged { color: var(--success, #3fb950); }
+.job-money-figure.held { color: var(--accent); }
+.job-money-figure.returned { color: var(--text-secondary); }
+
+/* One line per exception, in sentences. Never a list of codes. */
+.job-exceptions {
+  margin: 8px 0 0;
+  padding: 8px 10px 8px 12px;
+  list-style: none;
+  border-left: 3px solid color-mix(in srgb, var(--warning, rgb(202, 138, 4)) 70%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--warning, rgb(202, 138, 4)) 8%, transparent);
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  line-height: 1.5;
+}
+.job-exceptions li + li { margin-top: 5px; }
+
+/* Ids, inside Technical details only. */
+.job-technical-ids {
+  display: flex; flex-wrap: wrap; gap: 4px 12px;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
 }
 
 .jobs-section { display: block; min-width: 0; max-width: 100%; }
@@ -2941,11 +3170,7 @@ async function clearFinished() {
   flex-shrink: 0;
 }
 
-/* Expandable output */
-.job-expand {
-  margin-top: 6px; font-size: var(--font-xs); color: var(--accent); cursor: pointer;
-}
-.job-expand:hover { text-decoration: underline; }
+/* Raw log, inside Technical details */
 .job-output {
   margin-top: 6px; background: var(--bg-primary); border-radius: var(--radius-sm);
   padding: 10px; font-size: var(--font-xs); max-height: 250px; overflow-y: auto;

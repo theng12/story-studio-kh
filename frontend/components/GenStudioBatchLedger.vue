@@ -30,8 +30,13 @@
     </div>
 
     <div class="gs-batch-actions">
+      <!-- v1.4.82 — this counted every in-flight item as an exception too, so
+           a batch where nothing whatsoever had gone wrong still offered to
+           inspect forty of them. An item the provider is working on is not an
+           exception; the affordance now appears only when there is a real one
+           to inspect. -->
       <button v-if="exceptionJobs.length" type="button" class="link-btn" @click="toggleExceptions">
-        {{ showingExceptions ? 'Show all ledger' : `Inspect ${exceptionJobs.length.toLocaleString()} active or failed` }}
+        {{ showingExceptions ? 'Show all ledger' : `Inspect ${exceptionJobs.length.toLocaleString()} failed` }}
       </button>
       <button type="button" class="link-btn" @click="toggleLedger">
         {{ ledgerOpen ? 'Hide item ledger' : `Show item ledger (${remoteJobs.length.toLocaleString()})` }}
@@ -46,7 +51,7 @@
 
     <div v-if="ledgerOpen" class="gs-batch-ledger">
       <div class="gs-batch-ledger-head">
-        <span>{{ showingExceptions ? 'Active or failed items' : 'All remote items' }}</span>
+        <span>{{ showingExceptions ? 'Failed items' : 'All remote items' }}</span>
         <span>{{ visibleJobs.length.toLocaleString() }} item{{ visibleJobs.length === 1 ? '' : 's' }}</span>
       </div>
       <ul class="gs-batch-items">
@@ -60,6 +65,11 @@
           <span v-else-if="returnedFor(remote) > 0">{{ returnedFor(remote).toLocaleString() }} credits returned</span>
           <span v-else-if="heldFor(remote) > 0">{{ heldFor(remote).toLocaleString() }} credits on hold</span>
           <span v-else>—</span>
+          <!-- When this item last moved. `updated_at` is rewritten on every
+               record write including the terminal one, so for a settled item
+               it IS the settlement time — the per-item clock the job contract
+               otherwise does not carry. -->
+          <small v-if="settledAtLabel(remote)" class="gs-batch-when" :title="remote.updated_at">{{ settledAtLabel(remote) }}</small>
         </li>
       </ul>
       <div v-if="pageCount > 1" class="gs-batch-pagination">
@@ -89,6 +99,8 @@ type RemoteJob = {
   released_credits?: number
   failure_code?: string | null
   cancelled?: boolean | null
+  /** Rewritten on every record write, terminal write included. */
+  updated_at?: string
 }
 
 const props = defineProps<{ remoteJobs: readonly RemoteJob[] }>()
@@ -151,10 +163,8 @@ const chargedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => s
 const heldCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + heldFor(remote), 0))
 const returnedCredits = computed(() => props.remoteJobs.reduce((sum, remote) => sum + returnedFor(remote), 0))
 const contentRefusedCount = computed(() => props.remoteJobs.filter(isImageContentRefused).length)
-const exceptionJobs = computed(() => props.remoteJobs.filter(remote => {
-  const bucket = stateBucket(remote)
-  return bucket === 'active' || bucket === 'failed'
-}))
+/** Only genuine exceptions. Work in progress is not one. */
+const exceptionJobs = computed(() => props.remoteJobs.filter(remote => stateBucket(remote) === 'failed'))
 const visibleJobs = computed(() => showingExceptions.value ? exceptionJobs.value : props.remoteJobs)
 const pageCount = computed(() => Math.max(1, Math.ceil(visibleJobs.value.length / PAGE_SIZE)))
 const pageItems = computed(() => visibleJobs.value.slice((page.value - 1) * PAGE_SIZE, page.value * PAGE_SIZE))
@@ -190,6 +200,17 @@ function stateClass(remote: RemoteJob) {
   return `state-${stateBucket(remote)}`
 }
 
+/**
+ * The clock time this item last moved — a wall-clock reading rather than a
+ * relative age, because the drawer is opened on demand and a "4 min ago" that
+ * silently stops ticking is worse than a time that is simply true.
+ */
+function settledAtLabel(remote: RemoteJob): string {
+  const at = remote.updated_at ? Date.parse(remote.updated_at) : NaN
+  if (!Number.isFinite(at)) return ''
+  return new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
 function toggleLedger() {
   ledgerOpen.value = !ledgerOpen.value
   page.value = 1
@@ -218,7 +239,7 @@ watch([visibleJobs, pageCount], () => {
 .gs-batch-actions { margin-top: 7px; }.link-btn { border: 0; padding: 0; color: var(--accent); background: transparent; font: inherit; cursor: pointer; }.link-btn:hover { text-decoration: underline; }
 .gs-batch-guidance { margin: 8px 0 0; color: var(--text-secondary); font-size: var(--font-xs); line-height: 1.45; }
 .gs-batch-ledger { margin-top: 8px; padding: 8px; border-radius: var(--radius-sm); background: var(--bg-primary); }.gs-batch-ledger-head { justify-content: space-between; color: var(--text-muted); font-size: var(--font-xs); }
-.gs-batch-items { max-height: 270px; margin: 7px 0 0; padding: 0; overflow: auto; list-style: none; }.gs-batch-items li { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, auto) minmax(90px, auto); gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--font-xs); }.gs-batch-items strong { font-weight: 600; text-transform: capitalize; }.gs-batch-diagnostic { display: block; margin-top: 2px; color: var(--text-muted); font-size: inherit; font-weight: 400; text-transform: none; }.state-settled { color: var(--success, #3fb950); }.state-active { color: var(--accent); }.state-queued, .state-cancelled { color: var(--text-muted); }.state-failed { color: var(--danger, #f85149); }
+.gs-batch-items { max-height: 270px; margin: 7px 0 0; padding: 0; overflow: auto; list-style: none; }.gs-batch-items li { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(90px, auto) minmax(90px, auto) minmax(70px, auto); gap: 10px; padding: 5px 0; border-top: 1px solid var(--border); color: var(--text-secondary); font-size: var(--font-xs); }.gs-batch-when { color: var(--text-muted); font-size: inherit; font-variant-numeric: tabular-nums; white-space: nowrap; }.gs-batch-items strong { font-weight: 600; text-transform: capitalize; }.gs-batch-diagnostic { display: block; margin-top: 2px; color: var(--text-muted); font-size: inherit; font-weight: 400; text-transform: none; }.state-settled { color: var(--success, #3fb950); }.state-active { color: var(--accent); }.state-queued, .state-cancelled { color: var(--text-muted); }.state-failed { color: var(--danger, #f85149); }
 .gs-batch-pagination { justify-content: flex-end; margin-top: 8px; color: var(--text-muted); font-size: var(--font-xs); }
 @media (max-width: 620px) { .gs-batch-items li { grid-template-columns: 1fr auto; }.gs-batch-items li > :last-child { grid-column: 1 / -1; } }
 </style>

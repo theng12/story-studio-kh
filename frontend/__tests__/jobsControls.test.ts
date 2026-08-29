@@ -33,10 +33,19 @@ test('Jobs renders all server-provided job controls and dispatches each exact ac
 })
 
 test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-submitted counts', () => {
+  // v1.4.82 — these still all have to be reported; where they are reported
+  // moved. The headline four (total / in-flight / finished / remaining) plus
+  // queued and settling are the stat row in the DEFAULT card view; the raw
+  // per-field breakdown, including the customer-cancelled wording, folded into
+  // the Technical details drawer rather than being dropped.
   assert.match(jobs, /item_progress\.settling/)
   assert.match(jobs, /item_progress\.cancelled/)
   assert.match(jobs, /item_progress\.not_submitted/)
   assert.match(jobs, /cancelled by customer/i)
+  for (const field of ['total', 'inFlight', 'finished', 'remaining', 'queued', 'settling']) {
+    assert.match(jobs, new RegExp(`jobCounts\\(job\\)\\.${field}`))
+  }
+  assert.match(jobs, /summariseJobItems\(job\.item_progress\)/)
 })
 
 test('GenStudio batch ledger keeps customer cancellations neutral instead of failed', () => {
