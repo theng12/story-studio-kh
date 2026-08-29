@@ -1654,7 +1654,24 @@ test('GenStudio 1.2 control responses preserve published cancellation, settlemen
     const result = await getGenStudioCancellationStatus(
       'voice.tts', 'http://genstudio.test', 'test-key', fixture.id, {}, Date.now() + 1_000,
     )
-    assert.deepEqual(result, fixture)
+    // v1.4.82 — every field round-trips EXCEPT remote prose describing our
+    // estate, which is replaced whole before it can reach a job card. The
+    // escalation time is the one useful fact in it, so it is carried across.
+    assert.equal(
+      result.status_detail,
+      'Queued — waiting for capacity; automatic escalation at 10:10.',
+      'a detail naming placement/fleet must not reach the customer verbatim',
+    )
+    assert.equal(
+      result.failure_detail,
+      fixture.failure_detail,
+      'a detail that says nothing about our estate passes through untouched',
+    )
+    assert.deepEqual(
+      { ...result, status_detail: fixture.status_detail },
+      fixture,
+      'every other field round-trips exactly',
+    )
   } finally {
     globalThis.fetch = originalFetch
   }

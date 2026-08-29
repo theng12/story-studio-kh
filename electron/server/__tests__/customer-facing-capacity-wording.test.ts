@@ -92,6 +92,34 @@ describe('customer-facing capacity wording (v1.4.82)', () => {
     )
   })
 
+  test('remote prose describing our estate is replaced, not word-substituted', async () => {
+    const { customerSafeRemoteDetail } = await import('../lib/genstudio-client.js')
+    // The exact shape the owner saw on a card.
+    assert.equal(
+      customerSafeRemoteDetail('waiting for a worker; no site has accepted this job yet; placement window closes at 14:32'),
+      'Queued — waiting for capacity; automatic escalation at 14:32.',
+    )
+    // No time in the original → no invented time in the replacement.
+    assert.equal(
+      customerSafeRemoteDetail('All machines in the fleet are busy.'),
+      'Queued — waiting for capacity. Nothing failed and nothing was charged.',
+    )
+    // A single-digit hour is normalised rather than printed as "9:05".
+    assert.match(customerSafeRemoteDetail('no site free; window closes 9:05'), /at 09:05\.$/)
+  })
+
+  test('detail that says nothing about our estate is left exactly as written', async () => {
+    const { customerSafeRemoteDetail } = await import('../lib/genstudio-client.js')
+    for (const passthrough of [
+      'No eligible route accepted this request.',
+      'The provider returned an empty response.',
+      'Your account is already running as many jobs at once as its plan allows.',
+      '',
+    ]) {
+      assert.equal(customerSafeRemoteDetail(passthrough), passthrough)
+    }
+  })
+
   test('the capacity refusal still tells the customer about their money and the retry', async () => {
     // Rephrasing must not quietly drop the two facts that matter to them.
     const clip = await readFile(path.join(SERVER_ROOT, 'generators/scene-clip.ts'), 'utf-8')

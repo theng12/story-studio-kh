@@ -16,7 +16,7 @@ describe('project dashboard workspace', () => {
     assert.match(dashboard, /<WorkspaceHero/)
     assert.match(dashboard, /title="Focus now"/)
     assert.match(dashboard, /title="Production workflow"/)
-    assert.match(dashboard, /title="Fleet and delivery"/)
+    assert.match(dashboard, /title="Queue and delivery"/)
     assert.match(dashboard, /title="Production pulse"/)
   })
 

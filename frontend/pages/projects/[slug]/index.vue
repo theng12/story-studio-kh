@@ -3,7 +3,7 @@
     <WorkspaceHero
       eyebrow="Project command center"
       :title="project?.name || 'Dashboard'"
-      description="See verified production readiness, unblock the next episodes, and keep the fleet moving from one calm overview."
+      description="See verified production readiness, unblock the next episodes, and keep production moving from one calm overview."
     >
       <template #aside>
         <div class="dashboard-hero-summary">
@@ -152,7 +152,7 @@
     <div class="dashboard-lower-grid">
       <WorkspaceSection
         eyebrow="Operations"
-        title="Fleet and delivery"
+        title="Queue and delivery"
         description="Live queue, publishing setup, and storage integrity in one place."
       >
         <div class="operations-stack">
