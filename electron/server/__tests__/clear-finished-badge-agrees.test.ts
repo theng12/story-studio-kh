@@ -51,17 +51,40 @@ after(async () => { await cleanup() })
  * final shape so nothing lands after the temp data dir is torn down — and so
  * this asserts the DURABLE result rather than only the in-memory one.
  */
-async function persistedJobIds(jobsFile: string): Promise<string[]> {
+async function persistedJobs(jobsFile: string): Promise<Array<{ job_id: string, history_evidence_check?: { state?: string } }>> {
   const raw = JSON.parse(await fs.readFile(jobsFile, 'utf-8'))
-  return (raw.jobs || []).map((job: { job_id: string }) => job.job_id)
+  return raw.jobs || []
 }
 
+/**
+ * WAIT FOR THE WRITE, NOT THE FLAG.
+ *
+ * This previously waited for the in-memory check to leave `'checking'`. That
+ * predicate is true at BOTH ends of the re-check — before it starts and after
+ * it finishes — and `recordHistoryEvidenceCheck` assigns the finished state
+ * synchronously and only THEN awaits `persistJob`. So the wait could pass one
+ * tick before the write landed, the test would end, the temp data dir would be
+ * torn down, and the write arrived to a dead directory: "job-queue isolation
+ * violation … STORY_STUDIO_DATA_DIR=<unset>", roughly one run in three.
+ *
+ * The second test was the one that failed because its row set never changes,
+ * so the id comparison alone gave the write no time at all.
+ *
+ * Comparing the PERSISTED evidence state against the in-memory one closes it:
+ * while a write is still in flight the file still holds the previous value and
+ * the two disagree, so the wait continues until the durable state matches.
+ */
 async function settleTo(jobsFile: string, expected: string[], jq: typeof import('../services/job-queue.js')): Promise<void> {
   await waitFor(async () => {
-    const ids = [...(await persistedJobIds(jobsFile))].sort()
+    const persisted = await persistedJobs(jobsFile)
+    const ids = persisted.map(job => job.job_id).sort()
     if (ids.join() !== [...expected].sort().join()) return false
-    // Every surviving row has finished its background provider re-check.
-    return expected.every(id => jq.getJob(id)?.history_evidence_check?.state !== 'checking')
+    return expected.every(id => {
+      const memory = jq.getJob(id)?.history_evidence_check?.state
+      if (memory === 'checking') return false
+      const file = persisted.find(job => job.job_id === id)?.history_evidence_check?.state
+      return file === memory
+    })
   }, { label: `jobs.json to settle to [${expected.join(', ')}]` })
 }
 
