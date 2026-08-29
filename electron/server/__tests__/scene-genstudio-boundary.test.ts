@@ -73,8 +73,20 @@ test('bulk visual and motion repairs use bounded GenStudio packs instead of per-
   const planRoute = readFileSync(path.join(serverRoot, 'routes/scene-plan.ts'), 'utf8')
 
   assert.match(plan, /const packedRepairStage:[\s\S]*regenerate_empty_motion_prompts[\s\S]*regenerate_empty_prompts/)
-  assert.match(plan, /const targetPacks = packScenePromptItems\(targets, promptPackSize\)/)
-  assert.match(plan, /const repairGroups = \[outstanding\]/)
+  // Both repair paths still go through the bounded pack splitter — that is the
+  // invariant this test exists for, and it is what keeps a bulk repair off the
+  // retired per-scene generators asserted against below.
+  //
+  // The SIZE they hand it is deliberately no longer `promptPackSize`. A repair
+  // set of `MAX_SCENES_PER_SMALL_REPAIR_PACK` or fewer is split one scene per
+  // request, because a compact pack of two to seven is the shape that fails
+  // most: 86% at 2 scenes, 70% at 7, 0% at 1, across 3,544 recorded attempts.
+  // That is a pack size CHOSEN by `scenePromptRepairPackSize` and still fed to
+  // the splitter — not a fan-out around it — so what is asserted here is that
+  // the splitter remains the only door.
+  assert.match(plan, /const targetPacks = packScenePromptItems\(targets, effectivePackSize\)/)
+  assert.match(plan, /scenePromptRepairPackSize\(targets\.length, promptPackSize\)/)
+  assert.match(plan, /const repairGroups = packScenePromptItems\(\s*outstanding,\s*scenePromptRepairPackSize\(outstanding\.length, outstanding\.length\),\s*\)/)
   assert.doesNotMatch(plan, /if \(params\.regenerate_empty_prompts\) \{[\s\S]*generatePromptsForScenes/)
   assert.doesNotMatch(plan, /if \(params\.regenerate_empty_motion_prompts\) \{[\s\S]*generateMotionPromptsForScenes/)
   assert.match(planRoute, /regenerate_empty_prompts: true,[\s\S]*prompt_pack_size: promptPackSize/)

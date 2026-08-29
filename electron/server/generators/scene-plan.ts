@@ -261,6 +261,37 @@ export function packScenePromptItems<T>(items: readonly T[], packSize: number): 
   return packs
 }
 
+/**
+ * A repair set of this many scenes or fewer is sent as one request PER SCENE.
+ *
+ * WHY, MEASURED — 3,544 recorded scene-prompt attempts, structured-validation
+ * failure rate by request size (DeepSeek V4 Flash, the worst offender):
+ *
+ *     1 scene    0.0%   (0 failures in 19 attempts)
+ *     2 scenes  86.4%
+ *     7 scenes  70.0%
+ *    20 scenes  28.0%
+ *    40 scenes  17.4%
+ *
+ * The curve runs BACKWARDS to intuition: small packs fail far more often than
+ * large ones, and a single scene never failed at all. Repair is exactly where
+ * small packs occur, and repair re-requests are retried against the same
+ * deterministic mangling — so one bad remainder becomes a failure loop that
+ * burns the whole repair budget without ever landing a prompt.
+ *
+ * Splitting small repair sets into single-scene requests trades a handful of
+ * extra requests for the only size with no recorded failures. Do NOT "optimize"
+ * this back into one compact pack: that is the defect, not the saving.
+ */
+export const MAX_SCENES_PER_SMALL_REPAIR_PACK = 7
+
+/** Pack size to use for a repair request covering `missingCount` scenes: one
+ * scene per request while the set is small (see the measured rates above),
+ * otherwise the caller's normal batching. */
+export function scenePromptRepairPackSize(missingCount: number, packSize: number): number {
+  return missingCount <= MAX_SCENES_PER_SMALL_REPAIR_PACK ? 1 : packSize
+}
+
 // Older planner helpers still accept this shaped argument, but callAi ignores
 // it and resolves only the scoped GenStudio key at the generation boundary.
 const GENSTUDIO_ONLY_LEGACY_KEY_BAG = {
@@ -920,11 +951,20 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       return
     }
     const isPackedRepair = packedRepairStage === stage
-    const targetPacks = packScenePromptItems(targets, promptPackSize)
+    // Manual Retry is a repair too, and it lands on small sets far more often
+    // than the first pass does. Same rule as the automatic path: a set of
+    // `MAX_SCENES_PER_SMALL_REPAIR_PACK` or fewer goes one scene per request.
+    const effectivePackSize = isPackedRepair
+      ? scenePromptRepairPackSize(targets.length, promptPackSize)
+      : promptPackSize
+    const targetPacks = packScenePromptItems(targets, effectivePackSize)
     if (isPackedRepair) {
       job.output_lines.push(
         `Repairing ${targets.length} ${stage} prompt(s) in ${targetPacks.length} durable GenStudio pack(s) `
-        + `(up to ${promptPackSize} scenes per request). Timeline boundaries and completed prompts stay unchanged.`,
+        + (effectivePackSize === 1 && targets.length > 1
+          ? '(one scene per request — small packs fail far more often than single scenes). '
+          : `(up to ${effectivePackSize} scenes per request). `)
+        + 'Timeline boundaries and completed prompts stay unchanged.',
       )
     }
 
@@ -1225,9 +1265,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
 
       // Once GenStudio has completed the original pack, a bounded repair
       // request is deliberate new work, but it is strictly
-      // scoped to the IDs that failed the durable audit. Outstanding IDs stay
-      // together in one compact repair pack so a partial provider response can
-      // never fan back out into one paid request per scene.
+      // scoped to the IDs that failed the durable audit. A SMALL outstanding
+      // set is split one scene per request — see
+      // `MAX_SCENES_PER_SMALL_REPAIR_PACK` for the measured rates; a compact
+      // pack of two to seven is the single worst shape a repair can take. A
+      // larger set still travels as one pack, so a partial provider response
+      // can never fan a whole episode back out into one paid request per scene.
       //
       // GATED ON `requestUnresolved`, NOT ON "any error". The distinction is
       // the whole point: a repair is unsafe only while the original submission
@@ -1242,9 +1285,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       for (let attempt = 1; !initial.requestUnresolved && receipt.missing_ids.length && attempt <= MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS; attempt++) {
         automaticRepairAttempts = attempt
         const outstanding = [...receipt.missing_ids]
-        const repairGroups = [outstanding]
+        const repairGroups = packScenePromptItems(
+          outstanding,
+          scenePromptRepairPackSize(outstanding.length, outstanding.length),
+        )
         job.output_lines.push(
-          `↻ GenStudio prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only.`,
+          `↻ GenStudio prompt repair ${attempt}/${MAX_AUTOMATIC_PROMPT_REPAIR_ATTEMPTS}: requesting ${outstanding.length} missing or invalid scene prompt(s) only`
+          + `${repairGroups.length > 1 ? `, one scene per request (${repairGroups.length} requests — small packs fail far more often than single scenes)` : ''}.`,
         )
         const repairResults = new Map<string, string>()
         const repairCheckpointErrors: string[] = []
