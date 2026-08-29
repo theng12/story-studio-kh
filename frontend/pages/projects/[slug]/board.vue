@@ -294,7 +294,7 @@
 </template>
 
 <script setup lang="ts">
-import { FLOW_PHASES, normalizeVisualSource, flowForVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
+import { FLOW_PHASES, STEP_STATUS_FIELD, isEpisodeDone, normalizeVisualSource, flowForVisualSource, type FlowStep, type VisualSource } from '~/composables/useProjectFlow'
 import AssetImportDialog from '~/components/AssetImportDialog.vue'
 import RepairAssetsDialog from '~/components/RepairAssetsDialog.vue'
 
@@ -359,33 +359,10 @@ function onImported() {
 }
 
 // ── Format-aware columns ──────────────────────────────────────────────────
-// Map each flow step to the per-episode status field it reports on. Steps
-// without a detectable per-episode status (Ideas — implicit; Subtitles +
-// Character Sheet — no per-episode signal) are intentionally omitted so every
-// cell is a real, meaningful status.
-//
-const STEP_FIELD: Record<string, string> = {
-  research: 'research',
-  // v1.4.73 — `status.introduction` has been returned per episode all along
-  // and rendered nowhere: no badge, no count, no filter. That is how four
-  // episodes reached paid audio with no opening without anyone noticing. It
-  // is a column now, and because the Introduction step is optional it never
-  // blocks an episode from reading as done.
-  introduction: 'introduction',
-  script: 'script',
-  metadata: 'metadata',
-  'thumb-prompts': 'thumb_prompts',
-  thumbnails: 'thumbnails',
-  scenes: 'images',
-  audio: 'audio',
-  'audio-merge': 'merged_audio',
-  subtitles: 'subtitles',
-  'character-sheet': 'character_sheet',
-  'scene-plan': 'scene_plan',
-  'scene-review': 'scene_review',
-  'motion-review': 'motion_review',
-  'video-assembly': 'video_assembly',
-}
+// v1.4.82 — the step → status-field map moved to useProjectFlow, beside the
+// flow it describes. The Board, the Dashboard and the episode selector each
+// kept a private copy and they drifted, which is how one episode could read
+// "Steps 10 of 12" here and "100%" there.
 
 interface BoardCol extends FlowStep { field: string }
 
@@ -401,14 +378,12 @@ watch(slug, loadVisualSource, { immediate: true })
 
 const columns = computed<BoardCol[]>(() =>
   flowForVisualSource(visualSource.value)
-    .filter(s => !!STEP_FIELD[s.key])
-    .map(s => ({ ...s, field: STEP_FIELD[s.key] })))
+    .filter(s => !!STEP_STATUS_FIELD[s.key])
+    .map(s => ({ ...s, field: STEP_STATUS_FIELD[s.key] })))
 const columnPhases = computed(() => FLOW_PHASES.map(phase => ({
   ...phase,
   count: columns.value.filter(column => column.phase === phase.key).length,
 })).filter(phase => phase.count > 0))
-const requiredColumnFields = computed(() =>
-  columns.value.filter(col => !col.optional).map(col => col.field))
 const columnDoneCounts = computed(() => {
   const counts: Record<string, number> = {}
   for (const col of columns.value) counts[col.field] = 0
@@ -481,10 +456,12 @@ watch(totalPages, pages => {
   if (currentPage.value > pages) currentPage.value = pages
 })
 
-/** Fully done = every required SHOWN column's step is done. Optional columns
- * remain visible and filterable, but never keep an episode in Needs work. */
+/** Fully done = every required step of this format's flow is done. Optional
+ * steps stay visible and filterable but never keep an episode in Needs work.
+ * v1.4.82 — shared with the Dashboard and the selector's Steps chip, so the
+ * three surfaces cannot disagree about the same episode. */
 function isFullyDone(ep: any): boolean {
-  return requiredColumnFields.value.every(field => ep.status?.[field] === true)
+  return isEpisodeDone(ep?.status, visualSource.value)
 }
 
 // ── Active jobs (row-level 🔄) ─────────────────────────────────────────────
@@ -623,7 +600,7 @@ async function markCell(ep: any, col: BoardCol) {
         [field]: manual ? currentEp.status[field] : true,
       },
     }))
-    const list = await revalidateAfterMutation()
+    const list = await revalidateAfterMutation(ep.episode_code)
     const confirmed = list.find(row => row.episode_code === ep.episode_code)
     const confirmedOverrides = confirmed?.status_overrides || {}
     if (!confirmed

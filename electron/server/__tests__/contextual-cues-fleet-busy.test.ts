@@ -84,7 +84,7 @@ describe('Contextual Cues: a busy fleet is worth asking again', () => {
       chatFailure({ failure_code: 'SITE_PLACEMENT_EXHAUSTED' }), 0)
     assert.ok(plan, 'the one failure this generator resubmits')
     assert.equal(plan.waitMs, FLEET_BUSY_RETRY_DELAYS_MS[0])
-    assert.equal(plan.reason, 'Every machine was busy')
+    assert.equal(plan.reason, 'High demand right now')
     // The whole ladder, in order, and then it stops. Bounded matters: an item
     // must never be silently unreported for longer than the schedule allows.
     for (const [used, expected] of FLEET_BUSY_RETRY_DELAYS_MS.entries()) {

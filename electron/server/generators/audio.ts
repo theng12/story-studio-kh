@@ -885,7 +885,7 @@ export async function generateAudio(job: Job): Promise<void> {
           const reason = transportFailure
             ? `Could not reach ${genStudioProviderLabel}`
             : isFleetBusyFailure(e, 'tts')
-            ? 'Every machine was busy'
+            ? 'High demand right now'
             : `No ${genStudioProviderLabel} route would accept this request`
           activeTasks.set(chunkFilename, {
             label: task.sectionLabel,

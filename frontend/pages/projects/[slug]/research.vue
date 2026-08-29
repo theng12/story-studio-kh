@@ -1313,7 +1313,7 @@ async function saveResearch(): Promise<void> {
     serverResult.value = JSON.stringify(result.value)
     // Completion may have just flipped — refresh the rows the selector, the
     // pending filter and the Production Board read.
-    await refreshEpisodes()
+    await refreshEpisodes(episodeId.value)
     success(reviewComplete.value
       ? 'Review saved — every claim decided'
       : 'Research saved')

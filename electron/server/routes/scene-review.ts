@@ -44,6 +44,21 @@ import { RENDER_STATUS_FILENAME } from '../services/scene-render-status.js'
 
 export const router = Router()
 
+/**
+ * v1.4.82 — drop this episode's cached status so the next episode-list read
+ * recomputes it from disk.
+ *
+ * Only `approve` did this, so queueing or uploading scene images left the list
+ * answering from a status computed BEFORE the change: the episode's own page
+ * said one thing and the selector, the pending filter and the Production Board
+ * said another. That is the "Pending only / Steps 10 of 12" vs "Greenlit 100%"
+ * split-brain. Same one-liner the scene-plan, scripts and research routes use.
+ */
+async function invalidateEpisodeStatus(slug: string, episodeId: string): Promise<void> {
+  const { episodeStatusCache } = await import('../services/episode-status-cache.js')
+  episodeStatusCache.invalidate(slug, episodeId)
+}
+
 function requestedSceneClipVariant(body: Record<string, unknown>): SceneClipVariantSelection {
   const operation = typeof body.operation === 'string' ? body.operation.trim() : ''
   const hasDuration = body.duration_seconds !== undefined && body.duration_seconds !== null
@@ -376,6 +391,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-image', async (req
         auto_approve_generated: body.auto_approve_generated === true,
       },
     })
+    await invalidateEpisodeStatus(slug, episodeId)
     res.status(201).json(job)
   } catch (e: any) {
     res.status(400).json(humanizeBackendError(e, 'Scene image is not ready to generate'))
@@ -438,6 +454,7 @@ router.post('/projects/:slug/scene-review/:episodeId/generate-missing', async (r
         scene_ids: missing.map((s) => s.id),
         missing_only: true,
       })
+      await invalidateEpisodeStatus(slug, episodeId)
       return res.json({
         ok: true,
         queued: missing.length,
@@ -690,6 +707,7 @@ router.post('/projects/:slug/scene-review/:episodeId/continuity-render', async (
     }
     throw e
   }
+  await invalidateEpisodeStatus(slug, episodeId)
   res.status(201).json(job)
 })
 
@@ -732,6 +750,7 @@ router.post('/projects/:slug/scene-review/:episodeId/upload-image/:sceneId', asy
       target.approved = false   // user re-approves after a manual swap
       await writeJsonAtomic(planPath, fresh)
     })
+    await invalidateEpisodeStatus(slug, episodeId)
     res.json({ ok: true, scene_id: sceneId })
   } catch (e: any) {
     res.status(500).json(humanizeBackendError(e, 'Failed to save uploaded scene image'))
@@ -911,8 +930,7 @@ router.put('/projects/:slug/scene-review/:episodeId/approve', async (req, res) =
       imageReady,
       promptIntegrity.complete && subtitleIntegrity.complete,
     )
-    const { episodeStatusCache } = await import('../services/episode-status-cache.js')
-    episodeStatusCache.invalidate(slug, episodeId)
+    await invalidateEpisodeStatus(slug, episodeId)
     res.json({
       ok: true,
       changed,

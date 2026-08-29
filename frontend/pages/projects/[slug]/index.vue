@@ -248,7 +248,9 @@
 import type { ProjectAudit } from '~/types/audit'
 import type { EpisodeRow } from '~/composables/useEpisodes'
 import {
+  STEP_STATUS_FIELD,
   flowForVisualSource,
+  isEpisodeDone,
   normalizeVisualSource,
   type FlowStep,
   type VisualSource,
@@ -304,20 +306,11 @@ const formatError = ref('')
 const uploadAccountCount = ref<number | null>(null)
 const visualSource = ref<VisualSource>('narrated-scenes')
 
-const STATUS_FIELD: Record<string, keyof EpisodeRow['status']> = {
-  script: 'script',
-  metadata: 'metadata',
-  'thumb-prompts': 'thumb_prompts',
-  thumbnails: 'thumbnails',
-  audio: 'audio',
-  'audio-merge': 'merged_audio',
-  subtitles: 'subtitles',
-  'character-sheet': 'character_sheet',
-  'scene-plan': 'scene_plan',
-  'scene-review': 'scene_review',
-  'motion-review': 'motion_review',
-  'video-assembly': 'video_assembly',
-}
+// v1.4.82 — this page kept a private copy of the step → status-field map, and
+// that copy had drifted: it was missing Research and Introduction entirely, so
+// both stages read as zero-progress here while the Board counted them. The map
+// now lives once, in useProjectFlow, beside the flow it describes.
+const STATUS_FIELD = STEP_STATUS_FIELD as Record<string, keyof EpisodeRow['status']>
 
 const steps = computed(() => flowForVisualSource(visualSource.value))
 const episodeCount = computed(() => episodes.value.length)
@@ -354,8 +347,10 @@ const requiredFields = computed(() => coverageStages.value
   .filter(stage => !stage.optional && stage.field)
   .map(stage => stage.field as keyof EpisodeRow['status']))
 
+// v1.4.82 — the same done-test the Production Board and the episode selector's
+// Steps chip use, so the three surfaces cannot disagree about one episode.
 function isComplete(ep: EpisodeRow): boolean {
-  return requiredFields.value.every(field => statusDone(ep, field))
+  return isEpisodeDone(ep?.status as Record<string, unknown>, visualSource.value)
 }
 
 const readyCount = computed(() => episodes.value.filter(isComplete).length)

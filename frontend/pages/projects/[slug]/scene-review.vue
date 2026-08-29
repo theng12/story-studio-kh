@@ -868,7 +868,12 @@ const currentSceneId = computed(() => {
 
 // Plan health mirrors the backend's prompt-integrity result. Later copies of an
 // exact prompt are pending work and may not be rendered as another scene.
-const OVERLONG_SEC = 20
+// v1.4.82 — this was a hardcoded `OVERLONG_SEC = 20`, so Scene Review flagged
+// scenes the episode's OWN pacing band considers perfectly fine, and stayed
+// silent about ones it considers too long. Read the configured maximum the way
+// Scene Plan does (see scene-plan.vue's `pacingMaximumSec`).
+const continuityPacing = ref<{ min_sec: number; max_sec: number } | null>(null)
+const pacingMaximumSec = computed(() => continuityPacing.value?.max_sec || 20)
 const duplicatePromptIds = computed(() => new Set(promptIntegrity.value?.duplicate_ids || []))
 const problemScenes = computed(() => {
   const list: Array<{ scene: ReviewScene; index: number; reasons: string[] }> = []
@@ -877,7 +882,7 @@ const problemScenes = computed(() => {
     const dur = s.end_sec - s.start_sec
     if (!s.visual_prompt || !s.visual_prompt.trim()) reasons.push('no prompt')
     else if (duplicatePromptIds.value.has(s.id)) reasons.push('duplicate prompt')
-    if (dur > OVERLONG_SEC) reasons.push(`${dur.toFixed(0)}s long`)
+    if (dur > pacingMaximumSec.value) reasons.push(`${dur.toFixed(0)}s long`)
     if (reasons.length) list.push({ scene: s, index: s.scene_index ?? i + 1, reasons })
   })
   return list
@@ -1254,9 +1259,19 @@ const renderingEpisode = ref<string | null>(null)
 const continuityRendering = computed(() => renderingEpisode.value === episodeId.value)
 
 async function loadContinuityFlag(): Promise<void> {
+  const ep = episodeId.value
+  continuityPacing.value = null
   try {
     const fmt = await get<{ visualSource?: string }>(`/projects/${slug.value}/effective-format`)
     isContinuity.value = fmt?.visualSource === 'continuity-chain'
+    // v1.4.82 — the same continuity read Scene Plan does, so the "Ns long"
+    // health flag uses the band the user actually chose instead of a constant.
+    if (!isContinuity.value || !ep) return
+    const r = await get<{ config?: { pacing?: { min_sec: number; max_sec: number } } }>(
+      `/projects/${slug.value}/continuity/${ep}`,
+    )
+    if (episodeId.value !== ep) return
+    continuityPacing.value = r?.config?.pacing || null
   } catch { isContinuity.value = false }
 }
 
@@ -1418,7 +1433,7 @@ function publishReviewCompletion(episodeCode: string, reviewStats: ReviewStats):
       scene_review: reviewStats.all_approved,
     },
   }))
-  void revalidateAfterMutation().catch((e: any) => {
+  void revalidateAfterMutation(episodeCode).catch((e: any) => {
     showError(
       e?.data?.detail
       || e?.message
@@ -1481,7 +1496,8 @@ function scrollToTop(): void {
 }
 
 onMounted(() => {
-  void loadContinuityFlag()
+  // loadContinuityFlag() runs from the episodeId watcher below (immediate),
+  // which also re-reads it on every episode switch.
   void refreshGenStudioImageModels()
   void srPresets.load()   // auto-applies the last render preset (model, aspect, pool)
   if (typeof window !== 'undefined') window.addEventListener('keydown', onPreviewKey)
@@ -1512,6 +1528,10 @@ onBeforeUnmount(() => {
 watch(episodeId, () => {
   renderedSceneLimit.value = SCENE_RENDER_BATCH
   void loadReview()
+  // v1.4.82 — the pacing band is per-episode, so re-read it on every switch.
+  // Loading it only onMounted left the "Ns long" flag judging episode B against
+  // episode A's maximum.
+  void loadContinuityFlag()
 }, { immediate: true })
 </script>
 

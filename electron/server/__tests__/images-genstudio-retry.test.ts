@@ -56,7 +56,7 @@ test('a busy fleet with the money returned is waited out, not dropped', () => {
   for (const failure_code of ['SITE_PLACEMENT_EXHAUSTED', 'SITE_CAPACITY_UNAVAILABLE']) {
     const plan = imageRetryPlan(imageFailure({ failure_code }), 1)
     assert.ok(plan, `${failure_code} must earn another attempt`)
-    assert.match(plan.reason, /every machine was busy/i)
+    assert.match(plan.reason, /high demand right now/i)
   }
 })
 

@@ -112,7 +112,7 @@ export function imageRetryPlan(e: unknown, attemptNum: number): ImageRetryPlan |
     // constant, so retuning one can never silently walk off the end of the other.
     const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
     if (waitMs === undefined) return null
-    return { waitMs, reason: 'Every machine was busy', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+    return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
   }
   if (isGenStudioRouteExhausted(e) && attemptNum < IMAGE_ROUTE_RETRY_MAX_ATTEMPTS) {
     return {

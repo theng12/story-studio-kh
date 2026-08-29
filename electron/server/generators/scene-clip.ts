@@ -132,7 +132,7 @@ export function sceneClipFleetBusyRetryPlan(e: unknown, attemptNum: number): Sce
   if (!isFleetBusyFailure(e, 'video')) return null
   const waitMs: number | undefined = FLEET_BUSY_RETRY_DELAYS_MS[attemptNum - 1]
   if (waitMs === undefined) return null
-  return { waitMs, reason: 'Every machine was busy', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
+  return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
 }
 
 /**
@@ -537,7 +537,7 @@ export async function generateSceneClipJob(job: Job): Promise<void> {
         const retryPlan = sceneClipFleetBusyRetryPlan(error, attemptNum)
         if (retryPlan && failedTaskId && !jq.isCancelled(job.job_id) && !jq.isPauseRequested(job.job_id)) {
           job.output_lines.push(
-            `Scene ${scene.scene_index}: ${retryPlan.reason.toLowerCase()} — the clip never reached a machine, `
+            `Scene ${scene.scene_index}: ${retryPlan.reason.toLowerCase()} — the clip was never started, `
             + 'so nothing was charged and the credits were returned. '
             + `Waiting ${Math.round(retryPlan.waitMs / 1000)}s and trying again `
             + `(attempt ${attemptNum + 1} of ${retryPlan.maxAttempts}).`,

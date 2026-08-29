@@ -85,7 +85,7 @@
         <template v-else>Select an episode...</template>
       </option>
       <option v-for="ep in filteredEpisodes" :key="ep.episode_code" :value="ep.episode_code">
-        {{ ep.episode_code }} — {{ ep.title }}{{ statusSuffix(ep) }}
+        {{ ep.episode_code }} — {{ ep.title }}{{ statusSuffix(ep) }}{{ retainedSuffix(ep) }}
       </option>
     </select>
     <div v-if="legend" class="status-legend">{{ legend }}</div>
@@ -136,6 +136,8 @@
 </template>
 
 <script setup lang="ts">
+import { STEP_STATUS_FIELD } from '~/composables/useProjectFlow'
+
 const props = defineProps<{
   modelValue: string
   projectSlug: string
@@ -211,21 +213,32 @@ interface StepChip { field: string; label: string; conditional?: boolean; active
 // per-scene Clips for AI-video formats) — they'd read as forever-pending
 // noise elsewhere, so they only render when they're done, overridden, or
 // this page IS that step (filterField match).
+// v1.4.82 — the FIELD names come from the one shared step → status-field map in
+// useProjectFlow. They used to be re-typed here, and a re-typed copy is how the
+// Dashboard ended up missing two of them: the same episode could then read
+// "Steps 10 of 12" on one surface and complete on another. Labels and the
+// `conditional` flag stay local — those are presentation, not truth.
+const F = STEP_STATUS_FIELD
 const STEP_CHIPS: StepChip[] = [
-  { field: 'research',       label: 'Research', conditional: true },
-  { field: 'script',         label: 'Script' },
-  { field: 'metadata',       label: 'Metadata' },
-  { field: 'thumb_prompts',  label: 'Thumb prompts' },
-  { field: 'thumbnails',     label: 'Thumbnails' },
-  { field: 'audio',          label: 'Audio' },
-  { field: 'merged_audio',   label: 'Audio merge' },
-  { field: 'subtitles',      label: 'Subtitles', conditional: true },
-  { field: 'character_sheet', label: 'Character sheet', conditional: true },
-  { field: 'broll_picked',   label: 'B-Roll picked', conditional: true },
-  { field: 'scene_plan',     label: 'Scene plan', conditional: true },
-  { field: 'scene_review',   label: 'Scene review', conditional: true },
-  { field: 'motion_review',  label: 'Motion review (optional)', conditional: true, activePath: '/motion-review' },
-  { field: 'video_assembly', label: 'Final video' },
+  { field: F.research,        label: 'Research', conditional: true },
+  // v1.4.82 — Introduction was returned per episode and shown on no chip at
+  // all. Conditional, so it appears only once it is done, overridden, or you
+  // are standing on that page — it never adds forever-pending noise.
+  { field: F.introduction,    label: 'Introduction', conditional: true, activePath: '/introduction' },
+  { field: F.script,          label: 'Script' },
+  { field: F.metadata,        label: 'Metadata' },
+  { field: F['thumb-prompts'], label: 'Thumb prompts' },
+  { field: F.thumbnails,      label: 'Thumbnails' },
+  { field: F.audio,           label: 'Audio' },
+  { field: F['audio-merge'],  label: 'Audio merge' },
+  { field: F.subtitles,       label: 'Subtitles', conditional: true },
+  { field: F['character-sheet'], label: 'Character sheet', conditional: true },
+  // No flow step reports this one, so it has no entry in the shared map.
+  { field: 'broll_picked',    label: 'B-Roll picked', conditional: true },
+  { field: F['scene-plan'],   label: 'Scene plan', conditional: true },
+  { field: F['scene-review'], label: 'Scene review', conditional: true },
+  { field: F['motion-review'], label: 'Motion review (optional)', conditional: true, activePath: '/motion-review' },
+  { field: F['video-assembly'], label: 'Final video' },
 ]
 
 const stepsExpanded = ref(false)
@@ -331,7 +344,7 @@ async function onChipClick(chip: StepChip) {
       },
     }))
 
-    const list = await revalidateAfterMutation()
+    const list = await revalidateAfterMutation(ep.episode_code)
     const confirmed = list.find(row => row.episode_code === ep.episode_code)
     const confirmedOverrides = confirmed?.status_overrides || {}
     if (!confirmed
@@ -381,6 +394,19 @@ const activeJobsByEpisode = computed(() => {
   }
   return out
 })
+
+/**
+ * v1.4.82 — "Pending only" keeps the SELECTED episode on the list even once it
+ * is finished, by design: a step you just completed must not vanish from under
+ * you mid-edit. But the row then looked identical to a genuinely pending one,
+ * which is half of "why does this say pending when the page says done". Say
+ * plainly why it is still there.
+ */
+function retainedSuffix(ep: any): string {
+  if (showAll.value || !props.filterField) return ''
+  if (ep.episode_code !== props.modelValue) return ''
+  return ep.status?.[props.filterField] === true ? ' ✓ done — still listed because it is open' : ''
+}
 
 const filteredEpisodes = computed(() => {
   let list = episodes.value

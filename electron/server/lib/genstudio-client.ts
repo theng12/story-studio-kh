@@ -259,6 +259,11 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
     if (field === null) return null
     return typeof field === 'string' && field.trim() ? field : undefined
   }
+  /** Remote-authored prose, made safe to show a customer. See the function. */
+  const optionalCustomerSafeDetail = (name: string): string | null | undefined => {
+    const raw = optionalNonEmptyTextOrNull(name)
+    return typeof raw === 'string' ? customerSafeRemoteDetail(raw) : raw
+  }
   const dispatchState = body.dispatch_state
   return {
     id: body.id,
@@ -276,9 +281,41 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
     ...(optionalNonEmptyTextOrNull('retry_at') !== undefined ? { retry_at: optionalNonEmptyTextOrNull('retry_at') } : {}),
     ...(optionalNonEmptyTextOrNull('last_provider_progress_at') !== undefined ? { last_provider_progress_at: optionalNonEmptyTextOrNull('last_provider_progress_at') } : {}),
     ...(optionalNonEmptyTextOrNull('stall_recovery_at') !== undefined ? { stall_recovery_at: optionalNonEmptyTextOrNull('stall_recovery_at') } : {}),
-    ...(optionalNonEmptyTextOrNull('status_detail') !== undefined ? { status_detail: optionalNonEmptyTextOrNull('status_detail') } : {}),
-    ...(optionalNonEmptyTextOrNull('failure_detail') !== undefined ? { failure_detail: optionalNonEmptyTextOrNull('failure_detail') } : {}),
+    ...(optionalNonEmptyTextOrNull('status_detail') !== undefined ? { status_detail: optionalCustomerSafeDetail('status_detail') } : {}),
+    ...(optionalNonEmptyTextOrNull('failure_detail') !== undefined ? { failure_detail: optionalCustomerSafeDetail('failure_detail') } : {}),
   }
+}
+
+/**
+ * v1.4.82 — remote-authored detail text, made safe to put in front of a customer.
+ *
+ * `status_detail` and `failure_detail` are prose GenStudio writes, and it writes
+ * them about ITS OWN estate: "waiting for a worker; no site has accepted this
+ * job yet; placement window closes at 14:32". Story Studio prints them verbatim
+ * on the job card, so a customer could read off how many machines we run and how
+ * saturated they are. The owner's ruling is that infrastructure shape is
+ * internal — no counts, no saturation, no site names.
+ *
+ * Word-substituting into someone else's sentence produces nonsense, so a
+ * sentence that describes the estate is REPLACED whole with the operational
+ * equivalent: what state the work is in, and when something happens next. The
+ * escalation time is the one genuinely useful fact in the original, so it is
+ * carried across when the original names one. Detail that says nothing about
+ * our estate passes through untouched.
+ *
+ * The raw text is not lost — it stays in the server's own log, which is where
+ * infrastructure detail belongs.
+ */
+const INFRASTRUCTURE_SHAPE = /\b(machines?|workers?|sites?|fleet|nodes?|placement window)\b/i
+const CLOCK_TIME = /\b([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?\b/
+
+export function customerSafeRemoteDetail(raw: string): string {
+  if (!INFRASTRUCTURE_SHAPE.test(raw)) return raw
+  console.log(`[genstudio] remote detail withheld from the customer view: ${raw}`)
+  const time = CLOCK_TIME.exec(raw)
+  return time
+    ? `Queued — waiting for capacity; automatic escalation at ${time[1]!.padStart(2, '0')}:${time[2]}.`
+    : 'Queued — waiting for capacity. Nothing failed and nothing was charged.'
 }
 
 /** The only two GenStudio job states that can never change again. */
@@ -2484,8 +2521,16 @@ async function recordGenStudioEvidence(
     ...(job.retry_at === null || (typeof job.retry_at === 'string' && job.retry_at.trim()) ? { retry_at: job.retry_at } : {}),
     ...(job.last_provider_progress_at === null || (typeof job.last_provider_progress_at === 'string' && job.last_provider_progress_at.trim()) ? { last_provider_progress_at: job.last_provider_progress_at } : {}),
     ...(job.stall_recovery_at === null || (typeof job.stall_recovery_at === 'string' && job.stall_recovery_at.trim()) ? { stall_recovery_at: job.stall_recovery_at } : {}),
-    ...(job.status_detail === null || (typeof job.status_detail === 'string' && job.status_detail.trim()) ? { status_detail: job.status_detail } : {}),
-    ...(job.failure_detail === null || (typeof job.failure_detail === 'string' && job.failure_detail.trim()) ? { failure_detail: job.failure_detail } : {}),
+    // v1.4.82 — this is the boundary into the shape the job card renders, so it
+    // is the last place remote prose can be made customer-safe. See
+    // customerSafeRemoteDetail: text that describes our estate is replaced
+    // whole; anything else passes through untouched.
+    ...(job.status_detail === null || (typeof job.status_detail === 'string' && job.status_detail.trim())
+      ? { status_detail: typeof job.status_detail === 'string' ? customerSafeRemoteDetail(job.status_detail) : job.status_detail }
+      : {}),
+    ...(job.failure_detail === null || (typeof job.failure_detail === 'string' && job.failure_detail.trim())
+      ? { failure_detail: typeof job.failure_detail === 'string' ? customerSafeRemoteDetail(job.failure_detail) : job.failure_detail }
+      : {}),
     location: job.location || undefined,
     queue_state: queueStateForJob(job),
     updated_at: new Date().toISOString(),
