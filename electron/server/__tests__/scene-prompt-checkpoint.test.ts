@@ -165,12 +165,63 @@ describe('scene prompt checkpoints', () => {
       requestedIds: ['scene-1', 'scene-2', 'scene-3'],
       missingIds: ['scene-2', 'scene-3'],
       providerResults: new Map([['scene-1', 'Repeated visual prompt'], ['scene-2', 'Repeated visual prompt']]),
+      responseReceived: true,
     })
 
     assert.deepEqual(issues, [
       { scene_id: 'scene-2', kind: 'duplicate-prompt', detail: 'duplicate prompt matches scene-1' },
       { scene_id: 'scene-3', kind: 'provider-omitted', detail: 'provider omitted the scene ID from its response' },
     ])
+  })
+
+  /**
+   * THE 2026-08-28 FABRICATION.
+   *
+   * The GenStudio call for a 50-scene pack failed at the provider-identity gate.
+   * It was a settled, terminal failure: no response content ever arrived. The
+   * completion diagnosis was nevertheless run against an empty result map, so
+   * all fifty scenes were labelled "provider omitted the scene ID from its
+   * response" — an accusation about a response that did not exist. Those fifty
+   * fabrications were then handed to the automatic repair request as
+   * `recoveryIssues`, so every paid retry opened by telling the model it had
+   * dropped IDs it had never been shown.
+   *
+   * A request-level error must produce ZERO per-scene issues. The scenes are
+   * still missing and are still reported as missing; they are simply not accused.
+   */
+  it('invents no per-scene issues when the request failed before any response arrived', async () => {
+    const file = await makePlan()
+    const plan = JSON.parse(await fs.readFile(file, 'utf-8')) as ScenePlan
+    const requested = ['scene-1', 'scene-2', 'scene-3']
+
+    const issues = diagnoseScenePromptCompletionIssues({
+      plan,
+      requestedIds: requested,
+      missingIds: requested,
+      // Exactly the state the generator was in: the throw left this empty.
+      providerResults: new Map<string, string>(),
+      responseReceived: false,
+    })
+
+    assert.equal(
+      issues.filter(issue => issue.kind === 'provider-omitted').length,
+      0,
+      'a request that never answered cannot have omitted anything',
+    )
+    assert.deepEqual(issues, [], 'and no other accusation is invented either')
+
+    // And the contrast that proves the guard is the response flag, not the empty
+    // map: once a response HAS arrived, an empty result map really does mean the
+    // model omitted every ID, and that is still reported.
+    const answered = diagnoseScenePromptCompletionIssues({
+      plan,
+      requestedIds: requested,
+      missingIds: requested,
+      providerResults: new Map<string, string>(),
+      responseReceived: true,
+    })
+    assert.equal(answered.length, 3)
+    assert.ok(answered.every(issue => issue.kind === 'provider-omitted'))
   })
 
   it('audits motion prompts independently from visual prompt state', async () => {

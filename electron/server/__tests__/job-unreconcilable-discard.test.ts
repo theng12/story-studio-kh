@@ -313,7 +313,10 @@ test('discarding preserves the charge and every task id, and invents no success'
     // The log states what was walked away from, and claims no success.
     const log = abandoned.output_lines.join('\n')
     assert.match(log, /Abandoned at your request/)
-    assert.match(log, /nothing was refunded/)
+    // …and claims nothing about the provider's books either. Story Studio's own
+    // limit is stated; "nothing was refunded" is not asserted on GenStudio's behalf.
+    assert.doesNotMatch(log, /nothing was refunded/i)
+    assert.match(log, /Story Studio holds no balance and refunds nothing itself/)
     assert.match(log, new RegExp(`These ${PENDING_COUNT} provider tasks were still unresolved`))
     assert.doesNotMatch(log, /confirmed every recorded provider task/)
     assert.doesNotMatch(log, /completed successfully/)

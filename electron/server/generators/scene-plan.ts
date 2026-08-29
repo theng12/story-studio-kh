@@ -442,14 +442,30 @@ export async function checkpointPackPromptResults(
 /** Explain why a durable completion audit rejected a requested scene. This is
  * deliberately derived from the saved plan rather than trusting a provider
  * count, so the job log distinguishes a model omission from a duplicate that
- * Story Studio correctly refused to accept. */
+ * Story Studio correctly refused to accept.
+ *
+ * `responseReceived` IS REQUIRED, AND THAT IS THE POINT.
+ *
+ * Every issue this function can return is an accusation about the CONTENT of a
+ * response — a scene the model skipped, a prompt it repeated, a row that would
+ * not save. None of them can be true when no response ever arrived. On
+ * 2026-08-28 a GenStudio call died at the provider-identity gate before any
+ * content existed, this function was still called with an empty result map, and
+ * all fifty scenes were labelled "provider omitted the scene ID from its
+ * response" — then those fifty fabrications were fed into the repair prompt as
+ * fact, so every paid retry opened by accusing the model of dropping IDs it had
+ * never been asked for. A caller must therefore say, in as many words, whether a
+ * response came back; when it did not, there is nothing to diagnose. */
 export function diagnoseScenePromptCompletionIssues(input: {
   plan: Pick<ScenePlan, 'scenes'>
   requestedIds: readonly string[]
   missingIds: readonly string[]
   providerResults: ReadonlyMap<string, string>
   checkpointErrors?: readonly string[]
+  /** False when the request failed before any response content arrived. */
+  responseReceived: boolean
 }): ScenePromptCompletionIssue[] {
+  if (!input.responseReceived) return []
   const duplicateSourceById = new Map<string, string>()
   for (const group of inspectScenePromptIntegrity(input.plan.scenes).duplicate_groups) {
     const [source, ...duplicates] = group.scene_ids
@@ -972,8 +988,13 @@ export async function runScenePlanJob(job: Job): Promise<void> {
     const buildPackMessages = (
       scenePayloads: ScenePromptPayload[],
       recoveryIssues: readonly ScenePromptCompletionIssue[] = [],
+      // Why a repair is being asked for when there are no per-scene findings to
+      // quote: the previous attempt never produced a response to find fault
+      // with. The request is still a repair and is still marked as one; it just
+      // does not invent a per-scene accusation to justify itself.
+      recoveryNote = '',
     ): Array<{ role: 'system' | 'user'; content: string }> => {
-      const recovery = isPackedRepair || recoveryIssues.length > 0
+      const recovery = isPackedRepair || recoveryIssues.length > 0 || !!recoveryNote
       const rejectedPrompts = recoveryIssues
         .filter(issue => issue.kind === 'duplicate-prompt')
         .map(issue => {
@@ -1004,7 +1025,9 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             !isMotion ? 'For scenes marked introduction_remainder, IGNORE welcome, CTA, subscribe, breathing, and channel language as visual subjects. Depict the story premise and characters instead; narration timing still controls the scene duration.' : '',
             recoveryIssues.length
               ? `AUTOMATIC RECOVERY:\nRepair only the supplied scene IDs. A previous response was rejected for: ${recoveryIssues.map(issue => `${issue.scene_id} (${issue.detail})`).join('; ')}. Give each scene a new, concrete composition; do not repeat a rejected prompt verbatim.`
-              : '',
+              : recoveryNote
+                ? `AUTOMATIC RECOVERY:\nRepair only the supplied scene IDs. ${recoveryNote} Give each scene a new, concrete composition.`
+                : '',
             rejectedPrompts.length ? `REJECTED PROMPTS — DO NOT REUSE:\n${rejectedPrompts.join('\n')}` : '',
             `SCENES:\n${JSON.stringify(scenePayloads)}`,
           ].filter(Boolean).join('\n\n'),
@@ -1088,6 +1111,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       requestLabel: string
       maxTokens: number
       recoveryIssues?: readonly ScenePromptCompletionIssue[]
+      recoveryNote?: string
     }) => {
       const payloads = input.sceneIds.map(sceneId => payloadBySceneId.get(sceneId)).filter((payload): payload is ScenePromptPayload => !!payload)
       if (payloads.length !== input.sceneIds.length) {
@@ -1101,9 +1125,14 @@ export async function runScenePlanJob(job: Job): Promise<void> {
       // outcome is unknown. Only that state makes a repair request unsafe —
       // see the repair gate below.
       let requestUnresolved = false
+      // Did any response CONTENT come back? Set the instant `callAi` returns, so
+      // it can never be inferred from a side effect. Everything the completion
+      // diagnosis says is a claim about a response's contents, and a request
+      // that died on the way out has no contents to make claims about.
+      let responseReceived = false
       const startedAt = Date.now()
       try {
-        const messages = buildPackMessages(payloads, input.recoveryIssues)
+        const messages = buildPackMessages(payloads, input.recoveryIssues, input.recoveryNote)
         const raw = await callAi(
           model,
           messages[0]!.content,
@@ -1121,6 +1150,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
             onDiagnostics: (details: TextGenerationDiagnostics) => { diagnostics = details },
           },
         )
+        responseReceived = true
         results = parseDirectPackResults(raw, input.sceneIds, isMotion ? 'motion' : 'visual')
         checkpointErrors = await checkpointPackPromptResults(
           results,
@@ -1155,7 +1185,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         requestError = error?.message || String(error)
         requestUnresolved = isGenStudioRequestInProgress(error) || isGenStudioSubmissionUncertain(error)
       }
-      return { results, checkpointErrors, diagnostics, requestError, requestUnresolved }
+      return { results, checkpointErrors, diagnostics, requestError, requestUnresolved, responseReceived }
     }
     job.output_lines.push(`Processing ${packs.length} adaptive pack(s) through GenStudio KH (${model}).`)
     const incompletePacks: string[] = []
@@ -1180,6 +1210,7 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         missingIds: receipt.missing_ids,
         providerResults: initial.results,
         checkpointErrors: initial.checkpointErrors,
+        responseReceived: initial.responseReceived,
       })
       const initialFinish = initial.diagnostics?.finishReason || initial.diagnostics?.nativeFinishReason
       const initialTokenSummary = initial.diagnostics?.completionTokens != null
@@ -1218,6 +1249,10 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         const repairResults = new Map<string, string>()
         const repairCheckpointErrors: string[] = []
         const repairRequestErrors: string[] = []
+        // Scene IDs that belonged to a repair group whose request actually came
+        // back. Only these may be diagnosed afterwards; the rest have no
+        // response to be judged against.
+        const answeredIds = new Set<string>()
         for (const group of repairGroups) {
           if (isCancelled(job.job_id)) throw new Error('Cancelled by user')
           const groupIssues = issues.filter(issue => group.includes(issue.scene_id))
@@ -1254,7 +1289,16 @@ export async function runScenePlanJob(job: Job): Promise<void> {
               Math.max(2_048, group.length * 768),
             ),
             recoveryIssues: groupIssues,
+            // No findings to quote. Every outstanding scene ID gets an issue
+            // whenever a response was seen, so an empty `groupIssues` on a
+            // still-missing group means exactly one thing: the attempt before
+            // this one produced no response to find fault with. Say that,
+            // rather than inheriting — or inventing — an accusation.
+            recoveryNote: groupIssues.length
+              ? undefined
+              : 'The previous request for these scene IDs ended before any response was received, so no prompt exists for them yet.',
           })
+          if (repair.responseReceived) for (const sceneId of group) answeredIds.add(sceneId)
           for (const [sceneId, prompt] of repair.results) repairResults.set(sceneId, prompt)
           repairCheckpointErrors.push(...repair.checkpointErrors)
           if (repair.requestError) repairRequestErrors.push(repair.requestError)
@@ -1265,9 +1309,12 @@ export async function runScenePlanJob(job: Job): Promise<void> {
         issues = diagnoseScenePromptCompletionIssues({
           plan: receipt.plan,
           requestedIds: pack.scene_ids,
-          missingIds: receipt.missing_ids,
+          // A scene whose repair request never came back is still missing, and
+          // is still reported as missing — it just is not accused of anything.
+          missingIds: receipt.missing_ids.filter(sceneId => answeredIds.has(sceneId)),
           providerResults: repairResults,
           checkpointErrors: repairCheckpointErrors,
+          responseReceived: answeredIds.size > 0,
         })
         if (!receipt.missing_ids.length) {
           job.output_lines.push(`✓ GenStudio prompt repair verified ${pack.scene_ids.length}/${pack.scene_ids.length} prompts for ${pack.pack_id}.`)

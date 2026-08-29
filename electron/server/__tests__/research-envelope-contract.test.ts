@@ -465,6 +465,49 @@ test('a durable job distinguishes the two failure codes the 502 could not', asyn
   assert.equal(uncertain.submits.length, 1, 'an uncertain job must NEVER be resubmitted')
 })
 
+/**
+ * THE CODE THE 2026-08-28 INCIDENT ARRIVED UNDER.
+ *
+ * GenStudio settled the scene-prompt job with `LANGUAGE_PROVIDER_MODEL_MISMATCH`
+ * — its reply had failed the provider-identity check, so GenStudio refused to
+ * hand back work from a model the product does not sell. Story Studio knew only
+ * three language codes, so the one code that actually explained the failure fell
+ * through to the generic "language generation failed", and the owner read a
+ * terminal message that named no cause at all.
+ *
+ * `MODEL_MISMATCH` must reach the user as its real reason, from BOTH shapes the
+ * code can arrive in: a settled durable job, and a detail string that quotes it.
+ * Fallbacks stay off by design, so the "No fallback route was attempted"
+ * semantics are asserted here too.
+ */
+test('a model-identity mismatch is explained by name, not as a generic failure', async () => {
+  const mismatch = await failedChatJob(
+    GENSTUDIO_LANGUAGE_FAILURE_CODES.MODEL_MISMATCH, 'job-model-mismatch-key',
+  )
+  assert.ok(mismatch.error instanceof GenStudioChatTerminalFailureError)
+  assert.equal(mismatch.error.failureCode, 'LANGUAGE_PROVIDER_MODEL_MISMATCH')
+
+  const message = (mismatch.error as Error).message
+  // The real reason, in the user's terms.
+  assert.match(message, /did not identify itself as that model/i)
+  assert.match(message, /refused it rather than hand back work you did not buy/i)
+  // Not the generic terminal wording it used to degrade to.
+  assert.doesNotMatch(message, /GenStudio KH language generation failed \(/)
+  // Fallbacks stay off, and that is still said out loud.
+  assert.match(message, /No fallback route was attempted/)
+  // Settled means settled: never resubmitted, and not confused with "uncertain".
+  assert.equal(mismatch.submits.length, 1, 'a settled mismatch must not be resubmitted')
+  assert.equal(isGenStudioSubmissionUncertain(mismatch.error), false)
+
+  // The second shape: the code quoted inside an error detail rather than
+  // published as a durable job field. Every listed code must be readable that
+  // way — the pattern is derived from the table, so none can be left behind.
+  for (const code of Object.values(GENSTUDIO_LANGUAGE_FAILURE_CODES)) {
+    const quoted = new GenStudioApiError(502, `language generation failed: ${code}`)
+    assert.equal(quoted.languageFailureCode, code, `${code} must be readable from a detail string`)
+  }
+})
+
 test('a terminal language failure is never reconnected into a second submission', async () => {
   // A settled job can only ever re-read as settled, so reconnecting is dead
   // work for PROVIDER_FAILED and an actual duplicate-charge risk for
