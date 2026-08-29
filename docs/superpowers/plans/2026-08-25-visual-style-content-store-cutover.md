@@ -253,8 +253,8 @@ git commit -m "feat(content-packs): productize six legacy visual styles"
 ### Task 3: Build and validate six exact delivery archives
 
 **Files:**
-- Create outside Git: `/build/Developer/_handoffs/artifacts/story-production-looks-six-2026-08-25/<slug>.sspack`
-- Create outside Git: `/build/Developer/_handoffs/artifacts/story-production-looks-six-2026-08-25/ledger.json`
+- Create outside Git: `<owner-home>/Developer/_handoffs/artifacts/story-production-looks-six-2026-08-25/<slug>.sspack`
+- Create outside Git: `<owner-home>/Developer/_handoffs/artifacts/story-production-looks-six-2026-08-25/ledger.json`
 - Test: `scripts/content-packs/__tests__/production-looks.test.mjs`
 
 **Interfaces:**
@@ -337,8 +337,8 @@ Expected: all required reviews pass with zero unresolved findings.
 ### Task 5: Send one complete six-product GenStudio stocking handoff
 
 **Files:**
-- Create outside Git: `/build/Developer/_handoffs/2026-08-25_to-claude-genstudio_from-gpt-storystudio_production-looks-six-ready.json`
-- Create outside Git: `/build/Developer/_handoffs/2026-08-25_to-claude-genstudio_from-gpt-storystudio_production-looks-six-ready.md`
+- Create outside Git: `<owner-home>/Developer/_handoffs/2026-08-25_to-claude-genstudio_from-gpt-storystudio_production-looks-six-ready.json`
+- Create outside Git: `<owner-home>/Developer/_handoffs/2026-08-25_to-claude-genstudio_from-gpt-storystudio_production-looks-six-ready.md`
 
 **Interfaces:**
 - Consumes: six exact Task 3 archives and all Task 4 approvals.
