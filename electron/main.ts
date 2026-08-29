@@ -20,6 +20,8 @@ import { projectsRoot, migrateLegacyProjects } from './server/services/project-m
 import { getRunningFlagPath, patchLastSession } from './server/services/last-session.js'
 import { isServerMode, getServerModeConfig } from './server/lib/server-mode.js'
 import { DEV_BACKEND_PORT } from './server/lib/dev-backend.js'
+import { applyServerTimeouts } from './server/lib/server-timeouts.js'
+import { startLogPruning } from './server/services/logger.js'
 import { bootstrapServerModeFromEnv } from './server/services/app-settings.js'
 import { isAllowedApplicationNavigation, isSafeExternalUrl } from './server/lib/security.js'
 import { redactSecrets } from './server/lib/redact-secrets.js'
@@ -93,6 +95,14 @@ function startServer(): Promise<number> {
       bind = '127.0.0.1'
     }
     server = http.createServer(expressApp)
+    // Ceilings on genuinely stuck sockets. This server shipped with none at
+    // all, so a connection waiting on work that never finished stayed open for
+    // the life of the app. Every value is owner-editable and every default
+    // clears the app's real long-running requests — see lib/server-timeouts.ts.
+    void applyServerTimeouts(server)
+    // Old log files are swept on a timer here, not inside the request logger
+    // where the sweep used to live.
+    startLogPruning()
     server.listen(port, bind, () => {
       const address = server!.address()
       const actualPort = typeof address === 'object' ? address!.port : port

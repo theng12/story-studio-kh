@@ -298,24 +298,40 @@ function parseGenStudioCancellationResponse(value: unknown): GenStudioJob & GenS
  *
  * Word-substituting into someone else's sentence produces nonsense, so a
  * sentence that describes the estate is REPLACED whole with the operational
- * equivalent: what state the work is in, and when something happens next. The
- * escalation time is the one genuinely useful fact in the original, so it is
- * carried across when the original names one. Detail that says nothing about
- * our estate passes through untouched.
+ * equivalent: what state the work is in, and that nothing has gone wrong.
+ * Detail that says nothing about our estate passes through untouched.
  *
  * The raw text is not lost — it stays in the server's own log, which is where
  * infrastructure detail belongs.
+ *
+ * ── Why no time is scraped out of the prose any more (1.4.83) ──
+ *
+ * This used to carry a clock time across, on the reasoning that the escalation
+ * deadline was the one genuinely useful fact in the sentence being discarded.
+ * The fact was useful; the way it was obtained was not. It came from an
+ * unanchored `HH:MM` pattern run over the whole sentence, so it took the FIRST
+ * clock-shaped substring anywhere in GenStudio's prose whether or not that
+ * substring was the deadline — and it reprinted those digits with no timezone
+ * conversion at all, in GenStudio's zone, beside a time the app had rendered in
+ * the reader's. A card was seen reading:
+ *
+ *     Queued — waiting for capacity; automatic escalation at 00:00.
+ *     GenStudio will intervene Today 10:24:24 PM.
+ *
+ * Two clocks, for ONE deadline, disagreeing. The deadline was never in doubt:
+ * `stall_recovery_at` rides on the very same record, as a real timestamp, and
+ * the second sentence there is rendered from it correctly. Guessing at a
+ * duplicate of a value we already hold exactly is not worth one wrong number in
+ * front of a customer, so the guess is gone. The deadline is stated once, by
+ * the frontend, from `stall_recovery_at` — see `genStudioStatusDetail` in
+ * `pages/projects/[slug]/jobs.vue`.
  */
 const INFRASTRUCTURE_SHAPE = /\b(machines?|workers?|sites?|fleet|nodes?|placement window)\b/i
-const CLOCK_TIME = /\b([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?\b/
 
 export function customerSafeRemoteDetail(raw: string): string {
   if (!INFRASTRUCTURE_SHAPE.test(raw)) return raw
   console.log(`[genstudio] remote detail withheld from the customer view: ${raw}`)
-  const time = CLOCK_TIME.exec(raw)
-  return time
-    ? `Queued — waiting for capacity; automatic escalation at ${time[1]!.padStart(2, '0')}:${time[2]}.`
-    : 'Queued — waiting for capacity. Nothing failed and nothing was charged.'
+  return 'Queued — waiting for capacity. Nothing failed and nothing was charged.'
 }
 
 /** The only two GenStudio job states that can never change again. */

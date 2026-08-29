@@ -11,7 +11,7 @@ import {
 import { getApiKey } from '../services/app-secrets-store.js'
 import { getSessionStats } from '../services/session-tracker.js'
 import { getFFmpegStatus, downloadFFmpeg, getInstallProgressState, _markInstallError } from '../services/ffmpeg-manager.js'
-import { getLogDir, logLine } from '../services/logger.js'
+import { getLogDir, logLine, flushLogLines } from '../services/logger.js'
 import { humanizeBackendError } from '../lib/humanize-backend-error.js'
 
 export const router = Router()
@@ -51,6 +51,12 @@ router.get('/ffmpeg/install-progress', (_req, res) => res.json(getInstallProgres
 router.get('/ffmpeg/install-log', async (_req, res) => {
   try {
     const logPath = path.join(getLogDir(), `server-${new Date().toISOString().slice(0, 10)}.log`)
+    // Log writes are buffered and land off the event loop now (see
+    // services/logger.ts). This route exists to show someone the lines that were
+    // just written, so it has to drain the buffer before reading — otherwise the
+    // newest ffmpeg-install lines would be missing from precisely the view
+    // someone opens to watch an install happen.
+    await flushLogLines()
     let raw = ''
     try {
       raw = await fs.readFile(logPath, 'utf-8')

@@ -385,8 +385,29 @@ const OPERATION_SUBJECTS: Record<string, string> = {
   'music.generation': 'A music track',
 }
 
+/**
+ * The same subjects as a countable plural, for a line standing in for many.
+ *
+ * Written out rather than derived by pluralising the singular, because "An
+ * image" → "images" is a string trick that produces "A narration parts" the
+ * moment the singular is worded any other way. Two lists that must be kept in
+ * step is a smaller problem than a rule that is wrong for half its inputs.
+ */
+const OPERATION_SUBJECTS_PLURAL: Record<string, string> = {
+  'image.generation': 'images',
+  'video.generation': 'video clips',
+  'voice.tts': 'narration parts',
+  'audio.transcription': 'transcription parts',
+  'chat.response': 'writing steps',
+  'music.generation': 'music tracks',
+}
+
 function subjectFor(remote: RemoteJobLike): string {
   return OPERATION_SUBJECTS[String(remote.operation || '')] || 'One item'
+}
+
+function pluralSubjectFor(remote: RemoteJobLike): string {
+  return OPERATION_SUBJECTS_PLURAL[String(remote.operation || '')] || 'items'
 }
 
 /**
@@ -421,6 +442,29 @@ function chargeSentence(remote: RemoteJobLike): string {
   return 'Nothing was charged'
 }
 
+/**
+ * The money for a GROUP of identical failures — the totals, added up here.
+ *
+ * The whole reason to collapse a run of identical lines is that the reader
+ * cannot add thirty-seven numbers by eye. A collapsed line that quoted one
+ * item's credits would be worse than the wall it replaced: it would look like
+ * the total and would not be one. Charges and refunds are reported separately
+ * because they are different facts, and a group can genuinely contain both.
+ */
+function groupChargeSentence(group: RemoteJobLike[]): string {
+  let charged = 0
+  let returned = 0
+  for (const remote of group) {
+    charged += numeric(remote.settled_credits)
+    returned += numeric(remote.released_credits)
+  }
+  const parts: string[] = []
+  if (charged > 0) parts.push(`${charged.toLocaleString()} credits were charged in total`)
+  if (returned > 0) parts.push(`${returned.toLocaleString()} credits were returned in total`)
+  if (!parts.length) return 'Nothing was charged'
+  return parts.join(' and ')
+}
+
 /** What happens next, read from the job's own retry state — never assumed. */
 function nextStepSentence(auto: AutoRetryLike | null | undefined, nowMs: number): string {
   if (auto?.eligible && !auto.exhausted) {
@@ -435,6 +479,22 @@ function nextStepSentence(auto: AutoRetryLike | null | undefined, nowMs: number)
   }
   if (auto?.exhausted) return 'The automatic attempts are used up — use Retry to run it again'
   return 'Use Retry to run it again'
+}
+
+/** The same sentence for a group, where "it" would be several things. */
+function groupNextStepSentence(auto: AutoRetryLike | null | undefined, nowMs: number): string {
+  if (auto?.eligible && !auto.exhausted) {
+    const at = millis(auto.next_retry_at)
+    if (at !== null) {
+      const seconds = Math.max(0, Math.round((at - nowMs) / 1000))
+      return seconds > 0
+        ? `They will retry automatically in ${seconds}s`
+        : 'They are retrying automatically now'
+    }
+    return 'They will retry automatically'
+  }
+  if (auto?.exhausted) return 'The automatic attempts are used up — use Retry to run them again'
+  return 'Use Retry to run them again'
 }
 
 function secondsUntil(iso: string | undefined, nowMs: number): number | null {
@@ -477,15 +537,62 @@ export function describeJobExceptions(
   }
 
   // Remote items the provider actually refused or failed.
-  let namedFailures = 0
-  for (const remote of job.genstudio_jobs || []) {
-    const failed = remoteState(remote) === 'failed' || !!remote.failure_code
-    if (!failed) continue
-    namedFailures++
+  //
+  // ── Why these are grouped ──
+  //
+  // "One line per exception" is the right rule and it stays. What it is NOT is
+  // "one line per record": a congestion window declined a hundred images for
+  // the same reason at the same moment, and the card printed a hundred
+  // byte-identical sentences. That is one exception that happened a hundred
+  // times, and rendering it a hundred times told the reader nothing the first
+  // line had not already told them — while burying every OTHER exception on the
+  // card underneath it, which is the actual harm. It also made the one number a
+  // person needs — how many, and how much came back — the one thing they had to
+  // work out by counting rows.
+  //
+  // Identical sentences collapse into one line carrying the count and the
+  // totals. Distinct sentences stay distinct, individually, exactly as before —
+  // a different reason is a different thing that went wrong and must be read.
+  // Nothing is truncated and nothing is hidden: every individual record is
+  // still listed, per item, in Technical details.
+  const failedRemotes = (job.genstudio_jobs || [])
+    .filter(remote => remoteState(remote) === 'failed' || !!remote.failure_code)
+  const namedFailures = failedRemotes.length
+
+  // Grouped by WHAT went wrong — the subject and the reason — and deliberately
+  // not by the exact credit figure. Two images declined for the same reason are
+  // one exception whether they refunded nine credits each or nine and twelve,
+  // and keying on the amount would let a batch with any variation in size
+  // rebuild the same wall this exists to remove. The money is not lost by
+  // grouping: it is added up and reported as a total, which is the figure a
+  // person actually wants and the one they cannot get by reading rows.
+  //
+  // The subject and the reason DO separate groups, because a different reason
+  // is a different thing that went wrong and the reader has to see it.
+  const groups = new Map<string, RemoteJobLike[]>()
+  for (const remote of failedRemotes) {
+    const signature = `${subjectFor(remote)}|${reasonFor(remote.failure_code)}`
+    const group = groups.get(signature)
+    if (group) group.push(remote)
+    else groups.set(signature, [remote])
+  }
+
+  let groupIndex = 0
+  for (const group of groups.values()) {
+    groupIndex++
+    const first = group[0]!
+    if (group.length === 1) {
+      lines.push({
+        key: `remote:${first.id || groupIndex}`,
+        text: `${subjectFor(first)} didn’t finish — ${reasonFor(first.failure_code)}.`
+          + ` ${chargeSentence(first)}. ${nextStepSentence(job.auto_retry, nowMs)}.`,
+      })
+      continue
+    }
     lines.push({
-      key: `remote:${remote.id || namedFailures}`,
-      text: `${subjectFor(remote)} didn’t finish — ${reasonFor(remote.failure_code)}.`
-        + ` ${chargeSentence(remote)}. ${nextStepSentence(job.auto_retry, nowMs)}.`,
+      key: `remote-group:${first.id || groupIndex}`,
+      text: `${group.length} ${pluralSubjectFor(first)} didn’t finish — ${reasonFor(first.failure_code)}.`
+        + ` ${groupChargeSentence(group)}. ${groupNextStepSentence(job.auto_retry, nowMs)}.`,
     })
   }
 

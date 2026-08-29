@@ -25,6 +25,7 @@ import { resolveGenStudioModelId } from './genstudio-model-migration.js'
 import { buildManifest, writeManifestCache, getMachineLabel } from './manifest.js'
 import { sanitizeProjectSlug } from './slug.js'
 import { getSoftDeletedSlugSet, forgetSoftDeletedProject } from './soft-delete.js'
+import { onAppSettingWritten } from './app-settings.js'
 import { randomUUID } from 'crypto'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -163,11 +164,63 @@ function readSettingSync(key: string): string {
   }
 }
 
+/**
+ * The resolved Library path, remembered between calls — and dropped the instant
+ * app-settings.json is written.
+ *
+ * ── What this replaces, and what it must not break ──
+ *
+ * `projectsRoot()` used to run `readSettingSync()` on EVERY call: an
+ * `existsSync`, a `readFileSync` and a `JSON.parse` of app-settings.json,
+ * synchronously, on the event loop. That was a deliberate choice with a real
+ * reason behind it — the path had to be correct the moment the user re-pointed
+ * their Library, and a memoised value would have gone stale. `listProjects()`
+ * alone calls into this once per candidate folder, so opening the home page did
+ * that read once per channel, and every one of them blocked the whole process.
+ * With the disk busy under an FFmpeg render, that is where the app stopped
+ * answering.
+ *
+ * The freshness contract is UNCHANGED and must stay that way. It is now kept by
+ * invalidation rather than by re-reading: `onAppSettingWritten` drops this the
+ * moment any setting is written, so the very next call re-reads from disk. The
+ * stale-path bug class the comment on `projectsRoot()` describes — a value
+ * frozen before the caller could point it somewhere else — must never come back;
+ * anything that can change where the Library is has to invalidate here.
+ *
+ * `STORY_STUDIO_DATA_DIR` is checked BEFORE this cache is ever consulted, so the
+ * test-isolation property is untouched: a test that claims a temp dir gets its
+ * own path with no file read and no cache involvement at all.
+ */
+let cachedLibraryRoot: string | null = null
+
+function invalidateProjectsRootCache(): void {
+  cachedLibraryRoot = null
+}
+
+// Registered once, at module load. Cheap (adds a callback to a Set) and does no
+// I/O, so it is safe in the "merely importing this module must touch nothing"
+// sense the comments throughout this file are protecting.
+onAppSettingWritten(invalidateProjectsRootCache)
+
+/** Exported for tests and for any caller that edits app-settings.json out of band. */
+export function refreshProjectsRoot(): void {
+  invalidateProjectsRootCache()
+}
+
 function resolveProjectsRoot(): string {
-  // Test override — highest priority so tests don't touch real data.
+  // Test override — highest priority so tests don't touch real data, and
+  // deliberately ahead of the cache: it is free, it changes between tests in one
+  // process, and it must never be remembered.
   if (process.env.STORY_STUDIO_DATA_DIR) {
     return path.join(process.env.STORY_STUDIO_DATA_DIR, 'projects')
   }
+  if (cachedLibraryRoot !== null) return cachedLibraryRoot
+  const resolved = readProjectsRootFromDisk()
+  cachedLibraryRoot = resolved
+  return resolved
+}
+
+function readProjectsRootFromDisk(): string {
   // v1.4.3 — the Library. The one place everything lives, chosen by the user
   // on first run rather than assumed: *"i don't want our app on a new computer
   // to use the default location … i don't have to hunt for the story studio
@@ -584,22 +637,47 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   const READ_TIMEOUT_MS = 30_000
   const summaries = await Promise.all(candidates.map(async (cand): Promise<ProjectSummary | null> => {
     const metaPath = path.join(cand.dir, 'project.json')
-    // A folder with no project.json is not a channel. That is the whole
-    // membership rule now.
-    if (!existsSync(metaPath)) return null
 
     let meta: ProjectMeta
     let timer: NodeJS.Timeout | undefined
+    let outputRoot: { path: string; exists: boolean }
     try {
       // Race the read against a 30s timeout. Clearing the timer in
       // `finally` is critical: an unbounded setTimeout keeps Node's
       // event loop alive past test completion (and after every
       // listProjects call in the running app), so the test runner hangs
       // and the dev process leaks pending timers per request.
-      const timeoutPromise = new Promise<ProjectMeta>((_, rej) => {
+      const timeoutPromise = new Promise<never>((_, rej) => {
         timer = setTimeout(() => rej(new Error('READ_TIMEOUT')), READ_TIMEOUT_MS)
       })
-      meta = await Promise.race<ProjectMeta>([readJson(metaPath), timeoutPromise])
+      // Both membership checks are INSIDE the race now, and both are async.
+      //
+      // They used to be bare synchronous `existsSync` calls sitting outside it:
+      // the presence of `project.json`, and the presence of `episodes/`. The
+      // timeout was written to stop one bad folder from hanging the home page,
+      // but it only ever guarded the JSON read in the middle — so a folder on a
+      // stalled volume blocked on the very first `existsSync`, before the race
+      // it was supposed to be protected by even began, and blocked the whole
+      // process while it did it because the call was synchronous. Two of the
+      // three disk touches per channel were outside the guard.
+      const readAll = (async () => {
+        // A folder with no project.json is not a channel. That is the whole
+        // membership rule now.
+        const present = await fs.access(metaPath).then(() => true, () => false)
+        if (!present) return null
+        const parsed = await readJson(metaPath) as ProjectMeta
+        // Still checked, deliberately. Removing the ability to CHOOSE the
+        // folder does not make the folder certain to be there — one whose
+        // `episodes/` was moved in Finder is still missing it. The whole point
+        // of the Origin Field fix was that the app must say so rather than
+        // render an empty channel, so the check stays; it is simply inside the
+        // timeout now, like everything else that touches this disk.
+        return { parsed, output: await resolveOutputRootAsync(cand.dir) }
+      })()
+      const raced = await Promise.race([readAll, timeoutPromise])
+      if (!raced) return null
+      meta = raced.parsed
+      outputRoot = raced.output
     } catch (e: any) {
       // The read never came back. Surface the row rather than dropping it, so
       // a channel that is there but unreadable is visible as a problem instead
@@ -633,12 +711,7 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 
     const secrets = await readSecrets(slug)
 
-    // Still checked, deliberately. Removing the ability to CHOOSE the folder
-    // does not make the folder certain to be there — a half-synced iCloud
-    // project, or one whose `episodes/` was moved in Finder, is still missing
-    // it. The whole point of the Origin Field fix was that the app must say so
-    // rather than render an empty channel, so the existsSync stays.
-    const { path: outputRootAbs, exists: outputRootExists } = resolveOutputRoot(cand.dir)
+    const { path: outputRootAbs, exists: outputRootExists } = outputRoot
 
     return {
       name: meta.name,
@@ -692,6 +765,23 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 export function resolveOutputRoot(projectDir: string): { path: string; exists: boolean } {
   const abs = path.join(projectDir, 'episodes')
   return { path: abs, exists: existsSync(abs) }
+}
+
+/**
+ * The async twin of `resolveOutputRoot`, for callers on a request path.
+ *
+ * Identical answer, computed without blocking the event loop. `listProjects`
+ * uses this so its existence check can sit inside the 30-second race that
+ * already guards the JSON read: a stalled volume then costs one slow row rather
+ * than a frozen process. The sync version stays for the callers that are not on
+ * a hot path and would gain nothing from an await.
+ */
+export async function resolveOutputRootAsync(
+  projectDir: string,
+): Promise<{ path: string; exists: boolean }> {
+  const abs = path.join(projectDir, 'episodes')
+  const exists = await fs.access(abs).then(() => true, () => false)
+  return { path: abs, exists }
 }
 
 export async function getProject(slug: string): Promise<ProjectMeta | null> {

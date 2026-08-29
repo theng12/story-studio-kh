@@ -110,12 +110,42 @@ export async function getAppSetting(key: string): Promise<any> {
   return settings[key]
 }
 
+/**
+ * Fired after any successful write to app-settings.json.
+ *
+ * Exists so a reader that CACHES a setting can drop its cache the moment the
+ * value changes, instead of re-reading the file on every access to stay honest.
+ * `projectsRoot()` is the reason: it read and parsed this file synchronously on
+ * every single call — dozens of hot paths, including the per-project loop behind
+ * the home page — purely to guarantee it never returned a stale Library path.
+ * The guarantee is worth keeping; paying for it with a blocking disk read per
+ * call was not. Subscribing here buys the same freshness for the price of one
+ * read per actual change.
+ *
+ * Listeners must not throw and must not be slow — a write is not the place to do
+ * work. Invalidate a variable; do not go and read anything.
+ */
+type AppSettingsWriteListener = (key: string) => void
+const writeListeners = new Set<AppSettingsWriteListener>()
+
+export function onAppSettingWritten(listener: AppSettingsWriteListener): () => void {
+  writeListeners.add(listener)
+  return () => { writeListeners.delete(listener) }
+}
+
+function announceWrite(key: string): void {
+  for (const listener of writeListeners) {
+    try { listener(key) } catch { /* a broken listener must never fail a write */ }
+  }
+}
+
 export async function setAppSetting(key: string, value: any): Promise<void> {
   await withLock(appSettingsPath(), async () => {
     const settings = await readSettings()
     settings[key] = value
     await writeSettings(settings)
   })
+  announceWrite(key)
 }
 
 // ── Voice presets + favourites (global, not per-project) ──────────────────

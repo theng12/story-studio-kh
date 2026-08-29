@@ -163,7 +163,7 @@ export function escapeFilterPath(p: string): string {
 // passing an explicit `-c:v <decoder>` input option makes the same file
 // decode instantly regardless of its extension.
 
-import { open as fsOpen } from 'fs/promises'
+import { open as fsOpen, access as fsAccess } from 'fs/promises'
 
 /** Identify a still image's real format from magic bytes (value = the ffmpeg
  *  decoder name). Null = not a decodable still image (corrupt / html error
@@ -199,7 +199,13 @@ export async function stillDecoderArgs(filePath: string): Promise<string[]> {
   // Missing file → no hint. ffmpeg fails INSTANTLY on a missing input with a
   // clear "No such file or directory" (no wedge risk) — and unit tests /
   // callers with not-yet-materialized paths keep the legacy arg shape.
-  if (!existsSync(filePath)) return []
+  // Async: this runs once per scene while an assembly job is already saturating
+  // the disk, and a synchronous existence check at that moment stops every other
+  // request in the process for as long as the disk takes to answer. The function
+  // is already async and already awaits a read on the next line, so there was
+  // never anything to preserve here except the habit.
+  const present = await fsAccess(filePath).then(() => true, () => false)
+  if (!present) return []
   const fmt = await sniffStillFormat(filePath)
   if (!fmt) {
     // Existing file with an unrecognizable signature WOULD wedge ffmpeg's

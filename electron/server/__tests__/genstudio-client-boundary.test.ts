@@ -1655,12 +1655,25 @@ test('GenStudio 1.2 control responses preserve published cancellation, settlemen
       'voice.tts', 'http://genstudio.test', 'test-key', fixture.id, {}, Date.now() + 1_000,
     )
     // v1.4.82 — every field round-trips EXCEPT remote prose describing our
-    // estate, which is replaced whole before it can reach a job card. The
-    // escalation time is the one useful fact in it, so it is carried across.
+    // estate, which is replaced whole before it can reach a job card.
+    //
+    // v1.4.83 — and no clock is carried out of it either. This fixture is the
+    // reason why, visible in its own data: the prose says "10:10" while the
+    // `stall_recovery_at` beside it is 03:10Z. Those describe the same deadline
+    // and do not agree, and nothing before now compared them — so the card
+    // printed both, hours apart, one from scraped digits in GenStudio's zone and
+    // one from the real timestamp in the reader's. Only the timestamp is used
+    // now, and it is rendered once.
     assert.equal(
       result.status_detail,
-      'Queued — waiting for capacity; automatic escalation at 10:10.',
+      'Queued — waiting for capacity. Nothing failed and nothing was charged.',
       'a detail naming placement/fleet must not reach the customer verbatim',
+    )
+    assert.doesNotMatch(String(result.status_detail), /10:10|\d{1,2}:\d{2}/,
+      'no clock may be scraped out of remote prose — the deadline is stall_recovery_at')
+    assert.equal(
+      result.stall_recovery_at, '2026-08-13T03:10:00Z',
+      'the authoritative deadline still round-trips untouched — it is what the card renders',
     )
     assert.equal(
       result.failure_detail,

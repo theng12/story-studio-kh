@@ -95,7 +95,27 @@
         <div class="channel-list-header">
           <h2 id="channels-heading">Channels</h2>
           <span>{{ projects.length }} {{ projects.length === 1 ? 'channel' : 'channels' }}</span>
+          <!-- Deliberately quiet, and deliberately not a spinner over the list.
+               The rows are usable while this is up; the only thing it changes is
+               that a slow read is visible instead of invisible. -->
+          <span v-if="refreshingChannels" class="channel-refreshing" aria-live="polite">Refreshing…</span>
         </div>
+
+        <p v-if="showingUnconfirmedChannels" class="channel-stale-notice" role="status">
+          <span>{{ projectsLoadError }} Showing the channels from your last visit until Story Studio answers.</span>
+          <span class="channel-stale-actions">
+            <button type="button" class="btn btn-sm" :disabled="projectsRetrying" @click="retryLoadProjects">
+              {{ projectsRetrying ? 'Checking…' : 'Try again' }}
+            </button>
+            <!-- The same way out the blank-state branch offers. Without it,
+                 having a remembered list would COST the user the escape hatch
+                 that a first-time visitor gets — the cache is meant to add a
+                 painted list, never to take away a route out of a stuck app. -->
+            <NuxtLink v-if="libraryMissing" to="/welcome" class="btn btn-sm btn-secondary">
+              Choose a different folder…
+            </NuxtLink>
+          </span>
+        </p>
 
         <div class="project-grid">
           <template v-for="project in projects" :key="String(project.slug || project.name)">
@@ -245,12 +265,33 @@
 
 <script setup lang="ts">
 import { projectSlug } from '~/utils/project-slug'
+import { readLastKnownList, writeLastKnownList } from '~/utils/last-known-list'
 
 useAppTitle()
 
 const { get, post, del } = useApi()
 const appSettingsModal = useAppSettingsModal()
-const projects = ref<any[]>([])
+
+/**
+ * The channel list paints from the last known one, then reconciles.
+ *
+ * This page used to start empty and hold a full-screen spinner until `/projects`
+ * answered. That read walks every channel folder on disk, and when the machine
+ * is also rendering video the disk is saturated — so the first thing the owner
+ * saw on opening his own app during a render was "Loading channels…" for as long
+ * as the disk took, with no way to tell a slow read from a dead one.
+ *
+ * The channel list is the one thing on this page that is almost never different
+ * from last time, so it is exactly the thing worth showing immediately. The
+ * server read still runs on every visit and still wins: anything it returns
+ * replaces what was painted. A true first run has no cache and gets the spinner
+ * it always got.
+ */
+const LAST_KNOWN_CHANNELS = 'channels'
+const cachedChannels = readLastKnownList<any>(LAST_KNOWN_CHANNELS)
+const projects = ref<any[]>(cachedChannels)
+/** True while what is on screen came from the cache and has not been confirmed. */
+const servingCachedChannels = ref(cachedChannels.length > 0)
 const loading = ref(true)
 const projectsLoadError = ref('')
 const projectsRetrying = ref(false)
@@ -331,10 +372,31 @@ function errorMessage(error: any, fallback: string): string {
   return error?.data?.detail || error?.message || fallback
 }
 
+/** A quiet line above the list while a read is in flight behind painted rows. */
+const refreshingChannels = computed(() => loading.value && projects.value.length > 0)
+/**
+ * The read failed but rows are on screen from the cache.
+ *
+ * This has to be said out loud. Painting a remembered list and then staying
+ * silent when the read fails is the worse failure of the two: the page would
+ * look perfectly healthy while showing something nobody had confirmed. The rows
+ * stay — they are still the best guess, and they are still clickable — but the
+ * page admits what it is showing and offers the retry.
+ */
+const showingUnconfirmedChannels = computed(() => (
+  !loading.value && !!projectsLoadError.value && projects.value.length > 0
+))
+
 async function loadProjects(): Promise<void> {
   loading.value = true
   try {
-    projects.value = await get<any[]>('/projects', { cache: 'no-store' })
+    const fresh = await get<any[]>('/projects', { cache: 'no-store' })
+    projects.value = fresh
+    // Reconciled, not merged. Whatever the server just said is the whole truth
+    // about which channels exist — a channel deleted elsewhere must disappear
+    // here, so the cache is REPLACED rather than added to.
+    writeLastKnownList(LAST_KNOWN_CHANNELS, fresh)
+    servingCachedChannels.value = false
     projectsLoadError.value = ''
     libraryMissing.value = false
     libraryMissingPath.value = ''
@@ -518,11 +580,33 @@ onMounted(async () => {
 .channel-list-header {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 14px;
 }
-.channel-list-header h2 { font-size: var(--font-xl); }
+.channel-list-header h2 { flex: 1; font-size: var(--font-xl); }
 .channel-list-header span { color: var(--text-secondary); font-size: var(--font-sm); }
+/* Quiet on purpose. A read that is merely slow is not news; a read that is slow
+   and invisible is what made the app look frozen. */
+.channel-list-header .channel-refreshing { color: var(--text-muted); font-size: var(--font-xs); font-style: italic; }
+
+/* Rows on screen that nobody has confirmed. Warning-weight rather than muted,
+   because the whole point is that the page must not look healthy while it is
+   showing a remembered list. */
+.channel-stale-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 9px 11px;
+  border-left: 2px solid var(--warning, #d97706);
+  border-radius: var(--radius-sm, 4px);
+  background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  line-height: 1.45;
+}
+.channel-stale-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
 
 .project-grid {
   display: grid;
