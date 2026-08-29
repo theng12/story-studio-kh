@@ -168,6 +168,7 @@
  */
 import type { GenStudioVoice } from '~/composables/useGenStudioVoices'
 import { voiceIsGenerable } from '~/composables/useGenStudioVoices'
+import { unverifiedSelectionLabel } from '~/utils/picker-trigger-label'
 
 interface VoiceStudioVoice {
   id: string
@@ -286,6 +287,13 @@ const localLoading = ref(false)
 const localError = ref('')
 const voiceStudioBaseUrl = ref('')
 const voicesAttempted = ref(false)
+/**
+ * Voice names this browser has seen, persisted across launches. Hydrated with no
+ * network call so the first paint after a cold start already has a name for the
+ * saved voice, and topped up from every successful catalogue read below.
+ */
+const rememberedVoiceNames = useRememberedVoiceNames()
+rememberedVoiceNames.hydrate()
 /** No `model_id` filter: every voice on the account, each naming its model. */
 const ALL_VOICES = ''
 const voicesReady = computed(() => !props.scopeToModel || !!props.ttsModelId)
@@ -379,8 +387,36 @@ const currentLocalVoice = computed(() => {
   }
   return localVoices.value.find(voice => voice.id === props.modelValue) || null
 })
-const currentVoiceName = computed(() =>
-  currentGenStudioVoice.value?.display_name || currentLocalVoice.value?.name || (props.modelValue || ''))
+/**
+ * The name on the closed trigger.
+ *
+ * The last term used to be `props.modelValue`, which is a raw GenStudio voice id
+ * (or a `vsname:` transport prefix for a pooled local voice). Whenever the voice
+ * catalogue failed to load — GenStudio unreachable, the local voice service
+ * down, an expired key — the picker fell straight through to it and showed the
+ * customer an internal handle in the place where the name of their voice goes.
+ * Unlike the model picker, this one had no fallback machinery at all.
+ *
+ * It has the same one now: names this browser has seen are remembered across
+ * launches, and where the app cannot confirm the voice is still served it says
+ * so in the label rather than pretending, or worse, showing the id. Nothing here
+ * touches what may be SUBMITTED — an unconfirmed voice is still checked by the
+ * server at generation time exactly as before.
+ */
+const currentVoiceName = computed(() => {
+  const live = currentGenStudioVoice.value?.display_name || currentLocalVoice.value?.name
+  if (live) return live
+  // `reconcileSelection` already clears a selection the loaded list does not
+  // serve, so a value still sitting here against a non-empty list is the
+  // picker's own business, not a failure.
+  return unverifiedSelectionLabel({
+    savedId: props.modelValue || '',
+    catalogueSize: isGenStudioScope.value ? voices.value.length : localVoices.value.length,
+    loading: voiceListLoading.value,
+    rememberedName: rememberedVoiceNames.knownName(props.modelValue),
+    unknownNoun: 'Saved voice',
+  })
+})
 const currentVoiceProviderLabel = computed(() =>
   currentGenStudioVoice.value ? voiceProviderText(currentGenStudioVoice.value) : '')
 const currentVoiceSaved = computed(() => currentGenStudioVoice.value?.is_saved === true)
@@ -423,6 +459,12 @@ async function loadLocalVoices() {
       localVoices.value = Array.isArray(data.voices) ? data.voices : []
       voiceStudioBaseUrl.value = data.baseUrl || ''
     }
+    // Keyed by the ENCODED id — the same string that lands in `modelValue` — so
+    // a pooled voice saved as `vsname:…` reads back as its name and never as its
+    // transport prefix.
+    rememberedVoiceNames.remember(
+      localVoices.value.map(voice => ({ id: encodedLocalVoice(voice), name: voice.name })),
+    )
   } catch (error: any) {
     localVoices.value = []
     localError.value = error?.data?.detail || error?.message || 'The local voice service is unavailable.'
@@ -448,6 +490,10 @@ async function loadGenStudioVoices() {
     '',
     voiceFilter.value === 'cloned' ? 'cloned' : '',
   )
+  // Every successful read is a chance to learn a name — including the selected
+  // voice's, which is what this picker falls back on the next time the read
+  // fails.
+  rememberedVoiceNames.remember(voices.value.map(voice => ({ id: voice.id, name: voice.display_name })))
   emit('catalog-updated', voices.value)
   reconcileSelection()
 }

@@ -56,10 +56,28 @@ const catalogCache = createGenStudioCatalogCache<Record<string, GenStudioDisplay
  * gateway suffix would survive forever on exactly the rows (old jobs, old usage)
  * that this map exists to name.
  */
-function readRememberedLabels(): Record<string, string> {
-  if (!import.meta.client) return {}
+/**
+ * The store, or null where there isn't one.
+ *
+ * A capability check rather than `import.meta.client`. What this code needs to
+ * know is whether a storage exists — and asking that question directly is both
+ * more honest and testable, where a build constant is neither. Private windows,
+ * cleared site data and browsers set to block site data all land here too, and
+ * all get the same answer: no remembered names.
+ */
+function store(): Storage | null {
   try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}')
+    return typeof localStorage === 'undefined' ? null : localStorage
+  } catch {
+    return null
+  }
+}
+
+function readRememberedLabels(): Record<string, string> {
+  const storage = store()
+  if (!storage) return {}
+  try {
+    const parsed = JSON.parse(storage.getItem(STORAGE_KEY) || '{}')
     if (!parsed || typeof parsed !== 'object') return {}
     const healed: Record<string, string> = {}
     for (const [id, label] of Object.entries(parsed as Record<string, unknown>)) {
@@ -74,8 +92,9 @@ function readRememberedLabels(): Record<string, string> {
 }
 
 function rememberLabels(next: Record<string, string>): void {
-  if (!import.meta.client) return
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* best effort */ }
+  const storage = store()
+  if (!storage) return
+  try { storage.setItem(STORAGE_KEY, JSON.stringify(next)) } catch { /* best effort */ }
 }
 
 /**
@@ -85,6 +104,62 @@ function rememberLabels(next: Record<string, string>): void {
  * customer-facing one.
  */
 export function useGenStudioModelDisplay() {
+  /**
+   * Load the persisted map into memory WITHOUT touching the network.
+   *
+   * `refresh()` merges the remembered labels on its way to a catalogue read, so
+   * before this existed a caller that never fetched all five catalogues saw an
+   * empty map — even though the browser had names for these very ids saved from
+   * a previous launch. A picker whose own catalogue read just failed is exactly
+   * that caller, and it is the one case where the remembered name is the only
+   * thing standing between the customer and a raw internal product id.
+   *
+   * Idempotent and cheap; safe to call on every mount. Never overwrites a name
+   * this session already resolved live.
+   */
+  function hydrate(): void {
+    const remembered = readRememberedLabels()
+    if (!Object.keys(remembered).length) return
+    labels.value = { ...remembered, ...labels.value }
+  }
+
+  /**
+   * Record names from ANY successful catalogue read, not just the five-endpoint
+   * one `refresh()` performs. Every picker in the app reads some slice of the
+   * catalogue for itself; each of those reads is a chance to learn a name, and
+   * the name it learns is what the next failed read will fall back on.
+   */
+  function remember(entries: Array<{ id?: unknown; label?: unknown; legacy_ids?: unknown }>): void {
+    const next: Record<string, string> = {}
+    for (const entry of entries || []) {
+      const label = typeof entry?.label === 'string' ? plainGenStudioModelName(entry.label) : ''
+      if (!label) continue
+      const ids = [entry?.id, ...(Array.isArray(entry?.legacy_ids) ? entry.legacy_ids : [])]
+      for (const rawId of ids) {
+        const id = typeof rawId === 'string' ? rawId.trim() : ''
+        if (id) next[id] = label
+      }
+    }
+    if (!Object.keys(next).length) return
+    labels.value = { ...readRememberedLabels(), ...labels.value, ...next }
+    rememberLabels(labels.value)
+  }
+
+  /**
+   * The remembered name, or '' — NEVER the raw id.
+   *
+   * `displayName()` echoes the id when it has no name, which is right for a log
+   * row whose whole job is to identify a record. It is wrong for a control the
+   * customer reads as "the model I picked": there, an unrecognised id must
+   * produce nothing, so the caller can say something true instead of presenting
+   * an internal handle as a product name.
+   */
+  function knownName(modelId: unknown): string {
+    const id = typeof modelId === 'string' ? modelId.trim() : ''
+    if (!id) return ''
+    return labels.value[id] || readRememberedLabels()[id] || ''
+  }
+
   async function refresh(force = false): Promise<void> {
     const remembered = { ...readRememberedLabels(), ...labels.value }
     await catalogCache.refresh(force)
@@ -117,6 +192,9 @@ export function useGenStudioModelDisplay() {
     isStale: catalogCache.isStale,
     isExpired: catalogCache.isExpired,
     refresh,
+    hydrate,
+    remember,
+    knownName,
     displayName,
     hasReadableName,
   }

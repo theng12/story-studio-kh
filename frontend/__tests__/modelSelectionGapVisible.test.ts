@@ -115,10 +115,16 @@ describe('ModelMenu — a pinned model that left the catalogue', () => {
       /deleted-by-dedupe/,
       'the raw dead id must not be presented as the chosen model name',
     )
-    // Still recoverable — the user has to be able to find out WHICH product went.
-    assert.match(
-      host.querySelector('.model-menu-trigger')!.getAttribute('title') || '',
-      /deleted-by-dedupe/,
+    // v1.4.83 — nor in the tooltip. The id used to be echoed here on the
+    // reasoning that the user has to be able to find out WHICH product went;
+    // that reason is sound and is served by the gap SENTENCE below the field,
+    // which names the product inside an explanation. A bare handle hovering over
+    // a control is not an explanation — it is the same leak, one interaction
+    // further away.
+    assert.equal(
+      host.querySelector('.model-menu-trigger')!.getAttribute('title'),
+      'No longer offered',
+      'the tooltip shows what the trigger shows — never a raw product handle',
     )
     assert.ok(host.querySelector('.model-menu-current.missing'), 'the dead pin is marked, not styled as a settled choice')
     unmount()
@@ -140,15 +146,47 @@ describe('ModelMenu — a pinned model that left the catalogue', () => {
     unmount()
   })
 
-  test('without the flag the trigger still echoes the id — a loading catalogue is not a dead pin', async () => {
+  test('a loading catalogue is not a dead pin — and still never shows the id', async () => {
     // Options are legitimately empty while the catalogue read is in flight. A
-    // menu that called its own saved value dead on every open would cry wolf.
+    // menu that called its own saved value dead on every open would cry wolf,
+    // so the dead-pin marking stays off. That part is unchanged.
+    //
+    // What changed in v1.4.83 is what it says instead. It used to echo the saved
+    // id — the last term of the label chain was `props.modelValue` — which meant
+    // a raw product handle sat on the trigger for the whole of every load, and
+    // stayed there permanently if the load FAILED, since nothing else ever
+    // replaced it. The host supplies a remembered name where it has one; with
+    // nothing remembered, the loading word is the honest answer.
     const { host, unmount } = await mountModelMenu({
       modelValue: 'writer-steady',
       options: [],
       loading: true,
     })
-    assert.equal(host.querySelector('.model-menu-current strong')!.textContent, 'writer-steady')
+    const trigger = host.querySelector('.model-menu-current strong')!
+    assert.equal(trigger.textContent, 'Loading models…')
+    assert.doesNotMatch(trigger.textContent || '', /writer-steady/)
+    assert.equal(host.querySelector('.model-menu-current.missing'), null)
+    unmount()
+  })
+
+  test('a failed catalogue read shows the remembered name, marked unverified', async () => {
+    // The state nothing covered: the read is over, it failed, `options` is empty
+    // and there is no dead-pin flag (nobody has seen a catalogue, so calling the
+    // pin dead would be a lie). This is where the id used to be printed.
+    const { host, unmount } = await mountModelMenu({
+      modelValue: 'writer-steady',
+      options: [],
+      loading: false,
+      unverifiedSelectionLabel: 'Steady Writer (unverified — catalog unavailable)',
+    })
+    const trigger = host.querySelector('.model-menu-current strong')!
+    assert.equal(trigger.textContent, 'Steady Writer (unverified — catalog unavailable)')
+    assert.doesNotMatch(trigger.textContent || '', /writer-steady/)
+    assert.equal(
+      host.querySelector('.model-menu-trigger')!.getAttribute('title'),
+      'Steady Writer (unverified — catalog unavailable)',
+    )
+    // Not a dead pin: this is an unread catalogue, not a retired product.
     assert.equal(host.querySelector('.model-menu-current.missing'), null)
     unmount()
   })
@@ -209,6 +247,14 @@ async function mountModelSelector(modelValue: string, catalog: unknown) {
       if (catalog instanceof Error) throw catalog
       return catalog
     },
+  })
+  // Same treatment for the remembered-name store. The real one is backed by
+  // localStorage and is exercised in `pickerRawIdLeak.test.ts`; here it is stubbed
+  // so these tests vary only the catalogue, which is what they are about.
+  ;(globalThis as any).useGenStudioModelDisplay = () => ({
+    hydrate: () => {},
+    remember: () => {},
+    knownName: () => '',
   })
   const app = createApp(await loadModelSelector(), { modelValue, projectSlug: 'demo' })
   app.component('ModelMenu', ModelMenuSpy)

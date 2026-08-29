@@ -7,7 +7,7 @@
       :disabled="disabled || (loading && !options.length)"
       :aria-expanded="expanded"
       aria-haspopup="listbox"
-      :title="selectedOption?.label || modelValue || placeholder"
+      :title="triggerLabel"
       @click="toggle"
     >
       <span class="model-menu-kind" aria-hidden="true">{{ kindLabel }}</span>
@@ -158,6 +158,7 @@ import {
   type GenStudioCostTier,
 } from '../utils/genstudio-cost-tier'
 import { groupMenuOptions } from '../utils/genstudio-relaxed-queue'
+import { pickerTriggerLabel } from '../utils/picker-trigger-label'
 
 interface ModelMenuBadge {
   label: string
@@ -204,15 +205,28 @@ const props = withDefaults(defineProps<{
    * What to show on the trigger when `modelValue` names a product this menu's
    * options no longer contain.
    *
-   * Empty by default, which keeps the long-standing behaviour of echoing the
-   * raw id — during a load the options are legitimately empty and the saved id
-   * is all there is to show. An owner that KNOWS the id is dead (it has the
-   * catalogue and the id is not in it) sets this, and the trigger stops
-   * presenting a dead id as though it were a chosen model. The raw id stays
-   * reachable as the trigger's title, because the user still needs to know
-   * which product went away.
+   * Empty by default. An owner that KNOWS the id is dead (it has the catalogue
+   * and the id is not in it) sets this, and the trigger stops presenting a dead
+   * id as though it were a chosen model.
+   *
+   * Which product went away is told to the user in full sentences beside the
+   * control (`selection-gap` in ModelSelector). It is deliberately NOT echoed
+   * here as a raw id: an internal product handle is not a name, and a customer
+   * reading `gemini-3.1-flash-lite-discount` on the trigger — or in its tooltip
+   * — learns nothing except that the app is showing them plumbing.
    */
   missingSelectionLabel?: string
+  /**
+   * What to show on the trigger when the catalogue could not be read at all.
+   *
+   * The owner (ModelSelector / any picker host) supplies a complete sentence
+   * built from the name this browser remembers for the saved id — e.g.
+   * `Claude Fable 5 (unverified — catalog unavailable)`. It wins over the
+   * loading label so a returning user sees the model they chose rather than a
+   * spinner-word, and it is the ONLY thing standing in for a selection whose
+   * catalogue row is missing for a reason other than retirement.
+   */
+  unverifiedSelectionLabel?: string
 }>(), {
   mediaType: 'llm',
   title: 'Choose a model',
@@ -225,6 +239,7 @@ const props = withDefaults(defineProps<{
   catalogNotice: '',
   catalogNoticeHref: '',
   missingSelectionLabel: '',
+  unverifiedSelectionLabel: '',
 })
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -253,11 +268,27 @@ const selectedOption = computed(() => props.options.find(option => option.id ===
 const showingMissingSelection = computed(() => (
   !selectedOption.value && !!props.modelValue && !!props.missingSelectionLabel
 ))
-/** The trigger's headline: the chosen model, the dead-pin label, or the id. */
-const triggerLabel = computed(() => {
-  if (showingMissingSelection.value) return props.missingSelectionLabel
-  return selectedOption.value?.label || props.modelValue || (props.loading ? props.loadingLabel : props.placeholder)
-})
+/**
+ * The trigger's headline.
+ *
+ * A raw product id can never come out of here. It used to: the last term of the
+ * old expression was `props.modelValue`, so any state where the options did not
+ * contain the saved id — a catalogue read that FAILED being the common one, and
+ * the one nothing else covered — put an internal handle like
+ * `gemini-3.1-flash-lite-discount` on screen as though it were the name of the
+ * customer's model. Every fallback below is a sentence a person can read; the
+ * host supplies `unverifiedSelectionLabel` from the name this browser
+ * remembers, and where even that is unknown the honest answer is the loading
+ * word or the placeholder, never the handle.
+ */
+const triggerLabel = computed(() => pickerTriggerLabel({
+  selectedLabel: selectedOption.value?.label,
+  missingLabel: showingMissingSelection.value ? props.missingSelectionLabel : '',
+  unverifiedLabel: props.unverifiedSelectionLabel,
+  loading: props.loading,
+  loadingLabel: props.loadingLabel,
+  placeholder: props.placeholder,
+}))
 const selectedAccessBadges = computed(() => (
   selectedOption.value?.badges?.filter(badge => badge.label.startsWith('∞')) || []
 ))

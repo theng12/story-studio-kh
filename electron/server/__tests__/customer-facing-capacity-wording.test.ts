@@ -97,15 +97,49 @@ describe('customer-facing capacity wording (v1.4.82)', () => {
     // The exact shape the owner saw on a card.
     assert.equal(
       customerSafeRemoteDetail('waiting for a worker; no site has accepted this job yet; placement window closes at 14:32'),
-      'Queued — waiting for capacity; automatic escalation at 14:32.',
+      'Queued — waiting for capacity. Nothing failed and nothing was charged.',
     )
-    // No time in the original → no invented time in the replacement.
     assert.equal(
       customerSafeRemoteDetail('All machines in the fleet are busy.'),
       'Queued — waiting for capacity. Nothing failed and nothing was charged.',
     )
-    // A single-digit hour is normalised rather than printed as "9:05".
-    assert.match(customerSafeRemoteDetail('no site free; window closes 9:05'), /at 09:05\.$/)
+  })
+
+  /**
+   * v1.4.83 — no clock is carried out of GenStudio's prose.
+   *
+   * v1.4.82 scraped an `HH:MM` out of the sentence being discarded, on the
+   * reasoning that the escalation deadline was the one useful fact in it. The
+   * fact was useful; the scrape was not. The pattern was unanchored, so it took
+   * the first clock-shaped substring anywhere in the sentence whether or not
+   * that was the deadline, and it reprinted the digits with no timezone
+   * conversion — beside a time the card had already rendered in the reader's
+   * own zone from `stall_recovery_at`. A customer saw:
+   *
+   *     Queued — waiting for capacity; automatic escalation at 00:00.
+   *     GenStudio will step in Today 10:24:24 PM.
+   *
+   * Two clocks, one deadline, disagreeing. The deadline was never in doubt —
+   * `stall_recovery_at` is a real timestamp on the same record, and the card
+   * renders it correctly. Guessing at a duplicate of a value we already hold
+   * exactly is not worth one wrong number in front of a customer.
+   */
+  test('no time is scraped out of remote prose, whatever it contains', async () => {
+    const { customerSafeRemoteDetail } = await import('../lib/genstudio-client.js')
+    const settled = 'Queued — waiting for capacity. Nothing failed and nothing was charged.'
+    for (const raw of [
+      'no site free; window closes 9:05',
+      'waiting for a worker; placement window closes at 14:32',
+      // The shape that produced the bug: a clock-like substring that is NOT the
+      // deadline, sitting earlier in the sentence than the one that is.
+      'fleet queue depth 00:00 since last drain; placement window closes at 22:24',
+      'All nodes busy at 23:59:59.',
+    ]) {
+      assert.equal(customerSafeRemoteDetail(raw), settled)
+      assert.doesNotMatch(customerSafeRemoteDetail(raw), /\d{1,2}:\d{2}/,
+        `a clock reached the customer from remote prose: ${raw}`)
+      assert.doesNotMatch(customerSafeRemoteDetail(raw), /escalation/i)
+    }
   })
 
   test('detail that says nothing about our estate is left exactly as written', async () => {

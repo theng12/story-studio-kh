@@ -18,7 +18,8 @@ import './boot/providers.js'              // side-effect: self-register provider
 import { mountRoutes } from './routes/index.js'
 import { registerAllExecutors } from './boot/executors.js'
 import { runBootMigrations, isBootComplete } from './boot/migrations.js'
-import { logLine } from './services/logger.js'
+import { logLine, startLogPruning } from './services/logger.js'
+import { applyServerTimeouts, requestDeadline } from './lib/server-timeouts.js'
 import { migrateLegacyProjects } from './services/project-manager.js'
 import { applySecurityHeaders, requireAllowedHost } from './lib/security.js'
 import { isServerMode, getServerModeConfig } from './lib/server-mode.js'
@@ -84,7 +85,18 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }))
 app.use(express.text({ type: 'text/plain', limit: '2mb' }))
 
+// A request that never answers gets a 503 with a sentence in it instead of an
+// endless spinner. Mounted before the routes and after the body parsers so it
+// covers every handler; streams and in-flight responses are exempt by
+// construction (see lib/server-timeouts.ts).
+app.use(requestDeadline())
+
 // Request logging — method/path/status/duration to the daily log file.
+//
+// The write is buffered and lands off the event loop. It used to be an
+// `fs.mkdirSync` plus an `fs.appendFileSync` HERE, on every request — two
+// synchronous disk calls on the hot path of a server whose own disk is
+// routinely saturated by video rendering. See services/logger.ts.
 app.use((req, res, next) => {
   const start = Date.now()
   res.on('finish', () => {
@@ -226,10 +238,15 @@ if (shouldListen) {
   } catch (e) {
     console.warn('[projects] legacy migration failed:', e)
   }
-  app.listen(PORT, () => {
+  // The old sweep of expired log files ran inside the request logger, on
+  // whichever request happened to cross the hour boundary. Housekeeping belongs
+  // on a timer, not on the path a person is waiting on.
+  startLogPruning()
+  const server = app.listen(PORT, () => {
     console.log(`Story Studio API running on http://localhost:${PORT}`)
     console.log(`API docs: http://localhost:${PORT}/api/health`)
   })
+  void applyServerTimeouts(server)
 }
 
 export { app, PORT }

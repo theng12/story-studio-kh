@@ -1110,6 +1110,24 @@ function genStudioQueueLabel(
   return GENSTUDIO_QUEUE_LABELS[state] || String(state).replace(/_/g, ' ')
 }
 
+/**
+ * The one sentence a card shows about what GenStudio is doing, and when.
+ *
+ * ── One deadline, said once (1.4.83) ──
+ *
+ * This used to print two clocks for the same moment and let them disagree. The
+ * server's `status_detail` arrived with "…automatic escalation at 00:00."
+ * already baked into it — a time scraped out of GenStudio's own prose by an
+ * unanchored pattern, in GenStudio's timezone — and then this function appended
+ * a second sentence built from `stall_recovery_at`, the real timestamp for that
+ * same deadline, in the reader's timezone. A customer saw both, side by side,
+ * hours apart.
+ *
+ * The scrape is gone (see `customerSafeRemoteDetail`). The deadline is stated
+ * here, once, from the timestamp — and `formatTime` is the same helper every
+ * other time on this page goes through, so it is in the reader's timezone like
+ * all of them. Where there is no timestamp, no time is claimed.
+ */
 function genStudioStatusDetail(job: RJob): string {
   const remote = [...(job.genstudio_jobs || [])].reverse().find(item => item.status_detail || item.failure_detail)
   if (!remote) return ''
@@ -1119,7 +1137,7 @@ function genStudioStatusDetail(job: RJob): string {
   if (typeof remote.retry_after_seconds === 'number' && remote.retry_after_seconds > 0) {
     return `${detail} Retry in ${Math.ceil(remote.retry_after_seconds)} seconds.`
   }
-  if (remote.stall_recovery_at) return `${detail} GenStudio will intervene ${formatTime(remote.stall_recovery_at)}.`
+  if (remote.stall_recovery_at) return `${detail} GenStudio will step in ${formatTime(remote.stall_recovery_at)}.`
   return detail
 }
 

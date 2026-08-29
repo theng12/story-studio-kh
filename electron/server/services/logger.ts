@@ -52,8 +52,18 @@ function currentLogFile(): string {
 /** Delete log files older than 7 days. Covers both request logs
  *  (`server-YYYY-MM-DD.log`) and main-process crash logs
  *  (`main-YYYY-MM-DD.log`, introduced alongside the uncaughtException
- *  handler in `main.ts`). Any other `.log` file in this dir is left alone. */
-function pruneOldLogs() {
+ *  handler in `main.ts`). Any other `.log` file in this dir is left alone.
+ *
+ *  ── Why this is async and why it is no longer called from `logLine` ──
+ *
+ *  This is a directory listing plus a stat and an unlink per file. It used to
+ *  run INSIDE the request logger, hourly, on whichever unlucky request happened
+ *  to cross the hour boundary — synchronously, on the event loop, which meant
+ *  that request and every other request in flight stopped dead until the disk
+ *  answered. On a machine whose disk is saturated by an FFmpeg render, that is
+ *  not milliseconds. Sweeping old logs is housekeeping; it has no business on
+ *  the path a person is waiting on. */
+export async function pruneOldLogs(): Promise<void> {
   const dir = resolveLogDir()
   // Outside the try/catch below on purpose: under the node test runner, a
   // prune whose directory falls outside the claimed temp data dir must fail
@@ -62,27 +72,97 @@ function pruneOldLogs() {
   assertWriteIsolatedInTests(dir, 'logger')
   try {
     const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
-    for (const name of fs.readdirSync(dir)) {
+    for (const name of await fs.promises.readdir(dir)) {
       if (!name.endsWith('.log')) continue
       if (!name.startsWith('server-') && !name.startsWith('main-')) continue
       const full = path.join(dir, name)
-      const stat = fs.statSync(full)
-      if (stat.mtimeMs < cutoff) fs.unlinkSync(full)
+      try {
+        const stat = await fs.promises.stat(full)
+        if (stat.mtimeMs < cutoff) await fs.promises.unlink(full)
+      } catch { /* a file that vanished under us needs no pruning */ }
     }
   } catch {}
 }
 
-let prunedAt = 0
-function maybePrune() {
-  const now = Date.now()
-  if (now - prunedAt > 60 * 60 * 1000) {
-    prunedAt = now
-    pruneOldLogs()
+const PRUNE_INTERVAL_MS = 60 * 60 * 1000
+let pruneTimer: NodeJS.Timeout | null = null
+
+/**
+ * Start the hourly log sweep. Called once from a real server boot, never at
+ * module load — importing this module (which every test that touches a route
+ * does) must not start a timer or touch the filesystem. Same shape as the
+ * live-output flush timer in `services/job-queue.ts`; `.unref()` keeps it from
+ * holding the process alive at shutdown.
+ */
+export function startLogPruning(): void {
+  if (pruneTimer) return
+  void pruneOldLogs()
+  pruneTimer = setInterval(() => { void pruneOldLogs() }, PRUNE_INTERVAL_MS)
+  pruneTimer.unref()
+}
+
+export function stopLogPruning(): void {
+  if (!pruneTimer) return
+  clearInterval(pruneTimer)
+  pruneTimer = null
+}
+
+/**
+ * The open append stream for the current log file, or null if it could not be
+ * opened.
+ *
+ * ── Why a stream, and why it is keyed on the target path ──
+ *
+ * `logLine` ran `mkdirSync` + `appendFileSync` on EVERY request. Two synchronous
+ * disk operations, on the event loop, per request, forever. While FFmpeg is
+ * saturating the disk those calls do not return promptly, and because they are
+ * synchronous nothing else in the process runs while they wait — which is how a
+ * video render made the home page appear frozen. A request logger blocking the
+ * server it is logging is a plain defect, not a tuning question.
+ *
+ * The stream is keyed on the full target path rather than memoised once. That is
+ * not incidental: `resolveLogDir()` is deliberately re-resolved on every call
+ * (see its comment) because `STORY_STUDIO_DATA_DIR` changes underneath us in
+ * tests, and the date in the filename rolls at midnight. Keying on the resolved
+ * path means both of those reopen the stream instead of writing to the wrong
+ * file, and the mkdir happens once per file rather than once per request.
+ */
+let streamTarget = ''
+let stream: fs.WriteStream | null = null
+
+function streamFor(target: string): fs.WriteStream | null {
+  if (streamTarget === target && stream && !stream.destroyed) return stream
+  if (stream) {
+    try { stream.end() } catch { /* closing a broken stream is not worth failing over */ }
   }
+  stream = null
+  streamTarget = target
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true })
+    const next = fs.createWriteStream(target, { flags: 'a' })
+    // A stream that errors (disk full, directory removed under us) must not
+    // throw asynchronously and take the process down. Drop it; the next line
+    // reopens.
+    next.on('error', () => {
+      if (stream === next) { stream = null; streamTarget = '' }
+    })
+    stream = next
+  } catch {
+    stream = null
+    streamTarget = ''
+  }
+  return stream
+}
+
+/** Close the open log stream. Exported for tests and orderly shutdown. */
+export function closeLogStream(): void {
+  if (!stream) return
+  try { stream.end() } catch { /* noop */ }
+  stream = null
+  streamTarget = ''
 }
 
 export function logLine(level: 'info' | 'warn' | 'error', message: string, meta?: Record<string, any>) {
-  maybePrune()
   const entry = {
     ts: new Date().toISOString(),
     level,
@@ -94,10 +174,33 @@ export function logLine(level: 'info' | 'warn' | 'error', message: string, meta?
   // Outside the try/catch below on purpose — see pruneOldLogs above.
   assertWriteIsolatedInTests(target, 'logger')
   try {
-    fs.mkdirSync(path.dirname(target), { recursive: true })
-    fs.appendFileSync(target, line)
+    // `write()` buffers and returns immediately; the disk work happens off the
+    // event loop. A full buffer is back-pressure to be ignored here — dropping
+    // a log line is strictly better than stalling a request to record one.
+    streamFor(target)?.write(line)
   } catch {}
   if (level === 'error') console.error(line.trim())
+}
+
+/**
+ * Flush anything buffered in the open stream to disk.
+ *
+ * Writes are asynchronous now, so a caller that must READ the log file back —
+ * a test, a support-bundle export — has to wait for the buffer to drain first.
+ * Resolves immediately when there is nothing open.
+ */
+export async function flushLogLines(): Promise<void> {
+  const open = stream
+  if (!open || open.destroyed) return
+  if (!open.writableLength) return
+  await new Promise<void>((resolve) => {
+    const done = () => resolve()
+    open.once('drain', done)
+    open.once('error', done)
+    open.once('close', done)
+    // Never hang a caller on a stream that will not drain.
+    setTimeout(done, 2_000).unref()
+  })
 }
 
 export function getLogDir(): string {

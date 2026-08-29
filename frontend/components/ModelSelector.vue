@@ -15,6 +15,7 @@
       aria-label="LLM model options"
       :catalog-notice="selectionGap"
       :missing-selection-label="selectionGap ? 'No longer offered' : ''"
+      :unverified-selection-label="unverifiedSelectionLabel"
       @update:model-value="selectModel"
     />
     <p v-if="loadError" class="catalog-message">{{ loadError }}</p>
@@ -56,6 +57,7 @@ import {
   type RelaxedQueueHint,
 } from '../utils/genstudio-relaxed-queue.js'
 import { describeModelRetirement, isRetiring } from '../utils/genstudio-model-retirement.js'
+import { unverifiedSelectionLabel as unverifiedLabel } from '../utils/picker-trigger-label.js'
 
 interface LlmModelRow {
   id: string
@@ -154,6 +156,47 @@ const loadError = ref('')
  * user who never opens the menu still learns their pin is dead.
  */
 const selectionGap = ref('')
+
+/**
+ * Names this browser has seen for GenStudio products, persisted across launches.
+ *
+ * Hydrated (no network) on mount so the very first paint after a cold start
+ * already has a name for the saved model, and topped up from every successful
+ * catalogue read below.
+ *
+ * Auto-imported, like `useApi` and every other composable this app uses from a
+ * component. An explicit relative import would also work in the app and break
+ * the in-process SFC compiler the picker tests run under, which resolves the
+ * component's own `../utils/…` imports but has no Nuxt runtime to hand it a
+ * composable.
+ */
+const rememberedNames = useGenStudioModelDisplay()
+rememberedNames.hydrate()
+
+/**
+ * What the trigger says when the catalogue could not be read at all.
+ *
+ * This is the failure the picker had no answer for. `loadModels` empties
+ * `allModels` on a rejected read and — because there is no catalogue to compare
+ * against — deliberately does NOT run the "no longer offered" branch, which
+ * would be a lie about a catalogue nobody has seen. That left `ModelMenu` with a
+ * `modelValue` and no matching option, and its old last-resort was to render the
+ * id itself.
+ *
+ * The name comes from what this browser remembers, and the parenthetical is not
+ * decoration: the app genuinely cannot confirm this product is still published
+ * or still priced the way it was, and the customer is entitled to know that
+ * before they read the label as settled fact. The money-fence is untouched — a
+ * submission against a catalogue we could not read is still refused by the
+ * server; this only governs what the control is allowed to SAY.
+ */
+const unverifiedSelectionLabel = computed(() => unverifiedLabel({
+  savedId: props.modelValue,
+  catalogueSize: allModels.value.length,
+  loading: loading.value,
+  rememberedName: rememberedNames.knownName(props.modelValue),
+  unknownNoun: 'Saved model',
+}))
 
 function isDisabled(model: LlmModelRow): boolean {
   return !isUsableLiveGenStudioModel(model, props.requireVision === true)
@@ -291,6 +334,10 @@ async function loadModels(force = false): Promise<void> {
   try {
     const models = await get<LlmModelRow[]>(`/models?project=${props.projectSlug}`)
     allModels.value = models
+    // Every successful read is a chance to learn a name. The one that matters is
+    // the CURRENTLY selected model's: it is what this picker will have to fall
+    // back on the next time this read fails.
+    rememberedNames.remember(models)
     syncModelSelection()
   } catch (error: any) {
     allModels.value = []

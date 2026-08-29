@@ -36,6 +36,7 @@ import {
   withResearchUntriaged,
 } from '../lib/research-verification.js'
 import { getConfig } from '../services/project-manager.js'
+import { getApiKey } from '../services/app-secrets-store.js'
 import { canonicalHttpUrl, canonicalHttpUrls, sanitizeResearchOutputUrls } from '../services/research/urls.js'
 
 // Re-exported for back-compat with importers that referenced these here.
@@ -194,7 +195,7 @@ export async function runResearchJob(job: Job): Promise<void> {
   await fs.writeFile(jsonPath, JSON.stringify(persisted, null, 2), 'utf-8')
   job.output_lines.push(`Wrote ${RESEARCH_JSON_FILENAME}`)
 
-  await fs.writeFile(mdPath, renderResearchMarkdown(persisted), 'utf-8')
+  await fs.writeFile(mdPath, renderResearchMarkdown(persisted, await researchModelLabel(persisted)), 'utf-8')
   job.output_lines.push(`Wrote ${RESEARCH_MD_FILENAME}`)
 
   job.output_dir = dir
@@ -219,10 +220,48 @@ export async function runResearchJob(job: Job): Promise<void> {
   job.progress = 100
 }
 
+/**
+ * The catalogue's published NAME for the model this run used, or ''.
+ *
+ * `source_model` is an internal GenStudio product handle — strings on the order
+ * of `gemini-3.1-flash-lite-discount`. It was being written straight into
+ * research.md, a file whose whole purpose is that a person can open it in Finder
+ * and read it. Nobody outside this codebase knows what a product handle is, and
+ * a customer reading one has been shown plumbing and told nothing.
+ *
+ * The name comes from the live catalogue, which is where names come from
+ * everywhere else in this app; the handle is never reconstructed into a name and
+ * never used as one. When the catalogue cannot be read, or has no row for this
+ * handle, the answer is '' and the line simply omits the model — a research
+ * document that does not name its model is honest, and one that names it with an
+ * internal id is not.
+ */
+export async function researchModelLabel(r: ResearchOutput): Promise<string> {
+  const handle = typeof r.source_model === 'string' ? r.source_model.trim() : ''
+  if (!handle) return ''
+  try {
+    const apiKey = (await getApiKey('genstudio'))?.trim()
+    if (!apiKey) return ''
+    const { listChatModels } = await import('../lib/genstudio-client.js')
+    const products = await listChatModels(apiKey)
+    const match = products.find(product => product.id === handle
+      || (Array.isArray(product.legacy_ids) && product.legacy_ids.includes(handle)))
+    return match?.display_name?.trim() || ''
+  } catch {
+    // Unreachable or unreadable catalogue. The document loses one optional
+    // detail; it does not gain an internal identifier.
+    return ''
+  }
+}
+
 /** Human-readable summary of the research output. Saved alongside the
  *  JSON so the user can read the research in any markdown viewer
- *  (incl. inside Finder's QuickLook) without firing up the app. */
-function renderResearchMarkdown(r: ResearchOutput): string {
+ *  (incl. inside Finder's QuickLook) without firing up the app.
+ *
+ *  `modelLabel` is the catalogue's published name for `r.source_model`, resolved
+ *  by the caller. It is the ONLY thing that may stand for the model here — see
+ *  `researchModelLabel`. */
+export function renderResearchMarkdown(r: ResearchOutput, modelLabel = ''): string {
   const mode = readResearchOutputMode(r)
   const lines: string[] = []
   lines.push(`# Research — ${r.topic}`)
@@ -232,8 +271,10 @@ function renderResearchMarkdown(r: ResearchOutput): string {
   // not fetch the pages, so one would be falsely precise.
   // GenStudio's own `research_ran_at` wins when the envelope supplied it;
   // `generated_at` (when this app wrote the file) is only the fallback.
+  // The model's published NAME or nothing. Never `r.source_model` — that is an
+  // internal product handle, and this file is read by people.
   lines.push(`*${researchModeLabel(mode)} · research ran on ${researchRanAt(r.web_run, r.generated_at)}`
-    + `${r.source_model ? ` · ${r.source_model}` : ''}*`)
+    + `${modelLabel ? ` · ${modelLabel}` : ''}*`)
   lines.push('')
   // Provenance, per mode. Model-knowledge output was never checked for the
   // user; web output cites the run, not each claim. Neither may borrow the

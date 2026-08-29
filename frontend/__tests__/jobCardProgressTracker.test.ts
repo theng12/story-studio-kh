@@ -461,3 +461,196 @@ describe('the customer surface names no infrastructure', () => {
     assert.match(page, /success\(describeCancellation\(job\)\)/)
   })
 })
+
+// ── 6. Exceptions collapse when they are the SAME exception ────────────────
+
+/**
+ * A congestion window declined more than a hundred images at once, for the same
+ * reason, at the same moment. The card printed a hundred byte-identical
+ * sentences:
+ *
+ *   An image didn't finish — the provider declined it. 9 credits were returned.
+ *   Use Retry to run it again.
+ *   An image didn't finish — the provider declined it. 9 credits were returned.
+ *   Use Retry to run it again.
+ *   … ×100
+ *
+ * That is ONE exception that happened a hundred times. Repeating it told the
+ * reader nothing the first line had not, buried every other exception on the
+ * card underneath it, and made the two numbers a person actually needs — how
+ * many, and how much came back — the only things they had to work out by
+ * counting rows.
+ *
+ * "Exceptions surfaced individually" is still the rule. What it never meant is
+ * one line per record. Identical exceptions collapse into one line carrying the
+ * count and the totals; genuinely different exceptions stay separate and
+ * individual. Nothing is truncated — every record is still listed per item in
+ * Technical details, which pages at 25 and always could.
+ */
+describe('identical exceptions collapse; distinct ones do not', () => {
+  const nowMs = Date.parse('2026-08-29T12:00:00.000Z')
+
+  function declined(id: string, released = 9) {
+    return {
+      id, operation: 'image.generation', queue_state: 'failed',
+      failure_code: 'PROVIDER_DECLINED', released_credits: released, updated_at: '',
+    }
+  }
+
+  test('N identical failures render ONE line carrying the count', () => {
+    const N = 37
+    const job = {
+      type: 'scene_images_batch',
+      item_progress: { total: 40, completed: 3, failed: N, concurrency: 6, active: [] },
+      genstudio_jobs: Array.from({ length: N }, (_, i) => declined(`gs-${i}`)),
+    }
+    const lines = describeJobExceptions(job, nowMs)
+
+    assert.equal(lines.length, 1, `37 identical failures must be one line, got ${lines.length}`)
+    assert.equal(
+      lines[0]!.text,
+      '37 images didn’t finish — the provider declined it.'
+      + ' 333 credits were returned in total. Use Retry to run them again.',
+    )
+    // The count and the total are the two facts the wall made unreadable.
+    assert.match(lines[0]!.text, /^37 images/)
+    assert.match(lines[0]!.text, /333 credits were returned in total/)
+  })
+
+  test('the count is live — it follows the number of records, not a fixed word', () => {
+    for (const N of [2, 3, 100]) {
+      const job = {
+        item_progress: { total: N, completed: 0, failed: N, concurrency: 1, active: [] },
+        genstudio_jobs: Array.from({ length: N }, (_, i) => declined(`gs-${i}`, 1)),
+      }
+      const lines = describeJobExceptions(job, nowMs)
+      assert.equal(lines.length, 1, `${N} identical failures must still be one line`)
+      assert.match(lines[0]!.text, new RegExp(`^${N} images didn’t finish`))
+      assert.match(lines[0]!.text, new RegExp(`${N} credits were returned in total`))
+    }
+  })
+
+  test('two DISTINCT failures render two lines, individually', () => {
+    const job = {
+      item_progress: { total: 2, completed: 0, failed: 2, concurrency: 1, active: [] },
+      genstudio_jobs: [
+        declined('gs-1'),
+        {
+          id: 'gs-2', operation: 'image.generation', queue_state: 'failed',
+          failure_code: 'IMAGE_CONTENT_REFUSED', released_credits: 13, updated_at: '',
+        },
+      ],
+    }
+    const lines = describeJobExceptions(job, nowMs)
+
+    assert.equal(lines.length, 2, 'a different reason is a different thing that went wrong')
+    const texts = lines.map(l => l.text).sort()
+    assert.ok(texts.some(t => t.includes('the provider declined it')), texts.join(' | '))
+    assert.ok(texts.some(t => t.includes('the provider refused the prompt')), texts.join(' | '))
+    // Singular voice is kept for a group of one — a collapsed line is only used
+    // where there is genuinely more than one thing to talk about.
+    for (const line of lines) {
+      assert.match(line.text, /^An image didn’t finish/)
+      assert.match(line.text, /Use Retry to run it again\.$/)
+    }
+  })
+
+  test('different subjects never merge, even under the same reason', () => {
+    const job = {
+      item_progress: { total: 4, completed: 0, failed: 4, concurrency: 1, active: [] },
+      genstudio_jobs: [
+        declined('gs-1'), declined('gs-2'),
+        { id: 'gs-3', operation: 'voice.tts', queue_state: 'failed', failure_code: 'PROVIDER_DECLINED', released_credits: 4, updated_at: '' },
+        { id: 'gs-4', operation: 'voice.tts', queue_state: 'failed', failure_code: 'PROVIDER_DECLINED', released_credits: 4, updated_at: '' },
+      ],
+    }
+    const lines = describeJobExceptions(job, nowMs)
+    assert.equal(lines.length, 2, 'images and narration parts are different things')
+    const texts = lines.map(l => l.text)
+    assert.ok(texts.some(t => t.startsWith('2 images didn’t finish')), texts.join(' | '))
+    assert.ok(texts.some(t => t.startsWith('2 narration parts didn’t finish')), texts.join(' | '))
+  })
+
+  test('varying credit amounts still collapse, and the total is the SUM', () => {
+    // Grouping on the exact refund figure would let a batch whose items differ
+    // in size rebuild the very wall this removes. The money is not lost by
+    // grouping — it is added up, which is the figure a person wants and the one
+    // they cannot get by reading rows.
+    const job = {
+      item_progress: { total: 3, completed: 0, failed: 3, concurrency: 1, active: [] },
+      genstudio_jobs: [declined('gs-1', 9), declined('gs-2', 12), declined('gs-3', 9)],
+    }
+    const lines = describeJobExceptions(job, nowMs)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0]!.text, /^3 images didn’t finish/)
+    assert.match(lines[0]!.text, /30 credits were returned in total/)
+  })
+
+  test('a group holding both charges and refunds reports both, separately', () => {
+    const job = {
+      item_progress: { total: 3, completed: 0, failed: 3, concurrency: 1, active: [] },
+      genstudio_jobs: [
+        declined('gs-1', 9), declined('gs-2', 9),
+        { id: 'gs-3', operation: 'image.generation', queue_state: 'failed', failure_code: 'PROVIDER_DECLINED', settled_credits: 7, updated_at: '' },
+      ],
+    }
+    const lines = describeJobExceptions(job, nowMs)
+    assert.equal(lines.length, 1)
+    assert.match(lines[0]!.text, /7 credits were charged in total and 18 credits were returned in total/)
+  })
+
+  test('collapsing never hides a record — Technical details still gets them all', () => {
+    // The drawer receives the raw array, not this list, and pages it at 25.
+    assert.match(defaultView, /:remote-jobs="job\.genstudio_jobs"/)
+    const ledger = readFileSync(
+      fileURLToPath(new URL('../components/GenStudioBatchLedger.vue', import.meta.url)), 'utf8',
+    )
+    assert.match(ledger, /const PAGE_SIZE = 25/)
+    assert.match(ledger, /props\.remoteJobs\.filter\(remote => stateBucket\(remote\) === 'failed'\)/)
+  })
+})
+
+// ── 7. One deadline, said once ────────────────────────────────────────────
+
+/**
+ * The card rendered two clocks for the same moment, disagreeing:
+ *
+ *   Queued — waiting for capacity; automatic escalation at 00:00.
+ *   GenStudio will step in Today 10:24:24 PM.
+ *
+ * The first came from the server, which scraped an `HH:MM` out of GenStudio's
+ * own prose with an unanchored pattern — so it took the first clock-shaped
+ * substring in the sentence whether or not that was the deadline — and printed
+ * those digits with no timezone conversion. The second came from
+ * `stall_recovery_at`, the real timestamp for that same deadline, rendered in
+ * the reader's timezone. Both described one fact. Only one was right.
+ *
+ * The scrape is gone. The deadline is stated once, from the timestamp.
+ */
+describe('the escalation deadline is stated once, from the timestamp', () => {
+  const page = readFileSync(
+    fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)), 'utf8',
+  )
+
+  test('the card renders the deadline from stall_recovery_at, through formatTime', () => {
+    assert.match(page, /if \(remote\.stall_recovery_at\) return `\$\{detail\} GenStudio will step in \$\{formatTime\(remote\.stall_recovery_at\)\}\.`/)
+    // `formatTime` is the one helper every time on this page goes through, so
+    // the deadline is in the reader's timezone like all of them.
+    assert.match(page, /function formatTime\(iso: string\): string \{[\s\S]{0,200}toLocaleTimeString/)
+  })
+
+  test('the page never re-derives a second clock for the same deadline', () => {
+    // Comments stripped: the comment that explains this fix necessarily quotes
+    // the wording it removed, and an absence assertion has to look at code.
+    const pageCode = page
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    assert.doesNotMatch(pageCode, /automatic escalation/,
+      'the escalation wording must not be reconstructed on the client either')
+    // Exactly one place turns stall_recovery_at into words.
+    assert.equal(
+      (pageCode.match(/formatTime\(remote\.stall_recovery_at\)/g) || []).length, 1,
+      'one deadline, one rendering',
+    )
+  })
+})
