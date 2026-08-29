@@ -226,7 +226,7 @@ test('a job with no other way out can always be abandoned, and re-run from the s
     assert.equal(abandoned.genstudio_jobs!.length, 3)
     assert.ok(abandoned.genstudio_jobs!.every(entry => entry.state !== 'not_created'))
     assert.equal(abandoned.force_abandoned!.unsettled.length, 3)
-    assert.match(abandoned.output_lines.join('\n'), /No cancellation was sent to GenStudio and nothing was refunded/)
+    assert.match(abandoned.output_lines.join('\n'), /No cancellation was sent to GenStudio/)
 
     // Abandoning twice is a no-op, not a second cancellation.
     const again = await jq.forceAbandonJob(slug, 'abandon-me')
@@ -255,4 +255,90 @@ test('a job with no other way out can always be abandoned, and re-run from the s
   } finally {
     globalThis.fetch = original
   }
+})
+
+/**
+ * ABANDONING MUST NOT CLAIM "nothing was refunded".
+ *
+ * THE INCIDENT (2026-08-28). A scene-prompt job failed at GenStudio's
+ * provider-identity gate. GenStudio released the whole reservation server-side
+ * and Story Studio wrote that release into the job's own log — "GenStudio
+ * reports 611 credits released." Forty-three minutes later the owner abandoned
+ * the row, and the abandon message told him flatly that nothing was refunded,
+ * three lines under his own evidence that everything had been.
+ *
+ * Story Studio holds no balance and refunds nothing itself; that is true and is
+ * still said. What it may never do is assert the provider refunded nothing.
+ */
+function settledJobWithLog(jobId: string, lines: string[]): Job {
+  return {
+    job_id: jobId,
+    project_slug: 'placeholder',
+    type: 'continuity_render',
+    episode_id: 'EP0088',
+    title: 'Scene prompts',
+    status: 'running',
+    created_at: new Date().toISOString(),
+    started_at: new Date().toISOString(),
+    finished_at: null,
+    error: null,
+    output_lines: lines,
+    params: {},
+    // Nothing outstanding: this test is about the CREDIT sentence alone.
+    genstudio_jobs: [],
+    remote_cancellations: {},
+  }
+}
+
+test('abandoning quotes the credit releases the job already recorded, instead of denying them', async () => {
+  const slug = await persist('Abandon credits already released', settledJobWithLog('abandon-released', [
+    'GenStudio KH language generation failed (LANGUAGE_PROVIDER_MODEL_MISMATCH). GenStudio reports 611 credits released.',
+    'GenStudio KH language generation failed (LANGUAGE_PROVIDER_MODEL_MISMATCH). GenStudio reports 42 credits released.',
+  ]))
+
+  const abandoned = await jq.forceAbandonJob(slug, 'abandon-released')
+  const log = abandoned.output_lines.join('\n')
+
+  // The blanket claim is gone, everywhere in the log.
+  assert.doesNotMatch(log, /nothing was refunded/i)
+  // The evidence is quoted, and summed, and attributed to GenStudio.
+  assert.match(log, /already records GenStudio releasing 653 credit\(s\) across 2 settled requests/)
+  // Story Studio's own limit is still stated honestly, and the user is pointed
+  // at the only place that holds the real balance.
+  assert.match(log, /Story Studio holds no balance and refunds nothing itself/)
+  assert.match(log, /GenStudio KH account has the final figure/)
+})
+
+test('with no recorded release, abandoning says what Story Studio cannot do — and asserts nothing about GenStudio', async () => {
+  const slug = await persist('Abandon no release recorded', settledJobWithLog('abandon-unknown', [
+    'Processing 3 adaptive pack(s) through GenStudio KH.',
+  ]))
+
+  const abandoned = await jq.forceAbandonJob(slug, 'abandon-unknown')
+  const log = abandoned.output_lines.join('\n')
+
+  assert.doesNotMatch(log, /nothing was refunded/i)
+  assert.match(log, /Story Studio holds no balance and refunds nothing itself/)
+  assert.match(log, /recorded in your GenStudio KH account/)
+  // No number is invented when the log carries no release evidence.
+  assert.doesNotMatch(log, /credit\(s\) across/)
+})
+
+test('the release reader counts only published release lines', () => {
+  assert.deepEqual(jq.readRecordedCreditReleases([]), { count: 0, total: 0 })
+  assert.deepEqual(
+    jq.readRecordedCreditReleases(['GenStudio reports 0 credits released.']),
+    { count: 1, total: 0 },
+    'an explicit zero release is still evidence GenStudio published a settlement',
+  )
+  assert.deepEqual(
+    jq.readRecordedCreditReleases(['Credit settlement is not yet published; check its GenStudio status.']),
+    { count: 0, total: 0 },
+    'an unpublished settlement is not a release',
+  )
+  assert.deepEqual(
+    jq.readRecordedCreditReleases(['GenStudio reports 12.5 credits released. GenStudio reports 2.5 credits released.']),
+    { count: 2, total: 15 },
+    'two releases on one line are both counted',
+  )
 })

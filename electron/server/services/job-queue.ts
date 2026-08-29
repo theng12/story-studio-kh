@@ -2683,6 +2683,52 @@ export async function requestJobCancellation(projectSlug: string, jobId: string)
 }
 
 /**
+ * Credit releases this job's OWN log already recorded, as GenStudio published
+ * them. The sentence `releasedCreditSettlement` writes into every settled
+ * failure — "GenStudio reports N credits released." — is the only durable trace
+ * of a release Story Studio ever sees, so it is read back rather than re-derived.
+ */
+export function readRecordedCreditReleases(lines: readonly string[]): { count: number; total: number } {
+  let count = 0
+  let total = 0
+  for (const line of lines) {
+    for (const match of line.matchAll(/GenStudio reports (\d+(?:\.\d+)?) credits released/g)) {
+      const released = Number(match[1])
+      if (!Number.isFinite(released)) continue
+      count += 1
+      total += released
+    }
+  }
+  return { count, total: Math.round(total * 1000) / 1000 }
+}
+
+/**
+ * What abandoning does, and does not, do to money — without asserting a fact
+ * this code cannot know.
+ *
+ * IT USED TO SAY "nothing was refunded", FLATLY. On 2026-08-28 every credit on
+ * an abandoned job had already been released by GenStudio, server-side, 43
+ * minutes before the owner pressed the button — and the job's own log said so,
+ * three lines above the sentence claiming the opposite. Story Studio holds no
+ * balance and cannot refund anything; that much is always true and is what the
+ * message now says. Whether GenStudio released credits is a question only
+ * GenStudio's record answers, so this quotes the job's own evidence when it has
+ * some and points at the account when it does not.
+ */
+function describeAbandonedCreditPosition(lines: readonly string[]): string {
+  const released = readRecordedCreditReleases(lines)
+  if (!released.count) {
+    return 'Credits: Story Studio holds no balance and refunds nothing itself. Whatever GenStudio '
+      + 'charged or released for this job is recorded in your GenStudio KH account — check there for the '
+      + 'final figure. Abandoning does not change it either way.'
+  }
+  return `Credits: this job's own log already records GenStudio releasing ${released.total} credit(s) across `
+    + `${released.count === 1 ? 'one settled request' : `${released.count} settled requests`}. That release happened `
+    + 'in your GenStudio KH account, not here, and abandoning does not undo it. Story Studio holds no balance and '
+    + 'refunds nothing itself; your GenStudio KH account has the final figure.'
+}
+
+/**
  * v1.2.8 — the owner override: stop tracking this job, whatever state it is in.
  *
  * Every other exit from a job is gated on evidence, correctly. This one is not,
@@ -2734,8 +2780,9 @@ export async function forceAbandonJob(projectSlug: string, jobId: string): Promi
   job.finished_at = new Date().toISOString()
   job.output_lines.push('Abandoned at your request. Story Studio has stopped tracking this job and the queue has moved on.')
   job.output_lines.push(job.force_abandoned.unsettled.length
-    ? `No cancellation was sent to GenStudio and nothing was refunded. ${job.force_abandoned.unsettled.length === 1 ? 'This provider task was' : `These ${job.force_abandoned.unsettled.length} provider tasks were`} still unresolved and may yet finish: ${job.force_abandoned.unsettled.join(', ')}. Anything they produce can still be recovered from the episode.`
+    ? `No cancellation was sent to GenStudio. ${job.force_abandoned.unsettled.length === 1 ? 'This provider task was' : `These ${job.force_abandoned.unsettled.length} provider tasks were`} still unresolved and may yet finish: ${job.force_abandoned.unsettled.join(', ')}. Anything they produce can still be recovered from the episode.`
     : 'No provider work was outstanding when it was abandoned.')
+  job.output_lines.push(describeAbandonedCreditPosition(job.output_lines))
   job.output_lines.push('Run this step again whenever you are ready — Retry on this row starts it fresh.')
   await persistJob(job)
   emitUpdate(job)

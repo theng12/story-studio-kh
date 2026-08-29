@@ -2726,6 +2726,8 @@ export const GENSTUDIO_LANGUAGE_FAILURE_CODES = {
   PROVIDER_FAILED: 'LANGUAGE_PROVIDER_FAILED',
   PROVIDER_BACKPRESSURE: 'LANGUAGE_PROVIDER_BACKPRESSURE',
   SUBMISSION_UNCERTAIN: 'LANGUAGE_PROVIDER_SUBMISSION_UNCERTAIN',
+  /** The reply came back, but it did not prove it came from the model sold. */
+  MODEL_MISMATCH: 'LANGUAGE_PROVIDER_MODEL_MISMATCH',
 } as const
 
 /**
@@ -2867,6 +2869,12 @@ export function describeGenStudioLanguageFailure(code: string | null | undefined
     return 'The language provider behind this GenStudio KH product failed on every route GenStudio '
       + 'tried. No fallback route was attempted. Retry this step, or pick a different language product in Settings.'
   }
+  if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.MODEL_MISMATCH) {
+    return 'GenStudio KH checked the language reply against the model this product sells, and the reply '
+      + 'did not identify itself as that model, so GenStudio refused it rather than hand back work you did '
+      + 'not buy. No fallback route was attempted. The durable job reports the exact credit settlement. '
+      + 'Retry this step, or pick a different language product in Settings.'
+  }
   if (normalized === GENSTUDIO_LANGUAGE_FAILURE_CODES.PROVIDER_BACKPRESSURE) {
     return 'GenStudio KH could not admit this language request because its provider lane was under pressure. '
       + 'The durable job reports the exact credit settlement; Story Studio retries only when that record proves nothing was charged and the full reservation was released.'
@@ -2965,12 +2973,19 @@ export function describeGenStudioDetail(body: unknown, status: number): string {
 
 /** Recover a published failure code from an error body's `code`, or from a
  *  detail string that quotes it. Returns null when neither says so — an
- *  unlabelled 502 is NOT assumed to be either code. */
+ *  unlabelled 502 is NOT assumed to be any code.
+ *
+ *  THE PATTERN IS BUILT FROM THE CODE TABLE, NOT HAND-WRITTEN. It used to name
+ *  two of the codes literally, so `BACKPRESSURE` — which the table and the
+ *  message function both already knew — could never be recovered from a detail
+ *  string, and `MODEL_MISMATCH` inherited the same blind spot the day it was
+ *  added. Deriving the alternation means a code exists in exactly one place and
+ *  a new one is readable everywhere the moment it is listed. */
 function readLanguageFailureCode(detail: string, code?: string): string | null {
   const fromCode = typeof code === 'string' ? code.trim().toUpperCase() : ''
   const known = Object.values(GENSTUDIO_LANGUAGE_FAILURE_CODES) as string[]
   if (known.includes(fromCode)) return fromCode
-  const quoted = /\bLANGUAGE_PROVIDER_(?:SUBMISSION_UNCERTAIN|FAILED)\b/i.exec(detail || '')
+  const quoted = new RegExp(`\\b(?:${known.join('|')})\\b`, 'i').exec(detail || '')
   return quoted ? quoted[0].toUpperCase() : null
 }
 
