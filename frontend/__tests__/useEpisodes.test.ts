@@ -174,7 +174,7 @@ describe('useEpisodes', () => {
       status_overrides: { script: true },
       status: { ...ep.status, script: true },
     }))
-    const mutationRequest = m.captured.revalidateAfterMutation()
+    const mutationRequest = m.captured.revalidateAfterMutation('EP001')
 
     resolveStale([fakeRow('EP001', false)])
     await staleRequest
@@ -186,7 +186,9 @@ describe('useEpisodes', () => {
     resolveFresh([confirmed])
     await mutationRequest
     assert.equal(fetchCalls.length >= 2, true, 'mutation starts a distinct request')
-    assert.match(fetchCalls.at(-1) || '', /mutation=/)
+    // v1.4.82 — `?mutation=<ts>` only busted the browser cache; the server read
+    // it as a plain request and answered from its own pre-mutation status cache.
+    assert.match(fetchCalls.at(-1) || '', /invalidate=EP001/)
     assert.equal(m.captured.episodes.value[0].status.script, true)
     assert.deepEqual(m.captured.episodes.value[0].status_overrides, { script: true })
     m.app.unmount()
