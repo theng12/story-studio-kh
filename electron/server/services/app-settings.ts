@@ -364,7 +364,7 @@ export async function setImageFanout(value: unknown): Promise<ImageFanoutSetting
 }
 
 export const IMAGE_EPISODE_CONCURRENCY_KEY = 'image_episode_concurrency'
-export const IMAGE_EPISODE_CONCURRENCY_DEFAULT = 3
+export const IMAGE_EPISODE_CONCURRENCY_DEFAULT = 2
 
 export async function getImageEpisodeConcurrency(): Promise<number> {
   const raw = await getAppSetting(IMAGE_EPISODE_CONCURRENCY_KEY)

@@ -29,6 +29,8 @@ import { waitFor } from './_timing.js'
 import {
   IMAGE_EPISODE_CONCURRENCY_DEFAULT,
   IMAGE_EPISODE_CONCURRENCY_KEY,
+  getImageEpisodeConcurrency,
+  setImageEpisodeConcurrency,
 } from '../services/app-settings.js'
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -155,11 +157,30 @@ describe('every kind of fleet work is pipelined, not just images', () => {
 })
 
 describe('the number is the owner\'s, not the code\'s', () => {
-  test('it defaults to 3 — busy, with headroom', () => {
-    // 1 leaves the fleet idle, which is what he just hit. 30 is the 2026-08-22
-    // transcription flood, where 122 of 353 items were refused. Three episodes
-    // at ~25 concurrent requests is ~75 against a 128 ceiling.
-    assert.equal(IMAGE_EPISODE_CONCURRENCY_DEFAULT, 3)
+  test('a fresh or missing scene-image setting uses 2 while a saved 3 remains 3', async () => {
+    const isolated = await useTempDataDir()
+    try {
+      assert.equal(IMAGE_EPISODE_CONCURRENCY_DEFAULT, 2)
+      assert.equal(await getImageEpisodeConcurrency(), 2, 'missing settings use the recommended value')
+      await setImageEpisodeConcurrency(3)
+      assert.equal(await getImageEpisodeConcurrency(), 3, 'an explicit previous choice is never rewritten')
+    } finally {
+      await isolated.cleanup()
+    }
+  })
+
+  test('custom scene-image settings use the existing whole-number 1–50 contract', async () => {
+    const isolated = await useTempDataDir()
+    try {
+      for (const value of [2, 1, 50]) {
+        assert.equal(await setImageEpisodeConcurrency(value), value)
+        assert.equal(await getImageEpisodeConcurrency(), value)
+      }
+      await assert.rejects(() => setImageEpisodeConcurrency(0), /whole number between 1 and 50/)
+      await assert.rejects(() => setImageEpisodeConcurrency(51), /whole number between 1 and 50/)
+    } finally {
+      await isolated.cleanup()
+    }
   })
 
   test('it is a stored setting with a stable key', () => {

@@ -28,10 +28,14 @@
             <option value="__custom">Custom…</option>
           </select>
           <input
-            v-if="presetValueFor(field) === '__custom'"
+            v-if="customFields[field.key]"
             :value="String(models[field.key])"
             class="custom-value"
             :aria-label="`Custom value for ${field.label}`"
+            type="number"
+            :min="field.input.min"
+            :max="field.input.max"
+            :step="field.input.step"
             @input="onCustom(field, $event)"
           />
           <small>{{ field.help }}</small>
@@ -300,18 +304,34 @@ interface ThroughputField {
   label: string
   help: string
   choices: ThroughputChoice[]
+  input: { min: number; max: number; step: number }
 }
 
 const models = reactive<Record<ThroughputField['key'], string | number>>({
   subtitleEpisodes: 2,
   llmJobs: 8,
-  imageEpisodes: 3,
+  imageEpisodes: 2,
   imageFanout: 'auto',
   thumbnailEpisodes: 3,
   outlineHeadroom: 2,
   languageTimeoutMinutes: 30,
   languageFloorTps: 25,
   languagePreferredTps: 50,
+})
+
+// This is selection state, not a derived property of the numeric value: a
+// user who chooses Custom while their current value is a named preset still
+// expects to edit that value.
+const customFields = reactive<Record<ThroughputField['key'], boolean>>({
+  subtitleEpisodes: false,
+  llmJobs: false,
+  imageEpisodes: false,
+  thumbnailEpisodes: false,
+  imageFanout: false,
+  outlineHeadroom: false,
+  languageTimeoutMinutes: false,
+  languageFloorTps: false,
+  languagePreferredTps: false,
 })
 
 const throughputFields: ThroughputField[] = [
@@ -327,6 +347,7 @@ const throughputFields: ThroughputField[] = [
       { value: 5, label: '5 — plenty of capacity' },
       { value: 10, label: '10 — aggressive' },
     ],
+    input: { min: 1, max: 50, step: 1 },
   },
   {
     key: 'llmJobs',
@@ -339,6 +360,7 @@ const throughputFields: ThroughputField[] = [
       { value: 12, label: '12 — what GenStudio accepts' },
       { value: 20, label: '20' },
     ],
+    input: { min: 1, max: 50, step: 1 },
   },
   {
     key: 'imageEpisodes',
@@ -348,11 +370,13 @@ const throughputFields: ThroughputField[] = [
       + 'this queue.',
     choices: [
       { value: 1, label: '1 — one at a time' },
-      { value: 3, label: '3 — recommended' },
+      { value: 2, label: '2 — recommended' },
+      { value: 3, label: '3' },
       { value: 5, label: '5 — plenty of capacity' },
       { value: 8, label: '8' },
       { value: 12, label: '12 — aggressive' },
     ],
+    input: { min: 1, max: 50, step: 1 },
   },
   {
     key: 'thumbnailEpisodes',
@@ -366,6 +390,7 @@ const throughputFields: ThroughputField[] = [
       { value: 5, label: '5' },
       { value: 8, label: '8 — a lot of cloud calls at once' },
     ],
+    input: { min: 1, max: 50, step: 1 },
   },
   {
     key: 'imageFanout',
@@ -382,6 +407,7 @@ const throughputFields: ThroughputField[] = [
       { value: 100, label: '100' },
       { value: 200, label: '200' },
     ],
+    input: { min: 1, max: 500, step: 1 },
   },
   {
     key: 'outlineHeadroom',
@@ -394,6 +420,7 @@ const throughputFields: ThroughputField[] = [
       { value: 2, label: '2× — recommended' },
       { value: 3, label: '3×' },
     ],
+    input: { min: 1, max: 10, step: 0.1 },
   },
   {
     key: 'languageTimeoutMinutes',
@@ -409,6 +436,7 @@ const throughputFields: ThroughputField[] = [
       { value: 45, label: '45 minutes' },
       { value: 60, label: '60 minutes — very large batches' },
     ],
+    input: { min: 5, max: 240, step: 1 },
   },
   {
     key: 'languageFloorTps',
@@ -422,6 +450,7 @@ const throughputFields: ThroughputField[] = [
       { value: 50, label: '50 tok/s — warn unless it is fast' },
       { value: 100, label: '100 tok/s' },
     ],
+    input: { min: 1, max: 10_000, step: 0.1 },
   },
   {
     key: 'languagePreferredTps',
@@ -434,11 +463,13 @@ const throughputFields: ThroughputField[] = [
       { value: 100, label: '100 tok/s' },
       { value: 200, label: '200 tok/s' },
     ],
+    input: { min: 1, max: 10_000, step: 0.1 },
   },
 ]
 
 /** The select shows a preset when the value matches one, otherwise "Custom…". */
 function presetValueFor(field: ThroughputField): string {
+  if (customFields[field.key]) return '__custom'
   const current = String(models[field.key])
   return field.choices.some(c => String(c.value) === current) ? current : '__custom'
 }
@@ -451,8 +482,10 @@ function onPreset(field: ThroughputField, event: Event) {
     // blanks a value the owner has to retype.
     models[field.key] = field.key === 'imageFanout' && models[field.key] === 'auto'
       ? 128 : models[field.key]
+    customFields[field.key] = true
     return
   }
+  customFields[field.key] = false
   models[field.key] = chosen === 'auto' ? 'auto' : Number(chosen)
 }
 
@@ -466,13 +499,14 @@ function onCustom(field: ThroughputField, event: Event) {
 function restoreDefaults() {
   models.subtitleEpisodes = 2
   models.llmJobs = 8
-  models.imageEpisodes = 3
+  models.imageEpisodes = 2
   models.imageFanout = 'auto'
   models.thumbnailEpisodes = 3
   models.outlineHeadroom = 2
   models.languageTimeoutMinutes = 30
   models.languageFloorTps = 25
   models.languagePreferredTps = 50
+  for (const field of throughputFields) customFields[field.key] = false
   concurrencySaved.value = ''
 }
 
@@ -481,13 +515,16 @@ async function loadConcurrency() {
     const r: any = await get('/app-settings/concurrency')
     models.subtitleEpisodes = r?.subtitle_episode_concurrency ?? 2
     models.llmJobs = r?.llm_concurrency ?? 8
-    models.imageEpisodes = r?.image_episode_concurrency ?? 3
+    models.imageEpisodes = r?.image_episode_concurrency ?? 2
     models.imageFanout = r?.image_fanout_per_episode ?? 'auto'
     models.thumbnailEpisodes = r?.thumbnail_episode_concurrency ?? 3
     models.outlineHeadroom = r?.outline_chapter_headroom ?? 2
     models.languageTimeoutMinutes = r?.genstudio_language_timeout_minutes ?? 30
     models.languageFloorTps = r?.language_floor_tokens_per_second ?? 25
     models.languagePreferredTps = r?.language_preferred_tokens_per_second ?? 50
+    for (const field of throughputFields) {
+      customFields[field.key] = !field.choices.some(choice => String(choice.value) === String(models[field.key]))
+    }
   } catch { /* an unreachable setting must not break the whole page */ }
   concurrencyLoaded.value = true
 }
@@ -525,6 +562,7 @@ async function saveConcurrency() {
     if (applied?.language_preferred_tokens_per_second !== undefined) {
       models.languagePreferredTps = applied.language_preferred_tokens_per_second
     }
+    for (const field of throughputFields) customFields[field.key] = false
     concurrencySaved.value = `Saved and already in effect: ${models.imageEpisodes} image episode(s) at once, `
       + `${models.imageFanout === 'auto' ? 'auto' : models.imageFanout} images per episode, `
       + `${models.subtitleEpisodes} transcribing, ${models.llmJobs} writing, `

@@ -132,6 +132,25 @@ describe('Settings workspace navigation', () => {
     assert.doesNotMatch(thisMacSettingsSource, /\/v1\/api-keys|\/reveal/)
   })
 
+  test('scene-image throughput makes the recommended setting and Custom editing explicit', () => {
+    // A Custom selection must be stateful: selecting it while the current
+    // numeric value happens to match a named preset must still expose the
+    // editor. Deriving this state only from the value hid the input again.
+    const imageField = thisMacSettingsSource.slice(
+      thisMacSettingsSource.indexOf("key: 'imageEpisodes'"),
+      thisMacSettingsSource.indexOf("key: 'thumbnailEpisodes'"),
+    )
+    assert.match(imageField, /\{ value: 2, label: '2 — recommended' \}/)
+    assert.match(imageField, /input: \{ min: 1, max: 50, step: 1 \}/)
+    assert.match(thisMacSettingsSource, /const customFields = reactive<Record<ThroughputField\['key'\], boolean>>/)
+    assert.match(thisMacSettingsSource, /v-if="customFields\[field\.key\]"/)
+    assert.match(thisMacSettingsSource, /customFields\[field\.key\] = true/)
+    assert.match(thisMacSettingsSource, /customFields\[field\.key\] = false/)
+    assert.match(thisMacSettingsSource, /:min="field\.input\.min"/)
+    assert.match(thisMacSettingsSource, /:max="field\.input\.max"/)
+    assert.match(thisMacSettingsSource, /:step="field\.input\.step"/)
+  })
+
   test('Storage separates active destinations from optional maintenance and keeps retired migration out', () => {
     assert.match(settingsSource, /Storage control center/)
     assert.match(settingsSource, /Your storage map/)
