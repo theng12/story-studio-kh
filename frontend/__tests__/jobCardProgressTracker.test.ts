@@ -379,6 +379,23 @@ describe('exceptions', () => {
     assert.match(lines[1]?.text || '', /Scene 4: Account rate limit reached/)
   })
 
+  test('retry notice keys stay unique when retry ceilings differ', () => {
+    const retryAt = new Date(nowMs + 30_000).toISOString()
+    const job = {
+      item_progress: {
+        total: 2, completed: 0, failed: 0, concurrency: 2,
+        active: [
+          { key: 'a', label: 'Scene 2', state: 'waiting_retry' as const, reason: 'GenStudio is busy', attempt: 1, max_attempts: 4, retry_at: retryAt },
+          { key: 'b', label: 'Scene 3', state: 'waiting_retry' as const, reason: 'GenStudio is busy', attempt: 1, max_attempts: 6, retry_at: retryAt },
+        ],
+      },
+    }
+
+    const lines = describeJobExceptions(job, nowMs)
+    assert.equal(lines.length, 2, 'different retry ceilings are distinct groups')
+    assert.notEqual(lines[0]?.key, lines[1]?.key, 'each rendered retry row needs a unique Vue key')
+  })
+
   test('failures with no remote record still get a line, so the counts add up', () => {
     const job = { item_progress: { total: 5, completed: 2, failed: 3, concurrency: 1, active: [] } }
     const lines = describeJobExceptions(job, nowMs)

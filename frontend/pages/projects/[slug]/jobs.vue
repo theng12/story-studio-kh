@@ -695,14 +695,29 @@
             </div>
             <div class="job-actions">
               <button
-                v-for="control in jobControls(job)"
-                :key="control.action"
+                v-if="primaryJobControl(job)"
                 class="btn btn-xs btn-secondary"
-                :class="{ 'job-control-primary': control.enabled && control.action === 'clear-history' }"
-                :disabled="!control.enabled || controlBusy.has(job.job_id)"
-                :title="control.reason"
-                @click="runJobControl(job, control)"
-              >{{ controlBusy.has(job.job_id) ? 'Working…' : control.label }}</button>
+                :class="{ 'job-control-primary': primaryJobControl(job)?.enabled }"
+                :disabled="!primaryJobControl(job)?.enabled || controlBusy.has(job.job_id)"
+                :title="primaryJobControl(job)?.reason"
+                @click="runJobControl(job, primaryJobControl(job) || undefined)"
+              >{{ controlBusy.has(job.job_id) ? 'Working…' : primaryJobControl(job)?.label }}</button>
+              <details v-if="secondaryJobControls(job).length" class="job-more-actions">
+                <summary>More actions</summary>
+                <div class="job-more-actions-body">
+                  <button
+                    v-for="control in secondaryJobControls(job)"
+                    :key="control.action"
+                    class="btn btn-xs btn-secondary"
+                    :disabled="!control.enabled || controlBusy.has(job.job_id)"
+                    :title="control.reason"
+                    @click="runJobControl(job, control)"
+                  >{{ controlBusy.has(job.job_id) ? 'Working…' : control.label }}</button>
+                  <p v-for="control in secondaryJobControls(job)" :key="`more-reason-${control.action}`" class="job-control-reason">
+                    {{ customerJobText(control.reason, job) }}
+                  </p>
+                </div>
+              </details>
               <!-- v1.0.114 — Repair / Retry split (mirror of expanded view above). -->
               <button
                 v-if="(job.status === 'error' || job.status === 'cancelled') && jobCanBeRepaired(job) && !job.auto_retry?.eligible"
@@ -735,15 +750,14 @@
             </div>
           </div>
           <p
-            v-for="control in jobControls(job)"
-            :key="`reason-${control.action}`"
+            v-if="primaryJobControl(job)"
             class="job-control-reason"
-            :class="`control-${control.action}`"
+            :class="`control-${primaryJobControl(job)?.action}`"
             role="status"
           >
-            <template v-if="hasPendingCancellation(job) && control.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
-            <template v-else-if="control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
-            {{ customerJobText(control.reason, job) }}
+            <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
+            <template v-else-if="primaryJobControl(job)?.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
+            {{ customerJobText(primaryJobControl(job)?.reason, job) }}
           </p>
 
           <div class="job-meta">

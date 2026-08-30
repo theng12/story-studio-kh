@@ -534,7 +534,7 @@ export function describeJobExceptions(
     const seconds = secondsUntil(item.retry_at, nowMs)
     const wait = seconds && seconds > 0 ? ` in ${seconds}s` : ' now'
     lines.push({
-      key: `wait:${item.reason || WAITING_FALLBACK_REASON}:${item.retry_at || 'now'}:${item.attempt}`,
+      key: `wait:${item.reason || WAITING_FALLBACK_REASON}:${item.retry_at || 'now'}:${item.attempt}:${item.max_attempts}`,
       // The reason comes from the server verbatim; this wrapper adds no
       // framing of its own beyond the two things the customer needs — that
       // it cost nothing, and that it is handling itself.

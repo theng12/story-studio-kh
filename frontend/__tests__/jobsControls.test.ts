@@ -51,6 +51,17 @@ test('Jobs presents one primary control and keeps alternatives in an accessible 
   assert.doesNotMatch(jobs, /REMOTE_CANCELLABLE_TYPES/)
 })
 
+test('History presents one safe primary control and hides alternatives under More actions', () => {
+  const start = jobs.indexOf('<!-- History (done / error / cancelled)')
+  const end = jobs.indexOf('</template>', start)
+  assert.ok(start > -1 && end > start, 'History template must remain discoverable')
+  const history = jobs.slice(start, end)
+  assert.match(history, /primaryJobControl\(job\)/)
+  assert.match(history, /secondaryJobControls\(job\)/)
+  assert.match(history, /class="job-more-actions"/)
+  assert.doesNotMatch(history, /v-for="control in jobControls\(job\)"/)
+})
+
 test('Jobs reports whole-batch completed, settling, cancelled, failed, and not-submitted counts', () => {
   // v1.4.82 — these still all have to be reported; where they are reported
   // moved. The headline four (total / in-flight / finished / remaining) plus

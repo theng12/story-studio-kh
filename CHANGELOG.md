@@ -6,7 +6,7 @@ What's new in each release. Newest first.
 
 ## v1.4.86 — 2026-08-30
 
-- **The Story workflow now puts Script Generator immediately before the optional Introduction.** Every shared project flow keeps the same stages, routes, completion rules, presets, and pipeline behavior; only the user-facing sidebar order changes so the episode is written before its optional opening is configured.
+- **The Story workflow now puts Script Generator immediately before the optional Introduction everywhere it is shown.** The shared order propagates through the sidebar, workflow ribbon, dashboard, Production Board, and episode status strip. Every flow keeps the same stages, routes, completion rules, presets, and pipeline execution; only the user-facing order changes so the episode is written before its optional opening is configured.
 
 ## v1.4.85 — 2026-08-30
 
