@@ -393,8 +393,7 @@ export interface SettlementSummary {
 }
 
 function settlementNumber(value: unknown): number | null {
-  const number = Number(value)
-  return Number.isFinite(number) && number >= 0 ? number : null
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
 }
 
 /** Published settlement must be complete and balanced before it is final. */
@@ -410,8 +409,10 @@ export function summariseSettlement(remotes: readonly RemoteJobLike[] | null | u
     const released = settlementNumber(remote.released_credits)
     if (settled !== null) charged += settled
     if (released !== null) returned += released
-    if (!isSettledRemote(remote) && reserved !== null && settled === null && released === null) held += reserved
-    if (reserved === null || settled === null || released === null || settled + released !== reserved) confirmed = false
+    if (!isSettledRemote(remote) && reserved !== null && (settled ?? 0) === 0 && (released ?? 0) === 0) held += reserved
+    if (!isSettledRemote(remote)
+      || reserved === null || settled === null || released === null
+      || settled + released !== reserved) confirmed = false
   }
   return { confirmed, charged, returned, held }
 }

@@ -479,12 +479,24 @@ describe('settlement presence', () => {
     }]), {
       confirmed: true, charged: 0, returned: 13, held: 0,
     })
+    assert.deepEqual(summariseSettlement([{
+      queue_state: 'running', reserved_credits: 9, settled_credits: 0, released_credits: 0,
+    }]), {
+      confirmed: false, charged: 0, returned: 0, held: 9,
+    })
+    assert.deepEqual(summariseSettlement([{
+      queue_state: 'failed', reserved_credits: null, settled_credits: null, released_credits: null,
+    }]), {
+      confirmed: false, charged: 0, returned: 0, held: 0,
+    })
   })
 
   test('uses the same account-history-enriched remote view for headline and state copy', () => {
     assert.match(page, /function settledRemoteJobs\(job: RJob\)/)
     assert.match(page, /function jobCreditSummary\(job: RJob\) \{\s*const remoteJobs = settledRemoteJobs\(job\)\s*return \{ \.\.\.summariseSettlement\(remoteJobs\), remoteJobs \}/)
     assert.match(page, /describeJobExceptions\(\{ \.\.\.job, genstudio_jobs: settledRemoteJobs\(job\) \}/)
+    assert.equal((template.match(/<GenStudioBatchLedger[^>]*:remote-jobs="settledRemoteJobs\(job\)"/g) || []).length, 2)
+    assert.doesNotMatch(template, /<GenStudioBatchLedger[^>]*:remote-jobs="job\.genstudio_jobs"/)
   })
 })
 
@@ -493,7 +505,7 @@ describe('settlement presence', () => {
 describe('the Technical details drawer', () => {
   test('contains item diagnostics while exact ids stay out of the rendered drawer', () => {
     for (const drawer of drawers) {
-      assert.match(drawer, /<GenStudioBatchLedger[\s\S]*:remote-jobs="job\.genstudio_jobs"/, 'the item ledger')
+      assert.match(drawer, /<GenStudioBatchLedger[\s\S]*:remote-jobs="settledRemoteJobs\(job\)"/, 'the item ledger')
       assert.match(drawer, /class="job-items"/, 'the per-item state block')
       assert.match(drawer, /itemAttemptText\(item\)/, 'the per-item attempt text')
       assert.match(drawer, /customerJobText\(line, job\)/, 'customer-safe log lines')
@@ -593,7 +605,7 @@ describe('the customer surface names no infrastructure', () => {
  */
 describe('attempt evidence stays in Technical details', () => {
   test('does not use attempt count or provider blame in default-card copy', () => {
-    for (const drawer of drawers) assert.match(drawer, /:remote-jobs="job\.genstudio_jobs"/)
+    for (const drawer of drawers) assert.match(drawer, /<GenStudioBatchLedger[^>]*:remote-jobs="settledRemoteJobs\(job\)"/)
     assert.match(ledger, /const PAGE_SIZE = 25/)
     assert.doesNotMatch(composable, /the provider declined it/)
     assert.doesNotMatch(composable, /items didn’t finish/)

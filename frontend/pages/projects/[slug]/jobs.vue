@@ -615,7 +615,7 @@
         >
           <template v-if="expanded === job.job_id">
             <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
-            <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
+            <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" />
             <!--
               What the job is actually working on, item by item. A percentage
               says how far; a long-running step that reports nothing else is
@@ -866,7 +866,7 @@
           >
             <template v-if="expanded === job.job_id">
               <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
-              <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
+              <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="settledRemoteJobs(job)" />
               <div v-if="job.item_progress" class="job-items">
                 <span class="job-items-count">
                   {{ job.item_progress.completed }} of {{ job.item_progress.total }} done
