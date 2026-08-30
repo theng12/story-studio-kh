@@ -32,8 +32,6 @@ The focused detector positively checks the new badge/filter/metric/batch/disclos
 - Retry-all triage changes only returned prose; its input/output shapes, three safety piles, and retry decision branches were not changed.
 - Raw provider/backend diagnostics and the complete Technical-details ledger remain available unchanged. Internal `error`/`failed` statuses, CSS classes, route/filter keys, dynamic diagnostic output, comments/logs, action-failure messages, and Technical-details item counts were deliberately preserved.
 
-One adjacent internal comment was reworded from `Repair all failed` to `bulk repair` because the required source-level detector deliberately rejects that exact legacy customer phrase anywhere in its scanned source set. This has no runtime effect.
-
 ## Bounded source audit
 
 Ran the approved exact residual search across the five production targets for all specified legacy customer phrases. It returned no matches (ripgrep exit 1 with empty output, the expected no-match result).
