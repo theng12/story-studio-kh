@@ -309,9 +309,9 @@ export async function setSubtitleEpisodeConcurrency(value: unknown): Promise<num
  * running. Story Studio was running the episodes ONE AT A TIME, because every
  * queue lane outside the LLM and subtitle groups gets a single boolean slot.
  *
- * DEFAULT 3, NOT 1 AND NOT 30. One leaves the fleet idle, which is what he just
+ * DEFAULT 2, NOT 1 AND NOT 30. One leaves the fleet idle, which is what he just
  * hit. Thirty is the 2026-08-22 transcription flood, where 122 of 353 items were
- * refused. Three episodes at roughly 25 concurrent requests each is about 75
+ * refused. Two episodes at roughly 25 concurrent requests each is about 50
  * against a 128 ceiling — busy, with headroom, and every image generator now
  * waits politely when the fleet is full rather than dropping work.
  *
@@ -364,7 +364,7 @@ export async function setImageFanout(value: unknown): Promise<ImageFanoutSetting
 }
 
 export const IMAGE_EPISODE_CONCURRENCY_KEY = 'image_episode_concurrency'
-export const IMAGE_EPISODE_CONCURRENCY_DEFAULT = 3
+export const IMAGE_EPISODE_CONCURRENCY_DEFAULT = 2
 
 export async function getImageEpisodeConcurrency(): Promise<number> {
   const raw = await getAppSetting(IMAGE_EPISODE_CONCURRENCY_KEY)

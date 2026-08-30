@@ -68,11 +68,12 @@ describe('image surfaces invent no provider and echo no legacy one', () => {
     assert.equal(source.includes('{{ row.provider }}'), false)
   })
 
-  test('the repair detail rows show the task id without naming who produced it', () => {
+  test('the repair detail rows keep provider identity and exact task ids internal', () => {
     const source = read('../pages/projects/[slug]/images.vue')
     assert.equal(source.includes("{{ item.provider || 'provider' }}"), false,
       'this printed the transport recorded in a pre-migration .task-manifest.json')
-    assert.match(source, /Task: \{\{ item\.task_id \}\}/)
+    assert.doesNotMatch(source, /Task: \{\{ item\.task_id \}\}/)
+    assert.match(source, /Provider recovery record saved/)
   })
 })
 

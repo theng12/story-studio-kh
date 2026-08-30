@@ -89,6 +89,14 @@ describe('one definition of a finished episode', () => {
     // Introduction was returned per episode and rendered on no chip at all.
     assert.match(selector, /\{ field: F\.introduction,\s+label: 'Introduction', conditional: true/)
   })
+
+  test('the selector presents Script Generator immediately before optional Introduction', () => {
+    const start = selector.indexOf('const STEP_CHIPS')
+    const end = selector.indexOf('\n]', start)
+    assert.ok(start > -1 && end > start, 'selector chip list must remain discoverable')
+    const chips = selector.slice(start, end).replace(/^\s*\/\/.*$/gm, '')
+    assert.match(chips, /\{ field: F\.script,\s+label: 'Script' \},\s*\n\s*\{ field: F\.introduction,\s+label: 'Introduction'/)
+  })
 })
 
 describe('a mutation invalidates the episode it mutated', () => {

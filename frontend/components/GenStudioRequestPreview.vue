@@ -36,10 +36,6 @@
             <dt>{{ field.label }}</dt>
             <dd><code class="gs-req-wrap">{{ field.value }}</code></dd>
           </template>
-          <template v-if="entry.request!.idempotency_key">
-            <dt>Idempotency-Key</dt>
-            <dd><code class="gs-req-wrap">{{ entry.request!.idempotency_key }}</code></dd>
-          </template>
           <template v-if="entry.request!.captured_at">
             <dt>Captured</dt>
             <dd>{{ formatTime(entry.request!.captured_at) }}</dd>

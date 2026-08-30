@@ -1113,7 +1113,7 @@ async function assembleVideo(): Promise<void> {
   if (!form.episode_id || assembling.value) return
   assembling.value = true
   try {
-    const job = await post<{ job_id: string }>(`/projects/${slug.value}/broll/assemble`, {
+    await post<{ job_id: string }>(`/projects/${slug.value}/broll/assemble`, {
       episode_id: form.episode_id,
       pool_id: subscribedPoolId.value,
       broll_volume: form.broll_volume,
@@ -1124,7 +1124,7 @@ async function assembleVideo(): Promise<void> {
       subtitles_enabled: brollSubtitles.enabled,
       ...(brollSubtitles.enabled ? { subtitles_style: brollSubtitles.style } : {}),
     })
-    success(`Queued — job ${job.job_id}. Watch progress in the Jobs panel.`)
+    success(`B-roll assembly queued — watch progress in Jobs.`)
   } catch (e: any) {
     showError(e?.data?.detail || e?.message || 'Assembly failed to queue')
   } finally {

@@ -8,13 +8,13 @@ import { useRoute } from 'vue-router'
  * format's `visualSource` (the same value that already gates the sidebar):
  *
  *   timestamp-driven (narration-synced):
- *     Ideas → Research → Introduction → Script → Thumbnail Prompts →
+ *     Ideas → Research → Script → Introduction → Thumbnail Prompts →
  *     Thumbnails →
  *     Audio → Audio Assembly → Subtitles → YouTube Finalizer →
  *     Scene Plan → Scene Review → Video Assembly
  *
  *   continuity-chain (continuity-chain):
- *     Ideas → Research → Introduction → Script → Thumbnail Prompts →
+ *     Ideas → Research → Script → Introduction → Thumbnail Prompts →
  *     Thumbnails →
  *     Audio → Audio Assembly → Subtitles → YouTube Finalizer →
  *     Character Sheet → Scene Plan → Scene Review → Video Assembly
@@ -104,14 +104,14 @@ const STEP = {
   // v1.0.408 — Image Pool slideshow: pick images + assemble the slideshow.
 } satisfies Record<string, FlowStep>
 const FLOW_TIMESTAMP: FlowStep[] = [
-  STEP.ideas, STEP.research, STEP.introduction, STEP.script,
+  STEP.ideas, STEP.research, STEP.script, STEP.introduction,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
   STEP.scenePlan, STEP.contextualCues, STEP.soundDesign, STEP.sceneReview, STEP.motionReview, STEP.videoAssembly,
 ]
 const FLOW_CONTINUITY: FlowStep[] = [
-  STEP.ideas, STEP.research, STEP.introduction, STEP.script,
+  STEP.ideas, STEP.research, STEP.script, STEP.introduction,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,
@@ -122,7 +122,7 @@ const FLOW_CONTINUITY: FlowStep[] = [
 // blocking; use or skip). Differs from continuity only in the render (no
 // img2img character-lock) + default pacing.
 const FLOW_NARRATED_SCENES: FlowStep[] = [
-  STEP.ideas, STEP.research, STEP.introduction, STEP.script,
+  STEP.ideas, STEP.research, STEP.script, STEP.introduction,
   STEP.thumbPrompts, STEP.thumbnails,
   STEP.audio, STEP.audioMerge, STEP.subtitles,
   STEP.metadata,

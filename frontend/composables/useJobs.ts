@@ -162,22 +162,21 @@ export function jobCompletionNotice(
   }
 
   const remaining = needsFresh + unrecoverable
-  const id = `Job ${job.job_id}`
   if (recovered === 0 && remaining > 0) {
     return {
       kind: 'info',
-      message: `Nothing was restored for ${job.episode_id}. ${remaining} image${remaining === 1 ? '' : 's'} need${remaining === 1 ? 's' : ''} fresh generation. ${id}.`,
+      message: `Nothing was restored for ${job.episode_id}. ${remaining} image${remaining === 1 ? '' : 's'} need${remaining === 1 ? 's' : ''} fresh generation.`,
     }
   }
   if (remaining > 0) {
     return {
       kind: 'info',
-      message: `Restored ${recovered} image${recovered === 1 ? '' : 's'} for ${job.episode_id}; ${remaining} still need fresh generation. ${id}.`,
+      message: `Restored ${recovered} image${recovered === 1 ? '' : 's'} for ${job.episode_id}; ${remaining} still need fresh generation.`,
     }
   }
   return {
     kind: 'success',
-    message: `Restored ${recovered} image${recovered === 1 ? '' : 's'} for ${job.episode_id}. ${id}.`,
+    message: `Restored ${recovered} image${recovered === 1 ? '' : 's'} for ${job.episode_id}.`,
   }
 }
 

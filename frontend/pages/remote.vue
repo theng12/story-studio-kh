@@ -72,14 +72,12 @@
             </p>
             <p class="rm-job-sub">{{ jobSubline(job) }}</p>
             <p
-              v-for="control in jobControls(job)"
-              :key="`reason-${control.action}`"
+              v-if="primaryJobControl(job)"
               class="rm-job-control"
-              :class="`control-${control.action}`"
+              :class="`control-${primaryJobControl(job)?.action}`"
             >
-              <template v-if="hasPendingCancellation(job) && control.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
-              <template v-else-if="control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
-              {{ control.reason }}
+              <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
+              {{ customerJobText(primaryJobControl(job)?.reason, job) }}
             </p>
           </div>
           <button
@@ -89,14 +87,30 @@
             @click="retry(job)"
           >Retry</button>
           <button
-            v-for="control in jobControls(job)"
-            :key="control.action"
+            v-if="primaryJobControl(job)"
             class="rm-job-btn rm-stop"
-            :disabled="!control.enabled || controlling.has(job.job_id)"
-            :aria-label="`${control.label} ${job.title || job.type}`"
-            :title="control.reason"
-            @click="runJobControl(job, control)"
-          >{{ controlling.has(job.job_id) ? 'Working…' : control.label }}</button>
+            :disabled="!primaryJobControl(job)?.enabled || controlling.has(job.job_id)"
+            :aria-label="`${primaryJobControl(job)?.label} ${job.title || job.type}`"
+            :title="customerJobText(primaryJobControl(job)?.reason, job)"
+            @click="runJobControl(job, primaryJobControl(job) || undefined)"
+          >{{ controlling.has(job.job_id) ? 'Working…' : primaryJobControl(job)?.label }}</button>
+          <details v-if="secondaryJobControls(job).length" class="rm-more-actions">
+            <summary>More actions</summary>
+            <div class="rm-more-actions-body">
+              <button
+                v-for="control in secondaryJobControls(job)"
+                :key="control.action"
+                class="rm-job-btn rm-stop"
+                :disabled="!control.enabled || controlling.has(job.job_id)"
+                :aria-label="`${control.label} ${job.title || job.type}`"
+                :title="customerJobText(control.reason, job)"
+                @click="runJobControl(job, control)"
+              >{{ controlling.has(job.job_id) ? 'Working…' : control.label }}</button>
+              <p v-for="control in secondaryJobControls(job)" :key="`reason-${control.action}`" class="rm-job-control">
+                {{ customerJobText(control.reason, job) }}
+              </p>
+            </div>
+          </details>
         </div>
       </section>
 
@@ -125,6 +139,7 @@
 import { normalizeVisualSource, type VisualSource } from '~/composables/useProjectFlow'
 import { fullRunSteps, upToReviewSteps, chainHasFinal, stepLabelFor, type CockpitStep } from '~/composables/useRemoteChain'
 import type { Job } from '~/composables/useJobs'
+import { customerSafeJobText, jobRequestIds, primaryControl, secondaryControls } from '~/utils/job-presentation'
 
 definePageMeta({ layout: 'default' })
 
@@ -166,6 +181,15 @@ function jobControls(job: Job): JobControl[] {
   return (job.controls?.length ? job.controls : (job.control ? [job.control] : []))
     .filter(control => control.action !== 'none')
 }
+function primaryJobControl(job: Job): JobControl | null {
+  return primaryControl(jobControls(job))
+}
+function secondaryJobControls(job: Job): JobControl[] {
+  return secondaryControls(jobControls(job))
+}
+function customerJobText(value: unknown, job: Job): string {
+  return customerSafeJobText(value, jobRequestIds(job))
+}
 function bulkControl(job: Job): JobControl | undefined {
   return jobControls(job).find(control => control.enabled && BULK_CONTROL_ACTIONS.has(control.action))
 }
@@ -178,12 +202,12 @@ function jobSubline(job: Job): string {
   const providerDetail = [...(job.genstudio_jobs || [])].reverse()
     .map(item => item.status_detail || item.failure_detail)
     .find(Boolean)
-  if (providerDetail) return providerDetail
-  if (job.status === 'error') return job.error || 'failed'
+  if (providerDetail) return customerJobText(providerDetail, job)
+  if (job.status === 'error') return customerJobText(job.error || 'failed', job)
   if (job.status === 'queued') return 'queued'
   if (job.status === 'paused') return 'paused before provider submission'
   const last = job.output_lines?.[job.output_lines.length - 1]
-  return last ? String(last).slice(0, 80) : 'running…'
+  return last ? customerJobText(last, job).slice(0, 80) : 'running…'
 }
 
 interface PendingApproval { episode_id: string; title: string; total: number; approved: number; with_image: number }
@@ -278,7 +302,7 @@ async function run() {
       const names = missing.map((m: any) => stepLabelFor(visualSource.value, m.step as CockpitStep) || m.step).join(', ')
       runError.value = `These steps need a saved preset (set them on the desktop): ${names}.`
     } else {
-      runError.value = e?.data?.detail || e?.message || 'Failed to start the run'
+      runError.value = customerSafeJobText(e?.data?.detail || e?.message || 'Failed to start the run')
     }
   } finally {
     submitting.value = false
@@ -315,15 +339,15 @@ async function runJobControl(job: Job, requestedControl?: JobControl): Promise<b
       const refreshed = response?.job?.control
       success(refreshed?.action === 'clear-history'
         ? 'GenStudio confirmed this job\'s provider work has finished. This history can now be removed.'
-        : refreshed?.reason || control.reason)
+        : customerJobText(refreshed?.reason || control.reason, job))
       return true
     } else {
       return false
     }
-    success(control.action === 'clear-history' ? 'Removed from history. Files and provider evidence stay intact.' : `${control.label} requested. ${control.reason}`)
+    success(control.action === 'clear-history' ? 'Removed from history. Files and provider evidence stay intact.' : `${control.label} requested. ${customerJobText(control.reason, job)}`)
     return true
   } catch (e: any) {
-    showError(e?.data?.detail || `Failed to ${control.label.toLowerCase()}`)
+    showError(customerJobText(e?.data?.detail || `Failed to ${control.label.toLowerCase()}`, job))
     return false
   } finally {
     const next = new Set(controlling.value); next.delete(job.job_id); controlling.value = next
@@ -437,6 +461,10 @@ onBeforeUnmount(() => stopPolling())
 .rm-job-sub { margin: 3px 0 0; font-size: 12px; color: var(--text-muted, #888); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rm-job-control { margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
 .rm-job-control.control-return-later { color: #c79328; }
+.rm-more-actions { position: relative; flex-shrink: 0; }
+.rm-more-actions summary { min-height: 44px; display: grid; place-items: center; cursor: pointer; color: var(--text-muted, #888); font-size: 12px; }
+.rm-more-actions summary:focus-visible { outline: 2px solid var(--accent, #6c8fff); outline-offset: 2px; }
+.rm-more-actions-body { position: absolute; z-index: 4; right: 0; min-width: min(320px, 82vw); padding: 10px; border: 1px solid var(--border, #333); border-radius: 8px; background: var(--bg-secondary, #1c1c1f); }
 .rm-err-tag { color: #dc6666; font-size: 12px; }
 .rm-job-btn { height: 44px; min-width: 64px; padding: 0 14px; border-radius: 8px; font-size: 14px; flex-shrink: 0; }
 .rm-stop { color: #dc6666; border-color: rgba(220,38,38,0.4); }

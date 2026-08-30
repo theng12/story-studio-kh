@@ -334,7 +334,7 @@
       </h3>
       <p class="text-muted text-sm integrity-blurb">
         Check the expected {{ activePoolLabel }} against files on disk. <strong>Recover prior result(s)</strong>
-        downloads only accepted GenStudio jobs without charging again. Missing artwork with no saved job ID
+        downloads only accepted GenStudio work without charging again. Missing artwork with no saved recovery record
         needs a fresh generation; existing files are never overwritten in missing-only mode.
       </p>
 
@@ -415,23 +415,20 @@
         </div>
         <div v-for="item in activeRepairItems" :key="item.filename" class="repair-task-row">
           <span>{{ item.filename }}</span>
-          <!-- The task id is the useful half; the provider that produced it is
-               not shown. These rows come from a `.task-manifest.json` written
-               on disk, and an entry predating the GenStudio-only migration
-               still names the transport that served it. The manifest is left
-               exactly as written — this stops it being rendered. -->
+          <!-- Recovery evidence stays in the manifest; customer copy only says
+               whether that evidence exists. -->
           <span v-if="item.task_id" class="repair-task-id">
-            Task: {{ item.task_id }}
+            Provider recovery record saved
           </span>
-          <span v-else class="repair-task-none">Provider task ID: not recorded · fresh generation required</span>
+          <span v-else class="repair-task-none">No provider recovery record · fresh generation required</span>
         </div>
       </details>
 
       <div v-if="lastRepairJob" class="repair-job-result mt-2" :class="lastRepairJobClass">
         <span>
-          Repair job
-          <NuxtLink :to="`/projects/${slug}/jobs`">{{ lastRepairJob.job_id }}</NuxtLink>:
+          Repair:
           {{ lastRepairJobText }}
+          <NuxtLink :to="`/projects/${slug}/jobs`">View in Jobs</NuxtLink>
         </span>
       </div>
     </div>
@@ -590,6 +587,7 @@
 <script setup lang="ts">
 import { findOutputOption, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
+import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
 
 definePageMeta({ layout: 'dashboard' })
 
@@ -1366,7 +1364,7 @@ const lastRepairJobText = computed(() => {
   if (!job) return ''
   if (job.status === 'queued') return 'queued'
   if (job.status === 'running') return 'checking provider history'
-  if (job.status === 'error') return job.error || 'failed'
+  if (job.status === 'error') return job.error ? customerSafeJobText(job.error, jobRequestIds(job)) : 'failed'
   const result = job.result || {}
   const recovered = Number(result.recovered || 0)
   const remaining = Number(result.needs_fresh_generation || 0) + Number(result.unrecoverable || 0)
@@ -1432,7 +1430,7 @@ async function repairMissing() {
       pool: integrityPool.value,
     })
     lastRepairJobId.value = job.job_id
-    success(`${activePoolLabel.value === 'thumbnails' ? 'Thumbnail' : 'Scene'} repair queued · Job ${job.job_id}.`)
+    success(`${activePoolLabel.value === 'thumbnails' ? 'Thumbnail' : 'Scene'} repair queued — watch progress in Jobs.`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Failed to queue repair')
   } finally {

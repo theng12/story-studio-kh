@@ -172,6 +172,7 @@ test('GenStudio admission fails closed when account overview is unavailable', as
   assert.equal(pool.snapshot().submitting, 1)
   assert.equal(pool.snapshot().local_waiting, 1)
   assert.equal(pool.snapshot().limitSource, 'safe-fallback')
+  assert.equal(pool.snapshot().capacity_verified, false)
   assert.equal(pool.snapshot().generation_submissions_per_minute, 5)
   firstGate.resolve()
   await first
@@ -198,6 +199,7 @@ for (const [value, label] of [
     await pool.refreshNow('malformed-overview-key')
 
     assert.equal(pool.snapshot().limitSource, 'account-overview')
+    assert.equal(pool.snapshot().capacity_verified, false)
     assert.equal(pool.snapshot().generation_submissions_per_minute, 5)
   })
 }
@@ -210,6 +212,7 @@ test('GenStudio admission preserves a valid published submission rate', async ()
   await pool.refreshNow('published-overview-key')
 
   assert.equal(pool.snapshot().generation_submissions_per_minute, 7)
+  assert.equal(pool.snapshot().capacity_verified, true)
 })
 
 test('GenStudio admission preserves valid capacity display facts without admitting above standard lanes', async () => {

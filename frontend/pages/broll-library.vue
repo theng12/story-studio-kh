@@ -187,7 +187,7 @@
               <div class="pool-job-body">
                 <div class="pool-job-title">{{ job.title || job.type }}</div>
                 <div v-if="lastProgressLine(job)" class="pool-job-progress">{{ lastProgressLine(job) }}</div>
-                <div v-if="job.status === 'error' && job.error" class="pool-job-error" :title="job.error">⚠ {{ job.error.slice(0, 200) }}</div>
+                <div v-if="job.status === 'error' && job.error" class="pool-job-error" :title="customerJobError(job)">⚠ {{ customerJobError(job).slice(0, 200) }}</div>
               </div>
               <span class="pool-job-when">{{ relativeTime(job.finished_at || job.created_at) }}</span>
             </div>
@@ -682,6 +682,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { customerSafeJobText, jobRequestIds } from '~/utils/job-presentation'
 // v1.0.118+ — pickFolder() branches between Electron's native dialog
 // and the in-app FileBrowserModal (server mode) so the same callsite
 // works in both modes. Not auto-imported (it's a bare named export,
@@ -832,6 +833,9 @@ function jobBadge(job: any): string {
   if (job.status === 'error')     return '⚠ error'
   if (job.status === 'cancelled') return '○ cancelled'
   return job.status
+}
+function customerJobError(job: any): string {
+  return customerSafeJobText(job.error, jobRequestIds(job))
 }
 function lastProgressLine(job: any): string {
   const lines = job.output_lines || []

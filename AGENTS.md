@@ -140,6 +140,13 @@ What follows from this:
   source shown by the in-app **What's New** experience.
 - Run `npm run check:changelog` before finalizing. A release is incomplete if
   the runtime version, newest changelog entry, and What's New details differ.
+- After verified desktop work is integrated into `main`, create the final DMG
+  from the main checkout using the official command for the release intent:
+  `npm run dist:smoke` only for an unsigned smoke check, or `npm run dist:public`
+  for a signed/notarized public candidate. The final artifact belongs in the
+  repository-root `dist/`; verify its versioned `arm64` filename and the bundled
+  app/`app.asar` version against `main`. Never present or copy a worktree-built
+  DMG into `main`'s `dist/` before its source is integrated.
 
 ## Built-In Visual Style Workflow
 

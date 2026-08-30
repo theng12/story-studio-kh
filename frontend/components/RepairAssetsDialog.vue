@@ -10,13 +10,13 @@
         re-downloads {{ scopedCodes.length === 1 ? 'its' : 'their' }} audio and images from provider history.
         <strong>No credits consumed.</strong>
         Nothing else in the library is scanned or touched.
-        Files without a stored task ID come back as "needs fresh generation" in the job log.
+        Files without a stored recovery record come back as "needs fresh generation" in the job log.
       </p>
       <p v-else class="dialog-sub text-muted">
         Scans every accepted episode for gaps the provider might already have finished, then
         re-downloads audio and images from provider history. <strong>No credits consumed.</strong> Use this
         after an app crash, network blip, or timeout left provider-completed output unsaved locally.
-        Files without a stored task ID come back as "needs fresh generation" in the job log.
+        Files without a stored recovery record come back as "needs fresh generation" in the job log.
       </p>
     </div>
 
@@ -221,8 +221,8 @@ async function runAudit() {
 async function repairSingleImages(code: string) {
   repairingRow.value = code
   try {
-    const job = await post<{ job_id: string }>(`/projects/${props.slug}/generate/images-repair`, { episode_id: code })
-    success(`Image repair queued for ${code} · Job ${job.job_id}`)
+    await post<{ job_id: string }>(`/projects/${props.slug}/generate/images-repair`, { episode_id: code })
+    success(`Image repair queued for ${code} — watch progress in Jobs.`)
   } catch (e: any) {
     showError(e?.data?.detail || 'Image repair failed to queue')
   } finally {

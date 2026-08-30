@@ -62,8 +62,39 @@ function targetFor(entry: JobEvidence): { operation: JobRemoteOperation; provide
   return { operation: entry.operation, provider_job_id: entry.id }
 }
 
-function describes(entry: JobEvidence): string {
-  return `${entry.operation} ${entry.id || 'with no provider job ID'}`
+const OPERATION_WORK: Record<JobRemoteOperation, string> = {
+  'voice.tts': 'narration request',
+  'audio.transcription': 'transcription request',
+  'image.generation': 'image request',
+  'video.generation': 'video request',
+  'chat.response': 'writing request',
+  'music.generation': 'music request',
+}
+
+function describeProviderWork(operations: JobRemoteOperation[]): { text: string; plural: boolean } {
+  const counts = new Map<JobRemoteOperation, number>()
+  for (const operation of operations) counts.set(operation, (counts.get(operation) || 0) + 1)
+  const parts = [...counts].map(([operation, count]) => {
+    const work = OPERATION_WORK[operation]
+    return count === 1 ? `the ${work}` : `${count} ${work}s`
+  })
+  if (!parts.length) return { text: 'this job\'s provider work', plural: false }
+  return {
+    text: parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}`,
+    plural: operations.length > 1,
+  }
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/** Public control copy never carries the exact identifier kept in job evidence. */
+function publicControlDetail(value: string | null | undefined): string {
+  return String(value || '')
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'the provider request')
+    .replace(/\b((?:provider[ _-]?)?(?:job|task|request)[ _-]?id)\s*[:=#]\s*[A-Za-z0-9._:-]{6,}/gi, '$1: hidden')
+    .replace(/\b(?=[A-Za-z0-9_-]{20,}\b)(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[-_])[A-Za-z0-9_-]+\b/g, '[request hidden]')
 }
 
 /** Name the provider tasks this job recorded as unfinished, without a wall of ids. */
@@ -71,17 +102,19 @@ function describeUnsettled(
   job: Pick<Job, 'genstudio_jobs' | 'remote_cancellations'>,
   evidence: JobEvidence[],
 ): { text: string; plural: boolean } {
-  const names = evidence.filter(entry => !isProviderTerminal(entry)).map(describes)
+  const seen = new Set<string>()
+  const operations: JobRemoteOperation[] = []
+  for (const entry of evidence) {
+    if (isProviderTerminal(entry) || !isRemoteOperation(entry.operation)) continue
+    seen.add(`${entry.operation}:${entry.id}`)
+    operations.push(entry.operation)
+  }
   for (const record of Object.values(job.remote_cancellations || {})) {
     if (!PENDING_CANCELLATION_STATES.has(record.status)) continue
-    const name = `${record.operation} ${record.provider_job_id}`
-    if (!names.includes(name)) names.push(name)
+    const key = `${record.operation}:${record.provider_job_id}`
+    if (!seen.has(key)) operations.push(record.operation)
   }
-  if (!names.length) return { text: 'this job\'s provider work', plural: false }
-  const plural = names.length > 1
-  if (names.length <= 3) return { text: names.join(', '), plural }
-  const rest = names.length - 3
-  return { text: `${names.slice(0, 3).join(', ')} and ${rest} more provider task${rest === 1 ? '' : 's'}`, plural }
+  return describeProviderWork(operations)
 }
 
 /**
@@ -101,7 +134,7 @@ function unsettledHistoryControl(
   const { text: outstanding, plural } = describeUnsettled(job, evidence)
   const check = job.history_evidence_check
   if (check?.state === 'unreachable') {
-    const detail = check.detail ? ` ${check.detail}` : ''
+    const detail = check.detail ? ` ${publicControlDetail(check.detail)}` : ''
     return control(
       'recheck-provider-status', true, 'Check GenStudio again',
       `Story Studio could not reach GenStudio to confirm whether ${outstanding} finished, so it cannot say whether that work is still running.${detail}`,
@@ -206,13 +239,13 @@ function classifyProviderJobControl(
   const pendingCancellation = Object.values(job.remote_cancellations || {}).find(record => PENDING_CANCELLATION_STATES.has(record.status))
   if (pendingCancellation) {
     const detail = pendingCancellation.reconciliation_error || job.reconciliation_error
-      ? ` ${pendingCancellation.reconciliation_error || job.reconciliation_error}`
+      ? ` ${publicControlDetail(pendingCancellation.reconciliation_error || job.reconciliation_error)}`
       : ''
     return control('return-later', false, 'Checking cancellation', `Story Studio is waiting for GenStudio to confirm the cancellation result. The provider work may still settle.${detail}`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
   }
 
   if (job.reconciliation_error) {
-    return control('return-later', false, 'Checking provider status', `Story Studio cannot yet confirm every accepted provider task. ${job.reconciliation_error}`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+    return control('return-later', false, 'Checking provider status', `Story Studio cannot yet confirm every accepted provider task. ${publicControlDetail(job.reconciliation_error)}`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
   }
 
   if (!evidence.length) {
@@ -253,13 +286,14 @@ function classifyProviderJobControl(
   }
 
   if (ambiguous.length) {
-    return control('return-later', false, 'Checking provider status', `${ambiguous.map(describes).join(', ')} has no authoritative cancellation state yet. Story Studio will keep the duplicate lock and reconcile it.`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
+    const work = describeProviderWork(ambiguous.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation))
+    return control('return-later', false, 'Checking provider status', `${capitalise(work.text)} ${work.plural ? 'have' : 'has'} no authoritative cancellation state yet. Story Studio will keep the duplicate lock and reconcile it.`, 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')
   }
 
   if (targets.length && capabilities.remoteCancellationAudited) {
     const settling = [...continuing, ...unsupported]
     const continuingReason = settling.length
-      ? ` ${settling.map(describes).join(', ')} already started and will continue settling.`
+      ? ` ${capitalise(describeProviderWork(settling.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation)).text)} already started and will continue settling.`
       : ''
     return control('request-remote-cancel', true, 'Request cancellation', `Story Studio will ask GenStudio to cancel ${targets.length === 1 ? 'the eligible provider task' : `${targets.length} eligible provider tasks`}; GenStudio determines whether credits are released.${continuingReason}`, 'READY', 'remote-result-required', targets)
   }
@@ -269,11 +303,13 @@ function classifyProviderJobControl(
   }
 
   if (unsupported.length) {
-    return control('return-later', false, 'Return later', `${unsupported.map(describes).join(', ')} does not publish a cancellation endpoint. Provider work may still settle.`, 'REMOTE_CANCELLATION_NOT_SUPPORTED', 'provider-work-may-settle')
+    const work = describeProviderWork(unsupported.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation))
+    return control('return-later', false, 'Return later', `${capitalise(work.text)} ${work.plural ? 'do' : 'does'} not publish a cancellation endpoint. Provider work may still settle.`, 'REMOTE_CANCELLATION_NOT_SUPPORTED', 'provider-work-may-settle')
   }
 
   if (continuing.length) {
-    return control('pause-submissions', PAUSABLE_SUBMISSION_TYPES.has(job.type), 'Pause new submissions', `${continuing.map(describes).join(', ')} already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
+    const work = describeProviderWork(continuing.filter(entry => isRemoteOperation(entry.operation)).map(entry => entry.operation as JobRemoteOperation))
+    return control('pause-submissions', PAUSABLE_SUBMISSION_TYPES.has(job.type), 'Pause new submissions', `${capitalise(work.text)} already started and will continue settling. New provider submissions can be paused, but this request cannot be cancelled.`, 'PROVIDER_WORK_ALREADY_STARTED', 'provider-work-may-settle')
   }
 
   return control('return-later', false, 'Return later', 'Story Studio is waiting for authoritative provider settlement.', 'CANCELLATION_STATUS_UNKNOWN', 'remote-result-required')

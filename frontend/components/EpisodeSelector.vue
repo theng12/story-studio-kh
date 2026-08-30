@@ -221,11 +221,11 @@ interface StepChip { field: string; label: string; conditional?: boolean; active
 const F = STEP_STATUS_FIELD
 const STEP_CHIPS: StepChip[] = [
   { field: F.research,        label: 'Research', conditional: true },
+  { field: F.script,          label: 'Script' },
   // v1.4.82 — Introduction was returned per episode and shown on no chip at
   // all. Conditional, so it appears only once it is done, overridden, or you
   // are standing on that page — it never adds forever-pending noise.
   { field: F.introduction,    label: 'Introduction', conditional: true, activePath: '/introduction' },
-  { field: F.script,          label: 'Script' },
   { field: F.metadata,        label: 'Metadata' },
   { field: F['thumb-prompts'], label: 'Thumb prompts' },
   { field: F.thumbnails,      label: 'Thumbnails' },

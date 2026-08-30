@@ -30,6 +30,7 @@ import { ref, readonly, computed } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs, type Job } from './useJobs.js'
 import { retiringConfiguredModels, type ChannelCatalogRow } from '../utils/genstudio-model-retirement.js'
+import { customerSafeJobText, jobRequestIds } from '../utils/job-presentation.js'
 
 export type NotifSeverity = 'blocking' | 'warning' | 'info'
 export type NotifTab = 'activity' | 'action'
@@ -109,6 +110,17 @@ function tsOf(iso: string | null): number {
   if (!iso) return 0
   const n = Date.parse(iso)
   return Number.isFinite(n) ? n : 0
+}
+
+export function activityItemForJob(job: Job): ActivityItem {
+  return {
+    id: job.job_id,
+    kind: labelForJob(job),
+    title: job.title || job.episode_id || labelForJob(job),
+    status: job.status as 'done' | 'error',
+    ts: tsOf(job.finished_at),
+    error: job.error === null ? null : customerSafeJobText(job.error, jobRequestIds(job)),
+  }
 }
 
 // ── Module-singleton state ────────────────────────────────────────────────
@@ -310,14 +322,7 @@ export function useNotifications() {
     return computed<ActivityItem[]>(() => {
       return (jobs.value as readonly Job[])
         .filter(j => j.status === 'done' || j.status === 'error')
-        .map(j => ({
-          id: j.job_id,
-          kind: labelForJob(j),
-          title: j.title || j.episode_id || j.job_id,
-          status: j.status as 'done' | 'error',
-          ts: tsOf(j.finished_at),
-          error: j.error,
-        }))
+        .map(activityItemForJob)
         .sort((a, b) => b.ts - a.ts)
     })
   }

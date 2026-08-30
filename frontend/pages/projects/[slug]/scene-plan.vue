@@ -561,9 +561,6 @@
           <small v-else>Skipped for this project. Still images remain valid through assembly.</small>
         </div>
       </div>
-      <p v-if="plan?.visual_prompt_batch_id || plan?.motion_prompt_batch_id" class="text-muted text-xs mt-2">
-        Last Hub task: <code>{{ plan.motion_prompt_batch_id || plan.visual_prompt_batch_id }}</code>
-      </p>
     </WorkspaceSection>
 
     <!-- Step 3: Plan + edit -->
@@ -2132,7 +2129,7 @@ async function runPromptStage(stage: 'visual' | 'motion', promptLimit?: number):
       custom_instructions: form.value.custom_instructions.trim() || undefined,
       avoid_legible_text: form.value.avoid_legible_text,
     })
-    success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued${job?.job_id ? ` · Story task ${job.job_id}` : ''}`)
+    success(`${stage === 'visual' ? 'Visual' : 'Motion'} prompt packs queued — watch progress in Jobs.`)
     await pollUntilPlanLanded(ep, { previousGeneratedAt, timeoutMs: 3_600_000, trackJobId: job?.job_id || null })
   } catch (e: any) {
     await reportGenerationError(e, `Failed to start ${stage} prompt stage`)
