@@ -461,9 +461,6 @@
           <span v-if="job.finished_at" class="meta-tag">
             <span class="meta-label">Finished:</span> {{ formatTime(job.finished_at) }}
           </span>
-          <!-- The raw job id lives in Technical details now. It is an
-               8-character hex slice with no meaning to the person asking
-               "is my video coming?", and it was the widest thing on the row. -->
         </div>
 
         <!-- Row 2.5: Account attribution.
@@ -938,6 +935,7 @@ import {
   customerSafeJobText,
   filterJobsForView,
   isVerifiedLiveCapacity,
+  jobRequestIds,
   primaryControl,
   secondaryControls,
 } from '~/utils/job-presentation'
@@ -2084,16 +2082,8 @@ function secondaryJobControls(job: RJob): JobControl[] {
   return job.status === 'paused' ? jobControls(job) : secondaryControls(jobControls(job))
 }
 
-function jobIdentifiers(job: RJob): string[] {
-  return [
-    job.job_id,
-    ...(job.genstudio_jobs || []).map(remote => remote.id),
-    ...Object.values(job.remote_cancellations || {}).map(record => record.provider_job_id),
-  ].filter(Boolean)
-}
-
 function customerJobText(value: unknown, job: RJob): string {
-  return customerSafeJobText(value, jobIdentifiers(job))
+  return customerSafeJobText(value, jobRequestIds(job))
 }
 
 async function runJobControl(job: RJob, requestedControl?: JobControl) {

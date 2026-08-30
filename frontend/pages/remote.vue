@@ -139,7 +139,7 @@
 import { normalizeVisualSource, type VisualSource } from '~/composables/useProjectFlow'
 import { fullRunSteps, upToReviewSteps, chainHasFinal, stepLabelFor, type CockpitStep } from '~/composables/useRemoteChain'
 import type { Job } from '~/composables/useJobs'
-import { customerSafeJobText, primaryControl, secondaryControls } from '~/utils/job-presentation'
+import { customerSafeJobText, jobRequestIds, primaryControl, secondaryControls } from '~/utils/job-presentation'
 
 definePageMeta({ layout: 'default' })
 
@@ -187,15 +187,8 @@ function primaryJobControl(job: Job): JobControl | null {
 function secondaryJobControls(job: Job): JobControl[] {
   return secondaryControls(jobControls(job))
 }
-function jobIdentifiers(job: Job): string[] {
-  return [
-    job.job_id,
-    ...(job.genstudio_jobs || []).map(item => item.id),
-    ...Object.values(job.remote_cancellations || {}).map(record => record.provider_job_id),
-  ].filter(Boolean)
-}
 function customerJobText(value: unknown, job: Job): string {
-  return customerSafeJobText(value, jobIdentifiers(job))
+  return customerSafeJobText(value, jobRequestIds(job))
 }
 function bulkControl(job: Job): JobControl | undefined {
   return jobControls(job).find(control => control.enabled && BULK_CONTROL_ACTIONS.has(control.action))

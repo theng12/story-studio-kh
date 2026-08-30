@@ -30,7 +30,7 @@ import { ref, readonly, computed } from 'vue'
 import { useApi } from './useApi.js'
 import { useJobs, type Job } from './useJobs.js'
 import { retiringConfiguredModels, type ChannelCatalogRow } from '../utils/genstudio-model-retirement.js'
-import { customerSafeJobText } from '../utils/job-presentation.js'
+import { customerSafeJobText, jobRequestIds } from '../utils/job-presentation.js'
 
 export type NotifSeverity = 'blocking' | 'warning' | 'info'
 export type NotifTab = 'activity' | 'action'
@@ -113,18 +113,13 @@ function tsOf(iso: string | null): number {
 }
 
 export function activityItemForJob(job: Job): ActivityItem {
-  const exactIds = [
-    job.job_id,
-    ...(job.genstudio_jobs || []).map(remote => remote.id),
-    ...Object.values(job.remote_cancellations || {}).map(record => record.provider_job_id),
-  ].filter(Boolean)
   return {
     id: job.job_id,
     kind: labelForJob(job),
     title: job.title || job.episode_id || labelForJob(job),
     status: job.status as 'done' | 'error',
     ts: tsOf(job.finished_at),
-    error: job.error === null ? null : customerSafeJobText(job.error, exactIds),
+    error: job.error === null ? null : customerSafeJobText(job.error, jobRequestIds(job)),
   }
 }
 

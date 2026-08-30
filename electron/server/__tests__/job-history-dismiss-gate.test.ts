@@ -52,8 +52,9 @@ describe('finished-job dismiss gate', () => {
     assert.equal(control.action, 'return-later')
     assert.equal(control.enabled, false)
     assert.equal(control.label, 'Checking provider status')
-    assert.match(control.reason, /Story Studio is asking GenStudio whether voice\.tts tts-10 finished/)
+    assert.match(control.reason, /Story Studio is asking GenStudio whether the narration request finished/)
     assert.match(control.reason, /can be removed as soon as GenStudio confirms it has/)
+    assert.doesNotMatch(control.reason, /voice\.tts|tts-10/)
     // It must not assert anything about the provider it has not yet asked.
     assert.doesNotMatch(control.reason, /still settling/)
   })
@@ -81,9 +82,10 @@ describe('finished-job dismiss gate', () => {
       },
     }), capabilities)
     assert.equal(control.code, 'PROVIDER_STATUS_UNREACHABLE')
-    assert.match(control.reason, /could not reach GenStudio to confirm whether voice\.tts tts-10 finished/)
+    assert.match(control.reason, /could not reach GenStudio to confirm whether the narration request finished/)
     assert.match(control.reason, /cannot say whether that work is still running/)
     assert.match(control.reason, /HTTP 503/)
+    assert.doesNotMatch(control.reason, /voice\.tts|tts-10/)
     // The two states are never conflated.
     assert.doesNotMatch(control.reason, /still settling/)
     assert.doesNotMatch(control.reason, /GenStudio reports/)
@@ -98,8 +100,9 @@ describe('finished-job dismiss gate', () => {
       history_evidence_check: { state: 'unsettled', at: '2026-08-17T09:00:00.000Z' },
     }), capabilities)
     assert.equal(control.code, 'PROVIDER_WORK_ALREADY_STARTED')
-    assert.match(control.reason, /GenStudio reports that voice\.tts tts-10 has not finished yet/)
+    assert.match(control.reason, /GenStudio reports that the narration request has not finished yet/)
     assert.match(control.reason, /keeping this history until that work settles/)
+    assert.doesNotMatch(control.reason, /voice\.tts|tts-10/)
     // The protection is intact: this is not a clear-history.
     assert.notEqual(control.action, 'clear-history')
     // But the customer is never stranded — the re-check is offered.
@@ -130,14 +133,15 @@ describe('finished-job dismiss gate', () => {
         id: `tts-${index}`, operation: 'voice.tts' as const, state: 'accepted', updated_at: '2026-08-16T02:38:00.000Z',
       })),
     }), capabilities)
-    assert.match(control.reason, /and 3 more provider tasks/)
+    assert.match(control.reason, /whether 6 narration requests finished/)
+    assert.doesNotMatch(control.reason, /voice\.tts|tts-[0-5]/)
   })
 
   test('the summary agrees with itself about singular and plural', () => {
     const one = classifyJobControl(finishedAudioJob({
       history_evidence_check: { state: 'unsettled', at: '2026-08-17T09:00:00.000Z' },
     }), capabilities)
-    assert.match(one.reason, /voice\.tts tts-10 has not finished yet/)
+    assert.match(one.reason, /the narration request has not finished yet/)
 
     const many = classifyJobControl(finishedAudioJob({
       genstudio_jobs: [
@@ -146,8 +150,8 @@ describe('finished-job dismiss gate', () => {
       ],
       history_evidence_check: { state: 'unsettled', at: '2026-08-17T09:00:00.000Z' },
     }), capabilities)
-    assert.match(many.reason, /have not finished yet/)
-    assert.doesNotMatch(many.reason, /tasks has not/)
+    assert.match(many.reason, /2 narration requests have not finished yet/)
+    assert.doesNotMatch(many.reason, /requests has not/)
   })
 })
 

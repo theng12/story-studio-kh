@@ -16,6 +16,12 @@ export interface CapacitySnapshotLike {
   refreshed_at?: string | null
 }
 
+export interface JobRequestIdentityLike {
+  job_id: string
+  genstudio_jobs?: readonly { id: string }[] | null
+  remote_cancellations?: Readonly<Record<string, { provider_job_id: string }>> | null
+}
+
 const LIVE_CAPACITY_MAX_AGE_MS = 30_000
 
 export function primaryControl<T extends JobControlLike>(controls: readonly T[]): T | null {
@@ -46,6 +52,14 @@ export function isVerifiedLiveCapacity(snapshot: CapacitySnapshotLike | null | u
   if (!Number.isFinite(refreshedAt)) return false
   const age = nowMs - refreshedAt
   return age >= -5_000 && age <= LIVE_CAPACITY_MAX_AGE_MS
+}
+
+export function jobRequestIds(job: JobRequestIdentityLike): string[] {
+  return [
+    job.job_id,
+    ...(job.genstudio_jobs || []).map(remote => remote.id),
+    ...Object.values(job.remote_cancellations || {}).map(record => record.provider_job_id),
+  ].filter(Boolean)
 }
 
 /** Remove request identities only from presentation; the source job evidence is untouched. */

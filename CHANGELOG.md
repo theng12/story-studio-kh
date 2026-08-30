@@ -4,6 +4,14 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.85 — 2026-08-30
+
+- **Scene-image throughput now starts at the safer two-episode recommendation, and Custom works when you need something else.** A new install — or one with no saved value — now runs scene images for two episodes at once instead of three. A value you already chose is left alone. Choosing Custom always opens a numeric box, even when the current number is also one of the named choices; it accepts the established one-to-fifty range, and the save message reports the value Story Studio actually applied.
+- **The Jobs page now puts the useful action and explanation first, without exposing internal job and request codes.** Each active card leads with its safest normal action and keeps cancellation or abandonment alternatives under More actions. Repeated capacity notices collapse into one count, Review failures takes you straight to the failed rows from the latest pipeline run, and full errors plus provider item state remain available in clear disclosures. Internal identifiers are still retained for reconciliation, settlement, recovery, and support evidence, but are no longer printed in cards, messages, notifications, previews, or related generation confirmations.
+- **Account-capacity numbers are shown only when GenStudio has just confirmed them.** A fresh, well-formed account overview shows the live standard lanes, provider queue, and submission rate. Missing, stale, or malformed data instead says that capacity is unverified and schedules conservatively, so fallback numbers can no longer look like live account facts.
+
+---
+
 ## v1.4.84 — 2026-08-30
 
 - **Three scheduled videos went up titled "# SEO-Optimized Video Titles". That cannot happen again.** When Story Studio asks for five title ideas it asks for them one per line, with no commentary. Almost always that is what comes back. Occasionally the model writes its own heading above the list first — *"# 5 SEO-Optimized Video Titles — EP0061"* — and the step that tidied each line knew how to remove a dash, a number, a full stop and a pair of quotes, but had never been told anything about a `#`. So the heading survived as the first line, was picked as the episode's title, and went to YouTube as the name of the video. It also pushed the fifth genuine title off the end of the list to make room for itself. Story Studio now recognises a heading, a numbered preamble and the wording of its own instruction for what they are, and throws them away *before* it chooses — so the heading never becomes a title, and no real title is lost to it.
