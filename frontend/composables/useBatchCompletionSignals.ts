@@ -95,8 +95,9 @@ export function useBatchCompletionSignals(getJobs: () => readonly Job[]) {
 
   function fireSignals(jobs: Job[]) {
     const { total, success, failed, slug } = summarizeBatch(jobs)
+    const attention = `${failed} episode${failed === 1 ? '' : 's'} need${failed === 1 ? 's' : ''} attention`
     const msg = failed > 0
-      ? `Pipeline finished — ${success}/${total} succeeded, ${failed} failed`
+      ? `Pipeline finished — ${success}/${total} succeeded, ${attention}`
       : `Pipeline finished — ${success}/${total} episodes complete`
     const target = slug ? `/projects/${slug}/jobs` : '/'
     showAction(msg, 'View jobs', async () => { await navigateTo(target) }, failed > 0 ? 'info' : 'success')

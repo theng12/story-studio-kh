@@ -5,7 +5,7 @@
       :title="isUniversal ? 'All Jobs' : 'Project Jobs'"
       :description="isUniversal
         ? 'Monitor and control work across every project from one queue. Filter by project without switching workspaces.'
-        : 'Monitor this project’s active work, understand failures, recover output, and manage its history.'"
+        : 'Monitor this project’s active work, see what needs attention, recover output, and manage its history.'"
     >
       <template #aside>
         <div class="jobs-hero-aside">
@@ -18,7 +18,7 @@
             <span class="workspace-metric" data-tone="warning"><strong>{{ stats.queued }}</strong> waiting locally</span>
             <span v-if="stats.paused" class="workspace-metric" data-tone="warning"><strong>{{ stats.paused }}</strong> paused</span>
             <span class="workspace-metric" data-tone="success"><strong>{{ stats.done }}</strong> done</span>
-            <span v-if="stats.error" class="workspace-metric" data-tone="error"><strong>{{ stats.error }}</strong> errors</span>
+            <span v-if="stats.error" class="workspace-metric" data-tone="error"><strong>{{ stats.error }}</strong> job{{ stats.error === 1 ? '' : 's' }} need{{ stats.error === 1 ? 's' : '' }} attention</span>
           </div>
           <div class="genstudio-capacity-summary" aria-label="GenStudio account capacity">
             <span
@@ -88,7 +88,7 @@
               v-if="!isUniversal"
               :to="`/projects/${slug}/board?repair=1`"
               class="btn btn-sm btn-secondary"
-              title="Scans EVERY accepted episode in this project for output the provider already produced but that never landed on disk, then re-downloads it (no credits consumed). To fix one failed job instead, use the buttons on that job's own row below."
+              title="Scans EVERY accepted episode in this project for output the provider already produced but that never landed on disk, then re-downloads it (no credits consumed). To help one job that needs attention instead, use the buttons on that job's own row below."
             >
               Scan all for repair
             </NuxtLink>
@@ -182,7 +182,7 @@
            episodes into one row with count N. -->
       <div v-if="batchSummary.failed > 0" class="bbf-failures">
         <div class="bbf-failures-title">
-          <strong>{{ batchSummary.failed }} episode{{ batchSummary.failed === 1 ? '' : 's' }} failed</strong>
+          <strong>{{ batchSummary.failed }} episode{{ batchSummary.failed === 1 ? '' : 's' }} need{{ batchSummary.failed === 1 ? 's' : '' }} attention</strong>
           <span class="text-muted">— top reasons:</span>
         </div>
         <ul class="bbf-reason-list">
@@ -196,7 +196,7 @@
       <!-- Per-episode failure details — expand on demand. The full error is
            kept untruncated but passes through the customer-copy boundary. -->
       <details v-if="batchSummary.failed_episodes.length" class="bbf-details">
-        <summary>Show all failed episodes ({{ batchSummary.failed_episodes.length }})</summary>
+        <summary>Show all episodes needing attention ({{ batchSummary.failed_episodes.length }})</summary>
         <div
           v-for="fe in batchSummary.failed_episodes"
           :key="fe.episode_id"
@@ -204,7 +204,7 @@
         >
           <div class="bbf-failed-episode-head">
             <strong>{{ fe.episode_id }}</strong>
-            <span class="text-muted">— failed at step <code>{{ fe.job_type }}</code></span>
+            <span class="text-muted">— needs attention at step <code>{{ fe.job_type }}</code></span>
           </div>
           <pre class="bbf-failed-episode-error">{{ customerSafeJobText(fe.full_error) }}</pre>
         </div>
@@ -221,14 +221,14 @@
         <button
           v-if="batchSummary.failed > 0"
           class="btn btn-sm btn-secondary"
-          title="Filter the History list below to failed jobs — use this when you need to pick a retry strategy per-episode (the full error body is on each card)."
+          title="Filter History below to jobs that need attention — use this to review each job’s details and choose whether to Retry."
           @click="reviewFailures"
-        >Review failures →</button>
+        >Review jobs →</button>
         <NuxtLink
           :to="batchRepairLink"
           class="btn btn-sm btn-primary"
           :title="batchSummary.failed_episodes.length
-            ? `Open Repair for the ${batchSummary.failed_episodes.length} episode(s) that failed in this batch — nothing else is scanned. Re-downloads output the provider already produced and was already paid for; no credits consumed.`
+            ? `Open Repair for the ${batchSummary.failed_episodes.length} episode(s) that need attention in this batch — nothing else is scanned. Re-downloads output the provider already produced and was already paid for; no credits consumed.`
             : 'Open Repair (on the Production Board) — lists provider-completed outputs that didn\'t land on disk (e.g. network drop after upload). One-click repair does NOT consume credits; it only re-downloads what the provider already produced.'"
           @click="bulkBannerDismissed = true"
         >Repair →</NuxtLink>
@@ -241,8 +241,8 @@
         A provider finished the generation (so you were billed) but the bytes
         didn't land on disk (network drop, kill mid-download, etc.).
         <b>Repair</b> re-fetches those files with no extra credits.
-        <b>Review failures</b> is for jobs that truly errored — the provider
-        never produced a usable result, so retrying will spend credits again.
+        <b>Review jobs</b> is for work that still needs another try — no usable
+        result was saved, so retrying may spend credits again.
       </div>
     </div>
 
@@ -279,10 +279,10 @@
         v-if="repairableFailedJobs.length > 0"
         class="btn btn-sm btn-primary repair-all-btn"
         :disabled="repairingAllFailed"
-        title="Recover every failed/cancelled job that CAN be repaired — polls each provider for completed tasks and downloads them for free. Never re-submits (no charge). Genuinely-missing items stay failed for you to Retry."
+        title="Recover every job that needs attention or was cancelled and CAN be repaired — polls each provider for completed tasks and downloads them for free. Never re-submits (no charge). Genuinely-missing items remain available for Retry."
         @click="repairAllFailed"
       >
-        {{ repairingAllFailed ? 'Repairing…' : `🔧 Repair all failed (${repairableFailedJobs.length})` }}
+        {{ repairingAllFailed ? 'Repairing…' : `Repair available (${repairableFailedJobs.length})` }}
       </button>
       <button
         v-if="failedJobsForRetryAll.length > 0"
@@ -587,7 +587,7 @@
         <!-- Error details -->
         <div v-if="job.status === 'error'" class="job-error-section">
           <div v-if="job.error" class="error-summary">
-            <span class="error-label">Error:</span>
+            <span class="error-label">What happened:</span>
             <span class="error-summary-text">{{ firstErrorLine(customerJobText(job.error, job)) }}</span>
           </div>
           <button
@@ -598,7 +598,7 @@
             :aria-controls="`job-error-active-${job.job_id}`"
             @click="errorExpanded === job.job_id ? errorExpanded = null : errorExpanded = job.job_id"
           >
-            {{ errorExpanded === job.job_id ? 'Hide full error' : 'Show full error' }}
+            {{ errorExpanded === job.job_id ? 'Hide details' : 'Show details' }}
           </button>
           <div :id="`job-error-active-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
             {{ customerJobText(job.error, job) }}
@@ -902,7 +902,7 @@
 
           <div v-if="job.status === 'error'" class="job-error-section">
             <div v-if="job.error" class="error-summary">
-              <span class="error-label">Error:</span>
+              <span class="error-label">What happened:</span>
               <span class="error-summary-text">{{ firstErrorLine(customerJobText(job.error, job)) }}</span>
             </div>
             <button
@@ -913,7 +913,7 @@
               :aria-controls="`job-error-history-${job.job_id}`"
               @click="errorExpanded === job.job_id ? errorExpanded = null : errorExpanded = job.job_id"
             >
-              {{ errorExpanded === job.job_id ? 'Hide full error' : 'Show full error' }}
+              {{ errorExpanded === job.job_id ? 'Hide details' : 'Show details' }}
             </button>
             <div :id="`job-error-history-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
               {{ customerJobText(job.error, job) }}
@@ -1511,7 +1511,7 @@ async function repairAllInterrupted() {
   }
 }
 
-// v1.0.x — bulk "Repair all failed": every failed/cancelled job whose type has
+// v1.0.x — bulk repair: every failed/cancelled job whose type has
 // a repair path (audio/images/video). Free (poll + download only, never
 // re-submits), so it's the safe "recover everything the providers already
 // finished" one-click. Genuinely-missing items stay failed for a later Retry.
@@ -1535,7 +1535,7 @@ async function repairAllFailed() {
       }
     }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, snapshot.length) }, () => worker()))
-    success('Repair-all finished. Cards show each result; anything still failed needs a Retry (regenerate).')
+    success('Repair-all finished. Cards show each result; anything still missing needs a Retry (regenerate).')
   } finally {
     repairingAllFailed.value = false
   }
@@ -1575,9 +1575,9 @@ async function retryAllFailed() {
     if (triage.blocked.length > 0) {
       info(describeRetryAllTriage(triage as any))
     } else if (triage.alreadyComplete.length > 0) {
-      success('Nothing to retry — every failed job already had its files on disk after a repair. You can dismiss them.')
+      success('Nothing to retry — every job needing attention already had its files on disk after a repair. You can dismiss them.')
     } else {
-      info('Nothing failed that can be retried.')
+      info('No jobs need another try.')
     }
     return
   }
@@ -1614,7 +1614,7 @@ async function retryAllFailed() {
     if (failures > 0) showError(`${failures} of ${snapshot.length} retries could not be sent. The rest went to the queue.`)
     // retryJob surfaces its own per-job errors, so this says what was SENT
     // rather than claiming everything was accepted.
-    else success(`Sent ${snapshot.length} job(s) to the queue. It runs them at its own pace; any that were refused say so on their card.`)
+    else success(`Sent ${snapshot.length} job(s) to the queue. It runs them at its own pace; any that still need attention will say so on their card.`)
   } finally {
     retryingAllFailed.value = false
   }
@@ -1717,7 +1717,7 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
   { key: 'all', label: 'All' },
   { key: 'running', label: 'Running' },
   { key: 'queued', label: 'Queued' },
-  { key: 'error', label: 'Failed' },
+  { key: 'error', label: 'Needs attention' },
   { key: 'done', label: 'Done' },
   { key: 'cancelled', label: 'Cancelled' },
 ]
@@ -2305,7 +2305,7 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     return 'SMART RETRY — Regenerates ONLY missing scene/thumbnail prompts and merges them into the existing files, keeping prompts that already succeeded. Local models: free. Cloud models: charges only for the missing prompts.'
   }
   if (jobCanBeRepaired(job)) {
-    return 'CHARGES MAY APPLY — Deletes this failed job and re-submits a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'
+    return 'CHARGES MAY APPLY — Re-submits this job as a fresh request. Click Repair FIRST (free — recovers in-flight provider work). The generator skips assets already on disk, so after Repair, Retry only re-submits genuinely-missing items.'
   }
   if (jobType === 'continuity_render') {
     // v1.4.43 — this said "re-runs the whole step, no repair path", which is
@@ -2315,7 +2315,7 @@ function retryTooltip(job: Pick<RJob, 'type' | 'params' | 'auto_retry'>): string
     // repair looked like the expensive option.
     return 'FREE WHERE POSSIBLE — First pulls back every scene image the provider already produced, at no charge, using the task record saved for each one. Only scenes with no recoverable result are re-submitted, and any image already on disk is left alone.'
   }
-  return 'CHARGES MAY APPLY — Deletes this failed job and re-submits it. Re-runs the whole step (this job type has no partial/repair path).'
+  return 'CHARGES MAY APPLY — Re-submits this job as a fresh request. Re-runs the whole step (this job type has no partial/repair path).'
 }
 
 function autoRetryLabel(job: Pick<RJob, 'status' | 'auto_retry'>): string {
@@ -2419,7 +2419,7 @@ async function repairJobOnly(job: RJob) {
       } else if (missing === 0 && recovered === 0) {
         success(
           `Nothing was missing — everything was already saved. ` +
-          `The original failure was temporary; you can dismiss this job.`
+          `The earlier problem was temporary; you can dismiss this job.`
         )
         chip = { text: 'Nothing was missing — dismiss', kind: 'ok' }
       } else if (missing > 0 && recovered > 0) {

@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.88 — 2026-08-31
+
+- **Jobs now say what needs attention instead of exposing internal Error and Failed state names.** Cards, filters, batch summaries, action help, and completion notices use the next useful customer action. The underlying queue states, retry and repair safety, settlement evidence, and full diagnostics under Technical details are unchanged.
+
 ## v1.4.87 — 2026-08-31
 
 - **Job cards now describe the work you asked for, not the provider attempts behind it.** A completed image is counted from the saved-output audit, so a route that had to be tried several times can no longer make the card claim that several images are missing. If output really is missing, the card says how many images are ready and how many need another try. Attempt IDs, codes, retry chains, and per-attempt records remain available under Technical details when they are useful for support.

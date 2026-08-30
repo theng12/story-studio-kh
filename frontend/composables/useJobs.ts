@@ -134,7 +134,7 @@ function announceTransitions(next: Job[]) {
         if (notice.kind === 'success') success(notice.message)
         else info(notice.message)
       }
-      else if (job.status === 'error') showError(`${label} failed: ${job.episode_id}`)
+      else if (job.status === 'error') showError(`${label} needs attention: ${job.episode_id}`)
     }
   }
   previousStatuses.clear()

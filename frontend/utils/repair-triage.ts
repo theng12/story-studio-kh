@@ -177,13 +177,13 @@ export function describeRetryAllTriage(triage: RetryAllTriage): string {
     const unclear = triage.blocked.filter(b => b.reason === 'repair_inconclusive').length
     const why: string[] = []
     if (never) why.push(`${never} never repaired`)
-    if (failed) why.push(`${failed} whose repair failed`)
+    if (failed) why.push(`${failed} whose repair could not finish`)
     if (unclear) why.push(`${unclear} whose repair reported nothing usable`)
     parts.push(
       `Left alone: ${triage.blocked.length} (${why.join(', ')}). `
       + 'Your machines may already have finished these and you would pay a second time. Run Repair all first.',
     )
   }
-  if (!parts.length) return 'Nothing failed that can be retried.'
+  if (!parts.length) return 'No jobs need another try.'
   return parts.join(' ')
 }

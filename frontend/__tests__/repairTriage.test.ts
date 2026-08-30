@@ -149,12 +149,20 @@ test('the summary names what is being left alone and why', () => {
   assert.match(text, /never repaired/)
   assert.match(text, /pay a second time/)
   assert.match(text, /Repair all/)
+
+  const repairCouldNotFinish = describeRetryAllTriage({
+    retry: [],
+    alreadyComplete: [],
+    blocked: [{ job: job('repair-did-not-finish', 'audio'), reason: 'repair_failed' }],
+  })
+  assert.match(repairCouldNotFinish, /whose repair could not finish/)
+  assert.doesNotMatch(repairCouldNotFinish, /whose repair failed/)
 })
 
 test('an empty triage says so rather than claiming to have done something', () => {
   assert.equal(
     describeRetryAllTriage({ retry: [], alreadyComplete: [], blocked: [] }),
-    'Nothing failed that can be retried.',
+    'No jobs need another try.',
   )
 })
 
