@@ -6,6 +6,7 @@ import {
   customerSafeJobText,
   filterJobsForView,
   isVerifiedLiveCapacity,
+  jobRequestIds,
   primaryControl,
   secondaryControls,
 } from '../utils/job-presentation.js'
@@ -16,6 +17,14 @@ const jobs = readFileSync(
 )
 const remote = readFileSync(
   fileURLToPath(new URL('../pages/remote.vue', import.meta.url)),
+  'utf8',
+)
+const images = readFileSync(
+  fileURLToPath(new URL('../pages/projects/[slug]/images.vue', import.meta.url)),
+  'utf8',
+)
+const brollLibrary = readFileSync(
+  fileURLToPath(new URL('../pages/broll-library.vue', import.meta.url)),
   'utf8',
 )
 const contracts = readFileSync(
@@ -122,6 +131,13 @@ test('Jobs renders exact GenStudio account facts only for a verified live snapsh
   assert.match(jobs, /next_tier\.generation_submissions_per_minute/)
   assert.match(jobs, /Account capacity is unverified/)
   assert.match(jobs, /scheduling conservatively/i)
+})
+
+test('the conservative capacity message wraps safely on narrow Jobs layouts', () => {
+  assert.match(
+    jobs,
+    /\.genstudio-capacity-summary \.capacity-unverified\s*\{[\s\S]*?white-space:\s*normal;[\s\S]*?overflow-wrap:\s*anywhere;/,
+  )
 })
 
 test('Jobs makes temporary capacity best effort and directs upgrades to GenStudio', () => {
@@ -256,6 +272,24 @@ test('customer copy still hides known UUID identities and explicitly labelled in
   assert.equal(customerSafeJobText(`Request ${knownId} failed`, [knownId]), 'Request [request hidden] failed')
   assert.equal(customerSafeJobText('Provider job ID: provider_1234567890 failed'), 'Provider job ID: hidden failed')
   assert.equal(customerSafeJobText('Job job_123456789 failed'), 'Job [request hidden] failed')
+})
+
+test('Images repair and B-Roll errors hide their owning request identities without changing customer text', () => {
+  const job = {
+    job_id: 'job_internal_1234567890',
+    genstudio_jobs: [{ id: 'provider_1234567890' }],
+    remote_cancellations: { one: { provider_job_id: 'cancel_1234567890' } },
+  }
+  const customerText = 'Project 123e4567-e89b-12d3-a456-426614174000 failed on a customer-named scene.'
+
+  for (const id of [job.job_id, job.genstudio_jobs[0].id, job.remote_cancellations.one.provider_job_id]) {
+    assert.equal(customerSafeJobText(`Request ${id} failed`, jobRequestIds(job)), 'Request [request hidden] failed')
+  }
+  assert.equal(customerSafeJobText(customerText, jobRequestIds(job)), customerText)
+
+  assert.match(images, /customerSafeJobText\(job\.error,\s*jobRequestIds\(job\)\)/)
+  assert.match(brollLibrary, /customerJobError\(job\)/)
+  assert.doesNotMatch(brollLibrary, /:title="job\.error"|job\.error\.slice/)
 })
 
 test('Remote includes paused jobs and counts failed bulk requests as unchanged', () => {

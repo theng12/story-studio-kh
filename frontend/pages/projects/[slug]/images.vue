@@ -587,6 +587,7 @@
 <script setup lang="ts">
 import { findOutputOption, type OutputOptionChoice } from '../../../utils/genstudio-output-options.js'
 import { CREDIT_BASIS_LABEL, describeImageUnitCost } from '../../../utils/genstudio-credit-cost.js'
+import { customerSafeJobText, jobRequestIds } from '../../../utils/job-presentation.js'
 
 definePageMeta({ layout: 'dashboard' })
 
@@ -1363,7 +1364,7 @@ const lastRepairJobText = computed(() => {
   if (!job) return ''
   if (job.status === 'queued') return 'queued'
   if (job.status === 'running') return 'checking provider history'
-  if (job.status === 'error') return job.error || 'failed'
+  if (job.status === 'error') return job.error ? customerSafeJobText(job.error, jobRequestIds(job)) : 'failed'
   const result = job.result || {}
   const recovered = Number(result.recovered || 0)
   const remaining = Number(result.needs_fresh_generation || 0) + Number(result.unrecoverable || 0)

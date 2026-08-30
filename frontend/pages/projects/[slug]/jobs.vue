@@ -2685,6 +2685,11 @@ async function clearFinished() {
   border-color: color-mix(in srgb, var(--warning) 55%, var(--border));
   color: var(--warning);
 }
+.genstudio-capacity-summary .capacity-unverified {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .genstudio-capacity-summary .capacity-error {
   border-color: color-mix(in srgb, var(--danger) 65%, var(--border));
   background: color-mix(in srgb, var(--danger) 12%, var(--bg-primary));
