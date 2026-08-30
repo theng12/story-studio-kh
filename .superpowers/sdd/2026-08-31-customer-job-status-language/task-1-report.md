@@ -64,3 +64,36 @@ It returned 11 `side-tab` warnings in pre-existing Jobs-page CSS (`border-left` 
 ## Deferred review
 
 No independent subagent review was run because the task explicitly prohibited subagents. A coordinator/reviewer should perform the deferred visual QA and final independent review before merge.
+
+## Round 1 review correction
+
+An independent review correctly identified that a developer comment had been changed only to satisfy an overly broad source detector. The original comment at `frontend/pages/projects/[slug]/jobs.vue:1514` has been restored exactly. The detector's legacy pattern is now `/>Repair all failed/`, which targets rendered button markup and permits developer commentary as required.
+
+Commands and results after this correction:
+
+```sh
+cd frontend
+npx tsx --import ./__tests__/setup.ts --test \
+  __tests__/jobsControls.test.ts \
+  __tests__/repairTriage.test.ts \
+  __tests__/useJobs.test.ts
+```
+
+Result: passed — 54 tests, 3 suites, 0 failures.
+
+```sh
+git diff --check
+```
+
+Result: passed — no whitespace errors.
+
+```sh
+rg -n "understand failures|>Review failures|>Repair all failed|<span class=\"error-label\">Error:|Show full error|Hide full error|Nothing failed that can be retried|Deletes this failed job|any that were refused say so on their card|error: 'Error'|label: 'Failed'" \
+  'frontend/pages/projects/[slug]/jobs.vue' \
+  frontend/components/StatusBadge.vue \
+  frontend/composables/useJobs.ts \
+  frontend/composables/useBatchCompletionSignals.ts \
+  frontend/utils/repair-triage.ts
+```
+
+Result: no matches (ripgrep exit 1 with empty output, expected for this audit).

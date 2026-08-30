@@ -1511,7 +1511,7 @@ async function repairAllInterrupted() {
   }
 }
 
-// v1.0.x — bulk repair: every failed/cancelled job whose type has
+// v1.0.x — bulk "Repair all failed": every failed/cancelled job whose type has
 // a repair path (audio/images/video). Free (poll + download only, never
 // re-submits), so it's the safe "recover everything the providers already
 // finished" one-click. Genuinely-missing items stay failed for a later Retry.

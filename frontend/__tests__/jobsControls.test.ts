@@ -209,7 +209,7 @@ test('normal Jobs surfaces use attention language while internal status keys sta
     /error: 'Error'/,
     /label: 'Failed'/,
     />Review failures/,
-    /Repair all failed/,
+    />Repair all failed/,
     /<span class="error-label">Error:<\/span>/,
     /Show full error/,
     /Hide full error/,
