@@ -4,6 +4,10 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.86 — 2026-08-30
+
+- **The Story workflow now puts Script Generator immediately before the optional Introduction.** Every shared project flow keeps the same stages, routes, completion rules, presets, and pipeline behavior; only the user-facing sidebar order changes so the episode is written before its optional opening is configured.
+
 ## v1.4.85 — 2026-08-30
 
 - **Scene-image throughput now starts at the safer two-episode recommendation, and Custom works when you need something else.** A new install — or one with no saved value — now runs scene images for two episodes at once instead of three. A value you already chose is left alone. Choosing Custom always opens a numeric box, even when the current number is also one of the named choices; it accepts the established one-to-fifty range, and the save message reports the value Story Studio actually applied.

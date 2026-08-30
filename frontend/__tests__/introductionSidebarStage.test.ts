@@ -145,12 +145,17 @@ describe('the Introduction is a visible stage in the sidebar', () => {
       'the nav must not name the Introduction specially — it comes from the flow like every other step')
   })
 
-  test('it sits before the Script Generator, where the decision belongs', async () => {
-    const html = await renderSidebar('continuity-chain')
-    const intro = html.indexOf('/projects/dozing-knight/introduction')
-    const script = html.indexOf('/projects/dozing-knight/scripts')
-    assert.ok(intro > -1 && script > -1)
-    assert.ok(intro < script, 'you say how the channel opens, then you write the episode')
+  test('it sits immediately after the Script Generator on every flow', async () => {
+    for (const flow of FLOWS) {
+      const html = await renderSidebar(flow)
+      const intro = html.indexOf('/projects/dozing-knight/introduction')
+      const script = html.indexOf('/projects/dozing-knight/scripts')
+      assert.ok(intro > -1 && script > -1)
+      assert.ok(script < intro, `${flow}: Script Generator must come before Introduction`)
+      const steps = flowForVisualSource(flow).map(step => step.key)
+      assert.equal(steps[steps.indexOf('script') + 1], 'introduction',
+        `${flow}: Introduction must immediately follow Script Generator`)
+    }
   })
 
   test('it never blocks an episode from being finished', async () => {
