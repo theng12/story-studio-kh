@@ -35,7 +35,7 @@
  * in v1.0.114 for exactly that reason.
  */
 
-import { GenStudioTerminalFailureError } from './genstudio-client.js'
+import { GenStudioTerminalFailureError, hasFullyReleasedZeroSettlement } from './genstudio-client.js'
 
 /** Codes GenStudio uses when no machine could take the job. */
 export const FLEET_BUSY_FAILURE_CODES: ReadonlySet<string> = new Set([
@@ -59,8 +59,7 @@ export function isFleetBusyFailure(error: unknown, modality?: string): boolean {
   // Cancellation is the owner's instruction; retrying it would overrule him.
   if (error.cancelled) return false
   if (!FLEET_BUSY_FAILURE_CODES.has(String(error.failureCode || ''))) return false
-  if (typeof error.settledCredits === 'number' && error.settledCredits > 0) return false
-  return true
+  return hasFullyReleasedZeroSettlement(error)
 }
 
 /**

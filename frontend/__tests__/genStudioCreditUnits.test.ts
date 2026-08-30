@@ -59,11 +59,12 @@ test('the ledger head cannot read as an item count', () => {
 
 test('one fact is spelled one way across the page', () => {
   // Before this release: "450 charged" in the ledger, "charged 450" in jobs.vue,
-  // and "on hold 450 credits" one branch further on.
+  // and "on hold 450 credits" one branch further on. A provisional total may
+  // add "so far", but it must keep the same figure → unit → meaning order.
   for (const [name, src] of [['ledger', ledger], ['jobs.vue', jobs]] as const) {
     for (const line of creditLines(src)) {
       assert.match(
-        line, /\}\}\s*credits\s+(charged|on hold|returned)/,
+        line, /\}\}\s*credits\s+(?:(?:charged|on hold|returned)|\{\{\s*summary\.confirmed\s*\?\s*'(charged|returned)'\s*:\s*'\1 so far'\s*\}\})/,
         `${name} uses a different phrasing from the rest:\n  ${line.trim()}`,
       )
     }

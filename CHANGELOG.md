@@ -4,6 +4,13 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.87 — 2026-08-31
+
+- **Job cards now describe the work you asked for, not the provider attempts behind it.** A completed image is counted from the saved-output audit, so a route that had to be tried several times can no longer make the card claim that several images are missing. If output really is missing, the card says how many images are ready and how many need another try. Attempt IDs, codes, retry chains, and per-attempt records remain available under Technical details when they are useful for support.
+- **Credit figures now distinguish a confirmed outcome from an outcome still being checked.** Story Studio only says “No credits charged” after GenStudio has published a complete, balanced settlement. Partial or missing information stays plainly pending, with any returned amount marked “so far”.
+- **Automatic image retries are now fail-closed.** A child image request is retried automatically only after GenStudio proves it charged zero credits and released the entire reservation. Content refusals ask you to review the prompt instead of submitting the same prompt again.
+- **Architecture documentation now reflects the live GenStudio boundary.** It no longer describes retired direct image and narration providers as active.
+
 ## v1.4.86 — 2026-08-30
 
 - **The Story workflow now puts Script Generator immediately before the optional Introduction everywhere it is shown.** The shared order propagates through the sidebar, workflow ribbon, dashboard, Production Board, and episode status strip. Every flow keeps the same stages, routes, completion rules, presets, and pipeline execution; only the user-facing order changes so the episode is written before its optional opening is configured.

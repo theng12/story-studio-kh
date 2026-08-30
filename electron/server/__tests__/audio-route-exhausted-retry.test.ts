@@ -48,6 +48,7 @@ test('only an exhausted route is retryable; every other settled outcome is not',
   assert.equal(
     isGenStudioRouteExhausted(new GenStudioTtsTerminalFailureError({
       id: 'tts-exhausted', state: 'failed', failure_code: 'CLOUD_PROVIDER_EXHAUSTED',
+      reserved_credits: 1, settled_credits: 0, released_credits: 1,
     })),
     true,
   )

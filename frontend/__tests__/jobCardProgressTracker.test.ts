@@ -37,6 +37,7 @@ import {
   STALE_CADENCE_MULTIPLE,
   stalenessThresholdMs,
   summariseJobItems,
+  summariseSettlement,
   type EtaSample,
 } from '../composables/useJobEta.js'
 
@@ -90,10 +91,11 @@ describe('the default card view carries no raw identifiers', () => {
     assert.match(defaultView, /generating right now/)
   })
 
-  test('money is three humanised figures, each carrying its unit', () => {
-    for (const figure of ['charged', 'on hold', 'returned']) {
-      assert.match(defaultView, new RegExp(`\\}\\}\\s*credits ${figure}`))
-    }
+  test('money distinguishes settled facts from a pending outcome', () => {
+    assert.match(defaultView, /No credits charged/)
+    assert.match(defaultView, /charged so far/)
+    assert.match(defaultView, /returned so far/)
+    assert.match(defaultView, /Credits &amp; settlement/)
     // And the per-remote chip loop it replaced is gone from the default view.
     assert.doesNotMatch(defaultView, /genStudioQueueLabel\(remote\)/)
   })
@@ -308,7 +310,52 @@ describe('the staleness threshold is measured, not written down', () => {
 describe('exceptions', () => {
   const nowMs = Date.parse('2026-08-29T12:00:00.000Z')
 
-  test('a healthy job has none — and the inspect affordance stays hidden', () => {
+  test('reports output gaps, never historical placement attempts', () => {
+    const DK0072 = {
+      item_progress: { total: 372, completed: 372, failed: 0, concurrency: 3, active: [] },
+      genstudio_jobs: Array.from({ length: 42 }, (_, i) => ({
+        id: `placement-${i}`, operation: 'image.generation', queue_state: 'failed',
+        failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+      })),
+    }
+    const DK0076 = {
+      item_progress: { total: 363, completed: 354, failed: 1, concurrency: 3, active: [] },
+      genstudio_jobs: Array.from({ length: 118 }, (_, i) => ({
+        id: `placement-${i}`, operation: 'image.generation', queue_state: 'failed',
+        failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+      })),
+    }
+
+    assert.deepEqual(describeJobExceptions(DK0072, nowMs).map(line => line.text), [
+      'Credit outcome pending — Story Studio is checking GenStudio.',
+    ])
+    assert.deepEqual(describeJobExceptions(DK0076, nowMs).map(line => line.text), [
+      '354 images are ready. 1 image needs another try.',
+      'Credit outcome pending — Story Studio is checking GenStudio.',
+    ])
+  })
+
+  test('uses compact customer states without provider diagnostics', () => {
+    const waitingRetry = describeJobExceptions({
+      item_progress: { total: 2, completed: 0, failed: 0, concurrency: 1, active: [{
+        label: 'Scene 1', state: 'waiting_retry' as const, attempt: 3, max_attempts: 4,
+        reason: 'SITE_PLACEMENT_EXHAUSTED', retry_at: new Date(nowMs + 30_000).toISOString(),
+      }] },
+    }, nowMs)
+    assert.deepEqual(waitingRetry.map(line => line.text), ['Retrying automatically in 30s — no action needed.'])
+    assert.doesNotMatch(waitingRetry[0]!.text, /attempt|SITE_|provider/i)
+
+    const contentRefused = describeJobExceptions({
+      item_progress: { total: 1, completed: 0, failed: 1, concurrency: 1, active: [] },
+      genstudio_jobs: [{ operation: 'image.generation', queue_state: 'failed', failure_code: 'IMAGE_CONTENT_REFUSED' }],
+    }, nowMs)
+    assert.deepEqual(contentRefused.map(line => line.text), [
+      '1 image needs another try. Review the prompt before trying again.',
+      'Credit outcome pending — Story Studio is checking GenStudio.',
+    ])
+  })
+
+  test('active work with unpublished settlement says only that credit outcome is pending', () => {
     const healthy = {
       type: 'scene_images_batch',
       item_progress: {
@@ -320,11 +367,13 @@ describe('exceptions', () => {
         { id: 'gs-2', operation: 'image.generation', queue_state: 'succeeded', updated_at: '' },
       ],
     }
-    assert.deepEqual(describeJobExceptions(healthy, nowMs), [])
-    assert.equal(hasJobExceptions(healthy, nowMs), false)
+    assert.deepEqual(describeJobExceptions(healthy, nowMs).map(line => line.text), [
+      'Credit outcome pending — Story Studio is checking GenStudio.',
+    ])
+    assert.equal(hasJobExceptions(healthy, nowMs), true)
   })
 
-  test('a failed remote item gets its own line: what, what it cost, what next', () => {
+  test('a final output gap leads with ready output, not remote attempt details', () => {
     const job = {
       type: 'scene_images_batch',
       auto_retry: { eligible: true, attempt: 2, max_attempts: 4, next_retry_at: new Date(nowMs + 40_000).toISOString() },
@@ -335,15 +384,13 @@ describe('exceptions', () => {
       }],
     }
     const lines = describeJobExceptions(job, nowMs)
-    assert.equal(lines.length, 1, 'one failed item, one line — and no leftover count line')
-    assert.equal(
-      lines[0]!.text,
-      'An image didn’t finish — the provider refused the prompt.'
-      + ' 13 credits were returned. It will retry automatically in 40s.',
-    )
+    assert.deepEqual(lines.map(line => line.text), [
+      '2 images are ready. 1 image needs another try. Review the prompt before trying again.',
+      '13 credits returned so far. Credit outcome pending — Story Studio is checking GenStudio.',
+    ])
   })
 
-  test('a backoff says it cost nothing and is handling itself', () => {
+  test('a backoff says only that it is retrying automatically', () => {
     const job = {
       item_progress: {
         total: 300, completed: 295, failed: 0, concurrency: 4,
@@ -355,12 +402,11 @@ describe('exceptions', () => {
     }
     assert.equal(
       describeJobExceptions(job, nowMs)[0]!.text,
-      'Scene 296: high demand right now — nothing was charged;'
-      + ' retrying automatically in 30s (attempt 2 of 4).',
+      'Retrying automatically in 30s — no action needed.',
     )
   })
 
-  test('identical active retry notices collapse while distinct reasons remain separate', () => {
+  test('retry notices stay compact even when several items are waiting', () => {
     const retryAt = new Date(nowMs + 30_000).toISOString()
     const job = {
       item_progress: {
@@ -374,12 +420,10 @@ describe('exceptions', () => {
     }
 
     const lines = describeJobExceptions(job, nowMs)
-    assert.equal(lines.length, 2)
-    assert.equal(lines[0]?.text, '2 items: GenStudio is busy — nothing was charged; retrying automatically in 30s (attempt 2 of 4).')
-    assert.match(lines[1]?.text || '', /Scene 4: Account rate limit reached/)
+    assert.deepEqual(lines.map(line => line.text), ['Retrying automatically in 30s — no action needed.'])
   })
 
-  test('retry notice keys stay unique when retry ceilings differ', () => {
+  test('one retry state replaces retry-chain details on the customer card', () => {
     const retryAt = new Date(nowMs + 30_000).toISOString()
     const job = {
       item_progress: {
@@ -392,15 +436,15 @@ describe('exceptions', () => {
     }
 
     const lines = describeJobExceptions(job, nowMs)
-    assert.equal(lines.length, 2, 'different retry ceilings are distinct groups')
-    assert.notEqual(lines[0]?.key, lines[1]?.key, 'each rendered retry row needs a unique Vue key')
+    assert.equal(lines.length, 1)
+    assert.equal(lines[0]?.key, 'waiting-retry')
   })
 
   test('failures with no remote record still get a line, so the counts add up', () => {
     const job = { item_progress: { total: 5, completed: 2, failed: 3, concurrency: 1, active: [] } }
     const lines = describeJobExceptions(job, nowMs)
     assert.equal(lines.length, 1)
-    assert.match(lines[0]!.text, /^3 items didn’t finish\. Use Retry to run it again\.$/)
+    assert.equal(lines[0]!.text, '2 items are ready. 3 items need another try.')
   })
 
   test('the card renders one line per exception, and nothing when there are none', () => {
@@ -420,12 +464,48 @@ describe('exceptions', () => {
   })
 })
 
+describe('settlement presence', () => {
+  test('keeps absent and partial settlement pending, while preserving confirmed zero', () => {
+    assert.deepEqual(summariseSettlement([{ queue_state: 'failed' }]), {
+      confirmed: false, charged: 0, returned: 0, held: 0,
+    })
+    assert.deepEqual(summariseSettlement([{
+      queue_state: 'failed', reserved_credits: 13, settled_credits: 0,
+    }]), {
+      confirmed: false, charged: 0, returned: 0, held: 0,
+    })
+    assert.deepEqual(summariseSettlement([{
+      queue_state: 'failed', reserved_credits: 13, settled_credits: 0, released_credits: 13,
+    }]), {
+      confirmed: true, charged: 0, returned: 13, held: 0,
+    })
+    assert.deepEqual(summariseSettlement([{
+      queue_state: 'running', reserved_credits: 9, settled_credits: 0, released_credits: 0,
+    }]), {
+      confirmed: false, charged: 0, returned: 0, held: 9,
+    })
+    assert.deepEqual(summariseSettlement([{
+      queue_state: 'failed', reserved_credits: null, settled_credits: null, released_credits: null,
+    }]), {
+      confirmed: false, charged: 0, returned: 0, held: 0,
+    })
+  })
+
+  test('uses the same account-history-enriched remote view for headline and state copy', () => {
+    assert.match(page, /function settledRemoteJobs\(job: RJob\)/)
+    assert.match(page, /function jobCreditSummary\(job: RJob\) \{\s*const remoteJobs = settledRemoteJobs\(job\)\s*return \{ \.\.\.summariseSettlement\(remoteJobs\), remoteJobs \}/)
+    assert.match(page, /describeJobExceptions\(\{ \.\.\.job, genstudio_jobs: settledRemoteJobs\(job\) \}/)
+    assert.equal((template.match(/<GenStudioBatchLedger[^>]*:remote-jobs="settledRemoteJobs\(job\)"/g) || []).length, 2)
+    assert.doesNotMatch(template, /<GenStudioBatchLedger[^>]*:remote-jobs="job\.genstudio_jobs"/)
+  })
+})
+
 // ── 6. Technical details keeps diagnostics without public identifiers ─────
 
 describe('the Technical details drawer', () => {
   test('contains item diagnostics while exact ids stay out of the rendered drawer', () => {
     for (const drawer of drawers) {
-      assert.match(drawer, /<GenStudioBatchLedger[\s\S]*:remote-jobs="job\.genstudio_jobs"/, 'the item ledger')
+      assert.match(drawer, /<GenStudioBatchLedger[\s\S]*:remote-jobs="settledRemoteJobs\(job\)"/, 'the item ledger')
       assert.match(drawer, /class="job-items"/, 'the per-item state block')
       assert.match(drawer, /itemAttemptText\(item\)/, 'the per-item attempt text')
       assert.match(drawer, /customerJobText\(line, job\)/, 'customer-safe log lines')
@@ -523,126 +603,12 @@ describe('the customer surface names no infrastructure', () => {
  * individual. Nothing is truncated — every record is still listed per item in
  * Technical details, which pages at 25 and always could.
  */
-describe('identical exceptions collapse; distinct ones do not', () => {
-  const nowMs = Date.parse('2026-08-29T12:00:00.000Z')
-
-  function declined(id: string, released = 9) {
-    return {
-      id, operation: 'image.generation', queue_state: 'failed',
-      failure_code: 'PROVIDER_DECLINED', released_credits: released, updated_at: '',
-    }
-  }
-
-  test('N identical failures render ONE line carrying the count', () => {
-    const N = 37
-    const job = {
-      type: 'scene_images_batch',
-      item_progress: { total: 40, completed: 3, failed: N, concurrency: 6, active: [] },
-      genstudio_jobs: Array.from({ length: N }, (_, i) => declined(`gs-${i}`)),
-    }
-    const lines = describeJobExceptions(job, nowMs)
-
-    assert.equal(lines.length, 1, `37 identical failures must be one line, got ${lines.length}`)
-    assert.equal(
-      lines[0]!.text,
-      '37 images didn’t finish — the provider declined it.'
-      + ' 333 credits were returned in total. Use Retry to run them again.',
-    )
-    // The count and the total are the two facts the wall made unreadable.
-    assert.match(lines[0]!.text, /^37 images/)
-    assert.match(lines[0]!.text, /333 credits were returned in total/)
-  })
-
-  test('the count is live — it follows the number of records, not a fixed word', () => {
-    for (const N of [2, 3, 100]) {
-      const job = {
-        item_progress: { total: N, completed: 0, failed: N, concurrency: 1, active: [] },
-        genstudio_jobs: Array.from({ length: N }, (_, i) => declined(`gs-${i}`, 1)),
-      }
-      const lines = describeJobExceptions(job, nowMs)
-      assert.equal(lines.length, 1, `${N} identical failures must still be one line`)
-      assert.match(lines[0]!.text, new RegExp(`^${N} images didn’t finish`))
-      assert.match(lines[0]!.text, new RegExp(`${N} credits were returned in total`))
-    }
-  })
-
-  test('two DISTINCT failures render two lines, individually', () => {
-    const job = {
-      item_progress: { total: 2, completed: 0, failed: 2, concurrency: 1, active: [] },
-      genstudio_jobs: [
-        declined('gs-1'),
-        {
-          id: 'gs-2', operation: 'image.generation', queue_state: 'failed',
-          failure_code: 'IMAGE_CONTENT_REFUSED', released_credits: 13, updated_at: '',
-        },
-      ],
-    }
-    const lines = describeJobExceptions(job, nowMs)
-
-    assert.equal(lines.length, 2, 'a different reason is a different thing that went wrong')
-    const texts = lines.map(l => l.text).sort()
-    assert.ok(texts.some(t => t.includes('the provider declined it')), texts.join(' | '))
-    assert.ok(texts.some(t => t.includes('the provider refused the prompt')), texts.join(' | '))
-    // Singular voice is kept for a group of one — a collapsed line is only used
-    // where there is genuinely more than one thing to talk about.
-    for (const line of lines) {
-      assert.match(line.text, /^An image didn’t finish/)
-      assert.match(line.text, /Use Retry to run it again\.$/)
-    }
-  })
-
-  test('different subjects never merge, even under the same reason', () => {
-    const job = {
-      item_progress: { total: 4, completed: 0, failed: 4, concurrency: 1, active: [] },
-      genstudio_jobs: [
-        declined('gs-1'), declined('gs-2'),
-        { id: 'gs-3', operation: 'voice.tts', queue_state: 'failed', failure_code: 'PROVIDER_DECLINED', released_credits: 4, updated_at: '' },
-        { id: 'gs-4', operation: 'voice.tts', queue_state: 'failed', failure_code: 'PROVIDER_DECLINED', released_credits: 4, updated_at: '' },
-      ],
-    }
-    const lines = describeJobExceptions(job, nowMs)
-    assert.equal(lines.length, 2, 'images and narration parts are different things')
-    const texts = lines.map(l => l.text)
-    assert.ok(texts.some(t => t.startsWith('2 images didn’t finish')), texts.join(' | '))
-    assert.ok(texts.some(t => t.startsWith('2 narration parts didn’t finish')), texts.join(' | '))
-  })
-
-  test('varying credit amounts still collapse, and the total is the SUM', () => {
-    // Grouping on the exact refund figure would let a batch whose items differ
-    // in size rebuild the very wall this removes. The money is not lost by
-    // grouping — it is added up, which is the figure a person wants and the one
-    // they cannot get by reading rows.
-    const job = {
-      item_progress: { total: 3, completed: 0, failed: 3, concurrency: 1, active: [] },
-      genstudio_jobs: [declined('gs-1', 9), declined('gs-2', 12), declined('gs-3', 9)],
-    }
-    const lines = describeJobExceptions(job, nowMs)
-    assert.equal(lines.length, 1)
-    assert.match(lines[0]!.text, /^3 images didn’t finish/)
-    assert.match(lines[0]!.text, /30 credits were returned in total/)
-  })
-
-  test('a group holding both charges and refunds reports both, separately', () => {
-    const job = {
-      item_progress: { total: 3, completed: 0, failed: 3, concurrency: 1, active: [] },
-      genstudio_jobs: [
-        declined('gs-1', 9), declined('gs-2', 9),
-        { id: 'gs-3', operation: 'image.generation', queue_state: 'failed', failure_code: 'PROVIDER_DECLINED', settled_credits: 7, updated_at: '' },
-      ],
-    }
-    const lines = describeJobExceptions(job, nowMs)
-    assert.equal(lines.length, 1)
-    assert.match(lines[0]!.text, /7 credits were charged in total and 18 credits were returned in total/)
-  })
-
-  test('collapsing never hides a record — Technical details still gets them all', () => {
-    // The drawer receives the raw array, not this list, and pages it at 25.
-    assert.match(defaultView, /:remote-jobs="job\.genstudio_jobs"/)
-    const ledger = readFileSync(
-      fileURLToPath(new URL('../components/GenStudioBatchLedger.vue', import.meta.url)), 'utf8',
-    )
+describe('attempt evidence stays in Technical details', () => {
+  test('does not use attempt count or provider blame in default-card copy', () => {
+    for (const drawer of drawers) assert.match(drawer, /<GenStudioBatchLedger[^>]*:remote-jobs="settledRemoteJobs\(job\)"/)
     assert.match(ledger, /const PAGE_SIZE = 25/)
-    assert.match(ledger, /props\.remoteJobs\.filter\(remote => stateBucket\(remote\) === 'failed'\)/)
+    assert.doesNotMatch(composable, /the provider declined it/)
+    assert.doesNotMatch(composable, /items didn’t finish/)
   })
 })
 

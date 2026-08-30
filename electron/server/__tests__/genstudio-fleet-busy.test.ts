@@ -163,6 +163,20 @@ describe('the rule itself', () => {
       job({ failure_code: 'SITE_PLACEMENT_EXHAUSTED', settled_credits: 20, released_credits: 0 }))), false)
   })
 
+  test('requires a complete zero-settled, fully released triad', () => {
+    const code = 'SITE_PLACEMENT_EXHAUSTED'
+    const cases = [
+      [{ failure_code: code, reserved_credits: undefined }, false, 'missing reservation'],
+      [{ failure_code: code, settled_credits: undefined }, false, 'missing settlement'],
+      [{ failure_code: code, released_credits: undefined }, false, 'missing release'],
+      [{ failure_code: code, settled_credits: 1, released_credits: 19 }, false, 'charged'],
+      [{ failure_code: code, released_credits: 19 }, false, 'partial release'],
+    ] as const
+    for (const [over, expected, name] of cases) {
+      assert.equal(isFleetBusyFailure(new GenStudioTranscriptionTerminalFailureError(job(over))), expected, name)
+    }
+  })
+
   test('the waits are minutes and bounded', () => {
     assert.ok(FLEET_BUSY_RETRY_DELAYS_MS.every(d => d >= 30_000))
     assert.ok(FLEET_BUSY_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0) <= 600_000)
