@@ -52,6 +52,7 @@ test('an image route-exhaustion classifies the same way TTS does, including canc
   assert.equal(
     isGenStudioRouteExhausted(new GenStudioImageTerminalFailureError({
       id: 'img-exhausted', state: 'failed', failure_code: GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE,
+      reserved_credits: 9, settled_credits: 0, released_credits: 9,
     })),
     true,
   )
@@ -77,6 +78,20 @@ test('an image route-exhaustion classifies the same way TTS does, including canc
     })),
     false,
   )
+})
+
+test('route exhaustion fails closed without a fully returned settlement', () => {
+  const base = { id: 'img-exhausted', state: 'failed', failure_code: GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE }
+  const cases = [
+    [{}, false, 'unknown settlement'],
+    [{ reserved_credits: 9 }, false, 'partial settlement'],
+    [{ reserved_credits: 9, settled_credits: 1, released_credits: 8 }, false, 'charged settlement'],
+    [{ reserved_credits: 9, settled_credits: 0, released_credits: 8 }, false, 'partial release'],
+    [{ reserved_credits: 9, settled_credits: 0, released_credits: 9 }, true, 'complete returned settlement'],
+  ] as const
+  for (const [over, expected, name] of cases) {
+    assert.equal(isGenStudioRouteExhausted(new GenStudioImageTerminalFailureError({ ...base, ...over })), expected, name)
+  }
 })
 
 test('the image retry schedule is independently tunable from the TTS one', () => {

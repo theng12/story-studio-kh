@@ -525,16 +525,24 @@
         <!-- Money: three figures, nothing else. The per-item ledger that used
              to sit here is in Technical details. -->
         <template v-if="job.genstudio_jobs?.length">
-          <div class="job-money">
-            <span class="meta-label">Credits:</span>
+          <template v-for="summary in [jobCreditSummary(job)]" :key="job.job_id">
+            <div class="job-money">
+              <span class="meta-label">Credits:</span>
             <!-- v1.4.7 — the unit on all three, not just the last. `on hold` already
                  said "credits" while `charged` and `returned` did not, so the same
                  page spelled one fact two ways. -->
-            <span class="job-money-figure charged">{{ jobChargedCredits(job).toLocaleString() }} credits charged</span>
-            <span class="job-money-figure held">{{ jobHeldCredits(job).toLocaleString() }} credits on hold</span>
-            <span class="job-money-figure returned">{{ jobReturnedCredits(job).toLocaleString() }} credits returned</span>
-          </div>
-          <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
+            <template v-if="summary.confirmed && summary.charged === 0">
+              <span class="job-money-figure">No credits charged</span>
+            </template>
+            <template v-else>
+              <span v-if="summary.charged" class="job-money-figure charged">{{ summary.charged.toLocaleString() }} credits {{ summary.confirmed ? 'charged' : 'charged so far' }}</span>
+              <span v-if="summary.held" class="job-money-figure held">{{ summary.held.toLocaleString() }} credits on hold</span>
+              <span v-if="summary.returned" class="job-money-figure returned">{{ summary.returned.toLocaleString() }} credits {{ summary.confirmed ? 'returned' : 'returned so far' }}</span>
+              <NuxtLink v-if="!summary.confirmed" class="job-money-figure" to="/usage">Credits &amp; settlement</NuxtLink>
+            </template>
+            </div>
+            <GenStudioCreditSettlementHint :remote-jobs="summary.remoteJobs" compact />
+          </template>
         </template>
         <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
           {{ genStudioStatusDetail(job) }}
@@ -813,13 +821,21 @@
           </div>
 
           <template v-if="job.genstudio_jobs?.length">
-            <div class="job-money">
-              <span class="meta-label">Credits:</span>
-              <span class="job-money-figure charged">{{ jobChargedCredits(job).toLocaleString() }} credits charged</span>
-              <span class="job-money-figure held">{{ jobHeldCredits(job).toLocaleString() }} credits on hold</span>
-              <span class="job-money-figure returned">{{ jobReturnedCredits(job).toLocaleString() }} credits returned</span>
-            </div>
-            <GenStudioCreditSettlementHint :remote-jobs="job.genstudio_jobs" compact />
+            <template v-for="summary in [jobCreditSummary(job)]" :key="job.job_id">
+              <div class="job-money">
+                <span class="meta-label">Credits:</span>
+                <template v-if="summary.confirmed && summary.charged === 0">
+                  <span class="job-money-figure">No credits charged</span>
+                </template>
+                <template v-else>
+                  <span v-if="summary.charged" class="job-money-figure charged">{{ summary.charged.toLocaleString() }} credits {{ summary.confirmed ? 'charged' : 'charged so far' }}</span>
+                  <span v-if="summary.held" class="job-money-figure held">{{ summary.held.toLocaleString() }} credits on hold</span>
+                  <span v-if="summary.returned" class="job-money-figure returned">{{ summary.returned.toLocaleString() }} credits {{ summary.confirmed ? 'returned' : 'returned so far' }}</span>
+                  <NuxtLink v-if="!summary.confirmed" class="job-money-figure" to="/usage">Credits &amp; settlement</NuxtLink>
+                </template>
+              </div>
+              <GenStudioCreditSettlementHint :remote-jobs="summary.remoteJobs" compact />
+            </template>
           </template>
           <p v-if="genStudioStatusDetail(job)" class="genstudio-status-detail" role="status">
             {{ genStudioStatusDetail(job) }}
@@ -935,6 +951,7 @@ import {
   lastProgressAt,
   medianSecondsPerItem,
   recordEtaSample,
+  summariseSettlement,
   summariseJobItems,
   WAITING_FALLBACK_REASON,
   type EtaSample,
@@ -1130,7 +1147,11 @@ function genStudioQueueLabel(
  * all of them. Where there is no timestamp, no time is claimed.
  */
 function genStudioStatusDetail(job: RJob): string {
-  const remote = [...(job.genstudio_jobs || [])].reverse().find(item => item.status_detail || item.failure_detail)
+  // Terminal child diagnostics belong in Technical details. The default card
+  // reports completion and the next customer action instead of remote attempts.
+  const remote = [...(job.genstudio_jobs || [])].reverse().find(item =>
+    !['failed', 'cancelled'].includes(genStudioCreditState(item))
+      && (item.status_detail || item.failure_detail))
   if (!remote) return ''
   const detail = customerJobText(remote.status_detail || remote.failure_detail || '', job)
   if (remote.retry_at) return `${detail} Retry ${formatTime(remote.retry_at)}.`
@@ -1307,20 +1328,18 @@ function jobProgressStale(job: RJob): boolean {
 }
 
 function jobExceptions(job: RJob) {
-  return describeJobExceptions(job, now.value)
+  return describeJobExceptions({ ...job, genstudio_jobs: settledRemoteJobs(job) }, now.value)
 }
 
 // ── Money, summarised ─────────────────────────────────────────────────────
 // Three figures across the whole job. The per-item breakdown lives in the
 // ledger inside Technical details.
-function jobChargedCredits(job: RJob): number {
-  return (job.genstudio_jobs || []).reduce((sum, remote) => sum + genStudioChargedCredits(remote), 0)
+function settledRemoteJobs(job: RJob) {
+  return (job.genstudio_jobs || []).map(remote => ({ ...remote, ...genStudioSettled(remote) }))
 }
-function jobHeldCredits(job: RJob): number {
-  return (job.genstudio_jobs || []).reduce((sum, remote) => sum + genStudioHeldCredits(remote), 0)
-}
-function jobReturnedCredits(job: RJob): number {
-  return (job.genstudio_jobs || []).reduce((sum, remote) => sum + genStudioReturnedCredits(remote), 0)
+function jobCreditSummary(job: RJob) {
+  const remoteJobs = settledRemoteJobs(job)
+  return { ...summariseSettlement(remoteJobs), remoteJobs }
 }
 
 // Which card's Technical-details drawer is mounted. One at a time, as the old

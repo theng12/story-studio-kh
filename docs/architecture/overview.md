@@ -48,8 +48,8 @@ The format JSON declares one live `visualSource`: `timestamp-driven`, `continuit
 ideas (titles+loglines+themes)
   → script (intro + chapters)
   → image-prompts (one per scene)
-  → images (AI-generated stills via Fal/Stability/etc.)
-  → audio (TTS narration per chapter via ElevenLabs / GenAIPro)
+  → images (AI-generated stills via GenStudio KH)
+  → audio (TTS narration per chapter via GenStudio KH)
   → audio-merge (chapters → single track + music + bg)
   → subtitles (timeline verification; warning-only for publishing)
   → YouTube Finalizer (one title/description/tags package + measured chapters + real sources)
@@ -122,8 +122,8 @@ Pool remain independent operational workflows.
 |---|---|---|
 | `episode.ts` | active scene + independent B-Roll/Image Pool | Orchestrator. Invokes intro/script/metadata/image-prompts in sequence |
 | `image-prompts.ts` | active narration-timed scenes | One prompt per scene from format scene-count config |
-| `images.ts` | active narration-timed scenes | Fal/Stability calls; per-scene retries; sidecar manifest |
-| `audio.ts` | active scene + independent B-Roll/Image Pool | TTS via ElevenLabs/GenAIPro; chunked per-paragraph; sidecar |
+| `images.ts` | active narration-timed scenes | GenStudio KH image calls; per-scene retries; sidecar manifest |
+| `audio.ts` | active scene + independent B-Roll/Image Pool | TTS via GenStudio KH; chunked per-paragraph; sidecar |
 | `audio-merge.ts` | active scene + independent B-Roll/Image Pool | Concat chunks + intro + music bed + loudness normalize |
 | `metadata.ts` | active scene + independent B-Roll/Image Pool | Late-stage YouTube Finalizer: title, description, tags, measured chapter timestamps, selected real sources, and a warning-only subtitle audit |
 | `video.ts` | active narration-timed scenes | ffmpeg concat of stills + audio + transitions |
@@ -213,27 +213,18 @@ The frontend distinguishes them via `frontend/composables/useServerMode.ts:isSer
 
 ## Provider integrations
 
-Located in `electron/server/services/` and `electron/server/lib/`:
+Active AI requests use GenStudio KH as Story Studio's external generation boundary. `electron/server/lib/genstudio-client.ts` owns the public GenStudio API contract; the registered text/image/video adapters live under `electron/server/providers/{text,image,video}/genstudio.ts` and are bootstrapped by `electron/server/boot/providers.ts`. The active workflows cover text, images, image-to-video, TTS, transcription, and music. YouTube publishing remains a separate integration through `electron/server/lib/youtube-client.ts`.
 
-| Provider | What for | Where |
-|---|---|---|
-| Anthropic (Claude) | Text generation (script, metadata, ideas) | `lib/ai-client.ts`, model picker |
-| OpenAI (GPT) | Same | Same |
-| GenAIPro | TTS narration | `services/genaipro-client.ts` |
-| ElevenLabs | TTS narration | `services/elevenlabs-client.ts` |
-| Fal.ai | Image generation | `services/fal-client.ts` |
-| Stability | Image generation | `services/stability-client.ts` |
-| YouTube Data API | Publish | `services/youtube-client.ts` |
-| Local Ollama (potential) | LLM (proposed, not integrated) | n/a |
+GenStudio owns model inventory, published capabilities, provider routing, and pricing. Story Studio reads the live catalogue through the `list*Models` functions in `genstudio-client.ts`; the app-settings routes expose those modality-specific catalogues. Story Studio does not duplicate local provider model lists or choose a provider for a request.
 
-API keys live in `app-settings.json → providers` (encrypted in app-secrets.json). The model picker is per-task: scripts can use a different model than metadata, etc.
+The GenStudio API key is stored at app scope by `services/app-secrets-store.ts` and resolved with `getApiKey('genstudio')`. Project secrets retain YouTube OAuth tokens; AI provider keys are not project-owned.
 
 ---
 
 ## What's NOT in this doc
 
 - Per-page UI implementation details — see the page source directly
-- Provider-specific quirks (e.g. how ElevenLabs voice cloning is set up) — see the service client
+- GenStudio request/retry/idempotency details — see `electron/server/lib/genstudio-client.ts`
 - The visual editor for thumbnail templates — see `ThumbnailTemplateEditor.vue`
 - The chunked-narration cache invariants — see `chunked-narration-*.test.ts`
 

@@ -557,6 +557,14 @@ export class GenStudioTerminalFailureError extends Error {
   }
 }
 
+/** A machine retry is safe only when GenStudio proves the whole reservation returned. */
+export function hasFullyReleasedZeroSettlement(error: GenStudioTerminalFailureError): boolean {
+  const values = [error.reservedCredits, error.settledCredits, error.releasedCredits]
+  return values.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+    && error.settledCredits === 0
+    && error.releasedCredits === error.reservedCredits
+}
+
 export class GenStudioImageTerminalFailureError extends GenStudioTerminalFailureError {
   constructor(job: GenStudioSettledJobShape) {
     super(
@@ -2992,6 +3000,7 @@ export function isGenStudioRouteExhausted(error: unknown): error is GenStudioTer
   return error instanceof GenStudioTerminalFailureError
     && !error.cancelled
     && error.failureCode === GENSTUDIO_ROUTE_EXHAUSTED_FAILURE_CODE
+    && hasFullyReleasedZeroSettlement(error)
 }
 
 /**
