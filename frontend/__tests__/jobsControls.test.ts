@@ -212,9 +212,10 @@ test('usage and prompt workflow summaries do not render stored job or batch ids'
 
 test('capacity facts require a fresh verified account snapshot', () => {
   const now = Date.parse('2026-08-30T10:00:00.000Z')
-  assert.equal(isVerifiedLiveCapacity({ limitSource: 'account-overview', refreshed_at: new Date(now - 5_000).toISOString() }, now), true)
-  assert.equal(isVerifiedLiveCapacity({ limitSource: 'safe-fallback', refreshed_at: new Date(now - 5_000).toISOString() }, now), false)
-  assert.equal(isVerifiedLiveCapacity({ limitSource: 'account-overview', refreshed_at: new Date(now - 31_000).toISOString() }, now), false)
+  assert.equal(isVerifiedLiveCapacity({ capacity_verified: true, limitSource: 'account-overview', refreshed_at: new Date(now - 5_000).toISOString() }, now), true)
+  assert.equal(isVerifiedLiveCapacity({ capacity_verified: false, limitSource: 'account-overview', refreshed_at: new Date(now - 5_000).toISOString() }, now), false)
+  assert.equal(isVerifiedLiveCapacity({ capacity_verified: false, limitSource: 'safe-fallback', refreshed_at: new Date(now - 5_000).toISOString() }, now), false)
+  assert.equal(isVerifiedLiveCapacity({ capacity_verified: true, limitSource: 'account-overview', refreshed_at: new Date(now - 31_000).toISOString() }, now), false)
 })
 
 test('failure review keeps only failed jobs from the selected batch', () => {
@@ -243,6 +244,18 @@ test('customer copy hides known request identities without mutating source evide
   const evidence = { id: 'provider-job-1234567890' }
   assert.equal(customerSafeJobText(`Request ${evidence.id} failed`, [evidence.id]), 'Request [request hidden] failed')
   assert.equal(evidence.id, 'provider-job-1234567890')
+})
+
+test('customer copy preserves unrelated UUID-like and long customer content', () => {
+  const customerText = 'Project 123e4567-e89b-12d3-a456-426614174000 uses render_12345678901234567890.png'
+  assert.equal(customerSafeJobText(customerText), customerText)
+})
+
+test('customer copy still hides known UUID identities and explicitly labelled internal tokens', () => {
+  const knownId = '123e4567-e89b-12d3-a456-426614174000'
+  assert.equal(customerSafeJobText(`Request ${knownId} failed`, [knownId]), 'Request [request hidden] failed')
+  assert.equal(customerSafeJobText('Provider job ID: provider_1234567890 failed'), 'Provider job ID: hidden failed')
+  assert.equal(customerSafeJobText('Job job_123456789 failed'), 'Job [request hidden] failed')
 })
 
 test('Remote includes paused jobs and counts failed bulk requests as unchanged', () => {

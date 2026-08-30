@@ -190,3 +190,10 @@ test('toast presentation hides request identities without changing caller input'
   assert.ok(toasts.value.find(toast => toast.message === 'Queued Job [request hidden] for recovery'))
   assert.equal(toasts.value.some(toast => toast.message.includes('job_123456789')), false)
 })
+
+test('toast presentation preserves unrelated UUID-like customer content', () => {
+  const { success, toasts } = useToast()
+  const source = 'Project 123e4567-e89b-12d3-a456-426614174000 saved render_12345678901234567890.png'
+  success(source)
+  assert.ok(toasts.value.find(toast => toast.message === source))
+})

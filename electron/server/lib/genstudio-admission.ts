@@ -45,6 +45,7 @@ export interface GenStudioAdmissionSnapshot extends GenStudioAccountCapacity {
   retry_after_ms: number
   refreshed_at: string | null
   limitSource: 'account-overview' | 'safe-fallback'
+  capacity_verified: boolean
 }
 
 interface AdmissionWaiter {
@@ -84,6 +85,24 @@ function positiveWhole(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1
     ? value
     : fallback
+}
+
+function hasVerifiedCapacity(value: GenStudioAccountCapacity): boolean {
+  return typeof value.paid_concurrency_limit === 'number'
+    && Number.isInteger(value.paid_concurrency_limit)
+    && value.paid_concurrency_limit >= 1
+    && typeof value.paid_active_jobs === 'number'
+    && Number.isInteger(value.paid_active_jobs)
+    && value.paid_active_jobs >= 0
+    && typeof value.paid_queued_jobs === 'number'
+    && Number.isInteger(value.paid_queued_jobs)
+    && value.paid_queued_jobs >= 0
+    && typeof value.max_queued_jobs === 'number'
+    && Number.isInteger(value.max_queued_jobs)
+    && value.max_queued_jobs >= 1
+    && typeof value.generation_submissions_per_minute === 'number'
+    && Number.isInteger(value.generation_submissions_per_minute)
+    && value.generation_submissions_per_minute >= 1
 }
 
 function validTier(value: unknown): value is GenStudioServiceTier {
@@ -141,6 +160,7 @@ function normalizeCapacity(value: GenStudioAccountCapacity): GenStudioAccountCap
 export class GenStudioAdmissionPool {
   private capacity = { ...SAFE_FALLBACK }
   private limitSource: GenStudioAdmissionSnapshot['limitSource'] = 'safe-fallback'
+  private capacityVerified = false
   private refreshedAt = 0
   private refreshAfter = 0
   private refreshPromise: Promise<void> | null = null
@@ -179,6 +199,7 @@ export class GenStudioAdmissionPool {
       retry_after_ms: Math.max(0, this.holdUntil - now, this.globalFailureUntil - now),
       refreshed_at: this.refreshedAt ? new Date(this.refreshedAt).toISOString() : null,
       limitSource: this.limitSource,
+      capacity_verified: this.capacityVerified,
     }
   }
 
@@ -279,13 +300,15 @@ export class GenStudioAdmissionPool {
     const hold = this.creditHolds.get(apiKey)
     if (!hold) return
     try {
-      const fresh = normalizeCapacity(await this.loadCapacity(apiKey))
+      const overview = await this.loadCapacity(apiKey)
+      const fresh = normalizeCapacity(overview)
       const balance = fresh.credit_balance
       if (balance !== undefined) this.creditBalances.set(apiKey, balance)
       if (hold.balance !== null && balance !== undefined && balance > hold.balance) {
         this.creditHolds.delete(apiKey)
         this.capacity = fresh
         this.limitSource = 'account-overview'
+        this.capacityVerified = hasVerifiedCapacity(overview)
         this.refreshedAt = Date.now()
         this.refreshAfter = Date.now() + this.cacheMs
         return
@@ -301,11 +324,13 @@ export class GenStudioAdmissionPool {
     if (this.refreshPromise) return this.refreshPromise
     this.refreshPromise = (async () => {
       try {
-        this.capacity = normalizeCapacity(await this.loadCapacity(apiKey))
+        const overview = await this.loadCapacity(apiKey)
+        this.capacity = normalizeCapacity(overview)
         if (this.capacity.credit_balance !== undefined) {
           this.creditBalances.set(apiKey, this.capacity.credit_balance)
         }
         this.limitSource = 'account-overview'
+        this.capacityVerified = hasVerifiedCapacity(overview)
         this.refreshedAt = Date.now()
         this.refreshAfter = Date.now() + this.cacheMs
       } catch {
@@ -313,6 +338,7 @@ export class GenStudioAdmissionPool {
         // closed. The accepted job remains GenStudio-owned and recoverable.
         this.capacity = { ...SAFE_FALLBACK }
         this.limitSource = 'safe-fallback'
+        this.capacityVerified = false
         this.refreshedAt = Date.now()
         this.refreshAfter = Date.now() + this.retryMs
       }

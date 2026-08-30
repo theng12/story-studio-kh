@@ -193,10 +193,8 @@
         </ul>
       </div>
 
-      <!-- Per-episode failure details — expand on demand.
-           Shows the exact job.error (untruncated, unredacted beyond the
-           aggregator's scrub of bearer tokens / UUIDs) so the operator
-           has everything they need to decide retry vs. rerun vs. skip. -->
+      <!-- Per-episode failure details — expand on demand. The full error is
+           kept untruncated but passes through the customer-copy boundary. -->
       <details v-if="batchSummary.failed_episodes.length" class="bbf-details">
         <summary>Show all failed episodes ({{ batchSummary.failed_episodes.length }})</summary>
         <div
@@ -602,11 +600,9 @@
           </div>
         </div>
 
-        <!-- Technical details. Everything the default view no longer shows,
-             folded rather than deleted: the full item ledger, the per-item
-             states, the raw log, the redacted request preview and every id.
-             These are what actually solved incidents; only one card's drawer
-             is mounted at a time so a page of long logs stays cheap. -->
+        <!-- Technical details. Diagnostic state and customer-safe output stay
+             available without exposing structured request identifiers. Only
+             one card's drawer is mounted at a time so long histories stay cheap. -->
         <AdvancedDisclosure
           label="Technical details"
           :open="expanded === job.job_id"
@@ -996,6 +992,7 @@ interface GenStudioAdmissionSnapshot {
   retry_after_ms: number
   refreshed_at: string | null
   limitSource: 'account-overview' | 'safe-fallback'
+  capacity_verified: boolean
 }
 function formatGenStudioCents(cents: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
@@ -3153,7 +3150,7 @@ async function clearFinished() {
 }
 .job-exceptions li + li { margin-top: 5px; }
 
-/* Ids, inside Technical details only. */
+/* Output metadata inside Technical details. */
 .job-technical-ids {
   display: flex; flex-wrap: wrap; gap: 4px 12px;
   margin-top: 8px;
@@ -3219,7 +3216,7 @@ async function clearFinished() {
   flex-shrink: 0;
 }
 
-/* Raw log, inside Technical details */
+/* Customer-safe job output inside Technical details. */
 .job-output {
   margin-top: 6px; background: var(--bg-primary); border-radius: var(--radius-sm);
   padding: 10px; font-size: var(--font-xs); max-height: 250px; overflow-y: auto;

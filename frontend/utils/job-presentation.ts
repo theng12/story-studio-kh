@@ -11,6 +11,7 @@ export interface JobFilterLike {
 }
 
 export interface CapacitySnapshotLike {
+  capacity_verified?: boolean
   limitSource?: string
   refreshed_at?: string | null
 }
@@ -40,7 +41,7 @@ export function filterJobsForView<T extends JobFilterLike>(
 }
 
 export function isVerifiedLiveCapacity(snapshot: CapacitySnapshotLike | null | undefined, nowMs: number): boolean {
-  if (snapshot?.limitSource !== 'account-overview' || !snapshot.refreshed_at) return false
+  if (snapshot?.capacity_verified !== true || snapshot.limitSource !== 'account-overview' || !snapshot.refreshed_at) return false
   const refreshedAt = Date.parse(snapshot.refreshed_at)
   if (!Number.isFinite(refreshedAt)) return false
   const age = nowMs - refreshedAt
@@ -54,8 +55,6 @@ export function customerSafeJobText(value: unknown, exactIds: readonly string[] 
     text = text.split(id).join('[request hidden]')
   }
   return text
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '[request hidden]')
     .replace(/\b((?:provider[ _-]?)?(?:job|task|request)[ _-]?id)\s*[:=#]\s*[A-Za-z0-9._:-]{6,}/gi, '$1: hidden')
     .replace(/\b((?:story\s+)?(?:job|task|request))\s+(?=[A-Za-z0-9._:-]{6,}\b)(?=[A-Za-z0-9._:-]*\d)(?=[A-Za-z0-9._:-]*[_.:-])[A-Za-z0-9._:-]+\b/gi, '$1 [request hidden]')
-    .replace(/\b(?=[A-Za-z0-9_-]{20,}\b)(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[-_])[A-Za-z0-9_-]+\b/g, '[request hidden]')
 }
