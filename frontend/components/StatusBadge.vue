@@ -18,7 +18,7 @@ const label = computed(() => {
     queued: 'Queued',
     paused: 'Paused',
     done: 'Done',
-    error: 'Error',
+    error: 'Needs attention',
     cancelled: 'Cancelled',
   }
   return labels[props.status] || props.status

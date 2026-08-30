@@ -15,6 +15,18 @@ const jobs = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)),
   'utf8',
 )
+const statusBadge = readFileSync(
+  fileURLToPath(new URL('../components/StatusBadge.vue', import.meta.url)),
+  'utf8',
+)
+const useJobsSource = readFileSync(
+  fileURLToPath(new URL('../composables/useJobs.ts', import.meta.url)),
+  'utf8',
+)
+const batchSignals = readFileSync(
+  fileURLToPath(new URL('../composables/useBatchCompletionSignals.ts', import.meta.url)),
+  'utf8',
+)
 const remote = readFileSync(
   fileURLToPath(new URL('../pages/remote.vue', import.meta.url)),
   'utf8',
@@ -177,6 +189,40 @@ test('Review failures applies the failed and active-batch scope, then focuses Hi
   assert.match(jobs, /failureBatchFilter\.value = batchSummary\.value\?\.batch_id/)
   assert.match(jobs, /ref="historyHeading"/)
   assert.match(jobs, /historyHeading\.value\?\.focus\(\)/)
+})
+
+test('normal Jobs surfaces use attention language while internal status keys stay unchanged', () => {
+  assert.match(statusBadge, /error: 'Needs attention'/)
+  assert.match(jobs, /label: 'Needs attention'/)
+  assert.match(jobs, /job.*need.*attention/s)
+  assert.match(jobs, /episode.*need.*attention/s)
+  assert.match(jobs, /Show all episodes needing attention/)
+  assert.match(jobs, />Review jobs →<\/button>/)
+  assert.match(jobs, /What happened:/)
+  assert.match(jobs, /Show details/)
+  assert.match(jobs, /Repair available/)
+  assert.match(jobs, /No jobs need another try/)
+  assert.match(useJobsSource, /\$\{label\} needs attention: \$\{job\.episode_id\}/)
+  assert.match(batchSignals, /need.*attention/)
+
+  for (const legacy of [
+    /error: 'Error'/,
+    /label: 'Failed'/,
+    />Review failures/,
+    />Repair all failed/,
+    /<span class="error-label">Error:<\/span>/,
+    /Show full error/,
+    /Hide full error/,
+    /Nothing failed that can be retried/,
+    /Deletes this failed job/,
+    /any that were refused say so on their card/,
+  ]) {
+    assert.doesNotMatch(`${statusBadge}\n${jobs}\n${useJobsSource}\n${batchSignals}`, legacy)
+  }
+
+  assert.match(jobs, /job\.status === 'error'/)
+  assert.match(jobs, /statusFilter\.value = 'error'/)
+  assert.match(jobs, /label="Technical details"/)
 })
 
 test('Job error disclosures are native buttons with expanded state and controlled regions', () => {
