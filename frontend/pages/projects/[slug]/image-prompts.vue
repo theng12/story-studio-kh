@@ -2432,7 +2432,7 @@ async function runGenerate(mode: PromptMode) {
     // immediately so the user knows the click registered, then poll for
     // completion. We don't block paint while the job runs — the existing
     // `generating` flag keeps the button disabled + spinner showing.
-    success(`Queued ${mode === 'scenes' ? 'scene prompts' : 'thumbnail prompts'} — job ${job.job_id}`)
+    success(`Queued ${mode === 'scenes' ? 'scene prompts' : 'thumbnail prompts'} — watch progress in Jobs.`)
 
     const completed = await waitForJob(slug.value, job.job_id)
     if (completed.status === 'error') {

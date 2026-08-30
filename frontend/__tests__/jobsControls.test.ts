@@ -2,6 +2,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
+import {
+  customerSafeJobText,
+  filterJobsForView,
+  isVerifiedLiveCapacity,
+  primaryControl,
+  secondaryControls,
+} from '../utils/job-presentation.js'
 
 const jobs = readFileSync(
   fileURLToPath(new URL('../pages/projects/[slug]/jobs.vue', import.meta.url)),
@@ -16,10 +23,13 @@ const contracts = readFileSync(
   'utf8',
 )
 
-test('Jobs renders all server-provided job controls and dispatches each exact action', () => {
+test('Jobs presents one primary control and keeps alternatives in an accessible disclosure', () => {
   assert.match(jobs, /job\.control/)
   assert.match(jobs, /job\.controls/)
-  assert.match(jobs, /v-for="control in jobControls\(job\)"/)
+  assert.match(jobs, /primaryJobControl\(job\)/)
+  assert.match(jobs, /secondaryJobControls\(job\)/)
+  assert.match(jobs, /<details[^>]*class="job-more-actions"/)
+  assert.match(jobs, /<summary>More actions<\/summary>/)
   assert.match(jobs, /control\.reason/)
   assert.match(jobs, /control\.action === 'cancel-before-submit'/)
   assert.match(jobs, /control\.action === 'stop-local'/)
@@ -100,7 +110,8 @@ test('Jobs retries Motion work through the durable queue without reposting legac
   assert.doesNotMatch(motionBranch, /await del\(jobQueuePath\(job\)\)/)
 })
 
-test('Jobs renders GenStudio standard lanes with optional live burst and tier facts', () => {
+test('Jobs renders exact GenStudio account facts only for a verified live snapshot', () => {
+  assert.match(jobs, /verifiedGenStudioAdmission/)
   assert.match(jobs, /paid_active_jobs }} active \/ {{ genStudioAdmission\.paid_concurrency_limit }} standard lanes/)
   assert.match(jobs, /genStudioAdmission\.burst_concurrency_ceiling &&\s*genStudioAdmission\.paid_active_jobs > genStudioAdmission\.paid_concurrency_limit/)
   assert.match(jobs, /Temporary boost/)
@@ -109,6 +120,8 @@ test('Jobs renders GenStudio standard lanes with optional live burst and tier fa
   assert.match(jobs, /formatGenStudioCents\(genStudioAdmission\.service_tier\.cents_to_next_tier\)/)
   assert.match(jobs, /next_tier\.paid_concurrency_limit/)
   assert.match(jobs, /next_tier\.generation_submissions_per_minute/)
+  assert.match(jobs, /Account capacity is unverified/)
+  assert.match(jobs, /scheduling conservatively/i)
 })
 
 test('Jobs makes temporary capacity best effort and directs upgrades to GenStudio', () => {
@@ -117,10 +130,12 @@ test('Jobs makes temporary capacity best effort and directs upgrades to GenStudi
   assert.match(jobs, /\.capacity-boost \{[\s\S]*?white-space: normal;[\s\S]*?overflow-wrap: anywhere;/)
 })
 
-test('Remote uses the same server controls and bulk-manages only safe actions', () => {
+test('Remote uses the same distilled server controls and bulk-manages only safe actions', () => {
   assert.match(remote, /control\.label/)
   assert.match(remote, /control\.reason/)
-  assert.match(remote, /v-for="control in jobControls\(job\)"/)
+  assert.match(remote, /primaryJobControl\(job\)/)
+  assert.match(remote, /secondaryJobControls\(job\)/)
+  assert.match(remote, /<details[^>]*class="rm-more-actions"/)
   assert.match(remote, /bulkControlJobs/)
   assert.match(remote, /cancel-before-submit.*stop-local.*request-remote-cancel/s)
   assert.match(remote, /await post\(`\$\{jobQueuePath\(job\)\}\/cancel`, \{\}\)/)
@@ -128,6 +143,106 @@ test('Remote uses the same server controls and bulk-manages only safe actions', 
   assert.match(remote, /left \$\{unchanged\} unchanged/)
   assert.doesNotMatch(remote, />Stop all</)
   assert.doesNotMatch(remote, />Stop</)
+})
+
+test('Review failures applies the failed and active-batch scope, then focuses History', () => {
+  assert.match(jobs, /statusFilter\.value = 'error'/)
+  assert.match(jobs, /failureBatchFilter\.value = batchSummary\.value\?\.batch_id/)
+  assert.match(jobs, /ref="historyHeading"/)
+  assert.match(jobs, /historyHeading\.value\?\.focus\(\)/)
+})
+
+test('Job error disclosures are native buttons with expanded state and controlled regions', () => {
+  assert.doesNotMatch(jobs, /<div\s+v-if="job\.error && hasMoreErrorLines\(job\.error\)"\s+class="error-toggle"/)
+  assert.match(jobs, /<button[\s\S]*?class="error-toggle"[\s\S]*?:aria-expanded=/)
+  assert.match(jobs, /:aria-controls="`job-error-/)
+  assert.match(jobs, /:id="`job-error-/)
+  assert.match(jobs, /\.error-toggle:focus-visible/)
+})
+
+test('Technical disclosure label omits counts and raw request identifiers', () => {
+  assert.doesNotMatch(jobs, /:badge="expandSummary\(job\)/)
+  assert.doesNotMatch(jobs, /Job id:<\/span> \{\{ job\.job_id \}\}/)
+  assert.doesNotMatch(jobs, /Remote job:<\/span> \{\{ remote\.id \}\}/)
+  const requestPreview = readFileSync(
+    fileURLToPath(new URL('../components/GenStudioRequestPreview.vue', import.meta.url)),
+    'utf8',
+  )
+  assert.doesNotMatch(requestPreview, /Idempotency-Key/)
+})
+
+test('Generation confirmations do not interpolate internal job identifiers', () => {
+  for (const path of [
+    '../pages/projects/[slug]/scene-plan.vue',
+    '../pages/projects/[slug]/images.vue',
+    '../pages/projects/[slug]/image-prompts.vue',
+    '../pages/projects/[slug]/broll.vue',
+    '../pages/projects/[slug]/metadata.vue',
+    '../components/RepairAssetsDialog.vue',
+    '../components/ImageGeneratorPanel.vue',
+    '../pages/projects/[slug]/scene-review.vue',
+  ]) {
+    const source = readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8')
+    assert.doesNotMatch(source, /(?:Story task|job|Job) \$\{job\??\.job_id\}/, path)
+  }
+})
+
+test('recovery status and activity titles keep exact identifiers internal', () => {
+  const images = readFileSync(
+    fileURLToPath(new URL('../pages/projects/[slug]/images.vue', import.meta.url)),
+    'utf8',
+  )
+  const notifications = readFileSync(
+    fileURLToPath(new URL('../composables/useNotifications.ts', import.meta.url)),
+    'utf8',
+  )
+  assert.doesNotMatch(images, /Task:\s*\{\{ item\.task_id \}\}/)
+  assert.doesNotMatch(images, />\{\{ lastRepairJob\.job_id \}\}<\/NuxtLink>/)
+  assert.doesNotMatch(notifications, /title:\s*j\.title \|\| j\.episode_id \|\| j\.job_id/)
+})
+
+test('usage and prompt workflow summaries do not render stored job or batch ids', () => {
+  const usage = readFileSync(fileURLToPath(new URL('../pages/usage.vue', import.meta.url)), 'utf8')
+  const scenePlan = readFileSync(fileURLToPath(new URL('../pages/projects/[slug]/scene-plan.vue', import.meta.url)), 'utf8')
+  assert.doesNotMatch(usage, /<code>\{\{ job\.id \}\}<\/code>/)
+  assert.doesNotMatch(usage, /Internal id:/)
+  assert.doesNotMatch(scenePlan, /Last Hub task:/)
+  assert.doesNotMatch(scenePlan, /\{\{ plan\.motion_prompt_batch_id \|\| plan\.visual_prompt_batch_id \}\}/)
+})
+
+test('capacity facts require a fresh verified account snapshot', () => {
+  const now = Date.parse('2026-08-30T10:00:00.000Z')
+  assert.equal(isVerifiedLiveCapacity({ limitSource: 'account-overview', refreshed_at: new Date(now - 5_000).toISOString() }, now), true)
+  assert.equal(isVerifiedLiveCapacity({ limitSource: 'safe-fallback', refreshed_at: new Date(now - 5_000).toISOString() }, now), false)
+  assert.equal(isVerifiedLiveCapacity({ limitSource: 'account-overview', refreshed_at: new Date(now - 31_000).toISOString() }, now), false)
+})
+
+test('failure review keeps only failed jobs from the selected batch', () => {
+  const jobsForReview = [
+    { status: 'error', type: 'audio', project_slug: 'story', params: { pipeline_batch_id: 'batch-2' } },
+    { status: 'error', type: 'audio', project_slug: 'story', params: { pipeline_batch_id: 'batch-1' } },
+    { status: 'done', type: 'audio', project_slug: 'story', params: { pipeline_batch_id: 'batch-2' } },
+  ]
+  assert.deepEqual(
+    filterJobsForView(jobsForReview, { type: 'all', status: 'error', project: 'all', batch: 'batch-2' }),
+    [jobsForReview[0]],
+  )
+})
+
+test('the safest control stays primary and exact targets survive presentation', () => {
+  const controls = [
+    { action: 'pause-submissions', enabled: true },
+    { action: 'request-remote-cancel', enabled: true, targets: [{ operation: 'image.generation', provider_job_id: 'exact-target' }] },
+    { action: 'force-abandon', enabled: true },
+  ]
+  assert.equal(primaryControl(controls)?.action, 'pause-submissions')
+  assert.deepEqual(secondaryControls(controls)[0]?.targets, [{ operation: 'image.generation', provider_job_id: 'exact-target' }])
+})
+
+test('customer copy hides known request identities without mutating source evidence', () => {
+  const evidence = { id: 'provider-job-1234567890' }
+  assert.equal(customerSafeJobText(`Request ${evidence.id} failed`, [evidence.id]), 'Request [request hidden] failed')
+  assert.equal(evidence.id, 'provider-job-1234567890')
 })
 
 test('Remote includes paused jobs and counts failed bulk requests as unchanged', () => {

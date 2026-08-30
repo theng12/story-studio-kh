@@ -20,23 +20,20 @@
             <span class="workspace-metric" data-tone="success"><strong>{{ stats.done }}</strong> done</span>
             <span v-if="stats.error" class="workspace-metric" data-tone="error"><strong>{{ stats.error }}</strong> errors</span>
           </div>
-          <div
-            v-if="genStudioAdmission"
-            class="genstudio-capacity-summary"
-            aria-label="GenStudio account capacity"
-          >
+          <div class="genstudio-capacity-summary" aria-label="GenStudio account capacity">
             <span
-              v-if="genStudioAdmission.submissions_blocked"
+              v-if="genStudioAdmission?.submissions_blocked"
               class="capacity-error"
               :title="genStudioAdmission.submission_block_reason || undefined"
             >
               <strong>Submissions stopped</strong>
               GenStudio release not ready
             </span>
-            <span>
+            <span v-if="genStudioAdmission?.local_waiting">
               <strong>{{ genStudioAdmission.local_waiting }}</strong>
               submissions waiting locally
             </span>
+            <template v-if="verifiedGenStudioAdmission && genStudioAdmission">
             <span>
               <strong>{{ genStudioAdmission.paid_active_jobs }} active / {{ genStudioAdmission.paid_concurrency_limit }} standard lanes</strong>
             </span>
@@ -68,6 +65,11 @@
             <span>
               <strong>{{ genStudioAdmission.generation_submissions_per_minute }}</strong>
               submissions/min
+            </span>
+            </template>
+            <span v-else class="capacity-warning capacity-unverified">
+              <strong>Account capacity is unverified.</strong>
+              Story Studio is scheduling conservatively.
             </span>
           </div>
           <div class="jobs-hero-actions">
@@ -169,6 +171,7 @@
         <button
           class="bbf-dismiss"
           title="Dismiss for this session — will reappear on reload"
+          aria-label="Dismiss pipeline summary"
           @click="bulkBannerDismissed = true"
         >✕</button>
       </div>
@@ -205,7 +208,7 @@
             <strong>{{ fe.episode_id }}</strong>
             <span class="text-muted">— failed at step <code>{{ fe.job_type }}</code></span>
           </div>
-          <pre class="bbf-failed-episode-error">{{ fe.full_error }}</pre>
+          <pre class="bbf-failed-episode-error">{{ customerSafeJobText(fe.full_error) }}</pre>
         </div>
       </details>
 
@@ -252,7 +255,8 @@
         :key="tab.type"
         class="filter-tab"
         :class="{ active: activeFilter === tab.type }"
-        @click="activeFilter = tab.type; currentPage = 1"
+        :aria-pressed="activeFilter === tab.type"
+        @click="activeFilter = tab.type; failureBatchFilter = null; currentPage = 1"
       >
         {{ tab.label }}
         <span v-if="tab.count > 0" class="tab-count">{{ tab.count }}</span>
@@ -267,7 +271,8 @@
           :key="s.key"
           class="status-chip"
           :class="{ active: statusFilter === s.key, [`sc-${s.key}`]: true }"
-          @click="statusFilter = s.key"
+          :aria-pressed="statusFilter === s.key"
+          @click="statusFilter = s.key; failureBatchFilter = null"
         >
           {{ s.label }}<span v-if="s.count > 0" class="status-count">{{ s.count }}</span>
         </button>
@@ -358,22 +363,37 @@
           </div>
           <div class="job-actions">
             <button
-              v-for="control in jobControls(job)"
-              :key="control.action"
-              class="btn btn-xs btn-secondary"
-              :class="{ 'job-control-primary': control.enabled && control.action === 'pause-submissions' }"
-              :disabled="!control.enabled || controlBusy.has(job.job_id)"
-              :title="control.reason"
-              @click="runJobControl(job, control)"
-            >
-              {{ controlBusy.has(job.job_id) ? 'Working…' : control.label }}
-            </button>
-            <button
               v-if="job.status === 'paused'"
               class="btn btn-xs btn-primary"
               @click="resumeJob(job)"
-              title="Verify saved output and accepted task IDs, then continue only missing work."
+              title="Verify saved output and accepted work, then continue only missing work."
             >Resume</button>
+            <button
+              v-else-if="primaryJobControl(job)"
+              class="btn btn-xs btn-secondary"
+              :class="{ 'job-control-primary': primaryJobControl(job)?.enabled }"
+              :disabled="!primaryJobControl(job)?.enabled || controlBusy.has(job.job_id)"
+              :title="primaryJobControl(job)?.reason"
+              @click="runJobControl(job, primaryJobControl(job) || undefined)"
+            >
+              {{ controlBusy.has(job.job_id) ? 'Working…' : primaryJobControl(job)?.label }}
+            </button>
+            <details v-if="secondaryJobControls(job).length" class="job-more-actions">
+              <summary>More actions</summary>
+              <div class="job-more-actions-body">
+                <button
+                  v-for="control in secondaryJobControls(job)"
+                  :key="control.action"
+                  class="btn btn-xs btn-secondary"
+                  :disabled="!control.enabled || controlBusy.has(job.job_id)"
+                  :title="control.reason"
+                  @click="runJobControl(job, control)"
+                >{{ controlBusy.has(job.job_id) ? 'Working…' : control.label }}</button>
+                <p v-for="control in secondaryJobControls(job)" :key="`more-reason-${control.action}`" class="job-control-reason">
+                  {{ customerJobText(control.reason, job) }}
+                </p>
+              </div>
+            </details>
             <!-- v1.0.114 — Repair / Retry split. Repair (left) is the safe
                  default: polls the provider for already-completed tasks
                  and downloads them. Never re-submits. Retry (right) is
@@ -460,7 +480,7 @@
             v-for="entry in visibleAccounts(job)"
             :key="entry.providerId"
             class="account-chip"
-            :title="`${entry.label} · Account id: ${entry.account.id}`"
+            :title="entry.label"
           >
             {{ entry.label }}: <strong>{{ entry.account.label }}</strong>
           </span>
@@ -565,17 +585,20 @@
         <div v-if="job.status === 'error'" class="job-error-section">
           <div v-if="job.error" class="error-summary">
             <span class="error-label">Error:</span>
-            <span class="error-summary-text">{{ firstErrorLine(job.error) }}</span>
+            <span class="error-summary-text">{{ firstErrorLine(customerJobText(job.error, job)) }}</span>
           </div>
-          <div
+          <button
             v-if="job.error && hasMoreErrorLines(job.error)"
+            type="button"
             class="error-toggle"
+            :aria-expanded="errorExpanded === job.job_id"
+            :aria-controls="`job-error-active-${job.job_id}`"
             @click="errorExpanded === job.job_id ? errorExpanded = null : errorExpanded = job.job_id"
           >
             {{ errorExpanded === job.job_id ? 'Hide full error' : 'Show full error' }}
-          </div>
-          <div v-if="errorExpanded === job.job_id && job.error" class="error-details">
-            {{ job.error }}
+          </button>
+          <div :id="`job-error-active-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
+            {{ customerJobText(job.error, job) }}
           </div>
         </div>
 
@@ -586,11 +609,11 @@
              is mounted at a time so a page of long logs stays cheap. -->
         <AdvancedDisclosure
           label="Technical details"
-          :badge="expandSummary(job) || undefined"
           :open="expanded === job.job_id"
           @update:open="setTechnicalOpen(job.job_id, $event)"
         >
           <template v-if="expanded === job.job_id">
+            <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
             <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
             <!--
               What the job is actually working on, item by item. A percentage
@@ -629,40 +652,31 @@
             </div>
             <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
             <div v-if="job.output_lines?.length" class="job-output">
-              <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
+              <code v-for="(line, i) in job.output_lines" :key="i">{{ customerJobText(line, job) }}</code>
             </div>
             <div class="job-technical-ids">
-              <span class="meta-tag"><span class="meta-label">Job id:</span> {{ job.job_id }}</span>
               <span v-if="getOutputDir(job)" class="meta-tag"><span class="meta-label">Output folder:</span> {{ getOutputDir(job) }}</span>
-              <span
-                v-for="remote in job.genstudio_jobs || []"
-                :key="remote.id"
-                class="meta-tag"
-                :title="genStudioJobTitle(remote, job)"
-              ><span class="meta-label">Remote job:</span> {{ remote.id }}</span>
             </div>
           </template>
         </AdvancedDisclosure>
 
         <p
-          v-for="control in jobControls(job)"
-          :key="`reason-${control.action}`"
+          v-if="primaryJobControl(job)"
           class="job-control-reason"
-          :class="`control-${control.action}`"
+          :class="`control-${primaryJobControl(job)?.action}`"
           role="status"
         >
-          <template v-if="hasPendingCancellation(job) && control.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
-          <template v-else-if="control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
-          {{ control.reason }}
+          <template v-if="hasPendingCancellation(job) && primaryJobControl(job)?.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
+          {{ customerJobText(primaryJobControl(job)?.reason, job) }}
         </p>
       </div>
       </div>
     </section>
 
     <!-- History (done / error / cancelled) — paginated -->
-    <section v-if="historyJobs.length" class="jobs-section mt-3">
+    <section v-if="historyJobs.length" ref="historySection" class="jobs-section mt-3">
       <div class="section-heading">
-        <h2>History</h2>
+        <h2 ref="historyHeading" tabindex="-1">History</h2>
         <span class="section-count">{{ historyJobs.length }}</span>
       </div>
       <div class="jobs-list mt-1">
@@ -736,7 +750,7 @@
           >
             <template v-if="hasPendingCancellation(job) && control.action === 'request-remote-cancel'">Story Studio is reconciling the cancellation result. </template>
             <template v-else-if="control.action === 'clear-history'">Removing this row does not change its files or billing records. </template>
-            {{ control.reason }}
+            {{ customerJobText(control.reason, job) }}
           </p>
 
           <div class="job-meta">
@@ -824,11 +838,11 @@
           <!-- Technical details — mirror of the Active card's drawer. -->
           <AdvancedDisclosure
             label="Technical details"
-            :badge="expandSummary(job) || undefined"
             :open="expanded === job.job_id"
             @update:open="setTechnicalOpen(job.job_id, $event)"
           >
             <template v-if="expanded === job.job_id">
+              <p v-if="expandSummary(job)" class="technical-summary">{{ expandSummary(job) }}</p>
               <GenStudioBatchLedger v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
               <div v-if="job.item_progress" class="job-items">
                 <span class="job-items-count">
@@ -855,17 +869,10 @@
               </div>
               <GenStudioRequestPreview v-if="job.genstudio_jobs?.length" :remote-jobs="job.genstudio_jobs" />
               <div v-if="job.output_lines?.length" class="job-output">
-                <code v-for="(line, i) in job.output_lines" :key="i">{{ line }}</code>
+                <code v-for="(line, i) in job.output_lines" :key="i">{{ customerJobText(line, job) }}</code>
               </div>
               <div class="job-technical-ids">
-                <span class="meta-tag"><span class="meta-label">Job id:</span> {{ job.job_id }}</span>
                 <span v-if="getOutputDir(job)" class="meta-tag"><span class="meta-label">Output folder:</span> {{ getOutputDir(job) }}</span>
-                <span
-                  v-for="remote in job.genstudio_jobs || []"
-                  :key="remote.id"
-                  class="meta-tag"
-                  :title="genStudioJobTitle(remote, job)"
-                ><span class="meta-label">Remote job:</span> {{ remote.id }}</span>
               </div>
             </template>
           </AdvancedDisclosure>
@@ -873,17 +880,20 @@
           <div v-if="job.status === 'error'" class="job-error-section">
             <div v-if="job.error" class="error-summary">
               <span class="error-label">Error:</span>
-              <span class="error-summary-text">{{ firstErrorLine(job.error) }}</span>
+              <span class="error-summary-text">{{ firstErrorLine(customerJobText(job.error, job)) }}</span>
             </div>
-            <div
+            <button
               v-if="job.error && hasMoreErrorLines(job.error)"
+              type="button"
               class="error-toggle"
+              :aria-expanded="errorExpanded === job.job_id"
+              :aria-controls="`job-error-history-${job.job_id}`"
               @click="errorExpanded === job.job_id ? errorExpanded = null : errorExpanded = job.job_id"
             >
               {{ errorExpanded === job.job_id ? 'Hide full error' : 'Show full error' }}
-            </div>
-            <div v-if="errorExpanded === job.job_id && job.error" class="error-details">
-              {{ job.error }}
+            </button>
+            <div :id="`job-error-history-${job.job_id}`" v-if="errorExpanded === job.job_id && job.error" class="error-details">
+              {{ customerJobText(job.error, job) }}
             </div>
           </div>
         </div>
@@ -928,6 +938,13 @@ import {
   triageFailedJobsForRetryAll,
   type RepairRecord,
 } from '~/utils/repair-triage'
+import {
+  customerSafeJobText,
+  filterJobsForView,
+  isVerifiedLiveCapacity,
+  primaryControl,
+  secondaryControls,
+} from '~/utils/job-presentation'
 type RJob = DeepReadonly<Job>
 
 definePageMeta({ layout: 'dashboard' })
@@ -1053,37 +1070,12 @@ function expandSummary(job: RJob): string {
   return parts.join(' + ')
 }
 
-function isTtsJob(job: RJob): boolean {
-  return job.type === 'audio'
-}
-
 function jobModelDisplay(job: RJob): string {
   return genStudioModels.displayName(job.params?.model)
 }
 
 function jobModelTitle(job: RJob): string {
-  const label = jobModelDisplay(job)
-  const rawId = typeof job.params?.model === 'string' ? job.params.model.trim() : ''
-  if (isTtsJob(job) || !rawId || label === rawId) return label
-  return `${label} · Internal id: ${rawId}`
-}
-
-function genStudioJobTitle(
-  remote: NonNullable<RJob['genstudio_jobs']>[number],
-  job: RJob,
-): string {
-  const isTts = remote.operation === 'voice.tts'
-  const modelLabel = remote.model_id ? genStudioModels.displayName(remote.model_id) : ''
-  return [
-    `Remote job: ${remote.id}`,
-    modelLabel ? `Model: ${modelLabel}` : '',
-    remote.model_id && !isTts && modelLabel !== remote.model_id
-      ? `Internal model id: ${remote.model_id}`
-      : '',
-    remote.remaining_credits !== undefined ? `Balance after: ${remote.remaining_credits} credits` : '',
-    remote.price_version ? `Price version: ${remote.price_version}` : '',
-    remote.failure_code ? `Failure: ${remote.failure_code}` : '',
-  ].filter(Boolean).join(' · ')
+  return jobModelDisplay(job)
 }
 
 const GENSTUDIO_QUEUE_LABELS: Record<string, string> = {
@@ -1131,7 +1123,7 @@ function genStudioQueueLabel(
 function genStudioStatusDetail(job: RJob): string {
   const remote = [...(job.genstudio_jobs || [])].reverse().find(item => item.status_detail || item.failure_detail)
   if (!remote) return ''
-  const detail = remote.status_detail || remote.failure_detail || ''
+  const detail = customerJobText(remote.status_detail || remote.failure_detail || '', job)
   if (remote.retry_at) return `${detail} Retry ${formatTime(remote.retry_at)}.`
   if (remote.retry_after_seconds === 0) return `${detail} Retry is available now.`
   if (typeof remote.retry_after_seconds === 'number' && remote.retry_after_seconds > 0) {
@@ -1372,6 +1364,7 @@ const resumingQueue = ref(false)
 const changingQueueState = ref(false)
 let queueTimer: ReturnType<typeof setInterval> | null = null
 const genStudioAdmission = ref<GenStudioAdmissionSnapshot | null>(null)
+const verifiedGenStudioAdmission = computed(() => isVerifiedLiveCapacity(genStudioAdmission.value, now.value))
 
 async function checkQueuePaused(): Promise<void> {
   try {
@@ -1615,17 +1608,12 @@ const showBulkFinishedBanner = computed(() => {
 // rely on historyJobs already listing everything.
 function reviewFailures() {
   activeFilter.value = 'all'
-  // Sort by status so errors float to the top of the History list.
-  sortKey.value = 'status'
-  sortDir.value = 'asc'
+  statusFilter.value = 'error'
+  failureBatchFilter.value = batchSummary.value?.batch_id || null
   currentPage.value = 1
-  // Scroll the user down to the History section so they see the jobs
-  // they're about to review without having to hunt.
   nextTick(() => {
-    const el = document.querySelector('.jobs-section h2')
-    if (el && typeof (el as any).scrollIntoView === 'function') {
-      ;(el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
+    historyHeading.value?.focus()
+    historySection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   })
 }
 
@@ -1694,6 +1682,9 @@ const projectScopedJobs = computed(() => {
 })
 // v1.0.x — status filter (independent of the type tabs). 'all' | running | queued | error | done | cancelled.
 const statusFilter = ref<'all' | 'running' | 'queued' | 'error' | 'done' | 'cancelled'>('all')
+const failureBatchFilter = ref<string | null>(null)
+const historySection = ref<HTMLElement | null>(null)
+const historyHeading = ref<HTMLElement | null>(null)
 const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> = [
   { key: 'all', label: 'All' },
   { key: 'running', label: 'Running' },
@@ -1794,14 +1785,12 @@ function toggleSort(key: string) {
 // ── Filtered + Sorted + Paginated ───────────────────────────────────────
 
 const filteredJobs = computed(() => {
-  let list = [...projectScopedJobs.value]
-  if (activeFilter.value !== 'all') {
-    list = list.filter(j => j.type === activeFilter.value)
-  }
-  if (statusFilter.value !== 'all') {
-    list = list.filter(j => j.status === statusFilter.value)
-  }
-  return list
+  return filterJobsForView(projectScopedJobs.value, {
+    type: activeFilter.value,
+    status: statusFilter.value,
+    project: 'all',
+    batch: failureBatchFilter.value,
+  })
 })
 
 const sortedJobs = computed(() => {
@@ -1988,7 +1977,7 @@ function getSummaryLine(job: RJob): string {
     if (line.includes('generated successfully') || line.includes('All images') ||
         line.includes('All audio') || line.includes('saved to') ||
         line.includes('Completed') || line.includes('tagged')) {
-      return line
+      return customerJobText(line, job)
     }
   }
   return `Completed in ${formatJobDuration(job)} (${lines.length} steps)`
@@ -2090,6 +2079,26 @@ function jobControls(job: RJob): JobControl[] {
     .filter(control => control.action !== 'none')
 }
 
+function primaryJobControl(job: RJob): JobControl | null {
+  return job.status === 'paused' ? null : primaryControl(jobControls(job))
+}
+
+function secondaryJobControls(job: RJob): JobControl[] {
+  return job.status === 'paused' ? jobControls(job) : secondaryControls(jobControls(job))
+}
+
+function jobIdentifiers(job: RJob): string[] {
+  return [
+    job.job_id,
+    ...(job.genstudio_jobs || []).map(remote => remote.id),
+    ...Object.values(job.remote_cancellations || {}).map(record => record.provider_job_id),
+  ].filter(Boolean)
+}
+
+function customerJobText(value: unknown, job: RJob): string {
+  return customerSafeJobText(value, jobIdentifiers(job))
+}
+
 async function runJobControl(job: RJob, requestedControl?: JobControl) {
   const control = requestedControl || job.control
   if (!control?.enabled || controlBusy.value.has(job.job_id)) return
@@ -2131,14 +2140,14 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
       const refreshed = response?.job?.control
       success(refreshed?.action === 'clear-history'
         ? 'GenStudio confirmed this job\'s provider work has finished. This history can now be removed.'
-        : refreshed?.reason || control.reason)
+        : customerJobText(refreshed?.reason || control.reason, job))
       return
     } else {
       return
     }
-    success(control.action === 'clear-history' ? 'Removed from history. Files and provider evidence stay intact.' : `${control.label} requested. ${control.reason}`)
+    success(control.action === 'clear-history' ? 'Removed from history. Files and provider evidence stay intact.' : `${control.label} requested. ${customerJobText(control.reason, job)}`)
   } catch (e: any) {
-    showError(e?.data?.detail || `Failed to ${control.label.toLowerCase()}`)
+    showError(customerJobText(e?.data?.detail || `Failed to ${control.label.toLowerCase()}`, job))
   } finally {
     const next = new Set(controlBusy.value)
     next.delete(job.job_id)
@@ -2151,7 +2160,7 @@ async function resumeJob(job: RJob) {
     await post(`${jobQueuePath(job)}/resume`, {})
     success('Job resumed. Saved and accepted work will be reclaimed first.')
   } catch (e: any) {
-    showError(e?.data?.detail || 'Failed to resume job')
+    showError(customerJobText(e?.data?.detail || 'Failed to resume job', job))
   }
 }
 
@@ -2412,7 +2421,7 @@ async function repairJobOnly(job: RJob) {
     }
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: chip }
   } catch (e: any) {
-    showError(e?.data?.detail || e?.message || 'Could not check for finished work')
+    showError(customerJobText(e?.data?.detail || e?.message || 'Could not check for finished work', job))
     setRepairState(job.job_id, { outcome: 'failed' })
     repairOutcome.value = { ...repairOutcome.value, [job.job_id]: { text: 'could not check — try again', kind: 'warn' } }
   }
@@ -2432,7 +2441,7 @@ async function retryJob(job: RJob) {
     try {
       await post(`${jobQueuePath(job)}/retry`, {})
       success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
-    } catch (e: any) { showError(e?.data?.detail || e?.message || 'Failed to retry job') }
+    } catch (e: any) { showError(customerJobText(e?.data?.detail || e?.message || 'Failed to retry job', job)) }
     return
   }
   // Every job type the queue knows about needs an entry here — otherwise
@@ -2523,12 +2532,12 @@ async function retryJob(job: RJob) {
       )
       if (!resp?.jobs?.length) {
         const reason = resp?.skipped?.[0]?.reason || 'Pipeline did not enqueue the job'
-        showError(reason)
+        showError(customerJobText(reason, job))
         return
       }
       await del(jobQueuePath(job))
       success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
-    } catch (e: any) { showError(e?.data?.detail || 'Failed to retry job') }
+    } catch (e: any) { showError(customerJobText(e?.data?.detail || 'Failed to retry job', job)) }
     return
   }
 
@@ -2538,7 +2547,7 @@ async function retryJob(job: RJob) {
       await post(projectSlug === '_app_' ? `/jobs/all/${job.job_id}/retry` : `/projects/${projectSlug}/jobs/${job.job_id}/retry`, {})
       success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
     } catch (e: any) {
-      showError(e?.data?.detail || e?.message || 'Failed to retry job')
+      showError(customerJobText(e?.data?.detail || e?.message || 'Failed to retry job', job))
     }
     return
   }
@@ -2557,7 +2566,7 @@ async function retryJob(job: RJob) {
     await del(jobQueuePath(job))
     await post(target.url, target.params)
     success(`${jobTypeLabel(job.type)} re-queued for ${job.episode_id}`)
-  } catch (e: any) { showError(e.data?.detail || 'Failed to retry job') }
+  } catch (e: any) { showError(customerJobText(e.data?.detail || 'Failed to retry job', job)) }
 }
 
 /**
@@ -2643,6 +2652,27 @@ async function clearFinished() {
   overflow-wrap: anywhere;
 }
 .job-control-reason.control-return-later { color: var(--warning); }
+.job-more-actions { position: relative; }
+.job-more-actions summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: var(--font-xs);
+  list-style-position: inside;
+}
+.job-more-actions summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.job-more-actions-body {
+  position: absolute;
+  z-index: 5;
+  right: 0;
+  min-width: min(320px, 80vw);
+  margin-top: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-secondary);
+}
+.job-more-actions-body .btn { margin-right: 4px; }
+.technical-summary { margin: 0 0 8px; color: var(--text-muted); font-size: var(--font-xs); }
 .genstudio-capacity-summary {
   display: flex;
   flex-wrap: wrap;
@@ -3137,6 +3167,7 @@ async function clearFinished() {
   border-bottom: 1px solid var(--border);
 }
 .section-heading h2 { font-size: 14px; font-weight: 600; margin: 0; color: var(--text-primary); }
+.section-heading h2:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .section-count {
   background: var(--bg-tertiary); color: var(--text-muted);
   border-radius: 999px; padding: 1px 8px;
@@ -3210,10 +3241,15 @@ async function clearFinished() {
 .error-label { font-weight: 600; flex-shrink: 0; }
 .error-summary-text { word-break: break-word; }
 .error-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
   font-size: var(--font-xs); color: var(--error); cursor: pointer;
   margin-top: 4px; display: inline-block;
 }
 .error-toggle:hover { text-decoration: underline; }
+.error-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .error-details {
   margin-top: 6px; padding: 10px;
   background: rgba(248, 113, 113, 0.08); border-radius: var(--radius-sm);

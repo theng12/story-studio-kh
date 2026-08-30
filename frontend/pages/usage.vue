@@ -62,12 +62,11 @@
         <p v-else-if="!snapshot.jobs.items.length" class="empty">No GenStudio jobs reported.</p>
         <div v-if="!snapshot.history_error && snapshot.jobs.items.length" class="table-wrap">
           <table>
-            <thead><tr><th>Job</th><th>Operation</th><th>State</th><th class="num">Reserved credits</th><th class="num">Settled credits</th><th class="num">Returned credits</th></tr></thead>
+            <thead><tr><th>Work</th><th>Operation</th><th>State</th><th class="num">Reserved credits</th><th class="num">Settled credits</th><th class="num">Returned credits</th></tr></thead>
             <tbody>
               <tr v-for="job in snapshot.jobs.items" :key="job.id">
                 <td>
-                  <code>{{ job.id }}</code>
-                  <small :title="usageModelTitle(job)">{{ usageModelDisplay(job) }}</small>
+                  <strong>{{ usageModelDisplay(job) }}</strong>
                 </td>
                 <td>{{ job.operation }}</td>
                 <td>{{ job.state }}</td>
@@ -87,7 +86,7 @@
         <ul v-if="!snapshot.history_error && snapshot.credit_activity.items.length" class="activity">
           <li v-for="entry in snapshot.credit_activity.items" :key="entry.id">
             <span :class="['activity-kind', entry.kind]">{{ entry.kind }}</span>
-            <span><strong>{{ entry.description }}</strong><small>{{ formatDate(entry.created_at) }} · {{ entry.reason_code }}</small></span>
+            <span><strong>{{ usageActivityDescription(entry.description) }}</strong><small>{{ formatDate(entry.created_at) }} · {{ entry.reason_code }}</small></span>
             <b>{{ entry.credits.toLocaleString() }} credits</b>
           </li>
         </ul>
@@ -97,6 +96,8 @@
 </template>
 
 <script setup lang="ts">
+import { customerSafeJobText } from '~/utils/job-presentation'
+
 useAppTitle('GenStudio Credits')
 
 interface Snapshot {
@@ -170,10 +171,8 @@ function usageModelDisplay(job: Snapshot['jobs']['items'][number]): string {
   return genStudioModels.displayName(job.model_id)
 }
 
-function usageModelTitle(job: Snapshot['jobs']['items'][number]): string {
-  const label = usageModelDisplay(job)
-  if (label === job.model_id) return label
-  return `${label} · Internal id: ${job.model_id}`
+function usageActivityDescription(description: string): string {
+  return customerSafeJobText(description, snapshot.value?.jobs.items.map(job => job.id) || [])
 }
 
 await Promise.all([load(), genStudioModels.refresh()])

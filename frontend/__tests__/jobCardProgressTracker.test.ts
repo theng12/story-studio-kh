@@ -6,8 +6,8 @@
  * ("recovered 3 task(s)", "0 recovered, 4 left"). The redesign replaces the
  * default view with counts, a measured ETA, a measured freshness reading, a
  * three-figure money summary and one plain-words line per exception, and folds
- * every id, log line and per-item state into a "Technical details" drawer —
- * folded, never deleted, because those logs are what solved every incident.
+ * log lines and per-item state into a "Technical details" drawer. Exact request
+ * identities stay in the structured job record instead of rendering to customers.
  *
  * Two kinds of test here, matching the two kinds of thing being protected:
  *   • regex-against-source for the markup contract (the established job-card
@@ -61,12 +61,12 @@ describe('the default card view carries no raw identifiers', () => {
     for (const drawer of drawers) assert.match(drawer, /label="Technical details"/)
   })
 
-  test('the job id is rendered only inside Technical details', () => {
+  test('the job id is not rendered, including inside Technical details', () => {
     assert.doesNotMatch(
       defaultView, /\{\{\s*job\.job_id\s*\}\}/,
       'the ID meta-tag must not survive in the default view — it is an 8-character hex slice',
     )
-    for (const drawer of drawers) assert.match(drawer, /\{\{ job\.job_id \}\}/)
+    for (const drawer of drawers) assert.doesNotMatch(drawer, /\{\{ job\.job_id \}\}/)
   })
 
   test('the per-scene wall is rendered only inside Technical details', () => {
@@ -360,6 +360,25 @@ describe('exceptions', () => {
     )
   })
 
+  test('identical active retry notices collapse while distinct reasons remain separate', () => {
+    const retryAt = new Date(nowMs + 30_000).toISOString()
+    const job = {
+      item_progress: {
+        total: 5, completed: 1, failed: 0, concurrency: 2,
+        active: [
+          { key: 'a', label: 'Scene 2', state: 'waiting_retry' as const, reason: 'GenStudio is busy', attempt: 1, max_attempts: 4, retry_at: retryAt },
+          { key: 'b', label: 'Scene 3', state: 'waiting_retry' as const, reason: 'GenStudio is busy', attempt: 1, max_attempts: 4, retry_at: retryAt },
+          { key: 'c', label: 'Scene 4', state: 'waiting_retry' as const, reason: 'Account rate limit reached', attempt: 1, max_attempts: 4, retry_at: retryAt },
+        ],
+      },
+    }
+
+    const lines = describeJobExceptions(job, nowMs)
+    assert.equal(lines.length, 2)
+    assert.equal(lines[0]?.text, '2 items: GenStudio is busy — nothing was charged; retrying automatically in 30s (attempt 2 of 4).')
+    assert.match(lines[1]?.text || '', /Scene 4: Account rate limit reached/)
+  })
+
   test('failures with no remote record still get a line, so the counts add up', () => {
     const job = { item_progress: { total: 5, completed: 2, failed: 3, concurrency: 1, active: [] } }
     const lines = describeJobExceptions(job, nowMs)
@@ -384,18 +403,18 @@ describe('exceptions', () => {
   })
 })
 
-// ── 6. Technical details holds everything the default view dropped ────────
+// ── 6. Technical details keeps diagnostics without public identifiers ─────
 
 describe('the Technical details drawer', () => {
-  test('contains the full item ledger, per-item states, the log and every id', () => {
+  test('contains item diagnostics while exact ids stay out of the rendered drawer', () => {
     for (const drawer of drawers) {
       assert.match(drawer, /<GenStudioBatchLedger[\s\S]*:remote-jobs="job\.genstudio_jobs"/, 'the item ledger')
       assert.match(drawer, /class="job-items"/, 'the per-item state block')
       assert.match(drawer, /itemAttemptText\(item\)/, 'the per-item attempt text')
-      assert.match(drawer, /v-for="\(line, i\) in job\.output_lines"/, 'the raw log lines')
+      assert.match(drawer, /customerJobText\(line, job\)/, 'customer-safe log lines')
       assert.match(drawer, /<GenStudioRequestPreview/, 'the redacted request preview')
-      assert.match(drawer, /\{\{ job\.job_id \}\}/, 'the job id')
-      assert.match(drawer, /\{\{ remote\.id \}\}/, 'every remote job id')
+      assert.doesNotMatch(drawer, /\{\{ job\.job_id \}\}/, 'the job id')
+      assert.doesNotMatch(drawer, /\{\{ remote\.id \}\}/, 'remote job ids')
       assert.match(drawer, /getOutputDir\(job\)/, 'the output folder')
     }
   })

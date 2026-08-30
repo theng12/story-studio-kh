@@ -380,7 +380,7 @@ async function runOne(number: number): Promise<void> {
       // want this one re-rendered", regardless of generation_mode setting.
       force: true,
     })
-    success(`Queued ${kindLabelLower.value} ${number} — job ${job.job_id}`)
+    success(`Queued ${kindLabelLower.value} ${number} — watch progress in Jobs.`)
     const completed = await waitForJob(job.job_id)
     if (completed.status === 'error') {
       throw new Error(completed.error || 'Job failed (see Jobs panel for details)')
@@ -423,7 +423,7 @@ async function runBulk(): Promise<void> {
     const requested = props.generationMode === 'regenerate'
       ? `all ${prompts.value.length}`
       : `${missingCount.value} missing`
-    success(`Queued ${requested} ${kindLabelLower.value}s — job ${job.job_id}`)
+    success(`Queued ${requested} ${kindLabelLower.value}s — watch progress in Jobs.`)
     const completed = await waitForJob(job.job_id)
     if (completed.status === 'error') {
       throw new Error(completed.error || 'Bulk job failed (see Jobs panel for details)')

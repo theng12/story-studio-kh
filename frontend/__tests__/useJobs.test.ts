@@ -262,17 +262,17 @@ describe('image repair completion notices', () => {
     assert.equal(notice.kind, 'info')
     assert.match(notice.message, /Nothing was restored/)
     assert.match(notice.message, /fresh generation/)
-    assert.match(notice.message, /repair-1/)
+    assert.doesNotMatch(notice.message, /repair-1/)
   })
 
-  test('reports verified recovery and the job id', () => {
+  test('reports verified recovery without exposing the job id', () => {
     const notice = jobCompletionNotice(mkJob({
       job_id: 'repair-2', type: 'images_repair', episode_id: 'SS0070', status: 'done',
       result: { recovered: 2, needs_fresh_generation: 0, unrecoverable: 0 },
     }))
     assert.equal(notice.kind, 'success')
     assert.match(notice.message, /Restored 2 images/)
-    assert.match(notice.message, /repair-2/)
+    assert.doesNotMatch(notice.message, /repair-2/)
   })
 
   test('reads legacy repair summaries when structured results are absent', () => {

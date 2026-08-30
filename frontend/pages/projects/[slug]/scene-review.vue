@@ -1243,7 +1243,7 @@ async function generateAllMissing(): Promise<void> {
       },
     )
     success(r.reused
-      ? `Already rendering in Job ${r.job_id || 'Queue'} — reused it instead of submitting duplicate images.`
+      ? 'Already rendering — reused the existing work instead of submitting duplicate images.'
       : `Queued one render for ${r.queued} missing scene${r.queued === 1 ? '' : 's'} (${r.skipped} skipped).`)
     // Re-load every 4s while images are landing.
     await pollUntilAllPresent(ep)

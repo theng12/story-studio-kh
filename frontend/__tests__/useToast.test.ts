@@ -181,3 +181,12 @@ describe('useToast.successUndoable', () => {
     )
   })
 })
+
+test('toast presentation hides request identities without changing caller input', () => {
+  const { success, toasts } = useToast()
+  const source = 'Queued Job job_123456789 for recovery'
+  success(source)
+  assert.equal(source, 'Queued Job job_123456789 for recovery')
+  assert.ok(toasts.value.find(toast => toast.message === 'Queued Job [request hidden] for recovery'))
+  assert.equal(toasts.value.some(toast => toast.message.includes('job_123456789')), false)
+})

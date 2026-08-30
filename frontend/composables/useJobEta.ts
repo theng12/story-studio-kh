@@ -521,16 +521,24 @@ export function describeJobExceptions(
   // Items sitting out a provider backoff. They have not failed — they are
   // doing exactly the right thing — but the customer must be told, because a
   // card that shows nothing for forty seconds reads as a hang.
+  const waitingGroups = new Map<string, JobItemAttemptLike[]>()
   for (const item of job.item_progress?.active || []) {
     if (item.state !== 'waiting_retry') continue
+    const signature = [item.reason || WAITING_FALLBACK_REASON, item.retry_at || '', item.attempt, item.max_attempts].join('|')
+    const group = waitingGroups.get(signature)
+    if (group) group.push(item)
+    else waitingGroups.set(signature, [item])
+  }
+  for (const group of waitingGroups.values()) {
+    const item = group[0]!
     const seconds = secondsUntil(item.retry_at, nowMs)
     const wait = seconds && seconds > 0 ? ` in ${seconds}s` : ' now'
     lines.push({
-      key: `wait:${item.key || item.label}`,
+      key: `wait:${item.reason || WAITING_FALLBACK_REASON}:${item.retry_at || 'now'}:${item.attempt}`,
       // The reason comes from the server verbatim; this wrapper adds no
       // framing of its own beyond the two things the customer needs — that
       // it cost nothing, and that it is handling itself.
-      text: `${item.label}: ${item.reason || WAITING_FALLBACK_REASON}`
+      text: `${group.length === 1 ? item.label : `${group.length} items`}: ${item.reason || WAITING_FALLBACK_REASON}`
         + ` — nothing was charged; retrying automatically${wait}`
         + ` (attempt ${item.attempt + 1} of ${item.max_attempts}).`,
     })

@@ -313,7 +313,7 @@ export function useNotifications() {
         .map(j => ({
           id: j.job_id,
           kind: labelForJob(j),
-          title: j.title || j.episode_id || j.job_id,
+          title: j.title || j.episode_id || labelForJob(j),
           status: j.status as 'done' | 'error',
           ts: tsOf(j.finished_at),
           error: j.error,

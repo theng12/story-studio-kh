@@ -1067,7 +1067,7 @@ async function generateAll() {
           : undefined,
       }
     )
-    success(`Queued — job ${job.job_id}. You can switch episodes; we'll keep generating in the background.`)
+    success(`Metadata queued. You can switch episodes; we'll keep generating in the background.`)
     const completed = await waitForJob(job.job_id)
     if (completed.status === 'cancelled') {
       lastGenResult.value = { kind: 'cancelled', message: `YouTube finalization cancelled for ${startedEpisodeId}.` }

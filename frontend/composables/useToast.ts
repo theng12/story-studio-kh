@@ -15,6 +15,7 @@
 // components — they still resolve `ref` and `readonly` without this line,
 // just like before.
 import { ref, readonly } from 'vue'
+import { customerSafeJobText } from '../utils/job-presentation.js'
 
 export interface Toast {
   id: number
@@ -136,7 +137,7 @@ function humanizeError(raw: string): string {
 export function useToast() {
   function show(message: string, type: Toast['type'] = 'info', duration = 5000) {
     const id = nextId++
-    toasts.value.push({ id, message, type })
+    toasts.value.push({ id, message: customerSafeJobText(message), type })
     setTimeout(() => {
       toasts.value = toasts.value.filter(t => t.id !== id)
     }, duration)
@@ -198,7 +199,7 @@ export function useToast() {
     const wrapped = async () => {
       try { await onClick() } finally { dismiss(id) }
     }
-    toasts.value.push({ id, message, type, action: { label: actionLabel, onClick: wrapped } })
+    toasts.value.push({ id, message: customerSafeJobText(message), type, action: { label: actionLabel, onClick: wrapped } })
     return id
   }
 
@@ -247,7 +248,7 @@ export function useToast() {
       try { await opts.onUndo() } catch { /* caller's UI is their problem */ }
     }
 
-    toasts.value.push({ id, type: 'success', message: opts.message, onUndo: undo })
+    toasts.value.push({ id, type: 'success', message: customerSafeJobText(opts.message), onUndo: undo })
   }
 
   return { toasts: readonly(toasts), show, success, error, info, showAction, dismiss, successUndoable, humanizeError }
