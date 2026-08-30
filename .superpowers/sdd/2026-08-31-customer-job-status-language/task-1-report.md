@@ -52,7 +52,7 @@ No development server was started and no customer data was mutated. The coordina
 Ran the required detector on the changed UI targets:
 
 ```sh
-node /build/.codex/skills/impeccable/scripts/detect.mjs --json \
+node <owner-home>/.codex/skills/impeccable/scripts/detect.mjs --json \
   'frontend/pages/projects/[slug]/jobs.vue' \
   frontend/components/StatusBadge.vue
 ```

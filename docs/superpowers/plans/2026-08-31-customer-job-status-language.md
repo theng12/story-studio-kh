@@ -8,7 +8,7 @@
 
 **Tech Stack:** Vue 3/Nuxt 4 single-file components, TypeScript composables/utilities, Node `node:test` through `tsx`, npm release scripts, Electron Builder.
 
-**Spec:** `/build/Developer/_handoffs/artifacts/provider-decline-copy-analysis/current-main-implementation-brief.md`, especially **Minimal approved customer-state contract**.
+**Spec:** `../_handoffs/artifacts/provider-decline-copy-analysis/current-main-implementation-brief.md`, especially **Minimal approved customer-state contract**.
 
 ## Global Constraints
 
@@ -369,7 +369,7 @@ Expected: one merge commit on `main`, matching the repository’s recent PR work
 - [ ] **Step 13: Build and verify the v1.4.88 smoke DMG from main**
 
 ```bash
-cd /build/Developer/story-studio-kh
+cd <main-checkout>/story-studio-kh
 git status --short --branch
 git pull --ff-only origin main
 node -p "require('./package.json').version"
