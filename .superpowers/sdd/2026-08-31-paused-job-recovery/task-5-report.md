@@ -99,3 +99,57 @@ an unrelated Jobs redesign and conflicts with this task's surgical boundary.
 
 Rendered desktop/narrow QA and independent code/UX review remain assigned to
 the next review step. No Resume control was clicked against customer records.
+
+## Review correction — narrow sort reachability
+
+Independent Task 5 review and rendered QA rejected the prior revision with one
+P1: the existing non-wrapping sort bar had a 611 px scroll width inside a 350 px
+container at the required 390 px All Jobs viewport, so later sort buttons were
+clipped and unreachable. The review found no other Task 5 issue.
+
+### RED evidence
+
+After adding the narrow sort-layout assertion:
+
+```text
+node ../node_modules/tsx/dist/cli.mjs --import ./__tests__/setup.ts --test \
+  __tests__/jobsControls.test.ts
+31 passed, 1 failed of 32
+```
+
+The intended failure named the missing narrow `.sort-bar` wrapping rule.
+
+### Correction and GREEN evidence
+
+Implementation commit: `502750bc67cc94fcffc15f64907cf071450a3267`
+(`fix: wrap Jobs sort controls on narrow screens`).
+
+At the existing 760 px breakpoint, `.sort-bar` now wraps with a zero minimum
+width and the `Sort by` label takes a full row. The existing full-width project
+filter/select rule therefore remains first in All Jobs, followed by a readable
+sort label and wrapping native sort buttons. Desktop layout is unchanged.
+
+```text
+node ../node_modules/tsx/dist/cli.mjs --import ./__tests__/setup.ts --test \
+  __tests__/useNetworkStatus.test.ts __tests__/jobsControls.test.ts
+40 passed, 0 failed; 1 suite
+
+npm run test:frontend
+1269 passed, 0 failed; 173 suites
+frontend suite coverage: 136/136 file(s) completed, 1442 marks
+
+npm --prefix frontend run typecheck
+exit 0
+
+npx eslint 'frontend/pages/projects/[slug]/jobs.vue' \
+  frontend/__tests__/jobsControls.test.ts --quiet
+exit 0
+
+git diff --check
+exit 0
+```
+
+The Impeccable detector was intentionally not rerun: it already completed for
+Task 5, and this correction only fixes the reviewer-identified responsive
+layout rule without introducing a new visual pattern. No customer job data or
+state-changing control was touched.
