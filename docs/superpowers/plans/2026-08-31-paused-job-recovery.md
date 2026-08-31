@@ -454,7 +454,7 @@ Do not merge with unresolved checks, review, or mergeability. Never force-push. 
 
 - [ ] **Step 6: Synchronize main and build the required DMG from the main root**
 
-From `/build/Developer/story-studio-kh`:
+From `<owner-home>/Developer/story-studio-kh`:
 
 ```bash
 git switch main
@@ -470,11 +470,11 @@ Verify the artifact in the normal main-root `dist/` folder with the repository's
 After merge, main sync, and DMG verification:
 
 ```bash
-git -C /build/Developer/story-studio-kh worktree remove \
-  /build/Developer/story-studio-kh/.worktrees/paused-job-recovery-v1490
-git -C /build/Developer/story-studio-kh worktree prune
-git -C /build/Developer/story-studio-kh worktree list
-git -C /build/Developer/story-studio-kh status --short --branch
+git -C <owner-home>/Developer/story-studio-kh worktree remove \
+  <owner-home>/Developer/story-studio-kh/.worktrees/paused-job-recovery-v1490
+git -C <owner-home>/Developer/story-studio-kh worktree prune
+git -C <owner-home>/Developer/story-studio-kh worktree list
+git -C <owner-home>/Developer/story-studio-kh status --short --branch
 ```
 
 Delete the local feature branch only if the PR merge did not already do so and only after verifying its commit is reachable from main. Preserve the unrelated `youtube-upload-center-redesign` worktree and every other unowned workspace.

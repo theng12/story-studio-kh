@@ -20,9 +20,9 @@ The inspected baseline is commit `d5a3d87aa97962a755ba2779886afd644ad72752` (v1.
 
 The three supporting diagnostics remain source evidence:
 
-- `/build/Developer/_handoffs/artifacts/story-studio-paused-jobs-diagnostic/pause-lifecycle.md`
-- `/build/Developer/_handoffs/artifacts/story-studio-paused-jobs-diagnostic/resume-latency-bulk.md`
-- `/build/Developer/_handoffs/artifacts/story-studio-paused-jobs-diagnostic/runtime-evidence.md`
+- `<owner-home>/Developer/_handoffs/artifacts/story-studio-paused-jobs-diagnostic/pause-lifecycle.md`
+- `<owner-home>/Developer/_handoffs/artifacts/story-studio-paused-jobs-diagnostic/resume-latency-bulk.md`
+- `<owner-home>/Developer/_handoffs/artifacts/story-studio-paused-jobs-diagnostic/runtime-evidence.md`
 
 ## State Policy
 
