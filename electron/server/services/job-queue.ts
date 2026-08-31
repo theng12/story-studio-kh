@@ -888,6 +888,7 @@ async function finalizeSettledProviderJob(jobId: string): Promise<void> {
 // accepted upstream are allowed to checkpoint before becoming paused.
 let queuePaused = false
 let queuePauseLoaded = false
+let queuePauseInitialization: Promise<void> | null = null
 const QUEUE_PAUSED_KEY = 'job_queue_paused'
 
 export class JobPausedError extends Error {
@@ -1510,15 +1511,21 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             }
             mutated = true
           } else if (j.status === 'paused') {
-            if (hasUnsettledProviderEvidence(j)) {
-              j.local_execution_complete = true
-              j.finished_at = null
-              j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
-              j.output_lines.push('↻ Story Studio restarted — this batch remains paused while already accepted provider work settles. Resume is still explicit.')
-              if (requiresCancellationReconciliation(j)) reconciliationJobs.push(j.job_id)
+            // Queue-origin holds are classified only after the durable global
+            // setting is initialized. If it is false, the project-batched
+            // transition below owns the one persistence write; if true, the
+            // durable owner hold is preserved byte-for-byte.
+            if (j.pause_origin !== 'queue') {
+              if (hasUnsettledProviderEvidence(j)) {
+                j.local_execution_complete = true
+                j.finished_at = null
+                j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
+                j.output_lines.push('↻ Story Studio restarted — this batch remains paused while already accepted provider work settles. Resume is still explicit.')
+                if (requiresCancellationReconciliation(j)) reconciliationJobs.push(j.job_id)
+              }
+              j.pause_requested = false
+              mutated = true
             }
-            j.pause_requested = false
-            mutated = true
           }
           jobs.set(j.job_id, j)
           if (needsHistoryEvidenceRefresh(j)) historyRefreshJobs.push(j.job_id)
@@ -1547,7 +1554,18 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
   const existing = loadingProjects.get(projectSlug)
   if (existing) return existing
 
-  const loading = readPersistedJobs(projectSlug)
+  const loading = (async () => {
+    await initializeQueuePauseState()
+    await readPersistedJobs(projectSlug)
+    const released = await transitionPausedJobsToQueuedByProject(
+      [...jobs.values()].filter(job => (
+        job.project_slug === projectSlug
+        && job.status === 'paused'
+        && job.pause_origin === 'queue'
+      )),
+    )
+    for (const type of released.lanes) pump(type)
+  })()
   loadingProjects.set(projectSlug, loading)
   try {
     await loading
@@ -1948,16 +1966,20 @@ export function registerExecutor(type: JobType, executor: JobExecutor): void {
   queues[type].executor = executor
 }
 
-export async function initializeQueuePauseState(): Promise<void> {
-  if (queuePauseLoaded) return
-  queuePauseLoaded = true
-  queuePaused = (await getAppSetting(QUEUE_PAUSED_KEY).catch(() => false)) === true
+export function initializeQueuePauseState(): Promise<void> {
+  if (queuePauseLoaded) return Promise.resolve()
+  if (!queuePauseInitialization) {
+    queuePauseInitialization = (async () => {
+      queuePaused = (await getAppSetting(QUEUE_PAUSED_KEY).catch(() => false)) === true
+      queuePauseLoaded = true
+    })()
+  }
+  return queuePauseInitialization
 }
 
 export async function setQueuePaused(paused: boolean): Promise<void> {
-  const wasPaused = queuePaused
+  await initializeQueuePauseState()
   queuePaused = paused
-  queuePauseLoaded = true
   await setAppSetting(QUEUE_PAUSED_KEY, paused)
   if (paused) {
     // The global hold prevents every queued item from being submitted. For
@@ -1968,13 +1990,10 @@ export async function setQueuePaused(paused: boolean): Promise<void> {
     }).some(control => control.action === 'pause-submissions' && control.enabled))
     await Promise.all(pausable.map(job => pauseJob(job.job_id, 'queue')))
   }
-  if (wasPaused && !paused) {
-    // Resume only jobs paused by this global hold. A job the user paused
-    // explicitly stays paused until its own Resume button is used.
-    const heldJobs = [...jobs.values()].filter(job =>
-      job.status === 'paused' && job.pause_origin === 'queue',
-    )
-    for (const job of heldJobs) await resumeJob(job.job_id)
+  if (!paused) {
+    await transitionPausedJobsToQueuedByProject([...jobs.values()].filter(job => (
+      job.status === 'paused' && job.pause_origin === 'queue'
+    )))
     // Kick every type so queued jobs that never started while held can run.
     for (const type of Object.keys(queues) as JobType[]) {
       pump(type)
@@ -1984,6 +2003,111 @@ export async function setQueuePaused(paused: boolean): Promise<void> {
 
 export function isQueuePaused(): boolean {
   return queuePaused
+}
+
+interface PausedJobTransitionSnapshot {
+  job: Job
+  pauseRequested: boolean
+  pause_requested: Job['pause_requested']
+  pause_origin: Job['pause_origin']
+  status: Job['status']
+  started_at: Job['started_at']
+  finished_at: Job['finished_at']
+  error: Job['error']
+  output_lines: string[]
+}
+
+interface PausedJobTransitionResult {
+  resumed: Job[]
+  persistenceFailed: Job[]
+  lanes: Set<JobType>
+}
+
+/**
+ * Durable project-batched paused → queued transition. Queue-origin recovery is
+ * its only caller in this task; scoped explicit Resume extends this same seam.
+ */
+async function transitionPausedJobsToQueuedByProject(
+  selected: Job[],
+): Promise<PausedJobTransitionResult> {
+  const result: PausedJobTransitionResult = {
+    resumed: [],
+    persistenceFailed: [],
+    lanes: new Set<JobType>(),
+  }
+  if (queuePaused) return result
+
+  const seen = new Set<string>()
+  const candidates = selected.filter(job => {
+    if (seen.has(job.job_id) || job.status !== 'paused' || !queues[job.type]) return false
+    seen.add(job.job_id)
+    return true
+  })
+  const byProject = new Map<string, Job[]>()
+  for (const job of candidates) {
+    const group = byProject.get(job.project_slug) || []
+    group.push(job)
+    byProject.set(job.project_slug, group)
+  }
+
+  const durable = new Set<string>()
+  for (const [projectSlug, projectJobs] of byProject) {
+    const snapshots: PausedJobTransitionSnapshot[] = projectJobs.map(job => ({
+      job,
+      pauseRequested: pauseRequested.has(job.job_id),
+      pause_requested: job.pause_requested,
+      pause_origin: job.pause_origin,
+      status: job.status,
+      started_at: job.started_at,
+      finished_at: job.finished_at,
+      error: job.error,
+      output_lines: [...job.output_lines],
+    }))
+    for (const { job } of snapshots) {
+      pauseRequested.delete(job.job_id)
+      job.pause_requested = false
+      job.pause_origin = undefined
+      job.status = 'queued'
+      job.started_at = null
+      job.finished_at = null
+      job.error = null
+      job.output_lines.push('Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.')
+    }
+    try {
+      await persistProjectSnapshot(projectSlug)
+      for (const { job } of snapshots) durable.add(job.job_id)
+    } catch (error) {
+      for (const snapshot of snapshots) {
+        const { job } = snapshot
+        if (snapshot.pauseRequested) pauseRequested.add(job.job_id)
+        else pauseRequested.delete(job.job_id)
+        job.pause_requested = snapshot.pause_requested
+        job.pause_origin = snapshot.pause_origin
+        job.status = snapshot.status
+        job.started_at = snapshot.started_at
+        job.finished_at = snapshot.finished_at
+        job.error = snapshot.error
+        job.output_lines = snapshot.output_lines
+        result.persistenceFailed.push(job)
+      }
+      console.warn('[job-queue] failed to persist paused-job release', {
+        project_slug: projectSlug,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  for (const job of candidates) {
+    if (!durable.has(job.job_id)) continue
+    const queue = queues[job.type]
+    if (!queue.pending.some(candidate => candidate.job_id === job.job_id)) {
+      queue.pending.push(job)
+    }
+    emitUpdate(job)
+    result.resumed.push(job)
+    result.lanes.add(job.type)
+  }
+  return result
 }
 
 /** Pause one job without cancelling provider work. Queued work is removed

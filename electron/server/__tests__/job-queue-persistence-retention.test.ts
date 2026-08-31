@@ -21,6 +21,24 @@ before(async () => {
 
 after(async () => { await cleanup() })
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => { resolve = done })
+  return { promise, resolve }
+}
+
+function waitForJobStatus(jobId: string, status: string): Promise<void> {
+  if (jq.getJob(jobId)?.status === status) return Promise.resolve()
+  return new Promise(resolve => {
+    const onUpdate = (job: { job_id: string; status: string }) => {
+      if (job.job_id !== jobId || job.status !== status) return
+      jq.jobEvents.off('update', onUpdate)
+      resolve()
+    }
+    jq.jobEvents.on('update', onUpdate)
+  })
+}
+
 function makeJob(
   projectSlug: string,
   index: number,
@@ -297,5 +315,192 @@ describe('status-aware durable job retention', () => {
       persisted.filter(job => ['done', 'error', 'cancelled'].includes(job.status)).length,
       jq.MAX_PERSISTED_TERMINAL_HISTORY,
     )
+  })
+})
+
+describe('queue-origin recovery invariant', () => {
+  test('a persisted queue-origin pause loads into its FIFO lane with one project snapshot when the durable queue is running', async t => {
+    const blockerProject = await pm.createProject({ name: 'Queue Recovery False Blocker' })
+    const project = await pm.createProject({ name: 'Queue Recovery Durable False' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const blockerStarted = deferred()
+    const releaseBlocker = deferred()
+    jq.registerExecutor('script-only', async job => {
+      if (job.episode_id === 'BLOCK') {
+        blockerStarted.resolve()
+        await releaseBlocker.promise
+      }
+    })
+    await jq.setQueuePaused(false)
+    jq.enqueuePreparedForTest({
+      project_slug: blockerProject.slug,
+      type: 'script-only',
+      episode_id: 'BLOCK',
+      title: 'occupy lane',
+      params: {},
+    })
+    await blockerStarted.promise
+
+    const held = makeJob(project.slug, 1, 'paused', {
+      job_id: 'persisted-queue-hold-false',
+      pause_origin: 'queue',
+      pause_requested: false,
+    })
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [held] }, null, 2))
+    const originalRename = fs.rename.bind(fs)
+    let projectSnapshots = 0
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      if (path.resolve(String(to)) === path.resolve(jobsFile)) projectSnapshots += 1
+      return originalRename(from, to)
+    })
+
+    try {
+      const loaded = await jq.getJobs(project.slug)
+
+      assert.equal(loaded.find(job => job.job_id === held.job_id)?.status, 'queued')
+      assert.equal(loaded.find(job => job.job_id === held.job_id)?.pause_origin, undefined)
+      const persisted = await readPersisted(jobsFile) as Job[]
+      assert.equal(persisted.find(job => job.job_id === held.job_id)?.status, 'queued')
+      assert.equal(projectSnapshots, 1)
+      const heldDone = waitForJobStatus(held.job_id, 'done')
+      releaseBlocker.resolve()
+      await heldDone
+    } finally {
+      releaseBlocker.resolve()
+    }
+  })
+
+  test('a persisted queue-origin pause stays paused while the durable global hold is true', async () => {
+    const project = await pm.createProject({ name: 'Queue Recovery Durable True' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const held = makeJob(project.slug, 2, 'paused', {
+      job_id: 'persisted-queue-hold-true',
+      pause_origin: 'queue',
+      pause_requested: false,
+    })
+    await jq.setQueuePaused(true)
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [held] }, null, 2))
+
+    const loaded = await jq.getJobs(project.slug)
+
+    assert.equal(loaded.find(job => job.job_id === held.job_id)?.status, 'paused')
+    assert.equal(loaded.find(job => job.job_id === held.job_id)?.pause_origin, 'queue')
+    await jq.requestJobCancellation(project.slug, held.job_id)
+    await jq.setQueuePaused(false)
+  })
+
+  test('manual and originless persisted pauses survive false-state load and global Resume', async () => {
+    const project = await pm.createProject({ name: 'Queue Recovery Preserves Intent' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const manual = makeJob(project.slug, 3, 'paused', {
+      job_id: 'persisted-manual-hold',
+      pause_origin: 'manual',
+      pause_requested: false,
+    })
+    const originless = makeJob(project.slug, 4, 'paused', {
+      job_id: 'persisted-originless-hold',
+      pause_origin: undefined,
+      pause_requested: false,
+    })
+    const stalled = makeJob(project.slug, 5, 'paused', {
+      job_id: 'persisted-stall-hold',
+      pause_origin: 'stall',
+      pause_requested: false,
+    })
+    await jq.setQueuePaused(false)
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [manual, originless, stalled] }, null, 2))
+
+    await jq.getJobs(project.slug)
+    await jq.setQueuePaused(false)
+
+    assert.equal(jq.getJob(manual.job_id)?.status, 'paused')
+    assert.equal(jq.getJob(manual.job_id)?.pause_origin, 'manual')
+    assert.equal(jq.getJob(originless.job_id)?.status, 'paused')
+    assert.equal(jq.getJob(originless.job_id)?.pause_origin, undefined)
+    assert.equal(jq.getJob(stalled.job_id)?.status, 'paused')
+    assert.equal(jq.getJob(stalled.job_id)?.pause_origin, 'stall')
+    await jq.requestJobCancellation(project.slug, manual.job_id)
+    await jq.requestJobCancellation(project.slug, originless.job_id)
+    await jq.requestJobCancellation(project.slug, stalled.job_id)
+  })
+
+  test('Resume racing an in-flight project load cannot strand a queue-origin pause', async t => {
+    const project = await pm.createProject({ name: 'Queue Recovery Load Race' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const held = makeJob(project.slug, 5, 'paused', {
+      job_id: 'persisted-queue-hold-race',
+      pause_origin: 'queue',
+      pause_requested: false,
+    })
+    const readStarted = deferred()
+    const releaseRead = deferred()
+    const executorStarted = deferred()
+    const releaseExecutor = deferred()
+    const originalReadFile = fs.readFile.bind(fs)
+    let blocked = false
+    t.mock.method(fs, 'readFile', async (file: any, ...args: any[]) => {
+      if (!blocked && path.resolve(String(file)) === path.resolve(jobsFile)) {
+        blocked = true
+        readStarted.resolve()
+        await releaseRead.promise
+      }
+      return originalReadFile(file, ...args as [any])
+    })
+    jq.registerExecutor('script-only', async job => {
+      if (job.job_id !== held.job_id) return
+      executorStarted.resolve()
+      await releaseExecutor.promise
+    })
+    await jq.setQueuePaused(true)
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [held] }, null, 2))
+
+    const loading = jq.getJobs(project.slug)
+    try {
+      await readStarted.promise
+      await jq.setQueuePaused(false)
+      releaseRead.resolve()
+      await loading
+
+      assert.equal(jq.getJob(held.job_id)?.job_id, held.job_id)
+      assert.notEqual(jq.getJob(held.job_id)?.status, 'paused')
+      await executorStarted.promise
+      const heldDone = waitForJobStatus(held.job_id, 'done')
+      releaseExecutor.resolve()
+      await heldDone
+    } finally {
+      releaseRead.resolve()
+      releaseExecutor.resolve()
+    }
+  })
+
+  test('concurrent initialization callers share one durable read and both await its true result', async t => {
+    const settingsFile = path.join(tempDir, 'app-settings.json')
+    await fs.writeFile(settingsFile, JSON.stringify({ job_queue_paused: true }, null, 2))
+    const readStarted = deferred()
+    const releaseRead = deferred()
+    const originalReadFile = fs.readFile.bind(fs)
+    let settingsReads = 0
+    t.mock.method(fs, 'readFile', async (file: any, ...args: any[]) => {
+      if (path.resolve(String(file)) === path.resolve(settingsFile)) {
+        settingsReads += 1
+        readStarted.resolve()
+        await releaseRead.promise
+      }
+      return originalReadFile(file, ...args as [any])
+    })
+    const fresh = await import(`../services/job-queue.js?queue-init=${Date.now()}`)
+
+    const first = fresh.initializeQueuePauseState()
+    await readStarted.promise
+    let secondResolved = false
+    const second = fresh.initializeQueuePauseState().then(() => { secondResolved = true })
+    await Promise.resolve()
+    const resolvedBeforeDurableRead = secondResolved
+    releaseRead.resolve()
+    await Promise.all([first, second])
+
+    assert.equal(resolvedBeforeDurableRead, false)
+    assert.equal(settingsReads, 1)
+    assert.equal(fresh.isQueuePaused(), true)
   })
 })

@@ -6,6 +6,7 @@ import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'fs/promises'
 import path from 'path'
+import type { Job } from '../models/types.js'
 import { useTempDataDir } from './_helpers.js'
 
 let tempDir: string
@@ -22,6 +23,24 @@ before(async () => {
 })
 
 after(async () => { await cleanup() })
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => { resolve = done })
+  return { promise, resolve }
+}
+
+function waitForJobStatus(jobId: string, status: string): Promise<void> {
+  if (jq.getJob(jobId)?.status === status) return Promise.resolve()
+  return new Promise(resolve => {
+    const onUpdate = (job: { job_id: string; status: string }) => {
+      if (job.job_id !== jobId || job.status !== status) return
+      jq.jobEvents.off('update', onUpdate)
+      resolve()
+    }
+    jq.jobEvents.on('update', onUpdate)
+  })
+}
 
 // Note: unlike other test files, we avoid beforeEach cleanup because the
 // job-queue service has module-level state (jobs Map, loaded projects) that
@@ -681,6 +700,174 @@ describe('cooperative pause and resume', () => {
     assert.equal(jq.getJob(globallyHeld.job_id)?.status, 'done')
     assert.equal(jq.getJob(manuallyHeld.job_id)?.status, 'paused')
     await jq.requestJobCancellation(proj.slug, manuallyHeld.job_id)
+  })
+
+  test('global Resume releases a loaded queue-origin pause when the queue was already running', async () => {
+    const project = await pm.createProject({ name: 'JQ Idempotent Global Resume' })
+    const blockerStarted = deferred()
+    const releaseBlocker = deferred()
+    jq.registerExecutor('broll_normalize', async job => {
+      if (job.episode_id === 'BLOCK') {
+        blockerStarted.resolve()
+        await releaseBlocker.promise
+      }
+    })
+    await jq.setQueuePaused(false)
+    jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'broll_normalize',
+      episode_id: 'BLOCK',
+      title: 'occupy lane',
+      params: {},
+    })
+    await blockerStarted.promise
+
+    const held = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'broll_normalize',
+      episode_id: 'QUEUE-HOLD',
+      title: 'queue hold',
+      params: {},
+    })
+    await jq.pauseJob(held.job_id, 'queue')
+
+    try {
+      await jq.setQueuePaused(false)
+
+      assert.equal(jq.getJob(held.job_id)?.status, 'queued')
+      assert.equal(jq.getJob(held.job_id)?.pause_origin, undefined)
+      const heldDone = waitForJobStatus(held.job_id, 'done')
+      releaseBlocker.resolve()
+      await heldDone
+    } finally {
+      releaseBlocker.resolve()
+    }
+  })
+
+  test('repeated false-state reconciliation persists one batch, queues one copy, and invokes its executor once', async t => {
+    const project = await pm.createProject({ name: 'JQ Repeated Global Resume' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const blockerStarted = deferred()
+    const releaseBlocker = deferred()
+    const markerDone = deferred()
+    let heldRuns = 0
+    jq.registerExecutor('music_video', async job => {
+      if (job.episode_id === 'BLOCK') {
+        blockerStarted.resolve()
+        await releaseBlocker.promise
+      } else if (job.episode_id === 'QUEUE-HOLD') {
+        heldRuns += 1
+      } else if (job.episode_id === 'MARKER') {
+        markerDone.resolve()
+      }
+    })
+    await jq.setQueuePaused(false)
+    jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'music_video',
+      episode_id: 'BLOCK',
+      title: 'occupy lane',
+      params: {},
+    })
+    await blockerStarted.promise
+
+    const held = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'music_video',
+      episode_id: 'QUEUE-HOLD',
+      title: 'queue hold',
+      params: {},
+    })
+    await jq.pauseJob(held.job_id, 'queue')
+    const originalRename = fs.rename.bind(fs)
+    let projectSnapshots = 0
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      if (path.resolve(String(to)) === path.resolve(jobsFile)) projectSnapshots += 1
+      return originalRename(from, to)
+    })
+    try {
+      await Promise.all([jq.setQueuePaused(false), jq.setQueuePaused(false)])
+      const marker = jq.enqueuePreparedForTest({
+        project_slug: project.slug,
+        type: 'music_video',
+        episode_id: 'MARKER',
+        title: 'marker',
+        params: {},
+      })
+
+      const listed = await jq.getJobs(project.slug)
+      assert.equal(listed.find(job => job.job_id === held.job_id)?.queue_position, 1)
+      assert.equal(listed.find(job => job.job_id === marker.job_id)?.queue_position, 2)
+      assert.equal(projectSnapshots, 1)
+      releaseBlocker.resolve()
+      await markerDone.promise
+      assert.equal(heldRuns, 1)
+    } finally {
+      releaseBlocker.resolve()
+      await markerDone.promise
+    }
+  })
+
+  test('a failed queue-origin release snapshot rolls the project back before admission', async t => {
+    const project = await pm.createProject({ name: 'JQ Global Resume Rollback' })
+    const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
+    const blockerStarted = deferred()
+    const releaseBlocker = deferred()
+    jq.registerExecutor('broll_normalize', async job => {
+      if (job.episode_id === 'BLOCK') {
+        blockerStarted.resolve()
+        await releaseBlocker.promise
+      }
+    })
+    await jq.setQueuePaused(false)
+    jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'broll_normalize',
+      episode_id: 'BLOCK',
+      title: 'occupy lane',
+      params: {},
+    })
+    await blockerStarted.promise
+    const held = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'broll_normalize',
+      episode_id: 'QUEUE-HOLD',
+      title: 'queue hold',
+      params: {},
+    })
+    await jq.pauseJob(held.job_id, 'queue')
+
+    const originalRename = fs.rename.bind(fs)
+    const originalWarn = console.warn.bind(console)
+    let failProjectSnapshot = true
+    let failedSnapshots = 0
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      if (failProjectSnapshot && path.resolve(String(to)) === path.resolve(jobsFile)) {
+        failedSnapshots += 1
+        throw new Error('forced paused-release persistence failure')
+      }
+      return originalRename(from, to)
+    })
+    t.mock.method(console, 'warn', (...args: any[]) => {
+      if (args[0] === '[job-queue] failed to persist paused-job release') return
+      originalWarn(...args)
+    })
+    try {
+      await jq.setQueuePaused(false)
+
+      assert.equal(failedSnapshots, 1)
+      assert.equal(jq.getJob(held.job_id)?.status, 'paused')
+      assert.equal(jq.getJob(held.job_id)?.pause_origin, 'queue')
+      const persisted = JSON.parse(await fs.readFile(jobsFile, 'utf-8')).jobs as Job[]
+      assert.equal(persisted.find(job => job.job_id === held.job_id)?.status, 'paused')
+      assert.equal(persisted.find(job => job.job_id === held.job_id)?.pause_origin, 'queue')
+    } finally {
+      failProjectSnapshot = false
+      const heldDone = waitForJobStatus(held.job_id, 'done')
+      if (jq.getJob(held.job_id)?.status === 'paused') await jq.resumeJob(held.job_id)
+      releaseBlocker.resolve()
+      await heldDone
+    }
   })
 })
 
