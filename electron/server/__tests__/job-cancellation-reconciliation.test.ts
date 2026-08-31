@@ -10,6 +10,7 @@ import { getJobCancellationAuditor, registerJobCancellationAuditor } from '../se
 import { registerAllExecutors } from '../boot/executors.js'
 import { createPool } from '../services/broll-pool-manager.js'
 import type { Job } from '../models/types.js'
+import { waitFor as waitForScheduled } from './_timing.js'
 
 let cleanup: () => Promise<void>
 let tempDir: string
@@ -879,12 +880,11 @@ test('the generic finalizer keeps a fully released Continuity provider failure c
   }
   const jobsFile = path.join(tempDir, 'projects', project.slug, 'jobs.json')
   let persistedStatus = ''
-  const persistDeadline = Date.now() + 2_000
-  while (Date.now() < persistDeadline && !['done', 'error'].includes(persistedStatus)) {
+  await waitForScheduled(async () => {
     const persisted = JSON.parse(await fs.readFile(jobsFile, 'utf8'))
     persistedStatus = persisted.jobs.find((item: Job) => item.job_id === queued.job_id)?.status || ''
-    if (!['done', 'error'].includes(persistedStatus)) await new Promise(resolve => setTimeout(resolve, 10))
-  }
+    return ['done', 'error'].includes(persistedStatus)
+  }, { label: 'generic finalizer result to persist', timeoutMs: 2_000 })
   assert.ok(['done', 'error'].includes(persistedStatus), 'generic finalizer result was not persisted')
 
   const finalized = jq.getJob(queued.job_id)!

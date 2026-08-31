@@ -6,6 +6,7 @@ import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
 import { readManifest, recordTaskStrict } from '../services/task-manifest.js'
 import type { Job } from '../models/types.js'
+import { waitFor as waitForScheduled } from './_timing.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -37,12 +38,7 @@ async function waitForDone(jobId: string, jobsFile: string): Promise<void> {
 }
 
 async function waitFor(check: () => boolean, message: string, timeoutMs = 2_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (check()) return
-    await new Promise(resolve => setTimeout(resolve, 10))
-  }
-  assert.fail(message)
+  await waitForScheduled(check, { label: message, timeoutMs })
 }
 
 describe('startup recovery for explicitly checkpointed GenStudio assets', () => {
