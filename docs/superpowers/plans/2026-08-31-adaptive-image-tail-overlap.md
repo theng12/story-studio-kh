@@ -15,7 +15,7 @@
 - Required worktree: `.worktrees/adaptive-image-queue-recovery`
 - Required starting base: `90954df443dd5f48eba3313cee61df17fd0d030b` (Story Studio v1.4.90)
 - Existing queue owner: `electron/server/services/job-queue.ts`
-- Existing Continuity progress/checkpoint publisher: `electron/server/generators/continuity-render.ts`
+- Existing Continuity progress/checkpoint publisher: `electron/server/generators/continuity-render.ts`. In `syncItemProgress()` around lines 552–582, `active[].key` is currently `scene-${sceneIndex}`; around lines 643–652 and the `checkpointGenStudioAsset(job, filename, ...)` calls around lines 787 and 846, the output, manifest, and recovery checkpoint use `${scene.id}.png`.
 - Existing manifest reader: `electron/server/services/task-manifest.ts`
 - Existing capacity authority: `electron/server/lib/genstudio-admission.ts` and `refreshGenStudioAdmission()` in `electron/server/lib/genstudio-client.ts`
 - Existing pool generator: `electron/server/generators/image-pool-generate.ts`; its item loop is serial and must remain so.
@@ -41,6 +41,7 @@ These are partial baselines, not release acceptance.
 - Only a currently active `continuity_render` job may open the one temporary slot.
 - `image_pool_generate` remains eligible to consume the next fairly selected slot after Continuity opens it, but its serial loop can never prove/open a tail. Do not edit it to add item fan-out.
 - Counts alone are insufficient. Every `item_progress.active[].key` must map one-to-one through `params.genstudio_recovery.assets` and/or its corresponding manifest to one distinct accepted, real, nonterminal `image.generation` task.
+- Continuity `active[].key` must be the exact stable checkpoint/manifest filename `${scene.id}.png`. Keep the customer-facing `label` exactly `Scene ${scene.scene_index}`, keep `.render_status.json.in_flight` numeric, and do not alter existing scene output-line wording.
 - Reconcile `active.length`, `settling`, and the complete expected-count identity before any capacity refresh. Fail closed on missing, duplicate, ambiguous, pending, terminal, cancelled, or contradictory evidence.
 - Capacity must be freshly verified and the full proof/queue state rechecked after the await.
 - Selection is round-robin by image type, recovery FIFO before fresh FIFO within a type. Never rank by remaining work, scene count, percentage, model, price, age, or estimated duration; this is not global SRTF.
@@ -54,10 +55,11 @@ These are partial baselines, not release acceptance.
 | File | Responsibility |
 |---|---|
 | `electron/server/services/job-queue.ts` | Round-robin image group pump, two FIFO classes, exact Continuity tail proof orchestration, one single-flight capacity gate, and base + one invariant. |
-| `electron/server/generators/continuity-render.ts` | Preserve/publish the existing exact active-key progress and checkpoint transitions needed by the proof; change only if a RED test exposes an actual missing transition. |
+| `electron/server/generators/continuity-render.ts` | Align `item_progress.active[].key` to the existing canonical `${scene.id}.png` checkpoint/manifest filename while preserving human scene labels and numeric render status. |
 | `electron/server/services/task-manifest.ts` | Reuse existing manifest read contract; avoid schema changes unless a narrow read helper is demonstrably necessary. |
 | `electron/server/lib/genstudio-client.ts` | Reuse `refreshGenStudioAdmission()` unchanged unless a test-only injection seam is necessary. |
 | `electron/server/__tests__/adaptive-image-tail-overlap.test.ts` | Fairness, mapping, count, capacity, race, opener/candidate, and base-limit coverage. |
+| `electron/server/__tests__/continuity-reference-image.test.ts` | Reuse its real Continuity/GenStudio harness for the accepted-but-still-running canonical progress-key fixture. |
 | `electron/server/__tests__/image-episode-concurrency.test.ts` | Existing group-limit regression. |
 | `electron/server/__tests__/job-queue-concurrency.test.ts` | Existing queue admission regression. |
 | `electron/server/__tests__/job-queue-genstudio-resume.test.ts` | Existing recovery FIFO/restart regression. |
@@ -145,8 +147,9 @@ Review for per-type opportunity, FIFO stability, completion bias, synchronous pe
 
 **Files:**
 - Modify: `electron/server/__tests__/adaptive-image-tail-overlap.test.ts`
+- Modify: `electron/server/__tests__/continuity-reference-image.test.ts`
 - Modify: `electron/server/services/job-queue.ts`
-- Modify only if RED proves necessary: `electron/server/generators/continuity-render.ts`
+- Modify: `electron/server/generators/continuity-render.ts:552-582,594,652-666`
 - Read/reuse: `electron/server/services/task-manifest.ts`
 
 **Contract:** Produce an asynchronous proof, because manifest evidence is durable filesystem state:
@@ -167,7 +170,38 @@ async function proveContinuitySettlingTail(
 
 The helper is a fail-closed reader. It never mutates a job, manifest, or provider task.
 
-- [ ] **Step 1: Write RED progress-reconciliation tests**
+- [ ] **Step 1: Write the actual Continuity-shaped RED identity fixture**
+
+In `electron/server/__tests__/continuity-reference-image.test.ts`, extend its existing real Continuity/GenStudio harness with one scene whose stable ID intentionally differs from the display index:
+
+```ts
+const scene = {
+  id: 'scene-001',
+  scene_index: 1,
+  visual_prompt: 'A lantern in a quiet archive.',
+}
+const filename = 'scene-001.png'
+const taskId = 'image-task-001'
+```
+
+Use the existing mocked GenStudio image service: let the generation POST return `taskId`, then hold the task-status/result poll after the client invokes `onJobAccepted(taskId, 'story-image-key-001')`. At that boundary, `checkpointGenStudioAsset(job, filename, ...)` and `recordTaskStrict(outDir, filename, ...)` have completed while the scene remains in flight. Read the live job and `.task-manifest.json`, then assert the direct join:
+
+```ts
+const active = job.item_progress?.active[0]
+assert.deepEqual(
+  { key: active?.key, label: active?.label, state: active?.state },
+  { key: 'scene-001.png', label: 'Scene 1', state: 'running' },
+)
+assert.equal(
+  job.params.genstudio_recovery.assets[active!.key].job_id,
+  taskId,
+)
+assert.equal(manifest.tasks[active!.key].task_id, taskId)
+```
+
+Against the current generator this fails at the first assertion because it publishes `key: 'scene-1'`; direct checkpoint and manifest lookup are both `undefined` even though counts reconcile. Pin that observed mismatch in the failure message. Do not make the test pass by translating `scene-1`, searching manifest values, parsing `label`, or choosing the only active task.
+
+- [ ] **Step 2: Write RED progress-reconciliation tests**
 
 Cover valid and invalid whole-number/nonnegative fields. A proof must require:
 
@@ -180,9 +214,9 @@ not_submitted = 0
 
 All active keys must be non-empty, unique, and `state === 'running'`. Missing values, fractionals, negatives, duplicates, `waiting_retry`, full waves, or arithmetic mismatch return `null` and must not call the capacity refresh seam.
 
-- [ ] **Step 2: Write RED one-to-one binding tests**
+- [ ] **Step 3: Write RED one-to-one binding tests**
 
-For each active key, fixtures must exercise checkpoint-only ID, manifest-only ID, and agreeing checkpoint+manifest ID. Prove rejection for:
+Use canonical filename keys such as `scene-001.png` throughout. For each active key, fixtures must exercise checkpoint-only ID, manifest-only ID, and agreeing checkpoint+manifest ID. Prove rejection for:
 
 - absent `params.genstudio_recovery`, wrong version/route/operation, or missing asset key;
 - pending/blank task ID;
@@ -192,6 +226,7 @@ For each active key, fixtures must exercise checkpoint-only ID, manifest-only ID
 - missing, duplicate, wrong-operation, terminal, or cancelled `genstudio_jobs` evidence;
 - two active keys mapping to one provider task;
 - a count-perfect job with one unmapped active key.
+- the pre-v1.4.91 mismatch `active[].key === 'scene-1'` while the checkpoint and manifest are keyed by `scene-001.png`; this must fail before capacity refresh rather than guess by scene number.
 
 The valid result must satisfy:
 
@@ -200,41 +235,77 @@ assert.equal(proof.active_asset_keys.length, progress.settling)
 assert.equal(new Set(proof.provider_task_ids).size, progress.settling)
 ```
 
-- [ ] **Step 3: Run RED**
+- [ ] **Step 4: Run RED**
 
 ```bash
 node scripts/testing/run-backend-tests.mjs --only adaptive-image-tail-overlap
 ```
 
-Expected: the new proof function is absent or count-only behavior fails exact binding cases.
+Expected: the live Continuity fixture reports `scene-1` instead of `scene-001.png`, and the new proof function is absent or fails exact binding cases. Existing customer-facing `Scene 1` label assertions remain green.
 
-- [ ] **Step 4: Implement the proof in the tested order**
+- [ ] **Step 5: Align Continuity progress with its existing durable filename**
+
+Keep the current numeric scene index for ordering, fleet-wait state, and render-status display, but retain the already-computed canonical `filename` with each in-flight entry:
+
+```ts
+const inFlight = new Map<number, string>()
+
+// syncItemProgress()
+active: [...inFlight.entries()]
+  .sort(([left], [right]) => left - right)
+  .map(([sceneIndex, filename]) => {
+    const waiting = fleetWaiting.get(sceneIndex)
+    return {
+      label: `Scene ${sceneIndex}`,
+      key: filename,
+      state: waiting ? 'waiting_retry' as const : 'running' as const,
+      attempt: waiting?.attempt ?? 1,
+      max_attempts: waiting?.maxAttempts ?? 1,
+      ...(waiting ? { retry_at: waiting.retryAt, reason: waiting.reason } : {}),
+    }
+  })
+
+// pushStatus(): preserve the existing customer/status contract
+in_flight: [...inFlight.keys()].sort((a, b) => a - b)
+
+// immediately after `const filename = `${scene.id}.png``
+inFlight.set(scene.scene_index, filename)
+```
+
+Keep the existing `inFlight.delete(scene.scene_index)` cleanup. The manifest and both `checkpointGenStudioAsset(job, filename, ...)` call sites already use `filename`; do not change their key/schema. Do not add migration or compatibility lookup: a persisted mismatched key stays ineligible until the existing recovery execution republishes progress.
+
+- [ ] **Step 6: Implement the proof in the tested order**
 
 Validate all progress arithmetic first. Then, for each active key, resolve its `params.genstudio_recovery.assets[key]` checkpoint and corresponding manifest entry using existing helpers. Require at least one real accepted task ID; if both surfaces publish ID/key they must agree. Resolve exactly one matching nonterminal `image.generation` entry from `job.genstudio_jobs`, and enforce distinct IDs with a set.
 
 Only return a proof after exact equality across active keys, distinct task IDs, `settling`, and `active.length`. Do not guess by filename, newest task, array position, or counts. Do not refresh capacity inside this helper.
 
-If Continuity currently misses an exact progress checkpoint transition exposed by the test, add only that checkpoint update. Do not modify provider retry, settlement, output naming, or internal worker concurrency.
+The direct key lookup is the only join. Do not add scene-index conversion, filename search, fallback aliases, or a “single active task” shortcut. Do not modify provider retry, settlement, output naming, human label text, numeric `.render_status.json` state, or internal worker concurrency.
 
-- [ ] **Step 5: Run GREEN and adjacent recovery tests**
+- [ ] **Step 7: Run GREEN and adjacent recovery tests**
 
 ```bash
 node scripts/testing/run-backend-tests.mjs \
   --only adaptive-image-tail-overlap \
   --only job-queue-genstudio-resume \
-  --only continuity-render-genstudio-retry
+  --only continuity-render-genstudio-retry \
+  --only continuity-reference-image \
+  --only scene-render-status
 ```
 
-- [ ] **Step 6: Commit and independently review**
+Expected: the deferred live fixture joins `active.key` directly to both durable stores, the label remains `Scene 1`, render status still carries numeric index `1`, exact binding passes only for canonical keys, and every mismatch fails before a capacity refresh.
+
+- [ ] **Step 8: Commit and independently review**
 
 ```bash
 git add electron/server/services/job-queue.ts \
   electron/server/generators/continuity-render.ts \
-  electron/server/__tests__/adaptive-image-tail-overlap.test.ts
+  electron/server/__tests__/adaptive-image-tail-overlap.test.ts \
+  electron/server/__tests__/continuity-reference-image.test.ts
 git commit -m "feat: prove continuity image tails"
 ```
 
-Stage `continuity-render.ts` only if it changed. Reviewer traces every active key through checkpoint/manifest/provider evidence and confirms all arithmetic precedes network access. Resolve findings before Task 3.
+Reviewer traces the actual `scene-001`/index `1` fixture from live progress to `assets['scene-001.png']`, manifest `tasks['scene-001.png']`, and the provider entry; confirms `label: 'Scene 1'` and numeric render status are unchanged; and confirms all arithmetic/direct mapping precede network access. Resolve findings before Task 3.
 
 ---
 
@@ -400,6 +471,7 @@ Verify the arm64 DMG exists in main’s normal `dist/`, its filename/version is 
 ## Definition of Done
 
 - Per-type round-robin and recovery/fresh FIFO tests pass without SRTF.
+- Live Continuity progress publishes `${scene.id}.png` as the direct checkpoint/manifest key while preserving `Scene ${scene.scene_index}` and numeric render-status labels.
 - Exact one-to-one Continuity active-key/provider-task proof precedes every capacity refresh.
 - One fresh, post-await-revalidated capacity gate allows at most base + one.
 - Pool may consume an opened slot but remains serial and cannot open one.

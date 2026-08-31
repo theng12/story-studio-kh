@@ -13,7 +13,7 @@ This release changes scheduling only. It contains no paid replacement, settings 
 Baseline: commit `90954df443dd5f48eba3313cee61df17fd0d030b`, Story Studio v1.4.90.
 
 - `electron/server/services/job-queue.ts` owns durable Story jobs, per-type pending arrays, the shared image group, the explicit `image_episode_concurrency`, executor admission, persistence, restart recovery, and SSE.
-- `electron/server/generators/continuity-render.ts` already publishes `item_progress`, checkpoints `params.genstudio_recovery.assets`, writes per-output task manifests, and records accepted GenStudio task evidence.
+- `electron/server/generators/continuity-render.ts` already publishes `item_progress`, checkpoints `params.genstudio_recovery.assets`, writes per-output task manifests, and records accepted GenStudio task evidence. Its current progress key is `scene-${scene.scene_index}`, while both durable stores are keyed by `${scene.id}.png`; v1.4.91 must align that identity before the queue can prove a tail.
 - `electron/server/generators/image-pool-generate.ts` is intentionally serial. It remains an image-group candidate but must not be given internal fan-out in this release.
 - `electron/server/lib/genstudio-admission.ts` and `refreshGenStudioAdmission()` own fresh account capacity, provider queue headroom, rate pacing, and credit holds. Story Studio does not infer provider capacity.
 
@@ -46,6 +46,23 @@ Counts alone never prove a tail. Before any capacity refresh, the queue must der
 
 A `continuity_render` job is an eligible tail opener only when every condition below holds from one internally consistent job snapshot.
 
+### Canonical progress identity
+
+Continuity must publish the same stable filename key already used by its checkpoint and task manifest:
+
+```ts
+{
+  key: `${scene.id}.png`,
+  label: `Scene ${scene.scene_index}`,
+}
+```
+
+`key` is machine identity: it is the exact manifest key and the exact key in `params.genstudio_recovery.assets`. `label` remains the customer-facing scene number. Existing customer-facing scene labels and output-line wording do not change. Do not derive the durable key from `scene_index`, strip the `.png` suffix, parse the label, or add a compatibility lookup from `scene-${scene_index}`.
+
+The minimal generator alignment is to retain each in-flight scene’s canonical filename alongside its numeric scene index, publish that filename as `active[].key`, and continue publishing the numeric index in `label` and `.render_status.json`. Existing checkpoint and manifest calls already use the same `filename`; their storage format does not change.
+
+An old persisted active key such as `scene-1` that does not directly index the real `scene-001.png` checkpoint/manifest fails closed and cannot open overflow. When the existing Continuity recovery path resumes the job, its next progress checkpoint publishes the canonical filename. No migration, filename guess, or index-to-ID compatibility table is added.
+
 ### Progress reconciliation
 
 1. `job.status === 'running'` and the job currently occupies the image group.
@@ -67,7 +84,7 @@ Any missing field, negative/fractional number, duplicate active key, count misma
 
 For every active key `K`:
 
-1. Resolve `job.params.genstudio_recovery` and require `version === 1`, `route === 'genstudio'`, and an `assets[K]` record with `operation === 'image'`.
+1. Treat `K` as the canonical `${scene.id}.png` filename. Resolve `job.params.genstudio_recovery` and require `version === 1`, `route === 'genstudio'`, and a direct `assets[K]` record with `operation === 'image'`.
 2. Resolve the exact expected output from `assets[K].output_path` and the corresponding task-manifest entry. The checkpoint may provide `job_id`; the manifest may provide `task_id`; at least one must provide a real accepted ID.
 3. Reject IDs that are empty or start with `pending:`. If both checkpoint and manifest publish IDs, they must be equal.
 4. If both publish idempotency keys, they must be equal. The manifest input hash and expected output path must still match the current asset.
@@ -118,6 +135,7 @@ The cursor is not durable; it contains no customer fact. Durable pending order a
 - The explicit base remains visible and authoritative.
 - Active image-group jobs never exceed base + 1.
 - Only a fully bound Continuity final wave may open overflow.
+- Continuity publishes canonical `${scene.id}.png` active keys while preserving `Scene ${scene.scene_index}` labels.
 - `image_pool_generate` may consume overflow but cannot open it and remains serial.
 - Progress arithmetic and exact active-key/provider-task mapping pass before capacity refresh.
 - Capacity must be freshly verified and rechecked after await.
@@ -131,6 +149,8 @@ The cursor is not durable; it contains no customer fact. Durable pending order a
 |---|---|
 | Base has room | Admit normally up to base |
 | Base full; Continuity has full wave | No overflow |
+| Current Continuity shape: active `scene-1`, checkpoint/manifest `scene-001.png` | Direct lookup fails; no capacity refresh or overflow |
+| Aligned Continuity shape: active `scene-001.png`, label `Scene 1`, matching durable stores | Direct mapping may continue to provider-state proof; customer label is unchanged |
 | Counts suggest tail but active key is absent/duplicated | No capacity refresh; no overflow |
 | Active key lacks checkpoint/manifest binding | No capacity refresh; no overflow |
 | Checkpoint and manifest task/key disagree | No capacity refresh; no overflow |
