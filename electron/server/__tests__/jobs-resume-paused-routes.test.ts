@@ -178,6 +178,47 @@ describe('scoped bulk paused-job Resume routes', () => {
 })
 
 describe('queue-level scoped paused-job Resume', () => {
+  test('batch Resume persists image recovery timestamps and admits them before fresh work', async () => {
+    const project = await pm.createProject({ name: 'Bulk Image Recovery Admission' })
+    const recovery = pausedJob(project.slug, 'continuity_render', 'manual', {
+      episode_id: 'continuity:batch-recovery',
+      started_at: '2026-08-31T00:00:00.000Z',
+    })
+    const fresh = pausedJob(project.slug, 'continuity_render', 'manual', {
+      episode_id: 'continuity:batch-fresh',
+      started_at: null,
+    })
+    await seedJobs(project.slug, [fresh, recovery])
+    jq.setImageEpisodeConcurrency(1)
+    const started = deferred()
+    const release = deferred()
+    const executions: string[] = []
+    jq.registerExecutor('continuity_render', async job => {
+      executions.push(job.episode_id)
+      if (executions.length === 1) started.resolve()
+      await release.promise
+    })
+
+    const result = await jq.resumePausedJobs({
+      projectSlugs: [project.slug],
+      type: 'continuity_render',
+    })
+    assert.deepEqual(result, { requested: 2, resumed: 2, skipped: 0 })
+    assert.equal(jq.getJob(recovery.job_id)?.started_at, '2026-08-31T00:00:00.000Z')
+    assert.equal(jq.getJob(fresh.job_id)?.started_at, null)
+    const persisted = JSON.parse(await fs.readFile(path.join(tempDir, 'projects', project.slug, 'jobs.json'), 'utf8')) as { jobs: Job[] }
+    assert.equal(persisted.jobs.find(job => job.job_id === recovery.job_id)?.started_at, '2026-08-31T00:00:00.000Z')
+    assert.equal(persisted.jobs.find(job => job.job_id === fresh.job_id)?.started_at, null)
+
+    await jq.setQueuePaused(false)
+    await started.promise
+    assert.deepEqual(executions, ['continuity:batch-recovery'])
+    release.resolve()
+    await waitForStatus(fresh.job_id, 'done')
+    assert.deepEqual(executions, ['continuity:batch-recovery', 'continuity:batch-fresh'])
+    await jq.setQueuePaused(true)
+  })
+
   test('preserves identity/evidence, batches writes and pumps, rolls back one failed project, and redacts aggregates', async (t) => {
     const successful = await pm.createProject({ name: 'Bulk Atomic Success' })
     const failed = await pm.createProject({ name: 'Bulk Atomic Failure' })
@@ -259,6 +300,7 @@ describe('queue-level scoped paused-job Resume', () => {
     assert.deepEqual(pumps.sort(), ['audio', 'script-only'])
 
     assert.equal(jq.getJob(identity.job_id)?.status, 'queued')
+    assert.equal(jq.getJob(identity.job_id)?.started_at, null)
     assert.equal(jq.getJob(sameLane.job_id)?.status, 'queued')
     assert.equal(jq.getJob(otherLane.job_id)?.status, 'queued')
     assert.equal(jq.getJob(terminal.job_id)?.status, 'done')
@@ -279,6 +321,8 @@ describe('queue-level scoped paused-job Resume', () => {
     }, preservedBefore)
 
     const persistedFailure = JSON.parse(await fs.readFile(failedPath, 'utf8')) as { jobs: Job[] }
+    const persistedSuccess = JSON.parse(await fs.readFile(successfulPath, 'utf8')) as { jobs: Job[] }
+    assert.equal(persistedSuccess.jobs.find(job => job.job_id === identity.job_id)?.started_at, null)
     assert.deepEqual(
       persistedFailure.jobs.filter(job => [failedA.job_id, failedB.job_id].includes(job.job_id)).map(job => [job.job_id, job.status, job.pause_origin]),
       [[failedA.job_id, 'paused', 'manual'], [failedB.job_id, 'paused', 'stall']],

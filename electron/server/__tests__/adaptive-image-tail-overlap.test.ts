@@ -565,6 +565,125 @@ describe('image episode admission fairness', () => {
     await waitForPersistedTerminal(jobsFile, [recoveryId, freshId], 'repeated-boot jobs to persist')
   })
 
+  test('the all-project boot scan admits later-project image recovery before earlier fresh work', async () => {
+    const freshProject = await pm.createProject({ name: 'Adaptive boot fresh project' })
+    const recoveryProject = await pm.createProject({ name: 'Adaptive boot recovery project' })
+    const freshJobsFile = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', freshProject.slug, 'jobs.json')
+    const recoveryJobsFile = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', recoveryProject.slug, 'jobs.json')
+    await (await import('node:fs/promises')).writeFile(freshJobsFile, JSON.stringify({ jobs: [{
+      job_id: 'boot-fresh',
+      project_slug: freshProject.slug,
+      type: 'continuity_render',
+      episode_id: 'continuity:boot-fresh',
+      title: 'boot fresh',
+      status: 'queued',
+      created_at: '2026-08-31T00:01:00.000Z',
+      started_at: null,
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {},
+    }] }))
+    await (await import('node:fs/promises')).writeFile(recoveryJobsFile, JSON.stringify({ jobs: [{
+      job_id: 'boot-recovery',
+      project_slug: recoveryProject.slug,
+      type: 'continuity_render',
+      episode_id: 'continuity:boot-recovery',
+      title: 'boot recovery',
+      status: 'queued',
+      created_at: '2026-08-31T00:00:00.000Z',
+      started_at: '2026-08-31T00:00:00.000Z',
+      finished_at: null,
+      error: null,
+      output_lines: [],
+      params: {},
+    }] }))
+
+    const queueUrl = new URL('../services/job-queue.js', import.meta.url).href
+    const boot = await import(`${queueUrl}?all-project-boot-recovery=1`)
+    boot.setImageEpisodeConcurrency(1)
+    const started: string[] = []
+    const releases = new Map<string, () => void>()
+    boot.registerExecutor('continuity_render', async (job: { episode_id: string }) => {
+      started.push(job.episode_id)
+      await new Promise<void>(resolve => releases.set(job.episode_id, resolve))
+    })
+
+    await boot.resumeInterruptedJobsAtBoot()
+    await waitFor(() => started.length === 1, 'the cross-project boot recovery job to start')
+    assert.deepEqual(started, ['continuity:boot-recovery'])
+    releases.get('continuity:boot-recovery')!()
+    await waitFor(() => started.length === 2, 'the earlier fresh job to start after recovery')
+    assert.deepEqual(started, ['continuity:boot-recovery', 'continuity:boot-fresh'])
+    releases.get('continuity:boot-fresh')!()
+    await waitForPersistedTerminal(freshJobsFile, ['boot-fresh'], 'the fresh boot job to persist')
+    await waitForPersistedTerminal(recoveryJobsFile, ['boot-recovery'], 'the recovery boot job to persist')
+  })
+
+  test('single Resume persists an image recovery timestamp and admits it before fresh work', async () => {
+    const project = await pm.createProject({ name: 'Adaptive single image Resume' })
+    const jobsFile = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', project.slug, 'jobs.json')
+    await jq.setQueuePaused(true)
+    jq.setImageEpisodeConcurrency(1)
+    const started: string[] = []
+    const releases = new Map<string, () => void>()
+    jq.registerExecutor('continuity_render', async (job: { episode_id: string }) => {
+      started.push(job.episode_id)
+      await new Promise<void>(resolve => releases.set(job.episode_id, resolve))
+    })
+    const recovery = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'continuity_render',
+      episode_id: 'continuity:single-recovery',
+      title: 'single recovery',
+      params: {},
+      started_at: '2026-08-31T00:00:00.000Z',
+    })
+    await jq.pauseJob(recovery.job_id)
+    jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'continuity_render',
+      episode_id: 'continuity:single-fresh',
+      title: 'single fresh',
+      params: {},
+    })
+
+    await jq.resumeJob(recovery.job_id)
+    assert.equal(jq.getJob(recovery.job_id)?.started_at, '2026-08-31T00:00:00.000Z')
+    const persisted = JSON.parse(await readFile(jobsFile, 'utf8')) as { jobs: Array<{ job_id: string; started_at: string | null }> }
+    assert.equal(persisted.jobs.find(job => job.job_id === recovery.job_id)?.started_at, '2026-08-31T00:00:00.000Z')
+
+    await jq.setQueuePaused(false)
+    await waitFor(() => started.length === 1, 'the single-resumed image recovery job to start')
+    assert.deepEqual(started, ['continuity:single-recovery'])
+    releases.get('continuity:single-recovery')!()
+    await waitFor(() => started.length === 2, 'the fresh image job to start second')
+    assert.deepEqual(started, ['continuity:single-recovery', 'continuity:single-fresh'])
+    releases.get('continuity:single-fresh')!()
+    await waitForPersistedTerminal(jobsFile, [recovery.job_id], 'the single-resumed image job to persist terminal status')
+  })
+
+  test('single Resume retains the historical cleared timestamp for non-image work', async () => {
+    const project = await pm.createProject({ name: 'Adaptive single non-image Resume' })
+    const jobsFile = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'projects', project.slug, 'jobs.json')
+    await jq.setQueuePaused(true)
+    jq.registerExecutor('script-only', async () => {})
+    const job = jq.enqueuePreparedForTest({
+      project_slug: project.slug,
+      type: 'script-only',
+      episode_id: 'script:single-resume',
+      title: 'single non-image resume',
+      params: {},
+      started_at: '2026-08-31T00:00:00.000Z',
+    })
+    await jq.pauseJob(job.job_id)
+
+    await jq.resumeJob(job.job_id)
+    assert.equal(jq.getJob(job.job_id)?.started_at, null)
+    const persisted = JSON.parse(await readFile(jobsFile, 'utf8')) as { jobs: Array<{ job_id: string; started_at: string | null }> }
+    assert.equal(persisted.jobs.find(row => row.job_id === job.job_id)?.started_at, null)
+  })
+
   test('image admission contains no size or duration priority terms', async () => {
     const body = await queueSource()
     const start = body.indexOf('function nextImageGroupJob')

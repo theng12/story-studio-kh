@@ -1227,6 +1227,7 @@ let llmConcurrency = 50
 let subtitleTranscribeConcurrency = 50
 let imageEpisodeConcurrency = 1
 let imageEpisodeCursor = 0
+let imageEpisodeBootAdmissionHolds = 0
 /**
  * Thumbnails have their own budget because they usually buy from a cloud API
  * while Scene Review buys from the local fleet. Starts at 1 for the same
@@ -1635,10 +1636,16 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
  * safely reconnect without duplicating generation.
  */
 export async function resumeInterruptedJobsAtBoot(): Promise<void> {
-  const { listProjects } = await import('./project-manager.js')
-  const projects = await listProjects()
-  for (const project of projects as Array<{ slug?: string }>) {
-    if (typeof project?.slug === 'string' && project.slug) await loadPersistedJobs(project.slug)
+  imageEpisodeBootAdmissionHolds++
+  try {
+    const { listProjects } = await import('./project-manager.js')
+    const projects = await listProjects()
+    for (const project of projects as Array<{ slug?: string }>) {
+      if (typeof project?.slug === 'string' && project.slug) await loadPersistedJobs(project.slug)
+    }
+  } finally {
+    imageEpisodeBootAdmissionHolds = Math.max(0, imageEpisodeBootAdmissionHolds - 1)
+    if (imageEpisodeBootAdmissionHolds === 0) pumpImageEpisodeGroup(imageEpisodeConcurrency)
   }
 }
 
@@ -1666,7 +1673,7 @@ function nextImageGroupJob(type: JobType): Job | null {
 /** Admit image jobs from one shared round-robin pump. Capacity is consumed
  * synchronously before any executor can yield, preventing double admission. */
 function pumpImageEpisodeGroup(limit: number): void {
-  if (queuePaused) return
+  if (queuePaused || imageEpisodeBootAdmissionHolds > 0) return
   let emptyPass = 0
   while ((groupActive[IMAGE_EPISODE_GROUP] || 0) < limit) {
     const type = IMAGE_GROUP_TYPES[(imageEpisodeCursor + emptyPass) % IMAGE_GROUP_TYPES.length]
@@ -2571,7 +2578,7 @@ async function transitionPausedJobsToQueuedByProject(
       job.pause_requested = false
       job.pause_origin = undefined
       job.status = 'queued'
-      job.started_at = null
+      if (!IMAGE_EPISODE_TYPES.has(job.type)) job.started_at = null
       job.finished_at = null
       job.error = null
       job.output_lines.push('Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.')
@@ -2717,7 +2724,7 @@ export async function resumeJob(jobId: string): Promise<Job | null> {
   job.pause_requested = false
   job.pause_origin = undefined
   job.status = 'queued'
-  job.started_at = null
+  if (!IMAGE_EPISODE_TYPES.has(job.type)) job.started_at = null
   job.finished_at = null
   job.error = null
   job.output_lines.push('Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.')
