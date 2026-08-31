@@ -405,6 +405,150 @@ async function render(options: {
   }
 }
 
+test('an accepted Continuity scene publishes its durable filename as the active key', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  let restoreCatalog: (() => Promise<void>) | null = null
+  const originalFetch = globalThis.fetch
+  let releasePoll!: () => void
+  let signalPoll!: () => void
+  const pollStarted = new Promise<void>(resolve => { signalPoll = resolve })
+  const pollRelease = new Promise<void>(resolve => { releasePoll = resolve })
+  try {
+    await configureMockGenStudio(service.baseUrl)
+    await import('../providers/image/genstudio.js')
+    restoreCatalog = await withReferenceCapableCatalog(service.baseUrl, REFERENCE_CAPABLE)
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      const method = init?.method || (input instanceof Request ? input.method : 'GET')
+      if (url.origin === service.baseUrl && method === 'GET' && /^\/v1\/images\/[^/]+$/.test(url.pathname)) {
+        signalPoll()
+        await pollRelease
+      }
+      return originalFetch(input, init)
+    }
+
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { readManifest } = await import('../services/task-manifest.js')
+    const { proveContinuitySettlingTail } = await import('../services/job-queue.js')
+    const { project, episodeId, paths } = await createEpisode('Canonical active scene key')
+    const scene = { id: 'scene-001', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' }
+    const filename = 'scene-001.png'
+    await writeScenePrerequisites(paths, episodeId, [
+      scene,
+      { id: 'scene-002', scene_index: 2, visual_prompt: 'A clock in a quiet archive.' },
+    ])
+    await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({ schema_version: 1 }))
+    const outDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    await png(outDir, 'scene-002.png', 1, 1)
+    const job = renderJob(project.slug, episodeId)
+    job.params.force = false
+    const renderPromise = runContinuityRenderJob(job)
+
+    await pollStarted
+    const taskId = service.submissions.find(submission => submission.operation === 'image')!.jobId
+    const manifest = await readManifest(outDir)
+    const active = job.item_progress?.active[0]
+    const activeSnapshot = { key: active?.key, label: active?.label, state: active?.state }
+    const checkpointTaskId = active?.key ? job.params.genstudio_recovery.assets[active.key].job_id : undefined
+    const manifestTaskId = active?.key ? manifest.tasks[active.key]?.task_id : undefined
+    job.genstudio_jobs = [{
+      id: taskId,
+      operation: 'image.generation',
+      state: 'running',
+      updated_at: new Date().toISOString(),
+      request: { idempotency_key: job.params.genstudio_recovery.assets[filename].idempotency_key },
+    }]
+    const tailProof = await proveContinuitySettlingTail(job)
+    const outputDirAtAcceptance = job.output_dir
+    releasePoll()
+    await renderPromise
+    assert.deepEqual(
+      activeSnapshot,
+      { key: filename, label: 'Scene 1', state: 'running' },
+      `expected active.key to be ${filename}; the legacy scene-1 key cannot directly join the checkpoint or manifest`,
+    )
+    assert.equal(checkpointTaskId, taskId)
+    assert.equal(manifestTaskId, taskId)
+    assert.equal(outputDirAtAcceptance, outDir, 'the queue proof reads the same output directory that the live render owns')
+    assert.deepEqual(tailProof, {
+      job_id: job.job_id,
+      settling: 1,
+      concurrency: 2,
+      active_asset_keys: [filename],
+      provider_task_ids: [taskId],
+    })
+  } finally {
+    releasePoll?.()
+    globalThis.fetch = originalFetch
+    if (restoreCatalog) await restoreCatalog()
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
+test('a fleet-busy Continuity retry republishes its active canonical filename on attempt two', async () => {
+  const temp = await useTempDataDir()
+  const service = await startMockGenStudioService()
+  const originalFetch = globalThis.fetch
+  const fleetBusy = await import('../lib/genstudio-fleet-busy.js')
+  const delays = fleetBusy.FLEET_BUSY_RETRY_DELAYS_MS as number[]
+  const originalDelay = delays[0]!
+  let releaseSecondSubmit!: () => void
+  let signalSecondSubmit!: () => void
+  const secondSubmitStarted = new Promise<void>(resolve => { signalSecondSubmit = resolve })
+  const secondSubmitRelease = new Promise<void>(resolve => { releaseSecondSubmit = resolve })
+  let generationResponses = 0
+  try {
+    delays[0] = 1
+    await configureMockGenStudio(service.baseUrl)
+    await import('../providers/image/genstudio.js')
+    service.queueScenario('image', {
+      states: ['failed'], failureCode: 'SITE_PLACEMENT_EXHAUSTED', reservedCredits: 7, finalCredits: 0,
+    })
+    service.queueScenario('image', { states: ['accepted', 'succeeded'] })
+    globalThis.fetch = async (input, init) => {
+      const response = await originalFetch(input, init)
+      const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+      const method = init?.method || (input instanceof Request ? input.method : 'GET')
+      if (url.origin === service.baseUrl && method === 'POST' && url.pathname === '/v1/images/generations') {
+        generationResponses++
+        if (generationResponses === 2) {
+          signalSecondSubmit()
+          await secondSubmitRelease
+        }
+      }
+      return response
+    }
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    const { project, episodeId, paths } = await createEpisode('Retry active key')
+    await writeScenePrerequisites(paths, episodeId, [
+      { id: 'scene-001', scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' },
+    ])
+    await fs.writeFile(path.join(paths.episode_dir, 'continuity.json'), JSON.stringify({ schema_version: 1 }))
+    const job = renderJob(project.slug, episodeId)
+    const renderPromise = runContinuityRenderJob(job)
+
+    await secondSubmitStarted
+    const secondAttempt = job.item_progress?.active[0]
+    releaseSecondSubmit()
+    await renderPromise
+    assert.deepEqual(
+      { key: secondAttempt?.key, state: secondAttempt?.state, attempt: secondAttempt?.attempt },
+      { key: 'scene-001.png', state: 'running', attempt: 1 },
+      'the second provider attempt must not disappear from live progress after the first attempt cleans up',
+    )
+  } finally {
+    releaseSecondSubmit?.()
+    delays[0] = originalDelay
+    globalThis.fetch = originalFetch
+    await service.close()
+    await temp.cleanup()
+  }
+})
+
 test('the switch ON uploads the composition template and submits its asset id', async () => {
   const result = await render({
     name: 'Reference on',

@@ -4,6 +4,11 @@ What's new in each release. Newest first.
 
 ---
 
+## v1.4.91 — 2026-08-31
+
+- **Scene-image jobs now share their places fairly.** Continuity Render and Image Pool take turns when both are waiting, while work that is already recovering keeps its place ahead of new work of the same kind. The image-pool generator itself remains serial.
+- **One verified Continuity final wave can overlap by one job when GenStudio has just confirmed headroom.** Your chosen scene-image concurrency remains the normal limit. Story Studio may start one next fairly selected image job only after it proves a running Continuity Render is in its under-filled final provider wave and rechecks fresh account capacity. This does not buy or replace work, and it does not promise a speed increase.
+
 ## v1.4.90 — 2026-08-31
 
 - **Work held by a temporary connection or capacity problem can safely pick up again.** Story Studio now checks what has already finished before continuing, keeps completed output, and retries only genuinely missing work through its normal safeguards. A pause you made yourself remains paused until you choose to resume it; a temporary failure can still require another attempt if the service cannot complete it.

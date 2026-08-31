@@ -28,6 +28,7 @@ import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-canc
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
 import {
   isNeverCreatedProviderTask,
+  isActiveGenStudioProviderState,
   isUnsettledProviderEntry as isUnsettledProviderEntryShared,
 } from '../lib/provider-task-state.js'
 import { FLEET_BUSY_FAILURE_CODES } from '../lib/genstudio-fleet-busy.js'
@@ -40,6 +41,8 @@ import {
 import { runWithJobContentPackProvenance } from '../content-packs/job-provenance-context.js'
 import { readManifest } from './task-manifest.js'
 import { isDecodableImage } from '../lib/image-validation.js'
+import { refreshGenStudioAdmission } from '../lib/genstudio-client.js'
+import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
 
 // ── Child-process tracking (for cancel → SIGTERM) ───────────────────────────
 //
@@ -116,6 +119,7 @@ export async function recordGenStudioJob(
   await persistJob(job)
   emitUpdate(job)
   void finalizeSettledProviderJob(job.job_id)
+  if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
 }
 
 function queuedCancellationKey(operation: JobRemoteOperation, providerJobId: string): string {
@@ -1216,11 +1220,14 @@ function groupOf(type: JobType, job?: Job): string {
 /** Active (running) job count for the shared LLM group. Non-LLM types track
  *  their single slot via `QueueState.running` (unchanged). */
 const groupActive: Record<string, number> = {}
+const activeImageEpisodeJobIds = new Set<string>()
 /** A generous local staging cap keeps Story responsive without recreating a
  * user-facing concurrency policy that can conflict with GenStudio. */
 let llmConcurrency = 50
 let subtitleTranscribeConcurrency = 50
 let imageEpisodeConcurrency = 1
+let imageEpisodeCursor = 0
+let imageEpisodeBootAdmissionHolds = 0
 /**
  * Thumbnails have their own budget because they usually buy from a cloud API
  * while Scene Review buys from the local fleet. Starts at 1 for the same
@@ -1248,7 +1255,12 @@ export function getSubtitleTranscribeConcurrency(): number {
  */
 export function setImageEpisodeConcurrency(n: number): void {
   imageEpisodeConcurrency = Math.max(1, Math.min(50, Math.floor(Number(n)) || 1))
-  for (const group of FLEET_EPISODE_GROUPS) for (const t of fleetEpisodeTypesFor(group)) pump(t)
+  pumpImageEpisodeGroup(imageEpisodeConcurrency)
+  for (const group of FLEET_EPISODE_GROUPS) {
+    if (group === IMAGE_EPISODE_GROUP) continue
+    for (const t of fleetEpisodeTypesFor(group)) pump(t)
+  }
+  noteAdaptiveImageTailEvent()
 }
 export function getImageEpisodeConcurrency(): number {
   return imageEpisodeConcurrency
@@ -1407,6 +1419,7 @@ async function persistJob(job: Job): Promise<void> {
 export async function checkpointJobState(job: Job): Promise<void> {
   await persistJob(job)
   emitUpdate(job)
+  if (job.type === 'continuity_render') noteAdaptiveImageTailEvent()
 }
 
 // ── Lazy load persisted jobs on first access ────────────────────────────────
@@ -1442,7 +1455,10 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
             } else {
             const queue = queues[j.type as JobType]
             if (queue?.executor) {
-              j.started_at = null
+              // An image job with a prior admission timestamp is recovery
+              // work. Preserve that class across every boot; ordinary lanes
+              // retain their historical reset behavior.
+              if (!IMAGE_EPISODE_TYPES.has(j.type as JobType)) j.started_at = null
               j.finished_at = null
               queue.pending.push(j)
               resumedTypes.add(j.type as JobType)
@@ -1505,7 +1521,8 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
               && hasReclaimableImageEvidence(j)
             if ((recoverableGenStudio || recoverableImageEpisode) && !hasCancellationContext(j)) {
               j.status = 'queued'
-              j.started_at = null
+              // Keep the original admission timestamp so the fair image pump
+              // recognises this as recovery work ahead of fresh FIFO.
               j.finished_at = null
               j.error = null
               j.output_lines = Array.isArray(j.output_lines) ? j.output_lines : []
@@ -1564,7 +1581,12 @@ async function readPersistedJobs(projectSlug: string): Promise<void> {
         }
       }
     }
-    for (const type of resumedTypes) pump(type)
+    if ([...resumedTypes].some(type => IMAGE_EPISODE_TYPES.has(type))) {
+      pumpImageEpisodeGroup(imageEpisodeConcurrency)
+    }
+    for (const type of resumedTypes) {
+      if (!IMAGE_EPISODE_TYPES.has(type)) pump(type)
+    }
     for (const jobId of reconciliationJobs) scheduleCancellationReconciliation(jobId)
     for (const jobId of historyRefreshJobs) scheduleHistoryEvidenceRefresh(jobId)
   } catch { /* ignore corrupt file */ }
@@ -1614,10 +1636,16 @@ async function loadPersistedJobs(projectSlug: string): Promise<void> {
  * safely reconnect without duplicating generation.
  */
 export async function resumeInterruptedJobsAtBoot(): Promise<void> {
-  const { listProjects } = await import('./project-manager.js')
-  const projects = await listProjects()
-  for (const project of projects as Array<{ slug?: string }>) {
-    if (typeof project?.slug === 'string' && project.slug) await loadPersistedJobs(project.slug)
+  imageEpisodeBootAdmissionHolds++
+  try {
+    const { listProjects } = await import('./project-manager.js')
+    const projects = await listProjects()
+    for (const project of projects as Array<{ slug?: string }>) {
+      if (typeof project?.slug === 'string' && project.slug) await loadPersistedJobs(project.slug)
+    }
+  } finally {
+    imageEpisodeBootAdmissionHolds = Math.max(0, imageEpisodeBootAdmissionHolds - 1)
+    if (imageEpisodeBootAdmissionHolds === 0) pumpImageEpisodeGroup(imageEpisodeConcurrency)
   }
 }
 
@@ -1629,13 +1657,49 @@ export async function resumeInterruptedJobsAtBoot(): Promise<void> {
  * the `llmConcurrency` budget across the whole group. Synchronous: the whole
  * budget is consumed before any launched job yields, so no double-launch race.
  */
+const IMAGE_GROUP_TYPES: readonly JobType[] = ['continuity_render', 'image_pool_generate']
+
+/** Select the next queued image job for one type, keeping recovery FIFO ahead
+ * of the fresh FIFO without changing the order within either class. */
+function nextImageGroupJob(type: JobType): Job | null {
+  const pending = queues[type].pending
+  const recoveryIndex = pending.findIndex(job => Boolean(job.started_at))
+  const index = recoveryIndex >= 0
+    ? recoveryIndex
+    : pending.findIndex(job => !job.started_at)
+  return index >= 0 ? pending.splice(index, 1)[0] : null
+}
+
+/** Admit image jobs from one shared round-robin pump. Capacity is consumed
+ * synchronously before any executor can yield, preventing double admission. */
+function pumpImageEpisodeGroup(limit: number): void {
+  if (queuePaused || imageEpisodeBootAdmissionHolds > 0) return
+  let emptyPass = 0
+  while ((groupActive[IMAGE_EPISODE_GROUP] || 0) < limit) {
+    const type = IMAGE_GROUP_TYPES[(imageEpisodeCursor + emptyPass) % IMAGE_GROUP_TYPES.length]
+    const job = nextImageGroupJob(type)
+    if (!job) {
+      emptyPass++
+      if (emptyPass >= IMAGE_GROUP_TYPES.length) return
+      continue
+    }
+    emptyPass = 0
+    imageEpisodeCursor = (IMAGE_GROUP_TYPES.indexOf(type) + 1) % IMAGE_GROUP_TYPES.length
+    groupActive[IMAGE_EPISODE_GROUP] = (groupActive[IMAGE_EPISODE_GROUP] || 0) + 1
+    activeImageEpisodeJobIds.add(job.job_id)
+    runJob(type, job).catch(e => console.error(`[job-queue] Error processing ${type}:`, e))
+  }
+}
+
 function pump(type: JobType): void {
   queuePumpObserverForTesting?.(type)
   if (queuePaused) return  // network is down; jobs wait
   const q = queues[type]
   const next = q.pending[0]
   const group = groupOf(type, next)
-  if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
+  if (group === IMAGE_EPISODE_GROUP) {
+    pumpImageEpisodeGroup(groupLimit(group))
+  } else if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
     while (q.pending.length > 0 && (groupActive[group] || 0) < groupLimit(group)) {
       if (groupOf(type, q.pending[0]) !== group) break
       const job = q.pending.shift()!
@@ -1661,8 +1725,8 @@ function pump(type: JobType): void {
 function pumpGroup(group: string): void {
   if (group === LLM_GROUP || group === LOCAL_LLM_GROUP) for (const t of LLM_TYPES) pump(t)
   else if (group === SUBTITLE_TRANSCRIBE_GROUP) pump('subtitles_transcribe')
-  // A freed image slot can be taken by ANY image type, not just the one that
-  // finished — the four share one budget.
+  // A freed image slot can be taken by either image type through one fair pump.
+  else if (group === IMAGE_EPISODE_GROUP) pumpImageEpisodeGroup(groupLimit(group))
   else if (FLEET_EPISODE_GROUPS.has(group)) for (const t of fleetEpisodeTypesFor(group)) pump(t)
 }
 
@@ -1670,8 +1734,11 @@ function pumpGroup(group: string): void {
 function releaseSlot(type: JobType, job: Job): void {
   const group = groupOf(type, job)
   if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
+    if (group === IMAGE_EPISODE_GROUP) activeImageEpisodeJobIds.delete(job.job_id)
     groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
+    if (group === IMAGE_EPISODE_GROUP) queuePumpObserverForTesting?.(type)
     pumpGroup(group)
+    if (group === IMAGE_EPISODE_GROUP) noteAdaptiveImageTailEvent()
   } else {
     queues[type].running = false
     pump(type)
@@ -2075,6 +2142,252 @@ export interface ResumePausedJobsResult {
   }>
 }
 
+export interface ContinuityTailProof {
+  job_id: string
+  settling: number
+  concurrency: number
+  active_asset_keys: string[]
+  provider_task_ids: string[]
+}
+
+function isNonNegativeWhole(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function isAcceptedProviderTaskId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && !value.startsWith('pending:')
+}
+
+interface ContinuityTailLocalState {
+  output_dir: string
+  progress: NonNullable<Job['item_progress']>
+  checkpoint: any
+  keys: string[]
+}
+
+function continuityTailLocalState(job: Job): ContinuityTailLocalState | null {
+  if (job.type !== 'continuity_render' || job.status !== 'running' || typeof job.output_dir !== 'string') return null
+  const progress = job.item_progress
+  if (!progress || !isNonNegativeWhole(progress.total) || !isNonNegativeWhole(progress.completed)
+    || !isNonNegativeWhole(progress.failed) || !isNonNegativeWhole(progress.settling)
+    || !isNonNegativeWhole(progress.cancelled) || !isNonNegativeWhole(progress.not_submitted)
+    || !Number.isSafeInteger(progress.concurrency) || progress.concurrency <= 0
+    || !Array.isArray(progress.active)
+  ) return null
+  if (
+    progress.active.length !== progress.settling
+    || progress.total !== progress.completed + progress.failed + progress.settling + progress.cancelled + progress.not_submitted
+    || progress.not_submitted !== 0
+    || progress.settling <= 0
+    || progress.settling >= progress.concurrency
+  ) return null
+
+  const keys = progress.active.map(item => item?.key)
+  if (!keys.every(key => typeof key === 'string' && key.trim().length > 0 && path.basename(key) === key)
+    || new Set(keys).size !== keys.length
+    || progress.active.some(item => item?.state !== 'running')
+  ) return null
+
+  const checkpoint = job.params?.genstudio_recovery
+  if (
+    !checkpoint || checkpoint.version !== 1 || checkpoint.route !== 'genstudio'
+    || !checkpoint.assets || typeof checkpoint.assets !== 'object'
+  ) return null
+
+  return { output_dir: job.output_dir, progress, checkpoint, keys: keys as string[] }
+}
+
+type ContinuityTailManifestReader = typeof readManifest
+let continuityTailManifestReader: ContinuityTailManifestReader = readManifest
+
+/**
+ * Read-only, fail-closed evidence that a live Continuity render is in its
+ * under-filled final provider wave. The progress key is deliberately the
+ * direct manifest/checkpoint filename join; a scene number is display-only.
+ */
+export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityTailProof | null> {
+  const initial = continuityTailLocalState(job)
+  if (!initial) return null
+  const manifest = await continuityTailManifestReader(initial.output_dir)
+  const current = continuityTailLocalState(job)
+  if (!current || current.output_dir !== initial.output_dir) return null
+  const { progress, checkpoint, keys, output_dir: outputDir } = current
+  const providerTaskIds = new Set<string>()
+  for (const key of keys) {
+    const checkpointEntry = checkpoint.assets[key]
+    const manifestEntry = manifest.tasks[key]
+    if (
+      checkpointEntry?.operation !== 'image'
+      || manifestEntry?.operation !== 'image'
+      || typeof checkpointEntry.output_path !== 'string'
+      || path.resolve(checkpointEntry.output_path) !== path.resolve(outputDir, key)
+      || typeof checkpointEntry.input_hash !== 'string'
+      || !checkpointEntry.input_hash.trim()
+      || typeof manifestEntry.input_hash !== 'string'
+      || !manifestEntry.input_hash.trim()
+      || checkpointEntry.input_hash !== manifestEntry.input_hash
+    ) return null
+
+    const checkpointId = checkpointEntry.job_id
+    const manifestId = manifestEntry.task_id
+    if (
+      (checkpointId !== undefined && !isAcceptedProviderTaskId(checkpointId))
+      || !isAcceptedProviderTaskId(manifestId) && !isAcceptedProviderTaskId(checkpointId)
+      || isAcceptedProviderTaskId(checkpointId) && isAcceptedProviderTaskId(manifestId) && checkpointId !== manifestId
+    ) return null
+    const taskId = isAcceptedProviderTaskId(checkpointId) ? checkpointId : manifestId
+
+    const checkpointKey = checkpointEntry.idempotency_key
+    const manifestKey = manifestEntry.idempotency_key
+    if (
+      (checkpointKey !== undefined && !isAcceptedProviderTaskId(checkpointKey))
+      || (manifestKey !== undefined && !isAcceptedProviderTaskId(manifestKey))
+      || isAcceptedProviderTaskId(checkpointKey) && isAcceptedProviderTaskId(manifestKey) && checkpointKey !== manifestKey
+    ) return null
+    const idempotencyKey = isAcceptedProviderTaskId(checkpointKey) ? checkpointKey : manifestKey
+    if (!idempotencyKey) return null
+
+    const matches = (job.genstudio_jobs || []).filter(entry => entry.id === taskId)
+    const provider = matches[0]
+    const providerKey = provider?.request?.idempotency_key
+    if (
+      matches.length !== 1
+      || provider.operation !== 'image.generation'
+      || provider.cancelled === true
+      || !isActiveGenStudioProviderState(provider.state)
+      || providerKey !== undefined && providerKey !== idempotencyKey
+      || providerTaskIds.has(taskId)
+    ) return null
+    providerTaskIds.add(taskId)
+  }
+
+  if (providerTaskIds.size !== progress.settling || keys.length !== progress.settling) return null
+  return {
+    job_id: job.job_id,
+    settling: progress.settling,
+    concurrency: progress.concurrency,
+    active_asset_keys: keys,
+    provider_task_ids: [...providerTaskIds],
+  }
+}
+
+/** Test-only synchronization for deterministic manifest-read race fixtures. */
+export function _setContinuityTailManifestReaderForTesting(reader: ContinuityTailManifestReader): () => void {
+  const previous = continuityTailManifestReader
+  continuityTailManifestReader = reader
+  return () => {
+    if (continuityTailManifestReader === reader) continuityTailManifestReader = previous
+  }
+}
+
+type AdaptiveImageTailRefresh = (apiKey: string) => Promise<GenStudioAdmissionSnapshot>
+
+let adaptiveImageTailRefresh: AdaptiveImageTailRefresh = refreshGenStudioAdmission
+let adaptiveImageTailAdmissionFlight: Promise<void> | null = null
+let adaptiveImageTailEventVersion = 0
+
+function hasPendingImageCandidate(): boolean {
+  return IMAGE_GROUP_TYPES.some(type => queues[type].pending.length > 0)
+}
+
+function hasExactAdaptiveLocalState(base: number): boolean {
+  return !queuePaused
+    && imageEpisodeConcurrency === base
+    && (groupActive[IMAGE_EPISODE_GROUP] || 0) === base
+    && activeImageEpisodeJobIds.size === base
+    && hasPendingImageCandidate()
+}
+
+function sameContinuityTailProof(left: ContinuityTailProof, right: ContinuityTailProof | null): boolean {
+  if (!right) return false
+  return left.job_id === right.job_id
+    && left.settling === right.settling
+    && left.concurrency === right.concurrency
+    && left.active_asset_keys.length === right.active_asset_keys.length
+    && left.active_asset_keys.every((key, index) => key === right.active_asset_keys[index])
+    && left.provider_task_ids.length === right.provider_task_ids.length
+    && left.provider_task_ids.every((id, index) => id === right.provider_task_ids[index])
+}
+
+function hasVerifiedAdaptiveCapacity(snapshot: GenStudioAdmissionSnapshot | null | undefined): boolean {
+  return snapshot?.capacity_verified === true
+    && snapshot.limitSource === 'account-overview'
+    && Number.isSafeInteger(snapshot.available_paid_slots)
+    && snapshot.available_paid_slots > 0
+    && snapshot.queue_near_capacity === false
+    && snapshot.submissions_blocked === false
+    && snapshot.retry_after_ms === 0
+}
+
+async function findContinuityTailProof(): Promise<ContinuityTailProof | null> {
+  for (const jobId of [...activeImageEpisodeJobIds]) {
+    const job = jobs.get(jobId)
+    if (job?.type !== 'continuity_render') continue
+    const proof = await proveContinuitySettlingTail(job)
+    if (proof) return proof
+  }
+  return null
+}
+
+async function attemptAdaptiveImageTailAdmission(): Promise<void> {
+  const base = imageEpisodeConcurrency
+  if (!hasExactAdaptiveLocalState(base)) return
+
+  const apiKey = (await getApiKey('genstudio').catch(() => '')).trim()
+  if (!apiKey || !hasExactAdaptiveLocalState(base)) return
+
+  const proof = await findContinuityTailProof()
+  if (!proof || !activeImageEpisodeJobIds.has(proof.job_id) || !hasExactAdaptiveLocalState(base)) return
+
+  let snapshot: GenStudioAdmissionSnapshot | null = null
+  try {
+    snapshot = await adaptiveImageTailRefresh(apiKey)
+  } catch {
+    return
+  }
+
+  if (!hasExactAdaptiveLocalState(base) || !activeImageEpisodeJobIds.has(proof.job_id)) return
+  const current = jobs.get(proof.job_id)
+  const freshProof = current ? await proveContinuitySettlingTail(current) : null
+  if (
+    !hasExactAdaptiveLocalState(base)
+    || !activeImageEpisodeJobIds.has(proof.job_id)
+    || !sameContinuityTailProof(proof, freshProof)
+    || !hasVerifiedAdaptiveCapacity(snapshot)
+  ) return
+
+  pumpImageEpisodeGroup(base + 1)
+}
+
+/** Request one event-driven, shared capacity proof for a Continuity final wave. */
+export function requestAdaptiveImageTailAdmission(): void {
+  if (adaptiveImageTailAdmissionFlight) return
+  const eventVersion = adaptiveImageTailEventVersion
+  adaptiveImageTailAdmissionFlight = attemptAdaptiveImageTailAdmission().catch(() => {}).finally(() => {
+    adaptiveImageTailAdmissionFlight = null
+    if (adaptiveImageTailEventVersion !== eventVersion) requestAdaptiveImageTailAdmission()
+  })
+}
+
+function noteAdaptiveImageTailEvent(): void {
+  adaptiveImageTailEventVersion++
+  requestAdaptiveImageTailAdmission()
+}
+
+/** Test-only refresh injection; production always restores the GenStudio authority. */
+export function _setAdaptiveImageTailAdmissionRefreshForTesting(refresh: AdaptiveImageTailRefresh): () => void {
+  const previous = adaptiveImageTailRefresh
+  adaptiveImageTailRefresh = refresh
+  return () => {
+    if (adaptiveImageTailRefresh === refresh) adaptiveImageTailRefresh = previous
+  }
+}
+
+/** Test-only synchronization for deferred race fixtures. */
+export async function _waitForAdaptiveImageTailAdmissionForTesting(): Promise<void> {
+  while (adaptiveImageTailAdmissionFlight) await adaptiveImageTailAdmissionFlight
+}
+
 function isSafelyRetryableStallImageFailure(
   entry: NonNullable<Job['genstudio_jobs']>[number],
 ): boolean {
@@ -2265,7 +2578,7 @@ async function transitionPausedJobsToQueuedByProject(
       job.pause_requested = false
       job.pause_origin = undefined
       job.status = 'queued'
-      job.started_at = null
+      if (!IMAGE_EPISODE_TYPES.has(job.type)) job.started_at = null
       job.finished_at = null
       job.error = null
       job.output_lines.push('Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.')
@@ -2411,7 +2724,7 @@ export async function resumeJob(jobId: string): Promise<Job | null> {
   job.pause_requested = false
   job.pause_origin = undefined
   job.status = 'queued'
-  job.started_at = null
+  if (!IMAGE_EPISODE_TYPES.has(job.type)) job.started_at = null
   job.finished_at = null
   job.error = null
   job.output_lines.push('Resume requested — verifying saved assets and accepted provider tasks before submitting missing work.')
@@ -2698,6 +3011,7 @@ function enqueuePrepared(
 
   // Kick off processing
   pump(opts.type)
+  if (IMAGE_EPISODE_TYPES.has(opts.type)) noteAdaptiveImageTailEvent()
 
   return serializeJob(job)
 }
@@ -2707,8 +3021,18 @@ function enqueuePrepared(
  * isolated jobs without a durable project Content Pack selection. Production
  * callers must use enqueue(), which snapshots and verifies exact pins first.
  */
-export function enqueuePreparedForTest(opts: EnqueueOptions): Job {
-  return enqueuePrepared(opts)
+export function enqueuePreparedForTest(opts: EnqueueOptions & { started_at?: string | null }): Job {
+  const job = enqueuePrepared(opts)
+  // Test-only fixture seam for a queued recovery record. Production enqueue
+  // remains unchanged and always creates a fresh job with no start timestamp.
+  if (opts.started_at) {
+    const live = jobs.get(job.job_id)
+    if (live?.status === 'queued') {
+      live.started_at = opts.started_at
+      return serializeJob(live)
+    }
+  }
+  return job
 }
 
 /** Resolve project pins exactly once, then construct the immutable queued job. */

@@ -416,6 +416,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
   // v1.0.457 — unified scene-image location (named "NN Scene Images" folder),
   // shared with the Scene Generator + media-root-aware.
   const outDir = await resolveContinuityRenderOutputDir(job.project_slug, episode_id, paths.episode_dir)
+  job.output_dir = outDir
   await fs.mkdir(outDir, { recursive: true })
 
   // Resume only from images that fully decode. A non-empty but truncated file
@@ -551,7 +552,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       'GenStudio controls account concurrency and execution.',
     )
 
-    const inFlight = new Set<number>()
+    const inFlight = new Map<number, string>()
     // Scenes deliberately sitting out a busy-fleet wait. Nothing is happening
     // and nothing is wrong — the one case a bare spinner misreports as a hang.
     const fleetWaiting = new Map<number, { attempt: number; maxAttempts: number; retryAt: string; reason: string }>()
@@ -569,11 +570,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         cancelled: customerCancelled,
         not_submitted: Math.max(0, scenes.length - completed - settling - failed - customerCancelled),
         concurrency,
-        active: [...inFlight].sort((a, b) => a - b).map(sceneIndex => {
+        active: [...inFlight.entries()].sort(([left], [right]) => left - right).map(([sceneIndex, filename]) => {
           const waiting = fleetWaiting.get(sceneIndex)
           return {
             label: `Scene ${sceneIndex}`,
-            key: `scene-${sceneIndex}`,
+            key: filename,
             state: waiting ? 'waiting_retry' as const : 'running' as const,
             attempt: waiting?.attempt ?? 1,
             max_attempts: waiting?.maxAttempts ?? 1,
@@ -591,7 +592,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       total: scenes.length,
       to_render: toRender.length,
       rendered_so_far: usableRenderedIds.size,
-      in_flight: [...inFlight].sort((a, b) => a - b),
+      in_flight: [...inFlight.keys()].sort((a, b) => a - b),
       updated_at: new Date().toISOString(),
     })
 
@@ -663,7 +664,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             // just every scene: a resubmission must never start after the owner
             // has already stopped the run.
             if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id) || fatalError) return
-            inFlight.add(scene.scene_index)
+            inFlight.set(scene.scene_index, filename)
             syncItemProgress()
             await pushStatus()
             // Captured so the failure path can record WHICH GenStudio job died.
@@ -789,6 +790,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                       idempotency_key: idempotencyKey,
                       job_id: taskId,
                       output_path: outPath,
+                      input_hash: inputHash,
                       state: 'accepted',
                     })
                   },
@@ -848,6 +850,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                   idempotency_key: acceptedIdempotencyKey || `story-image-${scene.id}`,
                   job_id: failedTaskId,
                   output_path: outPath,
+                  input_hash: attemptHash,
                   state: 'failed',
                 })
                 if (e.cancelled) cancelledSceneIds.add(scene.id)
