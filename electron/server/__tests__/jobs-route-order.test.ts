@@ -41,6 +41,19 @@ describe('jobs router registration order', () => {
     assert.ok(streamIdx < jobIdIdx, 'the universal stream must not be shadowed by the job-id route')
   })
 
+  test('literal bulk Resume routes are registered before job-id wildcards', () => {
+    const paths = routePaths()
+    const universalResumeIdx = paths.indexOf('/jobs/all/resume-paused')
+    const universalJobIdx = paths.indexOf('/jobs/all/:jobId')
+    const projectResumeIdx = paths.indexOf('/projects/:slug/jobs/resume-paused')
+    const projectJobIdx = paths.indexOf('/projects/:slug/jobs/:jobId')
+
+    assert.notEqual(universalResumeIdx, -1, 'the universal bulk Resume route must exist')
+    assert.notEqual(projectResumeIdx, -1, 'the project bulk Resume route must exist')
+    assert.ok(universalResumeIdx < universalJobIdx, 'the universal literal route must precede job-id routes')
+    assert.ok(projectResumeIdx < projectJobIdx, 'the project literal route must precede job-id routes')
+  })
+
   test('/jobs/app/stream is registered before /jobs/app/:jobId', () => {
     const paths = routePaths()
     const streamIdx = paths.indexOf('/jobs/app/stream')

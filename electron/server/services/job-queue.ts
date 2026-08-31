@@ -2048,8 +2048,29 @@ interface PausedJobTransitionSnapshot {
 
 interface PausedJobTransitionResult {
   resumed: Job[]
+  noExecutor: Job[]
   persistenceFailed: Job[]
   lanes: Set<JobType>
+}
+
+interface PausedJobTransitionOptions {
+  allowWhileQueuePaused?: boolean
+  requireExecutor?: boolean
+}
+
+export interface ResumePausedJobsScope {
+  projectSlugs: readonly string[]
+  type?: JobType
+}
+
+export interface ResumePausedJobsResult {
+  requested: number
+  resumed: number
+  skipped: number
+  skipped_reasons?: Array<{
+    reason: 'no-executor' | 'persistence-failed'
+    count: number
+  }>
 }
 
 function isSafelyRetryableStallImageFailure(
@@ -2128,19 +2149,26 @@ export async function _recoverStallJobForTesting(
  */
 async function transitionPausedJobsToQueuedByProject(
   selected: Job[],
+  options: PausedJobTransitionOptions = {},
 ): Promise<PausedJobTransitionResult> {
   const result: PausedJobTransitionResult = {
     resumed: [],
+    noExecutor: [],
     persistenceFailed: [],
     lanes: new Set<JobType>(),
   }
-  if (queuePaused) return result
+  if (queuePaused && !options.allowWhileQueuePaused) return result
 
   const seen = new Set<string>()
   const candidates = selected.filter(job => {
-    if (seen.has(job.job_id) || job.status !== 'paused' || !queues[job.type]) return false
+    if (seen.has(job.job_id) || job.status !== 'paused') return false
     seen.add(job.job_id)
-    return true
+    const queue = queues[job.type]
+    if (options.requireExecutor && !queue?.executor) {
+      result.noExecutor.push(job)
+      return false
+    }
+    return Boolean(queue)
   })
   const byProject = new Map<string, Job[]>()
   for (const job of candidates) {
@@ -2212,6 +2240,37 @@ async function transitionPausedJobsToQueuedByProject(
     result.resumed.push(job)
     result.lanes.add(job.type)
   }
+  return result
+}
+
+/** Explicitly rejoin every paused record in a server-owned project/type scope. */
+export async function resumePausedJobs(scope: ResumePausedJobsScope): Promise<ResumePausedJobsResult> {
+  await initializeQueuePauseState()
+  const projectSlugs = new Set(scope.projectSlugs)
+  const selected = [...jobs.values()].filter(job => (
+    job.status === 'paused'
+    && projectSlugs.has(job.project_slug)
+    && (scope.type === undefined || job.type === scope.type)
+  ))
+  const transitioned = await transitionPausedJobsToQueuedByProject(selected, {
+    allowWhileQueuePaused: true,
+    requireExecutor: true,
+  })
+  for (const type of transitioned.lanes) pump(type)
+
+  const skippedReasons: NonNullable<ResumePausedJobsResult['skipped_reasons']> = []
+  if (transitioned.noExecutor.length) {
+    skippedReasons.push({ reason: 'no-executor', count: transitioned.noExecutor.length })
+  }
+  if (transitioned.persistenceFailed.length) {
+    skippedReasons.push({ reason: 'persistence-failed', count: transitioned.persistenceFailed.length })
+  }
+  const result: ResumePausedJobsResult = {
+    requested: selected.length,
+    resumed: transitioned.resumed.length,
+    skipped: selected.length - transitioned.resumed.length,
+  }
+  if (skippedReasons.length) result.skipped_reasons = skippedReasons
   return result
 }
 

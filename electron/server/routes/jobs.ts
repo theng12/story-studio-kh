@@ -1,11 +1,35 @@
 import { Router } from 'express'
 import * as jq from '../services/job-queue.js'
 import * as pm from '../services/project-manager.js'
-import type { Job } from '../models/types.js'
+import { JOB_TYPES, type Job, type JobType } from '../models/types.js'
 
 export const router = Router()
 
 const APP_SLUG = '_app_'
+const JOB_TYPE_SET = new Set<string>(JOB_TYPES)
+
+type ResumePausedBody = { project_slug?: string; type?: JobType }
+
+function parseResumePausedBody(
+  body: unknown,
+  allowedKeys: readonly (keyof ResumePausedBody)[],
+): { value: ResumePausedBody } | { error: string } {
+  const value = body === undefined ? {} : body
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { error: 'Request body must be an object.' }
+  }
+  const record = value as Record<string, unknown>
+  if (Object.keys(record).some(key => !allowedKeys.includes(key as keyof ResumePausedBody))) {
+    return { error: 'Request body contains unsupported fields.' }
+  }
+  if ('type' in record && (typeof record.type !== 'string' || !JOB_TYPE_SET.has(record.type))) {
+    return { error: 'Unknown job type.' }
+  }
+  if ('project_slug' in record && typeof record.project_slug !== 'string') {
+    return { error: 'project_slug must be a string.' }
+  }
+  return { value: record as ResumePausedBody }
+}
 
 function summarizeJobs(jobsList: Job[]) {
   return {
@@ -164,6 +188,18 @@ router.get('/jobs/all', async (_req, res) => {
   res.json(await allJobsSnapshot())
 })
 
+router.post('/jobs/all/resume-paused', async (req, res) => {
+  const parsed = parseResumePausedBody(req.body, ['project_slug', 'type'])
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const scopes = await allJobScopes()
+  if (parsed.value.project_slug !== undefined && !scopes.includes(parsed.value.project_slug)) {
+    return res.status(404).json({ detail: 'Project not found' })
+  }
+  const projectSlugs = parsed.value.project_slug === undefined ? scopes : [parsed.value.project_slug]
+  await Promise.all(projectSlugs.map(scope => jq.getJobs(scope)))
+  res.status(202).json(await jq.resumePausedJobs({ projectSlugs, type: parsed.value.type }))
+})
+
 router.post('/jobs/all/:jobId/retry', (req, res) => {
   const existing = jq.getJob(req.params.jobId)
   if (!existing) return res.status(404).json({ detail: 'Job not found' })
@@ -318,6 +354,20 @@ router.get('/jobs/app/:jobId', (req, res) => {
 router.delete('/jobs/app', async (_req, res) => {
   const count = await jq.clearFinished(APP_SLUG)
   res.json({ ok: true, cleared: count })
+})
+
+router.post('/projects/:slug/jobs/resume-paused', async (req, res) => {
+  const parsed = parseResumePausedBody(req.body, ['type'])
+  if ('error' in parsed) return res.status(400).json({ detail: parsed.error })
+  const projects = await pm.listProjects()
+  if (!projects.some(project => project.slug === req.params.slug)) {
+    return res.status(404).json({ detail: 'Project not found' })
+  }
+  await jq.getJobs(req.params.slug)
+  res.status(202).json(await jq.resumePausedJobs({
+    projectSlugs: [req.params.slug],
+    type: parsed.value.type,
+  }))
 })
 
 router.get('/projects/:slug/jobs/:jobId', (req, res) => {
