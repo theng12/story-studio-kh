@@ -1301,6 +1301,22 @@ function groupLimit(group: string): number {
 
 // ── Persistence ─────────────────────────────────────────────────────────────
 
+type JobFileLockProbe = (
+  operation: 'inspect' | 'persist',
+  jobsFile: string,
+) => void | Promise<void>
+
+let jobFileLockProbeForTesting: JobFileLockProbe | undefined
+
+/** Test-only inside-lock synchronization; production has no hook installed. */
+export function _setJobFileLockProbeForTesting(probe: JobFileLockProbe): () => void {
+  const previous = jobFileLockProbeForTesting
+  jobFileLockProbeForTesting = probe
+  return () => {
+    if (jobFileLockProbeForTesting === probe) jobFileLockProbeForTesting = previous
+  }
+}
+
 function jobsPath(projectSlug: string): string {
   // Honour linked-project locations so iCloud-synced projects read +
   // write their jobs.json in the right place.
@@ -1385,6 +1401,7 @@ async function persistJob(job: Job): Promise<void> {
   // Lock + atomic write: concurrent generators can finish at the same time and
   // would otherwise race `read → splice → write` on this shared file.
   await withLock(p, async () => {
+    if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('persist', p)
     let data: { jobs: any[] } = { jobs: [] }
     try {
       if (existsSync(p)) {
@@ -1444,6 +1461,7 @@ export async function inspectAuthoritativeJob(
 ): Promise<boolean | null> {
   const p = jobsPath(projectSlug)
   return withLock(p, async () => {
+    if (jobFileLockProbeForTesting) await jobFileLockProbeForTesting('inspect', p)
     assertWriteIsolatedInTests(p, 'job-queue')
     if (!existsSync(p)) return null
     const data = JSON.parse(await fs.readFile(p, 'utf-8')) as { jobs?: unknown }

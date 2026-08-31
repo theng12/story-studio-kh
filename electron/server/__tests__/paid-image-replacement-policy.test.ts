@@ -6,6 +6,12 @@ import { useTempDataDir } from './_helpers.js'
 import type { Job } from '../models/types.js'
 import type { TaskManifestEntry } from '../services/task-manifest.js'
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 const temp = await useTempDataDir()
 const settings = await import('../services/app-settings.js')
 const client = await import('../lib/genstudio-client.js')
@@ -373,6 +379,10 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     const beforeStat = await stat(jobsFile, { bigint: true })
     let manifestWrites = 0
     let postCalls = 0
+    const inspectionEntered = deferred()
+    const releaseInspection = deferred()
+    const lockOrder: string[] = []
+    let restoreLockProbe = () => {}
     const originalFetch = globalThis.fetch
     globalThis.fetch = (async (_request: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === 'POST') postCalls++
@@ -409,16 +419,29 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
       assert.equal(manifestWrites, 0)
       assert.equal(postCalls, 0)
 
-      let checkpointFinished = false
-      let checkpoint!: Promise<void>
-      const inspectedEmpty = await queue.inspectAuthoritativeJob(productionJob.project_slug, productionJob.job_id, (authoritative) => {
-        const concurrent = { ...authoritative, output_lines: ['normal checkpoint'] }
-        checkpoint = queue.checkpointJobState(concurrent).then(() => { checkpointFinished = true })
-        assert.equal(checkpointFinished, false, 'normal persistence must remain queued while the inspection predicate holds the shared lock')
+      restoreLockProbe = queue._setJobFileLockProbeForTesting(async (operation, lockedFile) => {
+        if (path.resolve(lockedFile) !== path.resolve(jobsFile)) return
+        lockOrder.push(`${operation}:lock`)
+        if (operation === 'inspect') {
+          inspectionEntered.resolve()
+          await releaseInspection.promise
+        }
+      })
+      const inspection = queue.inspectAuthoritativeJob(productionJob.project_slug, productionJob.job_id, (authoritative) => {
+        lockOrder.push('inspect:predicate')
         return authoritative.output_lines.length === 0
       })
+      await inspectionEntered.promise
+      const checkpoint = queue.checkpointJobState({ ...productionJob, output_lines: ['normal checkpoint'] })
+      releaseInspection.resolve()
+      const inspectedEmpty = await inspection
       assert.equal(inspectedEmpty, true)
       await checkpoint
+      assert.deepEqual(
+        lockOrder,
+        ['inspect:lock', 'inspect:predicate', 'persist:lock'],
+        'normal persistence may acquire the jobs.json lock only after the inspection predicate releases it',
+      )
       assert.deepEqual(JSON.parse(await readFile(jobsFile, 'utf8')).jobs[0].output_lines, ['normal checkpoint'])
       await assert.rejects(
         queue.inspectAuthoritativeJob(
@@ -430,6 +453,8 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
         'the shared file lock must not await an asynchronous inspection callback',
       )
     } finally {
+      releaseInspection.resolve()
+      restoreLockProbe()
       globalThis.fetch = originalFetch
     }
   })
