@@ -176,10 +176,10 @@ export function registerAllExecutors(options: { loadSettings?: boolean } = {}): 
   // No-op for non-split projects. NOTE: scene_image_generate / continuity_render
   // are intentionally NOT guarded — they write to `episode_dir/scene_images`,
   // which is not media-routed.
-  const guardMedia = (fn: (job: any) => Promise<unknown>) => async (job: any): Promise<void> => {
+  const guardMedia = (fn: (job: any) => Promise<unknown>) => async (job: any): Promise<import('../services/job-queue.js').JobExecutorResult> => {
     const { assertMediaRootReady } = await import('../services/media-root.js')
     await assertMediaRootReady(job.project_slug)
-    await fn(job)
+    return await fn(job) as import('../services/job-queue.js').JobExecutorResult
   }
   registerExecutor('idea_campaign', generateIdeaCampaign)
   // Legacy `'script'` executor (the coupled generateEpisode) was removed
