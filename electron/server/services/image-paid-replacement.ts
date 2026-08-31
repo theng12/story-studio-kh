@@ -56,6 +56,10 @@ function isReferenceInput(value: unknown): value is PaidImageReferenceInput {
 }
 
 function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson((value as Record<string, unknown>)[key])}`).join(',')}}`
+  }
   return JSON.stringify(value)
 }
 
@@ -76,13 +80,29 @@ function canonicalOwnedPath(owningRoot: string, candidate: string): string {
   return resolved
 }
 
-function pathWithinOwningRoot(owningRoot: string, candidate: string): boolean {
-  if (!existsSync(owningRoot) || !statSync(owningRoot).isDirectory()) return false
-  // The output does not exist yet at prepare time, so realpath would both
-  // reject it and collapse /var ↔ /private symlinks asymmetrically. The
-  // lexical boundary still rejects traversal before any later write.
-  const relative = path.relative(path.resolve(owningRoot), path.resolve(candidate))
-  return !!relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)
+/** Resolve an output through its nearest existing parent before any future use. */
+export function revalidatePaidImageOutputPath(owningRoot: string, candidate: string): string {
+  if (!existsSync(owningRoot) || !statSync(owningRoot).isDirectory()) fail('owning output root is unavailable')
+  const requested = path.resolve(candidate)
+  let ancestor = requested
+  while (!existsSync(ancestor)) {
+    const parent = path.dirname(ancestor)
+    if (parent === ancestor) fail('the original output path has no existing ancestor')
+    ancestor = parent
+  }
+  const root = realpathSync(owningRoot)
+  const canonicalAncestor = realpathSync(ancestor)
+  const relative = path.relative(root, canonicalAncestor)
+  if ((relative && (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)))
+    || (!relative && canonicalAncestor !== root)) {
+    fail('the original output path is outside its owning root')
+  }
+  const target = path.resolve(canonicalAncestor, path.relative(ancestor, requested))
+  const targetRelative = path.relative(root, target)
+  if (!targetRelative || targetRelative === '..' || targetRelative.startsWith(`..${path.sep}`) || path.isAbsolute(targetRelative)) {
+    fail('the original output path is outside its owning root')
+  }
+  return target
 }
 
 /** Hash submitted references in submission order; no sorting is permitted. */
@@ -131,7 +151,11 @@ export function buildPaidImageOriginalIdentity(input: {
 }
 
 /** Read only the pre-POST facts and prove the original reference bytes remain intact. */
-export function readPaidImageOriginalRequest(entry: TaskManifestEntry, owningRoot: string): PaidImageOriginalRequest {
+export function readPaidImageOriginalRequest(
+  entry: TaskManifestEntry,
+  owningRoot: string,
+  trustedOriginal: { prompt: string; baseScope: string },
+): PaidImageOriginalRequest {
   if (entry.last_state !== 'prepared' && entry.last_state !== 'accepted' && entry.last_state !== 'failed') {
     fail('the original manifest entry is not a prepared image request')
   }
@@ -142,16 +166,24 @@ export function readPaidImageOriginalRequest(entry: TaskManifestEntry, owningRoo
   }
   const references = entry.original_reference_inputs
   if (entry.original_output_selector.reference_mode === 'normal' && references.length) fail('normal work has persisted references')
-  if (!pathWithinOwningRoot(owningRoot, entry.original_output_path)) fail('the original output path is outside its owning root')
+  const outputPath = revalidatePaidImageOutputPath(owningRoot, entry.original_output_path)
   const verified = capturePaidImageReferenceIdentity(owningRoot, references)
   if (!sameJson(verified.inputs, references) || verified.identity_hash !== entry.original_reference_identity_hash) {
     fail('the original reference content hash does not match the persisted bytes')
   }
+  const identity = buildPaidImageOriginalIdentity({
+    prompt: trustedOriginal.prompt,
+    baseScope: trustedOriginal.baseScope,
+    selector: entry.original_output_selector,
+    references,
+  })
+  if (entry.input_hash !== identity.inputHash) fail('the original input hash does not match trusted request facts')
+  if (entry.request_scope !== identity.requestScope) fail('the original request scope does not match trusted request facts')
   return {
     selector: entry.original_output_selector,
     references,
     referenceIdentityHash: entry.original_reference_identity_hash,
-    outputPath: entry.original_output_path,
+    outputPath,
   }
 }
 
@@ -176,7 +208,7 @@ export function resolvePaidImagePublishedRate(input: {
     fail('normal work cannot use reference identity')
   }
   const model = input.models.find(candidate => candidate.id === input.modelId)
-  if (!model || !model.available || model.qualification_only || model.chargeable === false) fail('the original image model is not currently chargeable')
+  if (!model || !model.available || model.qualification_only || model.chargeable !== true) fail('the original image model is not currently chargeable')
   const rows = (model.output_options || []).filter((row) => (
     row.resolution === input.original.selector.resolution
     && row.aspect_ratio === input.original.selector.aspect_ratio

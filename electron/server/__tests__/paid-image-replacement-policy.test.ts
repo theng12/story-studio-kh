@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import test from 'node:test'
 import { useTempDataDir } from './_helpers.js'
@@ -41,10 +41,9 @@ const imageModel = (overrides: Record<string, unknown> = {}) => ({
       credits_per_image: 4, price_version: 'normal-v1',
       reference_generation_credits: 9, reference_generation_price_version: 'reference-v1',
     },
-    // Deliberately similar: matching only resolution/aspect ratio would choose
-    // the wrong published rate.
+    // Deliberately similar: each selector field must participate independently.
     {
-      resolution: '1K', aspect_ratio: '16:9', width: 1024, height: 576, is_default: false,
+      resolution: '1K', aspect_ratio: '16:9', width: 1280, height: 576, is_default: false,
       credits_per_image: 5, price_version: 'normal-small-v1',
       reference_generation_credits: 10, reference_generation_price_version: 'reference-small-v1',
     },
@@ -95,6 +94,7 @@ void test('paid image rate resolution uses one exact output row and the selected
     ['a row with a half-published reference pair', imageModel({ output_options: [{ ...imageModel().output_options[0], reference_generation_price_version: undefined }] }), originalGuided],
     ['a model with a half-published reference fallback', imageModel({ output_options: [{ ...imageModel().output_options[0], reference_generation_credits: undefined, reference_generation_price_version: undefined }], reference_generation_price_version: undefined }), originalGuided],
     ['no matching dimensions', imageModel({ output_options: [{ ...imageModel().output_options[0], width: 1281 }] }), originalNormal],
+    ['no matching height', imageModel({ output_options: [{ ...imageModel().output_options[0], height: 721 }] }), originalNormal],
     ['no matching aspect ratio', imageModel({ output_options: [{ ...imageModel().output_options[0], aspect_ratio: '1:1' }] }), originalNormal],
     ['no matching resolution', imageModel({ output_options: [{ ...imageModel().output_options[0], resolution: '2K' }] }), originalNormal],
     ['duplicate matching rows', imageModel({ output_options: [imageModel().output_options[0], { ...imageModel().output_options[0] }] }), originalNormal],
@@ -102,6 +102,7 @@ void test('paid image rate resolution uses one exact output row and the selected
     ['a non-finite normal credit value', imageModel({ output_options: [{ ...imageModel().output_options[0], credits_per_image: Number.NaN }] }), originalNormal],
     ['a removed model', imageModel({ id: 'other-image' }), originalNormal],
     ['a non-chargeable model', imageModel({ chargeable: false }), originalNormal],
+    ['a model with unpublished chargeability', imageModel({ chargeable: undefined }), originalNormal],
   ] as const) {
     await suite.test(`blocks ${label}`, () => {
       assert.throws(() => policy.resolvePaidImagePublishedRate({
@@ -139,6 +140,19 @@ void test('paid image original identity is ordered, content-addressed, and only 
   const identity = policy.buildPaidImageOriginalIdentity(base)
   assert.equal(identity.referenceIdentityHash, references.identity_hash)
   assert.match(identity.requestScope, new RegExp(references.identity_hash))
+  const reorderedFacts = policy.buildPaidImageOriginalIdentity({
+    prompt: base.prompt,
+    baseScope: base.baseScope,
+    selector: {
+      height: base.selector.height,
+      reference_mode: base.selector.reference_mode,
+      width: base.selector.width,
+      aspect_ratio: base.selector.aspect_ratio,
+      resolution: base.selector.resolution,
+    },
+    references: references.inputs.map(reference => ({ sha256: reference.sha256, path: reference.path, role: reference.role })),
+  })
+  assert.deepEqual(reorderedFacts, identity, 'object key insertion order cannot alter durable identity')
   assert.equal(policy.buildPaidImageOriginalIdentity({ ...base, selector: selector({ width: 1024, reference_mode: 'reference-guided' as const }) }).inputHash === identity.inputHash, false)
   assert.equal(policy.buildPaidImageOriginalIdentity({ ...base, references: [...references.inputs].reverse() }).requestScope === identity.requestScope, false)
   assert.equal(policy.buildPaidImageOriginalIdentity({ ...base, references: [{ ...references.inputs[0]!, role: 'other' }, references.inputs[1]! ] }).inputHash === identity.inputHash, false)
@@ -161,18 +175,34 @@ void test('paid image original identity is ordered, content-addressed, and only 
     original_reference_identity_hash: references.identity_hash,
     original_output_path: path.join(root, 'out.png'),
   }
-  const persisted = policy.readPaidImageOriginalRequest(prepared, root)
+  const trustedOriginal = { prompt: base.prompt, baseScope: base.baseScope }
+  const persisted = policy.readPaidImageOriginalRequest(prepared, root, trustedOriginal)
   assert.deepEqual(persisted.selector, base.selector)
   assert.deepEqual(persisted.references, references.inputs)
+  assert.equal(persisted.outputPath, policy.revalidatePaidImageOutputPath(root, prepared.original_output_path))
   assert.equal(policy.capturePaidImageReferenceIdentity(root, []).identity_hash, policy.sha256CanonicalJson([]), 'normal work persists the canonical empty list')
 
   await writeFile(first, 'changed bytes')
-  assert.throws(() => policy.readPaidImageOriginalRequest(prepared, root), /hash/i)
+  assert.throws(() => policy.readPaidImageOriginalRequest(prepared, root, trustedOriginal), /hash/i)
   await rm(second)
-  assert.throws(() => policy.readPaidImageOriginalRequest(prepared, root), /missing/i)
+  assert.throws(() => policy.readPaidImageOriginalRequest(prepared, root, trustedOriginal), /missing/i)
   await assert.rejects(writeFile(path.join(temp.dir, 'outside.png'), 'outside').then(async () =>
     policy.capturePaidImageReferenceIdentity(root, [{ role: 'bad', path: path.join(temp.dir, 'outside.png') }]),
   ))
+
+  await writeFile(second, 'second reference')
+  await writeFile(first, 'first reference')
+  const tamperedHash = { ...prepared, input_hash: 'sha256:0000000000000000' }
+  assert.throws(() => policy.readPaidImageOriginalRequest(tamperedHash, root, trustedOriginal), /input hash/i)
+  const tamperedScope = { ...prepared, request_scope: 'scene:forged' }
+  assert.throws(() => policy.readPaidImageOriginalRequest(tamperedScope, root, trustedOriginal), /request scope/i)
+
+  const outsideDir = path.join(temp.dir, 'outside-output')
+  const linkedParent = path.join(root, 'linked-parent')
+  await mkdir(outsideDir, { recursive: true })
+  await symlink(outsideDir, linkedParent)
+  const linkedOutput = { ...prepared, original_output_path: path.join(linkedParent, 'out.png') }
+  assert.throws(() => policy.readPaidImageOriginalRequest(linkedOutput, root, trustedOriginal), /output path/i)
 })
 
 void test('force-live image catalogue reads supersede an older refresh and never fall back', async () => {
@@ -222,6 +252,18 @@ void test('force-live image catalogue reads supersede an older refresh and never
       /could not be refreshed|unavailable/i,
       'a failed forced read must not use the warm catalogue as a stale pricing fallback',
     )
+
+    const forcePending: Array<{ resolve: (value: Response) => void }> = []
+    client.clearGenStudioCatalogCache()
+    globalThis.fetch = (() => new Promise<Response>(resolve => forcePending.push({ resolve }))) as typeof globalThis.fetch
+    const forceB = client.listImageModelsForceLive(apiKey)
+    while (forcePending.length < 1) await new Promise(resolve => setTimeout(resolve, 0))
+    const forceC = client.listImageModelsForceLive(apiKey)
+    while (forcePending.length < 2) await new Promise(resolve => setTimeout(resolve, 0))
+    forcePending[0]!.resolve(response(11, 'force-b-price'))
+    await assert.rejects(forceB, /superseded/i, 'forced B must not authorize after forced C starts')
+    forcePending[1]!.resolve(response(14, 'force-c-price'))
+    assert.equal((await forceC).value[0]!.credits_per_image, 14)
   } finally {
     globalThis.fetch = originalFetch
     client.clearGenStudioCatalogCache()

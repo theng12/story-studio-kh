@@ -3765,10 +3765,14 @@ async function forceLiveCatalogSnapshot<T>(
   key: string,
   load: () => Promise<T>,
 ): Promise<GenStudioCatalogSnapshot<T>> {
-  catalogGenerations.set(key, (catalogGenerations.get(key) ?? 0) + 1)
+  const generation = (catalogGenerations.get(key) ?? 0) + 1
+  catalogGenerations.set(key, generation)
   catalogCache.delete(key)
   catalogRefreshes.delete(key)
   const snapshot = await cachedCatalogSnapshot(kind, key, load)
+  if ((catalogGenerations.get(key) ?? 0) !== generation) {
+    throw new Error(`GenStudio KH ${CATALOG_LABEL[kind]} catalogue force-live read was superseded by a newer refresh.`)
+  }
   if (snapshot.freshness !== 'live') {
     throw new GenStudioCatalogUnavailableError(kind, snapshot.ageMs, new Error('force-live image catalog read was not live'))
   }
