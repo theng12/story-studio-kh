@@ -303,6 +303,38 @@ describe('the staleness threshold is measured, not written down', () => {
     assert.match(page, /\.job-stat-fresh\.is-stale/)
     assert.match(page, /isProgressStale\(jobLastProgressAt\(job\), now\.value, jobCadenceSeconds\(job\)\)/)
   })
+
+  test('active timing telemetry keeps freshness pinned when ETA appears or disappears', () => {
+    const start = template.indexOf('<!-- Row 3: the progress tracker.')
+    const end = template.indexOf('<!-- Money:', start)
+    const activeProgress = template.slice(start, end)
+    assert.match(
+      activeProgress,
+      /<span\s+v-if="jobEta\(job\) \|\| jobFreshness\(job\)"\s+class="job-stat-telemetry"\s+role="group"\s+aria-label="Job timing"\s*>[\s\S]*?job-stat-eta[\s\S]*?job-stat-fresh[\s\S]*?<\/span>\s*<\/span>/,
+      'ETA and freshness need one labelled trailing timing group, in that order',
+    )
+    const telemetryStyles = page.match(/\.job-stat-telemetry\s*\{([^}]*)\}/)?.[1] || ''
+    const etaStyles = page.match(/\.job-stat-eta\s*\{([^}]*)\}/)?.[1] || ''
+    const freshnessStyles = page.match(/\.job-stat-fresh\s*\{([^}]*)\}/)?.[1] || ''
+    const staleStyles = page.match(/\.job-stat-fresh\.is-stale\s*\{([^}]*)\}/)?.[1] || ''
+
+    assert.match(telemetryStyles, /margin-left:\s*auto/)
+    assert.match(telemetryStyles, /display:\s*inline-flex/)
+    assert.match(telemetryStyles, /flex-wrap:\s*wrap/)
+    assert.match(telemetryStyles, /justify-content:\s*flex-end/)
+    assert.doesNotMatch(etaStyles, /margin-left:\s*auto/)
+    for (const declaration of [/border:\s*1px solid/, /background:/, /padding:/, /border-radius:/, /font-weight:\s*600/, /white-space:\s*nowrap/]) assert.match(freshnessStyles, declaration)
+    assert.match(staleStyles, /border:\s*1px solid/)
+    assert.match(staleStyles, /background:/)
+    assert.match(staleStyles, /color:\s*var\(--warning/)
+    assert.match(freshnessStyles, /color:\s*var\(--text-secondary\)/)
+    const ultraNarrowFreshness = page.match(/@media \(max-width: 260px\)\s*\{[\s\S]*?\.job-stat-fresh\s*\{([^}]*)\}/)?.[1] || ''
+    assert.match(ultraNarrowFreshness, /max-width:\s*100%/)
+    assert.match(ultraNarrowFreshness, /white-space:\s*normal/)
+    assert.match(ultraNarrowFreshness, /text-align:\s*right/)
+    assert.match(ultraNarrowFreshness, /line-height:/)
+    assert.match(page, /@media \(max-width: 760px\)\s*\{[\s\S]*?\.job-stat-telemetry\s*\{[\s\S]*?flex-basis:\s*100%[\s\S]*?justify-content:\s*flex-end/)
+  })
 })
 
 // ── 5. Exceptions, surfaced individually ──────────────────────────────────
