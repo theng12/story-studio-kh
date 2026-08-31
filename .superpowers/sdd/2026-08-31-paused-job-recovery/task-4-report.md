@@ -217,3 +217,86 @@ No open implementation concern remains. Independent re-review is required
 before Task 5. Immediately after commit `3b79c973`, the worktree was clean and
 the process audit found no surviving focused backend-test or `tsx --test`
 process for this worktree.
+
+## Re-review boundary correction
+
+Implementation commit `107e650aaffb8fabe3dddcd5bb07b321ea9a4fcd`
+(`fix: revalidate bulk Resume at project boundary`) resolves the remaining P1
+appended in `task-4-review.md`.
+
+### Boundary-fix RED evidence
+
+The deterministic two-project cancellation race began at:
+
+```text
+node scripts/testing/run-backend-tests.mjs --only jobs-resume-paused-routes
+7 passed, 1 failed of 8; 3 suites; 1/1 selected file completed
+configured projects root byte-identical: true
+```
+
+The test blocked project A's exact snapshot rename, completed and durably
+verified cancellation of already-claimed project B, then released project A.
+Before the correction, bulk Resume falsely returned
+`{ requested: 2, resumed: 2, skipped: 0 }` instead of resuming only A and
+counting B as skipped. The promise barriers establish ordering without sleeps
+or wall-clock timing.
+
+### Boundary-fix GREEN and verification evidence
+
+Final focused GREEN:
+
+```text
+node scripts/testing/run-backend-tests.mjs \
+  --only jobs-resume-paused-routes --only jobs-route-order
+12 passed, 0 failed; 4 suites; 2/2 selected files completed
+configured projects root byte-identical: true
+```
+
+Final adjacent Task 2/3 and Task 4 GREEN:
+
+```text
+node scripts/testing/run-backend-tests.mjs \
+  --only job-queue --only jobs-stream --only jobs-route-order \
+  --only jobs-resume-paused-routes
+106 passed, 0 failed; 27 suites; 10/10 selected files completed
+configured projects root byte-identical: true
+```
+
+Additional fresh checks:
+
+```text
+npm run typecheck:electron
+exit 0
+
+npx eslint electron/server/services/job-queue.ts electron/server/routes/jobs.ts \
+  electron/server/__tests__/jobs-resume-paused-routes.test.ts --quiet
+exit 0
+
+git diff --check
+exit 0
+```
+
+All backend runs above are focused partial runs, not the release gate.
+
+### Corrected project-boundary behavior and concerns
+
+- Each claimed row is revalidated immediately before its project's synchronous
+  snapshot/mutation boundary: the live map must still own the same object, the
+  transition claim must still exist, status must still be paused, and neither
+  Pause nor Cancel state may supersede Resume.
+- A cancellation completed while an earlier project persists therefore remains
+  cancelled in memory and on disk. It receives no Resume log, snapshot write,
+  queued SSE event, lane pump, or executor call.
+- The initial server-owned selection remains the truthful `requested` count;
+  only durable eligible rows count as `resumed`, and a superseded row contributes
+  to `skipped` without adding a new customer-visible reason outside the approved
+  response contract.
+- Per-project atomicity still applies to every row eligible at that mutation
+  boundary, with one snapshot write per affected project and partial success
+  across projects. Claim release and the prior persistence-failure rollback
+  protections are unchanged.
+
+No open implementation concern remains. Independent re-review is still required
+before Task 5. Immediately after implementation commit `107e650a`, the worktree
+was clean and the process audit found no surviving focused backend-test or
+`tsx --test` process for this worktree.
