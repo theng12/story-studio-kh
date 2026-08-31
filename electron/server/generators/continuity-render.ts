@@ -551,7 +551,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       'GenStudio controls account concurrency and execution.',
     )
 
-    const inFlight = new Set<number>()
+    const inFlight = new Map<number, string>()
     // Scenes deliberately sitting out a busy-fleet wait. Nothing is happening
     // and nothing is wrong — the one case a bare spinner misreports as a hang.
     const fleetWaiting = new Map<number, { attempt: number; maxAttempts: number; retryAt: string; reason: string }>()
@@ -569,11 +569,11 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
         cancelled: customerCancelled,
         not_submitted: Math.max(0, scenes.length - completed - settling - failed - customerCancelled),
         concurrency,
-        active: [...inFlight].sort((a, b) => a - b).map(sceneIndex => {
+        active: [...inFlight.entries()].sort(([left], [right]) => left - right).map(([sceneIndex, filename]) => {
           const waiting = fleetWaiting.get(sceneIndex)
           return {
             label: `Scene ${sceneIndex}`,
-            key: `scene-${sceneIndex}`,
+            key: filename,
             state: waiting ? 'waiting_retry' as const : 'running' as const,
             attempt: waiting?.attempt ?? 1,
             max_attempts: waiting?.maxAttempts ?? 1,
@@ -591,7 +591,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
       total: scenes.length,
       to_render: toRender.length,
       rendered_so_far: usableRenderedIds.size,
-      in_flight: [...inFlight].sort((a, b) => a - b),
+      in_flight: [...inFlight.keys()].sort((a, b) => a - b),
       updated_at: new Date().toISOString(),
     })
 
@@ -650,6 +650,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
           const hashRequest = (scope: string): string =>
             hashInput(sceneReferenceTag ? `${scope}\n${finalPrompt}\nref:${sceneReferenceTag}` : `${scope}\n${finalPrompt}`)
           const filename = `${scene.id}.png`
+          inFlight.set(scene.scene_index, filename)
           const providerId = imageProvider.meta.providerId || imageProvider.meta.id
           // v1.4.27 — attempts for THIS scene. Only a busy fleet earns another
           // one; every other outcome, good or bad, leaves the loop on the first
@@ -663,7 +664,6 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
             // just every scene: a resubmission must never start after the owner
             // has already stopped the run.
             if (jq.isCancelled(job.job_id) || jq.isPauseRequested(job.job_id) || fatalError) return
-            inFlight.add(scene.scene_index)
             syncItemProgress()
             await pushStatus()
             // Captured so the failure path can record WHICH GenStudio job died.

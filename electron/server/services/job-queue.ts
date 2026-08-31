@@ -2124,6 +2124,109 @@ export interface ResumePausedJobsResult {
   }>
 }
 
+export interface ContinuityTailProof {
+  job_id: string
+  settling: number
+  concurrency: number
+  active_asset_keys: string[]
+  provider_task_ids: string[]
+}
+
+function isNonNegativeWhole(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+function isAcceptedProviderTaskId(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && !value.startsWith('pending:')
+}
+
+/**
+ * Read-only, fail-closed evidence that a live Continuity render is in its
+ * under-filled final provider wave. The progress key is deliberately the
+ * direct manifest/checkpoint filename join; a scene number is display-only.
+ */
+export async function proveContinuitySettlingTail(job: Job): Promise<ContinuityTailProof | null> {
+  if (job.type !== 'continuity_render' || job.status !== 'running' || typeof job.output_dir !== 'string') return null
+  const progress = job.item_progress
+  if (!progress || !isNonNegativeWhole(progress.total) || !isNonNegativeWhole(progress.completed)
+    || !isNonNegativeWhole(progress.failed) || !isNonNegativeWhole(progress.settling)
+    || !isNonNegativeWhole(progress.cancelled) || !isNonNegativeWhole(progress.not_submitted)
+    || !Number.isSafeInteger(progress.concurrency) || progress.concurrency <= 0
+    || !Array.isArray(progress.active)
+  ) return null
+  if (
+    progress.active.length !== progress.settling
+    || progress.total !== progress.completed + progress.failed + progress.settling + progress.cancelled + progress.not_submitted
+    || progress.not_submitted !== 0
+    || progress.settling <= 0
+    || progress.settling >= progress.concurrency
+  ) return null
+
+  const keys = progress.active.map(item => item?.key)
+  if (!keys.every(key => typeof key === 'string' && key.trim().length > 0 && path.basename(key) === key)
+    || new Set(keys).size !== keys.length
+    || progress.active.some(item => item?.state !== 'running')
+  ) return null
+
+  const checkpoint = job.params?.genstudio_recovery
+  if (
+    !checkpoint || checkpoint.version !== 1 || checkpoint.route !== 'genstudio'
+    || !checkpoint.assets || typeof checkpoint.assets !== 'object'
+  ) return null
+
+  const manifest = await readManifest(job.output_dir)
+  const providerTaskIds = new Set<string>()
+  for (const key of keys as string[]) {
+    const checkpointEntry = checkpoint.assets[key]
+    const manifestEntry = manifest.tasks[key]
+    if (
+      checkpointEntry?.operation !== 'image'
+      || manifestEntry?.operation !== 'image'
+      || typeof checkpointEntry.output_path !== 'string'
+      || path.resolve(checkpointEntry.output_path) !== path.resolve(job.output_dir, key)
+      || typeof manifestEntry.input_hash !== 'string'
+      || !manifestEntry.input_hash.trim()
+    ) return null
+
+    const checkpointId = checkpointEntry.job_id
+    const manifestId = manifestEntry.task_id
+    if (
+      (checkpointId !== undefined && !isAcceptedProviderTaskId(checkpointId))
+      || !isAcceptedProviderTaskId(manifestId) && !isAcceptedProviderTaskId(checkpointId)
+      || isAcceptedProviderTaskId(checkpointId) && isAcceptedProviderTaskId(manifestId) && checkpointId !== manifestId
+    ) return null
+    const taskId = isAcceptedProviderTaskId(checkpointId) ? checkpointId : manifestId
+
+    const checkpointKey = checkpointEntry.idempotency_key
+    const manifestKey = manifestEntry.idempotency_key
+    if (
+      (checkpointKey !== undefined && !isAcceptedProviderTaskId(checkpointKey))
+      || (manifestKey !== undefined && !isAcceptedProviderTaskId(manifestKey))
+      || isAcceptedProviderTaskId(checkpointKey) && isAcceptedProviderTaskId(manifestKey) && checkpointKey !== manifestKey
+    ) return null
+    const idempotencyKey = isAcceptedProviderTaskId(checkpointKey) ? checkpointKey : manifestKey
+    if (!idempotencyKey) return null
+
+    const matches = (job.genstudio_jobs || []).filter(entry => (
+      entry.operation === 'image.generation'
+      && entry.id === taskId
+      && entry.cancelled !== true
+      && !['succeeded', 'failed', 'cancelled'].includes(entry.state)
+    ))
+    if (matches.length !== 1 || matches[0]!.request?.idempotency_key !== idempotencyKey || providerTaskIds.has(taskId)) return null
+    providerTaskIds.add(taskId)
+  }
+
+  if (providerTaskIds.size !== progress.settling || keys.length !== progress.settling) return null
+  return {
+    job_id: job.job_id,
+    settling: progress.settling,
+    concurrency: progress.concurrency,
+    active_asset_keys: keys as string[],
+    provider_task_ids: [...providerTaskIds],
+  }
+}
+
 function isSafelyRetryableStallImageFailure(
   entry: NonNullable<Job['genstudio_jobs']>[number],
 ): boolean {

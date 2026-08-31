@@ -1,9 +1,10 @@
 import { after, before, describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { useTempDataDir } from './_helpers.js'
+import { recordTaskStrict } from '../services/task-manifest.js'
 
 const SERVER = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 const queueSource = () => readFile(path.join(SERVER, 'services/job-queue.ts'), 'utf8')
@@ -49,6 +50,81 @@ async function waitForPersistedTerminal(
     await new Promise(resolve => setTimeout(resolve, 10))
   }
   throw new Error(`Timed out waiting for ${label}`)
+}
+
+function continuityTailJob(overrides: Record<string, unknown> = {}): any {
+  const outputDir = path.join(process.env.STORY_STUDIO_DATA_DIR!, 'continuity-tail-proof')
+  const key = 'scene-001.png'
+  return {
+    job_id: 'continuity-tail-proof',
+    project_slug: 'tail-proof-project',
+    type: 'continuity_render',
+    episode_id: 'EP001',
+    title: 'Continuity tail proof',
+    status: 'running',
+    created_at: '2026-08-31T00:00:00.000Z',
+    started_at: '2026-08-31T00:00:00.000Z',
+    finished_at: null,
+    error: null,
+    output_lines: [],
+    output_dir: outputDir,
+    item_progress: {
+      total: 3,
+      completed: 2,
+      failed: 0,
+      settling: 1,
+      cancelled: 0,
+      not_submitted: 0,
+      concurrency: 2,
+      active: [{ label: 'Scene 1', key, state: 'running', attempt: 1, max_attempts: 1 }],
+    },
+    params: {
+      episode_id: 'EP001',
+      genstudio_recovery: {
+        version: 1,
+        route: 'genstudio',
+        assets: {
+          [key]: {
+            operation: 'image',
+            idempotency_key: 'story-image-key-001',
+            job_id: 'image-task-001',
+            output_path: path.join(outputDir, key),
+            state: 'accepted',
+            updated_at: '2026-08-31T00:00:00.000Z',
+          },
+        },
+      },
+    },
+    genstudio_jobs: [{
+      id: 'image-task-001',
+      operation: 'image.generation',
+      state: 'running',
+      updated_at: '2026-08-31T00:00:00.000Z',
+      request: { idempotency_key: 'story-image-key-001' },
+    }],
+    ...overrides,
+  }
+}
+
+async function writeContinuityTailManifest(job: any, entry: Record<string, unknown> = {}): Promise<void> {
+  const key = 'scene-001.png'
+  await mkdir(job.output_dir, { recursive: true })
+  await recordTaskStrict(job.output_dir, key, {
+    provider: 'genstudio',
+    task_id: 'image-task-001',
+    submitted_at: '2026-08-31T00:00:00.000Z',
+    input_hash: 'sha256:tail-proof',
+    idempotency_key: 'story-image-key-001',
+    operation: 'image',
+    last_state: 'accepted',
+    ...entry,
+  } as any)
+}
+
+async function proveTail(job: any): Promise<any> {
+  const prove = (jq as any).proveContinuitySettlingTail
+  assert.equal(typeof prove, 'function', 'the exact Continuity tail proof must be exported for its durable fixture')
+  return prove(job)
 }
 
 describe('image episode admission fairness', () => {
@@ -299,5 +375,124 @@ describe('image episode admission fairness', () => {
       assert.doesNotMatch(admission, new RegExp(`\\b${term}\\b`, 'i'), `image admission must not rank by ${term}`)
     }
     assert.doesNotMatch(admission, /\.sort\s*\(/, 'image admission must not sort jobs')
+  })
+})
+
+describe('Continuity settling-tail proof', () => {
+  test('binds each canonical active filename to one accepted nonterminal provider task', async () => {
+    const job = continuityTailJob()
+    await writeContinuityTailManifest(job)
+
+    const proof = await proveTail(job)
+
+    assert.deepEqual(proof, {
+      job_id: job.job_id,
+      settling: 1,
+      concurrency: 2,
+      active_asset_keys: ['scene-001.png'],
+      provider_task_ids: ['image-task-001'],
+    })
+  })
+
+  test('accepts one checkpoint-only id and one manifest-only id without guessing either', async () => {
+    const checkpointOnly = continuityTailJob()
+    checkpointOnly.params.genstudio_recovery.assets['scene-001.png'].job_id = 'image-task-001'
+    await writeContinuityTailManifest(checkpointOnly, { task_id: '' })
+    assert.equal((await proveTail(checkpointOnly))?.provider_task_ids[0], 'image-task-001')
+
+    const manifestOnly = continuityTailJob()
+    delete manifestOnly.params.genstudio_recovery.assets['scene-001.png'].job_id
+    await writeContinuityTailManifest(manifestOnly)
+    assert.equal((await proveTail(manifestOnly))?.provider_task_ids[0], 'image-task-001')
+  })
+
+  test('fails closed before capacity refresh for malformed progress or an unbound active key', async () => {
+    const cases: Array<[string, (job: any) => void]> = [
+      ['missing settling', job => { delete job.item_progress.settling }],
+      ['fractional total', job => { job.item_progress.total = 3.5 }],
+      ['negative failed', job => { job.item_progress.failed = -1 }],
+      ['active count mismatch', job => { job.item_progress.active = [] }],
+      ['arithmetic mismatch', job => { job.item_progress.completed = 1 }],
+      ['unsubmitted scene', job => { job.item_progress.not_submitted = 1; job.item_progress.total = 4 }],
+      ['waiting retry', job => { job.item_progress.active[0].state = 'waiting_retry' }],
+      ['full wave', job => { job.item_progress.concurrency = 1 }],
+      ['legacy scene-number key', job => { job.item_progress.active[0].key = 'scene-1' }],
+      ['duplicate active key', job => {
+        job.item_progress.total = 4
+        job.item_progress.completed = 2
+        job.item_progress.settling = 2
+        job.item_progress.concurrency = 3
+        job.item_progress.active.push({ ...job.item_progress.active[0] })
+      }],
+    ]
+    for (const [name, mutate] of cases) {
+      const job = continuityTailJob()
+      await writeContinuityTailManifest(job)
+      mutate(job)
+      assert.equal(await proveTail(job), null, name)
+    }
+  })
+
+  test('rejects every contradictory checkpoint, manifest, and provider binding', async () => {
+    const cases: Array<[string, (job: any, manifest: Record<string, unknown>) => void]> = [
+      ['missing recovery', job => { delete job.params.genstudio_recovery }],
+      ['wrong recovery version', job => { job.params.genstudio_recovery.version = 2 }],
+      ['wrong recovery route', job => { job.params.genstudio_recovery.route = 'other' }],
+      ['missing active asset', job => { delete job.params.genstudio_recovery.assets['scene-001.png'] }],
+      ['wrong checkpoint operation', job => { job.params.genstudio_recovery.assets['scene-001.png'].operation = 'video' }],
+      ['pending checkpoint id', job => { job.params.genstudio_recovery.assets['scene-001.png'].job_id = 'pending:story-image-key-001' }],
+      ['checkpoint manifest task disagreement', job => { job.params.genstudio_recovery.assets['scene-001.png'].job_id = 'image-task-other' }],
+      ['checkpoint manifest key disagreement', job => { job.params.genstudio_recovery.assets['scene-001.png'].idempotency_key = 'story-other' }],
+      ['wrong checkpoint output', job => { job.params.genstudio_recovery.assets['scene-001.png'].output_path = path.join(job.output_dir, 'scene-002.png') }],
+      ['blank task ids', (job, manifest) => {
+        delete job.params.genstudio_recovery.assets['scene-001.png'].job_id
+        manifest.task_id = ''
+      }],
+      ['wrong manifest operation', (_job, manifest) => { manifest.operation = 'video' }],
+      ['blank manifest idempotency key', (_job, manifest) => { manifest.idempotency_key = '' }],
+      ['missing provider evidence', job => { job.genstudio_jobs = [] }],
+      ['duplicate provider evidence', job => { job.genstudio_jobs.push({ ...job.genstudio_jobs[0] }) }],
+      ['wrong provider operation', job => { job.genstudio_jobs[0].operation = 'video.generation' }],
+      ['terminal provider evidence', job => { job.genstudio_jobs[0].state = 'succeeded' }],
+      ['cancelled provider evidence', job => { job.genstudio_jobs[0].cancelled = true }],
+      ['provider idempotency mismatch', job => { job.genstudio_jobs[0].request.idempotency_key = 'story-other' }],
+    ]
+    for (const [name, mutate] of cases) {
+      const job = continuityTailJob()
+      const manifest: Record<string, unknown> = {}
+      mutate(job, manifest)
+      await writeContinuityTailManifest(job, manifest)
+      assert.equal(await proveTail(job), null, name)
+    }
+  })
+
+  test('rejects a count-perfect final wave when one active asset is unmapped or shares a provider task', async () => {
+    const addSecondActive = (job: any) => {
+      job.item_progress.total = 4
+      job.item_progress.completed = 2
+      job.item_progress.settling = 2
+      job.item_progress.concurrency = 3
+      job.item_progress.active.push({
+        label: 'Scene 2', key: 'scene-002.png', state: 'running', attempt: 1, max_attempts: 1,
+      })
+    }
+
+    const unmapped = continuityTailJob()
+    addSecondActive(unmapped)
+    await writeContinuityTailManifest(unmapped)
+    assert.equal(await proveTail(unmapped), null, 'counts never substitute for a direct active-key binding')
+
+    const duplicateProvider = continuityTailJob()
+    addSecondActive(duplicateProvider)
+    duplicateProvider.params.genstudio_recovery.assets['scene-002.png'] = {
+      ...duplicateProvider.params.genstudio_recovery.assets['scene-001.png'],
+      output_path: path.join(duplicateProvider.output_dir, 'scene-002.png'),
+    }
+    await writeContinuityTailManifest(duplicateProvider)
+    await recordTaskStrict(duplicateProvider.output_dir, 'scene-002.png', {
+      provider: 'genstudio', task_id: 'image-task-001', submitted_at: '2026-08-31T00:00:00.000Z',
+      input_hash: 'sha256:tail-proof', idempotency_key: 'story-image-key-001', operation: 'image', last_state: 'accepted',
+    })
+    assert.equal(await proveTail(duplicateProvider), null, 'two active assets cannot share one provider task')
   })
 })
