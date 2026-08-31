@@ -373,6 +373,7 @@ const cancellationReconciling = new Set<string>()
 const cancellationReconcileTimers = new Map<string, NodeJS.Timeout>()
 const cancelled = new Set<string>()
 const pauseRequested = new Set<string>()
+const pausedTransitionClaims = new Set<string>()
 const loadedProjects = new Set<string>()
 const loadingProjects = new Map<string, Promise<void>>()
 const projectRemovalInProgress = new Set<string>()
@@ -2161,15 +2162,18 @@ async function transitionPausedJobsToQueuedByProject(
 
   const seen = new Set<string>()
   const candidates = selected.filter(job => {
-    if (seen.has(job.job_id) || job.status !== 'paused') return false
+    if (seen.has(job.job_id) || job.status !== 'paused' || pausedTransitionClaims.has(job.job_id)) return false
     seen.add(job.job_id)
     const queue = queues[job.type]
     if (options.requireExecutor && !queue?.executor) {
       result.noExecutor.push(job)
       return false
     }
-    return Boolean(queue)
+    if (!queue) return false
+    pausedTransitionClaims.add(job.job_id)
+    return true
   })
+  try {
   const byProject = new Map<string, Job[]>()
   for (const job of candidates) {
     const group = byProject.get(job.project_slug) || []
@@ -2206,15 +2210,22 @@ async function transitionPausedJobsToQueuedByProject(
     } catch (error) {
       for (const snapshot of snapshots) {
         const { job } = snapshot
-        if (snapshot.pauseRequested) pauseRequested.add(job.job_id)
-        else pauseRequested.delete(job.job_id)
-        job.pause_requested = snapshot.pause_requested
-        job.pause_origin = snapshot.pause_origin
-        job.status = snapshot.status
-        job.started_at = snapshot.started_at
-        job.finished_at = snapshot.finished_at
-        job.error = snapshot.error
-        job.output_lines = snapshot.output_lines
+        if (
+          job.status === 'queued'
+          && job.pause_origin === undefined
+          && job.pause_requested !== true
+          && !pauseRequested.has(job.job_id)
+        ) {
+          if (snapshot.pauseRequested) pauseRequested.add(job.job_id)
+          else pauseRequested.delete(job.job_id)
+          job.pause_requested = snapshot.pause_requested
+          job.pause_origin = snapshot.pause_origin
+          job.status = snapshot.status
+          job.started_at = snapshot.started_at
+          job.finished_at = snapshot.finished_at
+          job.error = snapshot.error
+          job.output_lines = snapshot.output_lines
+        }
         result.persistenceFailed.push(job)
       }
       console.warn('[job-queue] failed to persist paused-job release', {
@@ -2241,6 +2252,9 @@ async function transitionPausedJobsToQueuedByProject(
     result.lanes.add(job.type)
   }
   return result
+  } finally {
+    for (const job of candidates) pausedTransitionClaims.delete(job.job_id)
+  }
 }
 
 /** Explicitly rejoin every paused record in a server-owned project/type scope. */
@@ -2249,6 +2263,7 @@ export async function resumePausedJobs(scope: ResumePausedJobsScope): Promise<Re
   const projectSlugs = new Set(scope.projectSlugs)
   const selected = [...jobs.values()].filter(job => (
     job.status === 'paused'
+    && !pausedTransitionClaims.has(job.job_id)
     && projectSlugs.has(job.project_slug)
     && (scope.type === undefined || job.type === scope.type)
   ))

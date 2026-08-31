@@ -64,6 +64,12 @@ function waitForStatus(jobId: string, status: Job['status']): Promise<void> {
   })
 }
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => { resolve = done })
+  return { promise, resolve }
+}
+
 before(async () => {
   const isolated = await useTempDataDir()
   tempDir = isolated.dir
@@ -336,5 +342,157 @@ describe('queue-level scoped paused-job Resume', () => {
     await selectedDone
     assert.deepEqual(executions, [running.job_id, selected.job_id])
     await jq.setQueuePaused(true)
+  })
+})
+
+describe('bulk Resume concurrency ownership', () => {
+  test('overlapping all-project and project scopes transition one row once', async (t) => {
+    await jq.setQueuePaused(false)
+    const firstProject = await pm.createProject({ name: 'Bulk Overlap First' })
+    const overlappingProject = await pm.createProject({ name: 'Bulk Overlap Second' })
+    const firstJob = pausedJob(firstProject.slug, 'audio', 'manual')
+    const overlappingJob = pausedJob(overlappingProject.slug, 'broll_assemble', 'manual')
+    await seedJobs(firstProject.slug, [firstJob])
+    await seedJobs(overlappingProject.slug, [overlappingJob])
+
+    const releaseExecutor = deferred()
+    const executorStarted = deferred()
+    const executions: string[] = []
+    jq.registerExecutor('broll_assemble', async job => {
+      executions.push(job.job_id)
+      if (job.job_id === overlappingJob.job_id && executions.filter(id => id === job.job_id).length === 1) {
+        executorStarted.resolve()
+        await releaseExecutor.promise
+      }
+    })
+
+    const firstPath = path.resolve(path.join(tempDir, 'projects', firstProject.slug, 'jobs.json'))
+    const overlappingPath = path.resolve(path.join(tempDir, 'projects', overlappingProject.slug, 'jobs.json'))
+    const firstWriteStarted = deferred()
+    const releaseFirstWrite = deferred()
+    let blockedFirstWrite = false
+    let overlappingResumeWrites = 0
+    const originalRename = fs.rename.bind(fs)
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      const target = path.resolve(String(to))
+      if (target === firstPath && !blockedFirstWrite) {
+        blockedFirstWrite = true
+        firstWriteStarted.resolve()
+        await releaseFirstWrite.promise
+      }
+      if (target === overlappingPath) {
+        const persisted = JSON.parse(await fs.readFile(String(from), 'utf8')) as { jobs?: Job[] }
+        const row = persisted.jobs?.find(job => job.job_id === overlappingJob.job_id)
+        if (row?.status === 'queued' && row.output_lines.filter(line => line.startsWith('Resume requested')).length) {
+          overlappingResumeWrites += 1
+        }
+      }
+      return originalRename(from, to)
+    })
+
+    const pumps: JobType[] = []
+    const stopObservingPumps = jq._observeQueuePumpsForTesting(type => {
+      if (type === 'broll_assemble') pumps.push(type)
+    })
+    t.after(stopObservingPumps)
+    const queuedUpdates: string[] = []
+    const onUpdate = (job: Job) => {
+      if (job.job_id === overlappingJob.job_id && job.status === 'queued') queuedUpdates.push(job.job_id)
+    }
+    jq.jobEvents.on('update', onUpdate)
+    t.after(() => jq.jobEvents.off('update', onUpdate))
+
+    const allProjectsResume = jq.resumePausedJobs({
+      projectSlugs: [firstProject.slug, overlappingProject.slug],
+    })
+    await firstWriteStarted.promise
+    const overlappingResume = await jq.resumePausedJobs({ projectSlugs: [overlappingProject.slug] })
+    releaseFirstWrite.resolve()
+    const firstResult = await allProjectsResume
+    await executorStarted.promise
+
+    assert.deepEqual(overlappingResume, { requested: 0, resumed: 0, skipped: 0 })
+    assert.deepEqual(firstResult, { requested: 2, resumed: 2, skipped: 0 })
+    assert.equal(overlappingResumeWrites, 1)
+    assert.equal(jq.getJob(overlappingJob.job_id)?.output_lines.filter(line => line.startsWith('Resume requested')).length, 1)
+    assert.deepEqual(queuedUpdates, [overlappingJob.job_id])
+    assert.deepEqual(pumps, ['broll_assemble'])
+
+    const marker = jq.enqueuePreparedForTest({
+      project_slug: overlappingProject.slug,
+      type: 'broll_assemble',
+      episode_id: 'OVERLAP-MARKER',
+      title: 'overlap drain marker',
+      params: {},
+    })
+    const markerDone = waitForStatus(marker.job_id, 'done')
+    releaseExecutor.resolve()
+    await markerDone
+    assert.equal(executions.filter(id => id === overlappingJob.job_id).length, 1)
+    await jq.setQueuePaused(true)
+  })
+
+  async function assertFailedWritePreservesLaterIntent(
+    t: any,
+    intent: 'manual-pause' | 'cancel',
+  ): Promise<void> {
+    await jq.setQueuePaused(true)
+    const project = await pm.createProject({ name: `Bulk Failed Write ${intent}` })
+    const type: JobType = intent === 'manual-pause' ? 'broll_assemble' : 'youtube_playlist_update'
+    jq.registerExecutor(type, async () => {})
+    const selected = pausedJob(project.slug, type, 'stall')
+    await seedJobs(project.slug, [selected])
+    const projectPath = path.resolve(path.join(tempDir, 'projects', project.slug, 'jobs.json'))
+    const writeStarted = deferred()
+    const releaseFailedWrite = deferred()
+    let failedBulkWrite = false
+    const originalRename = fs.rename.bind(fs)
+    t.mock.method(console, 'warn', () => {})
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      if (path.resolve(String(to)) === projectPath && !failedBulkWrite) {
+        failedBulkWrite = true
+        writeStarted.resolve()
+        await releaseFailedWrite.promise
+        throw new Error('forced bulk snapshot failure')
+      }
+      return originalRename(from, to)
+    })
+
+    const bulkResume = jq.resumePausedJobs({ projectSlugs: [project.slug] })
+    await writeStarted.promise
+    const laterIntent = intent === 'manual-pause'
+      ? jq.pauseJob(selected.job_id, 'manual')
+      : jq.requestJobCancellation(project.slug, selected.job_id)
+    for (let turn = 0; turn < 10 && jq.getJob(selected.job_id)?.status === 'queued'; turn += 1) {
+      await Promise.resolve()
+    }
+    assert.equal(jq.getJob(selected.job_id)?.status, intent === 'manual-pause' ? 'paused' : 'cancelled')
+    releaseFailedWrite.resolve()
+    const [result, controlled] = await Promise.all([bulkResume, laterIntent])
+
+    assert.deepEqual(result, {
+      requested: 1,
+      resumed: 0,
+      skipped: 1,
+      skipped_reasons: [{ reason: 'persistence-failed', count: 1 }],
+    })
+    assert.equal(controlled?.status, intent === 'manual-pause' ? 'paused' : 'cancelled')
+    assert.equal(jq.getJob(selected.job_id)?.status, intent === 'manual-pause' ? 'paused' : 'cancelled')
+    if (intent === 'manual-pause') {
+      assert.equal(jq.getJob(selected.job_id)?.pause_origin, 'manual')
+      assert.match(jq.getJob(selected.job_id)?.output_lines.at(-1) || '', /Paused before submission/)
+    }
+    const persisted = JSON.parse(await fs.readFile(projectPath, 'utf8')) as { jobs: Job[] }
+    const durable = persisted.jobs.find(job => job.job_id === selected.job_id)
+    assert.equal(durable?.status, intent === 'manual-pause' ? 'paused' : 'cancelled')
+    if (intent === 'manual-pause') assert.equal(durable?.pause_origin, 'manual')
+  }
+
+  test('failed bulk persistence preserves a later manual pause in memory and on disk', async (t) => {
+    await assertFailedWritePreservesLaterIntent(t, 'manual-pause')
+  })
+
+  test('failed bulk persistence preserves a later cancellation in memory and on disk', async (t) => {
+    await assertFailedWritePreservesLaterIntent(t, 'cancel')
   })
 })
