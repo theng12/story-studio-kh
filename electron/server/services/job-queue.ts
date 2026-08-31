@@ -1762,7 +1762,7 @@ async function failPaidImageWaitResult(job: Job): Promise<void> {
   job.error = 'Paid image replacement wait was revoked or could not be durably scheduled. No automatic retry was attempted.'
   job.output_lines.push(job.error)
   try { await persistJob(job) } catch { /* the in-memory terminal state still blocks retry */ }
-  emitUpdate(job)
+  try { emitUpdate(job) } catch { /* a subscriber cannot re-enter retry */ }
 }
 
 async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
