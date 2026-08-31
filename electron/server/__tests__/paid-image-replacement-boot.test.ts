@@ -279,7 +279,8 @@ describe('durable paid image waits across boot', () => {
     await (await import('../services/app-settings.js')).setPaidImageReplacementSetting({ enabled: true, additional_credit_ceiling: 10 })
     for (const state of ['committed', 'submitted'] as const) {
       const project = await pm.createProject({ name: `paid ${state} repair` })
-      const dir = path.join(tempDir, 'paid-manifests', project.slug)
+      const { resolveContinuityRenderOutputDir } = await import('../generators/continuity-render.js')
+      const dir = await resolveContinuityRenderOutputDir(project.slug, 'EP0001')
       const attempt = paidAttempt(dir, state)
       attempt.replacement_scope = `scope-${state}`
       attempt.quoted_credits = 3

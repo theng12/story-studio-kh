@@ -1841,7 +1841,8 @@ async function resolvePaidImageRepairRoot(job: Job): Promise<string | null> {
     if (!poolId) return null
     const pools = await import('./broll-pool-manager.js')
     const pool = await pools.getPool(poolId)
-    return typeof pool?.folder_path === 'string' ? path.resolve(pool.folder_path) : null
+    return pool && pools.poolMedia(pool) === 'image' && typeof pool.folder_path === 'string'
+      ? path.resolve(pool.folder_path) : null
   }
   const { resolveEpisodePathsByCode } = await import('./utils.js')
   const episode = String(job.params?.episode_id || job.episode_id || '').trim()
@@ -1849,9 +1850,10 @@ async function resolvePaidImageRepairRoot(job: Job): Promise<string | null> {
   const paths = await resolveEpisodePathsByCode(job.project_slug, episode)
   if (job.type === 'thumb_images') return path.resolve(paths.thumb_dir)
   if (job.type !== 'continuity_render') return null
-  if (typeof job.output_dir === 'string' && job.output_dir.trim()) return path.resolve(job.output_dir)
-  const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
-  return path.resolve(await resolveSceneImagesDir(job.project_slug, episode.toUpperCase(), paths.episode_dir))
+  const { resolveContinuityRenderOutputDir } = await import('../generators/continuity-render.js')
+  const canonical = path.resolve(await resolveContinuityRenderOutputDir(job.project_slug, episode, paths.episode_dir))
+  if (typeof job.output_dir === 'string' && path.resolve(job.output_dir) !== canonical) return null
+  return canonical
 }
 
 // ── Lazy load persisted jobs on first access ────────────────────────────────
