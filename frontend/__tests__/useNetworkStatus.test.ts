@@ -1,12 +1,11 @@
 /**
- * Tests for `useNetworkStatus` — the reachability badge + queue-pause driver.
+ * Tests for `useNetworkStatus` — the informational reachability badge.
  *
  * v1.0.190 — reachability is decided by ONE signal: a periodic
  * `GET /api/health` probe of the local backend. `navigator.onLine` is
  * deliberately ignored (it false-negatives on macOS sleep/wake + VPN changes
- * and used to freeze the whole queue). When the probe fails it POSTs
- * `/api/system/queue/pause`; on recovery it resumes (and retries a dropped
- * resume so the queue can't get stuck paused).
+ * and used to freeze the whole queue). Health reporting never mutates queue
+ * state, regardless of probe result.
  *
  * Runs under happy-dom (registered by __tests__/setup.ts). `fetch` is
  * stubbed per test; the composable's module-scoped `started` flag means
@@ -17,6 +16,9 @@
 
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { transform } from 'esbuild'
 
 // ── Controllable fetch stub (happy-dom supplies a real fetch; we override) ──
 
@@ -35,8 +37,33 @@ let fetchCalls: string[] = []
 }
 
 const { useNetworkStatus } = await import('../composables/useNetworkStatus.js')
+const composableSource = readFileSync(
+  fileURLToPath(new URL('../composables/useNetworkStatus.ts', import.meta.url)),
+  'utf8',
+)
 
-function sleep(ms: number) { return new Promise<void>((r) => setTimeout(r, ms)) }
+function sleep(ms: number) { return new Promise<void>(resolve => setTimeout(resolve, ms)) }
+
+async function useClientNetworkStatus(): Promise<ReturnType<typeof useNetworkStatus>> {
+  const vueUrl = await import.meta.resolve('vue')
+  const transformed = await transform(
+    composableSource.replace('import.meta.client', 'true'),
+    { loader: 'ts', format: 'esm' },
+  )
+  const clientModule = await import(`data:text/javascript;base64,${Buffer.from(
+    transformed.code.replaceAll('"vue"', JSON.stringify(vueUrl)),
+  ).toString('base64')}`) as typeof import('../composables/useNetworkStatus.js')
+
+  // The client branch owns a real 20-second interval. Keep this behavioral
+  // test from leaving a process-level timer behind while exercising it.
+  const originalSetInterval = globalThis.setInterval
+  ;(globalThis as any).setInterval = () => 0
+  try {
+    return clientModule.useNetworkStatus()
+  } finally {
+    globalThis.setInterval = originalSetInterval
+  }
+}
 
 beforeEach(() => {
   fetchCalls = []
@@ -44,20 +71,21 @@ beforeEach(() => {
 })
 
 describe('useNetworkStatus', () => {
-  test('initial probe succeeds → online=true + no pause POST', async () => {
-    const { online, refresh } = useNetworkStatus()
+  test('successful probe reports online and never calls queue controls', async () => {
+    const { online, lastChecked, refresh } = useNetworkStatus()
     // The first useNetworkStatus() call kicked off the initial refresh during
     // module init; drive another one explicitly to assert against a known state.
+    const previousCheck = lastChecked.value
     await refresh()
 
     assert.equal(online.value, true, 'successful health probe means online')
+    assert.ok(lastChecked.value >= previousCheck, 'successful probe updates lastChecked')
     assert.ok(fetchCalls.some(u => u === '/api/health'),
       'a probe to /api/health must have fired')
-    assert.ok(!fetchCalls.some(u => u === '/api/system/queue/pause'),
-      'no pause POST when we\'re online')
+    assert.equal(fetchCalls.filter(url => url.includes('/api/system/queue/')).length, 0)
   })
 
-  test('probe failure flips online=false and POSTs queue/pause once', async () => {
+  test('failed probe reports offline and never calls queue controls', async () => {
     const { online, refresh } = useNetworkStatus()
     // Prime to online so we observe a transition.
     handler = () => ({ ok: true })
@@ -72,31 +100,28 @@ describe('useNetworkStatus', () => {
     await refresh()
 
     assert.equal(online.value, false, 'failed probe flips online=false')
-    assert.ok(fetchCalls.some(u => u === '/api/system/queue/pause'),
-      'offline transition must POST /api/system/queue/pause')
+    assert.equal(fetchCalls.filter(url => url.includes('/api/system/queue/')).length, 0)
   })
 
-  test('pause POST does NOT fire again on repeated failed probes', async () => {
+  test('repeated failed probes never call queue controls', async () => {
     const { online, refresh } = useNetworkStatus()
 
-    // Drive an explicit online→offline transition so we know the pause POST
-    // fires exactly once even if previous tests left `lastPausedState` set.
+    // Drive an explicit online→offline transition so we know repeated probes
+    // are still informational even if previous tests left singleton state set.
     handler = () => ({ ok: true, status: 200 })
     await refresh()
     fetchCalls = []
 
     handler = () => ({ ok: false, status: 500 })
-    await refresh() // transition: pause POST fires
-    await refresh() // still offline: NO pause POST (idempotent)
+    await refresh()
+    await refresh()
     await refresh()
 
     assert.equal(online.value, false)
-    const pauseCalls = fetchCalls.filter(u => u === '/api/system/queue/pause').length
-    assert.equal(pauseCalls, 1,
-      'pause must POST exactly once on the online→offline transition, not on every subsequent failure')
+    assert.equal(fetchCalls.filter(url => url.includes('/api/system/queue/')).length, 0)
   })
 
-  test('recovery POSTs queue/resume exactly once', async () => {
+  test('recovery reports online and never calls queue controls', async () => {
     const { online, refresh } = useNetworkStatus()
 
     // Go offline
@@ -111,8 +136,37 @@ describe('useNetworkStatus', () => {
     await refresh() // second refresh must not re-POST resume
 
     assert.equal(online.value, true)
-    const resumeCalls = fetchCalls.filter(u => u === '/api/system/queue/resume').length
-    assert.equal(resumeCalls, 1, 'resume POST must be idempotent')
+    assert.equal(fetchCalls.filter(url => url.includes('/api/system/queue/')).length, 0)
+  })
+
+  test('browser offline event re-probes health and updates status', async () => {
+    const { online, refresh } = await useClientNetworkStatus()
+    await refresh()
+    fetchCalls = []
+    handler = () => ({ ok: false, status: 500 })
+
+    window.dispatchEvent(new Event('offline'))
+    await sleep(0)
+
+    assert.equal(fetchCalls.filter(url => url === '/api/health').length, 1,
+      'offline event triggers a health probe')
+    assert.equal(online.value, false, 'offline event reflects failed health probe')
+  })
+
+  test('browser online event re-probes health and updates status', async () => {
+    const { online, refresh } = await useClientNetworkStatus()
+    handler = () => ({ ok: false, status: 500 })
+    await refresh()
+    assert.equal(online.value, false)
+    fetchCalls = []
+    handler = () => ({ ok: true, status: 200 })
+
+    window.dispatchEvent(new Event('online'))
+    await sleep(0)
+
+    assert.equal(fetchCalls.filter(url => url === '/api/health').length, 1,
+      'online event triggers a health probe')
+    assert.equal(online.value, true, 'online event reflects successful health probe')
   })
 
   test('navigator.onLine=false is IGNORED — the backend probe decides (v1.0.190 fix)', async () => {
@@ -129,10 +183,15 @@ describe('useNetworkStatus', () => {
       await refresh()
       assert.equal(online.value, true,
         'navigator.onLine=false must NOT force offline when the backend is reachable')
-      assert.ok(!fetchCalls.some(u => u === '/api/system/queue/pause'),
-        'a flaky navigator.onLine must not trigger a queue pause')
+      assert.equal(fetchCalls.filter(url => url.includes('/api/system/queue/')).length, 0)
     } finally {
       Object.defineProperty(globalThis.navigator, 'onLine', { value: true, configurable: true })
     }
+  })
+
+  test('composable has no queue mutation state or endpoints', () => {
+    assert.doesNotMatch(composableSource, /\/api\/system\/queue\/pause/)
+    assert.doesNotMatch(composableSource, /\/api\/system\/queue\/resume/)
+    assert.doesNotMatch(composableSource, /queueSyncFailed/)
   })
 })

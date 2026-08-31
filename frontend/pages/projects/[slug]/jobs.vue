@@ -276,6 +276,14 @@
         </button>
       </div>
       <button
+        v-if="showBulkResume"
+        class="btn btn-sm btn-primary resume-paused-btn"
+        :disabled="bulkResumeBusy"
+        @click="resumePausedJobs"
+      >
+        {{ bulkResumeBusy ? `Rejoining ${bulkResumeCount} jobs…` : `Resume paused work (${pausedJobCount})` }}
+      </button>
+      <button
         v-if="repairableFailedJobs.length > 0"
         class="btn btn-sm btn-primary repair-all-btn"
         :disabled="repairingAllFailed"
@@ -363,9 +371,10 @@
             <button
               v-if="job.status === 'paused'"
               class="btn btn-xs btn-primary"
+              :disabled="controlBusy.has(job.job_id)"
               @click="resumeJob(job)"
               title="Verify saved output and accepted work, then continue only missing work."
-            >Resume</button>
+            >{{ controlBusy.has(job.job_id) ? 'Rejoining…' : 'Resume' }}</button>
             <button
               v-else-if="primaryJobControl(job)"
               class="btn btn-xs btn-secondary"
@@ -1715,8 +1724,11 @@ const projectScopedJobs = computed(() => {
   if (!isUniversal.value || projectFilter.value === 'all') return jobs.value
   return jobs.value.filter(job => job.project_slug === projectFilter.value)
 })
-// v1.0.x — status filter (independent of the type tabs). 'all' | running | queued | error | done | cancelled.
-const statusFilter = ref<'all' | 'running' | 'queued' | 'error' | 'done' | 'cancelled'>('all')
+const typeScopedJobs = computed(() => activeFilter.value === 'all'
+  ? projectScopedJobs.value
+  : projectScopedJobs.value.filter(job => job.type === activeFilter.value))
+// v1.0.x — status filter (independent of the type tabs). 'all' | running | queued | paused | error | done | cancelled.
+const statusFilter = ref<'all' | 'running' | 'queued' | 'paused' | 'error' | 'done' | 'cancelled'>('all')
 const failureBatchFilter = ref<string | null>(null)
 const historySection = ref<HTMLElement | null>(null)
 const historyHeading = ref<HTMLElement | null>(null)
@@ -1724,6 +1736,7 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
   { key: 'all', label: 'All' },
   { key: 'running', label: 'Running' },
   { key: 'queued', label: 'Queued' },
+  { key: 'paused', label: 'Paused' },
   { key: 'error', label: 'Needs attention' },
   { key: 'done', label: 'Done' },
   { key: 'cancelled', label: 'Cancelled' },
@@ -1731,8 +1744,8 @@ const STATUS_FILTERS: Array<{ key: typeof statusFilter.value; label: string }> =
 const statusFilters = computed(() => STATUS_FILTERS.map(s => ({
   ...s,
   count: s.key === 'all'
-    ? projectScopedJobs.value.length
-    : projectScopedJobs.value.filter(j => j.status === s.key).length,
+    ? typeScopedJobs.value.length
+    : typeScopedJobs.value.filter(j => j.status === s.key).length,
 })))
 
 // Filter tabs at the top of the Jobs page. Order matches the production
@@ -1820,8 +1833,8 @@ function toggleSort(key: string) {
 // ── Filtered + Sorted + Paginated ───────────────────────────────────────
 
 const filteredJobs = computed(() => {
-  return filterJobsForView(projectScopedJobs.value, {
-    type: activeFilter.value,
+  return filterJobsForView(typeScopedJobs.value, {
+    type: 'all',
     status: statusFilter.value,
     project: 'all',
     batch: failureBatchFilter.value,
@@ -2106,6 +2119,8 @@ function platformFileBrowser(): string {
 // ── Actions ─────────────────────────────────────────────────────────────
 
 const controlBusy = ref(new Set<string>())
+const bulkResumeBusy = ref(false)
+const bulkResumeCount = ref(0)
 
 type JobControl = NonNullable<RJob['control']>
 
@@ -2183,11 +2198,43 @@ async function runJobControl(job: RJob, requestedControl?: JobControl) {
 }
 
 async function resumeJob(job: RJob) {
+  if (controlBusy.value.has(job.job_id)) return
+  controlBusy.value = new Set(controlBusy.value).add(job.job_id)
   try {
     await post(`${jobQueuePath(job)}/resume`, {})
     success('Job resumed. Saved and accepted work will be reclaimed first.')
   } catch (e: any) {
     showError(customerJobText(e?.data?.detail || 'Failed to resume job', job))
+  } finally {
+    const next = new Set(controlBusy.value)
+    next.delete(job.job_id)
+    controlBusy.value = next
+  }
+}
+
+const pausedJobCount = computed(() => typeScopedJobs.value.filter(job => job.status === 'paused').length)
+const showBulkResume = computed(() => pausedJobCount.value > 0
+  && (statusFilter.value === 'all' || statusFilter.value === 'paused'))
+
+async function resumePausedJobs() {
+  if (bulkResumeBusy.value || !showBulkResume.value) return
+  bulkResumeCount.value = pausedJobCount.value
+  bulkResumeBusy.value = true
+  const payload: { project_slug?: string; type?: string } = {}
+  if (activeFilter.value !== 'all') payload.type = activeFilter.value
+  if (isUniversal.value && projectFilter.value !== 'all') {
+    payload.project_slug = projectFilter.value
+  }
+  const endpoint = isUniversal.value
+    ? '/jobs/all/resume-paused'
+    : `/projects/${slug.value}/jobs/resume-paused`
+  try {
+    const result = await post<{ resumed: number; skipped: number }>(endpoint, payload)
+    success(`Resumed ${result.resumed}; ${result.skipped} unchanged.`)
+  } catch (e: any) {
+    showError(e?.data?.detail || 'Failed to resume paused work')
+  } finally {
+    bulkResumeBusy.value = false
   }
 }
 
@@ -3325,6 +3372,7 @@ async function clearFinished() {
 .status-chip.active { background: var(--accent, #6ab0f3); color: #fff; border-color: var(--accent, #6ab0f3); }
 .status-chip.active.sc-error { background: #e06c75; border-color: #e06c75; }
 .status-count { margin-left: 5px; opacity: 0.8; font-variant-numeric: tabular-nums; }
+.resume-paused-btn { white-space: nowrap; }
 .repair-all-btn { white-space: nowrap; }
 /* Deliberately NOT btn-primary. Repair is free and is the one to reach for
    first; Retry spends money. The visual weight should say which is which. */
@@ -3348,6 +3396,10 @@ async function clearFinished() {
   .job-actions { margin-left: auto; }
   .project-filter { width: 100%; }
   .project-filter select { min-width: 0; flex: 1; }
+  .sort-bar { flex-wrap: wrap; min-width: 0; }
+  .sort-label { flex: 1 1 100%; margin-right: 0; }
+  .status-filters { flex: 1 1 100%; min-width: 0; }
+  .status-bar > .btn { flex: 1 1 auto; }
   .job-stat-telemetry {
     flex-basis: 100%;
     width: 100%;

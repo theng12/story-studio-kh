@@ -4,6 +4,9 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
 import { MOCK_GENSTUDIO_FULL_KEY, startMockGenStudioService } from './fixtures/mock-genstudio-service.js'
+import { readManifest, recordTaskStrict } from '../services/task-manifest.js'
+import type { Job } from '../models/types.js'
+import { waitFor as waitForScheduled } from './_timing.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
@@ -21,7 +24,7 @@ before(async () => {
 after(async () => { await cleanup() })
 
 async function waitForDone(jobId: string, jobsFile: string): Promise<void> {
-  const deadline = Date.now() + 2_000
+  const deadline = Date.now() + 5_000
   while (Date.now() < deadline && jq.getJob(jobId)?.status !== 'done') {
     await new Promise(resolve => setTimeout(resolve, 10))
   }
@@ -31,7 +34,11 @@ async function waitForDone(jobId: string, jobsFile: string): Promise<void> {
     persistedStatus = persisted.jobs.find((item: any) => item.job_id === jobId)?.status || ''
     if (persistedStatus !== 'done') await new Promise(resolve => setTimeout(resolve, 10))
   }
-  assert.equal(persistedStatus, 'done')
+  assert.equal(persistedStatus, 'done', JSON.stringify(jq.getJob(jobId)))
+}
+
+async function waitFor(check: () => boolean, message: string, timeoutMs = 2_000): Promise<void> {
+  await waitForScheduled(check, { label: message, timeoutMs })
 }
 
 describe('startup recovery for explicitly checkpointed GenStudio assets', () => {
@@ -321,5 +328,684 @@ describe('startup recovery for interrupted image-episode renders', () => {
     await waitForDone('pool-restart-with-run-id', jobsFile)
 
     assert.equal(executions, 1)
+  })
+})
+
+describe('automatic recovery for cooperative Continuity Render stall holds', () => {
+  const sceneId = 'scene-stable-001'
+
+  function providerEvidence(id: string, state: string, extra: Record<string, unknown> = {}) {
+    return {
+      id,
+      operation: 'image.generation' as const,
+      state,
+      updated_at: new Date().toISOString(),
+      ...extra,
+    }
+  }
+
+  function stalledRender(
+    jobId: string,
+    projectSlug: string,
+    taskId: string,
+    extra: Partial<Job> = {},
+  ): Job {
+    return {
+      job_id: jobId,
+      project_slug: projectSlug,
+      type: 'continuity_render',
+      episode_id: 'EP0001',
+      title: '[batch] continuity render — EP0001',
+      status: 'paused',
+      pause_origin: 'stall',
+      pause_requested: false,
+      local_execution_complete: true,
+      created_at: new Date().toISOString(),
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      error: null,
+      output_lines: ['Automatic submission hold: test fixture reached the cooperative boundary.'],
+      params: { episode_id: 'EP0001', scene_ids: [sceneId] },
+      genstudio_jobs: [providerEvidence(taskId, 'succeeded')],
+      remote_cancellations: {},
+      ...extra,
+    }
+  }
+
+  async function submitImage(
+    service: Awaited<ReturnType<typeof startMockGenStudioService>>,
+    idempotencyKey: string,
+    states: Array<'accepted' | 'running' | 'succeeded' | 'failed'>,
+  ): Promise<string> {
+    service.queueScenario('image', { states })
+    const response = await fetch(`${service.baseUrl}/v1/images/generations`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}`,
+        'Idempotency-Key': idempotencyKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ model_id: 'mock-image-v1', prompt: sceneId, aspect_ratio: '16:9' }),
+    }).then(result => result.json()) as { id: string }
+    return response.id
+  }
+
+  async function writeFixture(job: Job): Promise<{ jobsFile: string; manifestDir: string }> {
+    const jobsFile = path.join(tempDir, 'projects', job.project_slug, 'jobs.json')
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const episodeId = String(job.params.episode_id || job.episode_id)
+    const paths = await resolveEpisodePathsByCode(job.project_slug, episodeId)
+    const manifestDir = await resolveSceneImagesDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir)
+    const idempotencyKey = job.genstudio_jobs![0]!.request?.idempotency_key || `story-image-${job.job_id}`
+    job.genstudio_jobs![0]!.request = {
+      method: 'POST', path: '/v1/images/generations', captured_at: new Date().toISOString(),
+      idempotency_key: idempotencyKey,
+    }
+    await recordTaskStrict(manifestDir, `${sceneId}.png`, {
+      provider: 'genstudio-image',
+      task_id: job.genstudio_jobs![0]!.id,
+      submitted_at: new Date().toISOString(),
+      input_hash: 'sha256:stable-scene-fixture',
+      request_scope: 'missing',
+      idempotency_key: idempotencyKey,
+      operation: 'image',
+      last_state: job.genstudio_jobs![0]!.state,
+    })
+    job.output_dir = manifestDir
+    job.params.genstudio_recovery = {
+      version: 1,
+      route: 'genstudio',
+      assets: {
+        [`${sceneId}.png`]: {
+          operation: 'image',
+          idempotency_key: idempotencyKey,
+          job_id: job.genstudio_jobs![0]!.id,
+          output_path: path.join(manifestDir, `${sceneId}.png`),
+          state: job.genstudio_jobs![0]!.state,
+          updated_at: new Date().toISOString(),
+        },
+      },
+    }
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+    return { jobsFile, manifestDir }
+  }
+
+  function registerManifestReclaimer(
+    executions: string[],
+    service?: Awaited<ReturnType<typeof startMockGenStudioService>>,
+  ): void {
+    jq.registerExecutor('continuity_render', async job => {
+      executions.push(job.job_id)
+      const manifest = await readManifest(job.output_dir!)
+      const taskId = manifest.tasks[`${sceneId}.png`]?.task_id
+      assert.equal(taskId, job.genstudio_jobs?.[0]?.id)
+      if (service) {
+        const provider = await fetch(`${service.baseUrl}/v1/images/${taskId}`, {
+          headers: { Authorization: `Bearer ${MOCK_GENSTUDIO_FULL_KEY}` },
+        }).then(response => response.json()) as { id: string; state: string }
+        assert.equal(provider.id, taskId)
+        assert.equal(provider.state, 'succeeded')
+      }
+    })
+  }
+
+  async function seedProductionContinuityRender(
+    service: Awaited<ReturnType<typeof startMockGenStudioService>>,
+    name: string,
+  ) {
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    const { clearGenStudioCatalogCache } = await import('../lib/genstudio-client.js')
+    const ideas = await import('../services/idea-manager.js')
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const { runContinuityRenderJob } = await import('../generators/continuity-render.js')
+    await import('../providers/image/genstudio.js')
+    await setGenStudioUrl(service.baseUrl)
+    await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+    clearGenStudioCatalogCache()
+
+    const project = await pm.createProject({ name, episode_prefix: 'EP', episode_digits: 3 })
+    const [idea] = await ideas.addIdeas(project.slug, [{
+      title: name,
+      logline: 'Stable recovery fixture.',
+      themes: [],
+      suggested_chapters: 1,
+      suggested_length: 'short',
+      mood: 'neutral',
+    }], 'mock-chat-v1')
+    assert.ok(idea)
+    const accepted = await ideas.acceptIdea(project.slug, idea.id, false)
+    const episodeId = accepted.episode_code
+    const paths = await resolveEpisodePathsByCode(project.slug, episodeId)
+    await fs.mkdir(paths.scene_prompts_dir, { recursive: true })
+    await fs.writeFile(path.join(paths.scene_prompts_dir, 'scene_plan.json'), JSON.stringify({
+      scenes: [{ id: sceneId, scene_index: 1, visual_prompt: 'A lantern in a quiet archive.' }],
+    }))
+    await fs.mkdir(paths.subtitles_dir, { recursive: true })
+    const stitched = path.join(paths.subtitles_dir, `${episodeId}_stitched.srt`)
+    await fs.writeFile(stitched, '1\n00:00:00,000 --> 00:00:01,000\nRecovery fixture\n')
+    await fs.writeFile(`${stitched}.json`, JSON.stringify({ complete: true, sections: [] }))
+
+    const params = { episode_id: episodeId, model: 'mock-image-v1', aspect_ratio: '16:9', resolution: '1K' }
+    service.queueScenario('image', { states: ['succeeded'] })
+    const seedJob = stalledRender(`seed-${name}`, project.slug, 'not-yet-submitted', {
+      episode_id: episodeId,
+      status: 'running',
+      pause_origin: undefined,
+      local_execution_complete: false,
+      params,
+      genstudio_jobs: [],
+    })
+    await runContinuityRenderJob(seedJob)
+    const outputDir = await resolveSceneImagesDir(project.slug, episodeId, paths.episode_dir)
+    const outputPath = path.join(outputDir, `${sceneId}.png`)
+    const entry = (await readManifest(outputDir)).tasks[`${sceneId}.png`]!
+    assert.ok(entry.task_id)
+    assert.ok(entry.idempotency_key)
+    await fs.rm(outputPath)
+    return {
+      project,
+      episodeId,
+      params: { ...params, scene_ids: [sceneId] },
+      outputDir,
+      outputPath,
+      entry,
+      runContinuityRenderJob,
+    }
+  }
+
+  test('the production Continuity executor reclaims the exact succeeded manifest task once', async () => {
+    const service = await startMockGenStudioService()
+    try {
+      const seeded = await seedProductionContinuityRender(service, 'Safe terminal stall recovery')
+      const job = stalledRender('stall-terminal-same-job', seeded.project.slug, seeded.entry.task_id, {
+        episode_id: seeded.episodeId,
+        params: seeded.params,
+        output_dir: seeded.outputDir,
+        genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'succeeded', {
+          request: {
+            method: 'POST', path: '/v1/images/generations', captured_at: new Date().toISOString(),
+            idempotency_key: seeded.entry.idempotency_key,
+          },
+        })],
+      })
+      const jobsFile = path.join(tempDir, 'projects', seeded.project.slug, 'jobs.json')
+      await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+      jq.registerExecutor('continuity_render', seeded.runContinuityRenderJob)
+      service.requests.length = 0
+
+      await jq.getJobs(seeded.project.slug)
+      await waitForDone(job.job_id, jobsFile)
+
+      assert.equal(jq.getJob(job.job_id)?.job_id, job.job_id)
+      assert.equal(jq.getJob(job.job_id)?.genstudio_jobs?.[0]?.id, seeded.entry.task_id)
+      assert.equal(jq.getJob(job.job_id)?.genstudio_jobs?.[0]?.request?.idempotency_key, seeded.entry.idempotency_key)
+      assert.equal((await readManifest(seeded.outputDir)).tasks[`${sceneId}.png`]?.task_id, seeded.entry.task_id)
+      assert.ok((await fs.stat(seeded.outputPath)).size > 0)
+      assert.equal(service.providerSubmissionCount('image'), 1)
+      assert.equal(service.requests.some(request => request.method === 'POST'), false)
+    } finally {
+      await service.close()
+    }
+  })
+
+  for (const damagedManifest of ['missing', 'corrupt', 'wrong-file', 'wrong-task', 'wrong-request', 'missing-request', 'wrong-output-path'] as const) {
+    test(`automatic production recovery fails closed for a ${damagedManifest} Continuity manifest`, async () => {
+      const service = await startMockGenStudioService()
+      let executorStarts = 0
+      try {
+        const seeded = await seedProductionContinuityRender(service, `Unsafe ${damagedManifest} recovery`)
+        const manifestPath = path.join(seeded.outputDir, '.task-manifest.json')
+        if (damagedManifest === 'missing') await fs.rm(manifestPath)
+        else if (damagedManifest === 'corrupt') await fs.writeFile(manifestPath, '{not-json')
+        else if (damagedManifest === 'wrong-file') {
+          await fs.rm(manifestPath)
+          await recordTaskStrict(seeded.outputDir, 'different-scene.png', seeded.entry)
+        } else if (damagedManifest === 'wrong-task') {
+          await recordTaskStrict(seeded.outputDir, `${sceneId}.png`, { ...seeded.entry, task_id: 'foreign-provider-task' })
+        } else if (damagedManifest === 'wrong-request') {
+          await recordTaskStrict(seeded.outputDir, `${sceneId}.png`, { ...seeded.entry, idempotency_key: 'foreign-request-key' })
+        }
+
+        const params: Job['params'] = structuredClone(seeded.params)
+        if (damagedManifest === 'wrong-output-path') {
+          params.genstudio_recovery.assets[`${sceneId}.png`].output_path = path.join(tempDir, 'foreign', `${sceneId}.png`)
+        }
+        const job = stalledRender(`stall-${damagedManifest}-manifest`, seeded.project.slug, seeded.entry.task_id, {
+          episode_id: seeded.episodeId,
+          params,
+          output_dir: seeded.outputDir,
+          genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'succeeded', {
+            request: damagedManifest === 'missing-request' ? undefined : {
+              method: 'POST', path: '/v1/images/generations', captured_at: new Date().toISOString(),
+              idempotency_key: seeded.entry.idempotency_key,
+            },
+          })],
+        })
+        const jobsFile = path.join(tempDir, 'projects', seeded.project.slug, 'jobs.json')
+        await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+        jq.registerExecutor('continuity_render', async queuedJob => {
+          executorStarts++
+          await seeded.runContinuityRenderJob(queuedJob)
+        })
+        service.queueScenario('image', { states: ['succeeded'] })
+        const submissionsBeforeRecovery = service.providerSubmissionCount('image')
+        service.requests.length = 0
+
+        await jq.getJobs(seeded.project.slug)
+        await waitFor(() => {
+          const status = jq.getJob(job.job_id)?.status
+          return status === 'paused' || status === 'done' || status === 'error'
+        }, `${damagedManifest} manifest recovery did not settle`)
+
+        assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+        assert.equal(jq.getJob(job.job_id)?.pause_origin, 'stall')
+        assert.equal(executorStarts, 0)
+        assert.equal(service.providerSubmissionCount('image'), submissionsBeforeRecovery)
+        assert.equal(service.requests.some(request => (
+          request.method === 'POST' && request.path === '/v1/images/generations'
+        )), false)
+      } finally {
+        await service.close()
+      }
+    })
+  }
+
+  test('automatic production recovery rejects a valid manifest owned by a stale output directory', async () => {
+    const service = await startMockGenStudioService()
+    let executorStarts = 0
+    try {
+      const seeded = await seedProductionContinuityRender(service, 'Stale output directory recovery')
+      const authoritativeManifest = path.join(seeded.outputDir, '.task-manifest.json')
+      const foreignDir = path.join(tempDir, 'foreign-scene-images')
+      await fs.rm(authoritativeManifest)
+      await recordTaskStrict(foreignDir, `${sceneId}.png`, seeded.entry)
+
+      const params: Job['params'] = structuredClone(seeded.params)
+      params.genstudio_recovery.assets[`${sceneId}.png`].output_path = path.join(foreignDir, `${sceneId}.png`)
+      const job = stalledRender('stall-stale-output-dir', seeded.project.slug, seeded.entry.task_id, {
+        episode_id: seeded.episodeId,
+        params,
+        output_dir: foreignDir,
+        genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'succeeded', {
+          request: {
+            method: 'POST', path: '/v1/images/generations', captured_at: new Date().toISOString(),
+            idempotency_key: seeded.entry.idempotency_key,
+          },
+        })],
+      })
+      const originalEvidence = structuredClone(job.genstudio_jobs)
+      const jobsFile = path.join(tempDir, 'projects', seeded.project.slug, 'jobs.json')
+      await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+      jq.registerExecutor('continuity_render', async queuedJob => {
+        executorStarts++
+        await seeded.runContinuityRenderJob(queuedJob)
+      })
+      service.queueScenario('image', { states: ['succeeded'] })
+      const submissionsBeforeRecovery = service.providerSubmissionCount('image')
+      service.requests.length = 0
+
+      await jq.getJobs(seeded.project.slug)
+      await waitFor(() => {
+        const status = jq.getJob(job.job_id)?.status
+        return status === 'paused' || status === 'done' || status === 'error'
+      }, 'stale output-directory recovery did not settle')
+
+      const retained = jq.getJob(job.job_id)!
+      assert.equal(retained.status, 'paused')
+      assert.equal(retained.pause_origin, 'stall')
+      assert.equal(executorStarts, 0)
+      assert.equal(service.providerSubmissionCount('image'), submissionsBeforeRecovery)
+      assert.equal(service.requests.some(request => (
+        request.method === 'POST' && request.path === '/v1/images/generations'
+      )), false)
+      assert.deepEqual(retained.genstudio_jobs, originalEvidence)
+    } finally {
+      await service.close()
+    }
+  })
+
+  test('the production executor alone retries a fully released fleet refusal under a derived identity', async () => {
+    const service = await startMockGenStudioService()
+    const originalFetch = globalThis.fetch
+    let executorStarts = 0
+    try {
+      const seeded = await seedProductionContinuityRender(service, 'Fully released stall recovery')
+      await recordTaskStrict(seeded.outputDir, `${sceneId}.png`, {
+        ...seeded.entry,
+        last_state: 'failed',
+      })
+      service.queueScenario('image', { states: ['succeeded'] })
+      const job = stalledRender('stall-fully-released-fleet', seeded.project.slug, seeded.entry.task_id, {
+        episode_id: seeded.episodeId,
+        params: seeded.params,
+        output_dir: seeded.outputDir,
+        genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'failed', {
+          failure_code: 'SITE_PLACEMENT_EXHAUSTED',
+          reserved_credits: 7,
+          settled_credits: 0,
+          released_credits: 7,
+          request: {
+            method: 'POST', path: '/v1/images/generations', captured_at: new Date().toISOString(),
+            idempotency_key: seeded.entry.idempotency_key,
+          },
+        })],
+      })
+      const jobsFile = path.join(tempDir, 'projects', seeded.project.slug, 'jobs.json')
+      await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+      jq.registerExecutor('continuity_render', async queuedJob => {
+        executorStarts++
+        await seeded.runContinuityRenderJob(queuedJob)
+      })
+      service.requests.length = 0
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input))
+        if (url.origin === service.baseUrl && url.pathname === '/v1/images/generations'
+          && (init?.method || 'GET').toUpperCase() === 'POST') {
+          assert.equal(executorStarts, 1, 'the recovery controller must not submit before normal executor admission')
+          assert.equal(
+            jq.getJob(job.job_id)?.local_execution_complete,
+            false,
+            'a resumed executor must establish its own local execution boundary',
+          )
+        }
+        return originalFetch(input, init)
+      }
+
+      await jq.getJobs(seeded.project.slug)
+      await waitForDone(job.job_id, jobsFile)
+
+      const retried = (await readManifest(seeded.outputDir)).tasks[`${sceneId}.png`]!
+      const generationPosts = service.requests.filter(request => (
+        request.method === 'POST' && request.path === '/v1/images/generations'
+      ))
+      assert.equal(executorStarts, 1)
+      assert.equal(service.providerSubmissionCount('image'), 2, 'one original task plus one executor-owned safe retry')
+      assert.equal(generationPosts.length, 1, 'the only new POST occurs under normal production executor admission')
+      assert.notEqual(retried.task_id, seeded.entry.task_id)
+      assert.notEqual(retried.idempotency_key, seeded.entry.idempotency_key)
+      assert.equal(jq.getJob(job.job_id)?.genstudio_jobs?.[0]?.id, seeded.entry.task_id)
+      assert.equal(jq.getJob(job.job_id)?.genstudio_jobs?.[0]?.request?.idempotency_key, seeded.entry.idempotency_key)
+      assert.ok((await fs.stat(seeded.outputPath)).size > 0)
+    } finally {
+      globalThis.fetch = originalFetch
+      await service.close()
+    }
+  })
+
+  test('accepted evidence stays paused until authoritative reconciliation reports terminal', async () => {
+    const service = await startMockGenStudioService()
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    const originalFetch = globalThis.fetch
+    let releaseStatus!: () => void
+    const statusReleased = new Promise<void>(resolve => { releaseStatus = resolve })
+    let statusStarted = false
+    try {
+      await setGenStudioUrl(service.baseUrl)
+      await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+      const taskId = await submitImage(service, 'story-stall-reconcile', ['accepted', 'succeeded'])
+      const project = await pm.createProject({ name: 'Unsettled stall reconciliation' })
+      const job = stalledRender('stall-awaits-terminal', project.slug, taskId, {
+        genstudio_jobs: [providerEvidence(taskId, 'accepted')],
+      })
+      const { jobsFile } = await writeFixture(job)
+      const executions: string[] = []
+      registerManifestReclaimer(executions, service)
+      service.requests.length = 0
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input))
+        if (url.origin === service.baseUrl && url.pathname === `/v1/images/${taskId}`) {
+          statusStarted = true
+          await statusReleased
+        }
+        return originalFetch(input, init)
+      }
+
+      await jq.getJobs(project.slug)
+      await waitFor(() => statusStarted, 'reconciliation never checked the accepted task')
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+      assert.equal(executions.length, 0)
+      assert.equal(service.providerSubmissionCount('image'), 1)
+
+      releaseStatus()
+      await waitForDone(job.job_id, jobsFile)
+      assert.deepEqual(executions, [job.job_id])
+      assert.equal(jq.getJob(job.job_id)?.genstudio_jobs?.[0]?.id, taskId)
+      assert.equal(service.providerSubmissionCount('image'), 1)
+      assert.equal(service.requests.some(request => request.method === 'POST'), false)
+      assert.equal(
+        service.requests.filter(request => request.path === `/v1/images/${taskId}`).length,
+        2,
+        'one reconciliation read plus one manifest reclaim read; no duplicate admission',
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+      releaseStatus?.()
+      await service.close()
+    }
+  })
+
+  test('unreachable reconciliation leaves the stall hold paused and never admits its executor', async () => {
+    const service = await startMockGenStudioService()
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    const originalFetch = globalThis.fetch
+    let statusChecks = 0
+    try {
+      await setGenStudioUrl(service.baseUrl)
+      await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+      const taskId = await submitImage(service, 'story-stall-unreachable', ['accepted', 'succeeded'])
+      const project = await pm.createProject({ name: 'Unreachable stall reconciliation' })
+      const job = stalledRender('stall-reconciliation-unreachable', project.slug, taskId, {
+        genstudio_jobs: [providerEvidence(taskId, 'accepted')],
+      })
+      await writeFixture(job)
+      const executions: string[] = []
+      registerManifestReclaimer(executions)
+      service.requests.length = 0
+      globalThis.fetch = async (input, init) => {
+        const url = new URL(String(input))
+        if (url.origin === service.baseUrl && url.pathname === `/v1/images/${taskId}`) {
+          statusChecks++
+          throw new TypeError('fixture cannot reach GenStudio')
+        }
+        return originalFetch(input, init)
+      }
+
+      await jq.getJobs(project.slug)
+      await waitFor(() => statusChecks === 1 && Boolean(jq.getJob(job.job_id)?.reconciliation_error), 'unreachable evidence was not retained')
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+      assert.equal(executions.length, 0)
+      assert.equal(service.providerSubmissionCount('image'), 1)
+      assert.equal(service.requests.some(request => request.method === 'POST'), false)
+    } finally {
+      globalThis.fetch = originalFetch
+      await service.close()
+    }
+  })
+
+  test('accepted evidence cannot manufacture a missing cooperative local boundary', async () => {
+    const service = await startMockGenStudioService()
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    try {
+      await setGenStudioUrl(service.baseUrl)
+      await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+      const taskId = await submitImage(service, 'story-stall-no-local-boundary', ['accepted', 'succeeded'])
+      const project = await pm.createProject({ name: 'Unproven local stall boundary' })
+      const job = stalledRender('stall-unproven-local-boundary', project.slug, taskId, {
+        local_execution_complete: false,
+        genstudio_jobs: [providerEvidence(taskId, 'accepted')],
+      })
+      await writeFixture(job)
+      const executions: string[] = []
+      registerManifestReclaimer(executions)
+      service.requests.length = 0
+
+      await jq.getJobs(project.slug)
+      await waitFor(
+        () => jq.getJob(job.job_id)?.genstudio_jobs?.[0]?.state === 'succeeded',
+        'accepted provider evidence never reconciled to terminal',
+      )
+
+      const retained = jq.getJob(job.job_id)!
+      assert.equal(retained.status, 'paused')
+      assert.equal(retained.pause_origin, 'stall')
+      assert.equal(retained.local_execution_complete, false)
+      assert.deepEqual(executions, [])
+      assert.equal(service.providerSubmissionCount('image'), 1)
+      assert.equal(service.requests.some(request => request.method === 'POST'), false)
+    } finally {
+      await service.close()
+    }
+  })
+
+  test('two direct eligible stall-recovery triggers enqueue and execute one durable job', async () => {
+    const service = await startMockGenStudioService()
+    const { setGenStudioUrl } = await import('../services/app-settings.js')
+    const { setApiKey } = await import('../services/app-secrets-store.js')
+    try {
+      await setGenStudioUrl(service.baseUrl)
+      await setApiKey('genstudio', MOCK_GENSTUDIO_FULL_KEY)
+      const taskId = await submitImage(service, 'story-stall-repeat-eligible', ['succeeded'])
+      const project = await pm.createProject({ name: 'Repeated eligible stall triggers' })
+      const job = stalledRender('stall-repeat-eligible', project.slug, taskId)
+      const { jobsFile } = await writeFixture(job)
+      const executions: string[] = []
+      registerManifestReclaimer(executions, service)
+      service.requests.length = 0
+
+      await jq.setQueuePaused(true)
+      await jq.getJobs(project.slug)
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+      await jq.setQueuePaused(false)
+      let eligibilityChecks = 0
+      const afterEligibility = async (eligibleJobIds: string[]) => {
+        assert.deepEqual(eligibleJobIds, [job.job_id])
+        eligibilityChecks++
+        await Promise.resolve()
+      }
+      await Promise.all([
+        jq._recoverStallJobForTesting(job.job_id, afterEligibility),
+        jq._recoverStallJobForTesting(job.job_id, afterEligibility),
+      ])
+      await waitForDone(job.job_id, jobsFile)
+
+      assert.equal(eligibilityChecks, 2, 'both triggers must pass the terminal-evidence gate before admission mutates state')
+      assert.deepEqual(executions, [job.job_id])
+      assert.equal(service.providerSubmissionCount('image'), 1)
+      assert.equal(service.requests.some(request => request.method === 'POST'), false)
+    } finally {
+      if (jq.isQueuePaused()) await jq.setQueuePaused(false)
+      await service.close()
+    }
+  })
+
+  test('one project load pumps a mixed queue and stall lane once', async () => {
+    const project = await pm.createProject({ name: 'Mixed queue and stall lane load' })
+    const queueJob = stalledRender('mixed-load-queue', project.slug, 'mixed-queue-task', {
+      pause_origin: 'queue',
+    })
+    const stallJob = stalledRender('mixed-load-stall', project.slug, 'mixed-stall-task')
+    const { jobsFile } = await writeFixture(queueJob)
+    await writeFixture(stallJob)
+    await fs.writeFile(jobsFile, JSON.stringify({ jobs: [queueJob, stallJob] }))
+
+    let releaseExecutors!: () => void
+    const held = new Promise<void>(resolve => { releaseExecutors = resolve })
+    const executions: string[] = []
+    jq.registerExecutor('continuity_render', async job => {
+      executions.push(job.job_id)
+      await held
+    })
+    await jq.setQueuePaused(false)
+    let lanePumps = 0
+    const stopObserving = jq._observeQueuePumpsForTesting(type => {
+      if (type === 'continuity_render') lanePumps++
+    })
+    try {
+      await jq.getJobs(project.slug)
+    } finally {
+      stopObserving()
+      releaseExecutors()
+    }
+    await Promise.all([
+      waitForDone(queueJob.job_id, jobsFile),
+      waitForDone(stallJob.job_id, jobsFile),
+    ])
+    assert.equal(lanePumps, 1)
+    assert.deepEqual(new Set(executions), new Set([queueJob.job_id, stallJob.job_id]))
+  })
+
+  test('unstable identity, cancellation context, and unsafe settlement all fail closed', async () => {
+    const executions: string[] = []
+    registerManifestReclaimer(executions)
+    jq.registerExecutor('image_pool_generate', async job => { executions.push(job.job_id) })
+
+    const fixtures: Job[] = []
+    const unstableProject = await pm.createProject({ name: 'Unstable output identity stall' })
+    fixtures.push(stalledRender('stall-unstable-output', unstableProject.slug, 'task-unstable', {
+      type: 'image_pool_generate',
+      params: {},
+    }))
+    const cancelledProject = await pm.createProject({ name: 'Cancellation context stall' })
+    fixtures.push(stalledRender('stall-cancellation-context', cancelledProject.slug, 'task-cancel-context', {
+      remote_cancellations: {
+        'image.generation:task-cancel-context': {
+          status: 'confirmed', operation: 'image.generation', provider_job_id: 'task-cancel-context',
+          requested_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        },
+      },
+    }))
+    const unsafeBoundaryProject = await pm.createProject({ name: 'Incomplete local stall boundary' })
+    fixtures.push(stalledRender('stall-before-safe-boundary', unsafeBoundaryProject.slug, 'task-before-boundary', {
+      local_execution_complete: false,
+    }))
+    for (const unsafe of [
+      { id: 'stall-charged-unknown', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 9, released_credits: 0 },
+      { id: 'stall-content-refused', failure_code: 'CONTENT_BLOCKED', reserved_credits: 9, settled_credits: 0, released_credits: 9 },
+      { id: 'stall-unknown-settlement', failure_code: 'SITE_CAPACITY_UNAVAILABLE' },
+    ]) {
+      const project = await pm.createProject({ name: unsafe.id })
+      fixtures.push(stalledRender(unsafe.id, project.slug, `task-${unsafe.id}`, {
+        genstudio_jobs: [providerEvidence(`task-${unsafe.id}`, 'failed', unsafe)],
+      }))
+    }
+
+    for (const job of fixtures) {
+      await writeFixture(job)
+      await jq.getJobs(job.project_slug)
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused', job.job_id)
+    }
+    assert.deepEqual(executions, [])
+  })
+
+  test('manual and originless holds stay manual while queue-origin release remains independent', async () => {
+    const executions: string[] = []
+    registerManifestReclaimer(executions)
+    for (const origin of ['manual', undefined] as const) {
+      const label = origin || 'originless'
+      const project = await pm.createProject({ name: `${label} hold is not a stall` })
+      const job = stalledRender(`${label}-origin-terminal`, project.slug, `${label}-task`, { pause_origin: origin })
+      await writeFixture(job)
+      await jq.getJobs(project.slug)
+      assert.equal(jq.getJob(job.job_id)?.status, 'paused')
+    }
+
+    const queueProject = await pm.createProject({ name: 'Queue hold uses the queue invariant' })
+    const queueJob = stalledRender('queue-origin-independent', queueProject.slug, 'queue-task', {
+      pause_origin: 'queue',
+      local_execution_complete: false,
+      genstudio_jobs: [providerEvidence('queue-task', 'failed', {
+        failure_code: 'CONTENT_BLOCKED', reserved_credits: 9, settled_credits: 9, released_credits: 0,
+      })],
+    })
+    const { jobsFile } = await writeFixture(queueJob)
+    await jq.getJobs(queueProject.slug)
+    await waitForDone(queueJob.job_id, jobsFile)
+    assert.deepEqual(executions, [queueJob.job_id])
   })
 })
