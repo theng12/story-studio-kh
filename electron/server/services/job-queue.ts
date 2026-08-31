@@ -2183,7 +2183,15 @@ async function transitionPausedJobsToQueuedByProject(
 
   const durable = new Set<string>()
   for (const [projectSlug, projectJobs] of byProject) {
-    const snapshots: PausedJobTransitionSnapshot[] = projectJobs.map(job => ({
+    const eligibleJobs = projectJobs.filter(job => (
+      pausedTransitionClaims.has(job.job_id)
+      && jobs.get(job.job_id) === job
+      && job.status === 'paused'
+      && job.pause_requested !== true
+      && !pauseRequested.has(job.job_id)
+      && !cancelled.has(job.job_id)
+    ))
+    const snapshots: PausedJobTransitionSnapshot[] = eligibleJobs.map(job => ({
       job,
       pauseRequested: pauseRequested.has(job.job_id),
       pause_requested: job.pause_requested,

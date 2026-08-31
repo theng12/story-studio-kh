@@ -432,6 +432,78 @@ describe('bulk Resume concurrency ownership', () => {
     await jq.setQueuePaused(true)
   })
 
+  test('a later-project cancellation wins before that project reaches the Resume mutation boundary', async (t) => {
+    await jq.setQueuePaused(true)
+    const firstProject = await pm.createProject({ name: 'Bulk Cancel Boundary First' })
+    const cancelledProject = await pm.createProject({ name: 'Bulk Cancel Boundary Second' })
+    const firstJob = pausedJob(firstProject.slug, 'audio', 'manual')
+    const cancelledJob = pausedJob(cancelledProject.slug, 'broll_assemble', 'manual')
+    await seedJobs(firstProject.slug, [firstJob])
+    await seedJobs(cancelledProject.slug, [cancelledJob])
+
+    const executions: string[] = []
+    jq.registerExecutor('broll_assemble', async job => { executions.push(job.job_id) })
+    const firstPath = path.resolve(path.join(tempDir, 'projects', firstProject.slug, 'jobs.json'))
+    const cancelledPath = path.resolve(path.join(tempDir, 'projects', cancelledProject.slug, 'jobs.json'))
+    const firstWriteStarted = deferred()
+    const releaseFirstWrite = deferred()
+    let blockedFirstWrite = false
+    let cancelledResumeWrites = 0
+    const originalRename = fs.rename.bind(fs)
+    t.mock.method(fs, 'rename', async (from: any, to: any) => {
+      const target = path.resolve(String(to))
+      if (target === firstPath && !blockedFirstWrite) {
+        blockedFirstWrite = true
+        firstWriteStarted.resolve()
+        await releaseFirstWrite.promise
+      }
+      if (target === cancelledPath) {
+        const persisted = JSON.parse(await fs.readFile(String(from), 'utf8')) as { jobs?: Job[] }
+        const row = persisted.jobs?.find(job => job.job_id === cancelledJob.job_id)
+        if (row?.status === 'queued' && row.output_lines.some(line => line.startsWith('Resume requested'))) {
+          cancelledResumeWrites += 1
+        }
+      }
+      return originalRename(from, to)
+    })
+
+    const pumps: JobType[] = []
+    const stopObservingPumps = jq._observeQueuePumpsForTesting(type => {
+      if (type === 'broll_assemble') pumps.push(type)
+    })
+    t.after(stopObservingPumps)
+    const queuedUpdates: string[] = []
+    const onUpdate = (job: Job) => {
+      if (job.job_id === cancelledJob.job_id && job.status === 'queued') queuedUpdates.push(job.job_id)
+    }
+    jq.jobEvents.on('update', onUpdate)
+    t.after(() => jq.jobEvents.off('update', onUpdate))
+
+    const bulkResume = jq.resumePausedJobs({
+      projectSlugs: [firstProject.slug, cancelledProject.slug],
+    })
+    await firstWriteStarted.promise
+    const cancellation = await jq.requestJobCancellation(cancelledProject.slug, cancelledJob.job_id)
+    assert.equal(cancellation.status, 'cancelled')
+    const cancelledBeforeRelease = JSON.parse(await fs.readFile(cancelledPath, 'utf8')) as { jobs: Job[] }
+    assert.equal(cancelledBeforeRelease.jobs.find(job => job.job_id === cancelledJob.job_id)?.status, 'cancelled')
+
+    releaseFirstWrite.resolve()
+    const result = await bulkResume
+
+    assert.deepEqual(result, { requested: 2, resumed: 1, skipped: 1 })
+    assert.equal(jq.getJob(firstJob.job_id)?.status, 'queued')
+    assert.equal(jq.getJob(cancelledJob.job_id)?.status, 'cancelled')
+    const persisted = JSON.parse(await fs.readFile(cancelledPath, 'utf8')) as { jobs: Job[] }
+    const durable = persisted.jobs.find(job => job.job_id === cancelledJob.job_id)
+    assert.equal(durable?.status, 'cancelled')
+    assert.equal(durable?.output_lines.filter(line => line.startsWith('Resume requested')).length, 0)
+    assert.equal(cancelledResumeWrites, 0)
+    assert.deepEqual(queuedUpdates, [])
+    assert.deepEqual(pumps, [])
+    assert.deepEqual(executions, [])
+  })
+
   async function assertFailedWritePreservesLaterIntent(
     t: any,
     intent: 'manual-pause' | 'cancel',
