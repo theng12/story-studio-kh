@@ -39,7 +39,7 @@ import {
   type ContentPackProjectPinOptions,
 } from '../content-packs/project-pins.js'
 import { runWithJobContentPackProvenance } from '../content-packs/job-provenance-context.js'
-import { readManifest, recordPaidImageReplacementStrict } from './task-manifest.js'
+import { readManifest, recordPaidImageReplacementStrict, type TaskManifestEntry } from './task-manifest.js'
 import { isDecodableImage } from '../lib/image-validation.js'
 import { refreshGenStudioAdmission } from '../lib/genstudio-client.js'
 import type { GenStudioAdmissionSnapshot } from '../lib/genstudio-admission.js'
@@ -1508,6 +1508,63 @@ export async function mutateAuthoritativeJob(
     await writeJsonAtomic(p, data)
     return structuredClone(next)
   })
+}
+
+/** Persist one provider-side transition of the already committed paid attempt. */
+export async function checkpointPaidImageReplacementAttempt(
+  job: Job,
+  assetKey: string,
+  update: Pick<PaidImageReplacementAttempt, 'state'>
+    & Partial<Pick<PaidImageReplacementAttempt, 'replacement_task_id' | 'actual_settled_credits' | 'reason'>>,
+): Promise<PaidImageReplacementAttempt> {
+  const durable = await mutateAuthoritativeJob(job.project_slug, job.job_id, (authoritative) => {
+    const attempts = authoritative.paid_image_replacement_attempts || []
+    const matches = attempts.filter(attempt => attempt.asset_key === assetKey)
+    if (matches.length !== 1) return null
+    const current = matches[0]!
+    const allowed = current.state === 'committed'
+      ? new Set(['submitted', 'succeeded', 'failed', 'blocked'])
+      : current.state === 'submitted'
+        ? new Set(['succeeded', 'failed', 'blocked'])
+        : new Set<string>()
+    if (!allowed.has(update.state)) return null
+    if (update.state === 'submitted' && !update.replacement_task_id?.trim()) return null
+    const next = { ...current, ...update }
+    authoritative.paid_image_replacement_attempts = attempts.map(attempt => attempt === current ? next : attempt)
+    return authoritative
+  })
+  if (!durable) throw new Error(`Paid image replacement attempt ${assetKey} could not transition to ${update.state}.`)
+  Object.assign(job, durable)
+  emitUpdate(job)
+  return job.paid_image_replacement_attempts!.find(attempt => attempt.asset_key === assetKey)!
+}
+
+/** Re-admit only a jobs-first commitment whose strict manifest mirror agrees. */
+export function getPaidImageReplacementSubmitPermission(
+  job: Job,
+  assetKey: string,
+  manifestDir: string,
+  manifestKey: string,
+  entry: TaskManifestEntry,
+): PaidImageReplacementAttempt | null {
+  const matches = (job.paid_image_replacement_attempts || []).filter(attempt => attempt.asset_key === assetKey)
+  if (matches.length !== 1) return null
+  const attempt = matches[0]!
+  if ((attempt.state !== 'committed' && attempt.state !== 'submitted')
+    || attempt.manifest_dir !== manifestDir || attempt.manifest_key !== manifestKey
+    || !attempt.replacement_scope || attempt.replacement_scope !== entry.replacement_scope
+    || attempt.original_task_id !== entry.task_id
+    || attempt.original_idempotency_key !== entry.idempotency_key
+    || attempt.input_hash !== entry.input_hash
+    || attempt.output_path !== entry.original_output_path
+    || entry.replacement_of_task_id !== attempt.original_task_id
+    || entry.replacement_quoted_credits !== attempt.quoted_credits
+    || entry.replacement_price_version !== attempt.price_version
+    || entry.replacement_committed_at !== attempt.replacement_committed_at
+    || JSON.stringify(entry.original_output_selector) !== JSON.stringify(attempt.output_selector)
+    || JSON.stringify(entry.original_reference_inputs) !== JSON.stringify(attempt.reference_inputs)
+    || entry.original_reference_identity_hash !== attempt.reference_identity_hash) return null
+  return attempt
 }
 
 /**
