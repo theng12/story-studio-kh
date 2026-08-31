@@ -346,7 +346,7 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
     })
   }
 
-  await suite.test('uses only the existing zero-settlement retry and persists immutable positive-settlement clocks', async () => {
+  await suite.test('safe zero settlement with no attempt writes neither the authoritative job nor manifest', async () => {
     const zero = await decision({ dependencies: {
       readControl: async () => ({ id: 'original-task', state: 'failed', failure_code: 'SITE_PLACEMENT_EXHAUSTED', reserved_credits: 9, settled_credits: 0, released_credits: 9 }),
       artifactExists: async () => false, getSetting: async () => ({ enabled: true, additional_credit_ceiling: 8 }),
@@ -354,6 +354,11 @@ void test('paid image replacement terminal and settlement gate is fail-closed be
       refreshAdmission: async () => ({ capacity_verified: true, limitSource: 'account-overview', available_paid_slots: 2, queue_near_capacity: false, submissions_blocked: false, retry_after_ms: 0, credit_balance: 10, paid_concurrency_limit: 2, paid_active_jobs: 0, paid_queued_jobs: 0, max_queued_jobs: 10, generation_submissions_per_minute: 5 }),
     } })
     assert.equal(zero.result.action, 'safe-zero-settlement-retry')
+    assert.equal(zero.writes.filter(write => write === 'job').length, 0)
+    assert.equal(zero.writes.filter(write => write === 'manifest').length, 0)
+  })
+
+  await suite.test('persists immutable positive-settlement clocks', async () => {
     const first = await decision()
     assert.equal(first.result.action, 'wait')
     const attempt = first.current.paid_image_replacement_attempts![0]!

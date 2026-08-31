@@ -473,20 +473,20 @@ export async function decidePaidImageReplacement(input: PaidImageReplacementDeci
     if (control.released_credits !== control.reserved_credits) return blocked('the zero settlement was not fully released')
     let zeroReason: string | null = null
     try {
-      const authoritative = await withCommitLock(input.job.job_id, () => mutateAuthoritativeJob(
-        persistence, input.job.project_slug, input.job.job_id, (job) => {
-          if (validPolicy(job) === null) { zeroReason = 'the authoritative job has no valid paid image replacement policy'; return null }
-          const matches = (job.paid_image_replacement_attempts || []).filter(candidate => candidate.asset_key === asset.assetKey)
-          if (matches.length > 1) { zeroReason = 'the authoritative job has multiple replacement attempts for this asset'; return null }
-          if (matches[0]) {
-            zeroReason = sameAttemptFacts(matches[0], asset, entry!) && validWaitClock(matches[0]) && sameTerminalFacts(matches[0], control)
-              ? 'the asset already has a paid replacement attempt'
-              : 'the terminal failure or settlement changed during the paid wait'
-            return null
-          }
-          return job
-        },
-      ))
+      const authoritative = await withCommitLock(input.job.job_id, async () => {
+        const job = await persistence.loadAuthoritativeJob(input.job.project_slug, input.job.job_id)
+        if (!job) return null
+        if (validPolicy(job) === null) { zeroReason = 'the authoritative job has no valid paid image replacement policy'; return null }
+        const matches = (job.paid_image_replacement_attempts || []).filter(candidate => candidate.asset_key === asset.assetKey)
+        if (matches.length > 1) { zeroReason = 'the authoritative job has multiple replacement attempts for this asset'; return null }
+        if (matches[0]) {
+          zeroReason = sameAttemptFacts(matches[0], asset, entry!) && validWaitClock(matches[0]) && sameTerminalFacts(matches[0], control)
+            ? 'the asset already has a paid replacement attempt'
+            : 'the terminal failure or settlement changed during the paid wait'
+          return null
+        }
+        return job
+      })
       if (!authoritative) return blocked(zeroReason || 'the authoritative job is unavailable')
     } catch (error: any) {
       return blocked(error?.message || 'the zero settlement retry could not be verified')
