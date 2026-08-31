@@ -216,7 +216,12 @@ export async function getPaidImageReplacementSetting(): Promise<PaidImageReplace
 /** Validate before writing so rejected requests cannot replace the last valid setting. */
 export async function setPaidImageReplacementSetting(value: unknown): Promise<PaidImageReplacementSetting> {
   const setting = parsePaidImageReplacementSetting(value, 'throw')
-  await setAppSetting(PAID_IMAGE_REPLACEMENT_KEY, setting)
+  // Queue due-timers share this gate so an Off write cannot race a timer that
+  // already passed its non-paying validation and requeue paid work afterward.
+  const queue = await import('./job-queue.js')
+  await queue.withPaidImageWaitSettingMutation(async () => {
+    await setAppSetting(PAID_IMAGE_REPLACEMENT_KEY, setting)
+  })
   return setting
 }
 

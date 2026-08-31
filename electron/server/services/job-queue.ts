@@ -22,7 +22,7 @@ import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType,
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
-import { getAppSetting, getPaidImageReplacementSetting, setAppSetting } from './app-settings.js'
+import { getAppSetting, getPaidImageReplacementSetting, onAppSettingWritten, setAppSetting } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
@@ -1537,6 +1537,33 @@ const defaultPaidImageWaitRuntime: PaidImageWaitRuntime = {
 let paidImageWaitRuntime = defaultPaidImageWaitRuntime
 const paidImageWaitTimers = new Map<string, PaidImageWaitTimer>()
 const paidImageWaitRequeues = new Map<string, Promise<void>>()
+let paidImageWaitSettingGate: Promise<void> = Promise.resolve()
+
+async function withPaidImageWaitSettingGate<T>(work: () => Promise<T>): Promise<T> {
+  const previous = paidImageWaitSettingGate
+  let release!: () => void
+  const current = new Promise<void>(resolve => { release = resolve })
+  paidImageWaitSettingGate = previous.then(() => current)
+  await previous
+  try { return await work() } finally { release() }
+}
+
+/** App-settings uses this before writing Off so due work cannot cross it. */
+export async function withPaidImageWaitSettingMutation<T>(work: () => Promise<T>): Promise<T> {
+  return withPaidImageWaitSettingGate(work)
+}
+
+async function withPaidImageWaitJobMutex<T>(jobId: string, work: () => Promise<T>): Promise<T> {
+  const previous = paidImageWaitRequeues.get(jobId) || Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>(resolve => { release = resolve })
+  paidImageWaitRequeues.set(jobId, current)
+  await previous
+  try { return await work() } finally {
+    release()
+    if (paidImageWaitRequeues.get(jobId) === current) paidImageWaitRequeues.delete(jobId)
+  }
+}
 
 /** Deterministic clock/timer seam for restart and lifecycle tests. */
 export function _setPaidImageWaitRuntimeForTesting(
@@ -1552,11 +1579,21 @@ export function _setPaidImageWaitRuntimeForTesting(
 }
 
 function clearPaidImageWaitTimer(jobId: string): void {
+  if (!paidImageWaitTimers.has(jobId)) return
   const timer = paidImageWaitTimers.get(jobId)
-  if (!timer) return
   paidImageWaitRuntime.clearTimer(timer)
   paidImageWaitTimers.delete(jobId)
 }
+
+function clearAllPaidImageWaitTimers(): void {
+  for (const jobId of [...paidImageWaitTimers.keys()]) clearPaidImageWaitTimer(jobId)
+}
+
+onAppSettingWritten(key => {
+  if (key === 'paid_image_replacement') void getPaidImageReplacementSetting().then(setting => {
+    if (!setting.enabled) clearAllPaidImageWaitTimers()
+  })
+})
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
@@ -1578,13 +1615,13 @@ function sameJson(left: unknown, right: unknown): boolean {
 export function getValidPaidImageWait(job: Job): { attempt: PaidImageReplacementAttempt; dueAtMs: number } | null {
   if (
     job.status !== 'running' || job.finished_at !== null || !PAID_IMAGE_WAIT_TYPES.has(job.type)
-    || !queues[job.type]?.executor || job.pause_requested === true || pauseRequested.has(job.job_id)
-    || cancelled.has(job.job_id) || hasCancellationContext(job) || Boolean(job.force_abandoned)
+    || job.pause_requested === true || hasCancellationContext(job) || Boolean(job.force_abandoned)
   ) return null
   const policy = job.paid_image_replacement
   if (
     policy?.enabled !== true || policy.wait_minutes !== 30 || policy.max_replacements_per_asset !== 1
     || !Number.isSafeInteger(policy.additional_credit_ceiling) || (policy.additional_credit_ceiling || 0) <= 0
+    || !isNonEmptyString(policy.snapshotted_at) || !Number.isFinite(Date.parse(policy.snapshotted_at))
   ) return null
   const attempts = job.paid_image_replacement_attempts || []
   const waiting = attempts.filter(attempt => attempt.state === 'waiting')
@@ -1596,8 +1633,10 @@ export function getValidPaidImageWait(job: Job): { attempt: PaidImageReplacement
     || !isNonEmptyString(attempt.manifest_key) || !isNonEmptyString(attempt.output_path)
     || !isNonEmptyString(attempt.original_task_id) || !isNonEmptyString(attempt.original_idempotency_key)
     || !isSha256(attempt.input_hash) || !isSha256(attempt.reference_identity_hash)
-    || !isNonEmptyString(attempt.failure_code) || attempt.replacement_scope !== undefined
+    || !FLEET_BUSY_FAILURE_CODES.has(attempt.failure_code) || attempt.replacement_scope !== undefined
     || attempt.replacement_task_id !== undefined || attempt.replacement_committed_at !== undefined
+    || attempt.quoted_credits !== undefined || attempt.price_version !== undefined
+    || attempt.actual_settled_credits !== undefined || attempt.reason !== undefined
   ) return null
   const selector = attempt.output_selector
   if (
@@ -1611,7 +1650,7 @@ export function getValidPaidImageWait(job: Job): { attempt: PaidImageReplacement
   ) return null
   if (![attempt.reserved_credits, attempt.settled_credits, attempt.released_credits].every(value => (
     typeof value === 'number' && Number.isFinite(value) && value >= 0
-  )) || attempt.reserved_credits !== attempt.settled_credits + attempt.released_credits) return null
+  )) || attempt.reserved_credits !== attempt.settled_credits + attempt.released_credits || attempt.settled_credits <= 0) return null
   const observedAtMs = Date.parse(attempt.terminal_observed_at)
   const dueAtMs = Date.parse(attempt.eligible_at)
   if (!Number.isFinite(observedAtMs) || !Number.isFinite(dueAtMs) || dueAtMs !== observedAtMs + PAID_IMAGE_WAIT_MS) return null
@@ -1647,23 +1686,21 @@ function pendingContains(type: JobType, jobId: string): boolean {
   return queues[type].pending.some(job => job.job_id === jobId)
 }
 
+function hasPaidImageWaitRuntimePermission(job: Job): boolean {
+  return Boolean(queues[job.type]?.executor)
+    && !pauseRequested.has(job.job_id)
+    && !cancelled.has(job.job_id)
+}
+
 async function requeuePaidImageWaitIfDue(job: Job): Promise<boolean> {
-  const previous = paidImageWaitRequeues.get(job.job_id) || Promise.resolve()
-  let release!: () => void
-  const current = new Promise<void>(resolve => { release = resolve })
-  paidImageWaitRequeues.set(job.job_id, current)
-  await previous
-  try {
-    return await requeuePaidImageWaitIfDueNow(job)
-  } finally {
-    release()
-    if (paidImageWaitRequeues.get(job.job_id) === current) paidImageWaitRequeues.delete(job.job_id)
-  }
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => requeuePaidImageWaitIfDueNow(job)))
 }
 
 async function requeuePaidImageWaitIfDueNow(job: Job): Promise<boolean> {
-  const valid = getValidPaidImageWait(job)
-  if (!valid || !await hasBoundPaidImageWaitManifest(job, valid.attempt)) {
+  const authoritative = await loadAuthoritativeJob(job.project_slug, job.job_id).catch(() => null)
+  if (!authoritative) return false
+  const valid = getValidPaidImageWait(authoritative)
+  if (!valid || !hasPaidImageWaitRuntimePermission(authoritative) || !await hasBoundPaidImageWaitManifest(authoritative, valid.attempt)) {
     clearPaidImageWaitTimer(job.job_id)
     return false
   }
@@ -1674,8 +1711,8 @@ async function requeuePaidImageWaitIfDueNow(job: Job): Promise<boolean> {
     return false
   }
   clearPaidImageWaitTimer(job.job_id)
-  if (pendingContains(job.type, job.job_id)) return true
-  const next = structuredClone(job)
+  if (pendingContains(authoritative.type, authoritative.job_id)) return true
+  const next = structuredClone(authoritative)
   next.status = 'queued'
   next.finished_at = null
   next.error = null
@@ -1685,29 +1722,32 @@ async function requeuePaidImageWaitIfDueNow(job: Job): Promise<boolean> {
     return false
   }
   Object.assign(job, next)
-  jobs.set(job.job_id, job)
-  queues[job.type].pending.push(job)
+  jobs.set(next.job_id, job)
+  queues[next.type].pending.push(job)
   emitUpdate(job)
-  if (IMAGE_EPISODE_TYPES.has(job.type)) pumpImageEpisodeGroup(imageEpisodeConcurrency)
-  else pump(job.type)
+  if (IMAGE_EPISODE_TYPES.has(next.type)) pumpImageEpisodeGroup(imageEpisodeConcurrency)
+  else pump(next.type)
   return true
 }
 
 async function schedulePaidImageWait(job: Job): Promise<boolean> {
-  const valid = getValidPaidImageWait(job)
-  if (!valid || !await hasBoundPaidImageWaitManifest(job, valid.attempt)) {
+  return withPaidImageWaitSettingGate(async () => {
+    const setting = await getPaidImageReplacementSetting().catch(() => null)
+    const valid = getValidPaidImageWait(job)
+    if (!setting?.enabled || !valid || !hasPaidImageWaitRuntimePermission(job) || !await hasBoundPaidImageWaitManifest(job, valid.attempt)) {
+      clearPaidImageWaitTimer(job.job_id)
+      return false
+    }
+    if (paidImageWaitRuntime.nowMs() >= valid.dueAtMs) return withPaidImageWaitJobMutex(job.job_id, () => requeuePaidImageWaitIfDueNow(job))
     clearPaidImageWaitTimer(job.job_id)
-    return false
-  }
-  if (paidImageWaitRuntime.nowMs() >= valid.dueAtMs) return requeuePaidImageWaitIfDue(job)
-  clearPaidImageWaitTimer(job.job_id)
-  const timer = paidImageWaitRuntime.setTimer(() => {
-    paidImageWaitTimers.delete(job.job_id)
-    const current = jobs.get(job.job_id)
-    if (current) void requeuePaidImageWaitIfDue(current)
-  }, valid.dueAtMs - paidImageWaitRuntime.nowMs())
-  paidImageWaitTimers.set(job.job_id, timer)
-  return true
+    const timer = paidImageWaitRuntime.setTimer(() => {
+      paidImageWaitTimers.delete(job.job_id)
+      const current = jobs.get(job.job_id)
+      if (current) void requeuePaidImageWaitIfDue(current)
+    }, valid.dueAtMs - paidImageWaitRuntime.nowMs())
+    paidImageWaitTimers.set(job.job_id, timer)
+    return true
+  })
 }
 
 async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
@@ -1725,6 +1765,14 @@ async function repairAndRequeuePaidImageCommit(job: Job): Promise<boolean> {
     || !isNonEmptyString(attempt.price_version) || !isNonEmptyString(attempt.replacement_committed_at)
     || !Number.isFinite(Date.parse(attempt.replacement_committed_at))
     || (attempt.state === 'submitted' && !isNonEmptyString(attempt.replacement_task_id))
+  ) return false
+  const expectedOutput = job.type === 'continuity_render' && typeof job.output_dir === 'string'
+    ? path.resolve(job.output_dir, attempt.manifest_key)
+    : path.resolve(attempt.manifest_dir, attempt.manifest_key)
+  if (
+    path.basename(attempt.manifest_key) !== attempt.manifest_key
+    || path.resolve(attempt.manifest_dir) !== path.dirname(expectedOutput)
+    || path.resolve(attempt.output_path) !== expectedOutput
   ) return false
   try {
     const entry = (await readManifest(attempt.manifest_dir)).tasks[attempt.manifest_key]
@@ -2311,9 +2359,10 @@ async function runJob(type: JobType, job: Job): Promise<void> {
             jobs.set(job.job_id, job)
             await persistJob(job)
             emitUpdate(job)
-            if (!await schedulePaidImageWait(job)) {
-              throw new Error('Paid image wait is not durably valid')
-            }
+            // A malformed/revoked wait is fail-closed but is not an executor
+            // failure: never enter local retry, completion, or chaining after
+            // a generator has declared the durable paid-wait boundary.
+            await schedulePaidImageWait(job)
             return
           }
           job.local_execution_complete = true
@@ -3064,6 +3113,10 @@ export async function resumePausedJobs(scope: ResumePausedJobsScope): Promise<Re
 /** Pause one job without cancelling provider work. Queued work is removed
  * before submit; running work observes the request at its next safe boundary. */
 export async function pauseJob(jobId: string, origin: 'manual' | 'queue' | 'stall' = 'manual'): Promise<Job | null> {
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(jobId, () => pauseJobUnlocked(jobId, origin)))
+}
+
+async function pauseJobUnlocked(jobId: string, origin: 'manual' | 'queue' | 'stall' = 'manual'): Promise<Job | null> {
   const job = jobs.get(jobId)
   if (!job) return null
   clearPaidImageWaitTimer(jobId)
@@ -3787,6 +3840,10 @@ function cancellationControlFor(job: Job): JobControl {
 }
 
 async function cancelQueuedBeforeSubmit(job: Job): Promise<Job> {
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => cancelQueuedBeforeSubmitUnlocked(job)))
+}
+
+async function cancelQueuedBeforeSubmitUnlocked(job: Job): Promise<Job> {
   clearPaidImageWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   pauseRequested.delete(job.job_id)
@@ -3805,6 +3862,10 @@ async function cancelQueuedBeforeSubmit(job: Job): Promise<Job> {
 }
 
 async function stopLocalJob(job: Job): Promise<Job> {
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => stopLocalJobUnlocked(job)))
+}
+
+async function stopLocalJobUnlocked(job: Job): Promise<Job> {
   clearPaidImageWaitTimer(job.job_id)
   cancelled.add(job.job_id)
   job.status = 'cancelled'
@@ -3821,6 +3882,13 @@ function remoteCancellationKey(target: NonNullable<JobControl['targets']>[number
 }
 
 async function queueRemoteCancellationTargets(
+  job: Job,
+  targets: NonNullable<JobControl['targets']>,
+): Promise<Job> {
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => queueRemoteCancellationTargetsUnlocked(job, targets)))
+}
+
+async function queueRemoteCancellationTargetsUnlocked(
   job: Job,
   targets: NonNullable<JobControl['targets']>,
 ): Promise<Job> {
@@ -3954,6 +4022,10 @@ export async function forceAbandonJob(projectSlug: string, jobId: string): Promi
     throw Object.assign(new Error('Job not found'), { status: 404, expose: true })
   }
   if (job.force_abandoned) return serializeJob(job)
+  return withPaidImageWaitSettingGate(() => withPaidImageWaitJobMutex(job.job_id, () => forceAbandonJobUnlocked(job)))
+}
+
+async function forceAbandonJobUnlocked(job: Job): Promise<Job> {
 
   const unsettled = [
     ...(job.genstudio_jobs || [])

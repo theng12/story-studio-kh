@@ -5,11 +5,13 @@ import path from 'node:path'
 import { useTempDataDir } from './_helpers.js'
 import type { Job, PaidImageReplacementAttempt } from '../models/types.js'
 import { recordTaskStrict } from '../services/task-manifest.js'
+import { waitFor as waitForScheduled } from './_timing.js'
 
 let tempDir: string
 let cleanup: () => Promise<void>
 let pm: typeof import('../services/project-manager.js')
 let jq: typeof import('../services/job-queue.js')
+let fixtureId = 0
 
 const NOW = Date.parse('2026-08-31T12:00:00.000Z')
 const DUE = NOW + 30 * 60 * 1_000
@@ -48,7 +50,7 @@ function paidAttempt(dir: string, state: PaidImageReplacementAttempt['state'] = 
 
 function paidJob(projectSlug: string, attempt: PaidImageReplacementAttempt): Job {
   return {
-    job_id: `paid-wait-${Math.random().toString(36).slice(2)}`,
+    job_id: `paid-wait-${++fixtureId}`,
     project_slug: projectSlug,
     type: 'continuity_render',
     episode_id: 'EP0001',
@@ -97,6 +99,25 @@ async function seedOriginalManifest(attempt: PaidImageReplacementAttempt): Promi
 }
 
 describe('durable paid image waits across boot', () => {
+  test('pure predicate rejects malformed snapshot, terminal, and replacement evidence', () => {
+    jq.registerExecutor('continuity_render', async () => {})
+    const attempt = paidAttempt(path.join(tempDir, 'predicate'))
+    const valid = paidJob('predicate-project', attempt)
+    assert.ok(jq.getValidPaidImageWait(valid))
+    const cases: Array<[string, (job: Job) => void]> = [
+      ['invalid snapshot timestamp', job => { job.paid_image_replacement!.snapshotted_at = 'not-an-iso-time' }],
+      ['unrecognized terminal failure', job => { job.paid_image_replacement_attempts![0].failure_code = 'AUTH_FAILED' }],
+      ['zero settled wait', job => { job.paid_image_replacement_attempts![0].settled_credits = 0; job.paid_image_replacement_attempts![0].released_credits = 4 }],
+      ['quoted commitment remnant', job => { job.paid_image_replacement_attempts![0].quoted_credits = 1 }],
+      ['actual settlement remnant', job => { job.paid_image_replacement_attempts![0].actual_settled_credits = 1 }],
+    ]
+    for (const [label, mutate] of cases) {
+      const malformed = structuredClone(valid)
+      mutate(malformed)
+      assert.equal(jq.getValidPaidImageWait(malformed), null, label)
+    }
+  })
+
   test('keeps a valid before-due wait running without consuming an image lane', async () => {
     const project = await pm.createProject({ name: 'paid wait before due' })
     const dir = path.join(tempDir, 'paid-manifests', project.slug)
@@ -140,16 +161,16 @@ describe('durable paid image waits across boot', () => {
     const restore = jq._setPaidImageWaitRuntimeForTesting({ nowMs: () => DUE, setTimer: () => { throw new Error('due wait must not schedule a timer') }, clearTimer: () => {} })
     try {
       let executions = 0
-      const blocked = new Promise<void>(() => {})
       let started!: () => void
       const startedPromise = new Promise<void>(resolve => { started = resolve })
-      jq.registerExecutor('continuity_render', async () => { executions++; started(); await blocked })
+      jq.registerExecutor('continuity_render', async () => { executions++; started() })
       await jq.resumeInterruptedJobsAtBoot()
       await startedPromise
       const queued = jq.getJob(job.job_id)!
       assert.equal(queued.status, 'running', 'normal pump may admit the same queued recovery record')
       assert.equal(queued.started_at, job.started_at)
       assert.equal(executions, 1)
+      await waitForScheduled(() => jq.getJob(job.job_id)?.status === 'done', { label: 'due paid-wait executor completion' })
     } finally { restore() }
   })
 
