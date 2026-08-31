@@ -144,3 +144,105 @@ The final worktree audit before the report checkpoint showed an empty
 `git status --short`. The process audit found no surviving backend-test,
 `tsx --test`, typecheck, or executor process whose command referenced this
 worktree. Unrelated processes in other named worktrees were left untouched.
+
+## Authoritative output-directory re-review correction
+
+Implementation commit `ff3ea1f99639204d142caaa1f27575954843ca6e`
+(`fix: bind stall recovery to authoritative output`) resolves the remaining P1
+in `task-6-safety-re-review.md`.
+
+### RED evidence
+
+After aligning the older synthetic stall fixtures with the production output
+contract, the production-executor RED was:
+
+```text
+node scripts/testing/run-backend-tests.mjs --only job-queue-genstudio-resume
+23 passed, 2 failed of 25; 1/1 selected file completed
+configured projects root byte-identical: true
+```
+
+Both intended failures were `done !== paused`:
+
+- a stale `job.output_dir` held a valid foreign manifest, matching checkpoint,
+  provider task, idempotency key, and foreign `output_path`, while the actual
+  episode scene-image directory had no manifest;
+- an otherwise authoritative record carried a checkpoint `output_path` bound
+  to a foreign file.
+
+Before the fix, the actual production Continuity executor started and reclaimed
+the foreign identity in both cases. The first isolated RED was **23 passed,
+1 failed of 24** for the stale-directory case; the two-case run above is the
+final clean RED matrix.
+
+### GREEN and exact provider evidence
+
+Final focused GREEN:
+
+```text
+node scripts/testing/run-backend-tests.mjs \
+  --only job-queue-genstudio-resume --only job-cancellation-reconciliation
+51 passed, 0 failed; 3 suites; 2/2 selected files completed
+configured projects root byte-identical: true
+```
+
+The stale-directory record retains its exact original durable job ID and
+provider evidence, remains `paused/stall`, starts zero executors, retains the
+one original provider submission, and makes zero recovery image-generation
+POSTs. A checkpoint bound to a foreign output file has the same fail-closed
+result. The previous healthy-manifest reclaim still starts the actual
+Continuity executor once with one total provider submission and zero new POSTs;
+the fully released fleet refusal still makes exactly one executor-owned retry
+POST, for two total submissions including the original failed task.
+
+Required adjacent GREEN:
+
+```text
+node scripts/testing/run-backend-tests.mjs \
+  --only job-queue.test --only job-queue-persistence-retention \
+  --only jobs-resume-paused-routes --only jobs-route-order
+67 passed, 0 failed; 19 suites; 4/4 selected files completed
+configured projects root byte-identical: true
+
+npm run typecheck:electron
+exit 0
+
+npx eslint electron/server/services/job-queue.ts \
+  electron/server/generators/continuity-render.ts \
+  electron/server/__tests__/job-queue-genstudio-resume.test.ts \
+  electron/server/__tests__/job-cancellation-reconciliation.test.ts \
+  electron/server/__tests__/job-queue.test.ts \
+  electron/server/__tests__/job-queue-persistence-retention.test.ts \
+  electron/server/__tests__/jobs-resume-paused-routes.test.ts --quiet
+exit 0
+
+git diff --check
+exit 0
+```
+
+All backend runs remain focused partial runs, not the release gate.
+
+### Minimal correction and final status
+
+- Continuity Render now exports and itself uses one output-directory resolver
+  built on the existing episode-path and media-aware scene-image resolvers.
+  The stall gate dynamically reuses that same helper, avoiding a static import
+  cycle with the generator's queue dependency.
+- Admission derives the authoritative directory from the executor-owned
+  `params.episode_id`, fails closed on resolution error, and requires persisted
+  `job.output_dir` to resolve exactly to it before reading any manifest.
+- Each missing target is checked at its authoritative expected file path. When
+  the existing checkpoint `output_path` field is present, it must resolve to
+  that exact file. New Continuity accepted/failure checkpoints now record that
+  existing field; older records still require the authoritative directory,
+  filename, manifest, checkpoint task/key, and provider request identity.
+- No schema, migration, compatibility layer, provider/controller call,
+  replacement job, dependency, timer, UI, version, or changelog change was
+  introduced.
+
+Diff self-review found no High/Critical issue. No implementation concern
+remains; independent final re-review and the full release gate remain with the
+primary task owner. After the separate report checkpoint,
+`git status --porcelain=v1` was empty, the range diff check remained clean, and
+the process audit found no surviving test, typecheck, or executor process whose
+command referenced this worktree.
