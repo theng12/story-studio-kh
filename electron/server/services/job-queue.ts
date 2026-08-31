@@ -18,11 +18,11 @@ import { projectsRoot, getProjectDir } from './project-manager.js'
 import { trackGeneration } from './session-tracker.js'
 import { writeJsonAtomic, withLock } from '../lib/atomic-store.js'
 import { assertWriteIsolatedInTests } from '../lib/test-isolation.js'
-import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType } from '../models/types.js'
+import type { Job, JobRemoteCancellation, JobRemoteOperation, JobStats, JobType, PaidImageReplacementPolicySnapshot } from '../models/types.js'
 import { assertJobDidNotDeclareIncomplete } from './job-completion.js'
 import { jobStreamSignature } from './job-stream-signature.js'
 import { isLocalTextModel, resolveJobAutoRetryPolicy } from './job-retry-policy.js'
-import { getAppSetting, setAppSetting } from './app-settings.js'
+import { getAppSetting, getPaidImageReplacementSetting, setAppSetting } from './app-settings.js'
 import { classifyJobControl, classifyJobControls } from './job-control.js'
 import { getJobCancellationAuditor, hasJobCancellationAuditor } from './job-cancellation-auditors.js'
 import { reconcilePendingJobCancellation } from './job-cancellation-reconciler.js'
@@ -2934,6 +2934,8 @@ export interface EnqueueOptions {
   episode_id: string
   title?: string
   params?: Record<string, any>
+  /** Set only by async production enqueue after reading the machine setting. */
+  paid_image_replacement?: PaidImageReplacementPolicySnapshot
   /** Server-only replacement scope for a terminal GenStudio chat retry. */
   genstudio_chat_retry_scope?: string
   /** Server-only exact replay marker for unresolved GenStudio chat evidence. */
@@ -2993,6 +2995,7 @@ function enqueuePrepared(
     output_lines: [],
     ...(contentPackProvenance.length ? { content_pack_provenance: contentPackProvenance } : {}),
     params: opts.params || {},
+    ...(opts.paid_image_replacement ? { paid_image_replacement: opts.paid_image_replacement } : {}),
     ...(opts.genstudio_chat_retry_scope ? { genstudio_chat_retry_scope: opts.genstudio_chat_retry_scope } : {}),
     ...(opts.genstudio_chat_recovery ? { genstudio_chat_recovery: true as const } : {}),
     ...(opts.genstudio_chat_recovery_key ? { genstudio_chat_recovery_key: opts.genstudio_chat_recovery_key } : {}),
@@ -3045,7 +3048,19 @@ export async function enqueue(
     opts.type,
     contentPackOptions,
   )
-  return enqueuePrepared(opts, provenance)
+  const paid_image_replacement = (
+    opts.type === 'continuity_render'
+    || opts.type === 'image_pool_generate'
+    || opts.type === 'thumb_images'
+  )
+    ? await getPaidImageReplacementSetting().then(setting => ({
+      ...setting,
+      wait_minutes: 30 as const,
+      max_replacements_per_asset: 1 as const,
+      snapshotted_at: new Date().toISOString(),
+    }))
+    : undefined
+  return enqueuePrepared({ ...opts, ...(paid_image_replacement ? { paid_image_replacement } : {}) }, provenance)
 }
 
 export async function getJobs(projectSlug: string): Promise<Job[]> {

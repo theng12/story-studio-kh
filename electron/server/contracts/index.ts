@@ -660,6 +660,14 @@ export interface JobEnqueuedResponse {
     next_retry_at?: string
     exhausted?: boolean
   }
+  /** Server-owned optional paid image recovery authorisation. */
+  paid_image_replacement?: {
+    enabled: boolean
+    wait_minutes: 30
+    max_replacements_per_asset: 1
+    additional_credit_ceiling: number | null
+    snapshotted_at: string
+  }
   /** Structured terminal outcome for audit-style jobs such as image repair. */
   result?: Record<string, any>
   params: Record<string, any>

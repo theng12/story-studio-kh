@@ -2459,6 +2459,15 @@ export interface JobItemProgress {
   active: JobItemAttempt[]
 }
 
+/** Machine setting frozen at eligible image enqueue; never accepted in params. */
+export interface PaidImageReplacementPolicySnapshot {
+  enabled: boolean
+  wait_minutes: 30
+  max_replacements_per_asset: 1
+  additional_credit_ceiling: number | null
+  snapshotted_at: string
+}
+
 export interface Job {
   job_id: string
   project_slug: string
@@ -2493,6 +2502,8 @@ export interface Job {
     next_retry_at?: string
     exhausted?: boolean
   }
+  /** Server-owned optional paid image recovery authorisation. */
+  paid_image_replacement?: PaidImageReplacementPolicySnapshot
   /** Structured executor outcome. `complete: false` is a queue-enforced
    * failure declaration and can never be persisted as a green Done job. */
   result?: Record<string, any>

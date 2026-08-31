@@ -74,6 +74,57 @@ function appSettingsPath(): string {
 
 type AppSettings = Record<string, any>
 
+export interface PaidImageReplacementSetting {
+  enabled: boolean
+  additional_credit_ceiling: number | null
+}
+
+export const PAID_IMAGE_REPLACEMENT_KEY = 'paid_image_replacement'
+
+const PAID_IMAGE_REPLACEMENT_DEFAULT: PaidImageReplacementSetting = {
+  enabled: false,
+  additional_credit_ceiling: null,
+}
+
+function invalidPaidImageReplacementSetting(): never {
+  throw Object.assign(
+    new Error('Paid image replacement requires exactly enabled and additional_credit_ceiling; when enabled, the ceiling must be a positive safe whole number.'),
+    { statusCode: 400, expose: true },
+  )
+}
+
+function parsePaidImageReplacementSetting(value: unknown, invalid: 'default' | 'throw'): PaidImageReplacementSetting {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    if (invalid === 'throw') return invalidPaidImageReplacementSetting()
+    return { ...PAID_IMAGE_REPLACEMENT_DEFAULT }
+  }
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record)
+  if (keys.length !== 2
+    || !keys.includes('enabled')
+    || !keys.includes('additional_credit_ceiling')
+    || typeof record.enabled !== 'boolean') {
+    if (invalid === 'throw') return invalidPaidImageReplacementSetting()
+    return { ...PAID_IMAGE_REPLACEMENT_DEFAULT }
+  }
+  const ceiling = record.additional_credit_ceiling
+  const validCeiling = typeof ceiling === 'number'
+    && Number.isSafeInteger(ceiling)
+    && ceiling > 0
+  if (ceiling !== null && !validCeiling) {
+    if (invalid === 'throw') return invalidPaidImageReplacementSetting()
+    return { ...PAID_IMAGE_REPLACEMENT_DEFAULT }
+  }
+  if (record.enabled && !validCeiling) {
+    if (invalid === 'throw') return invalidPaidImageReplacementSetting()
+    return { ...PAID_IMAGE_REPLACEMENT_DEFAULT }
+  }
+  return {
+    enabled: record.enabled,
+    additional_credit_ceiling: ceiling as number | null,
+  }
+}
+
 // Legacy installs wrote this file with default 0644. On the first read after
 // upgrade, tighten perms to 0600 so the ffmpeg_path value isn't world-
 // readable. Best-effort: no-op on Windows, ignored on failure — the next
@@ -146,6 +197,24 @@ export async function setAppSetting(key: string, value: any): Promise<void> {
     await writeSettings(settings)
   })
   announceWrite(key)
+}
+
+/**
+ * The optional paid image recovery authorisation belongs to this install, not
+ * to a channel or preset. Corrupt hand-edited storage fails closed.
+ */
+export async function getPaidImageReplacementSetting(): Promise<PaidImageReplacementSetting> {
+  return parsePaidImageReplacementSetting(
+    await getAppSetting(PAID_IMAGE_REPLACEMENT_KEY),
+    'default',
+  )
+}
+
+/** Validate before writing so rejected requests cannot replace the last valid setting. */
+export async function setPaidImageReplacementSetting(value: unknown): Promise<PaidImageReplacementSetting> {
+  const setting = parsePaidImageReplacementSetting(value, 'throw')
+  await setAppSetting(PAID_IMAGE_REPLACEMENT_KEY, setting)
+  return setting
 }
 
 // ── Voice presets + favourites (global, not per-project) ──────────────────
