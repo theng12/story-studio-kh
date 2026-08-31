@@ -1729,6 +1729,7 @@ function releaseSlot(type: JobType, job: Job): void {
   if (group === LLM_GROUP || group === LOCAL_LLM_GROUP || group === SUBTITLE_TRANSCRIBE_GROUP || FLEET_EPISODE_GROUPS.has(group)) {
     if (group === IMAGE_EPISODE_GROUP) activeImageEpisodeJobIds.delete(job.job_id)
     groupActive[group] = Math.max(0, (groupActive[group] || 0) - 1)
+    if (group === IMAGE_EPISODE_GROUP) queuePumpObserverForTesting?.(type)
     pumpGroup(group)
     if (group === IMAGE_EPISODE_GROUP) noteAdaptiveImageTailEvent()
   } else {

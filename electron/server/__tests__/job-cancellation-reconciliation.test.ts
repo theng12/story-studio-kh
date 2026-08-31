@@ -860,10 +860,8 @@ test('the generic finalizer keeps a fully released Continuity provider failure c
   await jq.setQueuePaused(false)
 
   let lanePumps = 0
-  let releaseObserved!: () => void
-  const released = new Promise<void>(resolve => { releaseObserved = resolve })
   const stopObserving = jq._observeQueuePumpsForTesting(type => {
-    if (type === 'continuity_render' && ++lanePumps === 2) releaseObserved()
+    if (type === 'continuity_render') lanePumps++
   })
   let queued!: Job
   try {
@@ -874,7 +872,7 @@ test('the generic finalizer keeps a fully released Continuity provider failure c
       title: 'Generic finalizer regression',
       params: {},
     })
-    await released
+    await waitFor(() => lanePumps >= 2, 1_000)
   } finally {
     stopObserving()
   }
