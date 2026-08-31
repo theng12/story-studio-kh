@@ -224,6 +224,16 @@ export function continuityFleetBusyRetryPlan(e: unknown, attemptNum: number): Co
   return { waitMs, reason: 'High demand right now', maxAttempts: FLEET_BUSY_RETRY_DELAYS_MS.length + 1 }
 }
 
+/** The exact scene-image directory used by Continuity execution and recovery admission. */
+export async function resolveContinuityRenderOutputDir(
+  projectSlug: string,
+  episodeId: string,
+  episodeDir?: string,
+): Promise<string> {
+  const resolvedEpisodeDir = episodeDir || (await resolveEpisodePathsByCode(projectSlug, episodeId)).episode_dir
+  return resolveSceneImagesDir(projectSlug, episodeId.toUpperCase(), resolvedEpisodeDir)
+}
+
 export async function runContinuityRenderJob(job: Job): Promise<void> {
   const params = job.params as ContinuityRenderParams
   const { episode_id, model } = params
@@ -405,7 +415,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
 
   // v1.0.457 — unified scene-image location (named "NN Scene Images" folder),
   // shared with the Scene Generator + media-root-aware.
-  const outDir = await resolveSceneImagesDir(job.project_slug, episode_id.toUpperCase(), paths.episode_dir)
+  const outDir = await resolveContinuityRenderOutputDir(job.project_slug, episode_id, paths.episode_dir)
   await fs.mkdir(outDir, { recursive: true })
 
   // Resume only from images that fully decode. A non-empty but truncated file
@@ -778,6 +788,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                       operation: 'image',
                       idempotency_key: idempotencyKey,
                       job_id: taskId,
+                      output_path: outPath,
                       state: 'accepted',
                     })
                   },
@@ -836,6 +847,7 @@ export async function runContinuityRenderJob(job: Job): Promise<void> {
                   operation: 'image',
                   idempotency_key: acceptedIdempotencyKey || `story-image-${scene.id}`,
                   job_id: failedTaskId,
+                  output_path: outPath,
                   state: 'failed',
                 })
                 if (e.cancelled) cancelledSceneIds.add(scene.id)

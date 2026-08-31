@@ -2123,16 +2123,33 @@ function hasSafeTerminalStallEvidence(job: Job): boolean {
 }
 
 async function hasDurableContinuityStallManifestOwnership(job: Job): Promise<boolean> {
-  if (!job.output_dir || !Array.isArray(job.params?.scene_ids) || !job.params.scene_ids.length) return false
+  const episodeId = job.params?.episode_id
+  if (
+    typeof job.output_dir !== 'string'
+    || typeof episodeId !== 'string'
+    || !episodeId
+    || !Array.isArray(job.params?.scene_ids)
+    || !job.params.scene_ids.length
+  ) return false
   const sceneIds = [...new Set(job.params.scene_ids)]
   if (!sceneIds.every(sceneId => typeof sceneId === 'string' && sceneId && path.basename(sceneId) === sceneId)) return false
 
   const checkpoint = job.params.genstudio_recovery
   if (checkpoint?.version !== 1 || checkpoint.route !== 'genstudio' || !checkpoint.assets) return false
-  const manifest = await readManifest(job.output_dir)
+  let outputDir: string
+  try {
+    const { resolveContinuityRenderOutputDir } = await import('../generators/continuity-render.js')
+    outputDir = await resolveContinuityRenderOutputDir(job.project_slug, episodeId)
+  } catch {
+    return false
+  }
+  if (path.resolve(job.output_dir) !== path.resolve(outputDir)) return false
+
+  const manifest = await readManifest(outputDir)
   for (const sceneId of sceneIds) {
     const filename = `${sceneId}.png`
-    if (await isDecodableImage(path.join(job.output_dir, filename))) continue
+    const outputPath = path.join(outputDir, filename)
+    if (await isDecodableImage(outputPath)) continue
     const manifestEntry = manifest.tasks[filename]
     const checkpointEntry = checkpoint.assets[filename]
     if (
@@ -2142,6 +2159,10 @@ async function hasDurableContinuityStallManifestOwnership(job: Job): Promise<boo
       || checkpointEntry?.operation !== 'image'
       || checkpointEntry.job_id !== manifestEntry.task_id
       || checkpointEntry.idempotency_key !== manifestEntry.idempotency_key
+      || (checkpointEntry.output_path !== undefined && (
+        typeof checkpointEntry.output_path !== 'string'
+        || path.resolve(checkpointEntry.output_path) !== path.resolve(outputPath)
+      ))
     ) return false
     const matchingEvidence = (job.genstudio_jobs || []).filter(entry => (
       entry.operation === 'image.generation' && entry.id === manifestEntry.task_id

@@ -358,8 +358,8 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       job_id: jobId,
       project_slug: projectSlug,
       type: 'continuity_render',
-      episode_id: 'EP-STABLE',
-      title: '[batch] continuity render — EP-STABLE',
+      episode_id: 'EP0001',
+      title: '[batch] continuity render — EP0001',
       status: 'paused',
       pause_origin: 'stall',
       pause_requested: false,
@@ -369,7 +369,7 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       finished_at: null,
       error: null,
       output_lines: ['Automatic submission hold: test fixture reached the cooperative boundary.'],
-      params: { scene_ids: [sceneId] },
+      params: { episode_id: 'EP0001', scene_ids: [sceneId] },
       genstudio_jobs: [providerEvidence(taskId, 'succeeded')],
       remote_cancellations: {},
       ...extra,
@@ -396,7 +396,11 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
 
   async function writeFixture(job: Job): Promise<{ jobsFile: string; manifestDir: string }> {
     const jobsFile = path.join(tempDir, 'projects', job.project_slug, 'jobs.json')
-    const manifestDir = path.join(tempDir, 'stall-manifests', job.job_id)
+    const { resolveEpisodePathsByCode } = await import('../services/utils.js')
+    const { resolveSceneImagesDir } = await import('../generators/scene-image.js')
+    const episodeId = String(job.params.episode_id || job.episode_id)
+    const paths = await resolveEpisodePathsByCode(job.project_slug, episodeId)
+    const manifestDir = await resolveSceneImagesDir(job.project_slug, episodeId.toUpperCase(), paths.episode_dir)
     const idempotencyKey = job.genstudio_jobs![0]!.request?.idempotency_key || `story-image-${job.job_id}`
     job.genstudio_jobs![0]!.request = {
       method: 'POST', path: '/v1/images/generations', captured_at: new Date().toISOString(),
@@ -421,6 +425,7 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
           operation: 'image',
           idempotency_key: idempotencyKey,
           job_id: job.genstudio_jobs![0]!.id,
+          output_path: path.join(manifestDir, `${sceneId}.png`),
           state: job.genstudio_jobs![0]!.state,
           updated_at: new Date().toISOString(),
         },
@@ -550,7 +555,7 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
     }
   })
 
-  for (const damagedManifest of ['missing', 'corrupt', 'wrong-file', 'wrong-task', 'wrong-request', 'missing-request'] as const) {
+  for (const damagedManifest of ['missing', 'corrupt', 'wrong-file', 'wrong-task', 'wrong-request', 'missing-request', 'wrong-output-path'] as const) {
     test(`automatic production recovery fails closed for a ${damagedManifest} Continuity manifest`, async () => {
       const service = await startMockGenStudioService()
       let executorStarts = 0
@@ -568,9 +573,13 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
           await recordTaskStrict(seeded.outputDir, `${sceneId}.png`, { ...seeded.entry, idempotency_key: 'foreign-request-key' })
         }
 
+        const params: Job['params'] = structuredClone(seeded.params)
+        if (damagedManifest === 'wrong-output-path') {
+          params.genstudio_recovery.assets[`${sceneId}.png`].output_path = path.join(tempDir, 'foreign', `${sceneId}.png`)
+        }
         const job = stalledRender(`stall-${damagedManifest}-manifest`, seeded.project.slug, seeded.entry.task_id, {
           episode_id: seeded.episodeId,
-          params: seeded.params,
+          params,
           output_dir: seeded.outputDir,
           genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'succeeded', {
             request: damagedManifest === 'missing-request' ? undefined : {
@@ -607,6 +616,60 @@ describe('automatic recovery for cooperative Continuity Render stall holds', () 
       }
     })
   }
+
+  test('automatic production recovery rejects a valid manifest owned by a stale output directory', async () => {
+    const service = await startMockGenStudioService()
+    let executorStarts = 0
+    try {
+      const seeded = await seedProductionContinuityRender(service, 'Stale output directory recovery')
+      const authoritativeManifest = path.join(seeded.outputDir, '.task-manifest.json')
+      const foreignDir = path.join(tempDir, 'foreign-scene-images')
+      await fs.rm(authoritativeManifest)
+      await recordTaskStrict(foreignDir, `${sceneId}.png`, seeded.entry)
+
+      const params: Job['params'] = structuredClone(seeded.params)
+      params.genstudio_recovery.assets[`${sceneId}.png`].output_path = path.join(foreignDir, `${sceneId}.png`)
+      const job = stalledRender('stall-stale-output-dir', seeded.project.slug, seeded.entry.task_id, {
+        episode_id: seeded.episodeId,
+        params,
+        output_dir: foreignDir,
+        genstudio_jobs: [providerEvidence(seeded.entry.task_id, 'succeeded', {
+          request: {
+            method: 'POST', path: '/v1/images/generations', captured_at: new Date().toISOString(),
+            idempotency_key: seeded.entry.idempotency_key,
+          },
+        })],
+      })
+      const originalEvidence = structuredClone(job.genstudio_jobs)
+      const jobsFile = path.join(tempDir, 'projects', seeded.project.slug, 'jobs.json')
+      await fs.writeFile(jobsFile, JSON.stringify({ jobs: [job] }))
+      jq.registerExecutor('continuity_render', async queuedJob => {
+        executorStarts++
+        await seeded.runContinuityRenderJob(queuedJob)
+      })
+      service.queueScenario('image', { states: ['succeeded'] })
+      const submissionsBeforeRecovery = service.providerSubmissionCount('image')
+      service.requests.length = 0
+
+      await jq.getJobs(seeded.project.slug)
+      await waitFor(() => {
+        const status = jq.getJob(job.job_id)?.status
+        return status === 'paused' || status === 'done' || status === 'error'
+      }, 'stale output-directory recovery did not settle')
+
+      const retained = jq.getJob(job.job_id)!
+      assert.equal(retained.status, 'paused')
+      assert.equal(retained.pause_origin, 'stall')
+      assert.equal(executorStarts, 0)
+      assert.equal(service.providerSubmissionCount('image'), submissionsBeforeRecovery)
+      assert.equal(service.requests.some(request => (
+        request.method === 'POST' && request.path === '/v1/images/generations'
+      )), false)
+      assert.deepEqual(retained.genstudio_jobs, originalEvidence)
+    } finally {
+      await service.close()
+    }
+  })
 
   test('the production executor alone retries a fully released fleet refusal under a derived identity', async () => {
     const service = await startMockGenStudioService()
